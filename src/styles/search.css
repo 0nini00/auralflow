@@ -1,0 +1,306 @@
+/* Search View */
+.af-search-view {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.af-search-hero {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 32px;
+  align-items: center;
+}
+
+.af-search-input {
+  flex: 1;
+  padding: 16px 24px;
+  background: var(--af-bg-surface);
+  border: 2px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-xl);
+  color: var(--af-text-primary);
+  font-size: var(--af-font-size-lg);
+  transition: all var(--af-transition-base);
+  outline: none;
+}
+
+.af-search-input:hover {
+  border-color: var(--af-border-primary);
+}
+
+.af-search-input:focus {
+  border-color: var(--af-accent-primary);
+  background: var(--af-bg-elevated);
+  box-shadow: 0 0 0 4px rgba(var(--af-accent-primary-rgb), 0.1);
+}
+
+.af-search-input::placeholder {
+  color: var(--af-text-tertiary);
+}
+
+.af-search-submit {
+  padding: 16px 32px;
+  background: var(--af-accent-gradient);
+  border: none;
+  border-radius: var(--af-radius-xl);
+  color: var(--af-accent-text);
+  font-size: var(--af-font-size-base);
+  font-weight: var(--af-font-weight-semibold);
+  cursor: pointer;
+  transition: all var(--af-transition-base);
+  box-shadow: 0 4px 12px rgba(var(--af-accent-primary-rgb), 0.25);
+  white-space: nowrap;
+}
+
+.af-search-submit:hover {
+  background: var(--af-accent-gradient-hover);
+  box-shadow: 0 6px 16px rgba(var(--af-accent-primary-rgb), 0.35);
+  transform: translateY(-1px);
+}
+
+.af-search-submit:active {
+  transform: translateY(0);
+}
+
+.af-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+.af-search-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  border-bottom: 2px solid var(--af-border-secondary);
+}
+
+.af-search-tabs button {
+  padding: 12px 24px;
+  background: transparent;
+  border: none;
+  color: var(--af-text-secondary);
+  font-size: var(--af-font-size-base);
+  font-weight: var(--af-font-weight-medium);
+  cursor: pointer;
+  transition: all var(--af-transition-base);
+  position: relative;
+  border-radius: var(--af-radius-md) var(--af-radius-md) 0 0;
+}
+
+.af-search-tabs button:hover {
+  color: var(--af-text-primary);
+  background: var(--af-bg-surface);
+}
+
+.af-search-tabs button.af-tab-active {
+  color: var(--af-accent-primary);
+  font-weight: var(--af-font-weight-semibold);
+}
+
+.af-search-tabs button.af-tab-active::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--af-accent-gradient);
+}
+
+.af-search-results {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.af-search-result-item {
+  display: grid;
+  grid-template-columns: 40px 56px 1fr 80px 80px 120px;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--af-bg-surface);
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-md);
+  transition: all var(--af-transition-base);
+  cursor: pointer;
+}
+
+.af-search-result-item:hover {
+  background: var(--af-bg-surface-hover);
+  border-color: var(--af-border-primary);
+  transform: translateX(4px);
+  box-shadow: var(--af-shadow-md);
+}
+
+.af-result-index {
+  font-size: var(--af-font-size-base);
+  font-weight: var(--af-font-weight-medium);
+  color: var(--af-text-tertiary);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.af-result-cover {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--af-radius-md);
+  overflow: hidden;
+  background: var(--af-bg-elevated);
+  flex-shrink: 0;
+}
+
+.af-result-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.af-cover-placeholder {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, var(--af-accent-primary) 0%, var(--af-accent-secondary) 100%);
+  opacity: 0.2;
+}
+
+.af-result-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.af-result-title {
+  font-size: var(--af-font-size-base);
+  font-weight: var(--af-font-weight-semibold);
+  color: var(--af-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-result-subtitle {
+  font-size: var(--af-font-size-sm);
+  color: var(--af-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-result-source {
+  font-size: var(--af-font-size-xs);
+  font-weight: var(--af-font-weight-semibold);
+  color: var(--af-accent-primary);
+  background: var(--af-bg-elevated);
+  padding: 4px 10px;
+  border-radius: 6px;
+  text-align: center;
+  letter-spacing: 0.5px;
+}
+
+.af-result-duration {
+  font-size: var(--af-font-size-sm);
+  color: var(--af-text-tertiary);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.af-result-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  opacity: 0;
+  transition: opacity var(--af-transition-base);
+}
+
+.af-search-result-item:hover .af-result-actions {
+  opacity: 1;
+}
+
+.af-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 24px;
+  text-align: center;
+}
+
+.af-empty-state p {
+  font-size: var(--af-font-size-xl);
+  font-weight: var(--af-font-weight-semibold);
+  color: var(--af-text-primary);
+  margin-bottom: 8px;
+}
+
+.af-empty-state span {
+  font-size: var(--af-font-size-base);
+  color: var(--af-text-tertiary);
+}
+
+.af-skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.af-skeleton-row {
+  height: 80px;
+  background: linear-gradient(
+    90deg,
+    var(--af-bg-surface) 0%,
+    var(--af-bg-surface-hover) 50%,
+    var(--af-bg-surface) 100%
+  );
+  background-size: 200% 100%;
+  border-radius: var(--af-radius-md);
+  animation: skeleton-loading 1.5s ease-in-out infinite;
+}
+
+@keyframes skeleton-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@media (max-width: 768px) {
+  .af-search-hero {
+    flex-direction: column;
+  }
+
+  .af-search-submit {
+    width: 100%;
+  }
+
+  .af-search-result-item {
+    grid-template-columns: 48px 1fr 80px;
+    gap: 12px;
+  }
+
+  .af-result-index,
+  .af-result-source,
+  .af-result-duration {
+    display: none;
+  }
+
+  .af-result-cover {
+    width: 48px;
+    height: 48px;
+  }
+
+  .af-result-actions {
+    opacity: 1;
+  }
+}

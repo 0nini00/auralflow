@@ -1,0 +1,346 @@
+/* Player Bar */
+.af-player-bar {
+  min-height: 80px;
+  flex-shrink: 0;
+  background: var(--af-bg-elevated);
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-xl);
+  box-shadow: var(--af-shadow-md);
+  backdrop-filter: blur(20px);
+  z-index: 1000;
+}
+
+.af-player-container {
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 12px 24px;
+}
+
+.af-player-grid {
+  display: grid;
+  grid-template-columns: minmax(360px, 1.35fr) minmax(280px, 1.6fr) minmax(120px, 0.7fr);
+  gap: 16px;
+  align-items: center;
+}
+
+.af-player-track-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.af-track-cover-wrapper {
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.2s;
+}
+
+.af-track-cover-wrapper:hover {
+  transform: scale(1.05);
+}
+
+.af-track-cover-wrapper:active {
+  transform: scale(0.98);
+}
+
+.af-track-cover {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--af-radius-md);
+  object-fit: cover;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  display: block;
+}
+
+.af-track-cover-placeholder {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--af-radius-md);
+  background: linear-gradient(135deg, var(--af-accent-primary), var(--af-accent-secondary));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.af-track-details {
+  flex: 1 1 140px;
+  min-width: 120px;
+  overflow: hidden;
+}
+
+.af-track-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--af-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-bottom: 4px;
+}
+
+.af-track-artist {
+  font-size: 12px;
+  color: var(--af-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-like-button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--af-text-secondary);
+  border-radius: var(--af-button-radius);
+  cursor: pointer;
+  transition: background var(--af-transition-fast), border-color var(--af-transition-fast), color var(--af-transition-fast), transform var(--af-transition-fast);
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.af-like-button:hover {
+  background: var(--af-bg-hover);
+  border-color: var(--af-border-primary);
+  color: var(--af-text-primary);
+}
+
+.af-like-button.af-liked {
+  color: #ef4444;
+}
+
+.af-like-button.af-liked:hover {
+  color: #dc2626;
+}
+
+.af-player-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.af-control-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.af-control-btn {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--af-text-secondary);
+  border-radius: var(--af-button-radius);
+  cursor: pointer;
+  transition: background var(--af-transition-fast), border-color var(--af-transition-fast), color var(--af-transition-fast), transform var(--af-transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.af-control-btn:hover {
+  background: var(--af-bg-hover);
+  border-color: var(--af-border-primary);
+  color: var(--af-text-primary);
+}
+
+.af-control-btn.af-active {
+  color: var(--af-accent-primary);
+  background: rgba(var(--af-accent-primary-rgb), 0.1);
+  border-color: rgba(var(--af-accent-primary-rgb), 0.28);
+}
+
+.af-play-button {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(var(--af-accent-primary-rgb), 0.96), rgba(var(--af-accent-primary-rgb), 0.82));
+  color: var(--af-text-on-accent);
+  border: 1px solid rgba(var(--af-accent-primary-rgb), 0.45);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--af-transition-fast), box-shadow var(--af-transition-fast), transform var(--af-transition-fast);
+  box-shadow: 0 8px 20px rgba(var(--af-accent-primary-rgb), 0.24);
+}
+
+.af-play-button:hover {
+  background: var(--af-accent-gradient-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(var(--af-accent-primary-rgb), 0.28);
+}
+
+.af-play-button:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.af-progress-bar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.af-time {
+  font-size: 11px;
+  color: var(--af-text-secondary);
+  font-weight: 500;
+  min-width: 40px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.af-progress-track {
+  flex: 1;
+  height: 4px;
+  background: var(--af-bg-hover);
+  border-radius: 2px;
+  cursor: pointer;
+  position: relative;
+}
+
+.af-progress-fill {
+  height: 100%;
+  background: var(--af-accent-primary);
+  border-radius: 2px;
+  transition: width 0.1s linear;
+  pointer-events: none;
+}
+
+.af-progress-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  margin: 0;
+}
+
+.af-player-volume {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.af-volume-track {
+  width: 100px;
+  height: 4px;
+  background: var(--af-bg-hover);
+  border-radius: 2px;
+  cursor: pointer;
+  position: relative;
+}
+
+.af-volume-fill {
+  height: 100%;
+  background: var(--af-text-secondary);
+  border-radius: 2px;
+  transition: width 0.1s;
+  pointer-events: none;
+}
+
+.af-volume-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  margin: 0;
+}
+
+@media (max-width: 768px) {
+  .af-player-bar {
+    min-height: 80px;
+  }
+
+  .af-player-container {
+    padding: 10px 14px;
+  }
+
+  .af-player-grid {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+  }
+
+  .af-player-track-info {
+    flex: 0 1 auto;
+  }
+
+  .af-track-details {
+    min-width: 80px;
+  }
+
+  .af-player-volume {
+    display: none;
+  }
+}
+
+/* ── 定时关闭菜单 ── */
+.af-sleep-timer-wrapper {
+  position: relative;
+}
+.af-sleep-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 49;
+}
+.af-sleep-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  min-width: 168px;
+  padding: 6px;
+  background: var(--af-bg-elevated);
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-md);
+  box-shadow: var(--af-shadow-lg);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.af-sleep-menu-title {
+  font-size: var(--af-font-size-xs);
+  color: var(--af-text-tertiary);
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--af-border-secondary);
+  margin-bottom: 2px;
+}
+.af-sleep-menu-item {
+  text-align: left;
+  font-size: var(--af-font-size-sm);
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: var(--af-text-primary);
+  border-radius: var(--af-radius-sm);
+  cursor: pointer;
+  transition: background var(--af-transition-fast);
+}
+.af-sleep-menu-item:hover {
+  background: var(--af-bg-hover);
+}
+.af-sleep-menu-cancel {
+  color: var(--af-error);
+}
+.af-sleep-menu-cancel:hover {
+  background: var(--af-error-bg);
+}
+/* 睡眠定时器激活时按钮用主题绿，与其他激活状态保持一致 */
+.af-like-button.af-active {
+  color: var(--af-accent-primary);
+}

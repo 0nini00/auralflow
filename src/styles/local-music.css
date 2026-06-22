@@ -1,0 +1,288 @@
+/* Local Music Library */
+.af-library-view {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.af-library-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 32px;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.af-library-title-section {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.af-library-icon-wrapper {
+  width: 72px;
+  height: 72px;
+  background: var(--af-bg-surface);
+  border-radius: var(--af-radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--af-accent-primary);
+}
+
+.af-library-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.af-library-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border: none;
+  border-radius: var(--af-radius-md);
+  font-size: var(--af-font-size-base);
+  font-weight: var(--af-font-weight-medium);
+  cursor: pointer;
+  transition: all var(--af-transition-base);
+  white-space: nowrap;
+}
+
+.af-library-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.af-library-button-primary {
+  background: var(--af-accent-gradient);
+  color: var(--af-accent-text);
+  box-shadow: 0 2px 8px rgba(29, 185, 84, 0.25);
+}
+
+.af-library-button-primary:hover:not(:disabled) {
+  background: var(--af-accent-gradient-hover);
+  box-shadow: 0 4px 12px rgba(29, 185, 84, 0.35);
+  transform: translateY(-1px);
+}
+
+.af-library-button-danger {
+  background: var(--af-bg-surface);
+  color: var(--af-text-secondary);
+  border: 1px solid var(--af-border-secondary);
+}
+
+.af-library-button-danger:hover {
+  background: var(--af-error-bg);
+  color: var(--af-error);
+  border-color: var(--af-error);
+}
+
+.af-library-button-large {
+  padding: 14px 32px;
+  font-size: var(--af-font-size-lg);
+}
+
+.af-library-button-sm {
+  padding: 6px 12px;
+  font-size: var(--af-font-size-sm);
+  background: var(--af-bg-surface);
+  color: var(--af-text-secondary);
+  border: 1px solid var(--af-border-secondary);
+  border-radius: 6px;
+}
+
+.af-library-button-sm:hover {
+  background: var(--af-bg-surface-hover);
+  color: var(--af-text-primary);
+}
+
+.af-library-error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  background: var(--af-error-bg);
+  border: 1px solid var(--af-error);
+  border-radius: var(--af-radius-md);
+  color: var(--af-error);
+  margin-bottom: 24px;
+}
+
+.af-library-error span {
+  flex: 1;
+  font-size: var(--af-font-size-base);
+}
+
+.af-library-section {
+  margin-bottom: 40px;
+}
+
+.af-library-section-title {
+  font-size: var(--af-font-size-xl);
+  font-weight: var(--af-font-weight-semibold);
+  color: var(--af-text-primary);
+  margin-bottom: 16px;
+}
+
+.af-library-paths {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.af-library-path-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--af-bg-surface);
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-md);
+  transition: all var(--af-transition-base);
+}
+
+.af-library-path-item:hover {
+  background: var(--af-bg-surface-hover);
+  border-color: var(--af-border-primary);
+}
+
+.af-library-path-text {
+  flex: 1;
+  font-size: var(--af-font-size-sm);
+  color: var(--af-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-library-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.af-library-song-item {
+  display: grid;
+  grid-template-columns: 40px 48px 1fr 120px 80px;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--af-bg-surface);
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-md);
+  transition: all var(--af-transition-base);
+  cursor: pointer;
+}
+
+.af-library-song-item:hover {
+  background: var(--af-bg-surface-hover);
+  border-color: var(--af-border-primary);
+  transform: translateX(4px);
+  box-shadow: var(--af-shadow-md);
+}
+
+.af-library-song-index {
+  font-size: var(--af-font-size-base);
+  font-weight: var(--af-font-weight-medium);
+  color: var(--af-text-tertiary);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.af-library-song-cover {
+  width: 48px;
+  height: 48px;
+  background: var(--af-bg-elevated);
+  border-radius: var(--af-radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.af-library-song-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.af-library-song-title {
+  font-size: var(--af-font-size-base);
+  font-weight: var(--af-font-weight-semibold);
+  color: var(--af-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-library-song-artist {
+  font-size: var(--af-font-size-sm);
+  color: var(--af-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-library-song-duration {
+  display: flex;
+  align-items: center;
+  font-size: var(--af-font-size-sm);
+  color: var(--af-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.af-library-song-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  opacity: 0;
+  transition: opacity var(--af-transition-base);
+}
+
+.af-library-song-item:hover .af-library-song-actions {
+  opacity: 1;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.af-spin {
+  animation: spin 1s linear infinite;
+}
+
+@media (max-width: 768px) {
+  .af-library-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .af-library-actions {
+    width: 100%;
+  }
+
+  .af-library-button {
+    flex: 1;
+  }
+
+  .af-library-song-item {
+    grid-template-columns: 48px 1fr 80px;
+    gap: 12px;
+  }
+
+  .af-library-song-index,
+  .af-library-song-duration {
+    display: none;
+  }
+
+  .af-library-song-actions {
+    opacity: 1;
+  }
+}

@@ -1,0 +1,165 @@
+:root {
+  color-scheme: light;
+
+  /* Background System - Clean & Minimal */
+  --af-bg-base: #f8f9fa;
+  --af-bg-page: #ffffff;
+  --af-bg-elevated: #ffffff;
+  --af-bg-surface: #f8f9fa;
+  --af-bg-surface-hover: #f1f3f5;
+  --af-bg-surface-pressed: #e9ecef;
+  --af-bg-overlay: rgba(0, 0, 0, 0.04);
+  --af-bg-hover: var(--af-bg-surface-hover);
+  --af-bg-secondary: var(--af-bg-surface);
+
+  /* Text System - High contrast for light mode */
+  --af-text-primary: #0f172a;
+  --af-text-secondary: #475569;
+  --af-text-tertiary: #94a3b8;
+  --af-text-quaternary: #cbd5e1;
+  --af-text-on-accent: #ffffff;
+
+  /* Accent Colors - Clean purple accent */
+  --af-accent-primary: #1db954;
+  --af-accent-primary-rgb: 29, 185, 84;
+  --af-accent-secondary: #1ed760;
+  --af-accent-hover: #1aa34a;
+  --af-accent-gradient: linear-gradient(135deg, #1db954 0%, #1ed760 100%);
+  --af-accent-gradient-hover: linear-gradient(135deg, #1aa34a 0%, #1bc956 100%);
+  --af-accent-text: #ffffff;
+
+  /* Border System - Light mode clean borders */
+  --af-border-primary: #e2e8f0;
+  --af-border-secondary: #f1f5f9;
+  --af-border-focus: rgba(29, 185, 84, 0.4);
+  --af-border-accent: var(--af-accent-primary);
+
+  /* Shadow System - Subtle depth */
+  --af-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --af-shadow-md: 0 4px 8px rgba(0, 0, 0, 0.08);
+  --af-shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.1);
+  --af-shadow-xl: 0 16px 32px rgba(0, 0, 0, 0.12);
+
+  /* Feedback Colors - Light Mode */
+  --af-success: #10b981;
+  --af-success-bg: rgba(16, 185, 129, 0.1);
+  --af-error: #ef4444;
+  --af-error-bg: rgba(239, 68, 68, 0.1);
+  --af-warning: #f59e0b;
+  --af-warning-bg: rgba(245, 158, 11, 0.1);
+  --af-info: #3b82f6;
+  --af-info-bg: rgba(59, 130, 246, 0.1);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Background System - Dark mode clean */
+  --af-bg-base: #0a0a0a;
+  --af-bg-page: #121212;
+  --af-bg-elevated: #1a1a1a;
+  --af-bg-surface: #1e1e1e;
+  --af-bg-surface-hover: #2a2a2a;
+  --af-bg-surface-pressed: #333333;
+  --af-bg-overlay: rgba(255, 255, 255, 0.04);
+  --af-bg-hover: var(--af-bg-surface-hover);
+  --af-bg-secondary: var(--af-bg-surface);
+
+  /* Text System - Dark Mode high contrast */
+  --af-text-primary: #f8fafc;
+  --af-text-secondary: #cbd5e1;
+  --af-text-tertiary: #64748b;
+  --af-text-quaternary: #475569;
+  --af-text-on-accent: #ffffff;
+
+  /* Accent Colors - Vibrant for dark mode */
+  --af-accent-primary: #1db954;
+  --af-accent-primary-rgb: 29, 185, 84;
+  --af-accent-secondary: #1ed760;
+  --af-accent-hover: #1aa34a;
+  --af-accent-gradient: linear-gradient(135deg, #1db954 0%, #1ed760 100%);
+  --af-accent-gradient-hover: linear-gradient(135deg, #1aa34a 0%, #1bc956 100%);
+  --af-accent-text: #ffffff;
+
+  /* Border System - Dark mode borders */
+  --af-border-primary: #334155;
+  --af-border-secondary: #1e293b;
+  --af-border-focus: rgba(29, 185, 84, 0.5);
+  --af-border-accent: var(--af-accent-primary);
+
+  /* Shadow System - Dark mode depth */
+  --af-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --af-shadow-md: 0 4px 8px rgba(0, 0, 0, 0.4);
+  --af-shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.5);
+  --af-shadow-xl: 0 16px 32px rgba(0, 0, 0, 0.6);
+
+  /* Feedback Colors - Dark Mode adjusted */
+  --af-success: #34d399;
+  --af-success-bg: rgba(52, 211, 153, 0.15);
+  --af-error: #f87171;
+  --af-error-bg: rgba(248, 113, 113, 0.15);
+  --af-warning: #fbbf24;
+  --af-warning-bg: rgba(251, 191, 36, 0.15);
+  --af-info: #60a5fa;
+  --af-info-bg: rgba(96, 165, 250, 0.15);
+}
+
+/* Spacing System */
+:root {
+  --af-spacing-xs: 4px;
+  --af-spacing-sm: 8px;
+  --af-spacing-md: 16px;
+  --af-space-md: 16px;
+  --af-spacing-lg: 24px;
+  --af-spacing-xl: 32px;
+  --af-spacing-2xl: 48px;
+}
+
+/* Border Radius System */
+:root {
+  --af-radius-sm: 8px;
+  --af-radius-md: 12px;
+  --af-radius-lg: 16px;
+  --af-radius-xl: 20px;
+  --af-radius-full: 9999px;
+  --af-button-radius: 10px;
+}
+
+/* Typography System */
+:root {
+  --af-font-size-xs: 12px;
+  --af-font-size-sm: 13px;
+  --af-font-size-base: 14px;
+  --af-font-size-lg: 16px;
+  --af-font-size-xl: 18px;
+  --af-font-size-2xl: 24px;
+  --af-font-size-3xl: 32px;
+
+  --af-font-weight-normal: 400;
+  --af-font-weight-medium: 500;
+  --af-font-weight-semibold: 600;
+  --af-font-weight-bold: 700;
+
+  --af-line-height-tight: 1.25;
+  --af-line-height-normal: 1.5;
+  --af-line-height-relaxed: 1.75;
+}
+
+/* Z-index System */
+:root {
+  --af-z-base: 0;
+  --af-z-dropdown: 1000;
+  --af-z-sticky: 1100;
+  --af-z-fixed: 1200;
+  --af-z-modal-backdrop: 1300;
+  --af-z-modal: 1400;
+  --af-z-popover: 1500;
+  --af-z-tooltip: 1600;
+}
+
+/* Transition System */
+:root {
+  --af-transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --af-transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --af-transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}

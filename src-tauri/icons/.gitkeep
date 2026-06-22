@@ -1,0 +1,11 @@
+# Placeholder for Tauri bundle icons
+#
+# Add icons here or generate them with:
+#   npm run tauri icon path/to/source-icon.png
+#
+# Required files (referenced in tauri.conf.json):
+#   - 32x32.png
+#   - 128x128.png
+#   - 128x128@2x.png
+#   - icon.icns
+#   - icon.ico

@@ -1,0 +1,308 @@
+/* Header */
+.af-header {
+  min-height: 56px;
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: auto minmax(240px, 520px) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 0 16px;
+  background: var(--af-bg-elevated);
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-xl);
+  box-shadow: var(--af-shadow-sm);
+}
+
+.af-header-left,
+.af-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.af-header-right {
+  justify-content: flex-end;
+}
+
+.af-header-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 38px;
+  padding: 0 14px;
+  color: var(--af-text-tertiary);
+  background: var(--af-bg-surface);
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-full);
+  transition: all var(--af-transition-base);
+}
+
+.af-header-search:focus-within {
+  color: var(--af-text-secondary);
+  background: var(--af-bg-elevated);
+  border-color: var(--af-border-focus);
+  box-shadow: 0 0 0 3px rgba(var(--af-accent-primary-rgb), 0.12);
+}
+
+.af-header-search-input {
+  width: 100%;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--af-text-primary);
+  font-size: var(--af-font-size-sm);
+}
+
+.af-header-search-input::placeholder {
+  color: var(--af-text-tertiary);
+}
+
+@media (max-width: 768px) {
+  .af-header {
+    grid-template-columns: auto 1fr auto;
+    gap: 10px;
+    padding: 0 10px;
+  }
+
+  .af-header-search {
+    height: 36px;
+    padding: 0 10px;
+  }
+}
+
+/* ── 鼠标特效 ── */
+.af-cursor-effect {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ── 虚拟列表 ── */
+.af-virtual-list {
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  height: 100%;
+}
+
+/* ── 用户协议弹窗 ── */
+.af-pact-overlay {
+  z-index: 3000;
+}
+.af-pact-dialog {
+  max-width: 520px;
+}
+.af-pact-body p {
+  margin: 0 0 10px;
+  color: var(--af-text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.af-pact-body ul {
+  margin: 0 0 12px;
+  padding-left: 20px;
+  color: var(--af-text-secondary);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.af-pact-body li {
+  margin-bottom: 4px;
+}
+.af-pact-confirm {
+  color: var(--af-text-primary) !important;
+  font-weight: 600;
+}
+
+/* ── 通用按钮系统 ── */
+.af-btn-primary,
+.af-btn-secondary {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-radius: var(--af-button-radius);
+  font-size: var(--af-font-size-sm);
+  font-weight: var(--af-font-weight-semibold);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--af-transition-fast),
+    border-color var(--af-transition-fast),
+    color var(--af-transition-fast),
+    box-shadow var(--af-transition-fast),
+    transform var(--af-transition-fast);
+}
+
+.af-btn-primary > svg,
+.af-btn-secondary > svg {
+  flex: 0 0 auto;
+}
+
+.af-btn-primary {
+  border: 1px solid rgba(var(--af-accent-primary-rgb), 0.42);
+  background: linear-gradient(180deg, rgba(var(--af-accent-primary-rgb), 0.95), rgba(var(--af-accent-primary-rgb), 0.82));
+  color: var(--af-text-on-accent);
+  box-shadow: 0 8px 18px rgba(var(--af-accent-primary-rgb), 0.2);
+}
+
+.af-btn-primary:hover:not(:disabled) {
+  border-color: rgba(var(--af-accent-primary-rgb), 0.65);
+  background: var(--af-accent-gradient-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(var(--af-accent-primary-rgb), 0.24);
+}
+
+.af-btn-secondary {
+  border: 1px solid var(--af-border-primary);
+  background: var(--af-bg-surface);
+  color: var(--af-text-primary);
+  box-shadow: none;
+}
+
+.af-btn-secondary:hover:not(:disabled) {
+  border-color: rgba(var(--af-accent-primary-rgb), 0.35);
+  background: var(--af-bg-surface-hover);
+  color: var(--af-text-primary);
+  transform: translateY(-1px);
+}
+
+.af-btn-primary:active:not(:disabled),
+.af-btn-secondary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.af-btn-primary:disabled,
+.af-btn-secondary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.af-icon-btn,
+.af-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--af-button-radius);
+  background: transparent;
+  color: var(--af-text-secondary);
+  cursor: pointer;
+  transition:
+    background var(--af-transition-fast),
+    border-color var(--af-transition-fast),
+    color var(--af-transition-fast),
+    transform var(--af-transition-fast);
+}
+
+.af-icon-btn-sm {
+  width: 30px;
+  height: 30px;
+}
+
+.af-icon-btn-md,
+.af-menu-trigger {
+  width: 34px;
+  height: 34px;
+}
+
+.af-icon-btn-lg {
+  width: 40px;
+  height: 40px;
+}
+
+.af-icon-btn:hover:not(:disabled),
+.af-menu-trigger:hover:not(:disabled) {
+  border-color: var(--af-border-primary);
+  background: var(--af-bg-surface-hover);
+  color: var(--af-text-primary);
+}
+
+.af-icon-btn-active,
+.af-icon-btn-active:hover:not(:disabled) {
+  border-color: rgba(var(--af-accent-primary-rgb), 0.35);
+  background: rgba(var(--af-accent-primary-rgb), 0.12);
+  color: var(--af-accent-primary);
+}
+
+.af-icon-btn:active:not(:disabled),
+.af-menu-trigger:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.af-icon-btn:disabled,
+.af-menu-trigger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ── 更新弹窗 ── */
+.af-update-dialog {
+  max-width: 440px;
+}
+.af-update-version {
+  margin: 0 0 8px;
+  font-size: 16px;
+  color: var(--af-text-primary);
+}
+.af-update-version strong {
+  color: var(--af-accent-primary);
+}
+.af-update-arrow {
+  color: var(--af-text-tertiary);
+  margin: 0 6px;
+}
+.af-update-name {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--af-text-secondary);
+}
+
+/* ── 通用行内操作按钮（播放/加入队列/添加到歌单/下载等）── */
+.af-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: var(--af-bg-surface);
+  color: var(--af-text-secondary);
+  border-radius: var(--af-button-radius);
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    transform 0.12s ease;
+}
+.af-action-btn:hover {
+  border-color: rgba(var(--af-accent-primary-rgb), 0.24);
+  background: rgba(var(--af-accent-primary-rgb), 0.1);
+  color: var(--af-accent-primary);
+}
+.af-action-btn:active {
+  transform: scale(0.92);
+}
+.af-action-btn.af-liked {
+  color: var(--af-accent-primary);
+}
+.af-action-btn.af-delete-btn:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+}
+.af-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

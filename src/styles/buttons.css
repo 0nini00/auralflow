@@ -1,0 +1,349 @@
+/* Unified button language, loaded last to smooth over page-level legacy styles. */
+button {
+  font: inherit;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--af-border-focus);
+  outline-offset: 2px;
+}
+
+.af-btn-primary,
+.af-btn-secondary,
+.af-button-primary,
+.af-button-secondary,
+.af-settings-button,
+.af-settings-small-button,
+.af-section-action,
+.af-home-primary-action,
+.af-home-secondary-action,
+.af-search-submit,
+.af-create-playlist-btn,
+.af-library-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 9px 15px;
+  border-radius: var(--af-button-radius);
+  font-size: var(--af-font-size-sm);
+  font-weight: var(--af-font-weight-semibold);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--af-transition-fast),
+    border-color var(--af-transition-fast),
+    color var(--af-transition-fast),
+    box-shadow var(--af-transition-fast),
+    transform var(--af-transition-fast),
+    opacity var(--af-transition-fast);
+}
+
+.af-btn-primary > svg,
+.af-btn-secondary > svg,
+.af-button-primary > svg,
+.af-button-secondary > svg,
+.af-settings-button > svg,
+.af-settings-small-button > svg,
+.af-section-action > svg,
+.af-home-primary-action > svg,
+.af-home-secondary-action > svg,
+.af-search-submit > svg,
+.af-create-playlist-btn > svg {
+  flex: 0 0 auto;
+}
+
+.af-library-button > svg {
+  flex: 0 0 auto;
+}
+
+.af-btn-primary,
+.af-button-primary,
+.af-settings-button:not(.af-settings-button-secondary),
+.af-home-primary-action,
+.af-search-submit,
+.af-create-playlist-btn:not(.af-btn-secondary),
+.af-library-button-primary {
+  border: 1px solid rgba(var(--af-accent-primary-rgb), 0.42);
+  background: linear-gradient(180deg, rgba(var(--af-accent-primary-rgb), 0.95), rgba(var(--af-accent-primary-rgb), 0.82));
+  color: var(--af-text-on-accent);
+  box-shadow: 0 8px 18px rgba(var(--af-accent-primary-rgb), 0.2);
+}
+
+.af-btn-secondary,
+.af-button-secondary,
+.af-settings-button-secondary,
+.af-settings-small-button,
+.af-section-action,
+.af-home-secondary-action,
+.af-create-playlist-btn.af-btn-secondary {
+  border: 1px solid var(--af-border-primary);
+  background: var(--af-bg-surface);
+  color: var(--af-text-primary);
+  box-shadow: none;
+}
+
+.af-library-button:not(.af-library-button-primary) {
+  border: 1px solid var(--af-border-primary);
+  background: var(--af-bg-surface);
+  color: var(--af-text-primary);
+  box-shadow: none;
+}
+
+.af-btn-primary:hover:not(:disabled),
+.af-button-primary:hover:not(:disabled),
+.af-settings-button:not(.af-settings-button-secondary):hover:not(:disabled),
+.af-home-primary-action:hover:not(:disabled),
+.af-search-submit:hover:not(:disabled),
+.af-create-playlist-btn:not(.af-btn-secondary):hover:not(:disabled),
+.af-library-button-primary:hover:not(:disabled) {
+  border-color: rgba(var(--af-accent-primary-rgb), 0.62);
+  background: var(--af-accent-gradient-hover);
+  color: var(--af-text-on-accent);
+  box-shadow: 0 10px 22px rgba(var(--af-accent-primary-rgb), 0.24);
+  transform: translateY(-1px);
+}
+
+.af-btn-secondary:hover:not(:disabled),
+.af-button-secondary:hover:not(:disabled),
+.af-settings-button-secondary:hover:not(:disabled),
+.af-settings-small-button:hover:not(:disabled),
+.af-section-action:hover:not(:disabled),
+.af-home-secondary-action:hover:not(:disabled),
+.af-create-playlist-btn.af-btn-secondary:hover:not(:disabled) {
+  border-color: rgba(var(--af-accent-primary-rgb), 0.32);
+  background: var(--af-bg-surface-hover);
+  color: var(--af-text-primary);
+  box-shadow: none;
+  transform: translateY(-1px);
+}
+
+.af-library-button:not(.af-library-button-primary):hover:not(:disabled) {
+  border-color: rgba(var(--af-accent-primary-rgb), 0.32);
+  background: var(--af-bg-surface-hover);
+  color: var(--af-text-primary);
+  box-shadow: none;
+  transform: translateY(-1px);
+}
+
+.af-btn-primary:active:not(:disabled),
+.af-btn-secondary:active:not(:disabled),
+.af-button-primary:active:not(:disabled),
+.af-button-secondary:active:not(:disabled),
+.af-settings-button:active:not(:disabled),
+.af-settings-small-button:active:not(:disabled),
+.af-section-action:active:not(:disabled),
+.af-home-primary-action:active:not(:disabled),
+.af-home-secondary-action:active:not(:disabled),
+.af-search-submit:active:not(:disabled),
+.af-create-playlist-btn:active:not(:disabled),
+.af-library-button:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
+.af-btn-primary:disabled,
+.af-btn-secondary:disabled,
+.af-button-primary:disabled,
+.af-button-secondary:disabled,
+.af-settings-button:disabled,
+.af-settings-small-button:disabled,
+.af-section-action:disabled,
+.af-home-primary-action:disabled,
+.af-home-secondary-action:disabled,
+.af-search-submit:disabled,
+.af-create-playlist-btn:disabled,
+.af-library-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.af-settings-small-button {
+  min-height: 32px;
+  padding: 7px 11px;
+  font-size: var(--af-font-size-xs);
+}
+
+.af-search-submit {
+  min-height: 54px;
+  padding: 0 28px;
+  border-radius: var(--af-radius-lg);
+  font-size: var(--af-font-size-base);
+}
+
+.af-home-primary-action,
+.af-home-secondary-action {
+  min-height: 42px;
+  padding: 0 18px;
+  border-radius: var(--af-radius-full);
+  font-size: var(--af-font-size-base);
+}
+
+.af-create-playlist-btn {
+  min-height: 42px;
+  padding: 0 18px;
+  border-radius: var(--af-radius-full);
+}
+
+.af-icon-btn,
+.af-menu-trigger,
+.af-action-btn,
+.af-like-button,
+.af-control-btn,
+.af-view-mode-toggle button,
+.af-grid-edit-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--af-button-radius);
+  background: transparent;
+  color: var(--af-text-secondary);
+  cursor: pointer;
+  transition:
+    background var(--af-transition-fast),
+    border-color var(--af-transition-fast),
+    color var(--af-transition-fast),
+    box-shadow var(--af-transition-fast),
+    transform var(--af-transition-fast),
+    opacity var(--af-transition-fast);
+}
+
+.af-icon-btn:hover:not(:disabled),
+.af-menu-trigger:hover:not(:disabled),
+.af-action-btn:hover:not(:disabled),
+.af-like-button:hover:not(:disabled),
+.af-control-btn:hover:not(:disabled),
+.af-view-mode-toggle button:hover:not(:disabled),
+.af-grid-edit-button:hover:not(:disabled) {
+  border-color: var(--af-border-primary);
+  background: var(--af-bg-surface-hover);
+  color: var(--af-text-primary);
+}
+
+.af-icon-btn-active,
+.af-icon-btn-active:hover:not(:disabled),
+.af-action-btn.af-liked,
+.af-like-button.af-active,
+.af-control-btn.af-active,
+.af-view-mode-toggle button.af-active {
+  border-color: rgba(var(--af-accent-primary-rgb), 0.32);
+  background: rgba(var(--af-accent-primary-rgb), 0.12);
+  color: var(--af-accent-primary);
+}
+
+.af-action-btn,
+.af-like-button {
+  width: 32px;
+  height: 32px;
+  background: transparent;
+}
+
+.af-control-btn,
+.af-menu-trigger {
+  width: 34px;
+  height: 34px;
+}
+
+.af-action-btn:active:not(:disabled),
+.af-icon-btn:active:not(:disabled),
+.af-menu-trigger:active:not(:disabled),
+.af-like-button:active:not(:disabled),
+.af-control-btn:active:not(:disabled),
+.af-view-mode-toggle button:active:not(:disabled),
+.af-grid-edit-button:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.af-action-btn.af-delete-btn:hover:not(:disabled),
+.af-settings-danger-button:hover:not(:disabled) {
+  border-color: rgba(239, 68, 68, 0.28);
+  background: var(--af-error-bg);
+  color: var(--af-error);
+}
+
+.af-library-button-danger:hover:not(:disabled) {
+  border-color: rgba(239, 68, 68, 0.28);
+  background: var(--af-error-bg);
+  color: var(--af-error);
+}
+
+.af-like-button.af-liked,
+.af-action-btn.af-liked {
+  color: var(--af-accent-primary);
+}
+
+.af-play-button,
+.af-grid-play-button,
+.af-play-all-btn,
+.af-playlist-play-button {
+  border: 1px solid rgba(var(--af-accent-primary-rgb), 0.42);
+  background: linear-gradient(180deg, rgba(var(--af-accent-primary-rgb), 0.96), rgba(var(--af-accent-primary-rgb), 0.82));
+  color: var(--af-text-on-accent);
+  box-shadow: 0 8px 20px rgba(var(--af-accent-primary-rgb), 0.24);
+}
+
+.af-play-button:hover:not(:disabled),
+.af-grid-play-button:hover:not(:disabled),
+.af-play-all-btn:hover:not(:disabled),
+.af-playlist-play-button:hover:not(:disabled) {
+  border-color: rgba(var(--af-accent-primary-rgb), 0.62);
+  background: var(--af-accent-gradient-hover);
+  color: var(--af-text-on-accent);
+}
+
+.af-view-mode-toggle {
+  border: 1px solid var(--af-border-primary);
+  background: var(--af-bg-surface);
+  border-radius: var(--af-radius-md);
+}
+
+.af-add-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  background: transparent;
+}
+
+.af-add-menu {
+  max-height: min(320px, calc(100vh - 16px));
+  overflow-y: auto;
+}
+
+.af-add-menu button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.af-add-menu-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 5px;
+  color: var(--af-text-tertiary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.af-add-menu-label:not(:first-child) {
+  margin-top: 4px;
+  border-top: 1px solid var(--af-border-secondary);
+}
+
+.af-add-menu-status {
+  padding: 8px 12px;
+  color: var(--af-text-tertiary);
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: normal;
+}
+
+.af-add-menu-error {
+  color: var(--af-error);
+}

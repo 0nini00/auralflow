@@ -1,0 +1,37 @@
+[package]
+name = "auralflow"
+version = "0.1.0"
+description = "AuralFlow Desktop (Tauri + React)"
+authors = ["chenle"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
+tokio = { version = "1", features = ["time"] }
+tauri-plugin-shell = "2"
+tauri-plugin-http = { version = "2", features = ["unsafe-headers"] }
+tauri-plugin-fs = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-deep-link = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+walkdir = "2"
+audiotags = "0.5"
+lofty = "0.21"
+md5 = "0.7"
+base64 = "0.22"
+
+# ── 网关 & 加密依赖 ──
+reqwest = { version = "0.12", features = ["json", "gzip", "cookies"] }
+url = "2"
+aes = "0.8"
+cbc = "0.1"
+ecb = "0.1"
+cipher = { version = "0.4", features = ["block-padding", "alloc"] }
+hex = "0.4"
+num-bigint = "0.4"
+hex-literal = "0.4"
+rsa = "0.9"

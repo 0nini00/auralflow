@@ -1,0 +1,64 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "default",
+  "description": "Capabilities for the main window",
+  "windows": ["main", "lyric", "lyric-unlock"],
+  "permissions": [
+    "core:default",
+    "core:path:default",
+    "core:window:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "shell:allow-open",
+    "dialog:allow-open",
+    "dialog:allow-confirm",
+    "dialog:default",
+    "fs:allow-read-file",
+    "fs:allow-read-dir",
+    "fs:default",
+    "fs:scope",
+    "deep-link:default",
+    "http:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        {
+          "url": "http://music.163.com/*"
+        },
+        {
+          "url": "http://*.music.163.com/*"
+        },
+        {
+          "url": "https://music.163.com/*"
+        },
+        {
+          "url": "https://*.music.163.com/*"
+        },
+        {
+          "url": "https://music-api.gdstudio.xyz/*"
+        },
+        {
+          "url": "https://c.y.qq.com/*"
+        },
+        {
+          "url": "https://y.qq.com/*"
+        },
+        {
+          "url": "https://u.y.qq.com/*"
+        },
+        {
+          "url": "https://*.y.qq.com/*"
+        },
+        {
+          "url": "http://*/*"
+        },
+        {
+          "url": "https://*/*"
+        }
+      ]
+    }
+  ]
+}

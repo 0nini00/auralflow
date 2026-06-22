@@ -1,0 +1,852 @@
+/* 歌单列表页 */
+.af-playlists-view {
+  padding: 28px 40px 48px;
+  max-width: 1480px;
+  margin: 0 auto;
+}
+
+.af-playlists-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+  margin-bottom: 28px;
+}
+
+.af-page-kicker {
+  display: inline-flex;
+  margin-bottom: 8px;
+  color: var(--af-accent-primary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.af-playlists-header h1 {
+  margin: 0;
+  color: var(--af-text-primary);
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+.af-playlists-header p {
+  margin: 8px 0 0;
+  color: var(--af-text-secondary);
+  font-size: 14px;
+}
+
+.af-create-playlist-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 18px;
+  background: var(--af-accent-primary);
+  color: white;
+  border: none;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 12px 26px rgba(29, 185, 84, 0.22);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+}
+
+.af-create-playlist-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 32px rgba(29, 185, 84, 0.3);
+}
+
+.af-playlists-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.af-create-playlist-btn.af-btn-secondary {
+  background: var(--af-bg-surface);
+  color: var(--af-text-primary);
+  box-shadow: none;
+}
+.af-create-playlist-btn.af-btn-secondary:hover {
+  background: var(--af-bg-surface-hover);
+  box-shadow: none;
+}
+.af-create-playlist-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.af-transfer-status {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--af-text-tertiary);
+}
+
+.af-playlist-section {
+  margin-top: 30px;
+}
+
+.af-section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.af-section-heading h2 {
+  margin: 0;
+  color: var(--af-text-primary);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.af-section-heading p {
+  margin: 5px 0 0;
+  color: var(--af-text-secondary);
+  font-size: 13px;
+}
+
+.af-section-count {
+  min-width: 30px;
+  padding: 4px 10px;
+  border: 1px solid var(--af-border-secondary);
+  border-radius: 999px;
+  color: var(--af-text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.af-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.af-quick-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 92px;
+  padding: 18px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--af-border-secondary);
+  border-radius: 20px;
+  color: var(--af-text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.af-quick-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(29, 185, 84, 0.38);
+  background: linear-gradient(135deg, rgba(29, 185, 84, 0.11), rgba(255, 255, 255, 0.025));
+}
+
+.af-liked-card {
+  background: linear-gradient(135deg, rgba(29, 185, 84, 0.92), rgba(20, 145, 76, 0.74));
+  border-color: rgba(255, 255, 255, 0.12);
+  color: white;
+}
+
+.af-liked-card:hover {
+  background: linear-gradient(135deg, rgba(36, 205, 99, 0.96), rgba(20, 145, 76, 0.82));
+}
+
+.af-quick-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.08);
+  color: currentColor;
+}
+
+.af-liked-card .af-quick-icon {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.af-quick-content {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.af-quick-content strong {
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.af-quick-content small {
+  color: currentColor;
+  opacity: 0.72;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.af-playlists-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
+  gap: 18px;
+}
+
+.af-cloud-grid {
+  grid-template-columns: repeat(auto-fill, minmax(152px, 1fr));
+}
+
+.af-playlist-card {
+  position: relative;
+  min-width: 0;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.028);
+  border: 1px solid transparent;
+  border-radius: 18px;
+  color: inherit;
+  text-align: left;
+  transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+}
+
+button.af-playlist-card {
+  width: 100%;
+  border-color: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.af-playlist-card:hover {
+  transform: translateY(-3px);
+  background: rgba(255, 255, 255, 0.055);
+  border-color: var(--af-border-secondary);
+}
+
+.af-cloud-playlist-card:hover {
+  border-color: rgba(29, 185, 84, 0.3);
+}
+
+.af-playlist-cover-wrap,
+.af-playlist-cover {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--af-bg-secondary);
+  cursor: pointer;
+}
+
+.af-playlist-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.af-playlist-cover-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(circle at 28% 24%, rgba(29, 185, 84, 0.32), transparent 34%),
+    linear-gradient(135deg, var(--af-bg-secondary), var(--af-bg-hover));
+  color: var(--af-text-tertiary);
+}
+
+.af-playlist-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.55));
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 12px;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.af-playlist-cover-wrap:hover .af-playlist-overlay {
+  opacity: 1;
+}
+
+.af-play-all-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: var(--af-accent-primary);
+  color: white;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+  transition: transform 0.18s ease;
+}
+
+.af-play-all-btn:hover {
+  transform: scale(1.06);
+}
+
+.af-playlist-info {
+  min-width: 0;
+  padding: 11px 2px 2px;
+  position: relative;
+}
+
+.af-local-playlist-info {
+  padding-right: 34px;
+}
+
+.af-playlist-name {
+  margin: 0 0 5px;
+  color: var(--af-text-primary);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.32;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-playlist-name:hover {
+  color: var(--af-accent-primary);
+}
+
+.af-playlist-count,
+.af-playlist-meta {
+  margin: 0;
+  color: var(--af-text-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-subsection-title {
+  margin: 18px 0 12px;
+  color: var(--af-text-secondary);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.af-inline-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 62px;
+  padding: 16px 18px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px dashed var(--af-border-secondary);
+  border-radius: 18px;
+  color: var(--af-text-secondary);
+  font-size: 14px;
+}
+
+.af-inline-error {
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #ef4444;
+}
+
+.af-local-empty {
+  justify-content: center;
+}
+
+.af-playlist-menu {
+  position: absolute;
+  top: 5px;
+  right: 0;
+}
+
+.af-menu-trigger {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--af-text-secondary);
+  cursor: pointer;
+  border-radius: var(--af-button-radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.12s ease;
+}
+
+.af-menu-trigger:hover {
+  background: var(--af-bg-hover);
+  border-color: var(--af-border-primary);
+  color: var(--af-text-primary);
+}
+
+.af-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  background: var(--af-bg-elevated);
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-md);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+  padding: 8px;
+  min-width: 160px;
+  z-index: 100;
+}
+
+.af-dropdown-menu button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  color: var(--af-text-primary);
+  font-size: 14px;
+  text-align: left;
+  border-radius: var(--af-radius-sm);
+  cursor: pointer;
+  transition: background 0.18s ease;
+}
+
+.af-dropdown-menu button:hover {
+  background: var(--af-bg-hover);
+}
+
+.af-menu-danger {
+  color: #ef4444 !important;
+}
+
+@media (max-width: 980px) {
+  .af-playlists-view {
+    padding: 24px 24px 42px;
+  }
+
+  .af-quick-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .af-playlists-header {
+    flex-direction: column;
+  }
+
+  .af-create-playlist-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* 对话框 */
+.af-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: af-fade-in 0.2s;
+}
+
+.af-dialog {
+  background: var(--af-bg-elevated);
+  border-radius: var(--af-radius-xl);
+  padding: 32px;
+  min-width: 500px;
+  max-width: 90vw;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  animation: af-slide-up 0.3s;
+}
+
+.af-dialog h2 {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--af-text-primary);
+  margin-bottom: 24px;
+}
+
+.af-dialog-body {
+  margin-bottom: 24px;
+}
+
+.af-form-group {
+  margin-bottom: 20px;
+}
+
+.af-form-group label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--af-text-primary);
+  margin-bottom: 8px;
+}
+
+.af-form-group input,
+.af-form-group textarea {
+  width: 100%;
+  padding: 12px;
+  font-size: 15px;
+  border: 2px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-md);
+  background: var(--af-bg-surface);
+  color: var(--af-text-primary);
+  transition: border-color 0.2s;
+}
+
+.af-form-group input:focus,
+.af-form-group textarea:focus {
+  outline: none;
+  border-color: var(--af-accent-primary);
+}
+
+.af-form-group textarea {
+  resize: vertical;
+  font-family: inherit;
+}
+
+.af-dialog-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.af-btn-primary,
+.af-btn-secondary {
+  min-height: 36px;
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: var(--af-button-radius);
+  cursor: pointer;
+  transition: transform 0.2s, opacity 0.2s, background 0.2s, border-color 0.2s, box-shadow 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.af-btn-primary > svg,
+.af-btn-secondary > svg {
+  flex: 0 0 auto;
+}
+
+.af-btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.af-btn-primary {
+  border: 1px solid rgba(var(--af-accent-primary-rgb), 0.42);
+  background: linear-gradient(180deg, rgba(var(--af-accent-primary-rgb), 0.95), rgba(var(--af-accent-primary-rgb), 0.82));
+  color: var(--af-text-on-accent);
+  box-shadow: 0 8px 18px rgba(var(--af-accent-primary-rgb), 0.2);
+}
+
+.af-btn-primary:hover:not(:disabled) {
+  background: var(--af-accent-gradient-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(var(--af-accent-primary-rgb), 0.24);
+}
+
+.af-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.af-btn-secondary {
+  border: 1px solid var(--af-border-primary);
+  background: var(--af-bg-surface);
+  color: var(--af-text-primary);
+}
+
+.af-btn-secondary:hover {
+  border-color: rgba(var(--af-accent-primary-rgb), 0.35);
+  background: var(--af-bg-surface-hover);
+  transform: translateY(-1px);
+}
+
+/* 歌单详情页 */
+.af-playlist-detail-view {
+  padding: 32px 48px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.af-playlist-detail-header {
+  margin-bottom: 32px;
+}
+
+.af-back-btn {
+  padding: 10px;
+  background: var(--af-bg-hover);
+  border: none;
+  border-radius: var(--af-radius-sm);
+  color: var(--af-text-primary);
+  cursor: pointer;
+  margin-bottom: 24px;
+  transition: background 0.2s;
+}
+
+.af-back-btn:hover {
+  background: var(--af-bg-secondary);
+}
+
+.af-playlist-detail-info {
+  display: flex;
+  gap: 32px;
+  align-items: flex-start;
+}
+
+.af-playlist-detail-meta {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.af-playlist-detail-cover {
+  width: 240px;
+  height: 240px;
+  border-radius: var(--af-radius-xl);
+  overflow: hidden;
+  background: var(--af-bg-secondary);
+  flex-shrink: 0;
+}
+
+.af-playlist-detail-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.af-playlist-detail-cover .af-cover-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 64px;
+  color: var(--af-text-tertiary);
+  background: linear-gradient(135deg, var(--af-bg-secondary), var(--af-bg-hover));
+}
+
+.af-playlist-detail-meta h1 {
+  font-size: 36px;
+  font-weight: 700;
+  color: var(--af-text-primary);
+  margin-bottom: 12px;
+}
+
+.af-playlist-description {
+  font-size: 15px;
+  color: var(--af-text-secondary);
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+
+.af-playlist-stats {
+  font-size: 14px;
+  color: var(--af-text-secondary);
+  margin-bottom: 24px;
+}
+
+.af-playlist-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.af-playlist-action-status {
+  margin: -18px 0 20px;
+  color: var(--af-text-tertiary);
+  font-size: var(--af-font-size-sm);
+}
+
+/* 歌曲列表 */
+.af-playlist-songs {
+  margin-top: 32px;
+}
+
+.af-song-list-header {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 2fr) minmax(0, 1.2fr) minmax(0, 1.2fr) 64px 140px;
+  gap: 16px;
+  padding: 12px 24px 12px 16px;
+  border-bottom: 1px solid var(--af-border-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--af-text-secondary);
+  text-transform: uppercase;
+}
+
+.af-song-list-body {
+  margin-top: 8px;
+}
+
+.af-song-list-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 2fr) minmax(0, 1.2fr) minmax(0, 1.2fr) 64px 140px;
+  gap: 16px;
+  padding: 10px 24px 10px 16px;
+  border-radius: var(--af-radius-md);
+  cursor: pointer;
+  transition: background 0.2s;
+  align-items: center;
+  position: relative;
+}
+
+.af-song-list-row.af-menu-open {
+  z-index: 50;
+}
+
+.af-song-list-row:hover {
+  background: var(--af-bg-hover);
+}
+
+.af-col-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.af-song-cover {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--af-radius-sm);
+  overflow: hidden;
+  background: var(--af-bg-secondary);
+  flex-shrink: 0;
+}
+
+.af-song-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.af-song-cover .af-cover-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: var(--af-text-tertiary);
+}
+
+.af-col-title span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--af-text-primary);
+}
+
+.af-col-artist,
+.af-col-album,
+.af-col-duration {
+  font-size: 13px;
+  color: var(--af-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-col-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  position: relative;
+  min-width: 0;
+  overflow: visible;
+  z-index: 10;
+}
+
+.af-action-btn.af-liked {
+  color: var(--af-accent-primary);
+}
+
+.af-action-btn-disabled {
+  opacity: 0.55;
+}
+
+.af-song-action-menu-wrap {
+  position: relative;
+}
+
+.af-song-action-menu {
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 180px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.af-song-action-empty {
+  padding: 10px 12px;
+  color: var(--af-text-secondary);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+@keyframes af-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes af-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── 歌单详情虚拟列表 ── */
+/* 让 VirtualList 填满外层 .af-content-scroll 的剩余高度，避免双重滚动 */
+.af-playlist-detail-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.af-playlist-songs {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 320px;
+}
+.af-song-list-virtual {
+  flex: 1;
+}
+.af-song-list-virtual .af-song-list-row {
+  height: 60px;
+  padding: 8px 24px 8px 16px;
+}
+.af-song-action-portal {
+  min-width: 180px;
+}
