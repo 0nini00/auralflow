@@ -1,95 +1,112 @@
-# AuralFlow Desktop
+# AuralFlow
 
-基于 **Tauri v2 + React + TypeScript + Vite** 的多源桌面音乐播放器。
+AuralFlow 是一个基于 **Tauri v2 + React + TypeScript + Rust** 的 Windows 桌面音乐播放器，面向日常听歌、歌单管理、本地音乐整理和桌面歌词使用场景。
 
-## 前置依赖
+## 功能特性
 
-1. **Node.js** >= 20
-2. **npm** >= 10
-3. **Rust** 工具链（Tauri 需要）
-   - 安装：https://www.rust-lang.org/tools/install
-   - 安装后确保 `cargo` 在 PATH 中
-4. **平台相关依赖**（Windows 通常已内置；Linux/macOS 见 Tauri 文档）
-   - https://v2.tauri.app/start/prerequisites/
+- 多音源搜索与播放：支持网易云、QQ 音乐等来源的歌曲搜索、播放链接解析和歌词获取。
+- 网易云账号能力：支持 Cookie 登录、用户歌单、喜欢列表、每日推荐和私人 FM。
+- 播放器体验：播放队列、播放历史、最近播放、喜欢歌曲、本地歌单、网易云自建歌单添加。
+- 桌面歌词：独立透明桌面歌词窗口，支持置顶、锁定、悬停解锁、样式调整、位置和尺寸记忆。
+- 歌词与评论：支持歌词展示、译文、全屏播放页歌词滚动和歌曲评论。
+- 本地音乐：扫描本地音乐、读取音频信息、编辑元数据、写入封面和歌词。
+- 下载与增强：下载歌曲，并可保存歌词、封面等关联内容。
+- 音效控制：均衡器、空间/混响、变调等播放效果。
+- 分享链接：可复制当前歌曲的网易云或 QQ 音乐链接。
+- 数据与同步：本地数据持久化，支持 WebDAV 同步配置。
+- Windows 安装包：Tauri MSI 打包，生成可安装的桌面应用。
 
-## 安装依赖
+## 技术栈
+
+- 前端：React 18、TypeScript、Vite、Zustand、lucide-react
+- 桌面端：Tauri v2、Rust、Tokio
+- 网络与加密：reqwest、crypto-js、node-forge、AES/EAPI/WEAPI 相关实现
+- 包管理：pnpm workspace
+
+## 开发环境
+
+需要安装：
+
+- Node.js 20+
+- pnpm
+- Rust 工具链
+- Tauri v2 所需平台依赖
+
+安装依赖：
 
 ```bash
-cd auralflow
 pnpm install
 ```
 
-> 你也可以用 `npm install`，但项目使用 pnpm workspace 管理本地包，推荐优先使用 pnpm。
-
-## 运行开发版本
+启动开发环境：
 
 ```bash
 pnpm tauri:dev
 ```
 
-这会同时启动 Vite 前端（端口 1420）和 Tauri 桌面窗口。
+## 构建
 
-## 构建生产版本
-
-默认 `tauri.conf.json` 中 `bundle.active` 为 `false`，方便先验证前端构建。
+前端构建：
 
 ```bash
 pnpm run build
 ```
 
-如果你想生成 Windows 安装包，需要先在 `src-tauri/icons/` 放入图标，然后把 `tauri.conf.json` 里的 `bundle.active` 改成 `true`，再运行：
+生成 Windows MSI 安装包：
 
 ```bash
-npm run tauri:build
+pnpm tauri build
 ```
 
-生成图标命令：
+安装包输出目录：
 
-```bash
-pnpm tauri icon path/to/source-icon.png
+```text
+src-tauri/target/release/bundle/msi/
 ```
 
 ## 项目结构
 
-```
+```text
 auralflow/
-├── src/                          # React 前端
-│   ├── main.tsx                  # 入口
-│   ├── App.tsx                   # 示例页面
-│   ├── index.css                 # 全局样式
-│   ├── services/                 # 业务逻辑 / 音源 provider
-│   ├── stores/                   # Zustand 状态
-│   ├── views/                    # 页面级组件
-│   ├── components/               # 可复用 UI
-│   └── lib/                      # Tauri 薄封装和工具
-├── src-tauri/                    # Tauri Rust 后端
-│   ├── src/
-│   │   └── main.rs               # Rust 入口 / commands
-│   ├── capabilities/
-│   │   └── default.json          # 权限声明
-│   ├── icons/                    # 应用图标（需自行添加）
-│   ├── Cargo.toml
-│   ├── tauri.conf.json
-│   └── build.rs
-├── package.json
-├── tsconfig.json
-├── vite.config.ts
-└── index.html
+├── src/                    # React 前端
+│   ├── components/         # 通用组件
+│   ├── hooks/              # React hooks
+│   ├── services/           # 音源、播放、下载、同步等服务
+│   ├── stores/             # Zustand 状态管理
+│   ├── styles/             # 全局样式
+│   ├── utils/              # 工具函数
+│   └── views/              # 页面视图
+├── src-tauri/              # Tauri / Rust 后端
+│   ├── src/                # Tauri commands、配置、桌面歌词窗口等
+│   ├── capabilities/       # Tauri 权限配置
+│   └── tauri.conf.json     # Tauri 应用和打包配置
+├── packages/               # workspace 内部包
+├── scripts/                # 回归测试脚本
+└── docs/                   # 设计和重构文档
 ```
 
-## 当前状态
+## 常用命令
 
-这是一个**可运行的最小骨架**，包含：
+```bash
+pnpm run typecheck
+pnpm run test:desktop-lyric
+pnpm run test:personal-fm
+pnpm run test:recent-played
+pnpm run test:share-link
+pnpm tauri build
+```
 
-- Vite + React + TypeScript 前端
-- Tauri v2 Rust 后端
-- 一个示例 `greet` 命令，演示前后端通信
-- 业务分层目录和说明文档
+## 远端仓库
 
-接下来需要逐步迁移：
+```bash
+git clone https://github.com/0nini00/auralflow.git
+```
 
-1. `services/sources/wyProvider.ts` 接入网易云搜索/播放/歌词/歌单
-2. `services/playerEngine.ts` 实现播放引擎
-3. `stores/` 补齐播放、队列、设置、下载状态
-4. `views/` + `components/` 搭建新 UI
-5. `src-tauri/src/commands/` 添加文件系统、SQLite、下载等 Rust 命令
+后续修改建议从云端同步：
+
+```bash
+git pull
+git add -A
+git commit -m "Update AuralFlow"
+git push
+```
