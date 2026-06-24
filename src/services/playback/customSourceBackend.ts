@@ -39,37 +39,65 @@ export const customSourceBackend: PlaybackBackend = {
     const trace: PlaybackAttempt[] = [];
     let lastError: unknown;
 
-    for (const api of customSources) {
-      for (const music of variants) {
-        for (const quality of qualities) {
+    for (const music of variants) {
+      for (const quality of qualities) {
+        const attempts = customSources.map(async (api) => {
           try {
             const result = await requestCustomSourceMusicUrl(api, music, quality);
+            return {
+              ok: true as const,
+              api,
+              music,
+              quality: result.quality,
+              url: result.url,
+            };
+          } catch (error) {
+            return {
+              ok: false as const,
+              api,
+              music,
+              quality,
+              error,
+            };
+          }
+        });
+
+        const pending = new Set(attempts);
+        while (pending.size > 0) {
+          const settled = await Promise.race(
+            Array.from(pending, (attempt) =>
+              attempt.then((value) => ({ attempt, value })),
+            ),
+          );
+          pending.delete(settled.attempt);
+
+          if (settled.value.ok) {
             trace.push({
               backend: 'customSource',
-              resolverName: api.name,
-              source: music.source,
-              quality: result.quality,
+              resolverName: settled.value.api.name,
+              source: settled.value.music.source,
+              quality: settled.value.quality,
               status: 'success',
             });
             return {
-              url: result.url,
-              music,
-              quality: result.quality,
+              url: settled.value.url,
+              music: settled.value.music,
+              quality: settled.value.quality,
               backend: 'customSource',
-              resolverName: api.name,
+              resolverName: settled.value.api.name,
               trace,
             };
-          } catch (error) {
-            lastError = error;
-            trace.push({
-              backend: 'customSource',
-              resolverName: api.name,
-              source: music.source,
-              quality,
-              status: 'failed',
-              error: compactError(error),
-            });
           }
+
+          lastError = settled.value.error;
+          trace.push({
+            backend: 'customSource',
+            resolverName: settled.value.api.name,
+            source: settled.value.music.source,
+            quality: settled.value.quality,
+            status: 'failed',
+            error: compactError(settled.value.error),
+          });
         }
       }
     }

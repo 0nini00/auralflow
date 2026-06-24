@@ -6,6 +6,7 @@ import { SongAddMenuButton } from '@/components/SongAddMenuButton';
 import { listen } from '@tauri-apps/api/event';
 import { subscribeLyricSettings } from '@/stores/lyricSettingsSync';
 import { toggleDesktopLyricFromPlayer } from '@/utils/desktopLyricToggle';
+import { logAsyncError } from '@/utils/logAsyncError';
 import {
   Play,
   Pause,
@@ -54,8 +55,10 @@ export const PlayerBar: React.FC = () => {
   const [lyricLocked, setLyricLocked] = useState(false);
 
   useEffect(() => {
-    void isLyricWindowOpen().then(setLyricOpen).catch(() => {});
-    void getLyricWindowState().then((state) => setLyricLocked(state.locked)).catch(() => {});
+    void isLyricWindowOpen().then(setLyricOpen).catch(logAsyncError('player-bar:query-lyric-open'));
+    void getLyricWindowState()
+      .then((state) => setLyricLocked(state.locked))
+      .catch(logAsyncError('player-bar:query-lyric-state'));
     const unlistenPromise = listen<{ open: boolean }>('lyric-window-open-changed', (event) => {
       setLyricOpen(event.payload.open);
     });
@@ -65,7 +68,7 @@ export const PlayerBar: React.FC = () => {
       }
     });
     return () => {
-      void unlistenPromise.then((unlisten) => unlisten()).catch(() => {});
+      void unlistenPromise.then((unlisten) => unlisten()).catch(logAsyncError('player-bar:unlisten-lyric-window'));
       unsubscribeLyricSettings();
     };
   }, []);
@@ -108,7 +111,7 @@ export const PlayerBar: React.FC = () => {
       setLyricOpen(result.open);
       setLyricLocked(result.locked);
       window.setTimeout(() => {
-        void isLyricWindowOpen().then(setLyricOpen).catch(() => {});
+        void isLyricWindowOpen().then(setLyricOpen).catch(logAsyncError('player-bar:refresh-lyric-open'));
       }, 120);
     } catch (error) {
       console.error('[desktop lyric] toggle failed', error);

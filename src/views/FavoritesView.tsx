@@ -1,4 +1,5 @@
 import { Play, Heart, Trash2 } from "lucide-react";
+import { useState } from "react";
 import { useFavoritesStore } from "@/stores/favoritesStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import { IconButton } from "@/components/IconButton";
@@ -6,15 +7,29 @@ import { SectionHeader } from "@/components/SectionHeader";
 import { DownloadQualityButton } from "@/components/DownloadQualityButton";
 import { formatDuration } from "@/lib/utils";
 
+type PendingPlayAction = 'play-all' | `track:${number}` | null;
+
 export function FavoritesView() {
   const favorites = useFavoritesStore((s) => s.favorites);
   const removeFavorite = useFavoritesStore((s) => s.removeFavorite);
   const clearFavorites = useFavoritesStore((s) => s.clearFavorites);
   const playQueue = usePlayerStore((s) => s.playQueue);
+  const [pendingPlayAction, setPendingPlayAction] = useState<PendingPlayAction>(null);
+  const isPlayAllPending = pendingPlayAction === 'play-all';
+
+  const runPlayQueueAction = async (action: Exclude<PendingPlayAction, null>, queueToPlay: typeof favorites, startIndex = 0) => {
+    if (pendingPlayAction) return;
+    setPendingPlayAction(action);
+    try {
+      await playQueue(queueToPlay, startIndex);
+    } finally {
+      setPendingPlayAction(null);
+    }
+  };
 
   function handlePlayAll() {
     if (favorites.length > 0) {
-      playQueue(favorites, 0);
+      runPlayQueueAction('play-all', favorites, 0);
     }
   }
 
@@ -44,7 +59,7 @@ export function FavoritesView() {
         action={
           <div style={{ display: "flex", gap: "8px" }}>
             <button className="af-section-action" onClick={handlePlayAll}>
-              播放全部
+              {isPlayAllPending ? '加载中…' : '播放全部'}
             </button>
             <button
               className="af-section-action"
@@ -95,7 +110,7 @@ export function FavoritesView() {
                 icon={Play}
                 ariaLabel="播放"
                 size="sm"
-                onClick={(e) => { e.stopPropagation(); playQueue(favorites, index); }}
+                onClick={(e) => { e.stopPropagation(); runPlayQueueAction(`track:${index}`, favorites, index); }}
               />
               <DownloadQualityButton
                 song={track}

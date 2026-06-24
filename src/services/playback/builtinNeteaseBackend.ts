@@ -3,6 +3,7 @@ import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import type { PlaybackAttempt, PlaybackBackend, PlaybackRequest, PlaybackResolvedUrl } from './types';
 
 const API_BASE = 'https://music-api.gdstudio.xyz/api.php';
+const BROWSER_FETCH_TIMEOUT_MS = 1200;
 
 const QUALITY_BR_MAP: Record<string, string[]> = {
   flac: ['740', '320', '128'],
@@ -46,26 +47,46 @@ function pickAudioUrl(data: unknown): string | null {
 
 async function fetchBuiltinApi(url: string): Promise<string> {
   try {
-    const resp = await window.fetch(url, {
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const browserFetchPromise = window.fetch(url, {
       headers: {
         Accept: 'application/json,text/plain,*/*',
       },
+      signal: controller?.signal,
     });
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        controller?.abort();
+        reject(new Error(`请求超时（>${BROWSER_FETCH_TIMEOUT_MS}ms）`));
+      }, BROWSER_FETCH_TIMEOUT_MS);
+    });
+    const resp = await Promise.race([browserFetchPromise, timeoutPromise]);
+    if (timeoutId) clearTimeout(timeoutId);
     const text = await resp.text();
     if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${text.slice(0, 240)}`);
     return text;
   } catch (browserError) {
-    const resp = await tauriFetch(url, {
-      headers: {
-        Accept: 'application/json,text/plain,*/*',
-      },
-    });
-    const text = await resp.text();
-    if (!resp.ok) {
-      const firstError = browserError instanceof Error ? browserError.message : String(browserError);
-      throw new Error(`浏览器 fetch 失败：${firstError}\nTauri fetch 失败：HTTP ${resp.status}: ${text.slice(0, 240)}`);
+    const firstError = browserError instanceof Error
+      ? browserError.name === 'AbortError'
+        ? `请求超时（>${BROWSER_FETCH_TIMEOUT_MS}ms）`
+        : browserError.message
+      : String(browserError);
+    try {
+      const resp = await tauriFetch(url, {
+        headers: {
+          Accept: 'application/json,text/plain,*/*',
+        },
+      });
+      const text = await resp.text();
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status}: ${text.slice(0, 240)}`);
+      }
+      return text;
+    } catch (tauriError) {
+      const secondError = tauriError instanceof Error ? tauriError.message : String(tauriError);
+      throw new Error(`浏览器 fetch 失败：${firstError}\nTauri fetch 抛出异常：${secondError}`);
     }
-    return text;
   }
 }
 

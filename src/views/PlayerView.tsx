@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { usePlayerStore, RepeatMode } from '@/stores/playerStore';
 import { SongAddMenuButton } from '@/components/SongAddMenuButton';
 import { SoundEffectPanel } from '@/components/SoundEffectPanel';
+import { PlayerVisualizerRenderer } from '@/components/playerVisualizers/PlayerVisualizerRenderer';
 import { useSoundEffectStore } from '@/stores/soundEffectStore';
 import {
   Play,
@@ -18,6 +19,7 @@ import {
   ListMusic,
   Share2,
   Gauge,
+  Languages,
   SlidersHorizontal,
   MessageCircle,
   ThumbsUp,
@@ -28,8 +30,9 @@ import { useLyrics } from '@/hooks/useLyrics';
 import { useLyricAutoScroll } from '@/hooks/useLyricAutoScroll';
 import { buildMusicShareText } from '@/utils/shareLink';
 import { toggleDesktopLyricFromPlayer } from '@/utils/desktopLyricToggle';
-import { subscribeLyricSettings } from '@/stores/lyricSettingsSync';
-import { getLyricWindowState, isLyricWindowOpen } from '@lx/tauri-bridge';
+import { logAsyncError } from '@/utils/logAsyncError';
+import { broadcastLyricSettings, subscribeLyricSettings } from '@/stores/lyricSettingsSync';
+import { getLyricWindowState, isLyricWindowOpen, loadSettings, patchSettings } from '@lx/tauri-bridge';
 import { listen } from '@tauri-apps/api/event';
 
 export function PlayerView() {
@@ -44,30 +47,52 @@ export function PlayerView() {
   const [shareStatus, setShareStatus] = useState('');
   const [desktopLyricOpen, setDesktopLyricOpen] = useState(false);
   const [desktopLyricLocked, setDesktopLyricLocked] = useState(false);
+  const [showTranslation, setShowTranslation] = useState(true);
 
   const {
+
     current: currentTrack,
+
     queue,
+
     currentIndex,
+
     status,
+
     progress: currentTime,
+
     duration,
+
     volume,
+
     isMuted,
+
     playbackRate,
+
     repeatMode,
+
     isShuffle,
-    pause,
-    resume,
+
+    togglePlay,
+
     setVolume,
+
     toggleMute,
+
     setPlaybackRate,
+
     next,
+
     prev,
+
     setRepeatMode,
+
     toggleShuffle,
+
     setProgress,
+
     playByIndex,
+
   } = usePlayerStore();
 
   const isPlaying = status === 'playing';
@@ -90,8 +115,13 @@ export function PlayerView() {
   });
 
   useEffect(() => {
-    void isLyricWindowOpen().then(setDesktopLyricOpen).catch(() => {});
-    void getLyricWindowState().then((state) => setDesktopLyricLocked(state.locked)).catch(() => {});
+    void loadSettings()
+      .then((settings) => setShowTranslation(settings.lyricShowTranslation !== false))
+      .catch(logAsyncError('player-view:load-lyric-settings'));
+    void isLyricWindowOpen().then(setDesktopLyricOpen).catch(logAsyncError('player-view:query-lyric-open'));
+    void getLyricWindowState()
+      .then((state) => setDesktopLyricLocked(state.locked))
+      .catch(logAsyncError('player-view:query-lyric-state'));
     const unlistenPromise = listen<{ open: boolean }>('lyric-window-open-changed', (event) => {
       setDesktopLyricOpen(event.payload.open);
     });
@@ -99,9 +129,12 @@ export function PlayerView() {
       if (typeof patch.lyricLocked === 'boolean') {
         setDesktopLyricLocked(patch.lyricLocked);
       }
+      if (typeof patch.lyricShowTranslation === 'boolean') {
+        setShowTranslation(patch.lyricShowTranslation);
+      }
     });
     return () => {
-      void unlistenPromise.then((unlisten) => unlisten()).catch(() => {});
+      void unlistenPromise.then((unlisten) => unlisten()).catch(logAsyncError('player-view:unlisten-lyric-window'));
       unsubscribeLyricSettings();
     };
   }, []);
@@ -134,12 +167,8 @@ export function PlayerView() {
     }
   };
 
-  const handleTrackPlay = () => {
-    if (isPlaying) {
-      pause();
-    } else {
-      resume();
-    }
+  const handleTrackPlay = () => {
+    togglePlay();
   };
 
   const handleRepeatToggle = () => {
@@ -183,7 +212,7 @@ export function PlayerView() {
         setDesktopLyricLocked(result.locked);
         setShareStatus(result.message);
         window.setTimeout(() => {
-          void isLyricWindowOpen().then(setDesktopLyricOpen).catch(() => {});
+          void isLyricWindowOpen().then(setDesktopLyricOpen).catch(logAsyncError('player-view:refresh-lyric-open'));
         }, 120);
         window.setTimeout(() => setShareStatus(''), 1600);
       })
@@ -192,6 +221,18 @@ export function PlayerView() {
         setShareStatus(`桌面歌词失败：${error instanceof Error ? error.message : String(error)}`);
         window.setTimeout(() => setShareStatus(''), 3200);
       });
+  };
+
+  const handleTranslationToggle = () => {
+    const next = !showTranslation;
+    setShowTranslation(next);
+    broadcastLyricSettings({ lyricShowTranslation: next });
+    patchSettings({ lyricShowTranslation: next }).catch((error) => {
+      setShowTranslation(!next);
+      broadcastLyricSettings({ lyricShowTranslation: !next });
+      setShareStatus(`译文设置失败：${error instanceof Error ? error.message : String(error)}`);
+      window.setTimeout(() => setShareStatus(''), 2600);
+    });
   };
 
   const handleShare = async () => {
@@ -297,29 +338,28 @@ export function PlayerView() {
               <MessageCircle size={18} />
               <span>评论</span>
             </button>
+            <button
+              type="button"
+              className={`af-lyrics-translation-toggle ${showTranslation ? 'af-active' : ''}`}
+              onClick={handleTranslationToggle}
+              title={showTranslation ? '隐藏歌词译文' : '显示歌词译文'}
+              aria-label={showTranslation ? '隐藏歌词译文' : '显示歌词译文'}
+              aria-pressed={showTranslation}
+            >
+              <Languages size={17} />
+              <span>译文</span>
+            </button>
           </div>
 
           {activeTab === 'lyrics' ? (
-            <div className="af-lyrics-viewport" ref={lyricsViewportRef} onWheel={handleLyricsWheel}>
-              {lyrics.length === 0 ? (
-                <div className="af-lyrics-empty">暂无歌词</div>
-              ) : (
-                <div className="af-lyrics-track">
-                  {lyrics.map((line, index) => {
-                    const displayText = line.text || line.words?.map((word) => word.text).join('') || ' ';
-                    return (
-                      <div
-                        key={index}
-                        ref={lyricLineRef(index)}
-                        className={`af-lyric-line ${index === currentLyricIndex ? 'af-current' : ''}`}
-                      >
-                        {displayText}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            <PlayerVisualizerRenderer
+              lyrics={lyrics}
+              currentLyricIndex={currentLyricIndex}
+              showTranslation={showTranslation}
+              lyricsViewportRef={lyricsViewportRef}
+              handleLyricsWheel={handleLyricsWheel}
+              lyricLineRef={lyricLineRef}
+            />
           ) : activeTab === 'playlist' ? (
             <div className="af-queue-list">
               {queue.map((track, index) => (
@@ -575,6 +615,8 @@ export function PlayerView() {
         .af-player-view {
           position: fixed;
           inset: 0;
+          --af-lyric-font-stack: "Inter", "Noto Sans CJK SC", "Noto Sans JP", "Source Han Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+          --af-lyric-translation-font-stack: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Helvetica Neue", Arial, "Noto Sans CJK SC", "Source Han Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans JP", "Source Han Sans JP", "Hiragino Sans", "Yu Gothic", Meiryo, sans-serif;
           background: var(--af-bg-base);
           display: flex;
           flex-direction: column;
@@ -747,6 +789,36 @@ export function PlayerView() {
           color: var(--af-accent-primary);
         }
 
+        .af-lyrics-translation-toggle {
+          height: 40px;
+          min-width: 78px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          padding: 8px 12px;
+          border: 1px solid var(--af-border-secondary);
+          border-radius: var(--af-button-radius);
+          background: var(--af-bg-surface);
+          color: var(--af-text-secondary);
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all var(--af-transition-fast);
+        }
+
+        .af-lyrics-translation-toggle:hover {
+          border-color: var(--af-border-primary);
+          background: var(--af-bg-surface-hover);
+          color: var(--af-text-primary);
+        }
+
+        .af-lyrics-translation-toggle.af-active {
+          border-color: rgba(var(--af-accent-primary-rgb), 0.32);
+          background: rgba(var(--af-accent-primary-rgb), 0.12);
+          color: var(--af-accent-primary);
+        }
+
         .af-lyrics-viewport {
           flex: 1;
           overflow-y: auto;
@@ -783,24 +855,61 @@ export function PlayerView() {
         }
 
         .af-lyric-line {
-          min-height: 38px;
+          min-height: 54px;
           display: flex;
+          flex-direction: column;
           align-items: center;
           justify-content: center;
           text-align: center;
-          font-size: 16px;
-          line-height: 1.7;
+          gap: 4px;
           color: var(--af-text-tertiary);
-          transition: color 0.22s ease, font-size 0.22s ease, opacity 0.22s ease;
-          opacity: 0.62;
-          padding: 2px 0;
+          transition: color 0.22s ease, opacity 0.22s ease, transform 0.22s ease;
+          opacity: 0.52;
+          padding: 8px 0;
+          font-family: var(--af-lyric-font-stack);
+          letter-spacing: 0;
         }
 
         .af-lyric-line.af-current {
-          font-size: 22px;
-          font-weight: 700;
           color: var(--af-accent-primary);
           opacity: 1;
+          transform: translateY(-1px);
+        }
+
+        .af-lyric-primary,
+        .af-lyric-translation {
+          display: block;
+          max-width: min(100%, 640px);
+          overflow-wrap: anywhere;
+        }
+
+        .af-lyric-primary {
+          font-size: 16px;
+          line-height: 1.48;
+          font-weight: 500;
+        }
+
+        .af-lyric-translation {
+          font-family: var(--af-lyric-translation-font-stack);
+          font-size: 13px;
+          line-height: 1.42;
+          font-weight: 500;
+          color: var(--af-text-tertiary);
+          opacity: 0.82;
+        }
+
+        .af-lyric-line.af-current .af-lyric-primary {
+          font-size: 24px;
+          line-height: 1.34;
+          font-weight: 600;
+          color: var(--af-accent-primary);
+        }
+
+        .af-lyric-line.af-current .af-lyric-translation {
+          font-size: 15px;
+          line-height: 1.42;
+          color: var(--af-text-secondary);
+          opacity: 0.9;
         }
 
         .af-queue-list {

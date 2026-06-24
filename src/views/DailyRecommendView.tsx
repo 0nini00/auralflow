@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDiscoveryStore } from '@/stores/discoveryStore';
 import { useWyAccountStore } from '@/stores/wyAccountStore';
@@ -7,6 +8,8 @@ import { SongAddMenuButton } from '@/components/SongAddMenuButton';
 import { DownloadQualityButton } from '@/components/DownloadQualityButton';
 import { formatDuration } from '@/lib/utils';
 import { Calendar, Play, Shuffle, RefreshCw, Clock, Loader2 } from 'lucide-react';
+
+type PendingPlayAction = 'play-all' | 'shuffle' | `track:${number}` | null;
 
 function fisherYatesShuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -29,6 +32,19 @@ export function DailyRecommendView() {
   const refreshDaily = useDiscoveryStore((s) => s.refreshDaily);
 
   const playQueue = usePlayerStore((s) => s.playQueue);
+  const [pendingPlayAction, setPendingPlayAction] = useState<PendingPlayAction>(null);
+  const isPlayAllPending = pendingPlayAction === 'play-all';
+  const isShufflePending = pendingPlayAction === 'shuffle';
+
+  const runPlayQueueAction = async (action: Exclude<PendingPlayAction, null>, queueToPlay: typeof daily, startIndex = 0) => {
+    if (pendingPlayAction) return;
+    setPendingPlayAction(action);
+    try {
+      await playQueue(queueToPlay as any, startIndex);
+    } finally {
+      setPendingPlayAction(null);
+    }
+  };
 
   useEffect(() => {
     if (account) loadDaily();
@@ -86,19 +102,19 @@ export function DailyRecommendView() {
             <div className="af-playlist-actions">
               <button
                 className="af-btn-primary"
-                onClick={() => daily.length > 0 && playQueue(daily as any, 0)}
-                disabled={daily.length === 0 || dailyLoading}
+                onClick={() => daily.length > 0 && runPlayQueueAction('play-all', daily, 0)}
+                disabled={daily.length === 0 || dailyLoading || isPlayAllPending}
               >
-                <Play size={16} fill="currentColor" />
-                <span>播放全部</span>
+                {isPlayAllPending ? <Loader2 size={16} className="af-spin" /> : <Play size={16} fill="currentColor" />}
+                <span>{isPlayAllPending ? '加载中' : '播放全部'}</span>
               </button>
               <button
                 className="af-btn-secondary"
-                onClick={() => daily.length > 0 && playQueue(fisherYatesShuffle(daily as any), 0)}
-                disabled={daily.length === 0 || dailyLoading}
+                onClick={() => daily.length > 0 && runPlayQueueAction('shuffle', fisherYatesShuffle(daily as any), 0)}
+                disabled={daily.length === 0 || dailyLoading || isShufflePending}
               >
-                <Shuffle size={16} />
-                <span>随机播放</span>
+                {isShufflePending ? <Loader2 size={16} className="af-spin" /> : <Shuffle size={16} />}
+                <span>{isShufflePending ? '加载中' : '随机播放'}</span>
               </button>
               <button
                 className="af-btn-secondary"
@@ -167,10 +183,11 @@ export function DailyRecommendView() {
                 <div className="af-col-actions" onClick={(e) => e.stopPropagation()}>
                   <button
                     className="af-action-btn"
-                    onClick={() => playQueue(daily as any, index)}
+                    onClick={() => runPlayQueueAction(`track:${index}`, daily, index)}
+                    disabled={pendingPlayAction === `track:${index}`}
                     title="播放"
                   >
-                    <Play size={14} fill="currentColor" />
+                    {pendingPlayAction === `track:${index}` ? <Loader2 size={14} className="af-spin" /> : <Play size={14} fill="currentColor" />}
                   </button>
                   <SongAddMenuButton
                     song={song as any}

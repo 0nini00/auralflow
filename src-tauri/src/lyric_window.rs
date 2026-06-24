@@ -535,7 +535,7 @@ fn clear_always_on_top_loop() {
     ALWAYS_ON_TOP_LOOP_RUNNING.store(false, Ordering::SeqCst);
 }
 
-fn lyric_webview_url(_hash: &str) -> Result<WebviewUrl, String> {
+fn lyric_webview_url(hash: &str) -> Result<WebviewUrl, String> {
     #[cfg(debug_assertions)]
     {
         let url = format!("http://localhost:1420/{}", hash)
@@ -546,6 +546,7 @@ fn lyric_webview_url(_hash: &str) -> Result<WebviewUrl, String> {
 
     #[cfg(not(debug_assertions))]
     {
+        let _ = hash;
         Ok(WebviewUrl::App("index.html".into()))
     }
 }

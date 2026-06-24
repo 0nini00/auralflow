@@ -42,8 +42,6 @@
 | `@tauri-apps/api` | ^2.0.0 | Tauri 前端 API |
 | `@lx/core` | workspace:* | 音源抽象层 |
 | `@lx/tauri-bridge` | workspace:* | IPC 类型封装 |
-| `@lx/ui` | workspace:* | 共享 UI（待开发） |
-| `@lx/i18n` | workspace:* | 国际化（待开发） |
 
 **Rust 依赖（后端核心）：**
 
@@ -92,8 +90,6 @@ auralflow/
 │   │           └── index.ts
 │   ├── tauri-bridge/            # @lx/tauri-bridge — IPC 类型安全封装
 │   │   └── src/index.ts          # ~30 个 invoke 函数 + Rust 模型类型
-│   ├── ui/                       # @lx/ui — 共享 UI 组件（待开发）
-│   └── i18n/                     # @lx/i18n — 国际化（待开发）
 │
 ├── 📂 src/                       # ── React 前端源码 ──
 │   ├── main.tsx                  # 入口
@@ -319,8 +315,6 @@ auralflow/
 |------|------|------|------|
 | `packages/core` | `@lx/core` | ✅ 已实现 | 音源抽象：`MusicSource` 接口、`SourceRegistry` 注册表、`SourceResolver` 多源解析器、`GatewayProvider` 网关、`CustomSourceProvider` 自定义源 |
 | `packages/tauri-bridge` | `@lx/tauri-bridge` | ✅ 已实现 | 所有 Tauri `invoke` 调用的类型安全封装，包含 Rust 模型类型定义，与 `models.rs` 严格对齐 |
-| `packages/ui` | `@lx/ui` | 🔲 待开发 | 共享 UI 组件（当前空导出） |
-| `packages/i18n` | `@lx/i18n` | 🔲 待开发 | 国际化（当前空导出） |
 
 ---
 
@@ -539,9 +533,7 @@ pnpm tauri icon path/to/icon.png
 {
   "@/*": ["./src/*"],
   "@lx/core": ["./packages/core/src"],
-  "@lx/tauri-bridge": ["./packages/tauri-bridge/src"],
-  "@lx/ui": ["./packages/ui/src"],
-  "@lx/i18n": ["./packages/i18n/src"]
+  "@lx/tauri-bridge": ["./packages/tauri-bridge/src"]
 }
 ```
 
@@ -616,12 +608,10 @@ pnpm tauri icon path/to/icon.png
 
 | 项目 | 说明 |
 |------|------|
-| `@lx/ui` | 共享 UI 组件库，当前为空 |
-| `@lx/i18n` | 国际化支持，当前为空 |
 | QQ 音乐 Provider | `txProvider.ts` 已有前端实现，Rust 端尚未接入 IPC |
 | 自定义源 | `@lx/core` 已有框架，运行时和编辑 UI 待完善 |
 | 测试 | 未发现测试文件，建议添加单元测试和集成测试 |
-| bundle.active | 当前为 `false`，正式发布需开启并配置图标和签名 |
+| bundle.active | 当前已开启 MSI 打包，正式发布前仍建议补充签名配置 |
 | 错误处理 | 部分地方使用 `.catch(() => {})` 静默处理，建议统一错误上报 |
 
 ---

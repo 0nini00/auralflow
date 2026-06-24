@@ -395,10 +395,15 @@ assert.match(
   /onMouseDown=\{startWindowDrag\}/,
   "desktop lyric window should start dragging from normal mouse down events",
 );
+assert.doesNotMatch(
+  lyricWindowViewSource,
+  /af-lyric-singer|current\.singer|current\.album|current\.albumName/,
+  "desktop lyric toolbar should show only the song title, not artist or album text",
+);
 assert.match(
   lyricWindowViewSource,
-  /width:\s*min\(680px,\s*calc\(100%\s*-\s*28px\)\)/,
-  "desktop lyric toolbar should be compact instead of spanning the full lyric window",
+  /width:\s*fit-content/,
+  "desktop lyric toolbar should shrink to its controls and song title instead of using a long fixed width",
 );
 assert.match(
   lyricWindowViewSource,
@@ -1034,6 +1039,10 @@ const { broadcastLyricSettings, subscribeLyricSettings } = loadTsModule(
           tauriListeners.push({ eventName, handler });
           return () => {};
         },
+      },
+      "@/utils/logAsyncError": {
+        logAsyncError: () => () => {},
+        warnAsyncError: () => {},
       },
     },
   },

@@ -9,9 +9,14 @@
  *   其他 → 主窗口（state sender + action receiver）
  */
 
-import type { MusicInfo } from "@lx/core";
 import { usePlayerStore } from "./playerStore";
 import { detectWindowRoleFromParts } from "@/utils/windowRole";
+import { logAsyncError } from "@/utils/logAsyncError";
+import {
+  applyPlaybackSnapshotToStorePatch,
+  getPlaybackSnapshotFromStore,
+  type PlaybackSnapshot,
+} from "@/services/playback/playbackSnapshot";
 
 const CHANNEL_NAME = "auralflow-player-sync";
 
@@ -25,15 +30,8 @@ export function detectRole(): PlayerSyncRole {
 
 // ─── 同步消息类型 ────────────────────────────────
 
-interface StateSnapshot {
-  current: MusicInfo | null;
-  status: "idle" | "loading" | "playing" | "paused" | "error";
-  progress: number;
-  duration: number;
-}
-
 type SyncMessage =
-  | { type: "state"; state: StateSnapshot }
+  | { type: "state"; snapshot: PlaybackSnapshot }
   | { type: "action"; action: "play-pause" | "next" | "prev" }
   | { type: "request-state" };
 
@@ -43,18 +41,12 @@ function setupMainWindow(channel: BroadcastChannel) {
   let lastBroadcast = 0;
   const broadcastState = (force = false) => {
     const now = performance.now();
-    // 限频：100ms 一次足够歌词跟随，避免淹没事件
-    if (!force && now - lastBroadcast < 80) return;
+    // 限频：200ms 一次足够歌词跟随，减少歌词窗口不必要的 setState
+    if (!force && now - lastBroadcast < 200) return;
     lastBroadcast = now;
-    const s = usePlayerStore.getState();
     const message: SyncMessage = {
       type: "state",
-      state: {
-        current: s.current,
-        status: s.status,
-        progress: s.progress,
-        duration: s.duration,
-      },
+      snapshot: getPlaybackSnapshotFromStore(),
     };
     channel.postMessage(message);
   };
@@ -75,11 +67,11 @@ function setupMainWindow(channel: BroadcastChannel) {
           if (!store.current) return;
           if (store.status === "playing") store.pause();
           else if (store.status === "paused") store.resume();
-          else void store.play(store.current).catch(() => {});
+          else void store.play(store.current).catch(logAsyncError("player-sync:play"));
         } else if (msg.action === "next") {
-          void store.next().catch(() => {});
+          void store.next().catch(logAsyncError("player-sync:next"));
         } else if (msg.action === "prev") {
-          void store.prev().catch(() => {});
+          void store.prev().catch(logAsyncError("player-sync:prev"));
         }
         break;
     }
@@ -95,12 +87,7 @@ function setupLyricWindow(channel: BroadcastChannel) {
   channel.addEventListener("message", (event) => {
     const msg = event.data as SyncMessage;
     if (msg.type !== "state") return;
-    usePlayerStore.setState({
-      current: msg.state.current,
-      status: msg.state.status,
-      progress: msg.state.progress,
-      duration: msg.state.duration,
-    });
+    usePlayerStore.setState(applyPlaybackSnapshotToStorePatch(msg.snapshot));
   });
 
   // 启动时主动请求一次状态

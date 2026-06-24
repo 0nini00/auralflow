@@ -2,6 +2,7 @@ import { Download, FolderOpen, Play, RefreshCw, Trash2, XCircle } from 'lucide-r
 import { useEffect } from 'react';
 import { useDownloadStore, type DownloadTask } from '@/stores/downloadStore';
 import { usePlayerStore } from '@/stores/playerStore';
+import { logAsyncError } from '@/utils/logAsyncError';
 
 function formatBytes(bytes?: number): string {
   if (!bytes || bytes <= 0) return '--';
@@ -36,12 +37,12 @@ export function DownloadsView() {
   const play = usePlayerStore((s) => s.play);
 
   useEffect(() => {
-    initDownloadListeners().catch(() => {});
+    initDownloadListeners().catch(logAsyncError('downloads:init-listeners'));
   }, [initDownloadListeners]);
 
   const handlePlay = (task: DownloadTask) => {
     const localMusic = toLocalMusic(task);
-    if (localMusic) play(localMusic).catch(() => {});
+    if (localMusic) play(localMusic).catch(logAsyncError('downloads:play-local-file'));
   };
 
   return (
@@ -53,7 +54,7 @@ export function DownloadsView() {
           <p>管理当前设备上的音乐下载任务。</p>
         </div>
         <div className="af-downloads-actions">
-          <button className="af-btn-secondary" onClick={() => { chooseDownloadDir().catch(() => {}); }}>
+          <button className="af-btn-secondary" onClick={() => { chooseDownloadDir().catch(logAsyncError('downloads:choose-dir')); }}>
             <FolderOpen size={18} />
             <span>{downloadDir ? '更改目录' : '选择目录'}</span>
           </button>

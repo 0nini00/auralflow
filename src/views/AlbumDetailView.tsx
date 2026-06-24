@@ -39,6 +39,7 @@ function formatDate(ts: number) {
 }
 
 export function AlbumDetailView() {
+  type PendingPlayAction = 'play-all' | 'shuffle' | `track:${number}` | null;
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
@@ -47,8 +48,21 @@ export function AlbumDetailView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [descExpanded, setDescExpanded] = useState(false);
+  const [pendingPlayAction, setPendingPlayAction] = useState<PendingPlayAction>(null);
 
   const playQueue = usePlayerStore((s) => s.playQueue);
+  const isPlayAllPending = pendingPlayAction === 'play-all';
+  const isShufflePending = pendingPlayAction === 'shuffle';
+
+  const runPlayQueueAction = async (action: Exclude<PendingPlayAction, null>, queueToPlay: MusicInfo[], startIndex = 0) => {
+    if (pendingPlayAction) return;
+    setPendingPlayAction(action);
+    try {
+      await playQueue(queueToPlay, startIndex);
+    } finally {
+      setPendingPlayAction(null);
+    }
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -171,19 +185,19 @@ export function AlbumDetailView() {
             <div className="af-playlist-actions">
               <button
                 className="af-btn-primary"
-                onClick={() => songs.length > 0 && playQueue(songs, 0)}
-                disabled={songs.length === 0}
+                onClick={() => songs.length > 0 && void runPlayQueueAction('play-all', songs, 0)}
+                disabled={songs.length === 0 || isPlayAllPending}
               >
-                <Play size={16} fill="currentColor" />
-                <span>播放全部</span>
+                {isPlayAllPending ? <Loader2 size={16} className="af-spin" /> : <Play size={16} fill="currentColor" />}
+                <span>{isPlayAllPending ? '加载中' : '播放全部'}</span>
               </button>
               <button
                 className="af-btn-secondary"
-                onClick={() => songs.length > 0 && playQueue(fisherYatesShuffle(songs), 0)}
-                disabled={songs.length === 0}
+                onClick={() => songs.length > 0 && void runPlayQueueAction('shuffle', fisherYatesShuffle(songs), 0)}
+                disabled={songs.length === 0 || isShufflePending}
               >
-                <Shuffle size={16} />
-                <span>随机播放</span>
+                {isShufflePending ? <Loader2 size={16} className="af-spin" /> : <Shuffle size={16} />}
+                <span>{isShufflePending ? '加载中' : '随机播放'}</span>
               </button>
             </div>
           </div>
@@ -208,7 +222,7 @@ export function AlbumDetailView() {
                 <div
                   key={`${song.source}-${song.id}-${index}`}
                   className="af-song-list-row"
-                  onClick={() => playQueue(songs, index)}
+                  onClick={() => { void runPlayQueueAction(`track:${index}`, songs, index); }}
                 >
                   <div className="af-col-index">{index + 1}</div>
                   <div className="af-col-title">
@@ -221,7 +235,7 @@ export function AlbumDetailView() {
                   <div className="af-col-album">{song.albumName || "-"}</div>
                   <div className="af-col-duration">{formatDuration(song.interval || 0)}</div>
                   <div className="af-col-actions" onClick={(e) => e.stopPropagation()}>
-                    <button className="af-action-btn" onClick={() => playQueue(songs, index)} title="播放">
+                    <button className="af-action-btn" onClick={() => { void runPlayQueueAction(`track:${index}`, songs, index); }} title="播放">
                       <Play size={14} fill="currentColor" />
                     </button>
                     <SongAddMenuButton

@@ -4,6 +4,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+fn default_true() -> bool {
+    true
+}
+
 // ============================================================
 // 音乐信息模型（与前端 MusicInfo 对齐）
 // ============================================================
@@ -185,6 +189,7 @@ pub struct AppSettings {
     /// WebDAV 密码
     pub webdav_password: Option<String>,
     /// 自定义音源：启动后自动检测更新
+    #[serde(default = "default_true")]
     pub custom_source_auto_check: bool,
 }
 
@@ -224,7 +229,7 @@ impl Default for AppSettings {
             webdav_url: None,
             webdav_username: None,
             webdav_password: None,
-            custom_source_auto_check: false,
+            custom_source_auto_check: true,
         }
     }
 }

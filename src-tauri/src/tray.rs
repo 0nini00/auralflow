@@ -38,9 +38,8 @@ pub fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         ],
     )?;
 
-    let _tray = TrayIconBuilder::with_id("auralflow-tray")
+    let mut tray_builder = TrayIconBuilder::with_id("auralflow-tray")
         .tooltip("AuralFlow")
-        .icon(app.default_window_icon().unwrap().clone())
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| {
@@ -71,8 +70,15 @@ pub fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             {
                 show_main_window(tray.app_handle());
             }
-        })
-        .build(app)?;
+        });
+
+    if let Some(icon) = app.default_window_icon() {
+        tray_builder = tray_builder.icon(icon.clone());
+    } else {
+        eprintln!("[tray] default window icon is missing; using platform fallback");
+    }
+
+    let _tray = tray_builder.build(app)?;
 
     Ok(())
 }

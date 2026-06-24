@@ -1,4 +1,5 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { logAsyncError } from "@/utils/logAsyncError";
 
 export interface LyricSettingsPatch {
   lyricPinned?: boolean;
@@ -59,7 +60,7 @@ export function subscribeLyricSettings(handler: (patch: LyricSettingsPatch) => v
     } else {
       unlistenTauri = unlisten;
     }
-  }).catch(() => {});
+  }).catch(logAsyncError("lyric-settings:listen"));
 
   return () => {
     disposed = true;

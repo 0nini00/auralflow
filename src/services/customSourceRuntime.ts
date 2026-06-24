@@ -3,6 +3,7 @@ import CryptoJS from 'crypto-js';
 import forge from 'node-forge';
 import type { MusicInfo } from '@lx/core';
 import type { CustomSourceItem, CustomSourceSourceInfo } from '@/stores/customSourceStore';
+import { deflateBytes, inflateBytes, zlibFormatFromOptions } from '@/utils/compression';
 
 export interface DesktopUserApiHeaderInfo {
   name: string;
@@ -35,6 +36,7 @@ interface RuntimeInstance {
   init: Promise<RuntimeInitResult>;
   request: (data: RuntimeRequestPayload) => Promise<RuntimeRequestResult>;
   getUpdateAlert: () => CustomSourceUpdateAlert | undefined;
+  waitForUpdateAlert: (timeoutMs: number) => Promise<CustomSourceUpdateAlert | undefined>;
 }
 
 interface RuntimeRequestPayload {
@@ -68,6 +70,8 @@ const EVENT_NAMES = {
 } as const;
 
 const INIT_TIMEOUT_MS = 30_000;
+const TEST_UPDATE_ALERT_WAIT_MS = 800;
+const CHECK_UPDATE_ALERT_WAIT_MS = 5_000;
 
 const ALL_SOURCES = ['kg', 'tx', 'wy', 'local'];
 const SUPPORT_QUALITIES: Record<string, string[]> = {
@@ -134,6 +138,104 @@ function normalizeUpdateAlert(data: unknown): CustomSourceUpdateAlert | undefine
     log: input.log.length > 1024 ? `${input.log.slice(0, 1024)}...` : input.log,
     updateUrl,
   };
+}
+
+function normalizeScriptForCompare(script: string): string {
+  return script.replace(/\r\n?/g, '\n').trim();
+}
+
+function normalizeVersion(value?: string): string {
+  return (value ?? '').trim().replace(/^v/i, '');
+}
+
+function compareVersions(left?: string, right?: string): number {
+  const leftParts = normalizeVersion(left).split('.').map((part) => Number.parseInt(part, 10));
+  const rightParts = normalizeVersion(right).split('.').map((part) => Number.parseInt(part, 10));
+  const size = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < size; index += 1) {
+    const a = Number.isFinite(leftParts[index]) ? leftParts[index] : 0;
+    const b = Number.isFinite(rightParts[index]) ? rightParts[index] : 0;
+    if (a > b) return 1;
+    if (a < b) return -1;
+  }
+  return 0;
+}
+
+function normalizeRemoteScriptUrl(url: string): string {
+  const parsed = new URL(url);
+  if (parsed.hostname === 'github.com') {
+    const parts = parsed.pathname.split('/').filter(Boolean);
+    const markerIndex = parts.findIndex((part) => part === 'blob' || part === 'raw');
+    if (parts.length >= 5 && markerIndex === 2) {
+      const [owner, repo, , branch, ...filePath] = parts;
+      return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filePath.join('/')}${parsed.search}`;
+    }
+  }
+  if (parsed.hostname === 'gitee.com') {
+    const parts = parsed.pathname.split('/').filter(Boolean);
+    const markerIndex = parts.findIndex((part) => part === 'blob');
+    if (parts.length >= 5 && markerIndex === 2) {
+      const [owner, repo, , branch, ...filePath] = parts;
+      parsed.pathname = `/${owner}/${repo}/raw/${branch}/${filePath.join('/')}`;
+      return parsed.toString();
+    }
+  }
+  return parsed.toString();
+}
+
+function getRemoteScriptUrl(api: CustomSourceItem): string | null {
+  const candidate = api.homepage?.trim();
+  if (!candidate || !/^https?:\/\//.test(candidate)) return null;
+  try {
+    return normalizeRemoteScriptUrl(candidate);
+  } catch {
+    return null;
+  }
+}
+
+async function fetchRemoteScript(url: string): Promise<string> {
+  const response = await tauriFetch(url, {
+    method: 'GET',
+    headers: {
+      Accept: 'text/plain,application/javascript,*/*',
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`远端音源请求失败: HTTP ${response.status} ${response.statusText}`);
+  }
+  const text = await response.text();
+  if (!text.trim()) throw new Error('远端音源脚本为空');
+  return text;
+}
+
+export async function checkCustomSourceRemoteUpdate(api: CustomSourceItem): Promise<CustomSourceUpdateAlert | undefined> {
+  const updateUrl = getRemoteScriptUrl(api);
+  if (!updateUrl) return undefined;
+
+  const remoteScript = await fetchRemoteScript(updateUrl);
+  const localInfo = parseDesktopUserApiInfo(api.script);
+  const remoteInfo = parseDesktopUserApiInfo(remoteScript);
+  const localVersion = normalizeVersion(api.version || localInfo.version);
+  const remoteVersion = normalizeVersion(remoteInfo.version);
+  const hasScriptChanged = normalizeScriptForCompare(remoteScript) !== normalizeScriptForCompare(api.script);
+
+  if (remoteVersion && localVersion) {
+    if (compareVersions(remoteVersion, localVersion) <= 0) return undefined;
+    return {
+      log: `发现新版本：v${localVersion} -> v${remoteVersion}`,
+      updateUrl,
+    };
+  }
+  if (!remoteVersion && !hasScriptChanged) return undefined;
+  if (hasScriptChanged) {
+    return {
+      log: remoteVersion
+        ? `远端脚本内容已更新，当前版本 v${localVersion || '未知'}，远端版本 v${remoteVersion}`
+        : '远端脚本内容已更新',
+      updateUrl,
+    };
+  }
+  return undefined;
 }
 
 function toOldMusicInfo(music: MusicInfo): Record<string, unknown> {
@@ -263,11 +365,11 @@ function createUtils() {
       },
     },
     zlib: {
-      async inflate() {
-        throw new Error('自定义音源脚本调用了 lx.utils.zlib.inflate，但 AuralFlow 运行时没有提供 zlib 能力');
+      async inflate(value: string | ArrayBuffer | ArrayBufferView, options?: unknown) {
+        return inflateBytes(toBytes(value), zlibFormatFromOptions(options));
       },
-      async deflate() {
-        throw new Error('自定义音源脚本调用了 lx.utils.zlib.deflate，但 AuralFlow 运行时没有提供 zlib 能力');
+      async deflate(value: string | ArrayBuffer | ArrayBufferView, options?: unknown) {
+        return deflateBytes(toBytes(value), zlibFormatFromOptions(options));
       },
     },
   };
@@ -323,6 +425,7 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
   let failInit: (error: Error) => void = () => undefined;
   let initSettled = false;
   let updateAlert: CustomSourceUpdateAlert | undefined;
+  const updateAlertWaiters = new Set<(alert: CustomSourceUpdateAlert | undefined) => void>();
   const init = new Promise<RuntimeInitResult>((resolve, reject) => {
     finishInit = resolve;
     failInit = reject;
@@ -351,6 +454,10 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
         }
         if (eventName === EVENT_NAMES.updateAlert) {
           updateAlert = normalizeUpdateAlert(data) ?? updateAlert;
+          if (updateAlert) {
+            for (const waiter of updateAlertWaiters) waiter(updateAlert);
+            updateAlertWaiters.clear();
+          }
           resolve();
           return;
         }
@@ -394,6 +501,21 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
     init,
     getUpdateAlert() {
       return updateAlert;
+    },
+    waitForUpdateAlert(timeoutMs) {
+      if (updateAlert) return Promise.resolve(updateAlert);
+      return new Promise((resolve) => {
+        let settled = false;
+        const finish = (alert: CustomSourceUpdateAlert | undefined) => {
+          if (settled) return;
+          settled = true;
+          updateAlertWaiters.delete(finish);
+          window.clearTimeout(timer);
+          resolve(alert);
+        };
+        const timer = window.setTimeout(() => finish(undefined), Math.max(0, timeoutMs));
+        updateAlertWaiters.add(finish);
+      });
     },
     async request(data) {
       await init;
@@ -448,14 +570,20 @@ export function invalidateRuntimeCache(apiId: string): void {
   }
 }
 
-export async function testCustomSource(api: CustomSourceItem): Promise<RuntimeInitResult> {
+export async function testCustomSource(api: CustomSourceItem, updateAlertWaitMs = TEST_UPDATE_ALERT_WAIT_MS): Promise<RuntimeInitResult> {
   // 测试时强制重建，不走缓存
   invalidateRuntimeCache(api.id);
   const runtime = createRuntime(api);
   const result = await runtime.init;
-  // 有些 LX 脚本会先完成 init，再异步发 updateAlert；给它一个短暂窗口。
-  await new Promise((resolve) => window.setTimeout(resolve, 800));
-  return { ...result, updateAlert: runtime.getUpdateAlert() ?? result.updateAlert };
+  const updateAlert = result.updateAlert ?? await runtime.waitForUpdateAlert(updateAlertWaitMs);
+  return { ...result, updateAlert };
+}
+
+export async function checkCustomSourceUpdate(api: CustomSourceItem): Promise<RuntimeInitResult> {
+  const result = await testCustomSource(api, CHECK_UPDATE_ALERT_WAIT_MS);
+  if (result.updateAlert) return result;
+  const remoteAlert = await checkCustomSourceRemoteUpdate(api);
+  return { ...result, updateAlert: remoteAlert };
 }
 
 export async function requestCustomSourceMusicUrl(

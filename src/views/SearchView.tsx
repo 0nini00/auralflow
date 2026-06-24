@@ -4,9 +4,11 @@ import { Play, Plus, Music2, Bookmark, BookmarkCheck, User } from "lucide-react"
 import { registry } from "../services/sources";
 import { usePlayerStore } from "../stores/playerStore";
 import { useWyAccountStore } from "../stores/wyAccountStore";
+import { usePlaylistStore } from "../stores/playlistStore";
 import { SongAddMenuButton } from "@/components/SongAddMenuButton";
 import { DownloadQualityButton } from "@/components/DownloadQualityButton";
 import { formatDuration } from "@/lib/utils";
+import { logAsyncError } from "@/utils/logAsyncError";
 import type { MusicInfo, PlaylistInfo, ArtistInfo, SearchResult, SearchType } from "@lx/core";
 
 type SearchSource = "all" | "wy" | "tx";
@@ -95,6 +97,19 @@ function buildSearchKey(keyword: string, type: SearchType, source: SearchSource)
   return `${keyword}\u0000${type}\u0000${source}`;
 }
 
+function buildPlaylistDetailPath(playlist: PlaylistInfo): string {
+  return `/playlist/${encodeURIComponent(playlist.id)}?source=${playlist.source}`;
+}
+
+function buildImportedPlaylistMarker(playlist: PlaylistInfo): string {
+  return `[af-imported-playlist:${playlist.source}:${playlist.id}]`;
+}
+
+function getUnavailableSearchMessage(type: SearchType, source: SearchSource): string {
+  if (type === "singer" && source === "tx") return "QQ 音乐暂不支持歌手搜索";
+  return "";
+}
+
 async function searchBySource(
   keyword: string,
   type: SearchType,
@@ -103,10 +118,12 @@ async function searchBySource(
   if (source !== "all") {
     const provider = registry.get(source);
     if (!provider) return {};
+    if (!provider.supportedSearchTypes.includes(type)) return {};
     return provider.search(keyword, type, 1);
   }
 
-  const providers = [registry.get("wy"), registry.get("tx")].filter(Boolean);
+  const providers = [registry.get("wy"), registry.get("tx")]
+    .filter((provider) => provider?.supportedSearchTypes.includes(type));
   const settled = await Promise.allSettled(
     providers.map((provider) => provider!.search(keyword, type, 1)),
   );
@@ -176,13 +193,24 @@ export function SearchView() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [searchError, setSearchError] = useState("");
+  const [unavailableMessage, setUnavailableMessage] = useState("");
   const [actionStatus, setActionStatus] = useState("");
 
   const playQueue = usePlayerStore((s) => s.playQueue);
+  const localPlaylists = usePlaylistStore((s) => s.playlists);
+  const importPlaylist = usePlaylistStore((s) => s.importPlaylist);
+  const updatePlaylistCover = usePlaylistStore((s) => s.updatePlaylistCover);
+  const wyAccount = useWyAccountStore((s) => s.account);
+  const wyLoad = useWyAccountStore((s) => s.load);
   const wyPlaylists = useWyAccountStore((s) => s.playlists);
   const wySetSubscribed = useWyAccountStore((s) => s.setSubscribed);
-  const subscribedIds = new Set(wyPlaylists.filter((p) => p.subscribed).map((p) => p.id));
-  const [busyPlaylistId, setBusyPlaylistId] = useState<string | null>(null);
+  const wyCollectedIds = new Set(wyPlaylists.map((p) => p.id));
+  const importedPlaylistMarkers = new Set(
+    localPlaylists
+      .map((playlist) => playlist.description?.match(/\[af-imported-playlist:[^\]]+\]/)?.[0])
+      .filter((marker): marker is string => Boolean(marker)),
+  );
+  const [busyPlaylistKey, setBusyPlaylistKey] = useState<string | null>(null);
   const searchRequestSeqRef = useRef(0);
   const lastStartedSearchKeyRef = useRef<string | null>(null);
 
@@ -197,6 +225,7 @@ export function SearchView() {
     const nextSource = options?.source ?? activeSource;
     const requestId = searchRequestSeqRef.current + 1;
     const searchKey = buildSearchKey(trimmed, nextType, nextSource);
+    const nextUnavailableMessage = getUnavailableSearchMessage(nextType, nextSource);
 
     searchRequestSeqRef.current = requestId;
     lastStartedSearchKeyRef.current = searchKey;
@@ -207,9 +236,15 @@ export function SearchView() {
     setLoading(true);
     setSearched(true);
     setSearchError("");
+    setUnavailableMessage(nextUnavailableMessage);
     setSongResults([]);
     setPlaylistResults([]);
     setArtistResults([]);
+
+    if (nextUnavailableMessage) {
+      setLoading(false);
+      return;
+    }
 
     try {
       const res = await searchBySource(trimmed, nextType, nextSource);
@@ -233,26 +268,50 @@ export function SearchView() {
 
     const searchKey = buildSearchKey(trimmed, activeType, activeSource);
     if (lastStartedSearchKeyRef.current === searchKey) return;
-    handleSearch(trimmed, { updateUrl: false }).catch(() => {});
+    handleSearch(trimmed, { updateUrl: false }).catch(logAsyncError("search:url-query"));
   }, [activeSource, activeType, handleSearch, initialQuery]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    handleSearch().catch(() => {});
+    handleSearch().catch(logAsyncError("search:submit"));
   }
 
-  const handleToggleSubscribe = async (playlist: PlaylistInfo) => {
-    if (playlist.source !== "wy") return;
-    const isSub = subscribedIds.has(playlist.id);
-    setBusyPlaylistId(playlist.id);
+  const handleCollectPlaylist = async (playlist: PlaylistInfo) => {
+    const key = `${playlist.source}:${playlist.id}`;
+    setBusyPlaylistKey(key);
     setActionStatus("");
     try {
-      await wySetSubscribed(playlist.id, !isSub);
-      setActionStatus(isSub ? "已取消收藏歌单" : "已收藏歌单");
+      if (playlist.source === "wy") {
+        if (!wyAccount) {
+          await wyLoad();
+        }
+        await wySetSubscribed(playlist.id, true);
+        setActionStatus("已收藏到网易云账号");
+        return;
+      }
+
+      if (playlist.source === "tx") {
+        const marker = buildImportedPlaylistMarker(playlist);
+        const existing = localPlaylists.find((item) => item.description?.includes(marker));
+        if (existing) {
+          setActionStatus(`本地歌单已存在：${existing.name}`);
+          return;
+        }
+
+        const provider = registry.get("tx");
+        if (!provider) throw new Error("未找到 QQ 音乐源");
+        const songs = await provider.getPlaylistDetail(playlist);
+        const description = [playlist.desc, marker].filter(Boolean).join("\n");
+        const created = importPlaylist(playlist.name, description || marker, songs);
+        if (playlist.picUrl) {
+          updatePlaylistCover(created.id, playlist.picUrl);
+        }
+        setActionStatus(`已收藏到本地歌单：${created.name}`);
+      }
     } catch (err) {
       setActionStatus(`操作失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {
-      setBusyPlaylistId(null);
+      setBusyPlaylistKey(null);
     }
   };
 
@@ -262,8 +321,9 @@ export function SearchView() {
     setPlaylistResults([]);
     setArtistResults([]);
     setSearchError("");
+    setUnavailableMessage("");
     setActionStatus("");
-    if (query.trim()) handleSearch(query, { type }).catch(() => {});
+    if (query.trim()) handleSearch(query, { type }).catch(logAsyncError("search:change-type"));
   };
 
   const handleSourceChange = (source: SearchSource) => {
@@ -272,8 +332,9 @@ export function SearchView() {
     setPlaylistResults([]);
     setArtistResults([]);
     setSearchError("");
+    setUnavailableMessage("");
     setActionStatus("");
-    if (query.trim()) handleSearch(query, { source }).catch(() => {});
+    if (query.trim()) handleSearch(query, { source }).catch(logAsyncError("search:change-source"));
   };
 
   const songGroups = groupSongResults(songResults);
@@ -353,21 +414,28 @@ export function SearchView() {
         </div>
       )}
 
-      {!loading && searchError && (
+      {!loading && unavailableMessage && (
+        <div className="af-empty-state">
+          <p>该功能未开放</p>
+          <span>{unavailableMessage}</span>
+        </div>
+      )}
+
+      {!loading && !unavailableMessage && searchError && (
         <div className="af-empty-state">
           <p>搜索失败</p>
           <span>{searchError}</span>
         </div>
       )}
 
-      {!loading && searched && !searchError && resultCount === 0 && (
+      {!loading && searched && !unavailableMessage && !searchError && resultCount === 0 && (
         <div className="af-empty-state">
           <p>没有找到相关内容</p>
           <span>可以切换音源，或者换个关键词试试</span>
         </div>
       )}
 
-      {!loading && !searchError && activeType === "song" && songGroups.length > 0 && (
+      {!loading && !unavailableMessage && !searchError && activeType === "song" && songGroups.length > 0 && (
         <ul className="af-search-results">
           {songGroups.map((group, index) => {
             const music = playableSongQueue[index];
@@ -428,16 +496,28 @@ export function SearchView() {
         </ul>
       )}
 
-      {!loading && !searchError && activeType === "playlist" && playlistResults.length > 0 && (
+      {!loading && !unavailableMessage && !searchError && activeType === "playlist" && playlistResults.length > 0 && (
         <ul className="af-search-results">
           {playlistResults.map((playlist) => (
+            (() => {
+              const playlistKey = `${playlist.source}:${playlist.id}`;
+              const importedMarker = buildImportedPlaylistMarker(playlist);
+              const isCollected = playlist.source === "wy"
+                ? wyCollectedIds.has(playlist.id)
+                : importedPlaylistMarkers.has(importedMarker);
+              const collectTitle = isCollected
+                ? "已收藏"
+                : playlist.source === "wy"
+                  ? "收藏到网易云账号"
+                  : "收藏到本地歌单";
+              return (
             <li
               key={`${playlist.source}:${playlist.id}`}
               className="af-search-result-item"
               onClick={() => {
-                if (playlist.source === "wy") navigate(`/playlist/${playlist.id}`);
+                navigate(buildPlaylistDetailPath(playlist), { state: { playlist } });
               }}
-              title={playlist.source === "wy" ? "打开歌单" : "仅网易云歌单可打开详情"}
+              title="打开歌单"
             >
               <span className="af-result-index"><Music2 size={16} /></span>
               <div className="af-result-cover">
@@ -450,34 +530,33 @@ export function SearchView() {
               <div className="af-result-source">{playlist.source.toUpperCase()}</div>
               <div className="af-result-duration">{playlist.playCount ? `${Math.round(playlist.playCount / 10000)}万播放` : "--"}</div>
               <div className="af-result-actions" onClick={(e) => e.stopPropagation()}>
-                {playlist.source === "wy" ? (
-                  <>
-                    <button
-                      className="af-action-btn"
-                      onClick={() => handleToggleSubscribe(playlist)}
-                      disabled={busyPlaylistId === playlist.id}
-                      title={subscribedIds.has(playlist.id) ? "取消收藏" : "收藏歌单"}
-                    >
-                      {subscribedIds.has(playlist.id)
-                        ? <BookmarkCheck size={16} />
-                        : <Bookmark size={16} />}
-                    </button>
-                    <span
-                      className="af-search-open-text"
-                      onClick={() => navigate(`/playlist/${playlist.id}`)}
-                      style={{ cursor: "pointer" }}
-                    >打开</span>
-                  </>
-                ) : (
-                  <span className="af-search-open-text">仅网易云支持详情</span>
-                )}
+                <>
+                  <button
+                    className="af-action-btn"
+                    onClick={() => { void handleCollectPlaylist(playlist); }}
+                    disabled={busyPlaylistKey === playlistKey || isCollected}
+                    title={collectTitle}
+                    aria-label={collectTitle}
+                  >
+                    {isCollected
+                      ? <BookmarkCheck size={16} />
+                      : <Bookmark size={16} />}
+                  </button>
+                  <span
+                    className="af-search-open-text"
+                    onClick={() => navigate(buildPlaylistDetailPath(playlist), { state: { playlist } })}
+                    style={{ cursor: "pointer" }}
+                  >打开</span>
+                </>
               </div>
             </li>
+              );
+            })()
           ))}
         </ul>
       )}
 
-      {!loading && !searchError && activeType === "singer" && artistResults.length > 0 && (
+      {!loading && !unavailableMessage && !searchError && activeType === "singer" && artistResults.length > 0 && (
         <ul className="af-search-results">
           {artistResults.map((artist) => (
             <li
@@ -486,7 +565,7 @@ export function SearchView() {
               onClick={() => {
                 if (artist.source === "wy") navigate(`/artist/${artist.id}`);
               }}
-              title={artist.source === "wy" ? "打开歌手详情" : "仅网易云歌手可打开详情"}
+              title={artist.source === "wy" ? "打开歌手详情" : "暂不支持打开歌手详情"}
             >
               <span className="af-result-index"><User size={16} /></span>
               <div className="af-result-cover">
@@ -505,7 +584,7 @@ export function SearchView() {
                 {artist.source === "wy" ? (
                   <span className="af-search-open-text">打开</span>
                 ) : (
-                  <span className="af-search-open-text">仅网易云支持详情</span>
+                  <span className="af-search-open-text">暂不支持详情</span>
                 )}
               </div>
             </li>

@@ -41,10 +41,10 @@ const NETEASE_WEAPI_BASE: &str = "https://music.163.com";
 /// 生成随机 base62 密钥（16 字节）
 fn rand_secret_key() -> Vec<u8> {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let seed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos() as u64;
+    let seed = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos() as u64,
+        Err(_) => 0xA17A_1F10_2026_0623,
+    };
     let mut key = Vec::with_capacity(16);
     let mut state = seed;
     for _ in 0..16 {
@@ -59,7 +59,7 @@ fn rand_secret_key() -> Vec<u8> {
 }
 
 /// AES-128-CBC 加密，返回 Base64
-fn aes_cbc_encrypt_base64(data: &[u8], key: &[u8], iv: &[u8]) -> String {
+fn aes_cbc_encrypt_base64(data: &[u8], key: &[u8], iv: &[u8]) -> Result<String, String> {
     use aes::Aes128;
     use aes::cipher::{BlockEncrypt, KeyInit, generic_array::GenericArray};
     use aes::cipher::consts::U16;
@@ -69,7 +69,8 @@ fn aes_cbc_encrypt_base64(data: &[u8], key: &[u8], iv: &[u8]) -> String {
     let mut buf = data.to_vec();
     buf.extend(std::iter::repeat(pad_len as u8).take(pad_len));
 
-    let cipher = Aes128::new_from_slice(key).expect("invalid AES key length");
+    let cipher = Aes128::new_from_slice(key)
+        .map_err(|e| format!("invalid AES-CBC key length: {}", e))?;
     let mut prev: GenericArray<u8, U16> = GenericArray::clone_from_slice(iv);
 
     for chunk in buf.chunks_exact_mut(block_size) {
@@ -82,11 +83,11 @@ fn aes_cbc_encrypt_base64(data: &[u8], key: &[u8], iv: &[u8]) -> String {
         prev.copy_from_slice(block.as_slice());
     }
 
-    base64::engine::general_purpose::STANDARD.encode(&buf)
+    Ok(base64::engine::general_purpose::STANDARD.encode(&buf))
 }
 
 /// AES-128-ECB 加密，返回 Hex（大写）
-fn aes_ecb_encrypt_hex(data: &[u8], key: &[u8]) -> String {
+fn aes_ecb_encrypt_hex(data: &[u8], key: &[u8]) -> Result<String, String> {
     use aes::Aes128;
     use aes::cipher::{BlockEncrypt, KeyInit, generic_array::GenericArray};
     use aes::cipher::consts::U16;
@@ -96,29 +97,30 @@ fn aes_ecb_encrypt_hex(data: &[u8], key: &[u8]) -> String {
     let mut buf = data.to_vec();
     buf.extend(std::iter::repeat(pad_len as u8).take(pad_len));
 
-    let cipher = Aes128::new_from_slice(key).expect("invalid AES key length");
+    let cipher = Aes128::new_from_slice(key)
+        .map_err(|e| format!("invalid AES-ECB key length: {}", e))?;
 
     for chunk in buf.chunks_exact_mut(block_size) {
         cipher.encrypt_block(GenericArray::<u8, U16>::from_mut_slice(chunk));
     }
 
-    hex::encode_upper(&buf)
+    Ok(hex::encode_upper(&buf))
 }
 
 /// 解析网易云 RSA 公钥（PEM 格式）
-fn get_wy_rsa_pubkey() -> rsa::RsaPublicKey {
+fn get_wy_rsa_pubkey() -> Result<rsa::RsaPublicKey, String> {
     use rsa::pkcs8::DecodePublicKey;
     rsa::RsaPublicKey::from_public_key_pem(WY_RSA_PEM)
-        .expect("parse wy rsa public key")
+        .map_err(|e| format!("parse wy rsa public key failed: {}", e))
 }
 
 /// RSA 无 padding 加密（与前端 rsaNoPaddingEncrypt 对齐）
 /// 左侧填充 \x00 到 128 字节，做 m^e mod n，返回 hex 小写（补齐到 256 字符）
-fn rsa_no_padding_encrypt(input: &str) -> String {
+fn rsa_no_padding_encrypt(input: &str) -> Result<String, String> {
     use num_bigint::BigUint;
     use rsa::traits::PublicKeyParts;
 
-    let pubkey = get_wy_rsa_pubkey();
+    let pubkey = get_wy_rsa_pubkey()?;
     let n = BigUint::from_bytes_be(&pubkey.n().to_bytes_be());
     let e = BigUint::from_bytes_be(&pubkey.e().to_bytes_be());
 
@@ -134,38 +136,38 @@ fn rsa_no_padding_encrypt(input: &str) -> String {
 
     // 补齐到 256 字符（与前端 padLeft 对齐）
     if hex_result.len() < 256 {
-        format!("{:0>256}", hex_result)
+        Ok(format!("{:0>256}", hex_result))
     } else {
-        hex_result
+        Ok(hex_result)
     }
 }
 
 /// weapi 加密 — 与前端 weapi() 一致
 /// 返回 (params, encSecKey)
-pub fn weapi_encrypt(data: &Value) -> (String, String) {
-    let text = serde_json::to_string(data).expect("serialize json");
+pub fn weapi_encrypt(data: &Value) -> Result<(String, String), String> {
+    let text = serde_json::to_string(data).map_err(|e| format!("serialize json failed: {}", e))?;
 
     // 第一次加密：明文 → AES-CBC(PRESET_KEY, IV) → Base64
-    let encrypted_once = aes_cbc_encrypt_base64(text.as_bytes(), WY_PRESET_KEY, WY_IV);
+    let encrypted_once = aes_cbc_encrypt_base64(text.as_bytes(), WY_PRESET_KEY, WY_IV)?;
 
     // 随机密钥
     let secret_key = rand_secret_key();
 
     // 第二次加密：第一次结果的 Base64 字符串本身 → AES-CBC(secretKey, IV) → Base64
-    let params = aes_cbc_encrypt_base64(encrypted_once.as_bytes(), &secret_key, WY_IV);
+    let params = aes_cbc_encrypt_base64(encrypted_once.as_bytes(), &secret_key, WY_IV)?;
 
     // RSA 加密 secretKey 的反转字符串
     let secret_key_reversed: String = secret_key.iter().rev().map(|b| *b as char).collect();
-    let enc_sec_key = rsa_no_padding_encrypt(&secret_key_reversed);
+    let enc_sec_key = rsa_no_padding_encrypt(&secret_key_reversed)?;
 
-    (params, enc_sec_key)
+    Ok((params, enc_sec_key))
 }
 
 /// eapi 加密 — 与前端 eapi() 一致
 /// 格式: nobody{url}use{text}md5forencrypt → MD5 digest
 ///       → {url}-36cd479b6b5-{text}-36cd479b6b5-{digest} → AES-ECB(EAPI_KEY) → Hex
-pub fn eapi_encrypt(url: &str, data: &Value) -> String {
-    let text = serde_json::to_string(data).expect("serialize json");
+pub fn eapi_encrypt(url: &str, data: &Value) -> Result<String, String> {
+    let text = serde_json::to_string(data).map_err(|e| format!("serialize json failed: {}", e))?;
     let message = format!("nobody{}use{}md5forencrypt", url, text);
 
     // MD5 digest
@@ -177,8 +179,8 @@ pub fn eapi_encrypt(url: &str, data: &Value) -> String {
 
 /// linuxapi 加密 — 与前端 linuxapi() 一致
 /// JSON → AES-ECB(LINUX_API_KEY) → Hex
-pub fn linuxapi_encrypt(data: &Value) -> String {
-    let text = serde_json::to_string(data).expect("serialize json");
+pub fn linuxapi_encrypt(data: &Value) -> Result<String, String> {
+    let text = serde_json::to_string(data).map_err(|e| format!("serialize json failed: {}", e))?;
     aes_ecb_encrypt_hex(text.as_bytes(), WY_LINUX_API_KEY)
 }
 
@@ -195,8 +197,7 @@ fn urlencoding(s: &str) -> String {
                 result.push('+');
             }
             _ => {
-                use std::fmt::Write;
-                write!(&mut result, "%{:02X}", byte).unwrap();
+                result.push_str(&format!("%{:02X}", byte));
             }
         }
     }
@@ -212,7 +213,7 @@ pub struct GatewayClient {
 }
 
 impl GatewayClient {
-    pub fn new(cookies: Option<String>) -> Self {
+    pub fn new(cookies: Option<String>) -> Result<Self, String> {
         use reqwest::cookie::Jar;
 
         // 用 cookie jar 绑定 Cookie 到网易云域名，重定向时自动携带
@@ -261,12 +262,12 @@ impl GatewayClient {
             .timeout(std::time::Duration::from_secs(15))
             .cookie_provider(jar)
             .build()
-            .expect("build reqwest client");
+            .map_err(|e| format!("创建网易云 HTTP 客户端失败: {}", e))?;
 
-        GatewayClient {
+        Ok(GatewayClient {
             http,
             cookie: cookies,
-        }
+        })
     }
 
     /// POST 请求（application/x-www-form-urlencoded）
@@ -333,7 +334,7 @@ impl GatewayClient {
 
     /// EAPI 调用 — 与前端 neteaseEapi() 一致
     pub async fn eapi_call(&self, path: &str, data: &Value) -> Result<Value, String> {
-        let params = eapi_encrypt(path, data);
+        let params = eapi_encrypt(path, data)?;
         let payload = vec![("params".to_string(), params)];
 
         let eapi_headers = [
@@ -350,7 +351,7 @@ impl GatewayClient {
 
     /// EAPI batch 调用 — 与前端 neteaseEapi() 搜歌时使用的 /eapi/batch 端点一致
     pub async fn eapi_batch_call(&self, path: &str, data: &Value) -> Result<Value, String> {
-        let params = eapi_encrypt(path, data);
+        let params = eapi_encrypt(path, data)?;
         let payload = vec![("params".to_string(), params)];
 
         let batch_headers = [
@@ -542,7 +543,7 @@ impl GatewayClient {
             },
         });
 
-        let eparams = linuxapi_encrypt(&linux_data);
+        let eparams = linuxapi_encrypt(&linux_data)?;
         let payload = vec![("eparams".to_string(), eparams)];
 
         let linux_headers = [
@@ -571,7 +572,7 @@ impl GatewayClient {
 
     /// weapi 调用
     pub async fn weapi_call(&self, path: &str, data: &Value) -> Result<Value, String> {
-        let (params, enc_sec_key) = weapi_encrypt(data);
+        let (params, enc_sec_key) = weapi_encrypt(data)?;
         let payload = vec![
             ("params".to_string(), params),
             ("encSecKey".to_string(), enc_sec_key),

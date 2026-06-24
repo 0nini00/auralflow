@@ -8,6 +8,7 @@ import {
   getAudioInfo,
 } from "@lx/tauri-bridge";
 import { useLibraryStore } from "@/stores/libraryStore";
+import { logAsyncError } from "@/utils/logAsyncError";
 
 interface Props {
   song: LocalSong | null;
@@ -36,7 +37,7 @@ export function MetadataEditModal({ song, onClose }: Props) {
       // 拉取一次完整信息（含内嵌歌词）
       getAudioInfo(song.path)
         .then((info) => setLyrics(info.lyrics ?? ""))
-        .catch(() => {});
+        .catch(logAsyncError("metadata:reload-audio-info"));
     }
   }, [song]);
 

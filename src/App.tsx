@@ -21,15 +21,17 @@ import { PactModal } from "./components/PactModal";
 import { CursorEffect } from "./components/CursorEffect";
 import { DeepLinkHandler } from "./components/DeepLinkHandler";
 import { UpdateModal } from "./components/UpdateModal";
+import { CustomSourceUpdateModal } from "./components/CustomSourceUpdateModal";
 import type { UpdateInfo } from "./services/updateService";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useNativeControls } from "./hooks/useNativeControls";
 import { setupPlayerSync } from "./stores/playerSync";
 import { detectWindowRoleFromParts, type AppWindowRole } from "./utils/windowRole";
 import { setupScrobble } from "./services/scrobbleService";
-import { useCustomSourceStore } from "./stores/customSourceStore";
+import { customSourcePersistence, useCustomSourceStore } from "./stores/customSourceStore";
 import { usePlayerStore } from "./stores/playerStore";
 import { loadSettings } from "@lx/tauri-bridge";
+import { logAsyncError } from "./utils/logAsyncError";
 
 let scrobbleStarted = false;
 
@@ -57,7 +59,7 @@ function MainApp() {
             usePlayerStore.getState().setVolume(s.volume / 100);
           }
         })
-        .catch(() => {});
+        .catch(logAsyncError("app:load-cursor-settings"));
     };
     loadCursor();
     window.addEventListener("af-cursor-change", loadCursor);
@@ -66,18 +68,18 @@ function MainApp() {
       import("./services/updateService")
         .then(({ checkForUpdates }) => checkForUpdates())
         .then(setUpdateInfo)
-        .catch(() => {});
+        .catch(logAsyncError("app:check-updates"));
     }, 3000);
     let customSourceUpdateTimer: number | undefined;
     let disposed = false;
-    loadSettings()
-      .then((s) => {
+    Promise.all([loadSettings(), customSourcePersistence.ready])
+      .then(([s]) => {
         if (disposed || !s.customSourceAutoCheck) return;
         customSourceUpdateTimer = window.setTimeout(() => {
           void useCustomSourceStore.getState().checkAllUpdates();
         }, 4500);
       })
-      .catch(() => {});
+      .catch(logAsyncError("app:custom-source-auto-check-settings"));
     return () => {
       disposed = true;
       window.removeEventListener("af-cursor-change", loadCursor);
@@ -116,6 +118,7 @@ function MainApp() {
       {updateInfo && (
         <UpdateModal info={updateInfo} onClose={() => setUpdateInfo(null)} />
       )}
+      <CustomSourceUpdateModal />
     </>
   );
 }

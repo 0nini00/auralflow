@@ -11,7 +11,7 @@ use crate::gateway::GatewayClient;
 use crate::gateway::extract_csrf_token;
 use crate::models::*;
 use serde_json::Value;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
@@ -39,6 +39,101 @@ pub fn reset_settings(app: AppHandle) -> Result<AppSettings, String> {
     config::reset_settings(&app)
 }
 
+// ─── 压缩/解压 ─────────────────────────────────────────────────
+
+#[derive(Clone, Copy)]
+enum ZlibFormat {
+    Zlib,
+    Raw,
+    Gzip,
+}
+
+fn parse_zlib_format(format: Option<String>) -> ZlibFormat {
+    match format.as_deref() {
+        Some("gzip") => ZlibFormat::Gzip,
+        Some("deflate-raw") => ZlibFormat::Raw,
+        _ => ZlibFormat::Zlib,
+    }
+}
+
+#[tauri::command]
+pub fn zlib_inflate(data: Vec<u8>, format: Option<String>) -> Result<Vec<u8>, String> {
+    match parse_zlib_format(format) {
+        ZlibFormat::Gzip => {
+            let mut output = Vec::new();
+            let mut decoder = flate2::read::GzDecoder::new(data.as_slice());
+            decoder
+                .read_to_end(&mut output)
+                .map_err(|err| format!("gzip 解压失败: {}", err))?;
+            Ok(output)
+        }
+        ZlibFormat::Raw => {
+            let mut output = Vec::new();
+            let mut decoder = flate2::read::DeflateDecoder::new(data.as_slice());
+            decoder
+                .read_to_end(&mut output)
+                .map_err(|err| format!("raw deflate 解压失败: {}", err))?;
+            Ok(output)
+        }
+        ZlibFormat::Zlib => {
+            let mut output = Vec::new();
+            let mut decoder = flate2::read::ZlibDecoder::new(data.as_slice());
+            match decoder.read_to_end(&mut output) {
+                Ok(_) => Ok(output),
+                Err(zlib_err) => {
+                    let mut raw_output = Vec::new();
+                    let mut raw_decoder = flate2::read::DeflateDecoder::new(data.as_slice());
+                    raw_decoder
+                        .read_to_end(&mut raw_output)
+                        .map_err(|raw_err| {
+                            format!(
+                                "deflate 解压失败: zlib={}, raw={}",
+                                zlib_err, raw_err
+                            )
+                        })?;
+                    Ok(raw_output)
+                }
+            }
+        }
+    }
+}
+
+#[tauri::command]
+pub fn zlib_deflate(data: Vec<u8>, format: Option<String>) -> Result<Vec<u8>, String> {
+    match parse_zlib_format(format) {
+        ZlibFormat::Gzip => {
+            let mut encoder =
+                flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+            encoder
+                .write_all(&data)
+                .map_err(|err| format!("gzip 写入压缩数据失败: {}", err))?;
+            encoder
+                .finish()
+                .map_err(|err| format!("gzip 压缩失败: {}", err))
+        }
+        ZlibFormat::Raw => {
+            let mut encoder =
+                flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::default());
+            encoder
+                .write_all(&data)
+                .map_err(|err| format!("raw deflate 写入压缩数据失败: {}", err))?;
+            encoder
+                .finish()
+                .map_err(|err| format!("raw deflate 压缩失败: {}", err))
+        }
+        ZlibFormat::Zlib => {
+            let mut encoder =
+                flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+            encoder
+                .write_all(&data)
+                .map_err(|err| format!("deflate 写入压缩数据失败: {}", err))?;
+            encoder
+                .finish()
+                .map_err(|err| format!("deflate 压缩失败: {}", err))
+        }
+    }
+}
+
 // ─── 音源网关 ──────────────────────────────────────────────────
 
 /// 搜索歌曲
@@ -51,7 +146,7 @@ pub async fn search_songs(
     source: String,
 ) -> Result<SearchResult, String> {
     let cookies = get_cookies_from_settings(&app)?;
-    let client = GatewayClient::new(cookies);
+    let client = GatewayClient::new(cookies)?;
 
     match source.as_str() {
         "wy" => client.search_songs(&keyword, page, limit).await,
@@ -69,7 +164,7 @@ pub async fn search_playlists(
     source: String,
 ) -> Result<Vec<PlaylistInfo>, String> {
     let cookies = get_cookies_from_settings(&app)?;
-    let client = GatewayClient::new(cookies);
+    let client = GatewayClient::new(cookies)?;
 
     match source.as_str() {
         "wy" => client.search_playlists(&keyword, page, limit).await,
@@ -86,7 +181,7 @@ pub async fn get_music_url(
     source: String,
 ) -> Result<Option<String>, String> {
     let cookies = get_cookies_from_settings(&app)?;
-    let client = GatewayClient::new(cookies);
+    let client = GatewayClient::new(cookies)?;
 
     match source.as_str() {
         "wy" => client.get_music_url(&id, &quality).await,
@@ -102,7 +197,7 @@ pub async fn get_lyric(
     source: String,
 ) -> Result<LyricResult, String> {
     let cookies = get_cookies_from_settings(&app)?;
-    let client = GatewayClient::new(cookies);
+    let client = GatewayClient::new(cookies)?;
 
     match source.as_str() {
         "wy" => client.get_lyric(&id).await,
@@ -118,7 +213,7 @@ pub async fn get_playlist_detail(
     source: String,
 ) -> Result<Vec<MusicInfo>, String> {
     let cookies = get_cookies_from_settings(&app)?;
-    let client = GatewayClient::new(cookies);
+    let client = GatewayClient::new(cookies)?;
 
     match source.as_str() {
         "wy" => client.get_playlist_detail(&id).await,
@@ -142,7 +237,7 @@ pub async fn wy_check_account(app: AppHandle) -> Result<AccountInfo, String> {
         return Err("未设置网易云 Cookie".to_string());
     }
     let csrf = extract_csrf_token(&cookie);
-    let client = GatewayClient::new(Some(cookie));
+    let client = GatewayClient::new(Some(cookie))?;
     client.get_account_status(&csrf).await
 }
 
@@ -152,7 +247,7 @@ pub async fn wy_get_user_playlists(app: AppHandle, uid: String) -> Result<Vec<Pl
     let cookie = get_wy_cookie(&app)?;
     if cookie.is_empty() { return Err("未设置网易云 Cookie".to_string()); }
     let csrf = extract_csrf_token(&cookie);
-    let client = GatewayClient::new(Some(cookie));
+    let client = GatewayClient::new(Some(cookie))?;
     client.get_user_playlists(&uid, &csrf).await
 }
 
@@ -162,7 +257,7 @@ pub async fn wy_get_liked_ids(app: AppHandle, uid: String) -> Result<Vec<i64>, S
     let cookie = get_wy_cookie(&app)?;
     if cookie.is_empty() { return Err("未设置网易云 Cookie".to_string()); }
     let csrf = extract_csrf_token(&cookie);
-    let client = GatewayClient::new(Some(cookie));
+    let client = GatewayClient::new(Some(cookie))?;
     client.get_liked_song_ids(&uid, &csrf).await
 }
 
@@ -172,7 +267,7 @@ pub async fn wy_get_daily_recommend(app: AppHandle) -> Result<Vec<MusicInfo>, St
     let cookie = get_wy_cookie(&app)?;
     if cookie.is_empty() { return Err("未设置网易云 Cookie".to_string()); }
     let csrf = extract_csrf_token(&cookie);
-    let client = GatewayClient::new(Some(cookie));
+    let client = GatewayClient::new(Some(cookie))?;
     client.get_daily_recommend_songs(&csrf).await
 }
 
@@ -182,7 +277,7 @@ pub async fn wy_get_playlist_detail(app: AppHandle, id: String) -> Result<Vec<Mu
     let cookie = get_wy_cookie(&app)?;
     if cookie.is_empty() { return Err("未设置网易云 Cookie".to_string()); }
     let csrf = extract_csrf_token(&cookie);
-    let client = GatewayClient::new(Some(cookie));
+    let client = GatewayClient::new(Some(cookie))?;
     client.get_playlist_detail_via_cookie(&id, &csrf).await
 }
 
@@ -196,7 +291,7 @@ pub async fn wy_proxy_weapi(
 ) -> Result<String, String> {
     let cookie = get_wy_cookie(&app)?;
     if cookie.is_empty() { return Err("未设置网易云 Cookie".to_string()); }
-    let client = GatewayClient::new(Some(cookie));
+    let client = GatewayClient::new(Some(cookie))?;
     let payload = vec![
         ("params".to_string(), params),
         ("encSecKey".to_string(), enc_sec_key),

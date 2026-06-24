@@ -28,7 +28,6 @@ import {
   Trash2,
   Type,
 } from "lucide-react";
-import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useThemeStore } from "@/stores/themeStore";
 import {
   patchSettings,
@@ -40,6 +39,8 @@ import {
 import { useCustomSourceStore } from "@/stores/customSourceStore";
 import { broadcastLyricSettings, subscribeLyricSettings } from "@/stores/lyricSettingsSync";
 import { toggleDesktopLyricFromPlayer } from "@/utils/desktopLyricToggle";
+import { logAsyncError, warnAsyncError } from "@/utils/logAsyncError";
+import { openCustomSourceUpdateModal } from "@/components/CustomSourceUpdateModal";
 import logoImg from "@/assets/logo.png";
 
 const SETTINGS_NAV = [
@@ -67,7 +68,7 @@ export function SettingsView() {
   const [defaultQuality, setDefaultQuality] = useState("320k");
   const [customScriptText, setCustomScriptText] = useState("");
   const [customSourceStatus, setCustomSourceStatus] = useState("");
-  const [customSourceAutoCheck, setCustomSourceAutoCheck] = useState(false);
+  const [customSourceAutoCheck, setCustomSourceAutoCheck] = useState(true);
   const [dataStatus, setDataStatus] = useState("");
   const {
     sources: customSources,
@@ -86,18 +87,19 @@ export function SettingsView() {
   useEffect(() => {
     loadSettings().then(settings => {
       if (settings.defaultQuality) setDefaultQuality(normalizeQualityValue(settings.defaultQuality));
-      setCustomSourceAutoCheck(!!settings.customSourceAutoCheck);
-    }).catch(() => {});
+      setCustomSourceAutoCheck(settings.customSourceAutoCheck !== false);
+    }).catch(logAsyncError("settings:load-playback"));
   }, []);
 
   const patchPlaybackSetting = (patch: Record<string, unknown>) => {
-    patchSettings(patch).catch(() => {});
+    patchSettings(patch).catch(logAsyncError("settings:patch-playback"));
   };
 
   const handleCustomSourceAutoCheckToggle = () => {
     const next = !customSourceAutoCheck;
     setCustomSourceAutoCheck(next);
-    patchSettings({ customSourceAutoCheck: next }).catch(() => {
+    patchSettings({ customSourceAutoCheck: next }).catch((error) => {
+      warnAsyncError("settings:patch-custom-source-auto-check", error);
       setCustomSourceAutoCheck(!next);
     });
   };
@@ -349,13 +351,13 @@ export function SettingsView() {
                       >
                         <RefreshCw size={14} />
                       </button>
-                      {source.updateUrl && (
+                      {source.updateStatus === "available" && (
                         <button
                           type="button"
                           className="af-custom-source-icon-button"
-                          onClick={() => { void openExternal(source.updateUrl!); }}
-                          title="打开更新地址"
-                          aria-label="打开更新地址"
+                          onClick={() => openCustomSourceUpdateModal(source.id)}
+                          title="查看更新弹窗"
+                          aria-label="查看更新弹窗"
                         >
                           <ExternalLink size={14} />
                         </button>
@@ -514,12 +516,13 @@ function DesktopLyricSection() {
         setHoverHide(s.lyricHoverHide);
         setEnableAnimation(s.lyricEnableAnimation);
       })
-      .catch(() => {});
-    isLyricWindowOpen().then(setWindowOpen).catch(() => {});
+      .catch(logAsyncError("settings:load-lyric"));
+    isLyricWindowOpen().then(setWindowOpen).catch(logAsyncError("settings:query-lyric-open"));
   }, []);
 
   useEffect(() => subscribeLyricSettings((patch) => {
     if (typeof patch.lyricPinned === "boolean") setPinned(patch.lyricPinned);
+    if (typeof patch.lyricShowTranslation === "boolean") setShowTranslation(patch.lyricShowTranslation);
   }), []);
 
   const patchLyricSetting = async (patch: Record<string, unknown>) => {
@@ -1082,12 +1085,16 @@ function MiscSection() {
   useEffect(() => {
     loadSettings()
       .then((s) => setCursorEffect(s.cursorEffect === "trail" ? "trail" : "off"))
-      .catch(() => {});
+      .catch(logAsyncError("settings:load-cursor-effect"));
   }, []);
 
   const handleCursorChange = async (mode: "off" | "trail") => {
     setCursorEffect(mode);
-    try { await patchSettings({ cursorEffect: mode }); } catch {}
+    try {
+      await patchSettings({ cursorEffect: mode });
+    } catch (error) {
+      warnAsyncError("settings:patch-cursor-effect", error);
+    }
     // 触发 App 重新读取：通过 storage 事件不可靠，直接 reload 页面片段最简
     window.dispatchEvent(new Event("af-cursor-change"));
   };
@@ -1131,7 +1138,7 @@ function SyncSection() {
       setWebdavUrl(s.webdavUrl ?? "");
       setWebdavUser(s.webdavUsername ?? "");
       setWebdavPass(s.webdavPassword ?? "");
-    }).catch(() => {});
+    }).catch(logAsyncError("settings:load-webdav"));
   }, []);
 
   const saveWebdavConfig = async () => {

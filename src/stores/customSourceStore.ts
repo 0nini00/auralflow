@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { open } from '@tauri-apps/plugin-dialog';
 import { readTextFile } from '@tauri-apps/plugin-fs';
 import {
+  checkCustomSourceUpdate,
   parseDesktopUserApiInfo,
   testCustomSource,
   invalidateRuntimeCache,
@@ -228,7 +229,7 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
         }));
 
         try {
-          const result = await testCustomSource(source);
+          const result = await checkCustomSourceUpdate(source);
           set((state) => ({
             sources: patchSource(state.sources, id, {
               sources: result.sources,
@@ -259,7 +260,7 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
 }));
 
 // 持久化：写盘前剔除瞬态测试态；读盘后兜底复位
-attachLibraryPersistence<CustomSourceStore, { sources: CustomSourceItem[] }>(
+export const customSourcePersistence = attachLibraryPersistence<CustomSourceStore, { sources: CustomSourceItem[] }>(
   useCustomSourceStore,
   {
     namespace: 'customSources',

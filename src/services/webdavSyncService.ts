@@ -6,6 +6,8 @@ import { usePlaylistStore, type Playlist } from "@/stores/playlistStore";
 import { useHistoryStore } from "@/stores/historyStore";
 import { useCustomSourceStore, type CustomSourceItem } from "@/stores/customSourceStore";
 import { parseDesktopUserApiInfo } from "@/services/customSourceRuntime";
+import { logAsyncError } from "@/utils/logAsyncError";
+import { inflateBytes } from "@/utils/compression";
 
 const PROBE_FILE = "auralflow-probe.txt";
 const USER_APIS_FILE = "user_apis.json";
@@ -255,13 +257,10 @@ function buildUserApisSyncFile(sources: CustomSourceItem[]): UserApisSyncFile {
 async function inflateDesktopScript(script: string): Promise<string> {
   const trimmed = script.trim();
   if (!trimmed.startsWith("gz_")) return script;
-  if (typeof DecompressionStream === "undefined") {
-    throw new Error("当前环境无法解压 desktop 音源备份，请在 desktop/mobile 重新上传未压缩音源备份后再恢复。");
-  }
 
   const bytes = Uint8Array.from(atob(trimmed.slice(3)), (char) => char.charCodeAt(0));
-  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate"));
-  return new Response(stream).text();
+  const inflated = await inflateBytes(bytes, "deflate");
+  return new TextDecoder().decode(inflated);
 }
 
 async function convertUserApiToCustomSource(
@@ -458,7 +457,7 @@ export async function testSync(): Promise<string> {
     if (!putResp.ok) {
       return formatWriteFailure("写入", putResp.status, putResp.statusText);
     }
-    await webdavRequest(cfg, probePath(), { method: "DELETE" }).catch(() => {});
+    await webdavRequest(cfg, probePath(), { method: "DELETE" }).catch(logAsyncError("webdav:test-cleanup-probe"));
     return "连接正常";
   } catch (e) {
     return e instanceof Error ? e.message : String(e);

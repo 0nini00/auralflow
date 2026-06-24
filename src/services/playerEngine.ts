@@ -119,22 +119,47 @@ class PlayerEngine {
   }
 
   async load(music: MusicInfo, url: string): Promise<void> {
+
+    // 如果当前正在播放，快速淡出避免切歌爆音
+
+    await this.fadeOut();
+
     this.patchState({
+
       currentMusic: music,
+
       currentUrl: url,
+
       status: "loading",
+
       duration: 0,
+
       currentTime: 0,
+
       error: null,
+
     });
+
     this.audio.src = url;
+
     this.audio.load();
+
   }
 
+
+
   async play(music: MusicInfo, url: string): Promise<void> {
+
     await this.load(music, url);
+
     void this.resumeContext();
+
     await this.audio.play();
+
+    // 新歌起播后淡入
+
+    this.fadeIn();
+
   }
 
   pause(): void {
@@ -185,10 +210,40 @@ class PlayerEngine {
     this.patchState({ currentTime: clamped });
   }
 
-  setVolume(volume: number): void {
-    const clamped = Math.max(0, Math.min(volume, 1));
-    this.audio.volume = clamped;
-    this.patchState({ volume: clamped });
+  setVolume(volume: number): void {
+    const clamped = Math.max(0, Math.min(volume, 1));
+    this.audio.volume = clamped;
+    this.patchState({ volume: clamped });
+  }
+
+  /** 快速淡出（~40ms），用于切歌前避免爆音。 */
+  private async fadeOut(): Promise<void> {
+    if (this.audio.paused || this.state.status !== "playing") return;
+    // 捕获当前音量快照，避免异步期间 state 被用户操作改变
+    const originalVol = this.state.volume;
+    try {
+      const steps = 4;
+      const startVol = this.audio.volume;
+      for (let i = 1; i <= steps; i++) {
+        this.audio.volume = startVol * (1 - i / steps);
+        await new Promise((r) => setTimeout(r, 10));
+      }
+    } catch { /* ignore */ }
+    // 淡出后恢复当时记录的音量
+    this.audio.volume = originalVol;
+  }
+/** 淡入（~60ms），新歌起播后调用。统一用 audio.volume 控制。 */
+  private fadeIn(): void {
+    const targetVol = this.state.volume;
+    this.audio.volume = 0;
+    const steps = 6;
+    let i = 0;
+    const tick = () => {
+      i++;
+      this.audio.volume = targetVol * Math.min(1, i / steps);
+      if (i < steps) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
   }
 
   setPlaybackRate(rate: number): void {
@@ -306,7 +361,7 @@ class PlayerEngine {
     if (!this.graphReady || !this.wetGain || !this.dryGain) return;
     const clamped = Math.max(0, Math.min(1, mix));
     this.wetGain.gain.value = clamped;
-    this.dryGain.gain.value = 1 - clamped * 0.5;
+    this.dryGain.gain.value = 1 - clamped;
   }
 
   // ── 变调（实验性）──────────────────────────────────

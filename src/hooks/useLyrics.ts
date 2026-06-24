@@ -11,7 +11,7 @@ interface UseLyricsResult {
   error: string | null;
 }
 
-const LYRICS_CACHE_PREFIX = "auralflow:lyrics:";
+const LYRICS_CACHE_PREFIX = "auralflow:lyrics:v3:";
 
 function getLyricsCacheKey(music: MusicInfo): string {
   return `${LYRICS_CACHE_PREFIX}${music.source}:${music.id}`;

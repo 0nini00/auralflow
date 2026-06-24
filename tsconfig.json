@@ -20,9 +20,7 @@
       "@/*": ["src/*"],
       "@lx/core": ["./packages/core/src"],
       "@lx/core/*": ["./packages/core/src/*"],
-      "@lx/tauri-bridge": ["./packages/tauri-bridge/src"],
-      "@lx/ui": ["./packages/ui/src"],
-      "@lx/i18n": ["./packages/i18n/src"]
+      "@lx/tauri-bridge": ["./packages/tauri-bridge/src"]
     }
   },
   "include": ["src"],

@@ -11,7 +11,7 @@ mod tray;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let result = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_fs::init())
@@ -46,6 +46,9 @@ pub fn run() {
             commands::save_settings,
             commands::patch_settings,
             commands::reset_settings,
+            // 压缩/解压 fallback
+            commands::zlib_inflate,
+            commands::zlib_deflate,
             // 音源网关
             commands::search_songs,
             commands::search_playlists,
@@ -83,8 +86,12 @@ pub fn run() {
             commands::set_lyric_window_pinned,
             commands::set_lyric_window_locked,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .run(tauri::generate_context!());
+
+    if let Err(err) = result {
+        eprintln!("[tauri] 应用运行失败: {}", err);
+        std::process::exit(1);
+    }
 }
 
 fn main() {
