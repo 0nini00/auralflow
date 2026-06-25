@@ -4,12 +4,12 @@ import { usePlayerStore } from '@/stores/playerStore';
 import { LocalMusicService, type LocalSong } from '@/services/localMusicService';
 import { MetadataEditModal } from '@/components/MetadataEditModal';
 import { formatDuration } from '@/lib/utils';
-import { Play, Pause, Music2, Clock, ListMusic, Grid3x3, Plus, FolderOpen, Trash2, Edit2 } from 'lucide-react';
+import { Play, Pause, Music2, Clock, ListMusic, Grid3x3, Plus, FolderOpen, Trash2, Edit2, RefreshCw } from 'lucide-react';
 
 type ViewMode = 'list' | 'grid';
 
 export function LocalMusicView() {
-  const { localSongs, addSongs, removeSong, isScanning, setScanning, addScanPath } = useLibraryStore();
+  const { localSongs, addSongs, removeSong, isScanning, setScanning, addScanPath, scanPaths, refreshLibrary } = useLibraryStore();
   const { current: currentTrack, status, playQueue, togglePlay } = usePlayerStore();
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [editingSong, setEditingSong] = useState<LocalSong | null>(null);
@@ -44,6 +44,19 @@ export function LocalMusicView() {
       console.error('Failed to add files:', error);
     } finally {
       setScanning(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    if (scanPaths.length === 0) return;
+    try {
+      const { added, removed } = await refreshLibrary();
+      // 简单提示，后续可改成 toast
+      if (added > 0 || removed > 0) {
+        console.log(`[refresh] 新增 ${added} 首，移除 ${removed} 首`);
+      }
+    } catch (error) {
+      console.error('Failed to refresh library:', error);
     }
   };
 
@@ -95,16 +108,53 @@ export function LocalMusicView() {
 
           <div className="af-local-actions">
             <button
+
               onClick={handleSelectDirectory}
+
               disabled={isScanning}
+
               className="af-button-secondary"
+
               style={{ opacity: isScanning ? 0.5 : 1 }}
+
             >
+
               <FolderOpen size={16} />
+
               <span>扫描文件夹</span>
+
             </button>
 
+
+
+            {scanPaths.length > 0 && (
+
+              <button
+
+                onClick={handleRefresh}
+
+                disabled={isScanning}
+
+                className="af-button-secondary"
+
+                style={{ opacity: isScanning ? 0.5 : 1 }}
+
+                title={`重新扫描 ${scanPaths.length} 个已记录文件夹`}
+
+              >
+
+                <RefreshCw size={16} className={isScanning ? 'af-spin' : ''} />
+
+                <span>刷新</span>
+
+              </button>
+
+            )}
+
+
+
             <button
+
               onClick={handleAddFiles}
               disabled={isScanning}
               className="af-button-primary"
@@ -685,12 +735,20 @@ export function LocalMusicView() {
           justify-content: space-between;
           margin-bottom: 8px;
         }
-        .af-metadata-header h2 {
-          margin: 0;
-          font-size: 18px;
-          font-weight: 700;
-          color: var(--af-text-primary);
-        }
+        .af-metadata-header h2 {
+          margin: 0;
+          font-size: 18px;
+          font-weight: 700;
+          color: var(--af-text-primary);
+        }
+
+        .af-spin {
+          animation: af-spin 1s linear infinite;
+        }
+        @keyframes af-spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
       `}</style>
 
       <MetadataEditModal song={editingSong} onClose={() => setEditingSong(null)} />
