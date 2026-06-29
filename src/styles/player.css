@@ -11,9 +11,13 @@
 }
 
 .af-player-container {
+  position: relative;
+  display: grid;
+  grid-template-rows: 18px auto;
+  row-gap: 2px;
   max-width: 100%;
   margin: 0 auto;
-  padding: 12px 24px;
+  padding: 8px 24px 12px;
 }
 
 .af-player-grid {
@@ -122,9 +126,9 @@
 
 .af-player-controls {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  min-width: 0;
 }
 
 .af-control-buttons {
@@ -186,9 +190,11 @@
 }
 
 .af-progress-bar {
-  width: 100%;
+  width: min(560px, 58vw);
+  min-width: 280px;
   display: flex;
   align-items: center;
+  justify-self: center;
   gap: 12px;
 }
 
@@ -262,13 +268,974 @@
   margin: 0;
 }
 
+.af-immersive-lyrics {
+  --af-immersive-bg: #f8fafc;
+  --af-immersive-panel: rgba(255, 255, 255, 0.76);
+  --af-immersive-control-surface: rgba(248, 250, 252, 0.5);
+  --af-immersive-control-border: rgba(148, 163, 184, 0.12);
+  --af-immersive-control-shadow: 0 18px 42px rgba(15, 23, 42, 0.08);
+  --af-immersive-button-surface: rgba(255, 255, 255, 0.26);
+  --af-immersive-line-muted: #94a3b8;
+  --af-immersive-line-soft: #cbd5e1;
+  position: fixed;
+  inset: 0;
+  z-index: 1800;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.98)),
+    var(--af-immersive-bg);
+  color: var(--af-text-primary);
+  isolation: isolate;
+}
+
+[data-theme="dark"] .af-immersive-lyrics {
+  --af-immersive-bg: #07111f;
+  --af-immersive-panel: rgba(15, 23, 42, 0.72);
+  --af-immersive-control-surface: rgba(15, 23, 42, 0.46);
+  --af-immersive-control-border: rgba(148, 163, 184, 0.12);
+  --af-immersive-control-shadow: 0 18px 42px rgba(0, 0, 0, 0.24);
+  --af-immersive-button-surface: rgba(255, 255, 255, 0.06);
+  --af-immersive-line-muted: #64748b;
+  --af-immersive-line-soft: #334155;
+  background:
+    linear-gradient(180deg, rgba(5, 12, 22, 0.92), rgba(8, 13, 24, 0.98)),
+    var(--af-immersive-bg);
+}
+
+.af-immersive-cover-glow {
+  position: absolute;
+  inset: -12%;
+  z-index: -3;
+  background-position: center;
+  background-size: cover;
+  opacity: 0.18;
+  filter: blur(52px) saturate(1.18);
+  transform: scale(1.08);
+}
+
+.af-immersive-noise {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(var(--af-accent-primary-rgb), 0.08), transparent 24%, transparent 76%, rgba(59, 130, 246, 0.06)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.24), transparent 38%, rgba(148, 163, 184, 0.1));
+}
+
+[data-theme="dark"] .af-immersive-noise {
+  background:
+    linear-gradient(90deg, rgba(var(--af-accent-primary-rgb), 0.1), transparent 24%, transparent 76%, rgba(59, 130, 246, 0.1)),
+    linear-gradient(180deg, rgba(148, 163, 184, 0.08), transparent 38%, rgba(15, 23, 42, 0.2));
+}
+
+.af-immersive-close {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  z-index: 2;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 1px solid var(--af-border-secondary);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--af-text-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  backdrop-filter: blur(18px);
+  transition: background var(--af-transition-fast), border-color var(--af-transition-fast), transform var(--af-transition-fast);
+}
+
+[data-theme="dark"] .af-immersive-close {
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.af-immersive-close:hover {
+  border-color: rgba(var(--af-accent-primary-rgb), 0.32);
+  background: var(--af-immersive-panel);
+  transform: translateY(-1px);
+}
+
+.af-immersive-header {
+  flex: 0 0 auto;
+  padding: 34px 84px 10px;
+  text-align: center;
+}
+
+.af-immersive-header h1 {
+  margin: 0;
+  color: var(--af-text-primary);
+  font-size: clamp(24px, 3vw, 40px);
+  line-height: 1.18;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.af-immersive-header p {
+  margin: 12px 0 0;
+  color: var(--af-text-secondary);
+  font-size: clamp(16px, 1.8vw, 22px);
+  line-height: 1.3;
+}
+
+.af-immersive-header span {
+  display: block;
+  margin-top: 6px;
+  color: var(--af-text-tertiary);
+  font-size: 14px;
+}
+
+.af-immersive-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(260px, 0.86fr) minmax(360px, 1.14fr);
+  gap: clamp(28px, 7vw, 96px);
+  align-items: center;
+  width: min(1120px, calc(100vw - 96px));
+  margin: 0 auto;
+  padding: 18px 0 28px;
+}
+
+.af-immersive-native-fullscreen .af-immersive-header {
+  padding: 36px 84px 4px;
+}
+
+.af-immersive-native-fullscreen .af-scroll-layout {
+  grid-template-columns: minmax(280px, 0.86fr) minmax(460px, 1.14fr);
+  gap: clamp(44px, 7vw, 120px);
+  width: min(1180px, calc(100vw - 128px));
+  padding: 3vh 0 4vh;
+}
+
+.af-immersive-native-fullscreen .af-immersive-cover {
+  width: min(30vw, 430px);
+}
+
+.af-immersive-native-fullscreen .af-immersive-meta {
+  width: min(30vw, 430px);
+}
+
+.af-immersive-native-fullscreen .af-immersive-lyric-section {
+  height: min(56vh, 580px);
+  min-height: 400px;
+}
+
+.af-immersive-controls-hidden .af-immersive-header {
+  padding: 42px 84px 0;
+}
+
+.af-immersive-controls-hidden .af-scroll-layout {
+  grid-template-columns: minmax(340px, 0.9fr) minmax(540px, 1.1fr);
+  gap: clamp(56px, 8vw, 144px);
+  width: min(1320px, calc(100vw - 128px));
+  padding: 2vh 0 7vh;
+}
+
+.af-immersive-controls-hidden .af-immersive-cover {
+  width: min(34vw, 520px);
+}
+
+.af-immersive-controls-hidden .af-immersive-meta {
+  width: min(34vw, 520px);
+}
+
+.af-immersive-controls-hidden .af-immersive-lyric-section {
+  height: min(68vh, 720px);
+  min-height: 460px;
+}
+
+.af-immersive-cover-section {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+
+.af-immersive-cover {
+  width: min(36vw, 420px);
+  min-width: 240px;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--af-bg-surface);
+  box-shadow: 0 28px 70px rgba(15, 23, 42, 0.18);
+}
+
+[data-theme="dark"] .af-immersive-cover {
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.42);
+}
+
+.af-immersive-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.af-immersive-cover-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--af-text-on-accent);
+  background: var(--af-accent-gradient);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.af-immersive-meta {
+  width: min(36vw, 420px);
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: center;
+}
+
+.af-immersive-meta strong,
+.af-immersive-meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-immersive-meta strong {
+  color: var(--af-text-primary);
+  font-size: 17px;
+}
+
+.af-immersive-meta span {
+  color: var(--af-text-secondary);
+  font-size: 14px;
+}
+
+.af-immersive-lyric-section {
+  height: min(52vh, 520px);
+  min-height: 340px;
+  min-width: 0;
+  display: flex;
+}
+
+.af-immersive-lyrics .af-lyrics-viewport {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 40px;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  scroll-padding-block: var(--af-lyrics-center-padding, 40vh);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--af-accent-primary-rgb), 0.24) transparent;
+  mask-image: linear-gradient(to bottom, transparent 0, #000 18%, #000 82%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18%, #000 82%, transparent 100%);
+}
+
+.af-immersive-lyrics .af-lyrics-viewport::-webkit-scrollbar {
+  width: 4px;
+}
+
+.af-immersive-lyrics .af-lyrics-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.af-immersive-lyrics .af-lyrics-viewport::-webkit-scrollbar-thumb {
+  background: rgba(var(--af-accent-primary-rgb), 0.28);
+  border-radius: 2px;
+}
+
+.af-immersive-lyrics .af-lyrics-track {
+  display: flex;
+  flex-direction: column;
+  padding: var(--af-lyrics-center-padding, 40vh) 0;
+}
+
+.af-immersive-lyrics .af-lyrics-empty {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--af-text-tertiary);
+  font-size: 18px;
+}
+
+.af-immersive-lyrics .af-lyric-line {
+  min-height: 92px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 0;
+  text-align: center;
+  color: var(--af-immersive-line-muted);
+  opacity: max(0.16, calc(0.62 - var(--af-line-distance, 4) * 0.11));
+  filter: blur(calc(var(--af-line-distance, 0) * 0.16px));
+  transform: translate3d(0, calc(var(--af-line-offset, 0) * -1px), 0) scale(calc(1 - var(--af-line-distance, 0) * 0.018));
+  transform-origin: center;
+  transition: color 260ms ease, filter 260ms ease, opacity 260ms ease, transform 260ms ease;
+  will-change: opacity, transform;
+}
+
+.af-immersive-lyrics .af-lyric-line.af-current {
+  color: var(--af-accent-primary);
+  opacity: 1;
+  filter: none;
+  transform: translate3d(0, -3px, 0) scale(1.035);
+}
+
+.af-immersive-lyrics .af-lyric-primary,
+.af-immersive-lyrics .af-lyric-translation {
+  display: block;
+  max-width: min(100%, 680px);
+  overflow-wrap: anywhere;
+  font-family: "Inter", "Noto Sans CJK SC", "Noto Sans JP", "Source Han Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  letter-spacing: 0;
+  transition: color 260ms ease, opacity 260ms ease, text-shadow 260ms ease, transform 260ms ease;
+}
+
+.af-immersive-lyrics .af-lyric-primary {
+  color: var(--af-text-secondary);
+  font-size: clamp(22px, 2.6vw, 34px);
+  line-height: 1.38;
+  font-weight: 650;
+}
+
+.af-immersive-lyrics .af-lyric-translation {
+  color: var(--af-text-tertiary);
+  font-size: clamp(14px, 1.3vw, 18px);
+  line-height: 1.45;
+  font-weight: 520;
+  opacity: 0.82;
+}
+
+.af-immersive-lyrics .af-lyric-line.af-current .af-lyric-primary {
+  color: var(--af-accent-primary);
+  text-shadow: 0 16px 34px rgba(var(--af-accent-primary-rgb), 0.3);
+  transform: scale(1.06);
+}
+
+.af-immersive-lyrics .af-lyric-line.af-current .af-lyric-translation {
+  color: var(--af-text-secondary);
+  opacity: 0.92;
+}
+
+.af-immersive-lyrics .af-lyric-karaoke {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0 0.02em;
+  white-space: pre-wrap;
+}
+
+.af-immersive-lyrics .af-lyric-primary-sweep {
+  color: transparent;
+  background-image: linear-gradient(
+    90deg,
+    var(--af-accent-primary) 0%,
+    var(--af-accent-primary) var(--af-line-progress, 0%),
+    rgba(var(--af-accent-primary-rgb), 0.32) var(--af-line-progress, 0%),
+    rgba(var(--af-accent-primary-rgb), 0.32) 100%
+  );
+  background-clip: text;
+  -webkit-background-clip: text;
+}
+
+.af-immersive-lyrics .af-lyric-word {
+  position: relative;
+  display: inline-block;
+  white-space: pre;
+  color: rgba(var(--af-accent-primary-rgb), 0.28);
+}
+
+.af-immersive-lyrics .af-lyric-word::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--af-word-progress, 0%);
+  overflow: hidden;
+  color: transparent;
+  background-image: linear-gradient(90deg, var(--af-accent-primary), var(--af-text-primary));
+  background-clip: text;
+  -webkit-background-clip: text;
+  white-space: pre;
+  pointer-events: none;
+}
+
+.af-immersive-lyrics .af-lyric-line:not(.af-current) .af-lyric-word {
+  color: var(--af-text-secondary);
+  opacity: 0.78;
+}
+
+.af-immersive-lyrics .af-lyric-line:not(.af-current) .af-lyric-word::after {
+  display: none;
+}
+
+.af-immersive-controls {
+  flex: 0 0 auto;
+  position: relative;
+  padding: 14px clamp(24px, 5vw, 64px) 22px;
+  border-top: 0;
+  background:
+    linear-gradient(
+      180deg,
+      transparent 0%,
+      color-mix(in srgb, var(--af-immersive-bg) 38%, transparent) 28%,
+      color-mix(in srgb, var(--af-immersive-bg) 62%, transparent) 100%
+    );
+  backdrop-filter: blur(14px);
+}
+
+[data-theme="dark"] .af-immersive-controls {
+  background:
+    linear-gradient(
+      180deg,
+      transparent 0%,
+      color-mix(in srgb, var(--af-immersive-bg) 44%, transparent) 28%,
+      color-mix(in srgb, var(--af-immersive-bg) 68%, transparent) 100%
+    );
+}
+
+.af-immersive-restore-controls {
+  position: absolute;
+  right: 26px;
+  bottom: 24px;
+  z-index: 3;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--af-text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(18px);
+  transition: background var(--af-transition-fast), border-color var(--af-transition-fast), color var(--af-transition-fast), transform var(--af-transition-fast);
+}
+
+[data-theme="dark"] .af-immersive-restore-controls {
+  background: rgba(15, 23, 42, 0.72);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.28);
+}
+
+.af-immersive-restore-controls:hover {
+  border-color: rgba(var(--af-accent-primary-rgb), 0.32);
+  background: var(--af-immersive-panel);
+  color: var(--af-accent-primary);
+  transform: translateY(-1px);
+}
+
+.af-immersive-status {
+  margin: 0 auto 10px;
+  width: min(720px, 100%);
+  color: var(--af-warning);
+  font-size: 12px;
+  text-align: center;
+}
+
+.af-immersive-popover-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  background: transparent;
+}
+
+.af-immersive-menu-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+.af-immersive-menu,
+.af-immersive-sound-popover,
+.af-immersive-queue-panel {
+  position: absolute;
+  z-index: 3;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(22px);
+}
+
+[data-theme="dark"] .af-immersive-menu,
+[data-theme="dark"] .af-immersive-sound-popover,
+[data-theme="dark"] .af-immersive-queue-panel {
+  background: rgba(15, 23, 42, 0.94);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.36);
+}
+
+.af-immersive-menu {
+  bottom: calc(100% + 10px);
+  left: 50%;
+  display: flex;
+  min-width: 104px;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  transform: translateX(-50%);
+}
+
+.af-immersive-menu button {
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--af-text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+  transition: background var(--af-transition-fast), border-color var(--af-transition-fast), color var(--af-transition-fast);
+}
+
+.af-immersive-menu button:hover,
+.af-immersive-menu button.af-active {
+  border-color: rgba(var(--af-accent-primary-rgb), 0.28);
+  background: rgba(var(--af-accent-primary-rgb), 0.11);
+  color: var(--af-accent-primary);
+}
+
+.af-immersive-sound-popover {
+  left: 0;
+  bottom: calc(100% + 12px);
+  z-index: 80;
+  width: min(452px, calc(100vw - 32px));
+  max-height: min(62vh, 560px);
+  overflow: auto;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.24);
+  scrollbar-width: thin;
+}
+
+[data-theme="dark"] .af-immersive-sound-popover {
+  background: rgba(15, 23, 42, 0.98);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+}
+
+.af-immersive-queue-panel {
+  right: clamp(24px, 5vw, 64px);
+  bottom: calc(100% - 4px);
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(56vh, 520px);
+  padding: 12px;
+}
+
+.af-immersive-queue-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 4px 10px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.af-immersive-queue-header strong {
+  color: var(--af-text-primary);
+  font-size: 14px;
+}
+
+.af-immersive-queue-header span {
+  color: var(--af-text-tertiary);
+  font-size: 12px;
+}
+
+.af-immersive-queue-list {
+  display: flex;
+  max-height: calc(min(56vh, 520px) - 58px);
+  flex-direction: column;
+  gap: 2px;
+  overflow: auto;
+  padding-top: 8px;
+}
+
+.af-immersive-queue-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--af-text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--af-transition-fast), border-color var(--af-transition-fast), color var(--af-transition-fast);
+}
+
+.af-immersive-queue-item:hover,
+.af-immersive-queue-item.af-playing {
+  border-color: rgba(var(--af-accent-primary-rgb), 0.24);
+  background: rgba(var(--af-accent-primary-rgb), 0.1);
+}
+
+.af-immersive-queue-index {
+  width: 26px;
+  flex: 0 0 auto;
+  color: var(--af-text-tertiary);
+  font-size: 12px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.af-immersive-queue-info {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.af-immersive-queue-info strong,
+.af-immersive-queue-info span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-immersive-queue-info strong {
+  color: var(--af-text-primary);
+  font-size: 13px;
+}
+
+.af-immersive-queue-info span {
+  color: var(--af-text-secondary);
+  font-size: 12px;
+}
+
+.af-immersive-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(920px, 100%);
+  margin: 0 auto 14px;
+}
+
+.af-immersive-progress-row span {
+  width: 46px;
+  color: var(--af-text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.af-immersive-progress-track,
+.af-immersive-volume-track {
+  position: relative;
+  background: rgba(148, 163, 184, 0.18);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.af-immersive-progress-track {
+  flex: 1;
+  height: 6px;
+}
+
+.af-immersive-volume-track {
+  width: 86px;
+  height: 4px;
+}
+
+.af-immersive-progress-fill,
+.af-immersive-volume-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--af-accent-primary);
+  pointer-events: none;
+}
+
+.af-immersive-progress-fill {
+  width: var(--af-immersive-progress, 0%);
+}
+
+.af-immersive-volume-fill {
+  width: var(--af-immersive-volume, 0%);
+  background: var(--af-text-secondary);
+}
+
+.af-immersive-progress-track input,
+.af-immersive-volume-track input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.af-immersive-control-row {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  width: max-content;
+  max-width: min(920px, 100%);
+  margin: 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.af-immersive-control-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+[data-theme="dark"] .af-immersive-control-group {
+  background: transparent;
+  box-shadow: none;
+}
+
+.af-immersive-transport-group {
+  gap: 6px;
+  width: max-content;
+}
+
+.af-immersive-control-left,
+.af-immersive-control-center,
+.af-immersive-control-right {
+  position: relative;
+  z-index: 2;
+}
+
+.af-immersive-control-group.af-popover-open {
+  z-index: 90;
+}
+
+.af-immersive-icon-btn,
+.af-immersive-play-btn {
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--af-transition-fast), border-color var(--af-transition-fast), color var(--af-transition-fast), box-shadow var(--af-transition-fast), transform var(--af-transition-fast);
+}
+
+.af-immersive-icon-btn {
+  min-width: 40px;
+  height: 40px;
+  padding: 0 8px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--af-text-secondary);
+}
+
+[data-theme="dark"] .af-immersive-icon-btn {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.af-immersive-icon-btn:hover {
+  border-color: rgba(var(--af-accent-primary-rgb), 0.22);
+  background: rgba(255, 255, 255, 0.22);
+  color: var(--af-text-primary);
+}
+
+[data-theme="dark"] .af-immersive-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.af-immersive-icon-btn.af-active {
+  border-color: rgba(var(--af-accent-primary-rgb), 0.32);
+  background: rgba(var(--af-accent-primary-rgb), 0.12);
+  color: var(--af-accent-primary);
+}
+
+.af-immersive-icon-btn span {
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.af-immersive-speed-btn {
+  gap: 4px;
+}
+
+.af-immersive-speed-label,
+.af-immersive-share-status {
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.af-immersive-play-btn {
+  width: 58px;
+  height: 58px;
+  border-radius: 18px;
+  border-color: rgba(var(--af-accent-primary-rgb), 0.42);
+  background: linear-gradient(180deg, rgba(var(--af-accent-primary-rgb), 0.98), rgba(var(--af-accent-primary-rgb), 0.84));
+  color: var(--af-text-on-accent);
+  box-shadow: 0 14px 30px rgba(var(--af-accent-primary-rgb), 0.28);
+}
+
+.af-immersive-play-btn:hover {
+  background: var(--af-accent-gradient-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 18px 36px rgba(var(--af-accent-primary-rgb), 0.32);
+}
+
+.af-immersive-play-btn:active,
+.af-immersive-icon-btn:active {
+  transform: scale(0.96);
+}
+
+@media (max-width: 900px) {
+  .af-immersive-header {
+    padding: 28px 76px 8px;
+  }
+
+  .af-immersive-stage {
+    width: min(100vw - 40px, 720px);
+    grid-template-columns: 1fr;
+    gap: 20px;
+    align-items: stretch;
+    padding-top: 8px;
+  }
+
+  .af-immersive-cover-section {
+    flex-direction: row;
+    justify-content: center;
+  }
+
+  .af-immersive-cover {
+    width: 128px;
+    min-width: 128px;
+  }
+
+  .af-immersive-meta {
+    min-width: 0;
+    width: min(420px, calc(100vw - 200px));
+    text-align: left;
+  }
+
+  .af-immersive-lyric-section {
+    height: 44vh;
+    min-height: 300px;
+  }
+
+  .af-immersive-control-row {
+    grid-template-columns: 1fr;
+    width: min(720px, 100%);
+    gap: 10px;
+  }
+
+  .af-immersive-control-group {
+    flex-wrap: wrap;
+  }
+
+  .af-immersive-control-left,
+  .af-immersive-control-right,
+  .af-immersive-control-center {
+    justify-content: center;
+  }
+
+  .af-immersive-transport-group {
+    justify-self: center;
+  }
+}
+
+@media (max-width: 560px) {
+  .af-immersive-close {
+    top: 14px;
+    right: 14px;
+    width: 42px;
+    height: 42px;
+  }
+
+  .af-immersive-header {
+    padding: 64px 20px 6px;
+  }
+
+  .af-immersive-stage {
+    width: calc(100vw - 28px);
+  }
+
+  .af-immersive-cover-section {
+    display: none;
+  }
+
+  .af-immersive-lyric-section {
+    height: 52vh;
+    min-height: 300px;
+  }
+
+  .af-immersive-lyrics .af-lyrics-viewport {
+    padding: 0 14px;
+  }
+
+  .af-immersive-controls {
+    padding: 14px;
+  }
+
+  .af-immersive-volume-track {
+    width: 96px;
+  }
+
+  .af-immersive-queue-panel {
+    right: 14px;
+    width: calc(100vw - 28px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .af-immersive-lyrics .af-lyrics-viewport {
+    scroll-behavior: auto;
+  }
+
+  .af-immersive-lyrics .af-lyric-line,
+  .af-immersive-lyrics .af-lyric-primary,
+  .af-immersive-lyrics .af-lyric-translation,
+  .af-immersive-close,
+  .af-immersive-icon-btn,
+  .af-immersive-play-btn,
+  .af-immersive-menu button {
+    transition: none;
+    transform: none;
+    filter: none;
+  }
+
+}
+
 @media (max-width: 768px) {
   .af-player-bar {
     min-height: 80px;
   }
 
   .af-player-container {
-    padding: 10px 14px;
+    grid-template-rows: 18px auto;
+    padding: 8px 14px 10px;
   }
 
   .af-player-grid {
@@ -282,6 +1249,11 @@
 
   .af-track-details {
     min-width: 80px;
+  }
+
+  .af-progress-bar {
+    width: min(440px, calc(100vw - 56px));
+    min-width: 0;
   }
 
   .af-player-volume {

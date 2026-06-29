@@ -94,7 +94,7 @@ export async function getLyrics(music: MusicInfo): Promise<LyricResponse> {
       } else {
         const lyricResult = await provider.getLyric(music);
         const lines = parseProviderLyrics(lyricResult);
-        result = lines.length > 0 ? { lines } : { lines: [], error: '暂无歌词' };
+        result = lines.length > 0 ? { lines } : await searchAndMatchLyrics(music);
       }
     }
 

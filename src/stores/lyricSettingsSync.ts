@@ -22,6 +22,7 @@ export interface LyricSettingsPatch {
   lyricTextPositionY?: number;
   lyricHoverHide?: boolean;
   lyricEnableAnimation?: boolean;
+  lyricAnimationIntensity?: string;
 }
 
 const CHANNEL_NAME = "auralflow-lyric-settings";

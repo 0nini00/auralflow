@@ -17,6 +17,7 @@ import {
   Mic2,
   Music2,
   Moon,
+  Pause,
   Palette,
   Pin,
   PinOff,
@@ -27,8 +28,14 @@ import {
   Monitor,
   Trash2,
   Type,
+  Volume2,
 } from "lucide-react";
 import { useThemeStore } from "@/stores/themeStore";
+import { useFavoritesStore } from "@/stores/favoritesStore";
+import { useHistoryStore } from "@/stores/historyStore";
+import { useLibraryStore } from "@/stores/libraryStore";
+import { usePlaylistStore } from "@/stores/playlistStore";
+import { useSoundEffectStore } from "@/stores/soundEffectStore";
 import {
   patchSettings,
   loadSettings,
@@ -41,6 +48,13 @@ import { broadcastLyricSettings, subscribeLyricSettings } from "@/stores/lyricSe
 import { toggleDesktopLyricFromPlayer } from "@/utils/desktopLyricToggle";
 import { logAsyncError, warnAsyncError } from "@/utils/logAsyncError";
 import { openCustomSourceUpdateModal } from "@/components/CustomSourceUpdateModal";
+import { playerEngine } from "@/services/playerEngine";
+import { normalizePauseOnExternalPlayback } from "@/services/mediaInterruptionPolicy";
+import { resetUserDataWithActions } from "@/services/userDataReset";
+import {
+  normalizeLyricAnimationIntensity,
+  type LyricAnimationIntensity,
+} from "@/services/lyrics/animationIntensity";
 import logoImg from "@/assets/logo.png";
 
 const SETTINGS_NAV = [
@@ -55,7 +69,13 @@ const SETTINGS_NAV = [
 ];
 
 export function SettingsView() {
-  const { theme, setTheme } = useThemeStore();
+  const {
+    theme,
+    accentColor,
+    setTheme,
+    setAccentColor,
+    resetAccentColor,
+  } = useThemeStore();
 
   const normalizeQualityValue = (value: string) => {
     if (value === "high") return "320k";
@@ -66,6 +86,7 @@ export function SettingsView() {
 
   // 播放设置
   const [defaultQuality, setDefaultQuality] = useState("320k");
+  const [pauseOnExternalPlayback, setPauseOnExternalPlayback] = useState(true);
   const [customScriptText, setCustomScriptText] = useState("");
   const [customSourceStatus, setCustomSourceStatus] = useState("");
   const [customSourceAutoCheck, setCustomSourceAutoCheck] = useState(true);
@@ -87,12 +108,28 @@ export function SettingsView() {
   useEffect(() => {
     loadSettings().then(settings => {
       if (settings.defaultQuality) setDefaultQuality(normalizeQualityValue(settings.defaultQuality));
+      const nextPauseOnExternalPlayback = normalizePauseOnExternalPlayback(settings.pauseOnExternalPlayback);
+      setPauseOnExternalPlayback(nextPauseOnExternalPlayback);
+      playerEngine.setPauseOnExternalPlayback(nextPauseOnExternalPlayback);
       setCustomSourceAutoCheck(settings.customSourceAutoCheck !== false);
     }).catch(logAsyncError("settings:load-playback"));
   }, []);
 
   const patchPlaybackSetting = (patch: Record<string, unknown>) => {
     patchSettings(patch).catch(logAsyncError("settings:patch-playback"));
+  };
+
+  const handlePauseOnExternalPlaybackChange = async (next: boolean) => {
+    const previous = pauseOnExternalPlayback;
+    setPauseOnExternalPlayback(next);
+    playerEngine.setPauseOnExternalPlayback(next);
+    try {
+      await patchSettings({ pauseOnExternalPlayback: next });
+    } catch (error) {
+      warnAsyncError("settings:patch-pause-on-external-playback", error);
+      setPauseOnExternalPlayback(previous);
+      playerEngine.setPauseOnExternalPlayback(previous);
+    }
   };
 
   const handleCustomSourceAutoCheckToggle = () => {
@@ -123,6 +160,25 @@ export function SettingsView() {
       setCustomSourceStatus(`已导入：${source.name}`);
     } catch (error) {
       setCustomSourceStatus(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const handleResetUserData = async () => {
+    if (!confirm('确定清空全部用户数据？\n\n包含：喜欢、本地歌单、本地音乐库、自定义音源、播放历史、音效设置\n\n此操作不可撤销，建议提前备份 AppData/library 目录。')) return;
+    setDataStatus("清理中...");
+    try {
+      await resetUserDataWithActions({
+        resetPersistentData: libraryResetAll,
+        clearFavorites: () => useFavoritesStore.getState().replaceAll([]),
+        clearPlaylists: () => usePlaylistStore.getState().replaceAll([]),
+        clearLibrary: () => useLibraryStore.getState().resetLibrary(),
+        clearCustomSources: () => useCustomSourceStore.getState().replaceAll([]),
+        clearHistory: () => useHistoryStore.getState().replaceAll([]),
+        resetSoundEffects: () => useSoundEffectStore.getState().reset(),
+      });
+      setDataStatus("已清空用户数据。");
+    } catch (err) {
+      setDataStatus(`重置失败：${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -228,6 +284,57 @@ export function SettingsView() {
             <option value="flac">无损 FLAC</option>
             <option value="flac24bit">Hi-Res</option>
           </select>
+        </div>
+
+        <div className="af-settings-group">
+          <label className="af-settings-label">其他媒体播放时</label>
+          <div className="af-sfx-toggle">
+            <button
+              type="button"
+              className={`af-sfx-toggle-btn ${pauseOnExternalPlayback ? "af-active" : ""}`}
+              onClick={() => { void handlePauseOnExternalPlaybackChange(true); }}
+              aria-pressed={pauseOnExternalPlayback}
+              title="自动暂停"
+            >
+              <Pause size={14} />
+              自动暂停
+            </button>
+            <button
+              type="button"
+              className={`af-sfx-toggle-btn ${!pauseOnExternalPlayback ? "af-active" : ""}`}
+              onClick={() => { void handlePauseOnExternalPlaybackChange(false); }}
+              aria-pressed={!pauseOnExternalPlayback}
+              title="继续播放"
+            >
+              <Volume2 size={14} />
+              继续播放
+            </button>
+          </div>
+        </div>
+
+        <div className="af-settings-group">
+          <label className="af-settings-label">自定义强调色</label>
+          <div className="af-appearance-row">
+            <label className="af-appearance-color-picker">
+              <span
+                className="af-appearance-color-swatch"
+                style={{ backgroundColor: accentColor }}
+                aria-hidden="true"
+              />
+              <input
+                type="color"
+                value={accentColor}
+                onChange={(event) => setAccentColor(event.target.value)}
+                aria-label="选择强调色"
+              />
+              <span>{accentColor.toUpperCase()}</span>
+            </label>
+            <button type="button" className="af-settings-small-button" onClick={resetAccentColor}>
+              <RotateCcw size={14} />
+              恢复默认
+            </button>
+          </div>
+          <p className="af-settings-hint">手动选择应用强调色。</p>
         </div>
       </section>
 
@@ -420,22 +527,13 @@ export function SettingsView() {
           <div>
             <label className="af-settings-label">重置全部用户数据</label>
             <p className="af-settings-hint">
-              清空喜欢的音乐、本地歌单、本地音乐库、自定义音源脚本。设置项不会被清除。此操作不可撤销。
+              清空喜欢的音乐、本地歌单、本地音乐库、自定义音源脚本、播放历史和音效设置。设置项不会被清除。此操作不可撤销。
             </p>
           </div>
           <button
             type="button"
             className="af-settings-small-button af-settings-danger-button"
-            onClick={async () => {
-              if (!confirm('确定清空全部用户数据？\n\n包含：喜欢、本地歌单、本地音乐、自定义音源\n\n此操作不可撤销，建议提前备份 AppData/library 目录。')) return;
-              setDataStatus("清理中...");
-              try {
-                await libraryResetAll();
-                setDataStatus("已清空，请重启应用以生效。");
-              } catch (err) {
-                setDataStatus(`重置失败：${err instanceof Error ? err.message : String(err)}`);
-              }
-            }}
+            onClick={() => { void handleResetUserData(); }}
           >
             清空数据
           </button>
@@ -490,6 +588,7 @@ function DesktopLyricSection() {
   const [textPositionY, setTextPositionY] = useState(0);
   const [hoverHide, setHoverHide] = useState(false);
   const [enableAnimation, setEnableAnimation] = useState(true);
+  const [animationIntensity, setAnimationIntensity] = useState<LyricAnimationIntensity>("normal");
   const [windowOpen, setWindowOpen] = useState(false);
   const [status, setStatus] = useState("");
 
@@ -515,6 +614,7 @@ function DesktopLyricSection() {
         setTextPositionY(typeof s.lyricTextPositionY === "number" ? s.lyricTextPositionY : 0);
         setHoverHide(s.lyricHoverHide);
         setEnableAnimation(s.lyricEnableAnimation);
+        setAnimationIntensity(normalizeLyricAnimationIntensity(s.lyricAnimationIntensity));
       })
       .catch(logAsyncError("settings:load-lyric"));
     isLyricWindowOpen().then(setWindowOpen).catch(logAsyncError("settings:query-lyric-open"));
@@ -523,6 +623,9 @@ function DesktopLyricSection() {
   useEffect(() => subscribeLyricSettings((patch) => {
     if (typeof patch.lyricPinned === "boolean") setPinned(patch.lyricPinned);
     if (typeof patch.lyricShowTranslation === "boolean") setShowTranslation(patch.lyricShowTranslation);
+    if (typeof patch.lyricAnimationIntensity === "string") {
+      setAnimationIntensity(normalizeLyricAnimationIntensity(patch.lyricAnimationIntensity));
+    }
   }), []);
 
   const patchLyricSetting = async (patch: Record<string, unknown>) => {
@@ -650,6 +753,11 @@ function DesktopLyricSection() {
     await patchLyricSetting({ lyricEnableAnimation: next });
   };
 
+  const handleAnimationIntensityChange = async (next: LyricAnimationIntensity) => {
+    setAnimationIntensity(next);
+    await patchLyricSetting({ lyricAnimationIntensity: next });
+  };
+
   const handleResetStyle = async () => {
     const patch = {
       lyricFontSize: 28,
@@ -669,6 +777,7 @@ function DesktopLyricSection() {
       lyricTextPositionY: 0,
       lyricHoverHide: false,
       lyricEnableAnimation: true,
+      lyricAnimationIntensity: "normal" as const,
     };
     setFontSize(patch.lyricFontSize);
     setShowNextLine(patch.lyricShowNextLine);
@@ -687,6 +796,7 @@ function DesktopLyricSection() {
     setTextPositionY(patch.lyricTextPositionY);
     setHoverHide(patch.lyricHoverHide);
     setEnableAnimation(patch.lyricEnableAnimation);
+    setAnimationIntensity(patch.lyricAnimationIntensity);
     await patchLyricSetting(patch);
   };
 
@@ -867,6 +977,33 @@ function DesktopLyricSection() {
                 onClick={() => handleAnimationChange(false)}
               >
                 关闭
+              </button>
+            </div>
+          </div>
+
+          <div className="af-lyric-setting-block">
+            <label className="af-settings-label">动效强度</label>
+            <div className="af-sfx-toggle">
+              <button
+                type="button"
+                className={`af-sfx-toggle-btn ${animationIntensity === "reduced" ? "af-active" : ""}`}
+                onClick={() => handleAnimationIntensityChange("reduced")}
+              >
+                柔和
+              </button>
+              <button
+                type="button"
+                className={`af-sfx-toggle-btn ${animationIntensity === "normal" ? "af-active" : ""}`}
+                onClick={() => handleAnimationIntensityChange("normal")}
+              >
+                标准
+              </button>
+              <button
+                type="button"
+                className={`af-sfx-toggle-btn ${animationIntensity === "enhanced" ? "af-active" : ""}`}
+                onClick={() => handleAnimationIntensityChange("enhanced")}
+              >
+                增强
               </button>
             </div>
           </div>

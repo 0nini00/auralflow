@@ -1,33 +1,51 @@
 # services
 
-纯 TypeScript 业务逻辑层，不依赖 Electron/Tauri API，未来可整体移植。
+业务逻辑层。这里可以调用 Tauri bridge、Tauri HTTP plugin、浏览器 API 和 store，但应避免把页面布局逻辑放进来。
 
-## 子目录规划
+## 顶层服务
 
-- `sources/`
-  - 音源 provider 抽象与实现
-  - 每个 provider 实现统一接口：`search`、`getMusicUrl`、`getLyric`、`getPlaylistDetail` 等
-  - 内置源：`wyProvider`、`txProvider`、`kgProvider`
-  - 自定义脚本源：`customProvider`（建议用 VM 沙箱执行用户脚本）
-- `playerEngine.ts`
-  - 播放器核心封装
-  - 基于 Web Audio API / HTMLAudioElement
-  - 负责播放、暂停、切歌、进度、音质、crossfade、gapless 等
-- `lyricsService.ts`
-  - 歌词获取与解析（LRC / 网易云逐字歌词）
-- `downloadService.ts`
-  - 下载任务管理（队列、暂停、恢复、进度）
-  - 实际下载交给 Tauri Rust 命令，这里只负责业务调度
-- `neteaseService.ts`
-  - 网易云账号相关：Cookie 校验、UID/VIP、我的歌单、收藏歌单、每日推荐、心动模式等
-- `gatewayService.ts`
-  - 自定义网关/音源 fallback 逻辑
-- `storageService.ts`
-  - 本地歌单、播放历史、设置等持久化抽象
-  - 当前通过 Tauri 命令调用 SQLite，后续可替换为 IndexedDB / Rust KV
+| 文件 | 用途 |
+|---|---|
+| `builtinMusicApiClient.ts` | 内置音乐 API 文本请求、搜索、播放 URL 和歌词解析 |
+| `builtinMusicApiModel.ts` | 内置音乐 API URL、结果映射和 gateway 元数据 |
+| `customSourceRuntime.ts` | LX 自定义音源脚本解析、测试和更新检测 |
+| `downloadService.ts` | 下载任务、歌词文本写入和进度事件 |
+| `localMusicService.ts` | 本地音乐扫描、元数据映射和写入 |
+| `lyricsService.ts` | 歌词加载、解析和来源选择 |
+| `mediaInterruptionPolicy.ts` | 外部媒体播放时的暂停策略 |
+| `neteasePlaylistUtils.ts` | 网易云歌单和歌曲映射工具 |
+| `personalFmQueue.ts` | 私人 FM 队列控制 |
+| `playerEngine.ts` | HTMLAudioElement 和 WebAudio 播放引擎 |
+| `playlistTransferService.ts` | 歌单导入导出和迁移 |
+| `qrCode.ts` | 网易云扫码登录二维码 SVG data URI |
+| `scrobbleService.ts` | 网易云听歌打卡触发 |
+| `updateService.ts` | 应用更新检查 |
+| `userDataReset.ts` | 清空用户数据时的持久化和内存状态协调 |
+| `webdavSyncService.ts` | WebDAV 备份和恢复 |
+| `wyAccountService.ts` | 网易云账号、二维码登录、歌单、每日推荐、私人 FM 和 weapi 请求 |
 
-## 设计原则
+## 网易云二维码登录
 
-1. **不要在这里 import Tauri API**。Tauri 调用应该放在 `src/lib/tauri.ts` 这样的薄封装里。
-2. **Provider 必须纯函数化**，只接收输入并返回数据，不修改全局状态。
-3. **所有 I/O（HTTP、文件、数据库）都走接口抽象**，方便单元测试和 future 迁移。
+`wyAccountService.ts` 不依赖单独的 Node API 服务。它通过前端 weapi 加密和 Tauri HTTP plugin 直接请求网易云二维码登录接口：
+
+- `/login/qrcode/unikey` 生成二维码 key。
+- `music.163.com/login?codekey=...` 作为二维码内容。
+- `/login/qrcode/client/login` 轮询扫码状态。
+
+二维码请求会带 `timestamp` 防止缓存。`803` 返回 Cookie 后交给 `WyCookieLoginModal` 保存并验证账号；`800` 会让弹窗停止轮询并显示过期状态。
+
+## 子目录
+
+| 目录 | 用途 |
+|---|---|
+| `playback/` | 播放 URL 解析、内置网易云后端、自定义源后端、预取和播放模式 |
+| `search/` | 搜索聚合、缓存、歌曲元数据合并和搜索联想 |
+| `sources/` | `wyProvider`、`txProvider` 和音源注册入口 |
+
+## 搜索服务
+
+`src/services/search` 当前包含：
+
+- `searchAggregation.ts`：统一聚合歌曲、歌单、歌手和专辑搜索结果。
+- `searchResultCache.ts`：缓存搜索结果和当前分类 tab。
+- `searchSuggestions.ts`：合并网易云在线联想、最近搜索和当前结果生成的联想词。

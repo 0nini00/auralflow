@@ -26,56 +26,54 @@ export function SoundEffectPanel() {
         </button>
       </div>
 
-      <div className="af-sound-panel-group">
-        <label className="af-settings-label">启用音效</label>
-        <div className="af-sfx-toggle">
-          <button
-            type="button"
-            className={`af-sfx-toggle-btn ${enabled ? "af-active" : ""}`}
-            onClick={() => setEnabled(true)}
-          >
-            开启
-          </button>
-          <button
-            type="button"
-            className={`af-sfx-toggle-btn ${!enabled ? "af-active" : ""}`}
-            onClick={() => setEnabled(false)}
-          >
-            关闭
-          </button>
+      <div className="af-sound-panel-section af-sound-panel-section-compact">
+        <div className="af-sound-panel-group">
+          <label className="af-settings-label">启用音效</label>
+          <div className="af-sfx-toggle">
+            <button
+              type="button"
+              className={`af-sfx-toggle-btn ${enabled ? "af-active" : ""}`}
+              onClick={() => setEnabled(true)}
+            >
+              开启
+            </button>
+            <button
+              type="button"
+              className={`af-sfx-toggle-btn ${!enabled ? "af-active" : ""}`}
+              onClick={() => setEnabled(false)}
+            >
+              关闭
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="af-sound-panel-group">
-        <label className="af-settings-label">均衡器预设</label>
-        <div className="af-sfx-presets">
-          {EQ_PRESETS.map((preset) => (
+      <div className="af-sound-panel-section">
+        <div className="af-sound-panel-section-head">
+          <span>均衡器预设</span>
+        </div>
+        <div className="af-sfx-presets" aria-label="均衡器预设">
+          {[...EQ_PRESETS, { id: "custom", name: "自定义" }].map((preset) => (
             <button
               key={preset.id}
               type="button"
               className={`af-sfx-pill ${presetId === preset.id ? "af-active" : ""}`}
               onClick={() => {
-                applyPreset(preset.id);
+                if (preset.id !== "custom") applyPreset(preset.id);
                 if (!enabled) setEnabled(true);
               }}
             >
               {preset.name}
             </button>
           ))}
-          <button
-            type="button"
-            className={`af-sfx-pill ${presetId === "custom" ? "af-active" : ""}`}
-            onClick={() => {
-              if (!enabled) setEnabled(true);
-            }}
-          >
-            自定义
-          </button>
         </div>
       </div>
 
-      <div className="af-sound-panel-group">
-        <label className="af-settings-label">均衡器</label>
+      <div className="af-sound-panel-section">
+        <div className="af-sound-panel-section-head">
+          <span>均衡器</span>
+          <small>-12 dB 到 +12 dB</small>
+        </div>
         <div className="af-sfx-eq" aria-disabled={!enabled}>
           {gains.map((gain, index) => (
             <div key={EQ_FREQS[index]} className="af-sfx-eq-row">
@@ -99,7 +97,7 @@ export function SoundEffectPanel() {
         </div>
       </div>
 
-      <div className="af-sound-panel-group">
+      <div className="af-sound-panel-section af-sound-panel-fine-tune">
         <div className="af-sfx-eq-row">
           <span className="af-sfx-eq-freq">声像</span>
           <input
@@ -117,9 +115,7 @@ export function SoundEffectPanel() {
           />
           <span className="af-sfx-eq-value">{pan.toFixed(2)}</span>
         </div>
-      </div>
 
-      <div className="af-sound-panel-group">
         <div className="af-sfx-eq-row">
           <span className="af-sfx-eq-freq">混响</span>
           <input
@@ -137,9 +133,7 @@ export function SoundEffectPanel() {
           />
           <span className="af-sfx-eq-value">{Math.round(reverbMix * 100)}%</span>
         </div>
-      </div>
 
-      <div className="af-sound-panel-group">
         <div className="af-sfx-eq-row">
           <span className="af-sfx-eq-freq">音高</span>
           <input

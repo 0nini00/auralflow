@@ -56,6 +56,7 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
     try {
       const cookie = cookieStr ?? (await getWyCookie());
       if (!cookie) {
+        playlistCache.clear();
         set({ isLoaded: true, playlists: [], account: null });
         return;
       }
@@ -64,12 +65,15 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
       set({ isLoading: true, error: "" });
 
       const account = await checkAccount();
-      set({ account });
-
       const playlists = await getUserPlaylists(account.uid);
+      playlistCache.clear();
       set({ playlists, isLoaded: true, isLoading: false });
+      set({ account });
     } catch (e) {
+      playlistCache.clear();
       set({
+        account: null,
+        playlists: [],
         error: e instanceof Error ? e.message : String(e),
         isLoading: false,
         isLoaded: true,

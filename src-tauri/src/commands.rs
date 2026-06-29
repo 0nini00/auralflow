@@ -2,13 +2,11 @@
 //!
 //! 涵盖：
 //!   - 配置管理（加载/保存/重置/部分更新）
-//!   - 音源网关（搜索/URL解析/歌词/歌单详情）
+//!   - 压缩/解压 fallback
 //!   - 本地音频扫描（沿用原 main.rs 的完整实现）
 //!   - 音频信息获取
 
 use crate::config;
-use crate::gateway::GatewayClient;
-use crate::gateway::extract_csrf_token;
 use crate::models::*;
 use serde_json::Value;
 use std::io::{Read, Write};
@@ -132,186 +130,6 @@ pub fn zlib_deflate(data: Vec<u8>, format: Option<String>) -> Result<Vec<u8>, St
                 .map_err(|err| format!("deflate 压缩失败: {}", err))
         }
     }
-}
-
-// ─── 音源网关 ──────────────────────────────────────────────────
-
-/// 搜索歌曲
-#[tauri::command]
-pub async fn search_songs(
-    app: AppHandle,
-    keyword: String,
-    page: u32,
-    limit: u32,
-    source: String,
-) -> Result<SearchResult, String> {
-    let cookies = get_cookies_from_settings(&app)?;
-    let client = GatewayClient::new(cookies)?;
-
-    match source.as_str() {
-        "wy" => client.search_songs(&keyword, page, limit).await,
-        _ => Err(format!("不支持的音源: {}", source)),
-    }
-}
-
-/// 搜索歌单
-#[tauri::command]
-pub async fn search_playlists(
-    app: AppHandle,
-    keyword: String,
-    page: u32,
-    limit: u32,
-    source: String,
-) -> Result<Vec<PlaylistInfo>, String> {
-    let cookies = get_cookies_from_settings(&app)?;
-    let client = GatewayClient::new(cookies)?;
-
-    match source.as_str() {
-        "wy" => client.search_playlists(&keyword, page, limit).await,
-        _ => Err(format!("不支持的音源: {}", source)),
-    }
-}
-
-/// 获取歌曲播放 URL
-#[tauri::command]
-pub async fn get_music_url(
-    app: AppHandle,
-    id: String,
-    quality: String,
-    source: String,
-) -> Result<Option<String>, String> {
-    let cookies = get_cookies_from_settings(&app)?;
-    let client = GatewayClient::new(cookies)?;
-
-    match source.as_str() {
-        "wy" => client.get_music_url(&id, &quality).await,
-        _ => Err(format!("不支持的音源: {}", source)),
-    }
-}
-
-/// 获取歌词
-#[tauri::command]
-pub async fn get_lyric(
-    app: AppHandle,
-    id: String,
-    source: String,
-) -> Result<LyricResult, String> {
-    let cookies = get_cookies_from_settings(&app)?;
-    let client = GatewayClient::new(cookies)?;
-
-    match source.as_str() {
-        "wy" => client.get_lyric(&id).await,
-        _ => Err(format!("不支持的音源: {}", source)),
-    }
-}
-
-/// 获取歌单详情
-#[tauri::command]
-pub async fn get_playlist_detail(
-    app: AppHandle,
-    id: String,
-    source: String,
-) -> Result<Vec<MusicInfo>, String> {
-    let cookies = get_cookies_from_settings(&app)?;
-    let client = GatewayClient::new(cookies)?;
-
-    match source.as_str() {
-        "wy" => client.get_playlist_detail(&id).await,
-        _ => Err(format!("不支持的音源: {}", source)),
-    }
-}
-
-// ─── 网易云账号 API ───────────────────────────────────────────
-
-fn get_wy_cookie(app: &AppHandle) -> Result<String, String> {
-    let settings = config::load_settings(app)?;
-    let cookie = settings.wy_cookie.unwrap_or_default().trim().to_string();
-    Ok(cookie)
-}
-
-/// 检查网易云账号状态
-#[tauri::command]
-pub async fn wy_check_account(app: AppHandle) -> Result<AccountInfo, String> {
-    let cookie = get_wy_cookie(&app)?;
-    if cookie.is_empty() {
-        return Err("未设置网易云 Cookie".to_string());
-    }
-    let csrf = extract_csrf_token(&cookie);
-    let client = GatewayClient::new(Some(cookie))?;
-    client.get_account_status(&csrf).await
-}
-
-/// 获取用户歌单列表
-#[tauri::command]
-pub async fn wy_get_user_playlists(app: AppHandle, uid: String) -> Result<Vec<PlaylistInfo>, String> {
-    let cookie = get_wy_cookie(&app)?;
-    if cookie.is_empty() { return Err("未设置网易云 Cookie".to_string()); }
-    let csrf = extract_csrf_token(&cookie);
-    let client = GatewayClient::new(Some(cookie))?;
-    client.get_user_playlists(&uid, &csrf).await
-}
-
-/// 获取喜欢歌曲 ID 列表
-#[tauri::command]
-pub async fn wy_get_liked_ids(app: AppHandle, uid: String) -> Result<Vec<i64>, String> {
-    let cookie = get_wy_cookie(&app)?;
-    if cookie.is_empty() { return Err("未设置网易云 Cookie".to_string()); }
-    let csrf = extract_csrf_token(&cookie);
-    let client = GatewayClient::new(Some(cookie))?;
-    client.get_liked_song_ids(&uid, &csrf).await
-}
-
-/// 获取每日推荐歌曲
-#[tauri::command]
-pub async fn wy_get_daily_recommend(app: AppHandle) -> Result<Vec<MusicInfo>, String> {
-    let cookie = get_wy_cookie(&app)?;
-    if cookie.is_empty() { return Err("未设置网易云 Cookie".to_string()); }
-    let csrf = extract_csrf_token(&cookie);
-    let client = GatewayClient::new(Some(cookie))?;
-    client.get_daily_recommend_songs(&csrf).await
-}
-
-/// 通过 Cookie 获取歌单详情
-#[tauri::command]
-pub async fn wy_get_playlist_detail(app: AppHandle, id: String) -> Result<Vec<MusicInfo>, String> {
-    let cookie = get_wy_cookie(&app)?;
-    if cookie.is_empty() { return Err("未设置网易云 Cookie".to_string()); }
-    let csrf = extract_csrf_token(&cookie);
-    let client = GatewayClient::new(Some(cookie))?;
-    client.get_playlist_detail_via_cookie(&id, &csrf).await
-}
-
-/// 前端 weapi 代理 — 接收已加密的 params，直接转发到网易云
-#[tauri::command]
-pub async fn wy_proxy_weapi(
-    app: AppHandle,
-    path: String,
-    params: String,
-    enc_sec_key: String,
-) -> Result<String, String> {
-    let cookie = get_wy_cookie(&app)?;
-    if cookie.is_empty() { return Err("未设置网易云 Cookie".to_string()); }
-    let client = GatewayClient::new(Some(cookie))?;
-    let payload = vec![
-        ("params".to_string(), params),
-        ("encSecKey".to_string(), enc_sec_key),
-    ];
-    let origin_headers = [
-        ("Origin".to_string(), "https://music.163.com".to_string()),
-    ];
-
-    let url = format!("https://music.163.com/weapi{}", path);
-    let (status, resp) = client
-        .raw_post_with_status(
-            &url,
-            &payload,
-            Some(&origin_headers),
-        )
-        .await?;
-    if resp.trim().is_empty() {
-        return Err(format!("网易云返回空响应: {}; status={}", url, status));
-    }
-    Ok(resp)
 }
 
 // ─── 下载文件 ───────────────────────────────────────────────
@@ -798,15 +616,4 @@ pub fn set_lyric_window_locked(
         lock_epoch,
         lock_source.as_deref().unwrap_or("ipc"),
     )
-}
-
-// ─── 辅助函数 ──────────────────────────────────────────────────
-
-fn get_cookies_from_settings(app: &AppHandle) -> Result<Option<String>, String> {
-    let cookie = get_wy_cookie(app)?;
-    if cookie.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(cookie))
-    }
 }

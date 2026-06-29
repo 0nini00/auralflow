@@ -10,6 +10,7 @@ import { SongAddMenuButton } from '@/components/SongAddMenuButton';
 import { DownloadQualityButton } from '@/components/DownloadQualityButton';
 import { VirtualList } from '@/components/VirtualList';
 import { formatDuration } from '@/lib/utils';
+import { formatPlaylistSearchMeta } from '@/services/neteasePlaylistUtils';
 import type { MusicInfo, PlaylistInfo, SourceTag } from '@lx/core';
 import { ArrowLeft, Play, Shuffle, Trash2, Clock, Loader2, CornerDownRight, MoreHorizontal, Bookmark, BookmarkCheck, BookmarkX, RefreshCw } from 'lucide-react';
 
@@ -106,6 +107,7 @@ export function PlaylistDetailView() {
       picUrl: routePlaylist?.picUrl,
       desc: routePlaylist?.desc,
       playCount: routePlaylist?.playCount,
+      trackCount: routePlaylist?.trackCount,
       source: remoteSource,
     };
   }, [id, remoteSource, routePlaylist]);
@@ -234,6 +236,7 @@ export function PlaylistDetailView() {
     : false;
   const isRemoteCollected = isRemoteWyCollected || isRemoteTxCollected;
   const remoteCollectLabel = remotePlaylistInfo?.source === "wy" ? "收藏到网易云账号" : "收藏到本地歌单";
+  const remotePlaylistMeta = remotePlaylistInfo ? formatPlaylistSearchMeta(remotePlaylistInfo) : "--";
   const songs = playlist.songs;
   const isPlayAllPending = pendingPlayAction === 'play-all';
   const isShufflePending = pendingPlayAction === 'shuffle';
@@ -392,7 +395,7 @@ export function PlaylistDetailView() {
             {isRemotePlaylist && remotePlaylistInfo && (
               <p className="af-playlist-description">
                 {remotePlaylistInfo.author ? `by ${remotePlaylistInfo.author}` : remotePlaylistInfo.source.toUpperCase()}
-                {remotePlaylistInfo.playCount != null && ` · ${Math.round(remotePlaylistInfo.playCount / 10000)}万播放`}
+                {remotePlaylistMeta !== "--" && ` · ${remotePlaylistMeta}`}
               </p>
             )}
             {!isWyPlaylist && (

@@ -25,38 +25,48 @@ export function PersonalFmView() {
   const play = usePlayerStore((s) => s.play);
   const pause = usePlayerStore((s) => s.pause);
   const resume = usePlayerStore((s) => s.resume);
+  const fmMode = usePlayerStore((s) => s.fmMode);
   const enterFmMode = usePlayerStore((s) => s.enterFmMode);
 
   const [acting, setActing] = useState(false);
   const autoStartPending = useRef(false);
+  const currentIsFmTrack = Boolean(
+    current && fmQueue.some((track) => track.source === current.source && track.id === current.id),
+  );
+  const hasExternalCurrent = Boolean(current && !currentIsFmTrack);
 
-  // 进入页面：启用 FM 模式（让播放结束自动连播）+ 未加载就拉一批
+  // 进入页面只准备推荐队列，不打断当前正在播放的普通歌曲。
   useEffect(() => {
-    if (account) {
+    if (!account) return;
+    if (fmQueue.length === 0 && !fmLoading) {
+      void loadFm();
+    }
+  }, [account, fmLoading, fmQueue.length, loadFm]);
+
+  // 如果当前已经是 FM 队列里的歌，只补上 FM 模式，保证结束后继续推荐。
+  useEffect(() => {
+    if (account && currentIsFmTrack && !fmMode) {
       enterFmMode();
-      if (fmQueue.length === 0 && !fmLoading) {
-        void loadFm();
-      }
     }
-  }, [account]);
+  }, [account, currentIsFmTrack, enterFmMode, fmMode]);
 
-  // FM 队列就绪后通过 fmNext 起播，保证 fmIndex 与实际播放曲目同步。
+  // 没有当前播放时才自动起播；已有普通歌曲播放时等待用户显式开始。
   useEffect(() => {
-    const currentIsFmTrack = Boolean(
-      current && fmQueue.some((track) => track.source === current.source && track.id === current.id),
-    );
-    if (fmQueue.length > 0 && !currentIsFmTrack && !autoStartPending.current) {
-      autoStartPending.current = true;
-      void (async () => {
-        try {
-          const next = await fmNext();
-          if (next) await play(next as MusicInfo);
-        } finally {
-          autoStartPending.current = false;
+    if (!account || current || fmQueue.length === 0 || autoStartPending.current) return;
+
+    autoStartPending.current = true;
+    void (async () => {
+      try {
+        const next = await fmNext();
+        if (next) {
+          enterFmMode();
+          await play(next as MusicInfo);
         }
-      })();
-    }
-  }, [current, fmNext, fmQueue, play]);
+      } finally {
+        autoStartPending.current = false;
+      }
+    })();
+  }, [account, current, enterFmMode, fmNext, fmQueue.length, play]);
 
   if (!isWyLoaded) {
     return (
@@ -94,8 +104,42 @@ export function PersonalFmView() {
         <div className="af-empty-state">
           <p>加载失败</p>
           <span>{fmError}</span>
-          <button className="af-btn-primary" style={{ marginTop: 16 }} onClick={() => loadFm()}>
+          <button className="af-btn-primary" style={{ marginTop: 16 }} onClick={() => loadFm(true)}>
             重试
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const handleStartFm = async () => {
+    if (acting || fmQueue.length === 0) return;
+    setActing(true);
+    try {
+      const next = await fmNext();
+      if (next) {
+        enterFmMode();
+        await play(next as MusicInfo);
+      }
+    } finally {
+      setActing(false);
+    }
+  };
+
+  if (hasExternalCurrent && fmQueue.length > 0) {
+    return (
+      <div className="af-fm-view">
+        <div className="af-empty-state">
+          <Radio size={48} strokeWidth={1.5} />
+          <p>私人 FM 已准备好</p>
+          <span>开始后会切换到推荐播放</span>
+          <button
+            className="af-btn-primary"
+            style={{ marginTop: 16 }}
+            onClick={handleStartFm}
+            disabled={acting}
+          >
+            开始私人 FM
           </button>
         </div>
       </div>

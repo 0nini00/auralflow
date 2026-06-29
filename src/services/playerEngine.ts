@@ -1,7 +1,15 @@
 import type { MusicInfo } from "@lx/core";
 import { SoundTouch, SimpleFilter, type SampleSource } from "soundtouchjs";
+import {
+  normalizePauseOnExternalPlayback,
+  shouldResumeAfterExternalPause,
+} from "@/services/mediaInterruptionPolicy";
 
 export type PlayerStatus = "idle" | "loading" | "playing" | "paused" | "error";
+
+const INTERNAL_PAUSE_GUARD_MS = 500;
+const FADE_OUT_MS = 90;
+const FADE_IN_MS = 140;
 
 export interface PlayerEngineState {
   currentMusic: MusicInfo | null;
@@ -53,6 +61,11 @@ class PlayerEngine {
   private endedListeners = new Set<EndedListener>();
   private graphReadyListeners = new Set<GraphReadyListener>();
   private progressRaf: number | null = null;
+  private fadeRaf: number | null = null;
+  private fadeResolve: (() => void) | null = null;
+  private fadeToken = 0;
+  private pauseOnExternalPlayback = true;
+  private internalPauseGuardUntil = 0;
 
   constructor() {
     this.audio.volume = this.state.volume;
@@ -72,7 +85,24 @@ class PlayerEngine {
     });
 
     this.audio.addEventListener("pause", () => {
+      const wasPlayingBeforePause = this.state.status === "playing";
       this.stopProgressLoop();
+      if (shouldResumeAfterExternalPause({
+        pauseOnExternalPlayback: this.pauseOnExternalPlayback,
+        wasPlayingBeforePause,
+        internalPausePending: this.isInternalPausePending(),
+        hasCurrentUrl: Boolean(this.state.currentUrl),
+        mediaEnded: this.audio.ended,
+      })) {
+        this.audio.play().catch((error) => {
+          this.patchState({
+            status: "paused",
+            currentTime: this.audio.currentTime || 0,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+        return;
+      }
       if (this.state.status !== "loading") {
         this.patchState({ status: "paused", currentTime: this.audio.currentTime || 0 });
       }
@@ -113,56 +143,48 @@ class PlayerEngine {
     return () => this.graphReadyListeners.delete(listener);
   }
 
+  setPauseOnExternalPlayback(value: unknown): void {
+    this.pauseOnExternalPlayback = normalizePauseOnExternalPlayback(value);
+  }
+
   /** 按需启用音效图。默认播放保持原生 audio 直出，避免本地 asset URL 被 WebAudio 静音。 */
   ensureEffectsGraph(): void {
     this.ensureGraph();
   }
 
   async load(music: MusicInfo, url: string): Promise<void> {
-
-    // 如果当前正在播放，快速淡出避免切歌爆音
-
     await this.fadeOut();
-
     this.patchState({
-
       currentMusic: music,
-
       currentUrl: url,
-
       status: "loading",
-
       duration: 0,
-
       currentTime: 0,
-
       error: null,
-
     });
 
+    this.markInternalPause();
     this.audio.src = url;
-
     this.audio.load();
-
   }
 
-
-
   async play(music: MusicInfo, url: string): Promise<void> {
-
     await this.load(music, url);
-
     void this.resumeContext();
-
-    await this.audio.play();
-
-    // 新歌起播后淡入
-
-    this.fadeIn();
-
+    try {
+      await this.audio.play();
+    } catch (error) {
+      this.cancelFade();
+      this.audio.volume = this.state.volume;
+      throw error;
+    }
+    void this.fadeIn();
   }
 
   pause(): void {
+    this.cancelFade();
+    this.audio.volume = this.state.volume;
+    this.markInternalPause();
     this.audio.pause();
   }
 
@@ -179,7 +201,10 @@ class PlayerEngine {
   /** 暂停并把进度归零，但保留 currentMusic / currentUrl，便于 UI 继续显示"刚刚那首"。 */
   pauseAtEnd(): void {
     this.stopProgressLoop();
+    this.cancelFade();
+    this.markInternalPause();
     this.audio.pause();
+    this.audio.volume = this.state.volume;
     this.audio.currentTime = 0;
     this.patchState({
       status: "paused",
@@ -189,7 +214,10 @@ class PlayerEngine {
 
   stop(): void {
     this.stopProgressLoop();
+    this.cancelFade();
+    this.markInternalPause();
     this.audio.pause();
+    this.audio.volume = this.state.volume;
     this.audio.src = "";
     this.audio.load();
     this.patchState({
@@ -211,39 +239,73 @@ class PlayerEngine {
   }
 
   setVolume(volume: number): void {
-    const clamped = Math.max(0, Math.min(volume, 1));
+    const clamped = Math.max(0, Math.min(volume, 1));
+    this.cancelFade();
     this.audio.volume = clamped;
     this.patchState({ volume: clamped });
   }
 
-  /** 快速淡出（~40ms），用于切歌前避免爆音。 */
-  private async fadeOut(): Promise<void> {
-    if (this.audio.paused || this.state.status !== "playing") return;
-    // 捕获当前音量快照，避免异步期间 state 被用户操作改变
-    const originalVol = this.state.volume;
-    try {
-      const steps = 4;
-      const startVol = this.audio.volume;
-      for (let i = 1; i <= steps; i++) {
-        this.audio.volume = startVol * (1 - i / steps);
-        await new Promise((r) => setTimeout(r, 10));
-      }
-    } catch { /* ignore */ }
-    // 淡出后恢复当时记录的音量
-    this.audio.volume = originalVol;
-  }
-/** 淡入（~60ms），新歌起播后调用。统一用 audio.volume 控制。 */
+  /** 切歌前做短淡出，避免爆音和瞬时音量跳变。 */
+  private async fadeOut(): Promise<void> {
+    if (this.audio.paused || this.state.status !== "playing") return;
+    await this.fadeAudioVolume(0, FADE_OUT_MS);
+  }
+
+  /** 新歌起播后淡入。统一用 audio.volume 控制，音效图保持原有连接方式。 */
   private fadeIn(): void {
-    const targetVol = this.state.volume;
     this.audio.volume = 0;
-    const steps = 6;
-    let i = 0;
-    const tick = () => {
-      i++;
-      this.audio.volume = targetVol * Math.min(1, i / steps);
-      if (i < steps) requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
+    void this.fadeAudioVolume(this.state.volume, FADE_IN_MS);
+  }
+
+  private fadeAudioVolume(targetVolume: number, durationMs: number): Promise<void> {
+    this.cancelFade();
+    const fromVolume = this.audio.volume;
+    const toVolume = Math.max(0, Math.min(targetVolume, 1));
+    const token = this.fadeToken;
+    const startedAt = performance.now();
+
+    if (durationMs <= 0 || fromVolume === toVolume) {
+      this.audio.volume = toVolume;
+      return Promise.resolve();
+    }
+
+    return new Promise((resolve) => {
+      this.fadeResolve = resolve;
+      const tick = (now: number) => {
+        if (token !== this.fadeToken) {
+          resolve();
+          return;
+        }
+
+        const progress = Math.min(1, (now - startedAt) / durationMs);
+        const eased = 0.5 - Math.cos(progress * Math.PI) / 2;
+        this.audio.volume = fromVolume + (toVolume - fromVolume) * eased;
+
+        if (progress < 1) {
+          this.fadeRaf = requestAnimationFrame(tick);
+          return;
+        }
+
+        this.fadeRaf = null;
+        this.fadeResolve = null;
+        resolve();
+      };
+
+      this.fadeRaf = requestAnimationFrame(tick);
+    });
+  }
+
+  private cancelFade(): void {
+    this.fadeToken += 1;
+    if (this.fadeRaf != null) {
+      cancelAnimationFrame(this.fadeRaf);
+      this.fadeRaf = null;
+    }
+    if (this.fadeResolve) {
+      const resolve = this.fadeResolve;
+      this.fadeResolve = null;
+      resolve();
+    }
   }
 
   setPlaybackRate(rate: number): void {
@@ -446,6 +508,14 @@ class PlayerEngine {
     if (this.progressRaf == null) return;
     cancelAnimationFrame(this.progressRaf);
     this.progressRaf = null;
+  }
+
+  private markInternalPause(): void {
+    this.internalPauseGuardUntil = Date.now() + INTERNAL_PAUSE_GUARD_MS;
+  }
+
+  private isInternalPausePending(): boolean {
+    return Date.now() <= this.internalPauseGuardUntil;
   }
 
   private patchState(patch: Partial<PlayerEngineState>): void {

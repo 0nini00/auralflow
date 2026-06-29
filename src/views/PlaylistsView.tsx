@@ -179,7 +179,7 @@ export function PlaylistsView() {
           <button
             type="button"
             className="af-quick-card af-liked-card"
-            onClick={() => navigate('/playlist/favorites')}
+            onClick={() => navigate('/library')}
           >
             <span className="af-quick-icon"><Heart size={24} fill="currentColor" /></span>
             <span className="af-quick-content">

@@ -1,6 +1,13 @@
 import { fetch } from "@tauri-apps/plugin-http";
 import { loadSettings } from "@lx/tauri-bridge";
 import { weapi } from "@/lib/crypto/weapi";
+import { createQrSvgDataUri } from "@/services/qrCode";
+import {
+  buildNeteasePcCookie,
+  buildPlaylistSubscribeRequests,
+  mapWySong,
+  resolveWyPlaylistTracks,
+} from "@/services/neteasePlaylistUtils";
 
 export interface AccountInfo {
   uid: string;
@@ -19,11 +26,41 @@ export interface WyPlaylistInfo {
   subscribed: boolean;
 }
 
+interface WyLoginSession {
+  code?: unknown;
+  account?: {
+    id?: string | number;
+    vipType?: number;
+  };
+  profile?: {
+    userId?: string | number;
+    nickname?: string;
+    avatarUrl?: string;
+    vipType?: number;
+  };
+}
+
+interface WeapiRequestOptions {
+  pcCookie?: boolean;
+}
+
+export interface WyQrLoginImage {
+  key: string;
+  qrUrl: string;
+  qrImageUrl: string;
+}
+
+export interface WyQrLoginStatus {
+  code: number;
+  message: string;
+  cookie?: string;
+}
+
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36 Edg/108.0.1462.54";
 
 let cookie = "";
 
-function normalizeCookie(input: string): string {
+export function normalizeWyCookie(input: string): string {
   return input
     .replace(/^\s*cookie\s*:\s*/i, "")
     .split(/\r?\n/)
@@ -42,7 +79,7 @@ function normalizeCookie(input: string): string {
 }
 
 export function setWyCookie(c: string): string {
-  cookie = normalizeCookie(c);
+  cookie = normalizeWyCookie(c);
   return cookie;
 }
 
@@ -51,7 +88,7 @@ export async function getWyCookie(): Promise<string> {
   // 唯一持久化来源：Rust settings（由 SettingsView 通过 patchSettings 写入）
   try {
     const settings = await loadSettings();
-    cookie = normalizeCookie(settings.wyCookie ?? "");
+    cookie = normalizeWyCookie(settings.wyCookie ?? "");
   } catch {
     // settings 文件可能尚不存在
   }
@@ -63,27 +100,31 @@ function csrfToken(): string {
   return match?.[1] ?? "";
 }
 
-async function weapiCall(path: string, data: Record<string, unknown>): Promise<Record<string, any>> {
-  if (!cookie) throw new Error("未设置网易云 Cookie");
-  if (!/MUSIC_U=/.test(cookie)) throw new Error("Cookie 中缺少 MUSIC_U，请复制已登录请求的 Cookie");
-
+async function postWeapi(
+  path: string,
+  data: Record<string, unknown>,
+  requestCookie: string,
+  csrf = "",
+): Promise<Record<string, any>> {
   const { params, encSecKey } = weapi({
     ...data,
-    csrf_token: csrfToken(),
+    csrf_token: csrf,
   });
 
   const body = new URLSearchParams({ params, encSecKey }).toString();
+  const headers: Record<string, string> = {
+    "User-Agent": UA,
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Origin": "https://music.163.com",
+    "Referer": "https://music.163.com",
+    "Content-Type": "application/x-www-form-urlencoded",
+  };
+  if (requestCookie) headers.Cookie = requestCookie;
+
   const resp = await fetch(`https://music.163.com/weapi${path}`, {
     method: "POST",
-    headers: {
-      "User-Agent": UA,
-      "Accept": "application/json, text/plain, */*",
-      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-      "Origin": "https://music.163.com",
-      "Referer": "https://music.163.com",
-      "Cookie": cookie,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
+    headers,
     body,
   });
 
@@ -94,16 +135,123 @@ async function weapiCall(path: string, data: Record<string, unknown>): Promise<R
   return JSON.parse(text) as Record<string, any>;
 }
 
-async function weapiPost(path: string, data: Record<string, unknown>): Promise<Record<string, any>> {
-  const json = await weapiCall(path, data);
+async function weapiCall(
+  path: string,
+  data: Record<string, unknown>,
+  options: WeapiRequestOptions = {},
+): Promise<Record<string, any>> {
+  if (!cookie) throw new Error("未设置网易云 Cookie");
+  if (!/MUSIC_U=/.test(cookie)) throw new Error("Cookie 中缺少 MUSIC_U，请复制已登录请求的 Cookie");
+  const requestCookie = options.pcCookie ? buildNeteasePcCookie(cookie) : cookie;
+  return postWeapi(path, data, requestCookie, csrfToken());
+}
+
+async function anonymousWeapiPost(path: string, data: Record<string, unknown>): Promise<Record<string, any>> {
+  return postWeapi(path, data, "");
+}
+
+function withQrTimestamp(data: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...data,
+    timestamp: Date.now(),
+  };
+}
+
+async function weapiPost(
+  path: string,
+  data: Record<string, unknown>,
+  options?: WeapiRequestOptions,
+): Promise<Record<string, any>> {
+  const json = await weapiCall(path, data, options);
   if (json.code !== 200) {
     throw new Error(String(json.message || `API error code=${json.code}`));
   }
   return json;
 }
 
+function isAuthExpiredCode(code: unknown): boolean {
+  return code === 301 || code === 401 || code === 403;
+}
+
+function getSessionUserId(session: WyLoginSession): string {
+  return String(session.account?.id ?? session.profile?.userId ?? "");
+}
+
+function getQrMessage(code: number, fallback?: unknown): string {
+  if (typeof fallback === "string" && fallback.trim()) return fallback;
+  switch (code) {
+    case 800:
+      return "二维码已过期，点击刷新后重新扫码";
+    case 801:
+      return "请使用网易云音乐 App 扫码登录";
+    case 802:
+      return "已扫码，请在手机上确认登录";
+    case 803:
+      return "登录成功，正在同步账号";
+    default:
+      return `网易云扫码登录状态异常：${code}`;
+  }
+}
+
+export async function createWyQrLoginKey(): Promise<string> {
+  const body = await anonymousWeapiPost("/login/qrcode/unikey", withQrTimestamp({ type: 1 }));
+  if (body.code !== 200) {
+    throw new Error(String(body.message || `二维码 key 获取失败 code=${body.code}`));
+  }
+
+  const key = String(body.unikey ?? body.data?.unikey ?? "").trim();
+  if (!key) throw new Error("网易云未返回二维码 key");
+  return key;
+}
+
+export async function createWyQrLoginImage(): Promise<WyQrLoginImage> {
+  const key = await createWyQrLoginKey();
+  const qrUrl = `https://music.163.com/login?codekey=${encodeURIComponent(key)}`;
+  return {
+    key,
+    qrUrl,
+    qrImageUrl: createQrSvgDataUri(qrUrl),
+  };
+}
+
+export async function checkWyQrLogin(key: string): Promise<WyQrLoginStatus> {
+  const body = await anonymousWeapiPost("/login/qrcode/client/login", withQrTimestamp({
+    key,
+    type: 1,
+  }));
+  const code = Number(body.code ?? 0);
+  const rawCookie = typeof body.cookie === "string" ? body.cookie : "";
+  const normalized = rawCookie ? normalizeWyCookie(rawCookie) : "";
+  return {
+    code,
+    message: getQrMessage(code, body.message),
+    cookie: code === 803 && normalized ? normalized : undefined,
+  };
+}
+
+export function assertMatchingWyLoginSession(
+  loginStatus: WyLoginSession,
+  accountSession: WyLoginSession,
+): void {
+  if (isAuthExpiredCode(loginStatus.code) || isAuthExpiredCode(accountSession.code)) {
+    throw new Error("网易云登录已过期，请重新填写 Cookie");
+  }
+
+  const loginUserId = getSessionUserId(loginStatus);
+  const accountUserId = getSessionUserId(accountSession);
+  if (!loginUserId || !accountUserId) {
+    throw new Error("Cookie 已过期或无效");
+  }
+  if (loginUserId !== accountUserId) {
+    throw new Error("网易云登录状态与账号信息不一致，请重新登录");
+  }
+}
+
 export async function checkAccount(): Promise<AccountInfo> {
+  const loginStatus = await weapiPost("/w/nuser/account/get", {});
   const body = await weapiPost("/nuser/account/get", {});
+  assertMatchingWyLoginSession(loginStatus, body);
+
   const account = body.account;
   if (!account) throw new Error("Cookie 已过期或无效");
 
@@ -145,17 +293,8 @@ export async function getPlaylistDetail(id: string) {
   });
 
   const playlist = body.playlist ?? {};
-  const previewTracks = (playlist.tracks as any[]) ?? [];
-  const trackIds = ((playlist.trackIds as any[]) ?? [])
-    .map((item) => Number(item.id))
-    .filter((trackId) => Number.isFinite(trackId));
-
-  if (trackIds.length <= previewTracks.length) {
-    return previewTracks.map(mapWySong);
-  }
-
-  const detailSongs = await getSongDetails(trackIds);
-  return detailSongs.map(mapWySong);
+  const tracks = await resolveWyPlaylistTracks(playlist, getSongDetails);
+  return tracks.map(mapWySong);
 }
 
 async function getSongDetails(ids: number[]) {
@@ -181,33 +320,6 @@ async function getSongDetails(ids: number[]) {
   }));
 
   return songs.flat();
-}
-
-function mapWySong(item: any) {
-  const album = item.al ?? item.album ?? {};
-  const artists = item.ar ?? item.artists ?? [];
-  const privilege = item.privilege ?? {};
-  const maxBr = privilege.maxbr ?? item.maxbr ?? 128000;
-  let quality = "128k";
-  if (privilege.maxBrLevel === "hires" || privilege.maxBrLevel === "lossless" || maxBr >= 999000) {
-    quality = "flac";
-  } else if (maxBr >= 320000) {
-    quality = "320k";
-  }
-
-  return {
-    id: String(item.id),
-    name: item.name ?? "",
-    singer: artists
-      .map((artist: any) => artist?.name ?? "")
-      .filter(Boolean)
-      .join("、"),
-    albumName: album.name ?? "",
-    source: "wy" as const,
-    interval: Math.round((item.dt ?? item.duration ?? 0) / 1000),
-    quality,
-    img: album.picUrl ?? "",
-  };
 }
 
 // ─── 歌单写操作 ────────────────────────────────────────────────
@@ -246,8 +358,17 @@ export async function removePlaylistTracks(playlistId: string, trackIds: string[
 }
 
 export async function subscribePlaylist(playlistId: string, isSub: boolean): Promise<void> {
-  const action = isSub ? "subscribe" : "unsubscribe";
-  await weapiPost(`/playlist/${action}`, { id: String(playlistId) });
+  const errors: string[] = [];
+  for (const request of buildPlaylistSubscribeRequests(playlistId, isSub)) {
+    try {
+      await weapiPost(request.path, request.payload, { pcCookie: request.pcCookie });
+      return;
+    } catch (error) {
+      errors.push(`${request.path}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  throw new Error(errors.join("\n") || "网易云歌单收藏失败");
 }
 
 /** 仅取网易云歌曲的 songId；非 wy 来源返回 null */

@@ -25,6 +25,7 @@
 }
 
 .af-header-search {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -36,6 +37,11 @@
   border: 1px solid var(--af-border-secondary);
   border-radius: var(--af-radius-full);
   transition: all var(--af-transition-base);
+}
+
+.af-header-search-popover {
+  top: calc(100% + 10px);
+  min-width: min(360px, calc(100vw - 32px));
 }
 
 .af-header-search:focus-within {

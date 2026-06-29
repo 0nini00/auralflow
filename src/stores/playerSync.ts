@@ -16,6 +16,7 @@ import {
   applyPlaybackSnapshotToStorePatch,
   getPlaybackSnapshotFromStore,
   type PlaybackSnapshot,
+  type PlaybackSnapshotSource,
 } from "@/services/playback/playbackSnapshot";
 
 const CHANNEL_NAME = "auralflow-player-sync";
@@ -37,16 +38,37 @@ type SyncMessage =
 
 // ─── 主窗口：广播状态 + 接收 action ────────────────
 
+function buildCriticalBroadcastKey(source: Pick<
+  PlaybackSnapshotSource,
+  "current" | "status" | "duration" | "playbackRate" | "error"
+>): string {
+  const currentKey = source.current
+    ? `${source.current.source}:${source.current.id}`
+    : "";
+  return [
+    currentKey,
+    source.status,
+    source.duration,
+    source.playbackRate,
+    source.error ?? "",
+  ].join("\u001f");
+}
+
 function setupMainWindow(channel: BroadcastChannel) {
   let lastBroadcast = 0;
+  let lastCriticalBroadcastKey = "";
   const broadcastState = (force = false) => {
     const now = performance.now();
+    const snapshot = getPlaybackSnapshotFromStore();
+    const criticalKey = buildCriticalBroadcastKey(snapshot);
+    const criticalChanged = criticalKey !== lastCriticalBroadcastKey;
     // 限频：200ms 一次足够歌词跟随，减少歌词窗口不必要的 setState
-    if (!force && now - lastBroadcast < 200) return;
+    if (!force && !criticalChanged && now - lastBroadcast < 200) return;
     lastBroadcast = now;
+    lastCriticalBroadcastKey = criticalKey;
     const message: SyncMessage = {
       type: "state",
-      snapshot: getPlaybackSnapshotFromStore(),
+      snapshot,
     };
     channel.postMessage(message);
   };

@@ -6,6 +6,14 @@ export type SourceTag = "wy" | "tx" | "local";
 
 export type SearchType = "song" | "playlist" | "album" | "singer";
 
+export interface MusicGatewayInfo {
+  /** 内置音乐 API 的真实来源，不参与 UI 来源展示 */
+  source: string;
+  trackId: string;
+  lyricId?: string;
+  picId?: string;
+}
+
 export interface MusicInfo {
   id: string;
   name: string;
@@ -23,6 +31,8 @@ export interface MusicInfo {
   url?: string;
   /** 标记为本地音乐（PlayerBar/LibraryView 使用） */
   isLocal?: boolean;
+  /** 内置音乐 API 解析元数据；source 仍保持 wy/tx/local 作为 UI 来源 */
+  gateway?: MusicGatewayInfo;
 }
 
 export interface PlaylistInfo {
@@ -32,6 +42,7 @@ export interface PlaylistInfo {
   picUrl?: string;
   desc?: string;
   playCount?: number;
+  trackCount?: number;
   source: SourceTag;
 }
 

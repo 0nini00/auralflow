@@ -1,118 +1,13 @@
-//! AuralFlow 核心数据模型
-//! 与前端 @lx/core/src/sources/types.ts 对齐
+//! AuralFlow Tauri IPC 数据模型
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 fn default_true() -> bool {
     true
 }
 
-// ============================================================
-// 音乐信息模型（与前端 MusicInfo 对齐）
-// ============================================================
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MusicInfo {
-    /// 歌曲ID（各平台自有ID体系）
-    pub id: String,
-    /// 歌名
-    pub name: String,
-    /// 歌手列表
-    pub singer: String,
-    /// 专辑名
-    pub album: String,
-    /// 专辑封面URL
-    pub album_pic_url: Option<String>,
-    /// 歌曲时长（秒）
-    pub duration: Option<u64>,
-    /// 音源标识，如 "wy" / "tx" / "kg" / "local"
-    pub source: String,
-    /// 最高可用音质，如 "128k" / "320k" / "flac"
-    pub quality: Option<String>,
-    /// 歌曲URL（播放时解析获得）
-    pub url: Option<String>,
-    /// 歌曲URL列表（不同质量）
-    pub urls: Option<Vec<MusicUrlInfo>>,
-    /// 歌词内容（LRC格式）
-    pub lyric: Option<String>,
-    /// 歌词翻译
-    pub tlyric: Option<String>,
-    /// 歌词罗马音
-    pub rlyric: Option<String>,
-    /// 其他扩展字段
-    pub extra: Option<HashMap<String, serde_json::Value>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MusicUrlInfo {
-    /// URL
-    pub url: String,
-    /// 质量标识，如 "128k" / "320k" / "flac"
-    pub quality: String,
-    /// 大小（字节）
-    pub size: Option<u64>,
-}
-
-// ============================================================
-// 搜索结果模型
-// ============================================================
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SearchResult {
-    pub songs: Vec<MusicInfo>,
-    pub total: u64,
-    pub limit: u64,
-    pub offset: u64,
-}
-
-// ============================================================
-// 歌单模型
-// ============================================================
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlaylistInfo {
-    /// 歌单ID
-    pub id: String,
-    /// 歌单名
-    pub name: String,
-    /// 歌单封面URL
-    pub cover_img_url: Option<String>,
-    /// 创建者昵称
-    pub creator_nickname: Option<String>,
-    /// 歌单描述
-    pub description: Option<String>,
-    /// 歌单标签
-    pub tags: Option<Vec<String>>,
-    /// 播放数
-    pub play_count: Option<u64>,
-    /// 歌曲列表
-    pub song_list: Option<Vec<MusicInfo>>,
-    /// 歌单来源
-    pub source: String,
-    /// 是否已收藏
-    pub subscribed: Option<bool>,
-    /// 创建者用户ID
-    pub creator_user_id: Option<u64>,
-}
-
-// ============================================================
-// 歌词模型
-// ============================================================
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LyricResult {
-    /// LRC格式歌词
-    pub lyric: Option<String>,
-    /// 翻译歌词
-    pub tlyric: Option<String>,
-    /// 罗马音歌词
-    pub rlyric: Option<String>,
+fn default_lyric_animation_intensity() -> String {
+    "normal".to_string()
 }
 
 // ============================================================
@@ -128,6 +23,8 @@ pub struct AppSettings {
     pub volume: u32,
     /// 默认音质: "128k" / "320k" / "flac"
     pub default_quality: String,
+    /// 其他媒体开始播放时，是否接受系统/浏览器触发的自动暂停
+    pub pause_on_external_playback: bool,
     /// 网易云 Cookie
     pub wy_cookie: Option<String>,
     /// 桌面歌词窗口：是否始终置顶
@@ -170,6 +67,9 @@ pub struct AppSettings {
     pub lyric_hover_hide: bool,
     /// 桌面歌词窗口：是否启用切换动画
     pub lyric_enable_animation: bool,
+    /// 歌词动画强度: "reduced" / "normal" / "enhanced"
+    #[serde(default = "default_lyric_animation_intensity")]
+    pub lyric_animation_intensity: String,
     /// 桌面歌词窗口：上次的 x（逻辑像素）。None=居中默认位置
     pub lyric_window_x: Option<f64>,
     /// 桌面歌词窗口：上次的 y
@@ -199,6 +99,7 @@ impl Default for AppSettings {
             theme: "dark".to_string(),
             volume: 80,
             default_quality: "320k".to_string(),
+            pause_on_external_playback: true,
             wy_cookie: None,
             lyric_pinned: true,
             lyric_locked: false,
@@ -220,6 +121,7 @@ impl Default for AppSettings {
             lyric_text_position_y: 0.0,
             lyric_hover_hide: false,
             lyric_enable_animation: true,
+            lyric_animation_intensity: default_lyric_animation_intensity(),
             lyric_window_x: None,
             lyric_window_y: None,
             lyric_window_width: None,
@@ -232,20 +134,6 @@ impl Default for AppSettings {
             custom_source_auto_check: true,
         }
     }
-}
-
-// ============================================================
-// 网易云账号模型
-// ============================================================
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AccountInfo {
-    pub uid: String,
-    pub nickname: String,
-    pub avatar_url: String,
-    pub vip_type: i32,
-    pub is_vip: bool,
 }
 
 // ============================================================

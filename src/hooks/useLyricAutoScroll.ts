@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, type WheelEvent } from "react";
+import {
+  calculateCenteredLyricScrollTop,
+  isLyricSeekJump,
+  USER_SCROLL_RESUME_DELAY_MS,
+} from "@/services/lyrics/playbackSync";
 
 interface UseLyricAutoScrollOptions {
   active?: boolean;
@@ -7,18 +12,7 @@ interface UseLyricAutoScrollOptions {
   resetKey?: string | number | null;
 }
 
-const SEEK_JUMP_SECONDS = 2;
-const USER_SCROLL_RESUME_DELAY = 3000;
-const ACTIVE_LINE_SETTLE_INTERVAL = 80;
-const ACTIVE_LINE_SETTLE_ATTEMPTS = 6;
 const CENTER_TOLERANCE_PX = 1;
-
-function getCenteredScrollTop(container: HTMLDivElement, lineEl: HTMLDivElement): number {
-  const containerRect = container.getBoundingClientRect();
-  const lineRect = lineEl.getBoundingClientRect();
-  const lineCenterFromContainerTop = lineRect.top - containerRect.top + lineRect.height / 2;
-  return Math.max(0, container.scrollTop + lineCenterFromContainerTop - container.clientHeight / 2);
-}
 
 export function useLyricAutoScroll({
   active = true,
@@ -32,7 +26,6 @@ export function useLyricAutoScroll({
   const prevProgressRef = useRef(progress);
   const currentLineRef = useRef(currentLine);
   const animFrameRef = useRef<number | null>(null);
-  const centerCorrectionTimeoutRef = useRef<number | null>(null);
   const userScrollTimeoutRef = useRef<number | null>(null);
   const isUserScrollingRef = useRef(false);
 
@@ -40,10 +33,6 @@ export function useLyricAutoScroll({
     if (animFrameRef.current != null) {
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = null;
-    }
-    if (centerCorrectionTimeoutRef.current != null) {
-      window.clearTimeout(centerCorrectionTimeoutRef.current);
-      centerCorrectionTimeoutRef.current = null;
     }
   }, []);
 
@@ -53,12 +42,35 @@ export function useLyricAutoScroll({
     userScrollTimeoutRef.current = null;
   }, []);
 
+  const centerLineNow = useCallback((line: number, behavior: ScrollBehavior = "auto") => {
+    const container = containerRef.current;
+    const lineEl = lineRefs.current[line];
+    if (!container || !lineEl) return false;
+
+    const containerRect = container.getBoundingClientRect();
+    const lineRect = lineEl.getBoundingClientRect();
+    const targetTop = calculateCenteredLyricScrollTop({
+      clientHeight: container.clientHeight,
+      lineOffsetTop: container.scrollTop + lineRect.top - containerRect.top,
+      lineHeight: lineRect.height,
+      scrollHeight: container.scrollHeight,
+    });
+    const delta = Math.abs(container.scrollTop - targetTop);
+    if (delta <= CENTER_TOLERANCE_PX) return true;
+
+    container.scrollTo({ top: targetTop, behavior });
+    return false;
+  }, []);
+
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (!active || !container) return;
 
     const updateCenterPadding = () => {
       container.style.setProperty("--af-lyrics-center-padding", `${container.clientHeight / 2}px`);
+      if (!isUserScrollingRef.current) {
+        centerLineNow(currentLineRef.current, "auto");
+      }
     };
 
     updateCenterPadding();
@@ -67,37 +79,7 @@ export function useLyricAutoScroll({
     const observer = new ResizeObserver(updateCenterPadding);
     observer.observe(container);
     return () => observer.disconnect();
-  }, [active, resetKey]);
-
-  const centerLineNow = useCallback((line: number, behavior: ScrollBehavior = "auto") => {
-    const container = containerRef.current;
-    const lineEl = lineRefs.current[line];
-    if (!container || !lineEl) return false;
-
-    const targetTop = getCenteredScrollTop(container, lineEl);
-    const delta = Math.abs(container.scrollTop - targetTop);
-    if (delta <= CENTER_TOLERANCE_PX) return true;
-
-    container.scrollTo({ top: targetTop, behavior });
-    return false;
-  }, []);
-
-  const scheduleCenterSettling = useCallback((line: number) => {
-    let attempts = 0;
-
-    const settle = () => {
-      centerCorrectionTimeoutRef.current = null;
-      if (isUserScrollingRef.current) return;
-
-      const isCentered = centerLineNow(line, "auto");
-      attempts += 1;
-      if (isCentered || attempts >= ACTIVE_LINE_SETTLE_ATTEMPTS) return;
-
-      centerCorrectionTimeoutRef.current = window.setTimeout(settle, ACTIVE_LINE_SETTLE_INTERVAL);
-    };
-
-    centerCorrectionTimeoutRef.current = window.setTimeout(settle, ACTIVE_LINE_SETTLE_INTERVAL);
-  }, [centerLineNow]);
+  }, [active, centerLineNow, resetKey]);
 
   const scrollToLine = useCallback((line: number, behavior: ScrollBehavior = "smooth") => {
     if (line < 0) return;
@@ -106,9 +88,8 @@ export function useLyricAutoScroll({
     animFrameRef.current = requestAnimationFrame(() => {
       centerLineNow(line, behavior);
       animFrameRef.current = null;
-      scheduleCenterSettling(line);
     });
-  }, [cancelScheduledScroll, centerLineNow, scheduleCenterSettling]);
+  }, [cancelScheduledScroll, centerLineNow]);
 
   const resumeAutoScroll = useCallback((shouldScroll = true) => {
     clearUserScrollTimer();
@@ -123,7 +104,7 @@ export function useLyricAutoScroll({
     clearUserScrollTimer();
     userScrollTimeoutRef.current = window.setTimeout(() => {
       resumeAutoScroll(true);
-    }, USER_SCROLL_RESUME_DELAY);
+    }, USER_SCROLL_RESUME_DELAY_MS);
   }, [cancelScheduledScroll, clearUserScrollTimer, resumeAutoScroll]);
 
   const setLineRef = useCallback((index: number) => (el: HTMLDivElement | null) => {
@@ -144,8 +125,7 @@ export function useLyricAutoScroll({
   }, [currentLine]);
 
   useEffect(() => {
-    const delta = Math.abs(progress - prevProgressRef.current);
-    if (delta > SEEK_JUMP_SECONDS) {
+    if (isLyricSeekJump(prevProgressRef.current, progress)) {
       resumeAutoScroll(false);
     }
     prevProgressRef.current = progress;

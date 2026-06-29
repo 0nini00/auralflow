@@ -1,4 +1,5 @@
 import type { LyricLine } from "@/services/lyricsService";
+import { calculateLyricLineProgress } from "@/services/lyrics/playbackSync";
 
 export type DesktopLyricLineRole = "current" | "next" | "empty";
 
@@ -7,6 +8,7 @@ export interface DesktopLyricDisplayLine {
   role: DesktopLyricLineRole;
   text: string;
   translation?: string;
+  progress?: number;
 }
 
 export interface DesktopLyricLineOptions {
@@ -17,6 +19,7 @@ export interface DesktopLyricLineOptions {
   singleLine: boolean;
   maxLineNum: number;
   showTranslation: boolean;
+  currentTime?: number;
 }
 
 const NO_MUSIC_TEXT = "打开主窗口选首歌吧";
@@ -42,6 +45,7 @@ export function buildDesktopLyricLines({
   singleLine,
   maxLineNum,
   showTranslation,
+  currentTime,
 }: DesktopLyricLineOptions): DesktopLyricDisplayLine[] {
   if (!hasCurrentMusic) {
     return [{ key: "no-music", role: "empty", text: NO_MUSIC_TEXT }];
@@ -56,6 +60,9 @@ export function buildDesktopLyricLines({
     key: `current-${currentIndex}`,
     role: "current",
     text: normalizeLineText(current.text),
+    progress: typeof currentTime === "number"
+      ? calculateLyricLineProgress(lines, currentIndex, currentTime)
+      : 0,
     ...(showTranslation && current.tr ? { translation: current.tr } : {}),
   }];
 

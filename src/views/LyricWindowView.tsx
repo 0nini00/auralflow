@@ -6,6 +6,12 @@
 
 import { usePlayerStore } from "@/stores/playerStore";
 import { useLyrics } from "@/hooks/useLyrics";
+import { useInterpolatedPlaybackProgress } from "@/hooks/useInterpolatedPlaybackProgress";
+import {
+  getLyricAnimationIntensityScale,
+  normalizeLyricAnimationIntensity,
+  type LyricAnimationIntensity,
+} from "@/services/lyrics/animationIntensity";
 import { dispatchLyricAction } from "@/stores/playerSync";
 import { subscribeLyricSettings, broadcastLyricSettings } from "@/stores/lyricSettingsSync";
 import { buildDesktopLyricLines, type DesktopLyricDisplayLine } from "@/utils/desktopLyric";
@@ -20,8 +26,11 @@ export function LyricWindowView() {
   const current = usePlayerStore((s) => s.current);
   const status = usePlayerStore((s) => s.status);
   const progress = usePlayerStore((s) => s.progress);
+  const duration = usePlayerStore((s) => s.duration);
+  const playbackRate = usePlayerStore((s) => s.playbackRate);
 
-  const { lyrics, currentLine } = useLyrics(current, progress);
+  const lyricProgress = useInterpolatedPlaybackProgress({ status, progress, duration, playbackRate });
+  const { lyrics, currentLine } = useLyrics(current, lyricProgress);
   const isPlaying = status === "playing";
 
   // 持久化：置顶状态 + 字号
@@ -45,6 +54,7 @@ export function LyricWindowView() {
   const [textPositionY, setTextPositionY] = useState(0);
   const [hoverHide, setHoverHide] = useState(false);
   const [enableAnimation, setEnableAnimation] = useState(true);
+  const [animationIntensity, setAnimationIntensity] = useState<LyricAnimationIntensity>("normal");
 
   useEffect(() => {
     let disposed = false;
@@ -70,6 +80,7 @@ export function LyricWindowView() {
         setTextPositionY(typeof s.lyricTextPositionY === "number" ? s.lyricTextPositionY : 0);
         setHoverHide(s.lyricHoverHide);
         setEnableAnimation(s.lyricEnableAnimation);
+        setAnimationIntensity(normalizeLyricAnimationIntensity(s.lyricAnimationIntensity));
         try {
           const runtimeState = await getLyricWindowState();
           if (!disposed) setLocked(runtimeState.locked);
@@ -103,6 +114,9 @@ export function LyricWindowView() {
       if (typeof patch.lyricTextPositionY === "number") setTextPositionY(patch.lyricTextPositionY);
       if (typeof patch.lyricHoverHide === "boolean") setHoverHide(patch.lyricHoverHide);
       if (typeof patch.lyricEnableAnimation === "boolean") setEnableAnimation(patch.lyricEnableAnimation);
+      if (typeof patch.lyricAnimationIntensity === "string") {
+        setAnimationIntensity(normalizeLyricAnimationIntensity(patch.lyricAnimationIntensity));
+      }
     });
     return () => {
       disposed = true;
@@ -118,6 +132,7 @@ export function LyricWindowView() {
     singleLine,
     maxLineNum,
     showTranslation,
+    currentTime: lyricProgress,
   });
 
   useEffect(() => {
@@ -172,10 +187,16 @@ export function LyricWindowView() {
     void getCurrentWindow().startDragging().catch(logAsyncError("lyric-window:start-dragging"));
   };
 
+  const animationScale = getLyricAnimationIntensityScale(animationIntensity);
+
   return (
     <div
       className={`af-lyric-shell ${hoverHide ? "af-lyric-hover-hide" : ""} ${locked ? "af-lyric-locked" : ""}`}
-      style={{ "--af-lyric-panel-opacity": Math.min(backgroundOpacity, 0.28) } as CSSProperties}
+      style={{
+        "--af-lyric-panel-opacity": Math.min(backgroundOpacity, 0.28),
+        "--af-lyric-animation-intensity": animationScale,
+        "--af-lyric-fade-offset": `${6 * animationScale}px`,
+      } as CSSProperties}
       onMouseDown={startWindowDrag}
     >
       {/* 拖拽手柄：整条横向背景，data-tauri-drag-region 让窗口跟随鼠标拖动 */}
@@ -320,7 +341,7 @@ export function LyricWindowView() {
         }
         .af-lyric-drag {
           position: absolute;
-          top: 8px;
+          top: 6px;
           left: 50%;
           width: fit-content;
           max-width: min(560px, calc(100% - 28px));
@@ -328,8 +349,8 @@ export function LyricWindowView() {
           display: grid;
           grid-template-columns: auto minmax(0, auto) auto;
           align-items: center;
-          gap: 10px;
-          padding: 7px 12px;
+          gap: 8px;
+          padding: 5px 10px;
           opacity: 0;
           transform: translateX(-50%);
           transition: opacity 0.2s;
@@ -356,8 +377,8 @@ export function LyricWindowView() {
           justify-content: flex-end;
         }
         .af-lyric-tool {
-          width: 28px;
-          height: 28px;
+          width: 26px;
+          height: 26px;
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -384,8 +405,8 @@ export function LyricWindowView() {
           background: rgba(34, 197, 94, 0.85);
         }
         .af-lyric-tool-primary {
-          width: 32px;
-          height: 32px;
+          width: 30px;
+          height: 30px;
           background: rgba(34, 197, 94, 0.85);
           color: #fff;
         }
@@ -416,11 +437,15 @@ export function LyricWindowView() {
           display: flex;
           flex-direction: column;
           align-items: center;
-          justify-content: center;
+          justify-content: flex-start;
           gap: 8px;
           min-height: 0;
-          padding: 28px 34px 18px;
+          padding: 52px 28px 10px;
           pointer-events: none;
+        }
+        .af-lyric-locked .af-lyric-stage {
+          justify-content: center;
+          padding: 14px 28px;
         }
         .af-lyric-line {
           width: 100%;
@@ -430,6 +455,25 @@ export function LyricWindowView() {
           letter-spacing: 0;
           paint-order: stroke fill;
           -webkit-text-stroke: 0.6px rgba(0, 0, 0, 0.34);
+        }
+        .af-lyric-line-main {
+          display: inline-block;
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          vertical-align: top;
+        }
+        .af-lyric-line-now .af-lyric-line-main {
+          color: transparent;
+          background-image: linear-gradient(
+            90deg,
+            var(--af-lyric-active-color) 0%,
+            var(--af-lyric-active-color) var(--af-lyric-line-progress),
+            rgba(255, 255, 255, 0.48) var(--af-lyric-line-progress),
+            rgba(255, 255, 255, 0.48) 100%
+          );
+          background-clip: text;
+          -webkit-background-clip: text;
         }
         .af-lyric-line-now.af-lyric-line-animated {
           animation: af-lyric-fade 0.35s ease-out;
@@ -448,8 +492,13 @@ export function LyricWindowView() {
           opacity: 0.72;
         }
         @keyframes af-lyric-fade {
-          from { opacity: 0; transform: translateY(6px); }
+          from { opacity: 0; transform: translateY(var(--af-lyric-fade-offset, 6px)); }
           to { opacity: 1; transform: translateY(0); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .af-lyric-line-now.af-lyric-line-animated {
+            animation: none;
+          }
         }
       `}</style>
     </div>
@@ -483,6 +532,7 @@ function LyricLineText({
   const textShadow = isCurrent
     ? `0 2px 12px ${shadowColor}`
     : `0 1px 6px ${shadowColor}`;
+  const lineProgress = `${Math.round((line.progress ?? 0) * 1000) / 10}%`;
 
   return (
     <div
@@ -493,14 +543,16 @@ function LyricLineText({
         enableAnimation && isCurrent ? "af-lyric-line-animated" : "",
       ].filter(Boolean).join(" ")}
       style={{
+        "--af-lyric-active-color": activeColor,
+        "--af-lyric-line-progress": lineProgress,
         color: isCurrent ? activeColor : nextColor,
         fontSize: `${size}px`,
         fontWeight: isCurrent ? fontWeight : 500,
         textAlign: align as "left" | "center" | "right",
         textShadow,
-      }}
+      } as CSSProperties}
     >
-      {line.text}
+      <span className="af-lyric-line-main">{line.text}</span>
       {line.translation && (
         <span className="af-lyric-line-translation">{line.translation}</span>
       )}

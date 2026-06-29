@@ -5,12 +5,10 @@ import { Layout } from "./components/Layout/Layout";
 import { HomeView } from "./views/HomeView";
 import { SearchView } from "./views/SearchView";
 import { SettingsView } from "./views/SettingsView";
-import { FavoritesView } from "./views/FavoritesView";
 import { LocalMusicView } from "./views/LocalMusicView";
 import { PlaylistsView } from "./views/PlaylistsView";
 import { DownloadsView } from "./views/DownloadsView";
 import { PlaylistDetailView } from "./views/PlaylistDetailView";
-import { PlayerView } from "./views/PlayerView";
 import { DailyRecommendView } from "./views/DailyRecommendView";
 import { PersonalFmView } from "./views/PersonalFmView";
 import { ArtistDetailView } from "./views/ArtistDetailView";
@@ -30,6 +28,8 @@ import { detectWindowRoleFromParts, type AppWindowRole } from "./utils/windowRol
 import { setupScrobble } from "./services/scrobbleService";
 import { customSourcePersistence, useCustomSourceStore } from "./stores/customSourceStore";
 import { usePlayerStore } from "./stores/playerStore";
+import { playerEngine } from "./services/playerEngine";
+import { normalizePauseOnExternalPlayback } from "./services/mediaInterruptionPolicy";
 import { loadSettings } from "@lx/tauri-bridge";
 import { logAsyncError } from "./utils/logAsyncError";
 
@@ -58,6 +58,7 @@ function MainApp() {
           if (typeof s.volume === "number") {
             usePlayerStore.getState().setVolume(s.volume / 100);
           }
+          playerEngine.setPauseOnExternalPlayback(normalizePauseOnExternalPlayback(s.pauseOnExternalPlayback));
         })
         .catch(logAsyncError("app:load-cursor-settings"));
     };
@@ -95,11 +96,10 @@ function MainApp() {
       <BrowserRouter>
         <DeepLinkHandler />
         <Routes>
-          <Route path="/player" element={<PlayerView />} />
           <Route path="/" element={<Layout />}>
             <Route index element={<HomeView />} />
             <Route path="search" element={<SearchView />} />
-            <Route path="library" element={<FavoritesView />} />
+            <Route path="library" element={<Navigate to="/playlist/favorites" replace />} />
             <Route path="local" element={<LocalMusicView />} />
             <Route path="playlists" element={<PlaylistsView />} />
             <Route path="downloads" element={<DownloadsView />} />

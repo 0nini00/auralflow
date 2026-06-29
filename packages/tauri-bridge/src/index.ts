@@ -9,60 +9,11 @@ import { invoke } from "@tauri-apps/api/core";
 
 // ─── Rust 模型类型（camelCase 序列化） ─────────────────────
 
-export interface RustMusicInfo {
-  id: string;
-  name: string;
-  singer: string;
-  album: string;
-  albumPicUrl?: string | null;
-  duration?: number | null;
-  source: string;
-  quality?: string | null;
-  url?: string | null;
-  urls?: RustMusicUrlInfo[] | null;
-  lyric?: string | null;
-  tlyric?: string | null;
-  rlyric?: string | null;
-  extra?: Record<string, unknown> | null;
-}
-
-export interface RustMusicUrlInfo {
-  url: string;
-  quality: string;
-  size?: number | null;
-}
-
-export interface RustSearchResult {
-  songs: RustMusicInfo[];
-  total: number;
-  limit: number;
-  offset: number;
-}
-
-export interface RustPlaylistInfo {
-  id: string;
-  name: string;
-  coverImgUrl?: string | null;
-  creatorNickname?: string | null;
-  description?: string | null;
-  tags?: string[] | null;
-  playCount?: number | null;
-  songList?: RustMusicInfo[] | null;
-  source: string;
-  subscribed?: boolean | null;
-  creatorUserId?: number | null;
-}
-
-export interface RustLyricResult {
-  lyric?: string | null;
-  tlyric?: string | null;
-  rlyric?: string | null;
-}
-
 export interface RustAppSettings {
   theme: string;
   volume: number;
   defaultQuality: string;
+  pauseOnExternalPlayback: boolean;
   wyCookie?: string | null;
   lyricPinned: boolean;
   lyricLocked: boolean;
@@ -84,6 +35,7 @@ export interface RustAppSettings {
   lyricTextPositionY: number;
   lyricHoverHide: boolean;
   lyricEnableAnimation: boolean;
+  lyricAnimationIntensity: string;
   lyricWindowX?: number | null;
   lyricWindowY?: number | null;
   lyricWindowWidth?: number | null;
@@ -114,14 +66,6 @@ export interface RustLyricWindowState {
   locked: boolean;
 }
 
-export interface RustAccountInfo {
-  uid: string;
-  nickname: string;
-  avatarUrl: string;
-  vipType: number;
-  isVip: boolean;
-}
-
 export interface RustAudioFile {
   id: string;
   path: string;
@@ -150,51 +94,6 @@ export interface RustDownloadCompletedEvent {
 }
 
 // ─── 类型化 invoke 封装 ─────────────────────────────────
-
-/** 搜索歌曲（返回 Rust SearchResult） */
-export async function searchSongs(
-  keyword: string,
-  page: number,
-  limit: number,
-  source: string
-): Promise<RustSearchResult> {
-  return invoke<RustSearchResult>("search_songs", { keyword, page, limit, source });
-}
-
-/** 搜索歌单（返回 Rust PlaylistInfo 数组） */
-export async function searchPlaylists(
-  keyword: string,
-  page: number,
-  limit: number,
-  source: string
-): Promise<RustPlaylistInfo[]> {
-  return invoke<RustPlaylistInfo[]>("search_playlists", { keyword, page, limit, source });
-}
-
-/** 获取歌曲播放 URL（返回可选字符串） */
-export async function getMusicUrl(
-  id: string,
-  quality: string,
-  source: string
-): Promise<string | null> {
-  return invoke<string | null>("get_music_url", { id, quality, source });
-}
-
-/** 获取歌词 */
-export async function getLyric(
-  id: string,
-  source: string
-): Promise<RustLyricResult> {
-  return invoke<RustLyricResult>("get_lyric", { id, source });
-}
-
-/** 获取歌单详情（返回 Rust MusicInfo 数组） */
-export async function getPlaylistDetail(
-  id: string,
-  source: string
-): Promise<RustMusicInfo[]> {
-  return invoke<RustMusicInfo[]>("get_playlist_detail", { id, source });
-}
 
 /** 加载设置 */
 export async function loadSettings(): Promise<RustAppSettings> {
@@ -266,42 +165,6 @@ export async function writeDownloadTextFile(
   contents: string,
 ): Promise<string> {
   return invoke<string>("write_download_text_file", { directory, fileName, contents });
-}
-
-// ─── 网易云账号 API ────────────────────
-
-/** 检查账号状态 */
-export async function wyCheckAccount(): Promise<RustAccountInfo> {
-  return invoke<RustAccountInfo>("wy_check_account");
-}
-
-/** 获取用户歌单 */
-export async function wyGetUserPlaylists(uid: string): Promise<RustPlaylistInfo[]> {
-  return invoke<RustPlaylistInfo[]>("wy_get_user_playlists", { uid });
-}
-
-/** 获取喜欢歌曲 ID */
-export async function wyGetLikedIds(uid: string): Promise<number[]> {
-  return invoke<number[]>("wy_get_liked_ids", { uid });
-}
-
-/** 获取每日推荐 */
-export async function wyGetDailyRecommend(): Promise<RustMusicInfo[]> {
-  return invoke<RustMusicInfo[]>("wy_get_daily_recommend");
-}
-
-/** 通过 Cookie 获取歌单详情 */
-export async function wyGetPlaylistDetail(id: string): Promise<RustMusicInfo[]> {
-  return invoke<RustMusicInfo[]>("wy_get_playlist_detail", { id });
-}
-
-/** 代理 weapi 请求，返回原始 JSON 文本 */
-export async function wyProxyWeapi(
-  path: string,
-  params: string,
-  encSecKey: string,
-): Promise<string> {
-  return invoke<string>("wy_proxy_weapi", { path, params, encSecKey });
 }
 
 // ─── 用户数据持久化（B-mid） ────────────────────

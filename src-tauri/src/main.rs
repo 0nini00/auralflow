@@ -3,7 +3,6 @@
 
 mod commands;
 mod config;
-mod gateway;
 mod library;
 mod lyric_window;
 mod models;
@@ -49,19 +48,6 @@ pub fn run() {
             // 压缩/解压 fallback
             commands::zlib_inflate,
             commands::zlib_deflate,
-            // 音源网关
-            commands::search_songs,
-            commands::search_playlists,
-            commands::get_music_url,
-            commands::get_lyric,
-            commands::get_playlist_detail,
-            // 网易云账号
-            commands::wy_check_account,
-            commands::wy_get_user_playlists,
-            commands::wy_get_liked_ids,
-            commands::wy_get_daily_recommend,
-            commands::wy_get_playlist_detail,
-            commands::wy_proxy_weapi,
             // 下载
             commands::download_file,
             commands::write_download_text_file,

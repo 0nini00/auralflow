@@ -6,6 +6,7 @@ export type PlayerVisualizerMode = 'lyrics';
 export interface PlayerVisualizerProps {
   lyrics: LyricLine[];
   currentLyricIndex: number;
+  currentTime: number;
   showTranslation: boolean;
   lyricsViewportRef: RefObject<HTMLDivElement>;
   handleLyricsWheel: (event: WheelEvent<HTMLDivElement>) => void;

@@ -3,6 +3,7 @@ import { loadSettings } from '@lx/tauri-bridge';
 import { builtinNeteaseBackend } from './builtinNeteaseBackend';
 import { customSourceBackend } from './customSourceBackend';
 import type { PlaybackBackendId, PlaybackResolvedUrl } from './types';
+import { canResolveWithBuiltinMusicApi } from '@/services/builtinMusicApiModel';
 
 function normalizeQualityPreference(value: string): string[] {
   if (value === 'high') return ['320k', '128k'];
@@ -23,10 +24,10 @@ export async function resolvePlaybackUrl(
   const settings = await loadSettings();
   const qualityPreference = normalizeQualityPreference(preferredQuality ?? settings.defaultQuality);
   const allVariants = variants?.length ? variants : [music];
-  const hasNeteaseVariant = allVariants.some((variant) => variant.source === 'wy');
+  const hasBuiltinApiVariant = allVariants.some(canResolveWithBuiltinMusicApi);
   let builtInError: unknown;
 
-  if (hasNeteaseVariant) {
+  if (hasBuiltinApiVariant) {
     try {
       return await builtinNeteaseBackend.resolve({
         primary: music,
@@ -48,7 +49,7 @@ export async function resolvePlaybackUrl(
     if (builtInError) {
       const builtInMessage = builtInError instanceof Error ? builtInError.message : String(builtInError);
       const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
-      throw new Error(`内置网易云播放失败：${builtInMessage}\n自定义音源播放失败：${fallbackMessage}`);
+      throw new Error(`内置音乐 API 播放失败：${builtInMessage}\n自定义音源播放失败：${fallbackMessage}`);
     }
     throw fallbackError;
   }

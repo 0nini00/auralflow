@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { usePlayerStore, RepeatMode } from '@/stores/playerStore';
+import { usePlayerStore } from '@/stores/playerStore';
 import { useSleepTimerStore } from '@/stores/sleepTimerStore';
+import { ImmersiveLyricsOverlay } from '@/components/ImmersiveLyricsOverlay';
 import { SongAddMenuButton } from '@/components/SongAddMenuButton';
 import { listen } from '@tauri-apps/api/event';
 import { subscribeLyricSettings } from '@/stores/lyricSettingsSync';
 import { toggleDesktopLyricFromPlayer } from '@/utils/desktopLyricToggle';
 import { logAsyncError } from '@/utils/logAsyncError';
+import { getNextPlayMode, getPlayModeControl } from '@/services/playback/playModeControl';
 import {
   Play,
   Pause,
@@ -17,14 +18,11 @@ import {
   Repeat,
   Repeat1,
   Shuffle,
-  Mic2,
   Timer,
 } from 'lucide-react';
 import { getLyricWindowState, isLyricWindowOpen } from '@lx/tauri-bridge';
 
 export const PlayerBar: React.FC = () => {
-  const navigate = useNavigate();
-
   const {
     current: currentTrack,
     status,
@@ -33,14 +31,13 @@ export const PlayerBar: React.FC = () => {
     volume,
     isMuted,
     repeatMode,
-    isShuffle: isShuffleOn,
+    isShuffle,
     togglePlay,
     toggleMute: storeToggleMute,
     setVolume,
     next,
     prev: previous,
-    setRepeatMode,
-    toggleShuffle,
+    setPlayMode,
     setProgress,
   } = usePlayerStore();
 
@@ -53,6 +50,7 @@ export const PlayerBar: React.FC = () => {
   const [sleepMenuOpen, setSleepMenuOpen] = useState(false);
   const [lyricOpen, setLyricOpen] = useState(false);
   const [lyricLocked, setLyricLocked] = useState(false);
+  const [immersiveLyricsOpen, setImmersiveLyricsOpen] = useState(false);
 
   useEffect(() => {
     void isLyricWindowOpen().then(setLyricOpen).catch(logAsyncError('player-bar:query-lyric-open'));
@@ -80,16 +78,14 @@ export const PlayerBar: React.FC = () => {
       : '定时关闭';
 
   const isPlaying = status === 'playing';
+  const playModeControl = getPlayModeControl({ repeatMode, isShuffle });
 
   const handleTrackPlay = () => {
     togglePlay();
   };
 
-  const handleRepeatToggle = () => {
-    const modes: RepeatMode[] = ['off', 'all', 'one'];
-    const currentIndex = modes.indexOf(repeatMode);
-    const nextMode = modes[(currentIndex + 1) % modes.length];
-    setRepeatMode(nextMode);
+  const handlePlayModeToggle = () => {
+    setPlayMode(getNextPlayMode(playModeControl.id));
   };
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -135,19 +131,40 @@ export const PlayerBar: React.FC = () => {
     : '打开桌面歌词';
 
   return (
-    <div className="af-player-bar">
-      <div className="af-player-container">
-        <div className="af-player-grid">
+    <>
+      <div className="af-player-bar">
+        <div className="af-player-container">
+          <div className="af-progress-bar">
+            <span className="af-time">{formatTime(currentTime)}</span>
+            <div className="af-progress-track">
+              <div
+                className="af-progress-fill"
+                style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
+              />
+              <input
+                type="range"
+                min="0"
+                max={duration || 0}
+                value={currentTime || 0}
+                onChange={handleSeek}
+                className="af-progress-input"
+                aria-label="进度"
+              />
+            </div>
+            <span className="af-time">{formatTime(duration)}</span>
+          </div>
+
+          <div className="af-player-grid">
           <div className="af-player-track-info">
             <div
               className="af-track-cover-wrapper"
-              onClick={() => navigate('/player')}
+              onClick={() => setImmersiveLyricsOpen(true)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') navigate('/player');
+                if (e.key === 'Enter' || e.key === ' ') setImmersiveLyricsOpen(true);
               }}
               role="button"
               tabIndex={0}
-              aria-label="进入全屏播放"
+              aria-label="打开整页歌词播放"
             >
               {currentTrack.img || currentTrack.picUrl ? (
                 <img
@@ -179,7 +196,7 @@ export const PlayerBar: React.FC = () => {
               aria-label={lyricButtonLabel}
               title={lyricButtonLabel}
             >
-              <Mic2 size={18} />
+              <span>词</span>
             </button>
             <div className="af-sleep-timer-wrapper">
               <button
@@ -237,11 +254,18 @@ export const PlayerBar: React.FC = () => {
           <div className="af-player-controls">
             <div className="af-control-buttons">
               <button
-                onClick={toggleShuffle}
-                className={`af-control-btn ${isShuffleOn ? 'af-active' : ''}`}
-                aria-label="随机播放"
+                onClick={handlePlayModeToggle}
+                className={`af-control-btn ${playModeControl.id !== 'sequence' ? 'af-active' : ''}`}
+                aria-label={`播放模式：${playModeControl.label}`}
+                title={playModeControl.label}
               >
-                <Shuffle size={16} />
+                {playModeControl.id === 'shuffle' ? (
+                  <Shuffle size={16} />
+                ) : playModeControl.id === 'single-loop' ? (
+                  <Repeat1 size={16} />
+                ) : (
+                  <Repeat size={16} />
+                )}
               </button>
 
               <button
@@ -271,34 +295,6 @@ export const PlayerBar: React.FC = () => {
               >
                 <SkipForward size={18} fill="currentColor" />
               </button>
-
-              <button
-                onClick={handleRepeatToggle}
-                className={`af-control-btn ${repeatMode !== 'off' ? 'af-active' : ''}`}
-                aria-label="循环播放"
-              >
-                {repeatMode === 'one' ? <Repeat1 size={16} /> : <Repeat size={16} />}
-              </button>
-            </div>
-
-            <div className="af-progress-bar">
-              <span className="af-time">{formatTime(currentTime)}</span>
-              <div className="af-progress-track">
-                <div
-                  className="af-progress-fill"
-                  style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
-                />
-                <input
-                  type="range"
-                  min="0"
-                  max={duration || 0}
-                  value={currentTime || 0}
-                  onChange={handleSeek}
-                  className="af-progress-input"
-                  aria-label="进度"
-                />
-              </div>
-              <span className="af-time">{formatTime(duration)}</span>
             </div>
           </div>
 
@@ -329,6 +325,11 @@ export const PlayerBar: React.FC = () => {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+      <ImmersiveLyricsOverlay
+        open={immersiveLyricsOpen}
+        onClose={() => setImmersiveLyricsOpen(false)}
+      />
+    </>
   );
 };

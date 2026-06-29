@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import type { MusicInfo } from "@lx/core";
 import { getLyrics, type LyricLine } from "@/services/lyricsService";
+import { findCurrentLyricLine } from "@/services/lyrics/playbackSync";
 
 export type { LyricLine };
 
@@ -96,14 +97,7 @@ export function useLyrics(music: MusicInfo | null, progress: number): UseLyricsR
 
   // 同步计算当前行，不经过 state（避免额外渲染延迟）
   const currentLine = useMemo(() => {
-    if (lyrics.length === 0) return -1;
-    for (let i = lyrics.length - 1; i >= 0; i--) {
-      if (progress + 0.08 >= lyrics[i].time) {
-        return i;
-      }
-    }
-    // 前奏阶段（progress 小于第一行时间）：高亮首行，而非返回 -1 导致不滚动
-    return 0;
+    return findCurrentLyricLine(lyrics, progress);
   }, [progress, lyrics]);
 
   return { lyrics, currentLine, isLoading, error };

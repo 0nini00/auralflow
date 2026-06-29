@@ -183,11 +183,23 @@ function normalizeRemoteScriptUrl(url: string): string {
   return parsed.toString();
 }
 
+function isLikelyRemoteScriptUrl(url: string): boolean {
+  const parsed = new URL(url);
+  const pathname = parsed.pathname.toLowerCase();
+  if (/\.(?:js|txt)(?:$|[?#])/.test(`${pathname}${parsed.search}${parsed.hash}`)) return true;
+  if (parsed.hostname === 'raw.githubusercontent.com') return true;
+  if (parsed.hostname === 'github.com' || parsed.hostname === 'gitee.com') {
+    return pathname.includes('/raw/') || pathname.includes('/blob/');
+  }
+  return false;
+}
+
 function getRemoteScriptUrl(api: CustomSourceItem): string | null {
   const candidate = api.homepage?.trim();
   if (!candidate || !/^https?:\/\//.test(candidate)) return null;
   try {
-    return normalizeRemoteScriptUrl(candidate);
+    const normalized = normalizeRemoteScriptUrl(candidate);
+    return isLikelyRemoteScriptUrl(normalized) ? normalized : null;
   } catch {
     return null;
   }

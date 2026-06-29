@@ -2,7 +2,9 @@ import { create } from "zustand";
 import type { MusicInfo } from "@lx/core";
 import { playerEngine } from "@/services/playerEngine";
 import { resolvePlaybackUrl } from "@/services/playback/playbackResolver";
-import { prefetchNearbyTracks, getPrefetchedTrack } from "@/services/playback/prefetchService";
+import { prefetchNearbyTracks, getPrefetchedTrack, invalidatePrefetchedTrack } from "@/services/playback/prefetchService";
+import { selectCachedPlaybackTarget } from "@/services/playback/prefetchModel";
+import { getPlayModeState, type PlayModeId } from "@/services/playback/playModeControl";
 import { patchSettings } from "@lx/tauri-bridge";
 import { useHistoryStore } from "./historyStore";
 import { useSleepTimerStore } from "./sleepTimerStore";
@@ -49,6 +51,7 @@ interface PlayerStore {
   setVolume: (volume: number) => void;
   toggleMute: () => void;
   setPlaybackRate: (rate: number) => void;
+  setPlayMode: (mode: PlayModeId) => void;
   setRepeatMode: (mode: RepeatMode) => void;
   toggleShuffle: () => void;
   enterFmMode: () => void;
@@ -65,6 +68,19 @@ function buildPlayRequestKey(music: MusicInfo): string {
       ? String(music.url)
       : "";
   return `${music.source}:${music.id}:${localUrl}`;
+}
+
+function didPlayFailForTarget(state: Pick<PlayerStore, "current" | "status">, music: MusicInfo): boolean {
+  return (
+    state.status === "error" &&
+    state.current != null &&
+    buildPlayRequestKey(state.current) === buildPlayRequestKey(music)
+  );
+}
+
+async function playAndDidFail(get: () => PlayerStore, music: MusicInfo): Promise<boolean> {
+  await get().play(music);
+  return didPlayFailForTarget(get(), music);
 }
 
 function invalidatePlayRequest() {
@@ -183,19 +199,34 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
           // 优先使用预加载缓存，命中则跳过网络解析
 
-          const cached = getPrefetchedTrack(music);
+          const variants = Array.isArray((music as any).variants) ? (music as any).variants as MusicInfo[] : undefined;
+          const cachedTarget = selectCachedPlaybackTarget(music, getPrefetchedTrack(music));
 
-          if (cached?.url) {
+          if (cachedTarget) {
 
             if (requestId !== activePlayRequestId) return;
 
-            await playerEngine.play(music, cached.url);
+            try {
+              await playerEngine.play(cachedTarget.music, cachedTarget.url);
+            } catch (cachedError) {
+              invalidatePrefetchedTrack(music);
+              if (cachedTarget.music.source !== music.source || cachedTarget.music.id !== music.id) {
+                invalidatePrefetchedTrack(cachedTarget.music);
+              }
+
+              const resolved = await resolvePlaybackUrl(music, variants);
+              if (requestId !== activePlayRequestId) return;
+
+              if (!resolved?.url) {
+                throw cachedError;
+              }
+
+              await playerEngine.play(resolved.music, resolved.url);
+            }
 
           } else {
 
             // 在线音乐交给播放解析器：先内置网易云，失败后再走备用播放方式。
-
-            const variants = Array.isArray((music as any).variants) ? (music as any).variants as MusicInfo[] : undefined;
 
             const resolved = await resolvePlaybackUrl(music, variants);
 
@@ -251,8 +282,14 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
     playByIndex: async (index) => {
       const { queue } = get();
       if (index < 0 || index >= queue.length) return;
+      const previousIndex = get().currentIndex;
       set({ currentIndex: index });
-      await get().play(queue[index]);
+      try {
+        const failed = await playAndDidFail(get, queue[index]);
+        if (failed) set({ currentIndex: previousIndex });
+      } catch {
+        set({ currentIndex: previousIndex });
+      }
     },
 
     addToQueue: (music) => {
@@ -467,18 +504,22 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
       // 先更新 index，使 play() 内部的 preloadNext 能读到正确的下一首
 
       const prevIndex = currentIndex;
+      const previousPlayHistory = playHistory;
 
       try {
 
         set({ currentIndex: nextIndex });
 
-        await get().play(queue[nextIndex]);
+        const failed = await playAndDidFail(get, queue[nextIndex]);
+        if (failed) {
+          set({ currentIndex: prevIndex, playHistory: previousPlayHistory });
+        }
 
       } catch {
 
         // play 失败时回滚 index，避免 UI 指向未成功播放的曲目
 
-        set({ currentIndex: prevIndex });
+        set({ currentIndex: prevIndex, playHistory: previousPlayHistory });
 
       }
 
@@ -519,16 +560,20 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
       if (prevIndex === currentIndex) return;
 
       const savedIndex = currentIndex;
+      const savedPlayHistory = playHistory;
 
       try {
 
         set({ currentIndex: prevIndex });
 
-        await get().play(queue[prevIndex]);
+        const failed = await playAndDidFail(get, queue[prevIndex]);
+        if (failed) {
+          set({ currentIndex: savedIndex, playHistory: savedPlayHistory });
+        }
 
       } catch {
 
-        set({ currentIndex: savedIndex });
+        set({ currentIndex: savedIndex, playHistory: savedPlayHistory });
 
       }
 
@@ -574,6 +619,15 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
     setPlaybackRate: (rate) => {
       playerEngine.setPlaybackRate(rate);
       set({ playbackRate: rate });
+    },
+
+    setPlayMode: (mode) => {
+      const next = getPlayModeState(mode);
+      set((state) => ({
+        repeatMode: next.repeatMode,
+        isShuffle: next.isShuffle,
+        playHistory: next.isShuffle ? state.playHistory : [],
+      }));
     },
 
     setRepeatMode: (mode) => set({ repeatMode: mode }),

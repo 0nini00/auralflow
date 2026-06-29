@@ -14,9 +14,8 @@ import "./styles/playlists.css";
 import "./styles/buttons.css";
 
 // Initialize theme
-import { useThemeStore } from "./stores/themeStore";
-const initialTheme = useThemeStore.getState().effectiveTheme;
-document.documentElement.setAttribute("data-theme", initialTheme);
+import { applyInitialAppearance } from "./stores/themeStore";
+applyInitialAppearance();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

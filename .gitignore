@@ -24,9 +24,9 @@ dist-ssr
 *.sw?
 
 # Rust / Tauri
-src-tauri/target/
-src-tauri/gen/
-.alma-snapshots
-.codex_tmp/
-.mindfs/
+src-tauri/target/
+src-tauri/gen/
+.alma-snapshots/
+.codex_tmp/
+.mindfs/
 .pnpm-store/

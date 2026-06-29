@@ -2,24 +2,13 @@ import type { MusicInfo } from '@lx/core';
 import { getLyrics, type LyricResponse } from '@/services/lyricsService';
 import { playerEngine } from '@/services/playerEngine';
 import { resolvePlaybackUrl } from './playbackResolver';
+import {
+  buildPlaybackPrefetchEntry,
+  type PlaybackPrefetchEntry,
+  type PrefetchResolvedUrl,
+} from './prefetchModel';
 
 type RepeatMode = 'off' | 'all' | 'one';
-
-export interface PrefetchResolvedUrl {
-  url: string;
-  quality?: string;
-  music?: MusicInfo;
-}
-
-export interface PlaybackPrefetchEntry {
-  music: MusicInfo;
-  url?: string;
-  quality?: string;
-  lyrics?: LyricResponse;
-  coverUrl?: string;
-  fetchedAt: number;
-  error?: string;
-}
 
 export interface PrefetchNearbyTracksOptions {
   queue: MusicInfo[];
@@ -112,10 +101,9 @@ async function prefetchTrack(
   const key = getTrackKey(music);
   if (isFreshEntry(prefetchCache.get(key), fetchedAt)) return;
 
-  const entry: PlaybackPrefetchEntry = {
-    music,
+  let entry: PlaybackPrefetchEntry = {
+    ...buildPlaybackPrefetchEntry(music, null, fetchedAt),
     coverUrl: getCoverUrl(music),
-    fetchedAt,
   };
 
   if (entry.coverUrl) options.preloadCoverUrl(entry.coverUrl);
@@ -123,14 +111,20 @@ async function prefetchTrack(
   try {
     const localUrl = getLocalAudioUrl(music);
     if (localUrl) {
-      entry.url = localUrl;
-      entry.quality = 'local';
+      entry = {
+        ...entry,
+        ...buildPlaybackPrefetchEntry(music, { url: localUrl, quality: 'local', music }, fetchedAt),
+        coverUrl: entry.coverUrl,
+      };
     } else {
       const variants = getPlaybackVariants(music);
       const resolved = await options.resolvePlaybackUrl(music, variants);
       if (resolved?.url) {
-        entry.url = resolved.url;
-        entry.quality = resolved.quality;
+        entry = {
+          ...entry,
+          ...buildPlaybackPrefetchEntry(music, resolved, fetchedAt),
+          coverUrl: entry.coverUrl,
+        };
       }
     }
     if (entry.url) options.preloadUrl(entry.url);

@@ -50,8 +50,10 @@ export function LocalMusicView() {
   const handleRefresh = async () => {
     if (scanPaths.length === 0) return;
     try {
-      const { added, removed } = await refreshLibrary();
-      // 简单提示，后续可改成 toast
+      const { added, removed, failedPaths } = await refreshLibrary();
+      if (failedPaths.length > 0) {
+        alert(`以下文件夹刷新失败，已保留这些文件夹中原有歌曲：\n${failedPaths.join('\n')}`);
+      }
       if (added > 0 || removed > 0) {
         console.log(`[refresh] 新增 ${added} 首，移除 ${removed} 首`);
       }

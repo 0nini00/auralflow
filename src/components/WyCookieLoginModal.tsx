@@ -1,31 +1,165 @@
-import { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { RefreshCw, X } from "lucide-react";
 import { patchSettings } from "@lx/tauri-bridge";
-import { setWyCookie } from "@/services/wyAccountService";
+import {
+  checkWyQrLogin,
+  createWyQrLoginImage,
+  getWyCookie,
+  setWyCookie,
+  type WyQrLoginImage,
+} from "@/services/wyAccountService";
 import { useWyAccountStore } from "@/stores/wyAccountStore";
+import { warnAsyncError } from "@/utils/logAsyncError";
 
 interface WyCookieLoginModalProps {
   open: boolean;
   onClose: () => void;
 }
 
+type LoginMethod = "qr" | "cookie";
+
 export function WyCookieLoginModal({ open, onClose }: WyCookieLoginModalProps) {
   const loadAccount = useWyAccountStore((s) => s.load);
   const account = useWyAccountStore((s) => s.account);
-  const storeError = useWyAccountStore((s) => s.error);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [loginMethod, setLoginMethod] = useState<LoginMethod>("qr");
   const [cookieText, setCookieText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [qrLogin, setQrLogin] = useState<WyQrLoginImage | null>(null);
+  const [qrLoading, setQrLoading] = useState(false);
+  const [qrStatus, setQrStatus] = useState("");
+  const [qrError, setQrError] = useState("");
+  const [qrExpired, setQrExpired] = useState(false);
+
+  const clearQrPolling = useCallback(() => {
+    if (!pollTimerRef.current) return;
+    clearInterval(pollTimerRef.current);
+    pollTimerRef.current = null;
+  }, []);
+
+  const persistLoginCookie = useCallback(async (rawCookie: string) => {
+    const previousCookie = await getWyCookie();
+    const previousAccountState = {
+      account: useWyAccountStore.getState().account,
+      playlists: useWyAccountStore.getState().playlists,
+      isLoading: false,
+      isLoaded: useWyAccountStore.getState().isLoaded,
+      error: useWyAccountStore.getState().error,
+    };
+
+    try {
+      const normalized = setWyCookie(rawCookie);
+      await patchSettings({ wyCookie: normalized });
+      await loadAccount(normalized);
+
+      const latest = useWyAccountStore.getState();
+      if (!latest.account) {
+        throw new Error(latest.error || "网易云账号验证失败");
+      }
+
+      onClose();
+    } catch (err) {
+      setWyCookie(previousCookie);
+      useWyAccountStore.setState(previousAccountState);
+      try {
+        await patchSettings({ wyCookie: previousCookie || null });
+      } catch (rollbackError) {
+        warnAsyncError("wy-login:rollback-cookie", rollbackError);
+      }
+      throw new Error(err instanceof Error ? err.message : String(err));
+    }
+  }, [loadAccount, onClose]);
+
+  const startQrPolling = useCallback((key: string) => {
+    clearQrPolling();
+    setQrExpired(false);
+    let pending = false;
+
+    const poll = async () => {
+      if (pending) return;
+      pending = true;
+      try {
+        const status = await checkWyQrLogin(key);
+        setQrStatus(status.message);
+
+        if (status.code === 800) {
+          clearQrPolling();
+          setQrExpired(true);
+          setQrStatus("二维码已过期，请刷新后重新扫码");
+          return;
+        }
+        if (status.code === 801 || status.code === 802) return;
+        if (status.code !== 803) {
+          clearQrPolling();
+          setQrError(status.message);
+          return;
+        }
+        if (!status.cookie) {
+          clearQrPolling();
+          setQrError("扫码成功但网易云未返回 Cookie，请刷新二维码重试");
+          return;
+        }
+
+        clearQrPolling();
+        setSubmitting(true);
+        setQrError("");
+        setQrExpired(false);
+        await persistLoginCookie(status.cookie);
+      } catch (err) {
+        clearQrPolling();
+        setQrError(err instanceof Error ? err.message : String(err));
+      } finally {
+        pending = false;
+        setSubmitting(false);
+      }
+    };
+
+    pollTimerRef.current = setInterval(poll, 1800);
+    void poll();
+  }, [clearQrPolling, persistLoginCookie]);
+
+  const refreshQrLogin = useCallback(async () => {
+    clearQrPolling();
+    setQrLoading(true);
+    setQrError("");
+    setQrExpired(false);
+    setQrStatus("正在生成二维码...");
+    setQrLogin(null);
+    try {
+      const nextQrLogin = await createWyQrLoginImage();
+      setQrLogin(nextQrLogin);
+      setQrStatus("请使用网易云音乐 App 扫码登录");
+      setQrExpired(false);
+      startQrPolling(nextQrLogin.key);
+    } catch (err) {
+      setQrError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setQrLoading(false);
+    }
+  }, [clearQrPolling, startQrPolling]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      clearQrPolling();
+      return;
+    }
+
+    setLoginMethod("qr");
     setCookieText("");
     setError("");
-  }, [open]);
+    setQrError("");
+    setQrStatus("");
+    setQrExpired(false);
+    setQrLogin(null);
+    void refreshQrLogin();
+  }, [clearQrPolling, open, refreshQrLogin]);
+
+  useEffect(() => clearQrPolling, [clearQrPolling]);
 
   if (!open) return null;
 
-  const handleSubmit = async () => {
+  const handleCookieSubmit = async () => {
     const raw = cookieText.trim();
     if (!raw) {
       setError("请先粘贴网易云 Cookie");
@@ -35,21 +169,28 @@ export function WyCookieLoginModal({ open, onClose }: WyCookieLoginModalProps) {
     setSubmitting(true);
     setError("");
     try {
-      const normalized = setWyCookie(raw);
-      await patchSettings({ wyCookie: normalized });
-      await loadAccount(normalized);
-
-      const latest = useWyAccountStore.getState();
-      if (!latest.account) {
-        throw new Error(latest.error || storeError || "Cookie 验证失败");
-      }
-
-      onClose();
+      await persistLoginCookie(raw);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const switchLoginMethod = (method: LoginMethod) => {
+    setLoginMethod(method);
+    if (method === "qr") {
+      setError("");
+      if (qrLogin) {
+        startQrPolling(qrLogin.key);
+      } else if (!qrLoading) {
+        void refreshQrLogin();
+      }
+      return;
+    }
+    clearQrPolling();
+    setQrError("");
+    setQrExpired(false);
   };
 
   return (
@@ -58,7 +199,7 @@ export function WyCookieLoginModal({ open, onClose }: WyCookieLoginModalProps) {
         <div className="af-cookie-login-header">
           <div>
             <h2>登录网易云账号</h2>
-            <p>粘贴已登录 music.163.com 的 Cookie，保存后会自动验证账号。</p>
+            <p>使用网易云音乐 App 扫码，或粘贴已登录网页 Cookie，保存后会自动验证账号。</p>
           </div>
           <button type="button" className="af-menu-trigger" onClick={onClose} aria-label="关闭">
             <X size={18} />
@@ -66,21 +207,73 @@ export function WyCookieLoginModal({ open, onClose }: WyCookieLoginModalProps) {
         </div>
 
         <div className="af-dialog-body">
-          <label className="af-settings-label" htmlFor="wy-cookie-login">
-            Cookie
-          </label>
-          <textarea
-            id="wy-cookie-login"
-            className="af-settings-textarea af-cookie-login-textarea"
-            placeholder="_iuqxldmzr_=...; MUSIC_U=...; __csrf=..."
-            value={cookieText}
-            onChange={(event) => setCookieText(event.target.value)}
-            autoFocus
-          />
-          <p className="af-settings-hint">
-            登录 music.163.com 后，从浏览器 DevTools -&gt; Application -&gt; Cookies 复制。
-          </p>
-          {error && <p className="af-settings-error">{error}</p>}
+          <div className="af-login-method-tabs" role="tablist" aria-label="网易云登录方式">
+            <button
+              type="button"
+              className={`af-login-method-tab ${loginMethod === "qr" ? "af-active" : ""}`}
+              onClick={() => switchLoginMethod("qr")}
+              role="tab"
+              aria-selected={loginMethod === "qr"}
+            >
+              扫码登录
+            </button>
+            <button
+              type="button"
+              className={`af-login-method-tab ${loginMethod === "cookie" ? "af-active" : ""}`}
+              onClick={() => switchLoginMethod("cookie")}
+              role="tab"
+              aria-selected={loginMethod === "cookie"}
+            >
+              Cookie 登录
+            </button>
+          </div>
+
+          {loginMethod === "qr" ? (
+            <div className="af-qr-login-panel" role="tabpanel">
+              <div className="af-qr-code-box">
+                {qrLogin ? (
+                  <>
+                    <img src={qrLogin.qrImageUrl} alt="网易云扫码登录二维码" />
+                    {qrExpired && <span className="af-qr-expired-badge">已过期</span>}
+                  </>
+                ) : (
+                  <span>{qrLoading ? "生成中..." : "二维码未生成"}</span>
+                )}
+              </div>
+              <div className="af-qr-login-copy">
+                <p>{qrStatus || "请使用网易云音乐 App 扫码登录"}</p>
+                <button
+                  type="button"
+                  className="af-settings-small-button"
+                  onClick={refreshQrLogin}
+                  disabled={qrLoading || submitting}
+                >
+                  <RefreshCw size={14} />
+                  刷新二维码
+                </button>
+              </div>
+              {qrError && <p className="af-settings-error">{qrError}</p>}
+            </div>
+          ) : (
+            <div role="tabpanel">
+              <label className="af-settings-label" htmlFor="wy-cookie-login">
+                Cookie
+              </label>
+              <textarea
+                id="wy-cookie-login"
+                className="af-settings-textarea af-cookie-login-textarea"
+                placeholder="_iuqxldmzr_=...; MUSIC_U=...; __csrf=..."
+                value={cookieText}
+                onChange={(event) => setCookieText(event.target.value)}
+                autoFocus
+              />
+              <p className="af-settings-hint">
+                登录 music.163.com 后，从浏览器 DevTools -&gt; Application -&gt; Cookies 复制。
+              </p>
+              {error && <p className="af-settings-error">{error}</p>}
+            </div>
+          )}
+
           {account && (
             <p className="af-settings-hint">
               当前已登录：{account.nickname}
@@ -92,14 +285,25 @@ export function WyCookieLoginModal({ open, onClose }: WyCookieLoginModalProps) {
           <button type="button" className="af-btn-secondary" onClick={onClose} disabled={submitting}>
             取消
           </button>
-          <button
-            type="button"
-            className="af-btn-primary"
-            onClick={handleSubmit}
-            disabled={submitting || !cookieText.trim()}
-          >
-            {submitting ? "验证中..." : "保存并验证"}
-          </button>
+          {loginMethod === "cookie" ? (
+            <button
+              type="button"
+              className="af-btn-primary"
+              onClick={handleCookieSubmit}
+              disabled={submitting || !cookieText.trim()}
+            >
+              {submitting ? "验证中..." : "保存并验证"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="af-btn-primary"
+              onClick={refreshQrLogin}
+              disabled={submitting || qrLoading}
+            >
+              {qrLoading ? "生成中..." : "重新扫码"}
+            </button>
+          )}
         </div>
       </div>
     </div>
