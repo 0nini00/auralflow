@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { patchSettings } from "@lx/tauri-bridge";
 import type { MusicInfo } from "@lx/core";
 import {
   setWyCookie,
@@ -22,6 +23,7 @@ interface WyAccountState {
   error: string;
 
   load: (cookieStr?: string) => Promise<void>;
+  logout: () => Promise<void>;
   getPlaylistSongs: (id: string) => Promise<MusicInfo[]>;
   /** 强制刷新某个网易云歌单：清缓存并重新拉取详情 */
   refreshPlaylistSongs: (id: string) => Promise<MusicInfo[]>;
@@ -79,6 +81,19 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
         isLoaded: true,
       });
     }
+  },
+
+  logout: async () => {
+    await patchSettings({ wyCookie: null });
+    setWyCookie("");
+    playlistCache.clear();
+    set({
+      account: null,
+      playlists: [],
+      isLoading: false,
+      isLoaded: true,
+      error: "",
+    });
   },
 
   getPlaylistSongs: async (id: string) => {

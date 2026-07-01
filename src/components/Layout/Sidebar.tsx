@@ -53,10 +53,8 @@ export function Sidebar() {
           type="button"
           className="af-user-button"
           aria-label={account ? `网易云账号：${account.nickname}` : "登录网易云账号"}
-          onClick={() => {
-            if (!account) setLoginOpen(true);
-          }}
-          title={account ? account.nickname : "点击登录网易云账号"}
+          onClick={() => setLoginOpen(true)}
+          title={account ? "管理网易云账号" : "点击登录网易云账号"}
         >
           {account?.avatarUrl ? (
             <img src={account.avatarUrl} alt="" className="af-user-avatar" />

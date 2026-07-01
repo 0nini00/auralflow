@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RefreshCw, X } from "lucide-react";
+import { LogOut, RefreshCw, X } from "lucide-react";
 import { patchSettings } from "@lx/tauri-bridge";
 import {
   checkWyQrLogin,
@@ -20,17 +20,20 @@ type LoginMethod = "qr" | "cookie";
 
 export function WyCookieLoginModal({ open, onClose }: WyCookieLoginModalProps) {
   const loadAccount = useWyAccountStore((s) => s.load);
+  const logoutAccount = useWyAccountStore((s) => s.logout);
   const account = useWyAccountStore((s) => s.account);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [loginMethod, setLoginMethod] = useState<LoginMethod>("qr");
   const [cookieText, setCookieText] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [logoutPending, setLogoutPending] = useState(false);
   const [error, setError] = useState("");
   const [qrLogin, setQrLogin] = useState<WyQrLoginImage | null>(null);
   const [qrLoading, setQrLoading] = useState(false);
   const [qrStatus, setQrStatus] = useState("");
   const [qrError, setQrError] = useState("");
   const [qrExpired, setQrExpired] = useState(false);
+  const [accountError, setAccountError] = useState("");
 
   const clearQrPolling = useCallback(() => {
     if (!pollTimerRef.current) return;
@@ -151,6 +154,8 @@ export function WyCookieLoginModal({ open, onClose }: WyCookieLoginModalProps) {
     setQrError("");
     setQrStatus("");
     setQrExpired(false);
+    setAccountError("");
+    setLogoutPending(false);
     setQrLogin(null);
     void refreshQrLogin();
   }, [clearQrPolling, open, refreshQrLogin]);
@@ -177,6 +182,22 @@ export function WyCookieLoginModal({ open, onClose }: WyCookieLoginModalProps) {
     }
   };
 
+  const handleLogout = async () => {
+    clearQrPolling();
+    setLogoutPending(true);
+    setError("");
+    setQrError("");
+    setAccountError("");
+    try {
+      await logoutAccount();
+      onClose();
+    } catch (err) {
+      setAccountError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLogoutPending(false);
+    }
+  };
+
   const switchLoginMethod = (method: LoginMethod) => {
     setLoginMethod(method);
     if (method === "qr") {
@@ -199,7 +220,6 @@ export function WyCookieLoginModal({ open, onClose }: WyCookieLoginModalProps) {
         <div className="af-cookie-login-header">
           <div>
             <h2>登录网易云账号</h2>
-            <p>使用网易云音乐 App 扫码，或粘贴已登录网页 Cookie，保存后会自动验证账号。</p>
           </div>
           <button type="button" className="af-menu-trigger" onClick={onClose} aria-label="关闭">
             <X size={18} />
@@ -246,7 +266,7 @@ export function WyCookieLoginModal({ open, onClose }: WyCookieLoginModalProps) {
                   type="button"
                   className="af-settings-small-button"
                   onClick={refreshQrLogin}
-                  disabled={qrLoading || submitting}
+                  disabled={qrLoading || submitting || logoutPending}
                 >
                   <RefreshCw size={14} />
                   刷新二维码
@@ -267,22 +287,35 @@ export function WyCookieLoginModal({ open, onClose }: WyCookieLoginModalProps) {
                 onChange={(event) => setCookieText(event.target.value)}
                 autoFocus
               />
-              <p className="af-settings-hint">
-                登录 music.163.com 后，从浏览器 DevTools -&gt; Application -&gt; Cookies 复制。
-              </p>
               {error && <p className="af-settings-error">{error}</p>}
             </div>
           )}
 
           {account && (
-            <p className="af-settings-hint">
-              当前已登录：{account.nickname}
-            </p>
+            <div className="af-cookie-login-account">
+              {account.avatarUrl && <img src={account.avatarUrl} alt="" />}
+              <div>
+                <p>当前已登录：{account.nickname}</p>
+                <span>UID：{account.uid}</span>
+              </div>
+            </div>
           )}
+          {accountError && <p className="af-settings-error">{accountError}</p>}
         </div>
 
         <div className="af-dialog-actions">
-          <button type="button" className="af-btn-secondary" onClick={onClose} disabled={submitting}>
+          {account && (
+            <button
+              type="button"
+              className="af-btn-secondary af-settings-danger-button"
+              onClick={handleLogout}
+              disabled={submitting || logoutPending}
+            >
+              <LogOut size={16} />
+              <span>{logoutPending ? "退出中..." : "退出登录"}</span>
+            </button>
+          )}
+          <button type="button" className="af-btn-secondary" onClick={onClose} disabled={submitting || logoutPending}>
             取消
           </button>
           {loginMethod === "cookie" ? (
@@ -290,7 +323,7 @@ export function WyCookieLoginModal({ open, onClose }: WyCookieLoginModalProps) {
               type="button"
               className="af-btn-primary"
               onClick={handleCookieSubmit}
-              disabled={submitting || !cookieText.trim()}
+              disabled={submitting || logoutPending || !cookieText.trim()}
             >
               {submitting ? "验证中..." : "保存并验证"}
             </button>
@@ -299,7 +332,7 @@ export function WyCookieLoginModal({ open, onClose }: WyCookieLoginModalProps) {
               type="button"
               className="af-btn-primary"
               onClick={refreshQrLogin}
-              disabled={submitting || qrLoading}
+              disabled={submitting || logoutPending || qrLoading}
             >
               {qrLoading ? "生成中..." : "重新扫码"}
             </button>

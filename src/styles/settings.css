@@ -1125,6 +1125,38 @@
   min-height: 132px;
 }
 
+.af-cookie-login-account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 10px 12px;
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-md);
+  background: var(--af-bg-surface);
+}
+
+.af-cookie-login-account img {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: 0 0 auto;
+}
+
+.af-cookie-login-account p {
+  margin: 0 0 4px;
+  color: var(--af-text-primary);
+  font-size: var(--af-font-size-sm);
+  font-weight: var(--af-font-weight-semibold);
+}
+
+.af-cookie-login-account span {
+  display: block;
+  color: var(--af-text-tertiary);
+  font-size: var(--af-font-size-xs);
+}
+
 .af-login-method-tabs {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

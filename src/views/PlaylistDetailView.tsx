@@ -505,6 +505,7 @@ export function PlaylistDetailView() {
               items={songs}
               rowHeight={60}
               className="af-song-list-virtual"
+              scrollRootSelector=".af-content-scroll"
               onScroll={() => setOpenMenuIndex(null)}
               renderItem={(song, index) => (
                 <div

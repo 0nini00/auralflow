@@ -3,6 +3,7 @@ import forge from "node-forge";
 
 const WY_IV = CryptoJS.enc.Utf8.parse("0102030405060708");
 const WY_PRESET_KEY = CryptoJS.enc.Utf8.parse("0CoJUm6Qyw8W8jud");
+const WY_EAPI_KEY = CryptoJS.enc.Utf8.parse("e82ckenh8dichen8");
 
 const BASE62 = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
@@ -61,4 +62,25 @@ export function weapi(data: Record<string, any>): {
   );
 
   return { params, encSecKey };
+}
+
+export function eapi(path: string, data: Record<string, any>): {
+  params: string;
+} {
+  const text = typeof data === "object" ? JSON.stringify(data) : String(data);
+  const message = `nobody${path}use${text}md5forencrypt`;
+  const digest = CryptoJS.MD5(message).toString();
+  const payload = `${path}-36cd479b6b5-${text}-36cd479b6b5-${digest}`;
+  const encrypted = CryptoJS.AES.encrypt(
+    CryptoJS.enc.Utf8.parse(payload),
+    WY_EAPI_KEY,
+    {
+      mode: CryptoJS.mode.ECB,
+      padding: CryptoJS.pad.Pkcs7,
+    }
+  );
+
+  return {
+    params: encrypted.ciphertext.toString().toUpperCase(),
+  };
 }

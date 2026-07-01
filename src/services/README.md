@@ -26,13 +26,13 @@
 
 ## 网易云二维码登录
 
-`wyAccountService.ts` 不依赖单独的 Node API 服务。它通过前端 weapi 加密和 Tauri HTTP plugin 直接请求网易云二维码登录接口：
+`wyAccountService.ts` 不依赖单独的 Node API 服务。它通过前端 eapi 加密和 Tauri HTTP plugin 直接请求网易云 desktop 二维码登录接口：
 
-- `/login/qrcode/unikey` 生成二维码 key。
+- `/api/login/qrcode/unikey` 生成二维码 key，使用 `type: 3`。
 - `music.163.com/login?codekey=...` 作为二维码内容。
-- `/login/qrcode/client/login` 轮询扫码状态。
+- `/api/login/qrcode/client/login` 轮询扫码状态，使用 `type: 3`。
 
-二维码请求会带 `timestamp` 防止缓存。`803` 返回 Cookie 后交给 `WyCookieLoginModal` 保存并验证账号；`800` 会让弹窗停止轮询并显示过期状态。
+扫码成功时优先读取响应体 Cookie，也兼容从 `Set-Cookie` 响应头提取 Cookie。`803` 返回 Cookie 后交给 `WyCookieLoginModal` 保存并验证账号；`800` 会让弹窗停止轮询并显示过期状态。
 
 ## 子目录
 

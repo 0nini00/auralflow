@@ -96,6 +96,12 @@
   height: 100%;
 }
 
+.af-virtual-list.af-virtual-list-external {
+  overflow-y: visible;
+  overflow-x: visible;
+  height: auto;
+}
+
 /* ── 用户协议弹窗 ── */
 .af-pact-overlay {
   z-index: 3000;

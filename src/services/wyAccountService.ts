@@ -1,6 +1,6 @@
 import { fetch } from "@tauri-apps/plugin-http";
 import { loadSettings } from "@lx/tauri-bridge";
-import { weapi } from "@/lib/crypto/weapi";
+import { eapi, weapi } from "@/lib/crypto/weapi";
 import { createQrSvgDataUri } from "@/services/qrCode";
 import {
   buildNeteasePcCookie,
@@ -57,6 +57,12 @@ export interface WyQrLoginStatus {
 }
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36 Edg/108.0.1462.54";
+const DESKTOP_API_UA = "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Safari/537.36 Chrome/91.0.4472.164 NeteaseMusicDesktop/3.0.18.203152";
+const EAPI_HOST = "https://interface.music.163.com/eapi";
+const QR_LOGIN_TYPE = 3;
+const anonymousDeviceId = randomHex(16);
+const anonymousNuid = randomHex(32);
+const anonymousWnmcid = `${randomLetters(6)}.${Date.now()}.01.0`;
 
 let cookie = "";
 
@@ -76,6 +82,78 @@ export function normalizeWyCookie(input: string): string {
     .replace(/;{2,}/g, ";")
     .replace(/\s*;\s*/g, "; ")
     .trim();
+}
+
+function randomHex(bytes: number): string {
+  const chars = "0123456789abcdef";
+  let value = "";
+  for (let i = 0; i < bytes * 2; i += 1) {
+    value += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return value;
+}
+
+function randomLetters(length: number): string {
+  const chars = "abcdefghijklmnopqrstuvwxyz";
+  let value = "";
+  for (let i = 0; i < length; i += 1) {
+    value += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return value;
+}
+
+function buildAnonymousEapiHeader(): Record<string, string> {
+  const now = Date.now();
+  return {
+    osver: "Microsoft-Windows-10-Professional-build-19045-64bit",
+    deviceId: anonymousDeviceId,
+    os: "pc",
+    appver: "3.1.17.204416",
+    versioncode: "140",
+    mobilename: "",
+    buildver: String(now).slice(0, 10),
+    resolution: "1920x1080",
+    __csrf: "",
+    channel: "netease",
+    requestId: `${now}_${String(Math.floor(Math.random() * 1000)).padStart(4, "0")}`,
+  };
+}
+
+function serializeCookie(parts: Record<string, string>): string {
+  return Object.entries(parts)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join("; ");
+}
+
+function buildAnonymousEapiCookie(header: Record<string, string>): string {
+  return serializeCookie({
+    __remember_me: "true",
+    ntes_kaola_ad: "1",
+    _ntes_nuid: anonymousNuid,
+    _ntes_nnid: `${anonymousNuid},${Date.now()}`,
+    WNMCID: anonymousWnmcid,
+    WEVNSM: "1.0.0",
+    ...header,
+  });
+}
+
+function splitSetCookieHeader(value: string): string[] {
+  return value
+    .split(/,(?=\s*[^;,=\s]+=[^;,]*)/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function extractSetCookie(headers: Headers): string {
+  const getSetCookie = (headers as Headers & { getSetCookie?: () => string[] }).getSetCookie;
+  const values = typeof getSetCookie === "function"
+    ? getSetCookie.call(headers)
+    : splitSetCookieHeader(headers.get("set-cookie") ?? "");
+
+  return values
+    .map((item) => item.split(";", 1)[0]?.trim() ?? "")
+    .filter((item) => item && item.includes("="))
+    .join("; ");
 }
 
 export function setWyCookie(c: string): string {
@@ -146,15 +224,39 @@ async function weapiCall(
   return postWeapi(path, data, requestCookie, csrfToken());
 }
 
-async function anonymousWeapiPost(path: string, data: Record<string, unknown>): Promise<Record<string, any>> {
-  return postWeapi(path, data, "");
-}
+async function anonymousEapiPost(path: string, data: Record<string, unknown>): Promise<Record<string, any>> {
+  if (!path.startsWith("/api/")) {
+    throw new Error(`网易云 eapi 路径必须以 /api/ 开头: ${path}`);
+  }
 
-function withQrTimestamp(data: Record<string, unknown>): Record<string, unknown> {
-  return {
+  const header = buildAnonymousEapiHeader();
+  const { params } = eapi(path, {
     ...data,
-    timestamp: Date.now(),
-  };
+    header,
+  });
+  const resp = await fetch(`${EAPI_HOST}${path.slice("/api".length)}`, {
+    method: "POST",
+    headers: {
+      "User-Agent": DESKTOP_API_UA,
+      "Accept": "application/json, text/plain, */*",
+      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Cookie": buildAnonymousEapiCookie(header),
+    },
+    body: new URLSearchParams({ params }).toString(),
+  });
+
+  const text = await resp.text();
+  if (!text.trim()) {
+    throw new Error(`网易云返回空响应: ${path}; status=${resp.status} ${resp.statusText}`);
+  }
+
+  const body = JSON.parse(text) as Record<string, any>;
+  const responseCookie = extractSetCookie(resp.headers);
+  if (responseCookie && typeof body.cookie !== "string") {
+    body.cookie = responseCookie;
+  }
+  return body;
 }
 
 async function weapiPost(
@@ -194,7 +296,7 @@ function getQrMessage(code: number, fallback?: unknown): string {
 }
 
 export async function createWyQrLoginKey(): Promise<string> {
-  const body = await anonymousWeapiPost("/login/qrcode/unikey", withQrTimestamp({ type: 1 }));
+  const body = await anonymousEapiPost("/api/login/qrcode/unikey", { type: QR_LOGIN_TYPE });
   if (body.code !== 200) {
     throw new Error(String(body.message || `二维码 key 获取失败 code=${body.code}`));
   }
@@ -215,10 +317,10 @@ export async function createWyQrLoginImage(): Promise<WyQrLoginImage> {
 }
 
 export async function checkWyQrLogin(key: string): Promise<WyQrLoginStatus> {
-  const body = await anonymousWeapiPost("/login/qrcode/client/login", withQrTimestamp({
+  const body = await anonymousEapiPost("/api/login/qrcode/client/login", {
     key,
-    type: 1,
-  }));
+    type: QR_LOGIN_TYPE,
+  });
   const code = Number(body.code ?? 0);
   const rawCookie = typeof body.cookie === "string" ? body.cookie : "";
   const normalized = rawCookie ? normalizeWyCookie(rawCookie) : "";

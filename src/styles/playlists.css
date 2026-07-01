@@ -459,9 +459,12 @@ button.af-playlist-card {
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  z-index: 1000;
+  box-sizing: border-box;
+  overflow-y: auto;
+  padding: clamp(48px, 9vh, 88px) 24px max(120px, 16vh);
+  z-index: var(--af-z-modal-backdrop);
   animation: af-fade-in 0.2s;
 }
 
@@ -826,27 +829,6 @@ button.af-playlist-card {
   }
 }
 
-/* ── 歌单详情虚拟列表 ── */
-/* 让 VirtualList 填满外层 .af-content-scroll 的剩余高度，避免双重滚动 */
-.af-playlist-detail-view {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-}
-.af-playlist-songs {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 320px;
-}
-.af-song-list-virtual {
-  flex: 1;
-}
-.af-song-list-virtual .af-song-list-row {
-  height: 60px;
-  padding: 8px 24px 8px 16px;
-}
 .af-song-action-portal {
   min-width: 180px;
 }
