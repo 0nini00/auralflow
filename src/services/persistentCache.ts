@@ -6,6 +6,7 @@ import type { PlaybackBackendId, PlaybackResolvedUrl } from '@/services/playback
 const CACHE_NAMESPACE = 'cache';
 
 export const PLAYBACK_URL_TTL_MS = 6 * 60 * 60 * 1000;
+export const BILI_PLAYBACK_URL_TTL_MS = 30 * 60 * 1000;
 export const LYRIC_FOUND_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const LYRIC_EMPTY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -191,7 +192,7 @@ export async function saveCachedPlaybackUrl(
     backend: resolved.backend,
     resolverName: resolved.resolverName,
     cachedAt: now,
-    expiresAt: now + PLAYBACK_URL_TTL_MS,
+    expiresAt: now + (resolved.music.source === 'bili' ? BILI_PLAYBACK_URL_TTL_MS : PLAYBACK_URL_TTL_MS),
   };
 
   cache.playbackUrls[getPlaybackUrlCacheKey(primary, entry.quality)] = entry;

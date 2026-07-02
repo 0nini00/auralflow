@@ -1,6 +1,6 @@
 import type { MusicInfo } from '@lx/core';
 
-export type PlaybackBackendId = 'builtinNetease' | 'customSource';
+export type PlaybackBackendId = 'builtinNetease' | 'builtinProvider' | 'customSource';
 
 export interface PlaybackAttempt {
   backend: PlaybackBackendId;

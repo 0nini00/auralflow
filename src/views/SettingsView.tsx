@@ -44,6 +44,8 @@ import {
   setLyricWindowPinned,
 } from "@lx/tauri-bridge";
 import { useCustomSourceStore } from "@/stores/customSourceStore";
+import { useBiliAccountStore } from "@/stores/biliAccountStore";
+import { getBiliCookie, setBiliCookie } from "@/services/biliAccountService";
 import { broadcastLyricSettings, subscribeLyricSettings } from "@/stores/lyricSettingsSync";
 import { toggleDesktopLyricFromPlayer } from "@/utils/desktopLyricToggle";
 import { logAsyncError, warnAsyncError } from "@/utils/logAsyncError";
@@ -139,6 +141,9 @@ export function SettingsView() {
   const [customScriptText, setCustomScriptText] = useState("");
   const [customSourceStatus, setCustomSourceStatus] = useState("");
   const [customSourceAutoCheck, setCustomSourceAutoCheck] = useState(true);
+  const [biliCookieText, setBiliCookieText] = useState("");
+  const [biliCookieStatus, setBiliCookieStatus] = useState("");
+  const [biliCookiePending, setBiliCookiePending] = useState(false);
   const [immersiveLyricFontSize, setImmersiveLyricFontSize] = useState(DEFAULT_IMMERSIVE_LYRIC_FONT_SIZE);
   const [immersiveLyricFontFamily, setImmersiveLyricFontFamily] = useState(DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
   const [dataStatus, setDataStatus] = useState("");
@@ -154,6 +159,9 @@ export function SettingsView() {
     checkAllUpdates,
     toggleUpdateAlert,
   } = useCustomSourceStore();
+  const biliAccount = useBiliAccountStore((s) => s.account);
+  const biliLoad = useBiliAccountStore((s) => s.load);
+  const biliLogout = useBiliAccountStore((s) => s.logout);
 
   // 初始化加载已保存设置
   useEffect(() => {
@@ -164,6 +172,7 @@ export function SettingsView() {
       playerEngine.setPauseOnExternalPlayback(nextPauseOnExternalPlayback);
       setNeteaseScrobbleSync(settings.neteaseScrobbleSync !== false);
       setCustomSourceAutoCheck(settings.customSourceAutoCheck !== false);
+      setBiliCookieText(settings.biliCookie ?? "");
       setImmersiveLyricFontSize(settings.immersiveLyricFontSize || DEFAULT_IMMERSIVE_LYRIC_FONT_SIZE);
       setImmersiveLyricFontFamily(settings.immersiveLyricFontFamily || DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
     }).catch(logAsyncError("settings:load-playback"));
@@ -216,6 +225,47 @@ export function SettingsView() {
       warnAsyncError("settings:patch-custom-source-auto-check", error);
       setCustomSourceAutoCheck(!next);
     });
+  };
+
+  const handleSaveBiliCookie = async () => {
+    const raw = biliCookieText.trim();
+    if (!raw) {
+      setBiliCookieStatus("请先粘贴 B站 Cookie");
+      return;
+    }
+
+    const previousCookie = await getBiliCookie();
+    setBiliCookiePending(true);
+    setBiliCookieStatus("验证中...");
+    try {
+      const normalized = setBiliCookie(raw);
+      await patchSettings({ biliCookie: normalized });
+      await biliLoad(normalized);
+      const latest = useBiliAccountStore.getState();
+      if (!latest.account) throw new Error(latest.error || "B站 Cookie 验证失败");
+      setBiliCookieText(normalized);
+      setBiliCookieStatus(`已同步：${latest.account.nickname}`);
+    } catch (error) {
+      setBiliCookie(previousCookie);
+      await patchSettings({ biliCookie: previousCookie || null });
+      setBiliCookieStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBiliCookiePending(false);
+    }
+  };
+
+  const handleClearBiliCookie = async () => {
+    setBiliCookiePending(true);
+    setBiliCookieStatus("");
+    try {
+      await biliLogout();
+      setBiliCookieText("");
+      setBiliCookieStatus("已退出 B站账号");
+    } catch (error) {
+      setBiliCookieStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBiliCookiePending(false);
+    }
   };
 
   const patchImmersiveLyricStyle = (patch: {
@@ -531,6 +581,39 @@ export function SettingsView() {
       {getActiveSettingsSection("sources") && (
       <section className="af-settings-section" id="sources">
         <h2 className="af-settings-section-title">音源</h2>
+        <div className="af-settings-group">
+          <label className="af-settings-label">B站收藏合集</label>
+          <textarea
+            className="af-settings-textarea af-custom-source-textarea"
+            value={biliCookieText}
+            onChange={(event) => setBiliCookieText(event.target.value)}
+            placeholder="SESSDATA=...; DedeUserID=...; bili_jct=...; buvid3=..."
+            spellCheck={false}
+          />
+          <div className="af-custom-source-toolbar">
+            <button
+              type="button"
+              className="af-settings-small-button"
+              onClick={() => { void handleSaveBiliCookie(); }}
+              disabled={biliCookiePending || !biliCookieText.trim()}
+            >
+              保存并验证 B站 Cookie
+            </button>
+            <button
+              type="button"
+              className="af-settings-small-button af-settings-danger-button"
+              onClick={() => { void handleClearBiliCookie(); }}
+              disabled={biliCookiePending}
+            >
+              退出 B站
+            </button>
+          </div>
+          {biliAccount && (
+            <p className="af-settings-hint">当前 B站账号：{biliAccount.nickname}</p>
+          )}
+          {biliCookieStatus && <p className="af-settings-hint">{biliCookieStatus}</p>}
+        </div>
+
         <div className="af-settings-group">
           <label className="af-settings-label">自定义音源</label>
           <div className="af-settings-input-group">

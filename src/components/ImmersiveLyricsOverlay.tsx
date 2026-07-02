@@ -32,6 +32,7 @@ import { usePlayerStore } from '@/stores/playerStore';
 import { logAsyncError } from '@/utils/logAsyncError';
 import { buildMusicShareText } from '@/utils/shareLink';
 import { toggleDesktopLyricFromPlayer } from '@/utils/desktopLyricToggle';
+import { getImageReferrerPolicy, normalizeImageUrl } from '@/utils/imageReferrerPolicy';
 import { getLyricWindowState, isLyricWindowOpen, loadSettings, patchSettings } from '@lx/tauri-bridge';
 import { listen } from '@tauri-apps/api/event';
 
@@ -99,7 +100,8 @@ export function ImmersiveLyricsOverlay({
   const fullscreenEnteredRef = useRef(false);
   const isPlaying = status === 'playing';
   const soundEffectActive = useSoundEffectStore((state) => state.enabled || state.pitch !== 0);
-  const coverUrl = currentTrack?.img || currentTrack?.picUrl || '';
+  const coverUrl = normalizeImageUrl(currentTrack?.img || currentTrack?.picUrl || '');
+  const coverReferrerPolicy = getImageReferrerPolicy(coverUrl);
   const playModeControl = getPlayModeControl({ repeatMode, isShuffle });
   const lyricProgress = useInterpolatedPlaybackProgress({ status, progress, duration, playbackRate });
   const { lyrics, currentLine: currentLyricIndex } = useLyrics(currentTrack, lyricProgress);
@@ -341,7 +343,7 @@ export function ImmersiveLyricsOverlay({
         <section className="af-immersive-cover-section" aria-label="歌曲封面">
           <div className="af-immersive-cover">
             {coverUrl ? (
-              <img src={coverUrl} alt={currentTrack?.name ?? '歌曲封面'} />
+              <img src={coverUrl} alt={currentTrack?.name ?? '歌曲封面'} referrerPolicy={coverReferrerPolicy} />
             ) : (
               <div className="af-immersive-cover-placeholder">AuralFlow</div>
             )}

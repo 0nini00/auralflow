@@ -10,7 +10,7 @@ import type {
 export type UrlResolutionMode = "source-rotation";
 
 export interface SourceResolutionPolicy {
-  /** 轮询顺序，至少包含 ['wy', 'tx']，可追加自定义源 id */
+  /** 轮询顺序，包含内置可搜索音源，可追加自定义源 id */
   sourceOrder: string[];
   /** 每个源超时时间（毫秒） */
   timeoutPerSource: number;
@@ -26,7 +26,7 @@ export interface SourceResolutionPolicy {
 
 export interface ResolvedUrl {
   url: string;
-  /** 用于 UI 展示，只能是 wy / tx */
+  /** 用于 UI 展示的来源 */
   sourceId: SourceTag;
   quality: string;
 }

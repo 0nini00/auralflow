@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import ts from "typescript";
 
 const root = process.cwd();
 
@@ -46,6 +47,19 @@ function assertCssRuleNotIncludes(content, selector, needle, label) {
 function assertCssRuleIncludes(content, selector, needle, label) {
   const block = getCssRuleBlock(content, selector);
   assertIncludes(block, needle, label);
+}
+
+function loadTsModule(path) {
+  const source = read(path);
+  const output = ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2020,
+    },
+  }).outputText;
+  const exports = {};
+  new Function("exports", output)(exports);
+  return exports;
 }
 
 function testSearchLayoutContract() {
@@ -147,6 +161,43 @@ function testImmersiveLyricVisualizerModes() {
   const playbackSync = read("src/services/lyrics/playbackSync.ts");
   assertIncludes(playbackSync, "MAX_LYRIC_LINE_PROGRESS_SECONDS", "Lyric progress should not stretch across long instrumental gaps");
   assertIncludes(playbackSync, "getLineTimedEnd", "Lyric progress should use timed word endings when available");
+}
+
+function testLyricPlaybackSyncBehavior() {
+  const {
+    calculateLyricLineProgress,
+    findCurrentLyricLine,
+  } = loadTsModule("src/services/lyrics/playbackSync.ts");
+  const longInstrumentalGapLines = [
+    { time: 10, text: "想你" },
+    { time: 24, text: "下一句歌词" },
+  ];
+
+  assert(
+    findCurrentLyricLine(longInstrumentalGapLines, 12) === 0,
+    "Lyric line selection should keep the current line active until the next timestamp",
+  );
+  assert(
+    calculateLyricLineProgress(longInstrumentalGapLines, 0, 12) >= 0.95,
+    "Short untimed lyric line progress should finish before a long instrumental gap",
+  );
+
+  const timedWordLines = [
+    {
+      time: 10,
+      text: "逐字歌词",
+      words: [
+        { text: "逐", start: 10, dur: 0.3 },
+        { text: "字", start: 10.3, dur: 0.3 },
+        { text: "歌词", start: 10.6, dur: 0.4 },
+      ],
+    },
+    { time: 18, text: "下一句" },
+  ];
+  assert(
+    calculateLyricLineProgress(timedWordLines, 0, 11) === 1,
+    "Timed word endings should remain the preferred lyric progress end",
+  );
 }
 
 function testMainWindowCustomChrome() {
@@ -426,9 +477,114 @@ function testHistoryQuickEntryAndUpdateModalCentering() {
   assertCssRuleNotIncludes(layoutCss, ".af-custom-source-update-overlay", "align-items: flex-start", "Custom source update modal should not align to the top");
 }
 
+function testBilibiliSubscribedCollections() {
+  const coreTypes = read("packages/core/src/sources/types.ts");
+  const sourceService = read("src/services/sources/sourceService.ts");
+  const playbackTypes = read("src/services/playback/types.ts");
+  const playbackResolver = read("src/services/playback/playbackResolver.ts");
+  const biliProvider = read("src/services/sources/biliProvider.ts");
+  const biliAccountService = read("src/services/biliAccountService.ts");
+  const biliAccountStore = read("src/stores/biliAccountStore.ts");
+  const playlistsView = read("src/views/PlaylistsView.tsx");
+  const playlistsCss = read("src/styles/playlists.css");
+  const indexCss = read("src/index.css");
+  const playlistDetailView = read("src/views/PlaylistDetailView.tsx");
+  const prefetchService = read("src/services/playback/prefetchService.ts");
+  const settingsView = read("src/views/SettingsView.tsx");
+  const bridge = read("packages/tauri-bridge/src/index.ts");
+  const rustModels = read("src-tauri/src/models.rs");
+  const rustCommands = read("src-tauri/src/commands.rs");
+  const rustMain = read("src-tauri/src/main.rs");
+
+  assertIncludes(coreTypes, '"bili"', "Core source tags should include Bilibili");
+  assertIncludes(sourceService, "biliProvider", "Source registry should register Bilibili provider");
+  assertIncludes(playbackTypes, "'builtinProvider'", "Playback backends should include generic builtin provider resolution");
+  assertIncludes(playbackResolver, "builtinProviderBackend", "Playback resolver should use generic builtin provider backend");
+  assertIncludes(biliProvider, "resolveLegacyPlayUrl", "Bilibili provider should try the stable legacy playurl endpoint first");
+  assertIncludes(biliProvider, "x/player/playurl", "Bilibili provider should resolve DASH audio through the legacy playurl endpoint");
+  assertIncludes(biliProvider, "encWbi", "Bilibili provider should WBI-sign playurl requests");
+  assertIncludes(biliProvider, "resolveWbiPlayUrl", "Bilibili provider should keep WBI playurl as fallback");
+  assertIncludes(biliProvider, "x/player/wbi/playurl", "Bilibili provider should keep WBI-signed DASH audio fallback");
+  assertIncludes(biliProvider, "B站播放地址解析失败", "Bilibili provider should report all playurl strategy failures together");
+  assertIncludes(biliProvider, "dash?.audio", "Bilibili provider should select DASH audio streams");
+  assertIncludes(biliProvider, "biliCacheAudio", "Bilibili provider should cache DASH audio through Rust before playback");
+  assertIncludes(biliProvider, "convertFileSrc", "Bilibili provider should return a local asset URL for cached audio");
+  assertIncludes(biliProvider, "暂无歌词", "Bilibili provider should explicitly report no lyrics");
+  assertIncludes(biliProvider, "biliGetJson", "Bilibili provider should request APIs through the Rust backend proxy");
+  assertIncludes(biliAccountService, "x/web-interface/nav", "Bilibili account service should validate Cookie through nav API");
+  assertIncludes(biliAccountService, "biliGetJson", "Bilibili account service should request APIs through the Rust backend proxy");
+  assertIncludes(biliAccountService, "x/v3/fav/folder/collected/list", "Bilibili account service should load subscribed collections");
+  assertIncludes(biliAccountService, "platform\", \"web\"", "Bilibili collected list should request platform=web");
+  assertIncludes(biliAccountService, "web_location", "Bilibili collected list should match web request context");
+  assertIncludes(biliAccountService, "favlist?ftype=collect", "Bilibili collected list should use the space favlist referer");
+  assertIncludes(biliAccountService, "B站请求失败: ${path}", "Bilibili request errors should include the failing endpoint path");
+  assertIncludes(biliAccountService, "x/v3/fav/resource/list", "Bilibili account service should load favorite-folder contents");
+  assertIncludes(biliAccountService, "seasons_archives_list", "Bilibili account service should expand subscribed video collections");
+  assertIncludes(biliAccountService, "mapBiliArchiveToMusic", "Bilibili account service should map archives into MusicInfo");
+  assertIncludes(biliAccountStore, "useBiliAccountStore", "Bilibili account store should exist");
+  assertIncludes(biliAccountStore, "hiddenCollectionIds", "Bilibili account store should persist hidden collection preferences");
+  assertIncludes(biliAccountStore, "newCollectionIds", "Bilibili account store should track newly discovered collections");
+  assertIncludes(biliAccountStore, "autoShowNewCollections", "Bilibili account store should let users choose whether new collections appear automatically");
+  assertIncludes(biliAccountStore, "getVisibleCollections", "Bilibili account store should expose visible collections for the playlist page");
+  assertIncludes(biliAccountStore, "setCollectionVisible", "Bilibili account store should let users hide or show individual collections");
+  assertIncludes(biliAccountStore, "getCollectionSongs", "Bilibili account store should expose collection songs");
+  assertIncludes(playlistsView, "useBiliAccountStore", "Playlist view should show Bilibili subscribed collections");
+  assertIncludes(playlistsView, "B站收藏合集", "Playlist view should label Bilibili collections");
+  assertIncludes(playlistsView, "visibleBiliPlaylists", "Playlist view should render only enabled Bilibili collection cards");
+  assertIncludes(playlistsView, "showBiliManager", "Playlist view should provide a Bilibili collection manager dialog");
+  assertIncludes(playlistsView, "隐藏此合集", "Playlist view should let users hide unwanted Bilibili collections from the card menu");
+  assertIncludes(playlistsView, "新发现", "Playlist view should label newly discovered Bilibili collections in the manager");
+  assertIncludes(playlistsView, "新合集自动显示", "Playlist view should expose the automatic visibility policy for future collections");
+  assertIncludes(playlistsView, "af-bili-manager-dialog", "Playlist view should use a dedicated manager dialog class");
+  assertIncludes(playlistsView, "af-page-scroll-locked", "Playlist modals should lock the app page scroll while open");
+  assertIncludes(indexCss, ".af-page-scroll-locked .af-content-scroll", "Global layout should lock the scroll container behind modals");
+  assertCssRuleIncludes(indexCss, ".af-page-scroll-locked .af-content-scroll", "overflow-y: hidden", "Modal scroll lock should disable background page scrolling");
+  assertIncludes(playlistsCss, ".af-bili-manager-dialog", "Playlist styles should include the Bilibili manager dialog");
+  assertIncludes(playlistsCss, ".af-bili-collection-row", "Playlist styles should include Bilibili collection rows");
+  assertIncludes(playlistsCss, ".af-bili-visibility-switch", "Playlist styles should include accessible visibility toggles");
+  assertIncludes(playlistDetailView, '"bili"', "Playlist detail should accept Bilibili remote source");
+  assertIncludes(playlistDetailView, "biliGetSongs", "Playlist detail should load Bilibili collection songs");
+  assertIncludes(prefetchService, "music.source !== 'bili'", "Bilibili prefetch should avoid full background audio downloads");
+  assertIncludes(settingsView, "biliCookie", "Settings should expose Bilibili Cookie login");
+  assertIncludes(settingsView, "保存并验证 B站 Cookie", "Settings should validate Bilibili Cookie");
+  assertIncludes(bridge, "biliCookie", "Tauri settings expose Bilibili Cookie");
+  assertIncludes(bridge, "biliGetJson", "Tauri bridge should expose Bilibili backend HTTP proxy");
+  assertIncludes(bridge, "biliCacheAudio", "Tauri bridge should expose Bilibili audio cache command");
+  assertIncludes(rustModels, "bili_cookie", "Rust settings persist Bilibili Cookie");
+  assertIncludes(rustCommands, "pub async fn bili_get_json", "Rust commands should provide Bilibili backend HTTP proxy");
+  assertIncludes(rustCommands, "pub async fn bili_cache_audio", "Rust commands should cache Bilibili media with proper headers");
+  assertIncludes(rustCommands, "BILI_AUDIO_CACHE_DIR", "Rust commands should keep Bilibili playback cache isolated");
+  assertIncludes(rustCommands, "api.bilibili.com", "Bilibili backend proxy should restrict requests to the Bilibili API host");
+  assertIncludes(rustCommands, "ORIGIN", "Bilibili backend proxy should include browser-like Origin headers");
+  assertIncludes(rustMain, "commands::bili_get_json", "Tauri invoke handler should register the Bilibili backend HTTP proxy");
+  assertIncludes(rustMain, "commands::bili_cache_audio", "Tauri invoke handler should register the Bilibili audio cache command");
+}
+
+function testBilibiliCoverReferrerPolicy() {
+  const imageReferrerPolicy = read("src/utils/imageReferrerPolicy.ts");
+  const biliAccountService = read("src/services/biliAccountService.ts");
+  const playlistsView = read("src/views/PlaylistsView.tsx");
+  const playlistDetailView = read("src/views/PlaylistDetailView.tsx");
+  const playerBar = read("src/components/PlayerBar.tsx");
+  const immersiveLyricsOverlay = read("src/components/ImmersiveLyricsOverlay.tsx");
+
+  assertIncludes(imageReferrerPolicy, "biliimg.com", "Bilibili image helper should detect biliimg cover hosts");
+  assertIncludes(imageReferrerPolicy, "hdslb.com", "Bilibili image helper should detect hdslb cover hosts");
+  assertIncludes(imageReferrerPolicy, "normalizeImageUrl", "Bilibili image helper should normalize cover URLs");
+  assertIncludes(imageReferrerPolicy, "url.protocol = \"https:\"", "Bilibili image helper should upgrade Bilibili http covers to https");
+  assertIncludes(imageReferrerPolicy, "no-referrer", "Bilibili image helper should remove local referer from cover requests");
+  assertIncludes(biliAccountService, "normalizeImageUrl", "Bilibili account service should normalize Bilibili cover URLs at the data boundary");
+  assertIncludes(playlistsView, "getImageReferrerPolicy", "Playlist cards should use image referrer policy helper");
+  assertIncludes(playlistsView, "normalizeImageUrl", "Playlist cards should render normalized Bilibili image URLs");
+  assertIncludes(playlistDetailView, "getImageReferrerPolicy", "Playlist detail covers should use image referrer policy helper");
+  assertIncludes(playerBar, "getImageReferrerPolicy", "Player cover should use image referrer policy helper");
+  assertIncludes(immersiveLyricsOverlay, "getImageReferrerPolicy", "Immersive lyrics cover should use image referrer policy helper");
+}
+
 const tests = [
   ["search layout contract", testSearchLayoutContract],
   ["immersive lyric visualizer modes", testImmersiveLyricVisualizerModes],
+  ["lyric playback sync behavior", testLyricPlaybackSyncBehavior],
   ["main window custom chrome", testMainWindowCustomChrome],
   ["persistent playback and lyric cache", testPersistentPlaybackAndLyricCache],
   ["settings information architecture", testSettingsInformationArchitecture],
@@ -438,6 +594,8 @@ const tests = [
   ["quiet accent system", testQuietAccentSystem],
   ["netease scrobble sync", testNeteaseScrobbleSync],
   ["history quick entry and update modal centering", testHistoryQuickEntryAndUpdateModalCentering],
+  ["bilibili subscribed collections", testBilibiliSubscribedCollections],
+  ["bilibili cover referrer policy", testBilibiliCoverReferrerPolicy],
 ];
 
 let passed = 0;

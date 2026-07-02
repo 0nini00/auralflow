@@ -1,5 +1,6 @@
 export interface TimedLyricLine {
   time: number;
+  text?: string;
   words?: readonly TimedLyricWord[];
 }
 
@@ -20,6 +21,11 @@ export const SEEK_JUMP_SECONDS = 2;
 export const USER_SCROLL_RESUME_DELAY_MS = 3000;
 export const DEFAULT_LYRIC_LINE_DURATION_SECONDS = 4;
 export const MAX_LYRIC_LINE_PROGRESS_SECONDS = 4.5;
+export const MIN_ESTIMATED_LYRIC_LINE_PROGRESS_SECONDS = 1.1;
+export const CJK_LYRIC_CHAR_SECONDS = 0.24;
+export const LATIN_LYRIC_WORD_SECONDS = 0.42;
+export const OTHER_LYRIC_CHAR_SECONDS = 0.16;
+export const LYRIC_LINE_PROGRESS_BASE_SECONDS = 0.65;
 
 export interface PlaybackProgressClock {
   status: string;
@@ -36,6 +42,41 @@ function finiteNonNegative(value: number): number {
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(1, value));
+}
+
+function clampDuration(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
+}
+
+function getUntimedLyricWeight(text: string): number {
+  const cjkMatches = text.match(/[\u3400-\u9fff\uf900-\ufaff\u3040-\u30ff\uac00-\ud7af]/g);
+  const latinWordMatches = text.match(/[a-zA-Z0-9]+(?:['-][a-zA-Z0-9]+)*/g);
+  const cjkCount = cjkMatches?.length ?? 0;
+  const latinWordCount = latinWordMatches?.length ?? 0;
+  const otherCount = text
+    .replace(/[\u3400-\u9fff\uf900-\ufaff\u3040-\u30ff\uac00-\ud7af]/g, "")
+    .replace(/[a-zA-Z0-9]+(?:['-][a-zA-Z0-9]+)*/g, "")
+    .replace(/[\s"'`“”‘’.,，。!?！？;；:：、~～…·\-—_()[\]{}<>《》【】（）]/g, "")
+    .length;
+
+  return (
+    cjkCount * CJK_LYRIC_CHAR_SECONDS +
+    latinWordCount * LATIN_LYRIC_WORD_SECONDS +
+    otherCount * OTHER_LYRIC_CHAR_SECONDS
+  );
+}
+
+export function estimateUntimedLyricLineDuration(line: TimedLyricLine): number | null {
+  const text = line.text?.trim();
+  if (!text) return null;
+
+  const estimated = LYRIC_LINE_PROGRESS_BASE_SECONDS + getUntimedLyricWeight(text);
+  return clampDuration(
+    estimated,
+    MIN_ESTIMATED_LYRIC_LINE_PROGRESS_SECONDS,
+    MAX_LYRIC_LINE_PROGRESS_SECONDS,
+  );
 }
 
 function getWordAbsoluteEnd(lineStart: number, word: TimedLyricWord): number {
@@ -88,13 +129,18 @@ export function calculateLyricLineProgress(
   const start = finiteNonNegative(line.time);
   const timedEnd = getLineTimedEnd(line);
   const nextTime = lines[currentLine + 1]?.time;
+  const nextLineGap = Number.isFinite(nextTime) && nextTime > start ? nextTime - start : null;
   const fallbackLineDuration = Math.max(0.5, fallbackDuration);
-  const nextLineDuration = Number.isFinite(nextTime) && nextTime > start
-    ? Math.min(nextTime - start, MAX_LYRIC_LINE_PROGRESS_SECONDS)
-    : fallbackLineDuration;
-  const duration = timedEnd && timedEnd > start
-    ? timedEnd - start
-    : Math.max(0.5, nextLineDuration);
+  const estimatedDuration = estimateUntimedLyricLineDuration(line) ?? fallbackLineDuration;
+  const untimedDuration = nextLineGap != null
+    ? Math.min(nextLineGap, estimatedDuration)
+    : estimatedDuration;
+  const timedDuration = timedEnd && timedEnd > start
+    ? nextLineGap != null
+      ? Math.min(timedEnd - start, nextLineGap)
+      : timedEnd - start
+    : null;
+  const duration = Math.max(0.5, timedDuration ?? untimedDuration);
 
   return clamp01((currentTime - start) / duration);
 }

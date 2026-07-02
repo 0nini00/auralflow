@@ -425,6 +425,10 @@ button {
   scrollbar-color: var(--af-border-primary) transparent;
 }
 
+.af-page-scroll-locked .af-content-scroll {
+  overflow-y: hidden;
+}
+
 .af-content-scroll::-webkit-scrollbar {
   width: 8px;
 }

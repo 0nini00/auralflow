@@ -48,6 +48,9 @@ pub fn run() {
             // 压缩/解压 fallback
             commands::zlib_inflate,
             commands::zlib_deflate,
+            // B站 API
+            commands::bili_get_json,
+            commands::bili_cache_audio,
             // 下载
             commands::download_file,
             commands::write_download_text_file,

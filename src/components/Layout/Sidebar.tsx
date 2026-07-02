@@ -2,6 +2,8 @@ import { Home, Search, Settings, User, Music, ListMusic, Download, Calendar, Rad
 import { NavLink } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useWyAccountStore } from "@/stores/wyAccountStore";
+import { useBiliAccountStore } from "@/stores/biliAccountStore";
+import { getBiliCookie } from "@/services/biliAccountService";
 import { getWyCookie } from "@/services/wyAccountService";
 import { WyCookieLoginModal } from "@/components/WyCookieLoginModal";
 import logoImg from "@/assets/logo.png";
@@ -18,10 +20,12 @@ const navItems = [
 
 export function Sidebar() {
   const { account, load } = useWyAccountStore();
+  const loadBili = useBiliAccountStore((s) => s.load);
   const [loginOpen, setLoginOpen] = useState(false);
 
   useEffect(() => {
     getWyCookie().then((c) => load(c));
+    getBiliCookie().then((c) => loadBili(c));
   }, []);
 
   return (

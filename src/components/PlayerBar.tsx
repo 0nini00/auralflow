@@ -8,6 +8,7 @@ import { subscribeLyricSettings } from '@/stores/lyricSettingsSync';
 import { toggleDesktopLyricFromPlayer } from '@/utils/desktopLyricToggle';
 import { logAsyncError } from '@/utils/logAsyncError';
 import { getNextPlayMode, getPlayModeControl } from '@/services/playback/playModeControl';
+import { getImageReferrerPolicy, normalizeImageUrl } from '@/utils/imageReferrerPolicy';
 import {
   Play,
   Pause,
@@ -124,6 +125,7 @@ export const PlayerBar: React.FC = () => {
 
   if (!currentTrack) return null;
 
+  const coverUrl = normalizeImageUrl(currentTrack.img || currentTrack.picUrl || '');
   const lyricButtonLabel = lyricOpen
     ? lyricLocked
       ? '解锁桌面歌词'
@@ -166,11 +168,12 @@ export const PlayerBar: React.FC = () => {
               tabIndex={0}
               aria-label="打开整页歌词播放"
             >
-              {currentTrack.img || currentTrack.picUrl ? (
+              {coverUrl ? (
                 <img
-                  src={currentTrack.img || currentTrack.picUrl}
+                  src={coverUrl}
                   alt={currentTrack.name}
                   className="af-track-cover"
+                  referrerPolicy={getImageReferrerPolicy(coverUrl)}
                 />
               ) : (
                 <div className="af-track-cover-placeholder">

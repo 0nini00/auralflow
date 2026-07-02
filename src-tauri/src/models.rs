@@ -30,6 +30,8 @@ pub struct AppSettings {
     pub netease_scrobble_sync: bool,
     /// 网易云 Cookie
     pub wy_cookie: Option<String>,
+    /// B站 Cookie
+    pub bili_cookie: Option<String>,
     /// 桌面歌词窗口：是否始终置顶
     pub lyric_pinned: bool,
     /// 桌面歌词窗口：锁定后鼠标穿透，防止误拖动/误点击
@@ -109,6 +111,7 @@ impl Default for AppSettings {
             pause_on_external_playback: true,
             netease_scrobble_sync: true,
             wy_cookie: None,
+            bili_cookie: None,
             lyric_pinned: true,
             lyric_locked: false,
             lyric_pause_hide: false,
@@ -131,7 +134,9 @@ impl Default for AppSettings {
             lyric_enable_animation: true,
             lyric_animation_intensity: default_lyric_animation_intensity(),
             immersive_lyric_font_size: 36,
-            immersive_lyric_font_family: "\"Inter\", \"Noto Sans CJK SC\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif".to_string(),
+            immersive_lyric_font_family:
+                "\"Inter\", \"Noto Sans CJK SC\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif"
+                    .to_string(),
             lyric_window_x: None,
             lyric_window_y: None,
             lyric_window_width: None,

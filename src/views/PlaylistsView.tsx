@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePlaylistStore } from '@/stores/playlistStore';
 import { useFavoritesStore } from '@/stores/favoritesStore';
 import { useHistoryStore } from '@/stores/historyStore';
 import { useWyAccountStore } from '@/stores/wyAccountStore';
+import { useBiliAccountStore } from '@/stores/biliAccountStore';
+import { getBiliCookie } from '@/services/biliAccountService';
 import { exportPlaylists, importPlaylists } from '@/services/playlistTransferService';
+import { getImageReferrerPolicy, normalizeImageUrl } from '@/utils/imageReferrerPolicy';
 import {
   Plus,
   Music,
@@ -14,9 +17,12 @@ import {
   Copy,
   Heart,
   History,
-  Cloud,
   Download,
+  Layers,
   Upload,
+  SlidersHorizontal,
+  EyeOff,
+  X,
 } from 'lucide-react';
 
 export function PlaylistsView() {
@@ -29,18 +35,51 @@ export function PlaylistsView() {
   const wyLoading = useWyAccountStore((s) => s.isLoading);
   const wyLoaded = useWyAccountStore((s) => s.isLoaded);
   const wyError = useWyAccountStore((s) => s.error);
+  const biliAccount = useBiliAccountStore((s) => s.account);
+  const biliPlaylists = useBiliAccountStore((s) => s.playlists);
+  const hiddenBiliCollectionIds = useBiliAccountStore((s) => s.hiddenCollectionIds);
+  const newBiliCollectionIds = useBiliAccountStore((s) => s.newCollectionIds);
+  const autoShowNewBiliCollections = useBiliAccountStore((s) => s.autoShowNewCollections);
+  const getVisibleBiliCollections = useBiliAccountStore((s) => s.getVisibleCollections);
+  const setBiliCollectionVisible = useBiliAccountStore((s) => s.setCollectionVisible);
+  const setAutoShowNewBiliCollections = useBiliAccountStore((s) => s.setAutoShowNewCollections);
+  const clearNewBiliCollectionState = useBiliAccountStore((s) => s.clearNewCollectionState);
+  const biliLoading = useBiliAccountStore((s) => s.isLoading);
+  const biliLoaded = useBiliAccountStore((s) => s.isLoaded);
+  const biliError = useBiliAccountStore((s) => s.error);
+  const biliLoad = useBiliAccountStore((s) => s.load);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [newPlaylistDesc, setNewPlaylistDesc] = useState('');
   const [editingPlaylist, setEditingPlaylist] = useState<string | null>(null);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [transferStatus, setTransferStatus] = useState('');
+  const [showBiliManager, setShowBiliManager] = useState(false);
 
   const myWyPlaylists = wyPlaylists.filter((p) => !p.subscribed);
   const collectedWyPlaylists = wyPlaylists.filter((p) => p.subscribed);
-  const totalPlaylistCount = 2 + wyPlaylists.length + playlists.length;
+  const visibleBiliPlaylists = getVisibleBiliCollections();
+  const hiddenBiliIdSet = new Set(hiddenBiliCollectionIds);
+  const newBiliIdSet = new Set(newBiliCollectionIds);
+  const totalPlaylistCount = 2 + wyPlaylists.length + visibleBiliPlaylists.length + playlists.length;
+  const newBiliCollectionCount = biliPlaylists.filter((playlist) => newBiliIdSet.has(playlist.id)).length;
   const firstFavoriteCover = favorites[0]?.img || favorites[0]?.picUrl || "";
   const firstHistoryCover = history[0]?.img || history[0]?.picUrl || "";
+
+  useEffect(() => {
+    if (biliLoaded || biliLoading) return;
+    getBiliCookie().then((cookie) => {
+      if (cookie) void biliLoad(cookie);
+    });
+  }, [biliLoad, biliLoaded, biliLoading]);
+
+  useEffect(() => {
+    if (!showCreateDialog && !showBiliManager) return;
+    document.documentElement.classList.add('af-page-scroll-locked');
+    return () => {
+      document.documentElement.classList.remove('af-page-scroll-locked');
+    };
+  }, [showCreateDialog, showBiliManager]);
 
   const handleCreate = () => {
     const name = newPlaylistName.trim();
@@ -135,6 +174,16 @@ export function PlaylistsView() {
     }
   };
 
+  const closeBiliManager = () => {
+    clearNewBiliCollectionState();
+    setShowBiliManager(false);
+  };
+
+  const handleHideBiliCollection = (id: string) => {
+    setBiliCollectionVisible(id, false);
+    setActiveMenu(null);
+  };
+
   return (
     <div className="af-playlists-view">
       <div className="af-playlists-header">
@@ -216,6 +265,113 @@ export function PlaylistsView() {
             </span>
           </button>
         </div>
+      </section>
+
+      <section className="af-playlist-section">
+        <div className="af-section-heading">
+          <div>
+            <h2>B站收藏合集</h2>
+            <p>{biliAccount ? `${biliAccount.nickname} 订阅的合集和收藏夹` : '在设置里保存 B站 Cookie 后同步'}</p>
+          </div>
+          <div className="af-section-heading-actions">
+            {newBiliCollectionCount > 0 && (
+              <button
+                type="button"
+                className="af-bili-new-pill"
+                onClick={() => setShowBiliManager(true)}
+              >
+                新发现 {newBiliCollectionCount}
+              </button>
+            )}
+            {biliPlaylists.length > 0 && (
+              <button
+                type="button"
+                className="af-section-action af-bili-manage-button"
+                onClick={() => setShowBiliManager(true)}
+              >
+                <SlidersHorizontal size={16} />
+                <span>管理</span>
+              </button>
+            )}
+            <span className="af-section-count">
+              {biliPlaylists.length > 0 ? `${visibleBiliPlaylists.length}/${biliPlaylists.length}` : 0}
+            </span>
+          </div>
+        </div>
+
+        {biliLoading && (
+          <div className="af-inline-state">正在加载 B站收藏合集...</div>
+        )}
+
+        {!biliLoading && biliError && (
+          <div className="af-inline-state af-inline-error">{biliError}</div>
+        )}
+
+        {!biliLoading && !biliError && biliLoaded && biliPlaylists.length === 0 && (
+          <div className="af-inline-state">还没有同步到 B站收藏合集</div>
+        )}
+
+        {!biliLoading && !biliError && biliPlaylists.length > 0 && visibleBiliPlaylists.length === 0 && (
+          <div className="af-inline-state af-bili-hidden-empty">
+            <span>已隐藏全部 B站合集，可以在管理里重新显示。</span>
+            <button type="button" className="af-section-action" onClick={() => setShowBiliManager(true)}>
+              <SlidersHorizontal size={16} />
+              <span>管理合集</span>
+            </button>
+          </div>
+        )}
+
+        {!biliLoading && visibleBiliPlaylists.length > 0 && (
+          <div className="af-playlists-grid af-cloud-grid">
+            {visibleBiliPlaylists.map((playlist) => (
+              <div
+                key={playlist.id}
+                className="af-playlist-card af-cloud-playlist-card"
+              >
+                <div
+                  className="af-playlist-cover-wrap"
+                  onClick={() => navigate(`/playlist/${playlist.id}?source=bili`, { state: { playlist } })}
+                >
+                  <PlaylistCover src={playlist.picUrl} name={playlist.name} cloud />
+                  <div className="af-playlist-overlay">
+                    <span className="af-play-all-btn" aria-hidden="true">
+                      <Music size={22} />
+                    </span>
+                  </div>
+                </div>
+                <div className="af-playlist-info af-local-playlist-info">
+                  <h3
+                    className="af-playlist-name"
+                    onClick={() => navigate(`/playlist/${playlist.id}?source=bili`, { state: { playlist } })}
+                  >
+                    {playlist.name}
+                  </h3>
+                  <p className="af-playlist-meta">
+                    {playlist.trackCount ?? 0} 个视频 · {playlist.author || '哔哩哔哩'}
+                  </p>
+                  <div className="af-playlist-menu">
+                    <button
+                      className="af-menu-trigger"
+                      onClick={() => setActiveMenu(activeMenu === `bili:${playlist.id}` ? null : `bili:${playlist.id}`)}
+                      aria-label="B站合集菜单"
+                    >
+                      <MoreVertical size={18} />
+                    </button>
+
+                    {activeMenu === `bili:${playlist.id}` && (
+                      <div className="af-dropdown-menu">
+                        <button onClick={() => handleHideBiliCollection(playlist.id)}>
+                          <EyeOff size={16} />
+                          <span>隐藏此合集</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="af-playlist-section">
@@ -420,18 +576,82 @@ export function PlaylistsView() {
           </div>
         </div>
       )}
+
+      {showBiliManager && (
+        <div className="af-dialog-overlay af-bili-manager-overlay" onClick={closeBiliManager}>
+          <div className="af-dialog af-bili-manager-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="af-bili-manager-header">
+              <div>
+                <h2>B站合集管理</h2>
+                <p>选择哪些收藏合集显示在歌单页。</p>
+              </div>
+              <button
+                type="button"
+                className="af-menu-trigger"
+                onClick={closeBiliManager}
+                aria-label="关闭 B站合集管理"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <label className="af-bili-auto-row">
+              <input
+                type="checkbox"
+                checked={autoShowNewBiliCollections}
+                onChange={(event) => setAutoShowNewBiliCollections(event.target.checked)}
+              />
+              <span className="af-bili-visibility-switch" aria-hidden="true" />
+              <span>
+                <strong>新合集自动显示</strong>
+                <small>关闭后，新收藏的合集会先进入管理列表，确认后再显示。</small>
+              </span>
+            </label>
+
+            <div className="af-bili-collection-list">
+              {biliPlaylists.map((playlist) => {
+                const visible = !hiddenBiliIdSet.has(playlist.id);
+                const isNew = newBiliIdSet.has(playlist.id);
+                return (
+                  <div key={playlist.id} className="af-bili-collection-row">
+                    <PlaylistCover src={playlist.picUrl} name={playlist.name} cloud />
+                    <div className="af-bili-collection-info">
+                      <div className="af-bili-collection-title-row">
+                        <h3>{playlist.name}</h3>
+                        {isNew && <span className="af-bili-new-badge">新发现</span>}
+                      </div>
+                      <p>{playlist.trackCount ?? 0} 个视频 · {playlist.author || '哔哩哔哩'}</p>
+                    </div>
+                    <label className="af-bili-row-toggle">
+                      <input
+                        type="checkbox"
+                        checked={visible}
+                        onChange={(event) => setBiliCollectionVisible(playlist.id, event.target.checked)}
+                        aria-label={`${visible ? '隐藏' : '显示'} ${playlist.name}`}
+                      />
+                      <span className="af-bili-visibility-switch" aria-hidden="true" />
+                      <span>{visible ? '显示' : '隐藏'}</span>
+                    </label>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 function PlaylistCover({ src, name, cloud = false }: { src?: string; name: string; cloud?: boolean }) {
+  const imageSrc = normalizeImageUrl(src);
   return (
     <div className="af-playlist-cover">
-      {src ? (
-        <img src={src} alt={name} />
+      {imageSrc ? (
+        <img src={imageSrc} alt={name} referrerPolicy={getImageReferrerPolicy(imageSrc)} />
       ) : (
         <div className="af-playlist-cover-placeholder">
-          {cloud ? <Cloud size={38} /> : <Music size={42} />}
+          {cloud ? <Layers size={38} /> : <Music size={42} />}
         </div>
       )}
     </div>

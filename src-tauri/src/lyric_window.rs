@@ -101,12 +101,7 @@ fn has_pending_lock_request() -> bool {
 
 fn consume_pending_lock_token(prepared_lock_token: u64) -> Result<(), u64> {
     LYRIC_PENDING_LOCK_TOKEN
-        .compare_exchange(
-            prepared_lock_token,
-            0,
-            Ordering::SeqCst,
-            Ordering::SeqCst,
-        )
+        .compare_exchange(prepared_lock_token, 0, Ordering::SeqCst, Ordering::SeqCst)
         .map(|_| ())
 }
 
@@ -238,15 +233,13 @@ fn apply_locked_window_state(app: &AppHandle, locked: bool) -> Result<(), String
     if !locked {
         close_unlock_window(app);
     }
-    window
-        .set_ignore_cursor_events(locked)
-        .map_err(|err| {
-            if locked {
-                format!("设置桌面歌词锁定失败: {}", err)
-            } else {
-                format!("设置桌面歌词解锁失败: {}", err)
-            }
-        })?;
+    window.set_ignore_cursor_events(locked).map_err(|err| {
+        if locked {
+            format!("设置桌面歌词锁定失败: {}", err)
+        } else {
+            format!("设置桌面歌词解锁失败: {}", err)
+        }
+    })?;
 
     if locked {
         schedule_create_unlock_window(app);
@@ -295,7 +288,12 @@ pub fn toggle_from_player(app: &AppHandle) -> Result<LyricWindowPlayerToggleResu
         action: if next_open { "opened" } else { "closed" }.to_string(),
         open: next_open,
         locked: false,
-        message: if next_open { "桌面歌词已打开" } else { "桌面歌词已关闭" }.to_string(),
+        message: if next_open {
+            "桌面歌词已打开"
+        } else {
+            "桌面歌词已关闭"
+        }
+        .to_string(),
     })
 }
 
@@ -328,11 +326,7 @@ fn create(app: &AppHandle) -> Result<(), String> {
     LYRIC_CREATE_PENDING.store(false, Ordering::SeqCst);
     let runtime_known = LYRIC_LOCK_RUNTIME_KNOWN.load(Ordering::SeqCst);
     let runtime_target = has_runtime_lock_target();
-    let initial_locked = if runtime_known {
-        runtime_target
-    } else {
-        false
-    };
+    let initial_locked = if runtime_known { runtime_target } else { false };
     LYRIC_LOCKED.store(initial_locked, Ordering::SeqCst);
     LYRIC_LOCK_RUNTIME_KNOWN.store(true, Ordering::SeqCst);
     schedule_apply_locked_window_state(app, initial_locked);
@@ -418,18 +412,22 @@ fn create_unlock_window(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    let unlock = WebviewWindowBuilder::new(app, LYRIC_UNLOCK_LABEL, lyric_webview_url("#/lyric-unlock")?)
-        .title("解锁桌面歌词")
-        .inner_size(UNLOCK_WINDOW_SIZE, UNLOCK_WINDOW_SIZE)
-        .always_on_top(pinned)
-        .decorations(false)
-        .resizable(false)
-        .skip_taskbar(true)
-        .transparent(true)
-        .shadow(false)
-        .focused(false)
-        .build()
-        .map_err(|e| format!("创建桌面歌词解锁按钮失败: {}", e))?;
+    let unlock = WebviewWindowBuilder::new(
+        app,
+        LYRIC_UNLOCK_LABEL,
+        lyric_webview_url("#/lyric-unlock")?,
+    )
+    .title("解锁桌面歌词")
+    .inner_size(UNLOCK_WINDOW_SIZE, UNLOCK_WINDOW_SIZE)
+    .always_on_top(pinned)
+    .decorations(false)
+    .resizable(false)
+    .skip_taskbar(true)
+    .transparent(true)
+    .shadow(false)
+    .focused(false)
+    .build()
+    .map_err(|e| format!("创建桌面歌词解锁按钮失败: {}", e))?;
 
     let _ = unlock.set_always_on_top(pinned);
     unlock
@@ -660,10 +658,9 @@ fn schedule_persist_size(
 fn persist_position(app: &AppHandle, pos: PhysicalPosition<i32>, scale: f64) {
     let x = pos.x as f64 / scale;
     let y = pos.y as f64 / scale;
-    if let Err(err) = crate::config::patch_settings(
-        app,
-        json!({ "lyricWindowX": x, "lyricWindowY": y }),
-    ) {
+    if let Err(err) =
+        crate::config::patch_settings(app, json!({ "lyricWindowX": x, "lyricWindowY": y }))
+    {
         eprintln!("[lyric] persist position failed: {}", err);
     }
 }

@@ -27,11 +27,10 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
         return Ok(default);
     }
 
-    let content = fs::read_to_string(&path)
-        .map_err(|e| format!("读取配置文件失败: {}", e))?;
+    let content = fs::read_to_string(&path).map_err(|e| format!("读取配置文件失败: {}", e))?;
 
-    let settings: AppSettings = serde_json::from_str(&content)
-        .map_err(|e| format!("解析配置文件失败: {}", e))?;
+    let settings: AppSettings =
+        serde_json::from_str(&content).map_err(|e| format!("解析配置文件失败: {}", e))?;
 
     Ok(settings)
 }
@@ -42,15 +41,13 @@ pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), Stri
 
     // 确保目录存在
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("创建配置目录失败: {}", e))?;
+        fs::create_dir_all(parent).map_err(|e| format!("创建配置目录失败: {}", e))?;
     }
 
-    let content = serde_json::to_string_pretty(settings)
-        .map_err(|e| format!("序列化配置失败: {}", e))?;
+    let content =
+        serde_json::to_string_pretty(settings).map_err(|e| format!("序列化配置失败: {}", e))?;
 
-    fs::write(&path, content)
-        .map_err(|e| format!("写入配置文件失败: {}", e))?;
+    fs::write(&path, content).map_err(|e| format!("写入配置文件失败: {}", e))?;
 
     Ok(())
 }
@@ -60,8 +57,8 @@ pub fn patch_settings(app: &AppHandle, patch: serde_json::Value) -> Result<AppSe
     let current = load_settings(app)?;
 
     // 将 current 序列化为 Value，再 merge patch
-    let mut current_val = serde_json::to_value(&current)
-        .map_err(|e| format!("序列化当前配置失败: {}", e))?;
+    let mut current_val =
+        serde_json::to_value(&current).map_err(|e| format!("序列化当前配置失败: {}", e))?;
 
     merge_json(&mut current_val, patch);
 

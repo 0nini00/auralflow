@@ -1,8 +1,8 @@
 /**
- * 应用 UI 只展示两个来源：网易云（wy）和 QQ 音乐（tx）。
+ * 应用 UI 展示内置平台来源：网易云（wy）、QQ 音乐（tx）、B站（bili）。
  * 自定义音源、API 网关是内部解析机制，不扩展 UI 来源数量。
  */
-export type SourceTag = "wy" | "tx" | "local";
+export type SourceTag = "wy" | "tx" | "bili" | "local";
 
 export type SearchType = "song" | "playlist" | "album" | "singer";
 
@@ -87,7 +87,7 @@ export interface SearchResult {
 /**
  * 音源 Provider 接口。
  * id 不一定是 SourceTag：自定义源、网关 provider 可能有内部 id，
- * 但它们解析出的 MusicInfo.source 必须是 wy/tx 之一。
+ * 但它们解析出的 MusicInfo.source 必须是已知 UI 来源之一。
  */
 export interface MusicSource {
   readonly id: string;

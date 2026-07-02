@@ -7,6 +7,7 @@ import {
 } from "@lx/core";
 import { wyProvider } from "./wyProvider";
 import { txProvider } from "./txProvider";
+import { biliProvider } from "./biliProvider";
 
 /**
  * 全局 SourceRegistry：注册内置音源 wy / tx。
@@ -21,6 +22,7 @@ export function registerSource(source: MusicSource): void {
 
 registerSource(wyProvider);
 registerSource(txProvider);
+registerSource(biliProvider);
 
 /**
  * SourceResolver 目前仅被 lyricsService 通过 getSource() 用于取 Provider 歌词。

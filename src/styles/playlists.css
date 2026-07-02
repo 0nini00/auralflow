@@ -126,6 +126,37 @@
   text-align: center;
 }
 
+.af-section-heading-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.af-bili-manage-button {
+  min-height: 32px;
+  padding: 0 12px;
+}
+
+.af-bili-new-pill {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgba(var(--af-accent-primary-rgb), 0.24);
+  border-radius: 999px;
+  background: rgba(var(--af-accent-primary-rgb), 0.1);
+  color: var(--af-accent-primary);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+.af-bili-new-pill:hover {
+  background: rgba(var(--af-accent-primary-rgb), 0.16);
+  border-color: rgba(var(--af-accent-primary-rgb), 0.34);
+}
+
 .af-quick-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -394,6 +425,11 @@ button.af-playlist-card {
   justify-content: center;
 }
 
+.af-bili-hidden-empty {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
 .af-playlist-menu {
   position: absolute;
   top: 5px;
@@ -459,6 +495,201 @@ button.af-playlist-card {
   color: #ef4444 !important;
 }
 
+.af-dialog-overlay.af-bili-manager-overlay {
+  align-items: center;
+  padding: 24px;
+}
+
+.af-dialog.af-bili-manager-dialog {
+  width: min(760px, 92vw);
+  max-height: min(760px, calc(100vh - 72px));
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 26px;
+  overflow: hidden;
+}
+
+.af-bili-manager-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.af-bili-manager-header h2 {
+  margin: 0;
+}
+
+.af-dialog.af-bili-manager-dialog .af-bili-manager-header h2 {
+  margin: 0;
+}
+
+.af-bili-manager-header p {
+  margin: 6px 0 0;
+  color: var(--af-text-secondary);
+  font-size: 13px;
+}
+
+.af-bili-auto-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--af-border-secondary);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.025);
+  cursor: pointer;
+}
+
+.af-bili-auto-row > input,
+.af-bili-row-toggle > input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.af-bili-auto-row strong,
+.af-bili-auto-row small {
+  display: block;
+}
+
+.af-bili-auto-row strong {
+  color: var(--af-text-primary);
+  font-size: 14px;
+}
+
+.af-bili-auto-row small {
+  margin-top: 4px;
+  color: var(--af-text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.af-bili-visibility-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--af-bg-hover);
+  border: 1px solid var(--af-border-secondary);
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+.af-bili-visibility-switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--af-text-tertiary);
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+
+.af-bili-auto-row > input:checked + .af-bili-visibility-switch,
+.af-bili-row-toggle > input:checked + .af-bili-visibility-switch {
+  background: rgba(var(--af-accent-primary-rgb), 0.18);
+  border-color: rgba(var(--af-accent-primary-rgb), 0.38);
+}
+
+.af-bili-auto-row > input:checked + .af-bili-visibility-switch::after,
+.af-bili-row-toggle > input:checked + .af-bili-visibility-switch::after {
+  transform: translateX(18px);
+  background: var(--af-accent-primary);
+}
+
+.af-bili-auto-row:focus-within,
+.af-bili-row-toggle:focus-within {
+  outline: 2px solid rgba(var(--af-accent-primary-rgb), 0.36);
+  outline-offset: 3px;
+}
+
+.af-bili-collection-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.af-bili-collection-row {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.af-bili-collection-row:hover {
+  border-color: var(--af-border-secondary);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.af-bili-collection-row .af-playlist-cover {
+  width: 58px;
+  height: 58px;
+  border-radius: 12px;
+}
+
+.af-bili-collection-info {
+  min-width: 0;
+}
+
+.af-bili-collection-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.af-bili-collection-title-row h3 {
+  margin: 0;
+  color: var(--af-text-primary);
+  font-size: 14px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-bili-collection-info p {
+  margin: 5px 0 0;
+  color: var(--af-text-secondary);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-bili-new-badge {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(var(--af-accent-primary-rgb), 0.12);
+  color: var(--af-accent-primary);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.af-bili-row-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--af-text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 @media (max-width: 980px) {
   .af-playlists-view {
     padding: 24px 24px 42px;
@@ -474,9 +705,35 @@ button.af-playlist-card {
     flex-direction: column;
   }
 
+  .af-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .af-section-heading-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
   .af-create-playlist-btn {
     width: 100%;
     justify-content: center;
+  }
+
+  .af-dialog.af-bili-manager-dialog {
+    width: 100%;
+    max-height: calc(100vh - 48px);
+    padding: 22px;
+  }
+
+  .af-bili-collection-row {
+    grid-template-columns: 54px minmax(0, 1fr);
+  }
+
+  .af-bili-row-toggle {
+    grid-column: 1 / -1;
+    justify-content: space-between;
+    padding-top: 4px;
   }
 }
 

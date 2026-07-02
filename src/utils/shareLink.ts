@@ -11,6 +11,10 @@ export function buildMusicShareLink(music: MusicInfo): string | null {
     return `https://y.qq.com/n/ryqq/songDetail/${encodeURIComponent(music.id)}`;
   }
 
+  if (music.source === "bili") {
+    return `https://www.bilibili.com/video/${encodeURIComponent(music.id)}`;
+  }
+
   return null;
 }
 

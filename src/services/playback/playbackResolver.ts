@@ -1,6 +1,7 @@
 import type { MusicInfo } from '@lx/core';
 import { loadSettings } from '@lx/tauri-bridge';
 import { builtinNeteaseBackend } from './builtinNeteaseBackend';
+import { builtinProviderBackend } from './builtinProviderBackend';
 import { customSourceBackend } from './customSourceBackend';
 import type { PlaybackBackendId, PlaybackResolvedUrl } from './types';
 import { canResolveWithBuiltinMusicApi } from '@/services/builtinMusicApiModel';
@@ -58,6 +59,26 @@ export async function resolvePlaybackUrl(
   }
 
   try {
+    const resolved = await builtinProviderBackend.resolve({
+      primary: music,
+      variants: allVariants,
+      qualityPreference,
+    });
+    void saveCachedPlaybackUrl(music, resolved).catch((error) => {
+      console.warn('[playbackResolver] 写入播放缓存失败', error);
+    });
+    return resolved;
+  } catch (providerError) {
+    if (builtInError) {
+      const builtInMessage = builtInError instanceof Error ? builtInError.message : String(builtInError);
+      const providerMessage = providerError instanceof Error ? providerError.message : String(providerError);
+      builtInError = new Error(`内置音乐 API 播放失败：${builtInMessage}\n内置音源播放失败：${providerMessage}`);
+    } else {
+      builtInError = providerError;
+    }
+  }
+
+  try {
     const resolved = await customSourceBackend.resolve({
       primary: music,
       variants: allVariants,
@@ -71,7 +92,7 @@ export async function resolvePlaybackUrl(
     if (builtInError) {
       const builtInMessage = builtInError instanceof Error ? builtInError.message : String(builtInError);
       const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
-      throw new Error(`内置音乐 API 播放失败：${builtInMessage}\n自定义音源播放失败：${fallbackMessage}`);
+      throw new Error(`${builtInMessage}\n自定义音源播放失败：${fallbackMessage}`);
     }
     throw fallbackError;
   }

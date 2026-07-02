@@ -16,6 +16,7 @@ export interface RustAppSettings {
   pauseOnExternalPlayback: boolean;
   neteaseScrobbleSync: boolean;
   wyCookie?: string | null;
+  biliCookie?: string | null;
   lyricPinned: boolean;
   lyricLocked: boolean;
   lyricPauseHide: boolean;
@@ -96,6 +97,19 @@ export interface RustDownloadCompletedEvent {
   total: number;
 }
 
+export interface BiliGetJsonOptions {
+  url: string;
+  cookie?: string | null;
+  referer?: string | null;
+}
+
+export interface BiliCacheAudioOptions {
+  url: string;
+  referer: string;
+  cookie?: string | null;
+  cacheKey?: string | null;
+}
+
 // ─── 类型化 invoke 封装 ─────────────────────────────────
 
 /** 加载设置 */
@@ -168,6 +182,25 @@ export async function writeDownloadTextFile(
   contents: string,
 ): Promise<string> {
   return invoke<string>("write_download_text_file", { directory, fileName, contents });
+}
+
+/** 通过 Rust 后端请求 B站 API，避免前端 HTTP 插件触发风控 */
+export async function biliGetJson<T = unknown>(options: BiliGetJsonOptions): Promise<T> {
+  return invoke<T>("bili_get_json", {
+    url: options.url,
+    cookie: options.cookie ?? null,
+    referer: options.referer ?? null,
+  });
+}
+
+/** 带 B站 Referer 下载音频到本地缓存，返回缓存文件路径 */
+export async function biliCacheAudio(options: BiliCacheAudioOptions): Promise<string> {
+  return invoke<string>("bili_cache_audio", {
+    url: options.url,
+    referer: options.referer,
+    cookie: options.cookie ?? null,
+    cacheKey: options.cacheKey ?? null,
+  });
 }
 
 // ─── 用户数据持久化（B-mid） ────────────────────

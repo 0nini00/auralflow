@@ -90,7 +90,9 @@ export async function getLyrics(music: MusicInfo): Promise<LyricResponse> {
 
     let result: LyricResponse;
 
-    if (music.source === 'local') {
+    if (music.source === 'bili') {
+      result = { lines: [], error: '暂无歌词' };
+    } else if (music.source === 'local') {
       if ('lyrics' in music && music.lyrics) {
         const lyricFormat = normalizeLyricFormat((music as { lyricFormat?: string }).lyricFormat);
         const lines = parseLyricSource({ type: lyricFormat, content: String(music.lyrics) });
