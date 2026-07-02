@@ -19,19 +19,19 @@
   --af-text-quaternary: #cbd5e1;
   --af-text-on-accent: #ffffff;
 
-  /* Accent Colors - Clean purple accent */
-  --af-accent-primary: #1db954;
-  --af-accent-primary-rgb: 29, 185, 84;
-  --af-accent-secondary: #1ed760;
-  --af-accent-hover: #1aa34a;
-  --af-accent-gradient: linear-gradient(135deg, #1db954 0%, #1ed760 100%);
-  --af-accent-gradient-hover: linear-gradient(135deg, #1aa34a 0%, #1bc956 100%);
+  /* Accent Colors */
+  --af-accent-primary: #3bd877;
+  --af-accent-primary-rgb: 59, 216, 119;
+  --af-accent-secondary: #4fdc85;
+  --af-accent-hover: #35c26b;
+  --af-accent-gradient: linear-gradient(135deg, #3bd877 0%, #4fdc85 100%);
+  --af-accent-gradient-hover: linear-gradient(135deg, #35c26b 0%, #3bd877 100%);
   --af-accent-text: #ffffff;
 
   /* Border System - Light mode clean borders */
   --af-border-primary: #e2e8f0;
   --af-border-secondary: #f1f5f9;
-  --af-border-focus: rgba(29, 185, 84, 0.4);
+  --af-border-focus: rgba(59, 216, 119, 0.4);
   --af-border-accent: var(--af-accent-primary);
 
   /* Shadow System - Subtle depth */
@@ -72,19 +72,19 @@
   --af-text-quaternary: #475569;
   --af-text-on-accent: #ffffff;
 
-  /* Accent Colors - Vibrant for dark mode */
-  --af-accent-primary: #1db954;
-  --af-accent-primary-rgb: 29, 185, 84;
-  --af-accent-secondary: #1ed760;
-  --af-accent-hover: #1aa34a;
-  --af-accent-gradient: linear-gradient(135deg, #1db954 0%, #1ed760 100%);
-  --af-accent-gradient-hover: linear-gradient(135deg, #1aa34a 0%, #1bc956 100%);
+  /* Accent Colors */
+  --af-accent-primary: #3bd877;
+  --af-accent-primary-rgb: 59, 216, 119;
+  --af-accent-secondary: #5edf8f;
+  --af-accent-hover: #33ba66;
+  --af-accent-gradient: linear-gradient(135deg, #3bd877 0%, #5edf8f 100%);
+  --af-accent-gradient-hover: linear-gradient(135deg, #33ba66 0%, #3bd877 100%);
   --af-accent-text: #ffffff;
 
   /* Border System - Dark mode borders */
   --af-border-primary: #334155;
   --af-border-secondary: #1e293b;
-  --af-border-focus: rgba(29, 185, 84, 0.5);
+  --af-border-focus: rgba(59, 216, 119, 0.5);
   --af-border-accent: var(--af-accent-primary);
 
   /* Shadow System - Dark mode depth */

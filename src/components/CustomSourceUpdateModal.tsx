@@ -86,7 +86,7 @@ export function CustomSourceUpdateModal() {
   };
 
   return (
-    <div className="af-dialog-overlay" onClick={handleClose}>
+    <div className="af-dialog-overlay af-custom-source-update-overlay" onClick={handleClose}>
       <div
         className="af-dialog af-custom-source-update-dialog"
         onClick={(event) => event.stopPropagation()}

@@ -288,6 +288,12 @@
   padding: 0;
 }
 
+.af-custom-source-update-overlay {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
 .af-custom-source-update-bar {
   height: 18px;
   background: rgba(65, 65, 65, 0.82);

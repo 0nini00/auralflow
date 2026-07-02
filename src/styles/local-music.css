@@ -58,12 +58,12 @@
 .af-library-button-primary {
   background: var(--af-accent-gradient);
   color: var(--af-accent-text);
-  box-shadow: 0 2px 8px rgba(29, 185, 84, 0.25);
+  box-shadow: 0 2px 8px rgba(var(--af-accent-primary-rgb), 0.18);
 }
 
 .af-library-button-primary:hover:not(:disabled) {
   background: var(--af-accent-gradient-hover);
-  box-shadow: 0 4px 12px rgba(29, 185, 84, 0.35);
+  box-shadow: 0 4px 12px rgba(var(--af-accent-primary-rgb), 0.24);
   transform: translateY(-1px);
 }
 

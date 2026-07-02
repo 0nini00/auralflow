@@ -23,6 +23,8 @@ export interface PlaybackResolvedUrl {
   quality: string;
   backend: PlaybackBackendId;
   resolverName: string;
+  fromCache?: boolean;
+  cacheKey?: string;
   trace: PlaybackAttempt[];
 }
 

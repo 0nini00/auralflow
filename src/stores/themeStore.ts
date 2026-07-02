@@ -3,7 +3,9 @@ import { persist } from "zustand/middleware";
 
 export type Theme = "light" | "dark" | "auto";
 
-const DEFAULT_ACCENT_COLOR = "#1db954";
+const DEFAULT_ACCENT_COLOR = "#3bd877";
+const LEGACY_DEFAULT_ACCENT_COLOR = "#1db954";
+const LEGACY_RED_ACCENT_COLOR = "#d83b40";
 
 interface ThemeStore {
   theme: Theme;
@@ -24,6 +26,13 @@ const getSystemTheme = (): "light" | "dark" => {
 function normalizeHexColor(color: string): string {
   const normalized = color.trim().toLowerCase();
   return /^#[0-9a-f]{6}$/.test(normalized) ? normalized : DEFAULT_ACCENT_COLOR;
+}
+
+function migrateAccentColor(color: string): string {
+  const normalized = normalizeHexColor(color);
+  return normalized === LEGACY_DEFAULT_ACCENT_COLOR || normalized === LEGACY_RED_ACCENT_COLOR
+    ? DEFAULT_ACCENT_COLOR
+    : normalized;
 }
 
 function hexToRgb(color: string): [number, number, number] {
@@ -121,7 +130,7 @@ export const useThemeStore = create<ThemeStore>()(
           const effectiveTheme =
             state.theme === "auto" ? getSystemTheme() : state.theme;
           state.effectiveTheme = effectiveTheme;
-          state.accentColor = normalizeHexColor(state.accentColor || DEFAULT_ACCENT_COLOR);
+          state.accentColor = migrateAccentColor(state.accentColor || DEFAULT_ACCENT_COLOR);
           applyAppearance(effectiveTheme, state.accentColor);
         }
       },

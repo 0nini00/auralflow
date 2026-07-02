@@ -1,5 +1,11 @@
 export interface TimedLyricLine {
   time: number;
+  words?: readonly TimedLyricWord[];
+}
+
+export interface TimedLyricWord {
+  start: number;
+  dur: number;
 }
 
 export interface LyricScrollMetrics {
@@ -13,6 +19,7 @@ export const DEFAULT_LYRIC_LEAD_SECONDS = 0.08;
 export const SEEK_JUMP_SECONDS = 2;
 export const USER_SCROLL_RESUME_DELAY_MS = 3000;
 export const DEFAULT_LYRIC_LINE_DURATION_SECONDS = 4;
+export const MAX_LYRIC_LINE_PROGRESS_SECONDS = 4.5;
 
 export interface PlaybackProgressClock {
   status: string;
@@ -29,6 +36,24 @@ function finiteNonNegative(value: number): number {
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(1, value));
+}
+
+function getWordAbsoluteEnd(lineStart: number, word: TimedLyricWord): number {
+  const wordStart = finiteNonNegative(word.start);
+  const wordDuration = finiteNonNegative(word.dur);
+  const absoluteStart = wordStart >= lineStart ? wordStart : lineStart + wordStart;
+  return absoluteStart + wordDuration;
+}
+
+export function getLineTimedEnd(line: TimedLyricLine): number | null {
+  if (!line.words?.length) return null;
+
+  const lineStart = finiteNonNegative(line.time);
+  const lastWordEnd = line.words.reduce((end, word) => {
+    return Math.max(end, getWordAbsoluteEnd(lineStart, word));
+  }, lineStart);
+
+  return lastWordEnd > lineStart ? lastWordEnd : null;
 }
 
 export function estimatePlaybackProgress(
@@ -61,10 +86,15 @@ export function calculateLyricLineProgress(
   if (!line) return 0;
 
   const start = finiteNonNegative(line.time);
+  const timedEnd = getLineTimedEnd(line);
   const nextTime = lines[currentLine + 1]?.time;
-  const duration = Number.isFinite(nextTime) && nextTime > start
-    ? nextTime - start
-    : Math.max(0.5, fallbackDuration);
+  const fallbackLineDuration = Math.max(0.5, fallbackDuration);
+  const nextLineDuration = Number.isFinite(nextTime) && nextTime > start
+    ? Math.min(nextTime - start, MAX_LYRIC_LINE_PROGRESS_SECONDS)
+    : fallbackLineDuration;
+  const duration = timedEnd && timedEnd > start
+    ? timedEnd - start
+    : Math.max(0.5, nextLineDuration);
 
   return clamp01((currentTime - start) / duration);
 }

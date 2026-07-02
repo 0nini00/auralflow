@@ -329,6 +329,7 @@ export const PlayerBar: React.FC = () => {
       <ImmersiveLyricsOverlay
         open={immersiveLyricsOpen}
         onClose={() => setImmersiveLyricsOpen(false)}
+        defaultControlsHidden={true}
       />
     </>
   );

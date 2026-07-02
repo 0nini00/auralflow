@@ -35,6 +35,7 @@ export function DailyRecommendView() {
   const [pendingPlayAction, setPendingPlayAction] = useState<PendingPlayAction>(null);
   const isPlayAllPending = pendingPlayAction === 'play-all';
   const isShufflePending = pendingPlayAction === 'shuffle';
+  const dailyCoverUrl = daily[0]?.img || daily[0]?.picUrl || "";
 
   const runPlayQueueAction = async (action: Exclude<PendingPlayAction, null>, queueToPlay: typeof daily, startIndex = 0) => {
     if (pendingPlayAction) return;
@@ -85,9 +86,13 @@ export function DailyRecommendView() {
       <div className="af-playlist-detail-header">
         <div className="af-playlist-detail-info">
           <div className="af-playlist-detail-cover">
-            <div className="af-cover-placeholder" style={{ background: 'var(--af-accent-gradient)' }}>
-              <Calendar size={64} color="white" />
-            </div>
+            {dailyCoverUrl ? (
+              <img src={dailyCoverUrl} alt={daily[0]?.name || "每日推荐封面"} />
+            ) : (
+              <div className="af-cover-placeholder" style={{ background: 'var(--af-accent-gradient)' }}>
+                <Calendar size={64} color="white" />
+              </div>
+            )}
           </div>
 
           <div className="af-playlist-detail-meta">

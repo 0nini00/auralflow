@@ -66,10 +66,10 @@ button:focus-visible {
 .af-search-submit,
 .af-create-playlist-btn:not(.af-btn-secondary),
 .af-library-button-primary {
-  border: 1px solid rgba(var(--af-accent-primary-rgb), 0.42);
-  background: linear-gradient(180deg, rgba(var(--af-accent-primary-rgb), 0.95), rgba(var(--af-accent-primary-rgb), 0.82));
-  color: var(--af-text-on-accent);
-  box-shadow: 0 8px 18px rgba(var(--af-accent-primary-rgb), 0.2);
+  border: 1px solid rgba(var(--af-accent-primary-rgb), 0.32);
+  background: rgba(var(--af-accent-primary-rgb), 0.12);
+  color: var(--af-accent-primary);
+  box-shadow: none;
 }
 
 .af-btn-secondary,
@@ -99,10 +99,10 @@ button:focus-visible {
 .af-search-submit:hover:not(:disabled),
 .af-create-playlist-btn:not(.af-btn-secondary):hover:not(:disabled),
 .af-library-button-primary:hover:not(:disabled) {
-  border-color: rgba(var(--af-accent-primary-rgb), 0.62);
-  background: var(--af-accent-gradient-hover);
-  color: var(--af-text-on-accent);
-  box-shadow: 0 10px 22px rgba(var(--af-accent-primary-rgb), 0.24);
+  border-color: rgba(var(--af-accent-primary-rgb), 0.42);
+  background: rgba(var(--af-accent-primary-rgb), 0.18);
+  color: var(--af-accent-primary);
+  box-shadow: none;
   transform: translateY(-1px);
 }
 
@@ -281,19 +281,19 @@ button:focus-visible {
 .af-grid-play-button,
 .af-play-all-btn,
 .af-playlist-play-button {
-  border: 1px solid rgba(var(--af-accent-primary-rgb), 0.42);
-  background: linear-gradient(180deg, rgba(var(--af-accent-primary-rgb), 0.96), rgba(var(--af-accent-primary-rgb), 0.82));
-  color: var(--af-text-on-accent);
-  box-shadow: 0 8px 20px rgba(var(--af-accent-primary-rgb), 0.24);
+  border: 1px solid rgba(var(--af-accent-primary-rgb), 0.32);
+  background: rgba(var(--af-accent-primary-rgb), 0.12);
+  color: var(--af-accent-primary);
+  box-shadow: none;
 }
 
 .af-play-button:hover:not(:disabled),
 .af-grid-play-button:hover:not(:disabled),
 .af-play-all-btn:hover:not(:disabled),
 .af-playlist-play-button:hover:not(:disabled) {
-  border-color: rgba(var(--af-accent-primary-rgb), 0.62);
-  background: var(--af-accent-gradient-hover);
-  color: var(--af-text-on-accent);
+  border-color: rgba(var(--af-accent-primary-rgb), 0.42);
+  background: rgba(var(--af-accent-primary-rgb), 0.18);
+  color: var(--af-accent-primary);
 }
 
 .af-view-mode-toggle {

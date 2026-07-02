@@ -5,6 +5,7 @@ import { resolvePlaybackUrl } from "@/services/playback/playbackResolver";
 import { prefetchNearbyTracks, getPrefetchedTrack, invalidatePrefetchedTrack } from "@/services/playback/prefetchService";
 import { selectCachedPlaybackTarget } from "@/services/playback/prefetchModel";
 import { getPlayModeState, type PlayModeId } from "@/services/playback/playModeControl";
+import { invalidateCachedPlaybackUrl } from "@/services/persistentCache";
 import { patchSettings } from "@lx/tauri-bridge";
 import { useHistoryStore } from "./historyStore";
 import { useSleepTimerStore } from "./sleepTimerStore";
@@ -81,6 +82,21 @@ function didPlayFailForTarget(state: Pick<PlayerStore, "current" | "status">, mu
 async function playAndDidFail(get: () => PlayerStore, music: MusicInfo): Promise<boolean> {
   await get().play(music);
   return didPlayFailForTarget(get(), music);
+}
+
+async function invalidatePersistentPlaybackCache(
+  original: MusicInfo,
+  target: MusicInfo,
+  quality?: string,
+): Promise<void> {
+  try {
+    await invalidateCachedPlaybackUrl(original, quality);
+    if (target.source !== original.source || target.id !== original.id) {
+      await invalidateCachedPlaybackUrl(target, quality);
+    }
+  } catch (error) {
+    console.warn("[player] invalidate playback cache failed", error);
+  }
 }
 
 function invalidatePlayRequest() {
@@ -213,8 +229,11 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
               if (cachedTarget.music.source !== music.source || cachedTarget.music.id !== music.id) {
                 invalidatePrefetchedTrack(cachedTarget.music);
               }
+              if (cachedTarget.fromPersistentCache) {
+                await invalidatePersistentPlaybackCache(music, cachedTarget.music, cachedTarget.quality);
+              }
 
-              const resolved = await resolvePlaybackUrl(music, variants);
+              const resolved = await resolvePlaybackUrl(music, variants, undefined, { bypassCache: true });
               if (requestId !== activePlayRequestId) return;
 
               if (!resolved?.url) {
@@ -246,7 +265,16 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
             }
 
-            await playerEngine.play(resolved.music, resolved.url);
+            try {
+              await playerEngine.play(resolved.music, resolved.url);
+            } catch (playbackError) {
+              if (!resolved.fromCache) throw playbackError;
+
+              await invalidatePersistentPlaybackCache(music, resolved.music, resolved.quality);
+              const refreshed = await resolvePlaybackUrl(music, variants, undefined, { bypassCache: true });
+              if (requestId !== activePlayRequestId) return;
+              await playerEngine.play(refreshed.music, refreshed.url);
+            }
 
           }
           if (requestId !== activePlayRequestId) return;

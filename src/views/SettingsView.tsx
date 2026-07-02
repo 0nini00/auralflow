@@ -57,6 +57,16 @@ import {
 } from "@/services/lyrics/animationIntensity";
 import logoImg from "@/assets/logo.png";
 
+type SettingsSectionId =
+  | "appearance"
+  | "playback"
+  | "sources"
+  | "desktop-lyric"
+  | "data"
+  | "sync"
+  | "misc"
+  | "about";
+
 const SETTINGS_NAV = [
   { id: "appearance", label: "外观", icon: Palette },
   { id: "playback", label: "播放", icon: Music2 },
@@ -68,7 +78,43 @@ const SETTINGS_NAV = [
   { id: "about", label: "关于", icon: Info },
 ];
 
+type LyricSettingsTab = "basic" | "typography" | "color";
+
+const LYRIC_SETTINGS_TABS: Array<{ id: LyricSettingsTab; label: string }> = [
+  { id: "basic", label: "基础" },
+  { id: "typography", label: "排版" },
+  { id: "color", label: "颜色与背景" },
+];
+
+const DEFAULT_IMMERSIVE_LYRIC_FONT_SIZE = 36;
+const DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY = "\"Inter\", \"Noto Sans CJK SC\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif";
+const HEX_COLOR_PATTERN = /^#?[0-9a-fA-F]{6}$/;
+
+const IMMERSIVE_LYRIC_FONT_OPTIONS = [
+  {
+    label: "系统默认",
+    value: DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY,
+  },
+  {
+    label: "霞鹜文楷",
+    value: "\"LXGW WenKai Screen\", \"LXGW WenKai\", \"霞鹜文楷 屏幕阅读版\", \"霞鹜文楷\", \"KaiTi\", \"STKaiti\", serif",
+  },
+  {
+    label: "思源宋体",
+    value: "\"Source Han Serif SC\", \"Noto Serif CJK SC\", \"思源宋体\", \"Songti SC\", \"STSong\", serif",
+  },
+  {
+    label: "HarmonyOS Sans",
+    value: "\"HarmonyOS Sans SC\", \"HarmonyOS Sans\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif",
+  },
+  {
+    label: "獅尾四季春加糖SC",
+    value: "\"獅尾四季春加糖SC\", \"Noto Serif CJK SC\", \"Source Han Serif SC\", \"Songti SC\", \"STSong\", serif",
+  },
+];
+
 export function SettingsView() {
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>("appearance");
   const {
     theme,
     accentColor,
@@ -76,6 +122,8 @@ export function SettingsView() {
     setAccentColor,
     resetAccentColor,
   } = useThemeStore();
+  const [accentColorInput, setAccentColorInput] = useState(accentColor.toUpperCase());
+  const isAccentColorInputValid = HEX_COLOR_PATTERN.test(accentColorInput.trim());
 
   const normalizeQualityValue = (value: string) => {
     if (value === "high") return "320k";
@@ -90,6 +138,8 @@ export function SettingsView() {
   const [customScriptText, setCustomScriptText] = useState("");
   const [customSourceStatus, setCustomSourceStatus] = useState("");
   const [customSourceAutoCheck, setCustomSourceAutoCheck] = useState(true);
+  const [immersiveLyricFontSize, setImmersiveLyricFontSize] = useState(DEFAULT_IMMERSIVE_LYRIC_FONT_SIZE);
+  const [immersiveLyricFontFamily, setImmersiveLyricFontFamily] = useState(DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
   const [dataStatus, setDataStatus] = useState("");
   const {
     sources: customSources,
@@ -112,8 +162,22 @@ export function SettingsView() {
       setPauseOnExternalPlayback(nextPauseOnExternalPlayback);
       playerEngine.setPauseOnExternalPlayback(nextPauseOnExternalPlayback);
       setCustomSourceAutoCheck(settings.customSourceAutoCheck !== false);
+      setImmersiveLyricFontSize(settings.immersiveLyricFontSize || DEFAULT_IMMERSIVE_LYRIC_FONT_SIZE);
+      setImmersiveLyricFontFamily(settings.immersiveLyricFontFamily || DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
     }).catch(logAsyncError("settings:load-playback"));
   }, []);
+
+  useEffect(() => {
+    setAccentColorInput(accentColor.toUpperCase());
+  }, [accentColor]);
+
+  const handleAccentColorTextChange = (nextValue: string) => {
+    setAccentColorInput(nextValue);
+    const trimmed = nextValue.trim();
+    if (!HEX_COLOR_PATTERN.test(trimmed)) return;
+    const normalized = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+    setAccentColor(normalized);
+  };
 
   const patchPlaybackSetting = (patch: Record<string, unknown>) => {
     patchSettings(patch).catch(logAsyncError("settings:patch-playback"));
@@ -139,6 +203,25 @@ export function SettingsView() {
       warnAsyncError("settings:patch-custom-source-auto-check", error);
       setCustomSourceAutoCheck(!next);
     });
+  };
+
+  const patchImmersiveLyricStyle = (patch: {
+    immersiveLyricFontSize?: number;
+    immersiveLyricFontFamily?: string;
+  }) => {
+    broadcastLyricSettings(patch);
+    patchSettings(patch).catch(logAsyncError("settings:patch-immersive-lyric-style"));
+  };
+
+  const handleImmersiveLyricFontSizeChange = (nextValue: number) => {
+    const next = Math.max(24, Math.min(56, nextValue));
+    setImmersiveLyricFontSize(next);
+    patchImmersiveLyricStyle({ immersiveLyricFontSize: next });
+  };
+
+  const handleImmersiveLyricFontFamilyChange = (next: string) => {
+    setImmersiveLyricFontFamily(next);
+    patchImmersiveLyricStyle({ immersiveLyricFontFamily: next });
   };
 
   const handleImportCustomSourceFile = async () => {
@@ -207,6 +290,8 @@ export function SettingsView() {
       .join("\n");
   };
 
+  const getActiveSettingsSection = (id: SettingsSectionId) => activeSection === id;
+
   return (
     <div className="af-settings-view af-animate-slide-in">
       <div className="af-settings-page-head">
@@ -219,16 +304,24 @@ export function SettingsView() {
       <div className="af-settings-shell">
         <nav className="af-settings-nav" aria-label="设置分类">
           {SETTINGS_NAV.map(({ id, label, icon: Icon }) => (
-            <a key={id} href={`#${id}`} className="af-settings-nav-link">
+            <button
+              key={id}
+              type="button"
+              className={`af-settings-nav-link ${activeSection === id ? "af-active" : ""}`}
+              onClick={() => setActiveSection(id as SettingsSectionId)}
+              aria-current={activeSection === id ? "page" : undefined}
+            >
               <Icon size={16} />
               <span>{label}</span>
-            </a>
+            </button>
           ))}
         </nav>
 
         <div className="af-settings-content">
+          <div className="af-settings-panel">
 
       {/* Theme Section */}
+      {getActiveSettingsSection("appearance") && (
       <section className="af-settings-section" id="appearance">
         <h2 className="af-settings-section-title">外观</h2>
 
@@ -261,9 +354,89 @@ export function SettingsView() {
             </button>
           </div>
         </div>
+
+        <div className="af-settings-group">
+          <label className="af-settings-label">自定义强调色</label>
+          <div className="af-appearance-row">
+            <label className="af-appearance-color-picker">
+              <span
+                className="af-appearance-color-swatch"
+                style={{ backgroundColor: accentColor }}
+                aria-hidden="true"
+              />
+              <input
+                type="color"
+                value={accentColor}
+                onChange={(event) => setAccentColor(event.target.value)}
+                aria-label="选择强调色"
+              />
+            </label>
+            <input
+              type="text"
+              className={`af-appearance-color-hex ${isAccentColorInputValid ? "" : "af-invalid"}`}
+              value={accentColorInput}
+              onChange={(event) => handleAccentColorTextChange(event.target.value)}
+              aria-label="输入强调色 Hex 值"
+              aria-invalid={!isAccentColorInputValid}
+              spellCheck={false}
+              inputMode="text"
+              placeholder="#3BD877"
+            />
+            <button type="button" className="af-settings-small-button" onClick={resetAccentColor}>
+              <RotateCcw size={14} />
+              恢复默认
+            </button>
+          </div>
+        </div>
+
+        <div className="af-settings-group">
+          <label className="af-settings-label">沉浸式歌词样式</label>
+          <div className="af-immersive-lyric-style-grid">
+            <label className="af-immersive-lyric-style-control">
+              <span>字体</span>
+              <select
+                className="af-settings-select"
+                value={immersiveLyricFontFamily}
+                onChange={(event) => handleImmersiveLyricFontFamilyChange(event.target.value)}
+              >
+                {IMMERSIVE_LYRIC_FONT_OPTIONS.map((option) => (
+                  <option key={option.label} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="af-immersive-lyric-style-control">
+              <span>字号</span>
+              <div className="af-immersive-lyric-size-row">
+                <input
+                  type="range"
+                  min={24}
+                  max={56}
+                  step={1}
+                  value={immersiveLyricFontSize}
+                  onChange={(event) => handleImmersiveLyricFontSizeChange(parseInt(event.target.value, 10))}
+                  className="af-sfx-range"
+                />
+                <strong>{immersiveLyricFontSize}px</strong>
+              </div>
+            </label>
+          </div>
+          <div
+            className="af-immersive-lyric-style-preview"
+            style={{
+              fontFamily: immersiveLyricFontFamily,
+              fontSize: `${immersiveLyricFontSize}px`,
+            }}
+          >
+            像是色彩浮游在水流中
+          </div>
+        </div>
       </section>
+      )}
 
       {/* Playback Section */}
+      {getActiveSettingsSection("playback") && (
       <section className="af-settings-section" id="playback">
         <h2 className="af-settings-section-title">播放</h2>
 
@@ -312,32 +485,10 @@ export function SettingsView() {
           </div>
         </div>
 
-        <div className="af-settings-group">
-          <label className="af-settings-label">自定义强调色</label>
-          <div className="af-appearance-row">
-            <label className="af-appearance-color-picker">
-              <span
-                className="af-appearance-color-swatch"
-                style={{ backgroundColor: accentColor }}
-                aria-hidden="true"
-              />
-              <input
-                type="color"
-                value={accentColor}
-                onChange={(event) => setAccentColor(event.target.value)}
-                aria-label="选择强调色"
-              />
-              <span>{accentColor.toUpperCase()}</span>
-            </label>
-            <button type="button" className="af-settings-small-button" onClick={resetAccentColor}>
-              <RotateCcw size={14} />
-              恢复默认
-            </button>
-          </div>
-          <p className="af-settings-hint">手动选择应用强调色。</p>
-        </div>
       </section>
+      )}
 
+      {getActiveSettingsSection("sources") && (
       <section className="af-settings-section" id="sources">
         <h2 className="af-settings-section-title">音源</h2>
         <div className="af-settings-group">
@@ -422,18 +573,21 @@ export function SettingsView() {
                           {source.description || "无描述"}
                         </div>
                         {(updateMessage || testMessage) && (
-                          <div className="af-custom-source-message-row">
-                            {updateMessage && (
-                              <span className={`af-custom-source-status af-custom-source-status-${source.updateStatus ?? "idle"}`}>
-                                {updateMessage}
-                              </span>
-                            )}
-                            {testMessage && (
-                              <span className={`af-custom-source-status af-custom-source-status-${source.testStatus}`}>
-                                {testMessage}
-                              </span>
-                            )}
-                          </div>
+                          <details className="af-custom-source-details">
+                            <summary>状态详情</summary>
+                            <div className="af-custom-source-message-row">
+                              {updateMessage && (
+                                <span className={`af-custom-source-status af-custom-source-status-${source.updateStatus ?? "idle"}`}>
+                                  {updateMessage}
+                                </span>
+                              )}
+                              {testMessage && (
+                                <span className={`af-custom-source-status af-custom-source-status-${source.testStatus}`}>
+                                  {testMessage}
+                                </span>
+                              )}
+                            </div>
+                          </details>
                         )}
                       </div>
                     </div>
@@ -516,11 +670,13 @@ export function SettingsView() {
               )}
             </div>
       </section>
+      )}
 
       {/* Desktop Lyric Section */}
-      <DesktopLyricSection />
+      {getActiveSettingsSection("desktop-lyric") && <DesktopLyricSection />}
 
       {/* Data Section */}
+      {getActiveSettingsSection("data") && (
       <section className="af-settings-section" id="data">
         <h2 className="af-settings-section-title">数据管理</h2>
         <div className="af-settings-row">
@@ -540,14 +696,16 @@ export function SettingsView() {
         </div>
         {dataStatus && <p className="af-settings-hint">{dataStatus}</p>}
       </section>
+      )}
 
       {/* Sync Section */}
-      <SyncSection />
+      {getActiveSettingsSection("sync") && <SyncSection />}
 
       {/* Misc Section */}
-      <MiscSection />
+      {getActiveSettingsSection("misc") && <MiscSection />}
 
       {/* About Section */}
+      {getActiveSettingsSection("about") && (
       <section className="af-settings-section" id="about">
         <h2 className="af-settings-section-title">关于</h2>
 
@@ -562,6 +720,8 @@ export function SettingsView() {
           </p>
         </div>
       </section>
+      )}
+          </div>
         </div>
       </div>
     </div>
@@ -569,6 +729,7 @@ export function SettingsView() {
 }
 
 function DesktopLyricSection() {
+  const [activeLyricTab, setActiveLyricTab] = useState<LyricSettingsTab>("basic");
   const [pinned, setPinned] = useState(true);
   const [pauseHide, setPauseHide] = useState(false);
   const [fontSize, setFontSize] = useState(28);
@@ -815,10 +976,29 @@ function DesktopLyricSection() {
     }
   };
 
+  const renderLyricSettingsTab = (tab: LyricSettingsTab) => activeLyricTab === tab;
+
   return (
     <section className="af-settings-section" id="desktop-lyric">
       <h2 className="af-settings-section-title">桌面歌词</h2>
 
+      <div className="af-lyric-settings-tabs" role="tablist" aria-label="桌面歌词设置分类">
+        {LYRIC_SETTINGS_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            className={`af-lyric-settings-tab ${activeLyricTab === tab.id ? "af-active" : ""}`}
+            aria-selected={activeLyricTab === tab.id}
+            onClick={() => setActiveLyricTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      {status && <p className="af-settings-hint af-lyric-status">{status}</p>}
+
+      {renderLyricSettingsTab("basic") && (
       <div className="af-lyric-settings-card">
         <div className="af-lyric-settings-heading">
           <div>
@@ -830,7 +1010,6 @@ function DesktopLyricSection() {
             {windowOpen ? "关闭歌词" : "打开歌词"}
           </button>
         </div>
-        {status && <p className="af-settings-hint">{status}</p>}
 
         <div className="af-lyric-settings-grid">
           <div className="af-lyric-setting-block">
@@ -1009,7 +1188,9 @@ function DesktopLyricSection() {
           </div>
         </div>
       </div>
+      )}
 
+      {renderLyricSettingsTab("typography") && (
       <div className="af-lyric-settings-card">
         <div className="af-lyric-settings-title">排版</div>
         <div className="af-sfx-eq af-lyric-settings-sliders">
@@ -1156,7 +1337,9 @@ function DesktopLyricSection() {
           </div>
         </div>
       </div>
+      )}
 
+      {renderLyricSettingsTab("color") && (
       <div className="af-lyric-settings-card">
         <div className="af-lyric-settings-title">颜色与背景</div>
         <div className="af-lyric-color-grid">
@@ -1201,6 +1384,7 @@ function DesktopLyricSection() {
           </div>
         </div>
       </div>
+      )}
 
       <div className="af-lyric-settings-actions">
         <button type="button" className="af-settings-small-button" onClick={handleResetStyle}>
@@ -1218,6 +1402,7 @@ function DesktopLyricSection() {
 
 function MiscSection() {
   const [cursorEffect, setCursorEffect] = useState<"off" | "trail">("off");
+  const [updateStatus, setUpdateStatus] = useState("");
 
   useEffect(() => {
     loadSettings()
@@ -1234,6 +1419,17 @@ function MiscSection() {
     }
     // 触发 App 重新读取：通过 storage 事件不可靠，直接 reload 页面片段最简
     window.dispatchEvent(new Event("af-cursor-change"));
+  };
+
+  const handleCheckUpdate = async () => {
+    setUpdateStatus("检查中...");
+    try {
+      const { checkForUpdates } = await import("@/services/updateService");
+      const info = await checkForUpdates();
+      setUpdateStatus(info ? `发现新版本 ${info.latestVersion}（当前 ${info.currentVersion}）` : "已是最新版本");
+    } catch (e) {
+      setUpdateStatus(e instanceof Error ? e.message : String(e));
+    }
   };
 
   return (
@@ -1259,6 +1455,14 @@ function MiscSection() {
           </button>
         </div>
         <p className="af-settings-hint">跟随鼠标的衰减圆点特效，纯装饰。</p>
+      </div>
+
+      <div className="af-settings-group">
+        <label className="af-settings-label">软件更新</label>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button type="button" className="af-settings-small-button" onClick={handleCheckUpdate}>检查更新</button>
+        </div>
+        {updateStatus && <p className="af-settings-hint">{updateStatus}</p>}
       </div>
     </section>
   );
@@ -1347,20 +1551,9 @@ function SyncSection() {
     }
   };
 
-  const handleCheckUpdate = async () => {
-    setSyncStatus("检查中...");
-    try {
-      const { checkForUpdates } = await import("@/services/updateService");
-      const info = await checkForUpdates();
-      setSyncStatus(info ? `发现新版本 ${info.latestVersion}（当前 ${info.currentVersion}）` : "已是最新版本");
-    } catch (e) {
-      setSyncStatus(e instanceof Error ? e.message : String(e));
-    }
-  };
-
   return (
     <section className="af-settings-section" id="sync">
-      <h2 className="af-settings-section-title">备份与更新</h2>
+      <h2 className="af-settings-section-title">备份与同步</h2>
 
       <div className="af-settings-group">
         <label className="af-settings-label">WebDAV 地址</label>
@@ -1404,13 +1597,6 @@ function SyncSection() {
           <button type="button" className="af-settings-small-button" onClick={handleDownloadPlaylists}>下载歌单历史</button>
         </div>
         {syncStatus && <p className="af-settings-hint">{syncStatus}</p>}
-      </div>
-
-      <div className="af-settings-group">
-        <label className="af-settings-label">软件更新</label>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button type="button" className="af-settings-small-button" onClick={handleCheckUpdate}>检查更新</button>
-        </div>
       </div>
     </section>
   );

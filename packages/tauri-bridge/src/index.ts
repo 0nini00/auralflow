@@ -36,6 +36,8 @@ export interface RustAppSettings {
   lyricHoverHide: boolean;
   lyricEnableAnimation: boolean;
   lyricAnimationIntensity: string;
+  immersiveLyricFontSize: number;
+  immersiveLyricFontFamily: string;
   lyricWindowX?: number | null;
   lyricWindowY?: number | null;
   lyricWindowWidth?: number | null;
@@ -176,7 +178,8 @@ export type LibraryNamespace =
   | "library"
   | "customSources"
   | "recent"
-  | "soundEffect";
+  | "soundEffect"
+  | "cache";
 
 /** 读取某个 namespace；文件不存在或为空返回 null */
 export async function libraryLoad<T = unknown>(

@@ -43,20 +43,21 @@
   gap: 8px;
   min-height: 42px;
   padding: 0 18px;
-  background: var(--af-accent-primary);
-  color: white;
-  border: none;
+  background: rgba(var(--af-accent-primary-rgb), 0.12);
+  color: var(--af-accent-primary);
+  border: 1px solid rgba(var(--af-accent-primary-rgb), 0.32);
   border-radius: 999px;
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 12px 26px rgba(29, 185, 84, 0.22);
+  box-shadow: none;
   transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
 }
 
 .af-create-playlist-btn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 16px 32px rgba(29, 185, 84, 0.3);
+  background: rgba(var(--af-accent-primary-rgb), 0.18);
+  box-shadow: none;
 }
 
 .af-playlists-header-actions {
@@ -148,18 +149,19 @@
 
 .af-quick-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(29, 185, 84, 0.38);
-  background: linear-gradient(135deg, rgba(29, 185, 84, 0.11), rgba(255, 255, 255, 0.025));
+  border-color: rgba(var(--af-accent-primary-rgb), 0.32);
+  background: rgba(var(--af-accent-primary-rgb), 0.08);
 }
 
 .af-liked-card {
-  background: linear-gradient(135deg, rgba(29, 185, 84, 0.92), rgba(20, 145, 76, 0.74));
-  border-color: rgba(255, 255, 255, 0.12);
-  color: white;
+  background: rgba(var(--af-accent-primary-rgb), 0.12);
+  border-color: rgba(var(--af-accent-primary-rgb), 0.28);
+  color: var(--af-accent-primary);
 }
 
 .af-liked-card:hover {
-  background: linear-gradient(135deg, rgba(36, 205, 99, 0.96), rgba(20, 145, 76, 0.82));
+  background: rgba(var(--af-accent-primary-rgb), 0.18);
+  border-color: rgba(var(--af-accent-primary-rgb), 0.38);
 }
 
 .af-quick-icon {
@@ -175,7 +177,7 @@
 }
 
 .af-liked-card .af-quick-icon {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(var(--af-accent-primary-rgb), 0.14);
 }
 
 .af-quick-content {
@@ -233,7 +235,7 @@ button.af-playlist-card {
 }
 
 .af-cloud-playlist-card:hover {
-  border-color: rgba(29, 185, 84, 0.3);
+  border-color: rgba(var(--af-accent-primary-rgb), 0.3);
 }
 
 .af-playlist-cover-wrap,
@@ -261,7 +263,7 @@ button.af-playlist-card {
   align-items: center;
   justify-content: center;
   background:
-    radial-gradient(circle at 28% 24%, rgba(29, 185, 84, 0.32), transparent 34%),
+    radial-gradient(circle at 28% 24%, rgba(var(--af-accent-primary-rgb), 0.26), transparent 34%),
     linear-gradient(135deg, var(--af-bg-secondary), var(--af-bg-hover));
   color: var(--af-text-tertiary);
 }
@@ -286,14 +288,14 @@ button.af-playlist-card {
   width: 42px;
   height: 42px;
   border-radius: 50%;
-  background: var(--af-accent-primary);
-  color: white;
-  border: none;
+  background: rgba(var(--af-accent-primary-rgb), 0.12);
+  color: var(--af-accent-primary);
+  border: 1px solid rgba(var(--af-accent-primary-rgb), 0.32);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+  box-shadow: none;
   transition: transform 0.18s ease;
 }
 

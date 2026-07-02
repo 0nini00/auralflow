@@ -1,14 +1,6 @@
-import { defaultPlayerVisualizerMode, getPlayerVisualizer } from './registry';
-import type { PlayerVisualizerMode, PlayerVisualizerProps } from './types';
+import { PosterLyricsVisualizer } from './PosterLyricsVisualizer';
+import type { PlayerVisualizerProps } from './types';
 
-interface PlayerVisualizerRendererProps extends PlayerVisualizerProps {
-  mode?: PlayerVisualizerMode;
-}
-
-export function PlayerVisualizerRenderer({
-  mode = defaultPlayerVisualizerMode,
-  ...props
-}: PlayerVisualizerRendererProps) {
-  const Visualizer = getPlayerVisualizer(mode).Component;
-  return <Visualizer {...props} />;
+export function PlayerVisualizerRenderer(props: PlayerVisualizerProps) {
+  return <PosterLyricsVisualizer {...props} />;
 }

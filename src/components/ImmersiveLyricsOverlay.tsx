@@ -24,7 +24,6 @@ import { PlayerVisualizerRenderer } from '@/components/playerVisualizers/PlayerV
 import { SongAddMenuButton } from '@/components/SongAddMenuButton';
 import { SoundEffectPanel } from '@/components/SoundEffectPanel';
 import { useInterpolatedPlaybackProgress } from '@/hooks/useInterpolatedPlaybackProgress';
-import { useLyricAutoScroll } from '@/hooks/useLyricAutoScroll';
 import { useLyrics } from '@/hooks/useLyrics';
 import { getNextPlayMode, getPlayModeControl } from '@/services/playback/playModeControl';
 import { useSoundEffectStore } from '@/stores/soundEffectStore';
@@ -39,7 +38,12 @@ import { listen } from '@tauri-apps/api/event';
 interface ImmersiveLyricsOverlayProps {
   open: boolean;
   onClose: () => void;
+  defaultControlsHidden?: boolean;
 }
+
+const DEFAULT_IMMERSIVE_LYRIC_FONT_SIZE = 36;
+const DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY =
+  '"Inter", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif';
 
 function formatTime(time: number): string {
   if (!Number.isFinite(time) || time <= 0) return '0:00';
@@ -55,6 +59,7 @@ function buildCssUrl(url: string): string {
 export function ImmersiveLyricsOverlay({
   open,
   onClose,
+  defaultControlsHidden = false,
 }: ImmersiveLyricsOverlayProps) {
   const {
     current: currentTrack,
@@ -80,6 +85,8 @@ export function ImmersiveLyricsOverlay({
   } = usePlayerStore();
 
   const [showTranslation, setShowTranslation] = useState(true);
+  const [immersiveLyricFontSize, setImmersiveLyricFontSize] = useState(DEFAULT_IMMERSIVE_LYRIC_FONT_SIZE);
+  const [immersiveLyricFontFamily, setImmersiveLyricFontFamily] = useState(DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
   const [fullscreenError, setFullscreenError] = useState('');
   const [shareStatus, setShareStatus] = useState('');
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
@@ -88,7 +95,7 @@ export function ImmersiveLyricsOverlay({
   const [desktopLyricOpen, setDesktopLyricOpen] = useState(false);
   const [desktopLyricLocked, setDesktopLyricLocked] = useState(false);
   const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
-  const [hideFullscreenControls, setHideFullscreenControls] = useState(false);
+  const [hidePlayerControls, setHidePlayerControls] = useState(false);
   const fullscreenEnteredRef = useRef(false);
   const isPlaying = status === 'playing';
   const soundEffectActive = useSoundEffectStore((state) => state.enabled || state.pitch !== 0);
@@ -97,23 +104,12 @@ export function ImmersiveLyricsOverlay({
   const lyricProgress = useInterpolatedPlaybackProgress({ status, progress, duration, playbackRate });
   const { lyrics, currentLine: currentLyricIndex } = useLyrics(currentTrack, lyricProgress);
 
-  const {
-    containerRef: lyricsViewportRef,
-    handleWheel: handleLyricsWheel,
-    resumeAutoScroll,
-    setLineRef: lyricLineRef,
-  } = useLyricAutoScroll({
-    active: open,
-    currentLine: currentLyricIndex,
-    progress: lyricProgress,
-    resetKey: `${currentTrack?.source ?? ''}:${currentTrack?.id ?? ''}`,
-  });
-
   useEffect(() => {
     if (!open) return;
 
     const appWindow = getCurrentWindow();
     setFullscreenError('');
+    setHidePlayerControls(defaultControlsHidden);
 
     void appWindow
       .isFullscreen()
@@ -127,12 +123,11 @@ export function ImmersiveLyricsOverlay({
           .setFullscreen(false)
           .then(() => {
             setIsNativeFullscreen(false);
-            setHideFullscreenControls(false);
           })
           .catch(logAsyncError('immersive-lyrics:exit-fullscreen'));
       }
     };
-  }, [open]);
+  }, [defaultControlsHidden, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -154,7 +149,11 @@ export function ImmersiveLyricsOverlay({
     if (!open) return;
 
     void loadSettings()
-      .then((settings) => setShowTranslation(settings.lyricShowTranslation !== false))
+      .then((settings) => {
+        setShowTranslation(settings.lyricShowTranslation !== false);
+        setImmersiveLyricFontSize(settings.immersiveLyricFontSize || DEFAULT_IMMERSIVE_LYRIC_FONT_SIZE);
+        setImmersiveLyricFontFamily(settings.immersiveLyricFontFamily || DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
+      })
       .catch(logAsyncError('immersive-lyrics:load-settings'));
     void isLyricWindowOpen().then(setDesktopLyricOpen).catch(logAsyncError('immersive-lyrics:query-lyric-open'));
     void getLyricWindowState()
@@ -171,6 +170,12 @@ export function ImmersiveLyricsOverlay({
       if (typeof patch.lyricShowTranslation === 'boolean') {
         setShowTranslation(patch.lyricShowTranslation);
       }
+      if (typeof patch.immersiveLyricFontSize === 'number') {
+        setImmersiveLyricFontSize(patch.immersiveLyricFontSize);
+      }
+      if (typeof patch.immersiveLyricFontFamily === 'string') {
+        setImmersiveLyricFontFamily(patch.immersiveLyricFontFamily);
+      }
     });
     return () => {
       void unlistenPromise.then((unlisten) => unlisten()).catch(logAsyncError('immersive-lyrics:unlisten-lyric-window'));
@@ -180,7 +185,6 @@ export function ImmersiveLyricsOverlay({
 
   const handleSeek = (event: ChangeEvent<HTMLInputElement>) => {
     const nextProgress = parseFloat(event.target.value);
-    resumeAutoScroll(false);
     setProgress(nextProgress);
   };
 
@@ -257,21 +261,18 @@ export function ImmersiveLyricsOverlay({
       await appWindow.setFullscreen(!currentlyFullscreen);
       fullscreenEnteredRef.current = !currentlyFullscreen;
       setIsNativeFullscreen(!currentlyFullscreen);
-      if (currentlyFullscreen) {
-        setHideFullscreenControls(false);
-      }
     } catch (error) {
       setFullscreenError(`全屏请求失败：${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
-  const handleHideFullscreenControls = () => {
+  const handleHidePlayerControls = () => {
     closeControlPopovers();
-    setHideFullscreenControls(true);
+    setHidePlayerControls(true);
   };
 
-  const handleShowFullscreenControls = () => {
-    setHideFullscreenControls(false);
+  const handleShowPlayerControls = () => {
+    setHidePlayerControls(false);
   };
 
   const handleShare = async () => {
@@ -297,7 +298,7 @@ export function ImmersiveLyricsOverlay({
   const displayProgress = isPlaying ? lyricProgress : progress;
   const progressPercent = duration > 0 ? Math.min(100, Math.max(0, (displayProgress / duration) * 100)) : 0;
   const volumePercent = Math.min(100, Math.max(0, volume * 100));
-  const controlsHidden = isNativeFullscreen && hideFullscreenControls;
+  const controlsHidden = hidePlayerControls;
   const desktopLyricButtonLabel = desktopLyricOpen
     ? desktopLyricLocked
       ? '解锁桌面歌词'
@@ -308,6 +309,7 @@ export function ImmersiveLyricsOverlay({
     <div
       className={[
         'af-immersive-lyrics',
+        'af-immersive-visualizer-poster',
         isNativeFullscreen ? 'af-immersive-native-fullscreen' : '',
         controlsHidden ? 'af-immersive-controls-hidden' : '',
       ].filter(Boolean).join(' ')}
@@ -317,6 +319,9 @@ export function ImmersiveLyricsOverlay({
       style={{
         '--af-immersive-progress': `${progressPercent}%`,
         '--af-immersive-volume': `${volumePercent}%`,
+        '--af-immersive-lyric-font-family': immersiveLyricFontFamily,
+        '--af-immersive-lyric-font-size': `${immersiveLyricFontSize}px`,
+        '--af-immersive-lyric-secondary-font-size': `${Math.max(14, Math.round(immersiveLyricFontSize * 0.48))}px`,
       } as CSSProperties}
     >
       {coverUrl && (
@@ -332,13 +337,7 @@ export function ImmersiveLyricsOverlay({
         <X size={26} />
       </button>
 
-      <header className="af-immersive-header">
-        <h1>{currentTrack?.name ?? '暂无播放内容'}</h1>
-        <p>{currentTrack?.singer || '未知歌手'}</p>
-        {currentTrack?.albumName && <span>{currentTrack.albumName}</span>}
-      </header>
-
-      <main className="af-immersive-stage af-scroll-layout">
+      <main className="af-immersive-stage af-showcase-layout">
         <section className="af-immersive-cover-section" aria-label="歌曲封面">
           <div className="af-immersive-cover">
             {coverUrl ? (
@@ -355,13 +354,16 @@ export function ImmersiveLyricsOverlay({
 
         <section className="af-immersive-lyric-section" aria-label="歌词">
           <PlayerVisualizerRenderer
+            currentTrack={currentTrack}
+            coverUrl={coverUrl}
             lyrics={lyrics}
             currentLyricIndex={currentLyricIndex}
             currentTime={lyricProgress}
+            duration={duration}
+            progressPercent={progressPercent}
+            isPlaying={isPlaying}
             showTranslation={showTranslation}
-            lyricsViewportRef={lyricsViewportRef}
-            handleLyricsWheel={handleLyricsWheel}
-            lyricLineRef={lyricLineRef}
+            controlsHidden={controlsHidden}
           />
         </section>
       </main>
@@ -370,7 +372,7 @@ export function ImmersiveLyricsOverlay({
         <button
           type="button"
           className="af-immersive-restore-controls"
-          onClick={handleShowFullscreenControls}
+          onClick={handleShowPlayerControls}
           aria-label="显示播放器控制栏"
           title="显示播放器控制栏"
         >
@@ -557,17 +559,15 @@ export function ImmersiveLyricsOverlay({
             >
               {isNativeFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
             </button>
-            {isNativeFullscreen && (
-              <button
-                type="button"
-                className="af-immersive-icon-btn"
-                onClick={handleHideFullscreenControls}
-                aria-label="全屏时隐藏播放器控制栏"
-                title="全屏时隐藏播放器控制栏"
-              >
-                <EyeOff size={18} />
-              </button>
-            )}
+            <button
+              type="button"
+              className="af-immersive-icon-btn"
+              onClick={handleHidePlayerControls}
+              aria-label="隐藏播放器控制栏"
+              title="隐藏播放器控制栏"
+            >
+              <EyeOff size={18} />
+            </button>
             <button
               type="button"
               className="af-immersive-icon-btn"

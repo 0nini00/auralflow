@@ -1,20 +1,15 @@
-import type { ComponentType, RefObject, WheelEvent } from 'react';
+import type { MusicInfo } from '@lx/core';
 import type { LyricLine } from '@/services/lyricsService';
 
-export type PlayerVisualizerMode = 'lyrics';
-
 export interface PlayerVisualizerProps {
+  currentTrack: MusicInfo | null;
+  coverUrl: string;
   lyrics: LyricLine[];
   currentLyricIndex: number;
   currentTime: number;
+  duration: number;
+  progressPercent: number;
+  isPlaying: boolean;
   showTranslation: boolean;
-  lyricsViewportRef: RefObject<HTMLDivElement>;
-  handleLyricsWheel: (event: WheelEvent<HTMLDivElement>) => void;
-  lyricLineRef: (index: number) => (element: HTMLDivElement | null) => void;
-}
-
-export interface PlayerVisualizerDefinition {
-  mode: PlayerVisualizerMode;
-  label: string;
-  Component: ComponentType<PlayerVisualizerProps>;
+  controlsHidden: boolean;
 }

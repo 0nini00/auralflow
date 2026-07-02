@@ -4,6 +4,7 @@ import { builtinNeteaseBackend } from './builtinNeteaseBackend';
 import { customSourceBackend } from './customSourceBackend';
 import type { PlaybackBackendId, PlaybackResolvedUrl } from './types';
 import { canResolveWithBuiltinMusicApi } from '@/services/builtinMusicApiModel';
+import { getCachedPlaybackUrl, saveCachedPlaybackUrl } from '@/services/persistentCache';
 
 function normalizeQualityPreference(value: string): string[] {
   if (value === 'high') return ['320k', '128k'];
@@ -20,31 +21,52 @@ export async function resolvePlaybackUrl(
   music: MusicInfo,
   variants?: MusicInfo[],
   preferredQuality?: string,
+  options: { bypassCache?: boolean } = {},
 ): Promise<PlaybackResolvedUrl> {
   const settings = await loadSettings();
   const qualityPreference = normalizeQualityPreference(preferredQuality ?? settings.defaultQuality);
   const allVariants = variants?.length ? variants : [music];
+  const cacheVariants = allVariants.some((item) => item.source === music.source && item.id === music.id)
+    ? allVariants
+    : [music, ...allVariants];
   const hasBuiltinApiVariant = allVariants.some(canResolveWithBuiltinMusicApi);
   let builtInError: unknown;
 
+  if (!options.bypassCache) {
+    try {
+      const cached = await getCachedPlaybackUrl(music, qualityPreference, cacheVariants);
+      if (cached) return cached;
+    } catch (error) {
+      console.warn('[playbackResolver] 读取播放缓存失败', error);
+    }
+  }
+
   if (hasBuiltinApiVariant) {
     try {
-      return await builtinNeteaseBackend.resolve({
+      const resolved = await builtinNeteaseBackend.resolve({
         primary: music,
         variants: allVariants,
         qualityPreference,
       });
+      void saveCachedPlaybackUrl(music, resolved).catch((error) => {
+        console.warn('[playbackResolver] 写入播放缓存失败', error);
+      });
+      return resolved;
     } catch (error) {
       builtInError = error;
     }
   }
 
   try {
-    return await customSourceBackend.resolve({
+    const resolved = await customSourceBackend.resolve({
       primary: music,
       variants: allVariants,
       qualityPreference,
     });
+    void saveCachedPlaybackUrl(music, resolved).catch((error) => {
+      console.warn('[playbackResolver] 写入播放缓存失败', error);
+    });
+    return resolved;
   } catch (fallbackError) {
     if (builtInError) {
       const builtInMessage = builtInError instanceof Error ? builtInError.message : String(builtInError);

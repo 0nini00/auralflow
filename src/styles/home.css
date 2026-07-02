@@ -194,7 +194,7 @@
   border: none;
   background: var(--af-accent-gradient);
   color: var(--af-accent-text);
-  box-shadow: 0 4px 16px rgba(29, 185, 84, 0.28);
+  box-shadow: 0 4px 16px rgba(var(--af-accent-primary-rgb), 0.22);
 }
 
 .af-home-secondary-action {
@@ -248,7 +248,7 @@
 
 .af-playlist-play-button:hover {
   transform: translateY(-4px) scale(1.1);
-  box-shadow: 0 12px 32px rgba(29, 185, 84, 0.6);
+  box-shadow: 0 12px 32px rgba(var(--af-accent-primary-rgb), 0.32);
   background: var(--af-accent-gradient-hover);
 }
 

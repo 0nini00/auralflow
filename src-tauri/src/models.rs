@@ -70,6 +70,10 @@ pub struct AppSettings {
     /// 歌词动画强度: "reduced" / "normal" / "enhanced"
     #[serde(default = "default_lyric_animation_intensity")]
     pub lyric_animation_intensity: String,
+    /// 沉浸式歌词：主歌词字号（px）
+    pub immersive_lyric_font_size: u32,
+    /// 沉浸式歌词：字体族 CSS 值
+    pub immersive_lyric_font_family: String,
     /// 桌面歌词窗口：上次的 x（逻辑像素）。None=居中默认位置
     pub lyric_window_x: Option<f64>,
     /// 桌面歌词窗口：上次的 y
@@ -122,6 +126,8 @@ impl Default for AppSettings {
             lyric_hover_hide: false,
             lyric_enable_animation: true,
             lyric_animation_intensity: default_lyric_animation_intensity(),
+            immersive_lyric_font_size: 36,
+            immersive_lyric_font_family: "\"Inter\", \"Noto Sans CJK SC\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif".to_string(),
             lyric_window_x: None,
             lyric_window_y: None,
             lyric_window_width: None,

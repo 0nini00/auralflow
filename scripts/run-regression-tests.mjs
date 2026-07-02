@@ -1,10 +1,14 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const root = process.cwd();
 
 function read(path) {
   return readFileSync(resolve(root, path), "utf8");
+}
+
+function fileExists(path) {
+  return existsSync(resolve(root, path));
 }
 
 function assert(condition, message) {
@@ -19,6 +23,29 @@ function assertIncludes(content, needle, label) {
 
 function assertNotIncludes(content, needle, label) {
   assert(!content.includes(needle), `${label} should not include ${needle}`);
+}
+
+function assertFileMissing(path, label) {
+  assert(!fileExists(path), `${label} should be removed: ${path}`);
+}
+
+function getCssRuleBlock(content, selector) {
+  const start = content.indexOf(`${selector} {`);
+  assert(start >= 0, `CSS should include ${selector}`);
+  const bodyStart = content.indexOf("{", start) + 1;
+  const bodyEnd = content.indexOf("\n}", bodyStart);
+  assert(bodyEnd > bodyStart, `CSS block should close for ${selector}`);
+  return content.slice(bodyStart, bodyEnd);
+}
+
+function assertCssRuleNotIncludes(content, selector, needle, label) {
+  const block = getCssRuleBlock(content, selector);
+  assertNotIncludes(block, needle, label);
+}
+
+function assertCssRuleIncludes(content, selector, needle, label) {
+  const block = getCssRuleBlock(content, selector);
+  assertIncludes(block, needle, label);
 }
 
 function testSearchLayoutContract() {
@@ -47,8 +74,313 @@ function testSearchLayoutContract() {
   assertIncludes(suggestions, "recordSearchKeyword", "Suggestion service");
 }
 
+function testImmersiveLyricVisualizerModes() {
+  const visualizerTypes = read("src/components/playerVisualizers/types.ts");
+  const renderer = read("src/components/playerVisualizers/PlayerVisualizerRenderer.tsx");
+  const overlay = read("src/components/ImmersiveLyricsOverlay.tsx");
+  const playerBar = read("src/components/PlayerBar.tsx");
+  const posterVisualizer = read("src/components/playerVisualizers/PosterLyricsVisualizer.tsx");
+  const playerCss = read("src/styles/player.css");
+
+  assertFileMissing("src/components/playerVisualizers/LyricsVisualizer.tsx", "Classic lyrics visualizer");
+  assertFileMissing("src/components/playerVisualizers/registry.tsx", "Visualizer mode registry");
+  assertNotIncludes(visualizerTypes, "PlayerVisualizerMode", "Visualizer mode type");
+  assertIncludes(renderer, "PosterLyricsVisualizer", "Visualizer renderer");
+  assertNotIncludes(renderer, "getPlayerVisualizer", "Visualizer renderer");
+  assertNotIncludes(renderer, "defaultPlayerVisualizerMode", "Visualizer renderer");
+  assertNotIncludes(overlay, "playerVisualizerRegistry", "Immersive lyrics mode switch");
+  assertNotIncludes(overlay, "visualizerMode", "Immersive lyrics mode state");
+  assertNotIncludes(overlay, "setVisualizerMode", "Immersive lyrics mode state");
+  assertNotIncludes(overlay, "isClassicLyricsMode", "Immersive lyrics classic layout");
+  assertIncludes(overlay, "af-immersive-visualizer-poster", "Immersive lyrics fixed poster mode");
+  assertIncludes(overlay, "af-showcase-layout", "Immersive lyrics poster layout");
+  assertIncludes(overlay, "defaultControlsHidden?: boolean", "Immersive lyrics default hidden prop");
+  assertIncludes(overlay, "const controlsHidden = hidePlayerControls", "Immersive lyrics universal control hiding");
+  assertIncludes(overlay, "aria-label=\"隐藏播放器控制栏\"", "Immersive lyrics hide control button");
+  assertIncludes(overlay, "isPlaying={isPlaying}", "Immersive lyrics visualizer playback state");
+  assertIncludes(overlay, "controlsHidden={controlsHidden}", "Immersive lyrics visualizer control hidden state");
+  assertNotIncludes(overlay, "{isNativeFullscreen && (", "Immersive lyrics hide control button");
+  assertIncludes(playerBar, "defaultControlsHidden={true}", "PlayerBar cover opens hidden controls");
+  assertIncludes(visualizerTypes, "controlsHidden: boolean", "Visualizer props control hidden state");
+  assertIncludes(posterVisualizer, "af-poster-lyric-panel", "Poster lyric panel layout");
+  assertIncludes(posterVisualizer, "af-poster-bottom-wave", "Poster waveform bottom layout");
+  assertIncludes(posterVisualizer, "controlsHidden &&", "Poster waveform only renders when controls are hidden");
+  assertIncludes(posterVisualizer, "getSecondaryLyricText", "Poster uses two lyric lines");
+  assertIncludes(posterVisualizer, "secondaryLyric &&", "Poster renders the second lyric line");
+  assertNotIncludes(posterVisualizer, "showTranslation && currentLine?.tr", "Poster second line should fall back to next lyric");
+  assertIncludes(posterVisualizer, "calculateLyricLineProgress", "Poster lyric progress");
+  assertIncludes(posterVisualizer, "'--af-poster-lyric-progress'", "Poster lyric progress css variable");
+  assertIncludes(posterVisualizer, "af-poster-wave-svg", "Poster continuous waveform svg");
+  assertIncludes(posterVisualizer, "af-poster-wave-progress", "Poster lyrics waveform progress");
+  assertNotIncludes(posterVisualizer, "af-poster-kicker", "Poster should not show album/source kicker");
+  assertNotIncludes(playerCss, ".af-immersive-mode-switch", "Immersive lyrics mode switch styles");
+  assertNotIncludes(playerCss, ".af-lyrics-viewport", "Classic lyrics scroll styles");
+  assertNotIncludes(playerCss, ".af-lyric-line", "Classic lyrics scroll styles");
+  assertNotIncludes(playerCss, "af-scroll-layout", "Classic lyrics layout styles");
+  assertIncludes(playerCss, "--af-immersive-control-rest-bg: transparent", "Immersive controls blend into background");
+  assertIncludes(playerCss, "background: var(--af-immersive-control-rest-bg)", "Immersive controls use blended rest background");
+  assertIncludes(playerCss, "border-color: var(--af-immersive-control-rest-border)", "Immersive controls use blended rest border");
+  assertIncludes(playerCss, ".af-poster-lyrics-visualizer", "Poster lyrics visualizer styles");
+  assertIncludes(playerCss, ".af-poster-reference-panel", "Poster lyrics reference layout");
+  assertIncludes(playerCss, "gap: clamp(44px, 5.4vw, 76px)", "Poster track info and lyrics should breathe");
+  assertIncludes(playerCss, ".af-immersive-visualizer-poster .af-immersive-cover-glow", "Poster cover-driven background");
+  assertIncludes(playerCss, ".af-poster-lyric-panel", "Poster lyric panel styles");
+  assertCssRuleIncludes(playerCss, ".af-poster-track-copy", "font-family: var(--af-immersive-lyric-font-family", "Poster track info uses immersive lyric font");
+  assertIncludes(playerCss, "--af-poster-lyric-progress", "Poster primary lyric progress style");
+  assertIncludes(playerCss, "background-clip: text", "Poster primary lyric progress style");
+  assertIncludes(playerCss, "color: transparent", "Poster primary lyric progress style");
+  assertIncludes(playerCss, "user-select: none", "Poster lyric text should not show selection highlight");
+  assertCssRuleNotIncludes(playerCss, ".af-poster-primary-lyric", "border", "Poster primary lyric should not look boxed");
+  assertCssRuleNotIncludes(playerCss, ".af-poster-primary-lyric", "background:", "Poster primary lyric should not look boxed");
+  assertIncludes(playerCss, ".af-poster-bottom-wave", "Poster bottom waveform styles");
+  assertIncludes(playerCss, ".af-poster-wave-line", "Poster continuous waveform styles");
+  assertCssRuleIncludes(playerCss, ".af-immersive-close", "background: transparent", "Immersive close button should blend into background");
+  assertCssRuleIncludes(playerCss, ".af-immersive-restore-controls", "background: transparent", "Immersive restore button should blend into background");
+  assertIncludes(playerCss, ".af-poster-lyrics-visualizer.af-playing .af-poster-wave-line", "Poster animated continuous waveform");
+  assertNotIncludes(playerCss, ".af-poster-wave span", "Poster should not use bar waveform");
+  assertNotIncludes(playerCss, ".af-immersive-visualizer-poster:not(.af-immersive-controls-hidden) .af-poster-bottom-wave", "Poster waveform should not be positioned for visible controls");
+  assertNotIncludes(playerCss, "af-spectrum", "Spectrum styles should be removed");
+  assertIncludes(playerCss, "--af-immersive-popover-text-primary", "Immersive popovers define local readable text");
+  assertIncludes(playerCss, ".af-immersive-visualizer-poster .af-immersive-queue-panel", "Poster queue panel has readable surface");
+  assertIncludes(playerCss, "color: var(--af-immersive-popover-text-primary)", "Queue panel text uses popover text color");
+
+  const playbackSync = read("src/services/lyrics/playbackSync.ts");
+  assertIncludes(playbackSync, "MAX_LYRIC_LINE_PROGRESS_SECONDS", "Lyric progress should not stretch across long instrumental gaps");
+  assertIncludes(playbackSync, "getLineTimedEnd", "Lyric progress should use timed word endings when available");
+}
+
+function testMainWindowCustomChrome() {
+  const tauriConfig = read("src-tauri/tauri.conf.json");
+  const defaultCapability = read("src-tauri/capabilities/default.json");
+  const layout = read("src/components/Layout/Layout.tsx");
+  const titleBar = read("src/components/Layout/AppTitleBar.tsx");
+  const indexCss = read("src/index.css");
+  const playerCss = read("src/styles/player.css");
+
+  assertIncludes(tauriConfig, '"decorations": false', "Main Tauri window");
+  assertNotIncludes(tauriConfig, '"decorations": true', "Main Tauri window");
+  assertIncludes(defaultCapability, '"core:window:allow-minimize"', "Main Tauri window permissions");
+  assertIncludes(defaultCapability, '"core:window:allow-toggle-maximize"', "Main Tauri window permissions");
+  assertIncludes(layout, "AppTitleBar", "Main app custom titlebar");
+  assertIncludes(titleBar, "startDragging", "Custom titlebar dragging");
+  assertIncludes(titleBar, "data-tauri-drag-region", "Custom titlebar drag region");
+  assertIncludes(titleBar, ".minimize()", "Custom titlebar minimize");
+  assertIncludes(titleBar, ".toggleMaximize()", "Custom titlebar maximize");
+  assertIncludes(titleBar, ".close()", "Custom titlebar close");
+  assertIncludes(titleBar, "aria-label=\"最小化窗口\"", "Custom titlebar accessibility");
+  assertIncludes(titleBar, "aria-label=\"最大化或还原窗口\"", "Custom titlebar accessibility");
+  assertIncludes(titleBar, "aria-label=\"关闭窗口\"", "Custom titlebar accessibility");
+  assertIncludes(indexCss, "--af-window-titlebar-height", "Custom titlebar sizing");
+  assertIncludes(indexCss, ".af-window-titlebar", "Custom titlebar styles");
+  assertIncludes(indexCss, ".af-window-drag-region", "Custom titlebar drag styles");
+  assertIncludes(indexCss, ".af-window-control", "Custom titlebar control styles");
+  assertIncludes(indexCss, ".af-window-control-close", "Custom titlebar close styles");
+  assertIncludes(indexCss, ".af-app:has(.af-immersive-lyrics) .af-window-titlebar", "Custom titlebar blends into immersive lyrics");
+  assertIncludes(indexCss, ".af-app:has(.af-immersive-lyrics) .af-window-app-mark", "Custom titlebar hides brand mark in immersive lyrics");
+  assertIncludes(indexCss, "display: none", "Custom titlebar hides brand text in immersive lyrics");
+  assertIncludes(indexCss, "background: transparent", "Custom titlebar blends into immersive lyrics");
+  assertIncludes(playerCss, "inset: 0", "Immersive overlay reaches the window top");
+  assertNotIncludes(playerCss, "inset: var(--af-window-titlebar-height) 0 0", "Immersive overlay should not leave a titlebar gap");
+  assertIncludes(indexCss, ".af-app:has(.af-immersive-native-fullscreen) .af-window-titlebar", "Custom titlebar hides in native fullscreen");
+}
+
+function testPersistentPlaybackAndLyricCache() {
+  const bridge = read("packages/tauri-bridge/src/index.ts");
+  const library = read("src-tauri/src/library.rs");
+  const cacheService = read("src/services/persistentCache.ts");
+  const resolver = read("src/services/playback/playbackResolver.ts");
+  const playerStore = read("src/stores/playerStore.ts");
+  const lyricsService = read("src/services/lyricsService.ts");
+
+  assertIncludes(bridge, '| "cache"', "Tauri bridge library namespaces");
+  assertIncludes(library, '"cache"', "Rust library namespace whitelist");
+  assertIncludes(cacheService, "PLAYBACK_URL_TTL_MS", "Persistent cache playback URL TTL");
+  assertIncludes(cacheService, "LYRIC_FOUND_TTL_MS", "Persistent cache lyric TTL");
+  assertIncludes(cacheService, "LYRIC_EMPTY_TTL_MS", "Persistent cache no-lyric TTL");
+  assertIncludes(cacheService, "getCachedPlaybackUrl", "Persistent cache playback lookup");
+  assertIncludes(cacheService, "saveCachedPlaybackUrl", "Persistent cache playback save");
+  assertIncludes(cacheService, "invalidateCachedPlaybackUrl", "Persistent cache playback invalidation");
+  assertIncludes(cacheService, "getCachedLyrics", "Persistent cache lyric lookup");
+  assertIncludes(cacheService, "saveCachedLyrics", "Persistent cache lyric save");
+  assertIncludes(cacheService, "isCacheableEmptyLyricResult", "Persistent cache no-lyric policy");
+  assertIncludes(cacheService, "normalizeQualityKey", "Persistent cache quality key normalization");
+  assertIncludes(resolver, "getCachedPlaybackUrl", "Playback resolver reads persistent cache");
+  assertIncludes(resolver, "saveCachedPlaybackUrl", "Playback resolver saves persistent cache");
+  assertIncludes(resolver, "bypassCache", "Playback resolver can bypass stale persistent cache");
+  assertIncludes(playerStore, "invalidateCachedPlaybackUrl", "Player store invalidates stale persistent cache");
+  assertIncludes(playerStore, "fromCache", "Player store detects persistent cache playback failures");
+  assertIncludes(lyricsService, "getCachedLyrics", "Lyrics service reads persistent cache");
+  assertIncludes(lyricsService, "saveCachedLyrics", "Lyrics service saves persistent cache");
+  assertIncludes(lyricsService, "lyricsCache.set(cacheKey, result)", "Lyrics service caches empty lyric result in memory");
+}
+
+function testSettingsInformationArchitecture() {
+  const settingsView = read("src/views/SettingsView.tsx");
+  const settingsCss = read("src/styles/settings.css");
+  const immersiveOverlay = read("src/components/ImmersiveLyricsOverlay.tsx");
+  const playerCss = read("src/styles/player.css");
+  const bridge = read("packages/tauri-bridge/src/index.ts");
+  const rustModels = read("src-tauri/src/models.rs");
+  const miscSectionStart = settingsView.indexOf("function MiscSection()");
+  const syncSectionStart = settingsView.indexOf("function SyncSection()");
+  assert(miscSectionStart >= 0, "Settings view should include MiscSection");
+  assert(syncSectionStart >= 0, "Settings view should include SyncSection");
+  const miscSection = settingsView.slice(miscSectionStart, syncSectionStart);
+  const syncSection = settingsView.slice(syncSectionStart);
+
+  assertIncludes(settingsView, "type SettingsSectionId", "Settings view active section type");
+  assertIncludes(settingsView, "const [activeSection, setActiveSection]", "Settings view category state");
+  assertIncludes(settingsView, "getActiveSettingsSection", "Settings view renders only active section");
+  assertIncludes(settingsView, "aria-current={activeSection === id ? \"page\" : undefined}", "Settings nav marks active category");
+  assertNotIncludes(settingsView, "href={`#${id}`}", "Settings nav should switch panels instead of long-page anchors");
+
+  assertIncludes(settingsView, "type LyricSettingsTab", "Desktop lyric settings tab type");
+  assertIncludes(settingsView, "const [activeLyricTab, setActiveLyricTab]", "Desktop lyric settings tab state");
+  assertIncludes(settingsView, "af-lyric-settings-tabs", "Desktop lyric settings tabs");
+  assertIncludes(settingsView, "renderLyricSettingsTab", "Desktop lyric settings renders one tab at a time");
+
+  assertIncludes(settingsView, "<details className=\"af-custom-source-details\">", "Custom source long details should be collapsed");
+  assertIncludes(settingsCss, ".af-settings-nav-link.af-active", "Settings nav active styles");
+  assertIncludes(settingsCss, ".af-settings-panel", "Settings panel surface");
+  assertIncludes(settingsCss, ".af-lyric-settings-tabs", "Desktop lyric tab styles");
+  assertIncludes(settingsCss, ".af-custom-source-details", "Custom source collapsed detail styles");
+
+  assertNotIncludes(settingsView, "手动选择应用强调色。", "Appearance accent color helper copy");
+  assertIncludes(settingsView, "IMMERSIVE_LYRIC_FONT_OPTIONS", "Appearance immersive lyric font choices");
+  assertIncludes(settingsView, "immersiveLyricFontSize", "Appearance immersive lyric font size");
+  assertIncludes(settingsView, "immersiveLyricFontFamily", "Appearance immersive lyric font family");
+  assertNotIncludes(settingsView, "immersiveLyricColor", "Poster lyric color should stay fixed");
+  assertIncludes(immersiveOverlay, "--af-immersive-lyric-font-family", "Immersive lyric font family css variable");
+  assertIncludes(immersiveOverlay, "--af-immersive-lyric-font-size", "Immersive lyric font size css variable");
+  assertIncludes(playerCss, "font-family: var(--af-immersive-lyric-font-family", "Poster lyrics use configurable font family");
+  assertIncludes(playerCss, "font-size: var(--af-immersive-lyric-font-size", "Poster lyrics use configurable font size");
+  assertIncludes(bridge, "immersiveLyricFontSize", "Tauri settings expose immersive lyric font size");
+  assertIncludes(bridge, "immersiveLyricFontFamily", "Tauri settings expose immersive lyric font family");
+  assertIncludes(rustModels, "immersive_lyric_font_size", "Rust settings persist immersive lyric font size");
+  assertIncludes(rustModels, "immersive_lyric_font_family", "Rust settings persist immersive lyric font family");
+  assertIncludes(miscSection, "软件更新", "Software update should live in Misc settings");
+  assertIncludes(miscSection, "handleCheckUpdate", "Misc settings should own update check action");
+  assertNotIncludes(syncSection, "<label className=\"af-settings-label\">软件更新</label>", "Sync settings");
+}
+
+function testCustomSourceUpdateDialogCentered() {
+  const modal = read("src/components/CustomSourceUpdateModal.tsx");
+  const layoutCss = read("src/styles/layout.css");
+
+  assertIncludes(modal, "af-custom-source-update-overlay", "Custom source update modal overlay");
+  assertIncludes(layoutCss, ".af-custom-source-update-overlay", "Custom source update modal overlay styles");
+  assertCssRuleIncludes(layoutCss, ".af-custom-source-update-overlay", "display: grid", "Custom source update modal should use centered grid overlay");
+  assertCssRuleIncludes(layoutCss, ".af-custom-source-update-overlay", "place-items: center", "Custom source update modal should be centered");
+  assertCssRuleNotIncludes(layoutCss, ".af-custom-source-update-overlay", "flex-start", "Custom source update modal should not align to the top");
+}
+
+function testDailyRecommendCoverUsesFirstSong() {
+  const dailyView = read("src/views/DailyRecommendView.tsx");
+
+  assertIncludes(dailyView, "const dailyCoverUrl = daily[0]?.img || daily[0]?.picUrl || \"\"", "Daily recommend header cover");
+  assertIncludes(dailyView, "dailyCoverUrl ? (", "Daily recommend header cover");
+  assertIncludes(dailyView, "<img src={dailyCoverUrl}", "Daily recommend header should use first song cover");
+  assertIncludes(dailyView, "alt={daily[0]?.name || \"每日推荐封面\"}", "Daily recommend header cover accessibility");
+}
+
+function testQuietSidebarSelectionAndImmersiveFonts() {
+  const indexCss = read("src/index.css");
+  const settingsView = read("src/views/SettingsView.tsx");
+
+  assertCssRuleIncludes(indexCss, ".af-sidebar-link", "position: relative", "Sidebar links should anchor the active marker");
+  assertCssRuleIncludes(indexCss, ".af-sidebar-link", "overflow: hidden", "Sidebar links should clip the active marker");
+  assertCssRuleIncludes(indexCss, ".af-sidebar-link.active", "color: var(--af-accent-primary)", "Sidebar active item should follow accent text");
+  assertCssRuleIncludes(indexCss, ".af-sidebar-link.active", "background: rgba(var(--af-accent-primary-rgb), 0.10)", "Sidebar active item should use a quiet accent wash");
+  assertCssRuleIncludes(indexCss, ".af-sidebar-link.active", "box-shadow: none", "Sidebar active item should not look raised");
+  assertCssRuleNotIncludes(indexCss, ".af-sidebar-link.active", "var(--af-accent-gradient)", "Sidebar active item should not use a loud gradient");
+  assertCssRuleNotIncludes(indexCss, ".af-sidebar-link.active", "0 4px 12px", "Sidebar active item should not use the old large glow");
+  assertCssRuleIncludes(indexCss, ".af-sidebar-link.active::before", "width: 3px", "Sidebar active item should have a short left marker");
+  assertCssRuleIncludes(indexCss, ".af-sidebar-link.active::before", "height: 18px", "Sidebar active item should have a short left marker");
+  assertCssRuleIncludes(indexCss, ".af-sidebar-link.active::before", "background: var(--af-accent-primary)", "Sidebar active marker should follow the accent color");
+  assertNotIncludes(indexCss, "--af-sidebar-active-color", "Sidebar active color should not be hard-coded");
+  assertNotIncludes(indexCss, "--af-sidebar-active-bg", "Sidebar active background should not be hard-coded");
+
+  assertIncludes(settingsView, "霞鹜文楷", "Immersive lyric font choices");
+  assertIncludes(settingsView, "思源宋体", "Immersive lyric font choices");
+  assertIncludes(settingsView, "HarmonyOS Sans", "Immersive lyric font choices");
+  assertIncludes(settingsView, "獅尾四季春加糖SC", "Immersive lyric optional font choice");
+  assertNotIncludes(settingsView, "日文手写感", "Immersive lyric font choices");
+  assertNotIncludes(settingsView, "清晰黑体", "Immersive lyric font choices");
+  assertNotIncludes(settingsView, "柔和圆体", "Immersive lyric font choices");
+}
+
+function testQuietAccentSystem() {
+  const themeCss = read("src/styles/theme.css");
+  const themeStore = read("src/stores/themeStore.ts");
+  const settingsView = read("src/views/SettingsView.tsx");
+  const settingsCss = read("src/styles/settings.css");
+  const buttonsCss = read("src/styles/buttons.css");
+  const playlistsCss = read("src/styles/playlists.css");
+  const accentDrivenUi = [
+    read("src/index.css"),
+    buttonsCss,
+    playlistsCss,
+    read("src/styles/player.css"),
+    read("src/styles/home.css"),
+    read("src/styles/local-music.css"),
+    read("src/views/ArtistDetailView.tsx"),
+    read("src/views/LyricWindowView.tsx"),
+  ].join("\n");
+
+  assertIncludes(themeCss, "--af-accent-primary: #3bd877", "Default accent should be quiet green");
+  assertIncludes(themeCss, "--af-accent-primary-rgb: 59, 216, 119", "Default accent rgb should be quiet green");
+  assertNotIncludes(themeCss, "#1db954", "Theme defaults should not keep the old green accent");
+  assertNotIncludes(themeCss, "29, 185, 84", "Theme defaults should not keep the old green accent rgb");
+  assertIncludes(themeStore, "const DEFAULT_ACCENT_COLOR = \"#3bd877\"", "Theme store default accent");
+  assertIncludes(themeStore, "const LEGACY_DEFAULT_ACCENT_COLOR = \"#1db954\"", "Theme store should migrate old default green");
+  assertIncludes(themeStore, "const LEGACY_RED_ACCENT_COLOR = \"#d83b40\"", "Theme store should migrate old default red");
+  assertIncludes(themeStore, "migrateAccentColor", "Theme store should migrate old default green");
+  assertIncludes(settingsView, "handleAccentColorTextChange", "Appearance accent color should support hex text input");
+  assertIncludes(settingsView, "af-appearance-color-hex", "Appearance accent color should render a hex text input");
+  assertIncludes(settingsView, "aria-invalid={!isAccentColorInputValid}", "Appearance accent color should expose invalid hex state");
+  assertIncludes(settingsView, "type=\"text\"", "Appearance accent color should use editable text input");
+  assertIncludes(settingsCss, ".af-appearance-color-hex", "Appearance accent color hex input styles");
+  assertIncludes(settingsCss, ".af-appearance-color-hex.af-invalid", "Appearance accent color invalid state styles");
+
+  assertIncludes(buttonsCss, ".af-create-playlist-btn:not(.af-btn-secondary),\n.af-library-button-primary", "Primary button selector set");
+  assertIncludes(buttonsCss, "background: rgba(var(--af-accent-primary-rgb), 0.12)", "Primary buttons should use quiet accent wash");
+  assertIncludes(buttonsCss, "color: var(--af-accent-primary)", "Primary buttons should use accent text");
+  assertIncludes(buttonsCss, "box-shadow: none", "Primary buttons should not use loud shadows");
+  assertNotIncludes(buttonsCss, "background: linear-gradient(180deg, rgba(var(--af-accent-primary-rgb)", "Primary buttons should not use filled gradients");
+  assertIncludes(buttonsCss, ".af-play-button", "Play button selector set");
+  assertIncludes(buttonsCss, ".af-grid-play-button", "Play button selector set");
+  assertIncludes(buttonsCss, ".af-play-all-btn", "Play button selector set");
+  assertIncludes(buttonsCss, ".af-playlist-play-button", "Play button selector set");
+  assertIncludes(buttonsCss, ".af-icon-btn-active", "Active icon button selector set");
+  assertIncludes(buttonsCss, ".af-action-btn.af-liked", "Active icon button selector set");
+  assertIncludes(buttonsCss, ".af-like-button.af-active", "Active icon button selector set");
+  assertIncludes(buttonsCss, ".af-control-btn.af-active", "Active icon button selector set");
+  assertIncludes(buttonsCss, ".af-view-mode-toggle button.af-active", "Active icon button selector set");
+
+  assertCssRuleIncludes(playlistsCss, ".af-liked-card", "background: rgba(var(--af-accent-primary-rgb), 0.12)", "Liked music card should use quiet accent wash");
+  assertCssRuleIncludes(playlistsCss, ".af-liked-card", "color: var(--af-accent-primary)", "Liked music card should use accent text");
+  assertCssRuleNotIncludes(playlistsCss, ".af-liked-card", "29, 185, 84", "Liked music card should not keep hard-coded green");
+  assertCssRuleNotIncludes(playlistsCss, ".af-liked-card", "20, 145, 76", "Liked music card should not keep hard-coded green");
+  assertCssRuleNotIncludes(playlistsCss, ".af-liked-card", "#d83b40", "Liked music card should not hard-code the default red");
+  assertNotIncludes(playlistsCss, "rgba(29, 185, 84", "Playlist styles should not keep hard-coded green");
+  assertNotIncludes(playlistsCss, "rgba(36, 205, 99", "Playlist styles should not keep hard-coded green");
+  assertNotIncludes(accentDrivenUi, "#d83b40", "Accent-driven UI components should not hard-code the default red");
+  assertNotIncludes(accentDrivenUi, "rgba(29, 185, 84", "Accent-driven UI components should not hard-code old green");
+  assertNotIncludes(accentDrivenUi, "rgba(34, 197, 94", "Accent-driven UI components should not hard-code old green");
+  assertNotIncludes(accentDrivenUi, "rgba(36, 205, 99", "Accent-driven UI components should not hard-code old green");
+  assertNotIncludes(accentDrivenUi, "rgba(20, 145, 76", "Accent-driven UI components should not hard-code old green");
+}
+
 const tests = [
   ["search layout contract", testSearchLayoutContract],
+  ["immersive lyric visualizer modes", testImmersiveLyricVisualizerModes],
+  ["main window custom chrome", testMainWindowCustomChrome],
+  ["persistent playback and lyric cache", testPersistentPlaybackAndLyricCache],
+  ["settings information architecture", testSettingsInformationArchitecture],
+  ["custom source update dialog centered", testCustomSourceUpdateDialogCentered],
+  ["daily recommend cover uses first song", testDailyRecommendCoverUsesFirstSong],
+  ["quiet sidebar selection and immersive fonts", testQuietSidebarSelectionAndImmersiveFonts],
+  ["quiet accent system", testQuietAccentSystem],
 ];
 
 let passed = 0;

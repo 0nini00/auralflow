@@ -275,8 +275,6 @@
   --af-immersive-control-border: rgba(148, 163, 184, 0.12);
   --af-immersive-control-shadow: 0 18px 42px rgba(15, 23, 42, 0.08);
   --af-immersive-button-surface: rgba(255, 255, 255, 0.26);
-  --af-immersive-line-muted: #94a3b8;
-  --af-immersive-line-soft: #cbd5e1;
   position: fixed;
   inset: 0;
   z-index: 1800;
@@ -299,11 +297,43 @@
   --af-immersive-control-border: rgba(148, 163, 184, 0.12);
   --af-immersive-control-shadow: 0 18px 42px rgba(0, 0, 0, 0.24);
   --af-immersive-button-surface: rgba(255, 255, 255, 0.06);
-  --af-immersive-line-muted: #64748b;
-  --af-immersive-line-soft: #334155;
   background:
     linear-gradient(180deg, rgba(5, 12, 22, 0.92), rgba(8, 13, 24, 0.98)),
     var(--af-immersive-bg);
+}
+
+.af-immersive-visualizer-poster {
+  --af-text-primary: #f8fafc;
+  --af-text-secondary: rgba(226, 232, 240, 0.78);
+  --af-text-tertiary: rgba(203, 213, 225, 0.6);
+  --af-border-secondary: rgba(226, 232, 240, 0.16);
+  --af-bg-surface: rgba(15, 23, 42, 0.38);
+  --af-immersive-panel: rgba(15, 23, 42, 0.54);
+  --af-immersive-control-surface: rgba(15, 23, 42, 0.46);
+  --af-immersive-control-border: rgba(226, 232, 240, 0.14);
+  --af-immersive-button-surface: rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
+}
+
+.af-immersive-visualizer-poster {
+  --af-immersive-bg: #151719;
+  background:
+    radial-gradient(circle at 24% 48%, rgba(255, 255, 255, 0.08), transparent 34%),
+    linear-gradient(110deg, rgba(12, 18, 20, 0.82), rgba(43, 32, 38, 0.62) 48%, rgba(14, 24, 28, 0.8)),
+    #151719;
+}
+
+.af-immersive-visualizer-poster .af-immersive-noise {
+  background:
+    linear-gradient(90deg, rgba(var(--af-accent-primary-rgb), 0.12), transparent 26%, transparent 72%, rgba(var(--af-accent-primary-rgb), 0.08)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 34%, rgba(0, 0, 0, 0.12));
+}
+
+.af-immersive-visualizer-poster .af-immersive-cover-glow {
+  inset: -20%;
+  opacity: 0.5;
+  filter: blur(78px) saturate(1.45) contrast(1.04);
+  transform: scale(1.14);
 }
 
 .af-immersive-cover-glow {
@@ -333,63 +363,44 @@
     linear-gradient(180deg, rgba(148, 163, 184, 0.08), transparent 38%, rgba(15, 23, 42, 0.2));
 }
 
+[data-theme="dark"] .af-immersive-visualizer-poster .af-immersive-noise {
+  background:
+    linear-gradient(90deg, rgba(var(--af-accent-primary-rgb), 0.12), transparent 26%, transparent 72%, rgba(var(--af-accent-primary-rgb), 0.08)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 34%, rgba(0, 0, 0, 0.12));
+}
+
 .af-immersive-close {
   position: absolute;
-  top: 24px;
+  top: calc(var(--af-window-titlebar-height) + 18px);
   right: 24px;
   z-index: 2;
   width: 48px;
   height: 48px;
   padding: 0;
-  border: 1px solid var(--af-border-secondary);
+  border: 1px solid transparent;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
-  color: var(--af-text-primary);
+  background: transparent;
+  color: rgba(248, 250, 252, 0.78);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  backdrop-filter: blur(18px);
-  transition: background var(--af-transition-fast), border-color var(--af-transition-fast), transform var(--af-transition-fast);
+  backdrop-filter: none;
+  transition: background var(--af-transition-fast), color var(--af-transition-fast), transform var(--af-transition-fast);
 }
 
 [data-theme="dark"] .af-immersive-close {
-  background: rgba(15, 23, 42, 0.72);
+  background: transparent;
+}
+
+.af-immersive-native-fullscreen .af-immersive-close {
+  top: 24px;
 }
 
 .af-immersive-close:hover {
-  border-color: rgba(var(--af-accent-primary-rgb), 0.32);
-  background: var(--af-immersive-panel);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
   transform: translateY(-1px);
-}
-
-.af-immersive-header {
-  flex: 0 0 auto;
-  padding: 34px 84px 10px;
-  text-align: center;
-}
-
-.af-immersive-header h1 {
-  margin: 0;
-  color: var(--af-text-primary);
-  font-size: clamp(24px, 3vw, 40px);
-  line-height: 1.18;
-  font-weight: 800;
-  letter-spacing: 0;
-}
-
-.af-immersive-header p {
-  margin: 12px 0 0;
-  color: var(--af-text-secondary);
-  font-size: clamp(16px, 1.8vw, 22px);
-  line-height: 1.3;
-}
-
-.af-immersive-header span {
-  display: block;
-  margin-top: 6px;
-  color: var(--af-text-tertiary);
-  font-size: 14px;
 }
 
 .af-immersive-stage {
@@ -404,17 +415,6 @@
   padding: 18px 0 28px;
 }
 
-.af-immersive-native-fullscreen .af-immersive-header {
-  padding: 36px 84px 4px;
-}
-
-.af-immersive-native-fullscreen .af-scroll-layout {
-  grid-template-columns: minmax(280px, 0.86fr) minmax(460px, 1.14fr);
-  gap: clamp(44px, 7vw, 120px);
-  width: min(1180px, calc(100vw - 128px));
-  padding: 3vh 0 4vh;
-}
-
 .af-immersive-native-fullscreen .af-immersive-cover {
   width: min(30vw, 430px);
 }
@@ -426,17 +426,6 @@
 .af-immersive-native-fullscreen .af-immersive-lyric-section {
   height: min(56vh, 580px);
   min-height: 400px;
-}
-
-.af-immersive-controls-hidden .af-immersive-header {
-  padding: 42px 84px 0;
-}
-
-.af-immersive-controls-hidden .af-scroll-layout {
-  grid-template-columns: minmax(340px, 0.9fr) minmax(540px, 1.1fr);
-  gap: clamp(56px, 8vw, 144px);
-  width: min(1320px, calc(100vw - 128px));
-  padding: 2vh 0 7vh;
 }
 
 .af-immersive-controls-hidden .af-immersive-cover {
@@ -527,163 +516,256 @@
   display: flex;
 }
 
-.af-immersive-lyrics .af-lyrics-viewport {
-  flex: 1;
-  min-height: 0;
-  position: relative;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 0 40px;
-  overscroll-behavior: contain;
-  scroll-behavior: smooth;
-  scroll-padding-block: var(--af-lyrics-center-padding, 40vh);
-  scrollbar-width: thin;
-  scrollbar-color: rgba(var(--af-accent-primary-rgb), 0.24) transparent;
-  mask-image: linear-gradient(to bottom, transparent 0, #000 18%, #000 82%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18%, #000 82%, transparent 100%);
-}
-
-.af-immersive-lyrics .af-lyrics-viewport::-webkit-scrollbar {
-  width: 4px;
-}
-
-.af-immersive-lyrics .af-lyrics-viewport::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.af-immersive-lyrics .af-lyrics-viewport::-webkit-scrollbar-thumb {
-  background: rgba(var(--af-accent-primary-rgb), 0.28);
-  border-radius: 2px;
-}
-
-.af-immersive-lyrics .af-lyrics-track {
-  display: flex;
-  flex-direction: column;
-  padding: var(--af-lyrics-center-padding, 40vh) 0;
-}
-
-.af-immersive-lyrics .af-lyrics-empty {
-  min-height: 100%;
-  display: flex;
-  align-items: center;
+.af-immersive-visualizer-poster .af-showcase-layout {
+  width: min(1090px, calc(100vw - 96px));
+  grid-template-columns: minmax(300px, 450px) minmax(420px, 550px);
   justify-content: center;
-  color: var(--af-text-tertiary);
-  font-size: 18px;
+  gap: clamp(48px, 7vw, 92px);
+  padding: 28px 0 36px;
 }
 
-.af-immersive-lyrics .af-lyric-line {
-  min-height: 92px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 14px 0;
-  text-align: center;
-  color: var(--af-immersive-line-muted);
-  opacity: max(0.16, calc(0.62 - var(--af-line-distance, 4) * 0.11));
-  filter: blur(calc(var(--af-line-distance, 0) * 0.16px));
-  transform: translate3d(0, calc(var(--af-line-offset, 0) * -1px), 0) scale(calc(1 - var(--af-line-distance, 0) * 0.018));
-  transform-origin: center;
-  transition: color 260ms ease, filter 260ms ease, opacity 260ms ease, transform 260ms ease;
-  will-change: opacity, transform;
+.af-immersive-visualizer-poster .af-showcase-layout {
+  margin: -24px auto 0;
 }
 
-.af-immersive-lyrics .af-lyric-line.af-current {
-  color: var(--af-accent-primary);
-  opacity: 1;
-  filter: none;
-  transform: translate3d(0, -3px, 0) scale(1.035);
+.af-immersive-visualizer-poster .af-immersive-cover {
+  width: min(37.5vw, 450px);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.34);
 }
 
-.af-immersive-lyrics .af-lyric-primary,
-.af-immersive-lyrics .af-lyric-translation {
-  display: block;
-  max-width: min(100%, 680px);
-  overflow-wrap: anywhere;
-  font-family: "Inter", "Noto Sans CJK SC", "Noto Sans JP", "Source Han Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
-  letter-spacing: 0;
-  transition: color 260ms ease, opacity 260ms ease, text-shadow 260ms ease, transform 260ms ease;
-}
-
-.af-immersive-lyrics .af-lyric-primary {
-  color: var(--af-text-secondary);
-  font-size: clamp(22px, 2.6vw, 34px);
-  line-height: 1.38;
-  font-weight: 650;
-}
-
-.af-immersive-lyrics .af-lyric-translation {
-  color: var(--af-text-tertiary);
-  font-size: clamp(14px, 1.3vw, 18px);
-  line-height: 1.45;
-  font-weight: 520;
-  opacity: 0.82;
-}
-
-.af-immersive-lyrics .af-lyric-line.af-current .af-lyric-primary {
-  color: var(--af-accent-primary);
-  text-shadow: 0 16px 34px rgba(var(--af-accent-primary-rgb), 0.3);
-  transform: scale(1.06);
-}
-
-.af-immersive-lyrics .af-lyric-line.af-current .af-lyric-translation {
-  color: var(--af-text-secondary);
-  opacity: 0.92;
-}
-
-.af-immersive-lyrics .af-lyric-karaoke {
-  display: inline-flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0 0.02em;
-  white-space: pre-wrap;
-}
-
-.af-immersive-lyrics .af-lyric-primary-sweep {
-  color: transparent;
-  background-image: linear-gradient(
-    90deg,
-    var(--af-accent-primary) 0%,
-    var(--af-accent-primary) var(--af-line-progress, 0%),
-    rgba(var(--af-accent-primary-rgb), 0.32) var(--af-line-progress, 0%),
-    rgba(var(--af-accent-primary-rgb), 0.32) 100%
-  );
-  background-clip: text;
-  -webkit-background-clip: text;
-}
-
-.af-immersive-lyrics .af-lyric-word {
-  position: relative;
-  display: inline-block;
-  white-space: pre;
-  color: rgba(var(--af-accent-primary-rgb), 0.28);
-}
-
-.af-immersive-lyrics .af-lyric-word::after {
-  content: attr(data-text);
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: var(--af-word-progress, 0%);
-  overflow: hidden;
-  color: transparent;
-  background-image: linear-gradient(90deg, var(--af-accent-primary), var(--af-text-primary));
-  background-clip: text;
-  -webkit-background-clip: text;
-  white-space: pre;
-  pointer-events: none;
-}
-
-.af-immersive-lyrics .af-lyric-line:not(.af-current) .af-lyric-word {
-  color: var(--af-text-secondary);
-  opacity: 0.78;
-}
-
-.af-immersive-lyrics .af-lyric-line:not(.af-current) .af-lyric-word::after {
+.af-immersive-visualizer-poster .af-immersive-meta {
   display: none;
 }
 
+.af-immersive-visualizer-poster .af-immersive-lyric-section {
+  height: auto;
+  min-height: min(62vh, 532px);
+  align-items: stretch;
+}
+
+.af-immersive-controls-hidden .af-showcase-layout {
+  width: min(1090px, calc(100vw - 96px));
+  padding: 40px 0;
+}
+
+.af-immersive-controls-hidden.af-immersive-visualizer-poster .af-showcase-layout {
+  margin: -36px auto 0;
+}
+
+.af-immersive-controls-hidden.af-immersive-visualizer-poster .af-immersive-lyric-section {
+  min-height: min(68vh, 560px);
+}
+
+.af-immersive-controls-hidden.af-immersive-visualizer-poster .af-poster-reference-panel {
+  min-height: min(66vh, 560px);
+  gap: clamp(54px, 6.2vw, 86px);
+}
+
+.af-poster-lyrics-visualizer {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.af-poster-lyrics-visualizer {
+  justify-content: center;
+  text-align: center;
+}
+
+.af-poster-reference-panel {
+  display: flex;
+  width: 100%;
+  min-height: min(58vh, 520px);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(44px, 5.4vw, 76px);
+  padding: 12px 0;
+}
+
+.af-poster-track-copy {
+  min-width: 0;
+  font-family: var(--af-immersive-lyric-font-family, "Inter", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif);
+}
+
+.af-poster-track-copy h2 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: clamp(38px, 4.6vw, 58px);
+  font-weight: 820;
+  line-height: 1.08;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+.af-poster-track-copy p {
+  margin: 22px 0 0;
+  color: rgba(248, 250, 252, 0.82);
+  font-size: clamp(16px, 1.8vw, 23px);
+  line-height: 1.34;
+}
+
+.af-poster-lyric-panel {
+  display: flex;
+  width: min(620px, 100%);
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  text-align: center;
+  user-select: none;
+}
+
+.af-poster-bottom-wave {
+  position: fixed;
+  left: 50%;
+  bottom: clamp(52px, 7vh, 86px);
+  z-index: 1;
+  width: min(560px, calc(100vw - 96px));
+  height: 54px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.af-poster-wave {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 54px;
+  margin: 0 auto;
+  overflow: hidden;
+}
+
+.af-poster-wave-svg,
+.af-poster-wave-progress {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.af-poster-wave-svg {
+  overflow: visible;
+}
+
+.af-poster-wave-baseline,
+.af-poster-wave-line {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+
+.af-poster-wave-baseline {
+  stroke: rgba(248, 250, 252, 0.48);
+  stroke-width: 1;
+}
+
+.af-poster-wave-line {
+  stroke: rgba(248, 250, 252, 0.58);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.af-poster-wave-line-echo {
+  stroke-width: 1.3;
+  opacity: 0.48;
+}
+
+.af-poster-wave-line-active {
+  stroke: rgba(248, 250, 252, 0.98);
+  stroke-width: 2.2;
+  opacity: 1;
+}
+
+.af-poster-wave-progress {
+  z-index: 2;
+  display: block;
+  overflow: hidden;
+  clip-path: inset(0 calc(100% - var(--af-poster-wave-progress, 0%)) 0 0);
+}
+
+.af-poster-lyrics-visualizer.af-playing .af-poster-wave-line {
+  animation: afPosterWaveFlow 1800ms ease-in-out infinite;
+}
+
+.af-poster-lyrics-visualizer.af-playing .af-poster-wave-line-echo {
+  animation-duration: 2300ms;
+  animation-delay: -420ms;
+}
+
+.af-poster-lyrics-visualizer.af-playing .af-poster-wave-line-active {
+  animation-duration: 1500ms;
+}
+
+.af-poster-primary-lyric {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: transparent;
+  background-image: linear-gradient(
+    90deg,
+    rgba(248, 250, 252, 0.98) 0%,
+    rgba(248, 250, 252, 0.98) var(--af-poster-lyric-progress, 0%),
+    rgba(248, 250, 252, 0.42) var(--af-poster-lyric-progress, 0%),
+    rgba(248, 250, 252, 0.42) 100%
+  );
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-family: var(--af-immersive-lyric-font-family, "Inter", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif);
+  font-size: var(--af-immersive-lyric-font-size, clamp(26px, 3.3vw, 42px));
+  font-weight: 820;
+  line-height: 1.24;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+  text-shadow: 0 14px 32px rgba(0, 0, 0, 0.16);
+  transition: background-position 180ms ease, opacity 180ms ease;
+  user-select: none;
+}
+
+.af-poster-secondary-lyric {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(248, 250, 252, 0.76);
+  font-family: var(--af-immersive-lyric-font-family, "Inter", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif);
+  font-size: var(--af-immersive-lyric-secondary-font-size, clamp(15px, 1.55vw, 20px));
+  font-weight: 620;
+  line-height: 1.42;
+  overflow-wrap: anywhere;
+  user-select: none;
+}
+
+@keyframes afPosterWaveFlow {
+  0%,
+  100% {
+    transform: translateY(0) scaleY(0.92);
+    opacity: 0.62;
+  }
+
+  50% {
+    transform: translateY(-2px) scaleY(1.18);
+    opacity: 0.96;
+  }
+}
+
 .af-immersive-controls {
+  --af-immersive-control-rest-bg: transparent;
+  --af-immersive-control-rest-border: transparent;
+  --af-immersive-control-hover-bg: rgba(255, 255, 255, 0.1);
+  --af-immersive-control-hover-border: rgba(248, 250, 252, 0.12);
+  --af-immersive-control-active-bg: rgba(var(--af-accent-primary-rgb), 0.14);
+  --af-immersive-control-active-border: rgba(var(--af-accent-primary-rgb), 0.18);
+  --af-immersive-control-focus: rgba(var(--af-accent-primary-rgb), 0.58);
   flex: 0 0 auto;
   position: relative;
   padding: 14px clamp(24px, 5vw, 64px) 22px;
@@ -699,6 +781,8 @@
 }
 
 [data-theme="dark"] .af-immersive-controls {
+  --af-immersive-control-hover-bg: rgba(255, 255, 255, 0.075);
+  --af-immersive-control-hover-border: rgba(248, 250, 252, 0.1);
   background:
     linear-gradient(
       180deg,
@@ -716,28 +800,27 @@
   width: 44px;
   height: 44px;
   padding: 0;
-  border: 1px solid rgba(148, 163, 184, 0.24);
+  border: 1px solid transparent;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
-  color: var(--af-text-secondary);
+  background: transparent;
+  color: rgba(248, 250, 252, 0.72);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.12);
-  backdrop-filter: blur(18px);
-  transition: background var(--af-transition-fast), border-color var(--af-transition-fast), color var(--af-transition-fast), transform var(--af-transition-fast);
+  box-shadow: none;
+  backdrop-filter: none;
+  transition: background var(--af-transition-fast), color var(--af-transition-fast), transform var(--af-transition-fast);
 }
 
 [data-theme="dark"] .af-immersive-restore-controls {
-  background: rgba(15, 23, 42, 0.72);
-  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.28);
+  background: transparent;
+  box-shadow: none;
 }
 
 .af-immersive-restore-controls:hover {
-  border-color: rgba(var(--af-accent-primary-rgb), 0.32);
-  background: var(--af-immersive-panel);
-  color: var(--af-accent-primary);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
   transform: translateY(-1px);
 }
 
@@ -764,11 +847,15 @@
 .af-immersive-menu,
 .af-immersive-sound-popover,
 .af-immersive-queue-panel {
+  --af-immersive-popover-text-primary: #0f172a;
+  --af-immersive-popover-text-secondary: #475569;
+  --af-immersive-popover-text-tertiary: #64748b;
   position: absolute;
   z-index: 3;
   border: 1px solid rgba(148, 163, 184, 0.22);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.94);
+  color: var(--af-immersive-popover-text-primary);
   box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
   backdrop-filter: blur(22px);
 }
@@ -776,8 +863,22 @@
 [data-theme="dark"] .af-immersive-menu,
 [data-theme="dark"] .af-immersive-sound-popover,
 [data-theme="dark"] .af-immersive-queue-panel {
+  --af-immersive-popover-text-primary: #f8fafc;
+  --af-immersive-popover-text-secondary: rgba(226, 232, 240, 0.78);
+  --af-immersive-popover-text-tertiary: rgba(203, 213, 225, 0.62);
   background: rgba(15, 23, 42, 0.94);
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.36);
+}
+
+.af-immersive-visualizer-poster .af-immersive-menu,
+.af-immersive-visualizer-poster .af-immersive-sound-popover,
+.af-immersive-visualizer-poster .af-immersive-queue-panel {
+  --af-immersive-popover-text-primary: #f8fafc;
+  --af-immersive-popover-text-secondary: rgba(226, 232, 240, 0.8);
+  --af-immersive-popover-text-tertiary: rgba(203, 213, 225, 0.64);
+  border-color: rgba(248, 250, 252, 0.16);
+  background: rgba(11, 18, 28, 0.94);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.38);
 }
 
 .af-immersive-menu {
@@ -848,12 +949,12 @@
 }
 
 .af-immersive-queue-header strong {
-  color: var(--af-text-primary);
+  color: var(--af-immersive-popover-text-primary);
   font-size: 14px;
 }
 
 .af-immersive-queue-header span {
-  color: var(--af-text-tertiary);
+  color: var(--af-immersive-popover-text-tertiary);
   font-size: 12px;
 }
 
@@ -890,7 +991,7 @@
 .af-immersive-queue-index {
   width: 26px;
   flex: 0 0 auto;
-  color: var(--af-text-tertiary);
+  color: var(--af-immersive-popover-text-tertiary);
   font-size: 12px;
   text-align: center;
   font-variant-numeric: tabular-nums;
@@ -911,12 +1012,12 @@
 }
 
 .af-immersive-queue-info strong {
-  color: var(--af-text-primary);
+  color: var(--af-immersive-popover-text-primary);
   font-size: 13px;
 }
 
 .af-immersive-queue-info span {
-  color: var(--af-text-secondary);
+  color: var(--af-immersive-popover-text-secondary);
   font-size: 12px;
 }
 
@@ -1035,7 +1136,9 @@
 
 .af-immersive-icon-btn,
 .af-immersive-play-btn {
-  border: 1px solid transparent;
+  border: 1px solid var(--af-immersive-control-rest-border);
+  border-color: var(--af-immersive-control-rest-border);
+  background: var(--af-immersive-control-rest-bg);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -1048,27 +1151,26 @@
   height: 40px;
   padding: 0 8px;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.08);
   color: var(--af-text-secondary);
 }
 
 [data-theme="dark"] .af-immersive-icon-btn {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--af-immersive-control-rest-bg);
 }
 
 .af-immersive-icon-btn:hover {
-  border-color: rgba(var(--af-accent-primary-rgb), 0.22);
-  background: rgba(255, 255, 255, 0.22);
+  border-color: var(--af-immersive-control-hover-border);
+  background: var(--af-immersive-control-hover-bg);
   color: var(--af-text-primary);
 }
 
 [data-theme="dark"] .af-immersive-icon-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--af-immersive-control-hover-bg);
 }
 
 .af-immersive-icon-btn.af-active {
-  border-color: rgba(var(--af-accent-primary-rgb), 0.32);
-  background: rgba(var(--af-accent-primary-rgb), 0.12);
+  border-color: var(--af-immersive-control-active-border);
+  background: var(--af-immersive-control-active-bg);
   color: var(--af-accent-primary);
 }
 
@@ -1093,17 +1195,30 @@
 .af-immersive-play-btn {
   width: 58px;
   height: 58px;
-  border-radius: 18px;
-  border-color: rgba(var(--af-accent-primary-rgb), 0.42);
-  background: linear-gradient(180deg, rgba(var(--af-accent-primary-rgb), 0.98), rgba(var(--af-accent-primary-rgb), 0.84));
+  border-radius: 999px;
+  border-color: rgba(var(--af-accent-primary-rgb), 0.18);
+  background:
+    radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.18), transparent 38%),
+    rgba(var(--af-accent-primary-rgb), 0.82);
   color: var(--af-text-on-accent);
-  box-shadow: 0 14px 30px rgba(var(--af-accent-primary-rgb), 0.28);
+  box-shadow: 0 14px 34px rgba(var(--af-accent-primary-rgb), 0.2);
 }
 
 .af-immersive-play-btn:hover {
-  background: var(--af-accent-gradient-hover);
+  border-color: rgba(var(--af-accent-primary-rgb), 0.28);
+  background:
+    radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.22), transparent 38%),
+    rgba(var(--af-accent-primary-rgb), 0.9);
   transform: translateY(-1px);
-  box-shadow: 0 18px 36px rgba(var(--af-accent-primary-rgb), 0.32);
+  box-shadow: 0 18px 38px rgba(var(--af-accent-primary-rgb), 0.24);
+}
+
+.af-immersive-close:focus-visible,
+.af-immersive-restore-controls:focus-visible,
+.af-immersive-icon-btn:focus-visible,
+.af-immersive-play-btn:focus-visible {
+  outline: 2px solid var(--af-immersive-control-focus, rgba(var(--af-accent-primary-rgb), 0.58));
+  outline-offset: 2px;
 }
 
 .af-immersive-play-btn:active,
@@ -1112,16 +1227,19 @@
 }
 
 @media (max-width: 900px) {
-  .af-immersive-header {
-    padding: 28px 76px 8px;
-  }
-
   .af-immersive-stage {
     width: min(100vw - 40px, 720px);
     grid-template-columns: 1fr;
     gap: 20px;
     align-items: stretch;
     padding-top: 8px;
+  }
+
+  .af-immersive-visualizer-poster .af-showcase-layout {
+    width: min(100vw - 40px, 760px);
+    grid-template-columns: 1fr;
+    gap: 24px;
+    padding-top: 58px;
   }
 
   .af-immersive-cover-section {
@@ -1134,6 +1252,11 @@
     min-width: 128px;
   }
 
+  .af-immersive-visualizer-poster .af-immersive-cover {
+    width: min(44vw, 260px);
+    min-width: 172px;
+  }
+
   .af-immersive-meta {
     min-width: 0;
     width: min(420px, calc(100vw - 200px));
@@ -1143,6 +1266,15 @@
   .af-immersive-lyric-section {
     height: 44vh;
     min-height: 300px;
+  }
+
+  .af-immersive-visualizer-poster .af-immersive-lyric-section {
+    min-height: 330px;
+  }
+
+  .af-poster-reference-panel {
+    min-height: 320px;
+    gap: 30px;
   }
 
   .af-immersive-control-row {
@@ -1174,12 +1306,14 @@
     height: 42px;
   }
 
-  .af-immersive-header {
-    padding: 64px 20px 6px;
-  }
-
   .af-immersive-stage {
     width: calc(100vw - 28px);
+  }
+
+  .af-immersive-visualizer-poster .af-showcase-layout {
+    width: calc(100vw - 28px);
+    padding-top: 58px;
+    gap: 16px;
   }
 
   .af-immersive-cover-section {
@@ -1191,8 +1325,13 @@
     min-height: 300px;
   }
 
-  .af-immersive-lyrics .af-lyrics-viewport {
-    padding: 0 14px;
+  .af-poster-lyrics-visualizer {
+    justify-content: flex-start;
+  }
+
+  .af-poster-bottom-wave {
+    width: min(360px, calc(100vw - 56px));
+    height: 48px;
   }
 
   .af-immersive-controls {
@@ -1210,18 +1349,13 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .af-immersive-lyrics .af-lyrics-viewport {
-    scroll-behavior: auto;
-  }
-
-  .af-immersive-lyrics .af-lyric-line,
-  .af-immersive-lyrics .af-lyric-primary,
-  .af-immersive-lyrics .af-lyric-translation,
   .af-immersive-close,
   .af-immersive-icon-btn,
   .af-immersive-play-btn,
+  .af-poster-wave-line,
   .af-immersive-menu button {
     transition: none;
+    animation: none;
     transform: none;
     filter: none;
   }
@@ -1312,7 +1446,7 @@
 .af-sleep-menu-cancel:hover {
   background: var(--af-error-bg);
 }
-/* 睡眠定时器激活时按钮用主题绿，与其他激活状态保持一致 */
+/* 睡眠定时器激活时按钮使用主题强调色，与其他激活状态保持一致 */
 .af-like-button.af-active {
   color: var(--af-accent-primary);
 }

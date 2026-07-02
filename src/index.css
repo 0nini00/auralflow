@@ -25,6 +25,10 @@ body {
   height: 100%;
 }
 
+:root {
+  --af-window-titlebar-height: 34px;
+}
+
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
 }
@@ -43,6 +47,118 @@ button {
   height: 100vh;
   overflow: hidden;
   background: var(--af-bg-base);
+}
+
+.af-window-titlebar {
+  position: relative;
+  z-index: 2200;
+  display: flex;
+  flex: 0 0 var(--af-window-titlebar-height);
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--af-window-titlebar-height);
+  color: var(--af-text-secondary);
+  background: color-mix(in srgb, var(--af-bg-base) 92%, transparent);
+  user-select: none;
+}
+
+[data-theme="dark"] .af-window-titlebar {
+  background: color-mix(in srgb, var(--af-bg-base) 94%, transparent);
+}
+
+.af-window-drag-region {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  cursor: default;
+}
+
+.af-window-app-mark {
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.78), transparent 45%),
+    var(--af-accent-gradient);
+  box-shadow: 0 0 0 1px rgba(var(--af-accent-primary-rgb), 0.14);
+}
+
+.af-window-title {
+  overflow: hidden;
+  color: var(--af-text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-window-controls {
+  display: flex;
+  height: 100%;
+  flex: 0 0 auto;
+  align-items: stretch;
+}
+
+.af-window-control {
+  display: inline-flex;
+  width: 46px;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--af-text-secondary);
+  cursor: pointer;
+  transition: background var(--af-transition-fast), color var(--af-transition-fast);
+}
+
+.af-window-control:hover {
+  background: rgba(15, 23, 42, 0.07);
+  color: var(--af-text-primary);
+}
+
+[data-theme="dark"] .af-window-control:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.af-window-control-close:hover {
+  background: #e81123;
+  color: #ffffff;
+}
+
+.af-window-control:focus-visible {
+  outline: 2px solid var(--af-border-focus);
+  outline-offset: -2px;
+}
+
+.af-app:has(.af-immersive-lyrics) .af-window-titlebar {
+  color: rgba(248, 250, 252, 0.78);
+  background: transparent;
+}
+
+.af-app:has(.af-immersive-lyrics) .af-window-app-mark,
+.af-app:has(.af-immersive-lyrics) .af-window-title {
+  display: none;
+}
+
+.af-app:has(.af-immersive-lyrics) .af-window-title,
+.af-app:has(.af-immersive-lyrics) .af-window-control {
+  color: rgba(248, 250, 252, 0.72);
+}
+
+.af-app:has(.af-immersive-lyrics) .af-window-control:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+}
+
+.af-app:has(.af-immersive-native-fullscreen) .af-window-titlebar {
+  display: none;
 }
 
 .af-main-container {
@@ -94,12 +210,10 @@ button {
 .af-logo-icon {
   width: 40px;
   height: 40px;
-  /* background: var(--af-accent-gradient); 移除背景 */
   border-radius: var(--af-radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
-  /* box-shadow: 0 4px 12px rgba(29, 185, 84, 0.3); 移除阴影 */
   overflow: hidden;
 }
 
@@ -107,7 +221,6 @@ button {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  /* padding: 8px; 移除内边距 */
 }
 
 .af-logo-text {
@@ -144,6 +257,7 @@ button {
 }
 
 .af-sidebar-link {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -155,6 +269,7 @@ button {
   font-weight: 500;
   transition: all var(--af-transition-base);
   cursor: pointer;
+  overflow: hidden;
 }
 
 .af-sidebar-link:hover {
@@ -163,9 +278,22 @@ button {
 }
 
 .af-sidebar-link.active {
-  color: var(--af-accent-text);
-  background: var(--af-accent-gradient);
-  box-shadow: 0 4px 12px rgba(29, 185, 84, 0.3);
+  color: var(--af-accent-primary);
+  background: rgba(var(--af-accent-primary-rgb), 0.10);
+  box-shadow: none;
+  font-weight: 650;
+}
+
+.af-sidebar-link.active::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  width: 3px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--af-accent-primary);
+  transform: translateY(-50%);
 }
 
 .af-sidebar-link svg {

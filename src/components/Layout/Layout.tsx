@@ -2,10 +2,12 @@ import { Outlet } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { PlayerBar } from "../PlayerBar";
+import { AppTitleBar } from "./AppTitleBar";
 
 export function Layout() {
   return (
     <div className="af-app">
+      <AppTitleBar />
       <div className="af-main-container">
         <Sidebar />
         <div className="af-workspace">

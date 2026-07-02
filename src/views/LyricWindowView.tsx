@@ -398,20 +398,20 @@ export function LyricWindowView() {
           cursor: default;
         }
         .af-lyric-tool-active {
-          background: rgba(34, 197, 94, 0.6);
+          background: rgba(var(--af-accent-primary-rgb), 0.6);
           color: #fff;
         }
         .af-lyric-tool-active:hover {
-          background: rgba(34, 197, 94, 0.85);
+          background: rgba(var(--af-accent-primary-rgb), 0.85);
         }
         .af-lyric-tool-primary {
           width: 30px;
           height: 30px;
-          background: rgba(34, 197, 94, 0.85);
+          background: rgba(var(--af-accent-primary-rgb), 0.85);
           color: #fff;
         }
         .af-lyric-tool-primary:hover {
-          background: rgba(34, 197, 94, 1);
+          background: rgba(var(--af-accent-primary-rgb), 1);
         }
         .af-lyric-tool-danger:hover {
           background: rgba(239, 68, 68, 0.85);

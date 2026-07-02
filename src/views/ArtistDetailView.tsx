@@ -326,7 +326,7 @@ export function ArtistDetailView() {
         }
         .af-artist-tabs button.af-tab-active {
           color: var(--af-accent-primary);
-          background: rgba(34, 197, 94, 0.12);
+          background: rgba(var(--af-accent-primary-rgb), 0.12);
         }
         .af-artist-albums-grid {
           display: grid;

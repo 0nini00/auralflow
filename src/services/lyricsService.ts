@@ -12,6 +12,7 @@ import {
   type LyricWord,
 } from '@/services/lyrics/parserCore';
 import { selectBestLyricMatch, type LyricSearchCandidate } from '@/services/lyrics/matchScore';
+import { getCachedLyrics, isCacheableEmptyLyricResult, saveCachedLyrics } from '@/services/persistentCache';
 
 export type { LyricLine, LyricResponse, LyricWord };
 
@@ -77,6 +78,16 @@ export async function getLyrics(music: MusicInfo): Promise<LyricResponse> {
   if (cached) return cached;
 
   try {
+    try {
+      const persisted = await getCachedLyrics(music);
+      if (persisted) {
+        lyricsCache.set(cacheKey, persisted);
+        return persisted;
+      }
+    } catch (error) {
+      console.warn('读取歌词缓存失败:', error);
+    }
+
     let result: LyricResponse;
 
     if (music.source === 'local') {
@@ -98,8 +109,11 @@ export async function getLyrics(music: MusicInfo): Promise<LyricResponse> {
       }
     }
 
-    if (result.lines.length > 0) {
+    if (result.lines.length > 0 || isCacheableEmptyLyricResult(result)) {
       lyricsCache.set(cacheKey, result);
+      void saveCachedLyrics(music, result).catch((error) => {
+        console.warn('写入歌词缓存失败:', error);
+      });
     } else {
       lyricsCache.delete(cacheKey);
     }
