@@ -19,6 +19,14 @@ use tauri::{AppHandle, Emitter, Manager};
 const BILI_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const BILI_AUDIO_CACHE_DIR: &str = "bili-audio";
 
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SongCacheStats {
+    pub persistent_cache_size: u64,
+    pub audio_cache_size: u64,
+    pub total_size: u64,
+}
+
 // ─── 配置管理 ──────────────────────────────────────────────────
 
 #[tauri::command]
@@ -215,6 +223,76 @@ fn bili_audio_cache_path(
         .join(BILI_AUDIO_CACHE_DIR);
     let key = normalize_cache_key(cache_key, url.as_str());
     Ok(cache_dir.join(format!("{}.{}", key, bili_audio_extension(url))))
+}
+
+fn bili_audio_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_cache_dir()
+        .map_err(|err| format!("获取 app_cache_dir 失败: {}", err))?
+        .join(BILI_AUDIO_CACHE_DIR))
+}
+
+fn persistent_song_cache_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|err| format!("获取 app_data_dir 失败: {}", err))?
+        .join("library")
+        .join("cache.json"))
+}
+
+fn path_size(path: &Path) -> Result<u64, String> {
+    if !path.exists() {
+        return Ok(0);
+    }
+
+    let metadata = std::fs::metadata(path)
+        .map_err(|err| format!("读取缓存大小失败: {}", err))?;
+    if metadata.is_file() {
+        return Ok(metadata.len());
+    }
+    if !metadata.is_dir() {
+        return Ok(0);
+    }
+
+    let mut size = 0u64;
+    for entry in walkdir::WalkDir::new(path).follow_links(false) {
+        let entry = entry.map_err(|err| format!("遍历缓存目录失败: {}", err))?;
+        let entry_metadata = entry
+            .metadata()
+            .map_err(|err| format!("读取缓存文件大小失败: {}", err))?;
+        if entry_metadata.is_file() {
+            size = size.saturating_add(entry_metadata.len());
+        }
+    }
+    Ok(size)
+}
+
+fn song_cache_stats(app: &AppHandle) -> Result<SongCacheStats, String> {
+    let persistent_cache_size = path_size(&persistent_song_cache_path(app)?)?;
+    let audio_cache_size = path_size(&bili_audio_cache_dir(app)?)?;
+    Ok(SongCacheStats {
+        persistent_cache_size,
+        audio_cache_size,
+        total_size: persistent_cache_size.saturating_add(audio_cache_size),
+    })
+}
+
+#[tauri::command]
+pub fn get_song_cache_stats(app: AppHandle) -> Result<SongCacheStats, String> {
+    song_cache_stats(&app)
+}
+
+#[tauri::command]
+pub fn clear_song_cache(app: AppHandle) -> Result<SongCacheStats, String> {
+    crate::library::reset(&app, "cache")?;
+    let audio_cache_dir = bili_audio_cache_dir(&app)?;
+    if audio_cache_dir.exists() {
+        std::fs::remove_dir_all(&audio_cache_dir)
+            .map_err(|err| format!("删除歌曲缓存失败: {}", err))?;
+    }
+    song_cache_stats(&app)
 }
 
 #[tauri::command]

@@ -110,6 +110,12 @@ export interface BiliCacheAudioOptions {
   cacheKey?: string | null;
 }
 
+export interface SongCacheStats {
+  persistentCacheSize: number;
+  audioCacheSize: number;
+  totalSize: number;
+}
+
 // ─── 类型化 invoke 封装 ─────────────────────────────────
 
 /** 加载设置 */
@@ -201,6 +207,16 @@ export async function biliCacheAudio(options: BiliCacheAudioOptions): Promise<st
     cookie: options.cookie ?? null,
     cacheKey: options.cacheKey ?? null,
   });
+}
+
+/** 获取歌曲缓存占用大小 */
+export async function getSongCacheStats(): Promise<SongCacheStats> {
+  return invoke<SongCacheStats>("get_song_cache_stats");
+}
+
+/** 清空歌曲文件缓存并返回清理后的占用大小 */
+export async function clearSongCache(): Promise<SongCacheStats> {
+  return invoke<SongCacheStats>("clear_song_cache");
 }
 
 // ─── 用户数据持久化（B-mid） ────────────────────

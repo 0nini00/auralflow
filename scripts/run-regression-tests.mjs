@@ -477,6 +477,56 @@ function testHistoryQuickEntryAndUpdateModalCentering() {
   assertCssRuleNotIncludes(layoutCss, ".af-custom-source-update-overlay", "align-items: flex-start", "Custom source update modal should not align to the top");
 }
 
+function testDataManagementClearsOnlyHistoryAndSongCache() {
+  const settingsView = read("src/views/SettingsView.tsx");
+  const bridge = read("packages/tauri-bridge/src/index.ts");
+  const rustCommands = read("src-tauri/src/commands.rs");
+  const rustMain = read("src-tauri/src/main.rs");
+  const persistentCache = read("src/services/persistentCache.ts");
+  const prefetchService = read("src/services/playback/prefetchService.ts");
+
+  assertIncludes(settingsView, "getSongCacheStats", "Data management should show song cache size");
+  assertIncludes(settingsView, "clearSongCache", "Data management should clear song cache files");
+  assertIncludes(settingsView, 'libraryReset("recent")', "Data management should clear playback history persistence");
+  assertIncludes(settingsView, "useHistoryStore.getState().replaceAll([])", "Data management should clear playback history state");
+  assertIncludes(settingsView, "clearPersistentCache", "Data management should clear persistent song cache");
+  assertIncludes(settingsView, "clearPlaybackPrefetchCache", "Data management should clear in-memory playback prefetch cache");
+  assertIncludes(settingsView, "歌曲缓存", "Data management should label song cache size");
+  assertIncludes(settingsView, "播放历史与歌曲缓存", "Data management should describe the limited clear scope");
+  assertIncludes(settingsView, "仅清空播放历史与歌曲缓存，其他数据保留。", "Data management should use concise copy");
+  assertNotIncludes(settingsView, "只清空播放历史、播放链接/歌词缓存和已缓存歌曲文件；", "Data management should not use long explanatory copy");
+  assertNotIncludes(settingsView, "resetUserDataWithActions", "Data management should not reset all user data");
+  assertNotIncludes(settingsView, "libraryResetAll", "Data management should not delete all library namespaces");
+  assertNotIncludes(settingsView, "重置全部用户数据", "Data management should not present a destructive all-data reset");
+  assertNotIncludes(settingsView, "清空喜欢的音乐", "Data management should not claim favorites are cleared");
+
+  assertIncludes(bridge, "SongCacheStats", "Tauri bridge should expose song cache stats type");
+  assertIncludes(bridge, "getSongCacheStats", "Tauri bridge should expose cache stats command");
+  assertIncludes(bridge, "clearSongCache", "Tauri bridge should expose cache clear command");
+  assertIncludes(rustCommands, "pub struct SongCacheStats", "Rust commands should return cache stats");
+  assertIncludes(rustCommands, "pub fn get_song_cache_stats", "Rust commands should expose cache stats");
+  assertIncludes(rustCommands, "pub fn clear_song_cache", "Rust commands should expose cache clear");
+  assertIncludes(rustMain, "commands::get_song_cache_stats", "Tauri main should register cache stats command");
+  assertIncludes(rustMain, "commands::clear_song_cache", "Tauri main should register cache clear command");
+  assertIncludes(persistentCache, "resetPersistentCacheMemory", "Persistent cache should expose memory reset");
+  assertIncludes(persistentCache, "clearPersistentCache", "Persistent cache should expose disk and memory clear");
+  assertIncludes(prefetchService, "clearPlaybackPrefetchCache", "Playback prefetch cache should remain clearable");
+}
+
+function testPlaylistDetailLocatesCurrentSong() {
+  const playlistDetailView = read("src/views/PlaylistDetailView.tsx");
+  const playlistsCss = read("src/styles/playlists.css");
+
+  assertIncludes(playlistDetailView, "LocateFixed", "Playlist detail should provide a locate-current-song action");
+  assertIncludes(playlistDetailView, "currentTrack", "Playlist detail should read the currently playing track");
+  assertIncludes(playlistDetailView, "currentSongIndex", "Playlist detail should compute current song position in the playlist");
+  assertIncludes(playlistDetailView, "scrollToIndex={locateScrollIndex}", "Playlist detail should pass the target index to the virtual list");
+  assertIncludes(playlistDetailView, "handleLocateCurrentSong", "Playlist detail should expose a locate handler");
+  assertIncludes(playlistDetailView, "af-current-playing", "Playlist detail should mark the located playing row");
+  assertIncludes(playlistDetailView, "当前播放", "Playlist detail should label the current song location action");
+  assertCssRuleIncludes(playlistsCss, ".af-song-list-row.af-current-playing", "background", "Current playing song row should be visually highlighted");
+}
+
 function testBilibiliSubscribedCollections() {
   const coreTypes = read("packages/core/src/sources/types.ts");
   const sourceService = read("src/services/sources/sourceService.ts");
@@ -594,6 +644,8 @@ const tests = [
   ["quiet accent system", testQuietAccentSystem],
   ["netease scrobble sync", testNeteaseScrobbleSync],
   ["history quick entry and update modal centering", testHistoryQuickEntryAndUpdateModalCentering],
+  ["data management clears only history and song cache", testDataManagementClearsOnlyHistoryAndSongCache],
+  ["playlist detail locates current song", testPlaylistDetailLocatesCurrentSong],
   ["bilibili subscribed collections", testBilibiliSubscribedCollections],
   ["bilibili cover referrer policy", testBilibiliCoverReferrerPolicy],
 ];

@@ -1008,6 +1008,30 @@ button.af-playlist-card {
   background: var(--af-bg-hover);
 }
 
+.af-song-list-row.af-current-playing {
+  background: rgba(var(--af-accent-primary-rgb), 0.09);
+}
+
+.af-song-list-row.af-current-playing:hover {
+  background: rgba(var(--af-accent-primary-rgb), 0.13);
+}
+
+.af-song-list-row.af-current-playing::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 14px;
+  bottom: 14px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--af-accent-primary);
+  opacity: 0.92;
+}
+
+.af-song-list-row.af-locate-hit {
+  animation: af-song-locate-flash 1.4s ease;
+}
+
 .af-col-title {
   display: flex;
   align-items: center;
@@ -1100,6 +1124,17 @@ button.af-playlist-card {
 @keyframes af-fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+@keyframes af-song-locate-flash {
+  0% {
+    background: rgba(var(--af-accent-primary-rgb), 0.22);
+    box-shadow: inset 0 0 0 1px rgba(var(--af-accent-primary-rgb), 0.28);
+  }
+  100% {
+    background: rgba(var(--af-accent-primary-rgb), 0.09);
+    box-shadow: inset 0 0 0 1px transparent;
+  }
 }
 
 @keyframes af-slide-up {

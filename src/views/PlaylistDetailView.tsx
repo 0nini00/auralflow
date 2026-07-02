@@ -1,5 +1,5 @@
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { usePlaylistStore } from '@/stores/playlistStore';
 import { useFavoritesStore } from '@/stores/favoritesStore';
@@ -14,7 +14,7 @@ import { formatDuration } from '@/lib/utils';
 import { formatPlaylistSearchMeta } from '@/services/neteasePlaylistUtils';
 import { getImageReferrerPolicy, normalizeImageUrl } from '@/utils/imageReferrerPolicy';
 import type { MusicInfo, PlaylistInfo, SourceTag } from '@lx/core';
-import { ArrowLeft, Play, Shuffle, Trash2, Clock, Loader2, CornerDownRight, MoreHorizontal, Bookmark, BookmarkCheck, BookmarkX, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Play, Shuffle, Trash2, Clock, Loader2, CornerDownRight, MoreHorizontal, Bookmark, BookmarkCheck, BookmarkX, RefreshCw, LocateFixed } from 'lucide-react';
 
 /** Fisher-Yates 均匀洗牌 */
 function fisherYatesShuffle<T>(arr: T[]): T[] {
@@ -86,8 +86,12 @@ export function PlaylistDetailView() {
   const [pendingPlayAction, setPendingPlayAction] = useState<PendingPlayAction>(null);
   const [openMenuIndex, setOpenMenuIndex] = useState<number | null>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const [locateScrollIndex, setLocateScrollIndex] = useState<number | undefined>(undefined);
+  const [locateScrollKey, setLocateScrollKey] = useState(0);
+  const [locatedSongIndex, setLocatedSongIndex] = useState<number | null>(null);
+  const locateHighlightTimerRef = useRef<number | null>(null);
 
-  const { playQueue, playNext } = usePlayerStore();
+  const { playQueue, playNext, current: currentTrack } = usePlayerStore();
 
   const isFavoritesPlaylist = !explicitRemoteSource && id === 'favorites';
   const localPlaylist = !explicitRemoteSource && isFavoritesPlaylist
@@ -221,6 +225,22 @@ export function PlaylistDetailView() {
           }
       : null;
 
+  const resolvedSongs = resolvedPlaylist?.songs ?? [];
+  const currentSongIndex = useMemo(() => {
+    if (!currentTrack) return -1;
+    return resolvedSongs.findIndex(
+      (song) => song.source === currentTrack.source && String(song.id) === String(currentTrack.id),
+    );
+  }, [currentTrack, resolvedSongs]);
+
+  useEffect(() => {
+    return () => {
+      if (locateHighlightTimerRef.current != null) {
+        window.clearTimeout(locateHighlightTimerRef.current);
+      }
+    };
+  }, []);
+
   if (wySongsLoading || biliSongsLoading || remoteSongsLoading) {
     return (
       <div className="af-playlist-detail-view">
@@ -300,6 +320,29 @@ export function PlaylistDetailView() {
 
   const handlePlayTrack = (index: number) => {
     void runPlayQueueAction(`track:${index}`, songs, index);
+  };
+
+  const handleLocateCurrentSong = () => {
+    setOpenMenuIndex(null);
+    if (!currentTrack) {
+      setActionStatus('当前没有正在播放的歌曲。');
+      return;
+    }
+    if (currentSongIndex < 0) {
+      setActionStatus('当前播放歌曲不在这个歌单里。');
+      return;
+    }
+    setActionStatus('');
+    setLocateScrollIndex(currentSongIndex);
+    setLocateScrollKey((value) => value + 1);
+    setLocatedSongIndex(currentSongIndex);
+    if (locateHighlightTimerRef.current != null) {
+      window.clearTimeout(locateHighlightTimerRef.current);
+    }
+    locateHighlightTimerRef.current = window.setTimeout(() => {
+      setLocatedSongIndex((value) => (value === currentSongIndex ? null : value));
+      locateHighlightTimerRef.current = null;
+    }, 1600);
   };
 
   const handlePlayNext = (song: MusicInfo) => {
@@ -477,6 +520,15 @@ export function PlaylistDetailView() {
                 {isShufflePending ? <Loader2 size={16} className="af-spin" /> : <Shuffle size={16} />}
                 <span>{isShufflePending ? '加载中' : '随机播放'}</span>
               </button>
+              <button
+                className="af-btn-secondary"
+                onClick={handleLocateCurrentSong}
+                disabled={songs.length === 0}
+                title={currentSongIndex >= 0 ? '定位当前播放歌曲' : '定位当前播放'}
+              >
+                <LocateFixed size={16} />
+                <span>定位当前播放</span>
+              </button>
               {isWyPlaylist && (
                 <button
                   className="af-btn-secondary"
@@ -566,63 +618,70 @@ export function PlaylistDetailView() {
               items={songs}
               rowHeight={60}
               className="af-song-list-virtual"
+              scrollToIndex={locateScrollIndex}
+              scrollToKey={locateScrollKey}
               scrollRootSelector=".af-content-scroll"
               onScroll={() => setOpenMenuIndex(null)}
-              renderItem={(song, index) => (
-                <div
-                  className={`af-song-list-row ${openMenuIndex === index ? 'af-menu-open' : ''}`}
-                  onClick={() => handlePlayTrack(index)}
-                  title="单击播放"
-                >
-                  <div className="af-col-index">{index + 1}</div>
+              renderItem={(song, index) => {
+                const isCurrentSong = currentSongIndex === index;
+                const isLocatedSong = locatedSongIndex === index;
 
-                  <div className="af-col-title">
-                    <div className="af-song-cover">
-                      {normalizeImageUrl(song.img) ? (
-                        <img src={normalizeImageUrl(song.img)} alt={song.name} referrerPolicy={getImageReferrerPolicy(song.img)} />
-                      ) : (
-                        <div className="af-cover-placeholder">♪</div>
-                      )}
+                return (
+                  <div
+                    className={`af-song-list-row ${openMenuIndex === index ? 'af-menu-open' : ''} ${isCurrentSong ? 'af-current-playing' : ''} ${isLocatedSong ? 'af-locate-hit' : ''}`}
+                    onClick={() => handlePlayTrack(index)}
+                    title="单击播放"
+                  >
+                    <div className="af-col-index">{index + 1}</div>
+
+                    <div className="af-col-title">
+                      <div className="af-song-cover">
+                        {normalizeImageUrl(song.img) ? (
+                          <img src={normalizeImageUrl(song.img)} alt={song.name} referrerPolicy={getImageReferrerPolicy(song.img)} />
+                        ) : (
+                          <div className="af-cover-placeholder">♪</div>
+                        )}
+                      </div>
+                      <span>{song.name}</span>
                     </div>
-                    <span>{song.name}</span>
-                  </div>
 
-                  <div className="af-col-artist">{song.singer}</div>
-                  <div className="af-col-album">{song.albumName || '-'}</div>
-                  <div className="af-col-duration">{formatDuration(song.interval || 0)}</div>
+                    <div className="af-col-artist">{song.singer}</div>
+                    <div className="af-col-album">{song.albumName || '-'}</div>
+                    <div className="af-col-duration">{formatDuration(song.interval || 0)}</div>
 
-                  <div className="af-col-actions" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      className="af-action-btn"
-                      onClick={() => handlePlayTrack(index)}
-                      title="播放"
-                    >
-                      <Play size={14} fill="currentColor" />
-                    </button>
-                    <SongAddMenuButton
-                      song={song}
-                      iconSize={14}
-                      title="添加到我的喜欢或歌单"
-                    />
-                    <DownloadQualityButton
-                      song={song}
-                      iconSize={14}
-                      title="下载"
-                    />
-                    <button
-                      className="af-action-btn"
-                      onClick={(e) => {
-                        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                        setMenuPos({ top: r.bottom + 4, left: Math.max(8, r.right - 180) });
-                        setOpenMenuIndex(openMenuIndex === index ? null : index);
-                      }}
-                      title="更多操作"
-                    >
-                      <MoreHorizontal size={14} />
-                    </button>
+                    <div className="af-col-actions" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        className="af-action-btn"
+                        onClick={() => handlePlayTrack(index)}
+                        title="播放"
+                      >
+                        <Play size={14} fill="currentColor" />
+                      </button>
+                      <SongAddMenuButton
+                        song={song}
+                        iconSize={14}
+                        title="添加到我的喜欢或歌单"
+                      />
+                      <DownloadQualityButton
+                        song={song}
+                        iconSize={14}
+                        title="下载"
+                      />
+                      <button
+                        className="af-action-btn"
+                        onClick={(e) => {
+                          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                          setMenuPos({ top: r.bottom + 4, left: Math.max(8, r.right - 180) });
+                          setOpenMenuIndex(openMenuIndex === index ? null : index);
+                        }}
+                        title="更多操作"
+                      >
+                        <MoreHorizontal size={14} />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              }}
             />
           </>
         )}

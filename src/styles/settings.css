@@ -111,6 +111,25 @@
   margin-top: 6px;
 }
 
+.af-data-cache-size {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 7px 10px;
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-sm);
+  background: var(--af-bg-surface);
+  color: var(--af-text-secondary);
+  font-size: var(--af-font-size-xs);
+}
+
+.af-data-cache-size strong {
+  color: var(--af-text-primary);
+  font-size: var(--af-font-size-sm);
+}
+
 .af-settings-error {
   font-size: var(--af-font-size-xs);
   color: #ef4444;

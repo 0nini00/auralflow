@@ -8,6 +8,8 @@ interface VirtualListProps<T> {
   className?: string;
   /** 可选：滚动到指定 index */
   scrollToIndex?: number;
+  /** 可选：强制重新触发滚动定位 */
+  scrollToKey?: number | string;
   /** 可选：滚动事件回调（用于关闭 portal 菜单等） */
   onScroll?: () => void;
   /** 可选：使用外层滚动容器，列表自身只负责撑开内容高度 */
@@ -25,6 +27,7 @@ export function VirtualList<T>({
   overscan = 6,
   className,
   scrollToIndex,
+  scrollToKey,
   onScroll,
   scrollRootSelector,
 }: VirtualListProps<T>) {
@@ -110,7 +113,7 @@ export function VirtualList<T>({
       return;
     }
     el.scrollTo({ top, behavior: "smooth" });
-  }, [getScrollRoot, rowHeight, scrollRootSelector, scrollToIndex]);
+  }, [getScrollRoot, rowHeight, scrollRootSelector, scrollToIndex, scrollToKey]);
 
   const total = items.length * rowHeight;
   const start = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);

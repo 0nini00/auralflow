@@ -1,5 +1,5 @@
 import type { MusicInfo } from '@lx/core';
-import { libraryLoad, librarySave } from '@lx/tauri-bridge';
+import { libraryLoad, libraryReset, librarySave } from '@lx/tauri-bridge';
 import type { LyricResponse } from '@/services/lyrics/parserCore';
 import type { PlaybackBackendId, PlaybackResolvedUrl } from '@/services/playback/types';
 
@@ -116,6 +116,19 @@ async function saveCache(cache: PersistentCacheState, now = Date.now()): Promise
     .catch(() => undefined)
     .then(() => librarySave(CACHE_NAMESPACE, cache));
   await writeQueue;
+}
+
+export function resetPersistentCacheMemory(): void {
+  cachePromise = Promise.resolve(createEmptyCache());
+}
+
+export async function clearPersistentCache(): Promise<void> {
+  resetPersistentCacheMemory();
+  writeQueue = writeQueue
+    .catch(() => undefined)
+    .then(() => libraryReset(CACHE_NAMESPACE));
+  await writeQueue;
+  resetPersistentCacheMemory();
 }
 
 export function normalizeQualityKey(quality: string): string {

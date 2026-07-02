@@ -31,15 +31,13 @@ import {
   Volume2,
 } from "lucide-react";
 import { useThemeStore } from "@/stores/themeStore";
-import { useFavoritesStore } from "@/stores/favoritesStore";
 import { useHistoryStore } from "@/stores/historyStore";
-import { useLibraryStore } from "@/stores/libraryStore";
-import { usePlaylistStore } from "@/stores/playlistStore";
-import { useSoundEffectStore } from "@/stores/soundEffectStore";
 import {
+  clearSongCache,
+  getSongCacheStats,
   patchSettings,
   loadSettings,
-  libraryResetAll,
+  libraryReset,
   isLyricWindowOpen,
   setLyricWindowPinned,
 } from "@lx/tauri-bridge";
@@ -52,7 +50,8 @@ import { logAsyncError, warnAsyncError } from "@/utils/logAsyncError";
 import { openCustomSourceUpdateModal } from "@/components/CustomSourceUpdateModal";
 import { playerEngine } from "@/services/playerEngine";
 import { normalizePauseOnExternalPlayback } from "@/services/mediaInterruptionPolicy";
-import { resetUserDataWithActions } from "@/services/userDataReset";
+import { clearPersistentCache } from "@/services/persistentCache";
+import { clearPlaybackPrefetchCache } from "@/services/playback/prefetchService";
 import {
   normalizeLyricAnimationIntensity,
   type LyricAnimationIntensity,
@@ -91,6 +90,7 @@ const LYRIC_SETTINGS_TABS: Array<{ id: LyricSettingsTab; label: string }> = [
 const DEFAULT_IMMERSIVE_LYRIC_FONT_SIZE = 36;
 const DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY = "\"Inter\", \"Noto Sans CJK SC\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif";
 const HEX_COLOR_PATTERN = /^#?[0-9a-fA-F]{6}$/;
+const BYTE_UNITS = ["B", "KB", "MB", "GB"] as const;
 
 const IMMERSIVE_LYRIC_FONT_OPTIONS = [
   {
@@ -114,6 +114,21 @@ const IMMERSIVE_LYRIC_FONT_OPTIONS = [
     value: "\"獅尾四季春加糖SC\", \"Noto Serif CJK SC\", \"Source Han Serif SC\", \"Songti SC\", \"STSong\", serif",
   },
 ];
+
+function formatByteSize(bytes: number | null): string {
+  if (bytes == null) return "计算中...";
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < BYTE_UNITS.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  const fractionDigits = value >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(fractionDigits)} ${BYTE_UNITS[unitIndex]}`;
+}
 
 export function SettingsView() {
   const [activeSection, setActiveSection] = useState<SettingsSectionId>("appearance");
@@ -146,6 +161,8 @@ export function SettingsView() {
   const [biliCookiePending, setBiliCookiePending] = useState(false);
   const [immersiveLyricFontSize, setImmersiveLyricFontSize] = useState(DEFAULT_IMMERSIVE_LYRIC_FONT_SIZE);
   const [immersiveLyricFontFamily, setImmersiveLyricFontFamily] = useState(DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
+  const [songCacheSize, setSongCacheSize] = useState<number | null>(null);
+  const [dataPending, setDataPending] = useState(false);
   const [dataStatus, setDataStatus] = useState("");
   const {
     sources: customSources,
@@ -163,6 +180,12 @@ export function SettingsView() {
   const biliLoad = useBiliAccountStore((s) => s.load);
   const biliLogout = useBiliAccountStore((s) => s.logout);
 
+  const refreshSongCacheStats = async () => {
+    const stats = await getSongCacheStats();
+    setSongCacheSize(stats.totalSize);
+    return stats;
+  };
+
   // 初始化加载已保存设置
   useEffect(() => {
     loadSettings().then(settings => {
@@ -176,6 +199,12 @@ export function SettingsView() {
       setImmersiveLyricFontSize(settings.immersiveLyricFontSize || DEFAULT_IMMERSIVE_LYRIC_FONT_SIZE);
       setImmersiveLyricFontFamily(settings.immersiveLyricFontFamily || DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
     }).catch(logAsyncError("settings:load-playback"));
+  }, []);
+
+  useEffect(() => {
+    refreshSongCacheStats().catch((error) => {
+      setDataStatus(`读取歌曲缓存大小失败：${error instanceof Error ? error.message : String(error)}`);
+    });
   }, []);
 
   useEffect(() => {
@@ -309,22 +338,22 @@ export function SettingsView() {
     }
   };
 
-  const handleResetUserData = async () => {
-    if (!confirm('确定清空全部用户数据？\n\n包含：喜欢、本地歌单、本地音乐库、自定义音源、播放历史、音效设置\n\n此操作不可撤销，建议提前备份 AppData/library 目录。')) return;
+  const handleClearHistoryAndCache = async () => {
+    if (!confirm('确定清空播放历史与歌曲缓存？\n\n仅清空播放历史与歌曲缓存，其他数据保留。')) return;
     setDataStatus("清理中...");
+    setDataPending(true);
     try {
-      await resetUserDataWithActions({
-        resetPersistentData: libraryResetAll,
-        clearFavorites: () => useFavoritesStore.getState().replaceAll([]),
-        clearPlaylists: () => usePlaylistStore.getState().replaceAll([]),
-        clearLibrary: () => useLibraryStore.getState().resetLibrary(),
-        clearCustomSources: () => useCustomSourceStore.getState().replaceAll([]),
-        clearHistory: () => useHistoryStore.getState().replaceAll([]),
-        resetSoundEffects: () => useSoundEffectStore.getState().reset(),
-      });
-      setDataStatus("已清空用户数据。");
+      await libraryReset("recent");
+      useHistoryStore.getState().replaceAll([]);
+      await clearPersistentCache();
+      clearPlaybackPrefetchCache();
+      const stats = await clearSongCache();
+      setSongCacheSize(stats.totalSize);
+      setDataStatus("已清空播放历史与歌曲缓存。");
     } catch (err) {
-      setDataStatus(`重置失败：${err instanceof Error ? err.message : String(err)}`);
+      setDataStatus(`清理失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setDataPending(false);
     }
   };
 
@@ -804,17 +833,22 @@ export function SettingsView() {
         <h2 className="af-settings-section-title">数据管理</h2>
         <div className="af-settings-row">
           <div>
-            <label className="af-settings-label">重置全部用户数据</label>
+            <label className="af-settings-label">播放历史与歌曲缓存</label>
             <p className="af-settings-hint">
-              清空喜欢的音乐、本地歌单、本地音乐库、自定义音源脚本、播放历史和音效设置。设置项不会被清除。此操作不可撤销。
+              仅清空播放历史与歌曲缓存，其他数据保留。
             </p>
+            <div className="af-data-cache-size" aria-label="歌曲缓存大小">
+              <span>歌曲缓存</span>
+              <strong>{formatByteSize(songCacheSize)}</strong>
+            </div>
           </div>
           <button
             type="button"
             className="af-settings-small-button af-settings-danger-button"
-            onClick={() => { void handleResetUserData(); }}
+            onClick={() => { void handleClearHistoryAndCache(); }}
+            disabled={dataPending}
           >
-            清空数据
+            {dataPending ? "清理中..." : "清空历史和缓存"}
           </button>
         </div>
         {dataStatus && <p className="af-settings-hint">{dataStatus}</p>}
