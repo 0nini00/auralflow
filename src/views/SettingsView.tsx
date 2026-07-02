@@ -135,6 +135,7 @@ export function SettingsView() {
   // 播放设置
   const [defaultQuality, setDefaultQuality] = useState("320k");
   const [pauseOnExternalPlayback, setPauseOnExternalPlayback] = useState(true);
+  const [neteaseScrobbleSync, setNeteaseScrobbleSync] = useState(true);
   const [customScriptText, setCustomScriptText] = useState("");
   const [customSourceStatus, setCustomSourceStatus] = useState("");
   const [customSourceAutoCheck, setCustomSourceAutoCheck] = useState(true);
@@ -161,6 +162,7 @@ export function SettingsView() {
       const nextPauseOnExternalPlayback = normalizePauseOnExternalPlayback(settings.pauseOnExternalPlayback);
       setPauseOnExternalPlayback(nextPauseOnExternalPlayback);
       playerEngine.setPauseOnExternalPlayback(nextPauseOnExternalPlayback);
+      setNeteaseScrobbleSync(settings.neteaseScrobbleSync !== false);
       setCustomSourceAutoCheck(settings.customSourceAutoCheck !== false);
       setImmersiveLyricFontSize(settings.immersiveLyricFontSize || DEFAULT_IMMERSIVE_LYRIC_FONT_SIZE);
       setImmersiveLyricFontFamily(settings.immersiveLyricFontFamily || DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
@@ -193,6 +195,17 @@ export function SettingsView() {
       warnAsyncError("settings:patch-pause-on-external-playback", error);
       setPauseOnExternalPlayback(previous);
       playerEngine.setPauseOnExternalPlayback(previous);
+    }
+  };
+
+  const handleNeteaseScrobbleSyncChange = async (next: boolean) => {
+    const previous = neteaseScrobbleSync;
+    setNeteaseScrobbleSync(next);
+    try {
+      await patchSettings({ neteaseScrobbleSync: next });
+    } catch (error) {
+      warnAsyncError("settings:patch-netease-scrobble-sync", error);
+      setNeteaseScrobbleSync(previous);
     }
   };
 
@@ -483,6 +496,33 @@ export function SettingsView() {
               继续播放
             </button>
           </div>
+        </div>
+
+        <div className="af-settings-group">
+          <label className="af-settings-label">网易云听歌记录</label>
+          <div className="af-sfx-toggle">
+            <button
+              type="button"
+              className={`af-sfx-toggle-btn ${neteaseScrobbleSync ? "af-active" : ""}`}
+              onClick={() => { void handleNeteaseScrobbleSyncChange(true); }}
+              aria-pressed={neteaseScrobbleSync}
+              title="同步"
+            >
+              <Cloud size={14} />
+              同步
+            </button>
+            <button
+              type="button"
+              className={`af-sfx-toggle-btn ${!neteaseScrobbleSync ? "af-active" : ""}`}
+              onClick={() => { void handleNeteaseScrobbleSyncChange(false); }}
+              aria-pressed={!neteaseScrobbleSync}
+              title="不同步"
+            >
+              <Cloud size={14} />
+              不同步
+            </button>
+          </div>
+          <p className="af-settings-hint">仅同步网易云源歌曲，播放达到阈值后写入网易云听歌统计；失败会自动重试。</p>
         </div>
 
       </section>

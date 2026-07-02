@@ -176,8 +176,33 @@
   color: currentColor;
 }
 
+.af-quick-cover {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgba(var(--af-accent-primary-rgb), 0.1);
+  color: var(--af-accent-primary);
+}
+
+.af-quick-cover img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
 .af-liked-card .af-quick-icon {
   background: rgba(var(--af-accent-primary-rgb), 0.14);
+}
+
+.af-history-cover {
+  background: rgba(var(--af-accent-primary-rgb), 0.12);
+  color: var(--af-accent-primary);
 }
 
 .af-quick-content {

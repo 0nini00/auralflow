@@ -289,9 +289,16 @@
 }
 
 .af-custom-source-update-overlay {
-  display: grid;
+  position: fixed;
+  inset: 0;
+  display: grid !important;
   place-items: center;
-  padding: 24px;
+  align-items: center !important;
+  justify-content: center !important;
+  min-height: 100dvh;
+  box-sizing: border-box;
+  overflow: auto;
+  padding: 24px !important;
 }
 
 .af-custom-source-update-bar {

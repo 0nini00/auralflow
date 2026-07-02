@@ -371,6 +371,61 @@ function testQuietAccentSystem() {
   assertNotIncludes(accentDrivenUi, "rgba(20, 145, 76", "Accent-driven UI components should not hard-code old green");
 }
 
+function testNeteaseScrobbleSync() {
+  const scrobbleService = read("src/services/scrobbleService.ts");
+  const settingsView = read("src/views/SettingsView.tsx");
+  const bridge = read("packages/tauri-bridge/src/index.ts");
+  const rustModels = read("src-tauri/src/models.rs");
+
+  assertIncludes(bridge, "neteaseScrobbleSync", "Tauri settings expose Netease scrobble sync switch");
+  assertIncludes(rustModels, "netease_scrobble_sync", "Rust settings persist Netease scrobble sync switch");
+  assertIncludes(rustModels, "#[serde(default = \"default_true\")]\n    pub netease_scrobble_sync", "Existing settings should keep Netease scrobble sync enabled by default");
+  assertIncludes(settingsView, "neteaseScrobbleSync", "Playback settings should render Netease scrobble sync switch");
+  assertIncludes(settingsView, "handleNeteaseScrobbleSyncChange", "Playback settings should persist Netease scrobble sync switch");
+
+  assertIncludes(scrobbleService, "SCROBBLE_RETRY_QUEUE_KEY", "Netease scrobble failures should be persisted for retry");
+  assertIncludes(scrobbleService, "enqueueScrobbleRetry", "Netease scrobble failures should enter retry queue");
+  assertIncludes(scrobbleService, "flushScrobbleRetryQueue", "Netease scrobble retry queue should be flushed");
+  assertIncludes(scrobbleService, "loadSettings", "Netease scrobble should respect settings");
+  assertIncludes(scrobbleService, "settings.neteaseScrobbleSync !== false", "Netease scrobble should be enabled unless explicitly disabled");
+  assertIncludes(scrobbleService, "music.source === \"wy\"", "Netease scrobble should only sync Netease tracks");
+  assertIncludes(scrobbleService, "MAX_RETRY_QUEUE_SIZE", "Netease scrobble retry queue should be bounded");
+  assertIncludes(scrobbleService, "RETRY_FLUSH_INTERVAL_MS", "Netease scrobble retry should run periodically");
+  assertNotIncludes(scrobbleService, "console.warn(\"[scrobble] 上报失败\"", "Netease scrobble should not only log failures");
+}
+
+function testHistoryQuickEntryAndUpdateModalCentering() {
+  const app = read("src/App.tsx");
+  const playlistsView = read("src/views/PlaylistsView.tsx");
+  const historyView = read("src/views/HistoryView.tsx");
+  const playlistDetailView = read("src/views/PlaylistDetailView.tsx");
+  const layoutCss = read("src/styles/layout.css");
+
+  assertIncludes(app, "HistoryView", "App should register playback history view");
+  assertIncludes(app, 'path="history"', "App should route to playback history");
+  assertIncludes(playlistsView, "History", "Playlist quick entry should use history icon");
+  assertIncludes(playlistsView, "播放历史", "Playlist quick entry should include playback history");
+  assertIncludes(playlistsView, "useHistoryStore", "Playlist quick entry should show playback history count");
+  assertIncludes(playlistsView, "navigate('/history')", "Playlist quick entry should open playback history");
+  assertIncludes(playlistsView, "firstFavoriteCover", "Liked music quick entry should use first song cover");
+  assertIncludes(playlistsView, "firstHistoryCover", "History quick entry should use first song cover");
+  assertIncludes(playlistsView, "af-quick-cover", "Quick entries should use the same cover layout");
+  assertNotIncludes(playlistsView, "af-liked-card", "Quick entries should not use mismatched color treatments");
+  assertIncludes(historyView, "useHistoryStore", "History view should read local playback history");
+  assertIncludes(historyView, "playQueue(history, index)", "History view should play from selected history item");
+  assertIncludes(historyView, "播放历史", "History view should be labeled clearly");
+  assertIncludes(historyView, "historyCover", "History view should use first history song cover");
+  assertIncludes(historyView, "af-playlist-detail-header", "History view should match playlist detail header layout");
+  assertIncludes(playlistDetailView, "favorites[0]?.img", "Favorites playlist cover should use first favorite song cover");
+
+  assertCssRuleIncludes(layoutCss, ".af-custom-source-update-overlay", "position: fixed", "Custom source update modal overlay should cover the window");
+  assertCssRuleIncludes(layoutCss, ".af-custom-source-update-overlay", "min-height: 100dvh", "Custom source update modal overlay should use viewport height");
+  assertCssRuleIncludes(layoutCss, ".af-custom-source-update-overlay", "place-items: center", "Custom source update modal should be visually centered");
+  assertCssRuleIncludes(layoutCss, ".af-custom-source-update-overlay", "align-items: center", "Custom source update modal should override top alignment");
+  assertCssRuleIncludes(layoutCss, ".af-custom-source-update-overlay", "justify-content: center", "Custom source update modal should override flex centering");
+  assertCssRuleNotIncludes(layoutCss, ".af-custom-source-update-overlay", "align-items: flex-start", "Custom source update modal should not align to the top");
+}
+
 const tests = [
   ["search layout contract", testSearchLayoutContract],
   ["immersive lyric visualizer modes", testImmersiveLyricVisualizerModes],
@@ -381,6 +436,8 @@ const tests = [
   ["daily recommend cover uses first song", testDailyRecommendCoverUsesFirstSong],
   ["quiet sidebar selection and immersive fonts", testQuietSidebarSelectionAndImmersiveFonts],
   ["quiet accent system", testQuietAccentSystem],
+  ["netease scrobble sync", testNeteaseScrobbleSync],
+  ["history quick entry and update modal centering", testHistoryQuickEntryAndUpdateModalCentering],
 ];
 
 let passed = 0;

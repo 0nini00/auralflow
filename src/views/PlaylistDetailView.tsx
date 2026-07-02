@@ -82,7 +82,14 @@ export function PlaylistDetailView() {
 
   const isFavoritesPlaylist = !explicitRemoteSource && id === 'favorites';
   const localPlaylist = !explicitRemoteSource && isFavoritesPlaylist
-    ? { id: 'favorites', name: '我喜欢的音乐', songs: favorites, createdAt: 0, updatedAt: 0 }
+    ? {
+        id: 'favorites',
+        name: '我喜欢的音乐',
+        songs: favorites,
+        createdAt: 0,
+        updatedAt: 0,
+        cover: favorites[0]?.img || favorites[0]?.picUrl,
+      }
     : !explicitRemoteSource
       ? playlists.find((p) => p.id === id)
       : undefined;

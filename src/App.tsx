@@ -8,6 +8,7 @@ import { SettingsView } from "./views/SettingsView";
 import { LocalMusicView } from "./views/LocalMusicView";
 import { PlaylistsView } from "./views/PlaylistsView";
 import { DownloadsView } from "./views/DownloadsView";
+import { HistoryView } from "./views/HistoryView";
 import { PlaylistDetailView } from "./views/PlaylistDetailView";
 import { DailyRecommendView } from "./views/DailyRecommendView";
 import { PersonalFmView } from "./views/PersonalFmView";
@@ -103,6 +104,7 @@ function MainApp() {
             <Route path="local" element={<LocalMusicView />} />
             <Route path="playlists" element={<PlaylistsView />} />
             <Route path="downloads" element={<DownloadsView />} />
+            <Route path="history" element={<HistoryView />} />
             <Route path="playlist/:id" element={<PlaylistDetailView />} />
             <Route path="artist/:id" element={<ArtistDetailView />} />
             <Route path="album/:id" element={<AlbumDetailView />} />

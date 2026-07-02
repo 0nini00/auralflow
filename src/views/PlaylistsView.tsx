@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePlaylistStore } from '@/stores/playlistStore';
 import { useFavoritesStore } from '@/stores/favoritesStore';
+import { useHistoryStore } from '@/stores/historyStore';
 import { useWyAccountStore } from '@/stores/wyAccountStore';
 import { exportPlaylists, importPlaylists } from '@/services/playlistTransferService';
 import {
@@ -12,6 +13,7 @@ import {
   Edit2,
   Copy,
   Heart,
+  History,
   Cloud,
   Download,
   Upload,
@@ -21,6 +23,7 @@ export function PlaylistsView() {
   const navigate = useNavigate();
   const { playlists, createPlaylist, deletePlaylist, duplicatePlaylist, renamePlaylist, updatePlaylistDescription } = usePlaylistStore();
   const favorites = useFavoritesStore((s) => s.favorites);
+  const history = useHistoryStore((s) => s.history);
   const wyAccount = useWyAccountStore((s) => s.account);
   const wyPlaylists = useWyAccountStore((s) => s.playlists);
   const wyLoading = useWyAccountStore((s) => s.isLoading);
@@ -35,7 +38,9 @@ export function PlaylistsView() {
 
   const myWyPlaylists = wyPlaylists.filter((p) => !p.subscribed);
   const collectedWyPlaylists = wyPlaylists.filter((p) => p.subscribed);
-  const totalPlaylistCount = 1 + wyPlaylists.length + playlists.length;
+  const totalPlaylistCount = 2 + wyPlaylists.length + playlists.length;
+  const firstFavoriteCover = favorites[0]?.img || favorites[0]?.picUrl || "";
+  const firstHistoryCover = history[0]?.img || history[0]?.picUrl || "";
 
   const handleCreate = () => {
     const name = newPlaylistName.trim();
@@ -178,13 +183,36 @@ export function PlaylistsView() {
         <div className="af-quick-grid">
           <button
             type="button"
-            className="af-quick-card af-liked-card"
+            className="af-quick-card"
             onClick={() => navigate('/library')}
           >
-            <span className="af-quick-icon"><Heart size={24} fill="currentColor" /></span>
+            <span className="af-quick-cover">
+              {firstFavoriteCover ? (
+                <img src={firstFavoriteCover} alt="" />
+              ) : (
+                <Heart size={24} fill="currentColor" />
+              )}
+            </span>
             <span className="af-quick-content">
               <strong>我喜欢的音乐</strong>
               <small>{favorites.length} 首歌曲</small>
+            </span>
+          </button>
+          <button
+            type="button"
+            className="af-quick-card"
+            onClick={() => navigate('/history')}
+          >
+            <span className="af-quick-cover">
+              {firstHistoryCover ? (
+                <img src={firstHistoryCover} alt="" />
+              ) : (
+                <History size={24} />
+              )}
+            </span>
+            <span className="af-quick-content">
+              <strong>播放历史</strong>
+              <small>{history.length} 首歌曲</small>
             </span>
           </button>
         </div>

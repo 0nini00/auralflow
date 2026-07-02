@@ -14,6 +14,7 @@ export interface RustAppSettings {
   volume: number;
   defaultQuality: string;
   pauseOnExternalPlayback: boolean;
+  neteaseScrobbleSync: boolean;
   wyCookie?: string | null;
   lyricPinned: boolean;
   lyricLocked: boolean;
