@@ -30,3 +30,4 @@ src-tauri/gen/
 .codex_tmp/
 .mindfs/
 .pnpm-store/
+.worktrees/
