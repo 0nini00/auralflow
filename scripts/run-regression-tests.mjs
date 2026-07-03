@@ -235,6 +235,35 @@ function testMainWindowCustomChrome() {
   assertIncludes(indexCss, ".af-app:has(.af-immersive-native-fullscreen) .af-window-titlebar", "Custom titlebar hides in native fullscreen");
 }
 
+function testAppWindowBackgroundImage() {
+  const models = read("src-tauri/src/models.rs");
+  const bridge = read("packages/tauri-bridge/src/index.ts");
+  const layout = read("src/components/Layout/Layout.tsx");
+  const settingsView = read("src/views/SettingsView.tsx");
+  const appBackground = read("src/services/appBackground.ts");
+  const indexCss = read("src/index.css");
+  const settingsCss = read("src/styles/settings.css");
+
+  assertIncludes(models, "app_background_image_path", "App settings should persist the main window background image path");
+  assertIncludes(bridge, "appBackgroundImagePath", "Tauri bridge should expose app background image path");
+  assertIncludes(appBackground, "APP_BACKGROUND_CHANGE_EVENT", "App background service should broadcast background changes");
+  assertIncludes(appBackground, "convertFileSrc", "App background service should convert local image paths to asset URLs");
+  assertIncludes(layout, "af-app-background", "Layout should render a main window background layer");
+  assertIncludes(layout, "toAppBackgroundImageUrl", "Layout should resolve app background image URLs");
+  assertIncludes(layout, "APP_BACKGROUND_CHANGE_EVENT", "Layout should react to background setting changes");
+  assertIncludes(settingsView, "handleSelectAppBackground", "Settings should allow choosing an app background image");
+  assertIncludes(settingsView, "handleClearAppBackground", "Settings should allow clearing the app background image");
+  assertIncludes(settingsView, "open({", "Settings should use a file picker for background images");
+  assertIncludes(settingsView, "主界面背景", "Settings should label the main app background separately from lyric background");
+  assertCssRuleIncludes(indexCss, ".af-app-background", "background-size: cover", "App background should fill the window directly");
+  assertCssRuleIncludes(indexCss, ".af-app-background", "background-position: center", "App background should be centered");
+  assertCssRuleNotIncludes(indexCss, ".af-app-background", "blur", "App background layer should not blur the image");
+  assertCssRuleIncludes(indexCss, ".af-app-has-background .af-window-titlebar", "background: transparent", "App background mode should remove the top divider surface");
+  assertIncludes(indexCss, ".af-app-has-background .af-window-app-mark", "App background mode should hide duplicated titlebar branding");
+  assertIncludes(indexCss, ".af-app-has-background .af-window-title", "App background mode should hide duplicated titlebar title");
+  assertIncludes(settingsCss, ".af-app-background-path", "Settings should style selected background path");
+}
+
 function testPersistentPlaybackAndLyricCache() {
   const bridge = read("packages/tauri-bridge/src/index.ts");
   const library = read("src-tauri/src/library.rs");
@@ -636,6 +665,7 @@ const tests = [
   ["immersive lyric visualizer modes", testImmersiveLyricVisualizerModes],
   ["lyric playback sync behavior", testLyricPlaybackSyncBehavior],
   ["main window custom chrome", testMainWindowCustomChrome],
+  ["app window background image", testAppWindowBackgroundImage],
   ["persistent playback and lyric cache", testPersistentPlaybackAndLyricCache],
   ["settings information architecture", testSettingsInformationArchitecture],
   ["custom source update dialog centered", testCustomSourceUpdateDialogCentered],

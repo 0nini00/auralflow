@@ -130,6 +130,61 @@
   font-size: var(--af-font-size-sm);
 }
 
+.af-app-background-picker {
+  display: flex;
+  align-items: stretch;
+  gap: 14px;
+}
+
+.af-app-background-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 132px;
+  min-height: 82px;
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-md);
+  background: var(--af-bg-surface);
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: center;
+  color: var(--af-text-tertiary);
+  overflow: hidden;
+}
+
+.af-app-background-preview.af-has-image {
+  background-color: #0f172a;
+}
+
+.af-app-background-meta {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.af-app-background-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.af-app-background-path {
+  max-width: 100%;
+  margin-top: 9px;
+  padding: 8px 10px;
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-sm);
+  background: var(--af-bg-surface);
+  color: var(--af-text-secondary);
+  font-size: var(--af-font-size-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .af-settings-error {
   font-size: var(--af-font-size-xs);
   color: #ef4444;

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import {
   AlignCenter,
   AlignLeft,
@@ -14,6 +15,7 @@ import {
   ExternalLink,
   FlaskConical,
   Info,
+  Image as ImageIcon,
   Mic2,
   Music2,
   Moon,
@@ -52,6 +54,7 @@ import { playerEngine } from "@/services/playerEngine";
 import { normalizePauseOnExternalPlayback } from "@/services/mediaInterruptionPolicy";
 import { clearPersistentCache } from "@/services/persistentCache";
 import { clearPlaybackPrefetchCache } from "@/services/playback/prefetchService";
+import { notifyAppBackgroundChanged, toAppBackgroundImageUrl } from "@/services/appBackground";
 import {
   normalizeLyricAnimationIntensity,
   type LyricAnimationIntensity,
@@ -141,6 +144,9 @@ export function SettingsView() {
   } = useThemeStore();
   const [accentColorInput, setAccentColorInput] = useState(accentColor.toUpperCase());
   const isAccentColorInputValid = HEX_COLOR_PATTERN.test(accentColorInput.trim());
+  const [appBackgroundImagePath, setAppBackgroundImagePath] = useState("");
+  const [appBackgroundStatus, setAppBackgroundStatus] = useState("");
+  const appBackgroundPreviewUrl = toAppBackgroundImageUrl(appBackgroundImagePath);
 
   const normalizeQualityValue = (value: string) => {
     if (value === "high") return "320k";
@@ -195,6 +201,7 @@ export function SettingsView() {
       playerEngine.setPauseOnExternalPlayback(nextPauseOnExternalPlayback);
       setNeteaseScrobbleSync(settings.neteaseScrobbleSync !== false);
       setCustomSourceAutoCheck(settings.customSourceAutoCheck !== false);
+      setAppBackgroundImagePath(settings.appBackgroundImagePath ?? "");
       setBiliCookieText(settings.biliCookie ?? "");
       setImmersiveLyricFontSize(settings.immersiveLyricFontSize || DEFAULT_IMMERSIVE_LYRIC_FONT_SIZE);
       setImmersiveLyricFontFamily(settings.immersiveLyricFontFamily || DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
@@ -217,6 +224,41 @@ export function SettingsView() {
     if (!HEX_COLOR_PATTERN.test(trimmed)) return;
     const normalized = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
     setAccentColor(normalized);
+  };
+
+  const handleSelectAppBackground = async () => {
+    setAppBackgroundStatus("");
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: false,
+        filters: [
+          {
+            name: "图片",
+            extensions: ["png", "jpg", "jpeg", "webp", "bmp"],
+          },
+        ],
+      });
+      if (typeof selected !== "string") return;
+      await patchSettings({ appBackgroundImagePath: selected });
+      setAppBackgroundImagePath(selected);
+      notifyAppBackgroundChanged(selected);
+      setAppBackgroundStatus("已应用主界面背景。");
+    } catch (error) {
+      setAppBackgroundStatus(`设置背景失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  const handleClearAppBackground = async () => {
+    setAppBackgroundStatus("");
+    try {
+      await patchSettings({ appBackgroundImagePath: null });
+      setAppBackgroundImagePath("");
+      notifyAppBackgroundChanged(null);
+      setAppBackgroundStatus("已恢复默认背景。");
+    } catch (error) {
+      setAppBackgroundStatus(`清除背景失败：${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
   const patchPlaybackSetting = (patch: Record<string, unknown>) => {
@@ -444,6 +486,41 @@ export function SettingsView() {
               <Monitor size={20} />
               <span>跟随系统</span>
             </button>
+          </div>
+        </div>
+
+        <div className="af-settings-group">
+          <label className="af-settings-label">主界面背景</label>
+          <div className="af-app-background-picker">
+            <div
+              className={`af-app-background-preview ${appBackgroundPreviewUrl ? "af-has-image" : ""}`}
+              style={appBackgroundPreviewUrl ? { backgroundImage: `url("${appBackgroundPreviewUrl}")` } : undefined}
+              aria-hidden="true"
+            >
+              {!appBackgroundPreviewUrl && <ImageIcon size={22} />}
+            </div>
+            <div className="af-app-background-meta">
+              <div className="af-app-background-actions">
+                <button type="button" className="af-settings-small-button" onClick={() => { void handleSelectAppBackground(); }}>
+                  <ImageIcon size={14} />
+                  选择图片
+                </button>
+                <button
+                  type="button"
+                  className="af-settings-small-button"
+                  onClick={() => { void handleClearAppBackground(); }}
+                  disabled={!appBackgroundImagePath}
+                >
+                  <RotateCcw size={14} />
+                  恢复默认
+                </button>
+              </div>
+              <div className="af-app-background-path" title={appBackgroundImagePath || "未设置"}>
+                {appBackgroundImagePath || "未设置背景图片"}
+              </div>
+              <p className="af-settings-hint">图片会直接显示在整个窗口最底层，不做模糊处理。</p>
+              {appBackgroundStatus && <p className="af-settings-hint">{appBackgroundStatus}</p>}
+            </div>
           </div>
         </div>
 

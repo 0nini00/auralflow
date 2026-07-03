@@ -156,6 +156,31 @@
   box-shadow: var(--af-shadow-sm);
 }
 
+.af-app-has-background .af-home-hero {
+  border-color: rgba(255, 255, 255, 0.32);
+  background: rgba(255, 255, 255, 0.30);
+  box-shadow: none;
+}
+
+[data-theme="dark"] .af-app-has-background .af-home-hero {
+  border-color: rgba(226, 232, 240, 0.12);
+  background: rgba(15, 23, 42, 0.26);
+}
+
+.af-app-has-background .af-section-action,
+.af-app-has-background .af-home-secondary-action,
+.af-app-has-background .af-music-card-action-btn {
+  border-color: rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.34);
+}
+
+[data-theme="dark"] .af-app-has-background .af-section-action,
+[data-theme="dark"] .af-app-has-background .af-home-secondary-action,
+[data-theme="dark"] .af-app-has-background .af-music-card-action-btn {
+  border-color: rgba(226, 232, 240, 0.12);
+  background: rgba(15, 23, 42, 0.30);
+}
+
 .af-home-hero-copy {
   max-width: 620px;
 }

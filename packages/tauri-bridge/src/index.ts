@@ -40,6 +40,7 @@ export interface RustAppSettings {
   lyricAnimationIntensity: string;
   immersiveLyricFontSize: number;
   immersiveLyricFontFamily: string;
+  appBackgroundImagePath?: string | null;
   lyricWindowX?: number | null;
   lyricWindowY?: number | null;
   lyricWindowWidth?: number | null;

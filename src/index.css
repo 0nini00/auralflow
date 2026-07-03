@@ -42,11 +42,27 @@ button {
    ============================================================ */
 
 .af-app {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
   background: var(--af-bg-base);
+  isolation: isolate;
+}
+
+.af-app-background {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: center;
+  pointer-events: none;
+}
+
+.af-app-has-background {
+  background: #0f172a;
 }
 
 .af-window-titlebar {
@@ -162,6 +178,8 @@ button {
 }
 
 .af-main-container {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex: 1;
   min-height: 0;
@@ -215,6 +233,19 @@ button {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+}
+
+.af-app-has-background .af-window-titlebar {
+  background: transparent;
+}
+
+[data-theme="dark"] .af-app-has-background .af-window-titlebar {
+  background: transparent;
+}
+
+.af-app-has-background .af-window-app-mark,
+.af-app-has-background .af-window-title {
+  display: none;
 }
 
 .af-logo-img {
@@ -275,6 +306,11 @@ button {
 .af-sidebar-link:hover {
   background: var(--af-bg-surface);
   color: var(--af-text-primary);
+}
+
+.af-sidebar-link:focus-visible {
+  outline: 2px solid var(--af-border-focus);
+  outline-offset: 2px;
 }
 
 .af-sidebar-link.active {
@@ -537,7 +573,7 @@ button {
     padding: 8px;
   }
 
-  .af-sidebar {
+.af-sidebar {
     width: 64px;
     padding: 16px 8px;
   }
@@ -546,6 +582,69 @@ button {
   .af-sidebar-link span {
     display: none;
   }
+}
+
+.af-app-has-background .af-sidebar,
+.af-app-has-background .af-header,
+.af-app-has-background .af-content,
+.af-app-has-background .af-player-bar {
+  border-color: rgba(255, 255, 255, 0.38);
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.12);
+}
+
+.af-app-has-background .af-content {
+  background: rgba(255, 255, 255, 0.46);
+}
+
+.af-app-has-background .af-header-search,
+.af-app-has-background .af-user-button,
+.af-app-has-background .af-sidebar-count,
+.af-app-has-background .af-card {
+  border-color: rgba(255, 255, 255, 0.32);
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.af-app-has-background .af-sidebar-link:hover {
+  background: rgba(255, 255, 255, 0.26);
+}
+
+.af-app-has-background .af-sidebar-link.active {
+  background: rgba(var(--af-accent-primary-rgb), 0.13);
+}
+
+.af-app-has-background .af-sidebar-link:focus-visible {
+  outline: 1px solid rgba(var(--af-accent-primary-rgb), 0.52);
+  outline-offset: 1px;
+}
+
+[data-theme="dark"] .af-app-has-background .af-sidebar,
+[data-theme="dark"] .af-app-has-background .af-header,
+[data-theme="dark"] .af-app-has-background .af-content,
+[data-theme="dark"] .af-app-has-background .af-player-bar {
+  border-color: rgba(226, 232, 240, 0.14);
+  background: rgba(15, 23, 42, 0.48);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="dark"] .af-app-has-background .af-content {
+  background: rgba(15, 23, 42, 0.42);
+}
+
+[data-theme="dark"] .af-app-has-background .af-header-search,
+[data-theme="dark"] .af-app-has-background .af-user-button,
+[data-theme="dark"] .af-app-has-background .af-sidebar-count,
+[data-theme="dark"] .af-app-has-background .af-card {
+  border-color: rgba(226, 232, 240, 0.12);
+  background: rgba(15, 23, 42, 0.30);
+}
+
+[data-theme="dark"] .af-app-has-background .af-sidebar-link:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.af-app-has-background .af-player-bar {
+  backdrop-filter: none;
 }
 
 /* ============================================================

@@ -79,6 +79,8 @@ pub struct AppSettings {
     pub immersive_lyric_font_size: u32,
     /// 沉浸式歌词：字体族 CSS 值
     pub immersive_lyric_font_family: String,
+    /// 主界面背景图片路径。None=使用主题背景
+    pub app_background_image_path: Option<String>,
     /// 桌面歌词窗口：上次的 x（逻辑像素）。None=居中默认位置
     pub lyric_window_x: Option<f64>,
     /// 桌面歌词窗口：上次的 y
@@ -137,6 +139,7 @@ impl Default for AppSettings {
             immersive_lyric_font_family:
                 "\"Inter\", \"Noto Sans CJK SC\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif"
                     .to_string(),
+            app_background_image_path: None,
             lyric_window_x: None,
             lyric_window_y: None,
             lyric_window_width: None,
