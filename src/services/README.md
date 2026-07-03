@@ -18,7 +18,6 @@
 | `playerEngine.ts` | HTMLAudioElement 和 WebAudio 播放引擎 |
 | `playlistTransferService.ts` | 歌单导入导出和迁移 |
 | `qrCode.ts` | 网易云扫码登录二维码 SVG data URI |
-| `scrobbleService.ts` | 网易云听歌打卡触发 |
 | `updateService.ts` | 应用更新检查 |
 | `userDataReset.ts` | 清空用户数据时的持久化和内存状态协调 |
 | `webdavSyncService.ts` | WebDAV 备份和恢复 |

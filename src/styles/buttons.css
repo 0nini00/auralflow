@@ -8,6 +8,32 @@ button:focus-visible {
   outline-offset: 2px;
 }
 
+:root {
+  --af-button-secondary-border: var(--af-border-primary);
+  --af-button-secondary-hover-border: rgba(var(--af-accent-primary-rgb), 0.32);
+  --af-button-secondary-bg: color-mix(in srgb, var(--af-bg-surface) 82%, transparent);
+  --af-button-secondary-hover-bg: color-mix(in srgb, var(--af-bg-surface-hover) 88%, transparent);
+  --af-button-secondary-shadow: none;
+  --af-button-active-border: rgba(var(--af-accent-primary-rgb), 0.34);
+  --af-button-active-bg: var(--af-button-secondary-bg);
+  --af-button-active-shadow: inset 0 0 0 1px rgba(var(--af-accent-primary-rgb), 0.08);
+}
+
+.af-app-has-background {
+  --af-button-secondary-border: rgba(255, 255, 255, 0.34);
+  --af-button-secondary-hover-border: rgba(var(--af-accent-primary-rgb), 0.28);
+  --af-button-secondary-bg: rgba(255, 255, 255, 0.26);
+  --af-button-secondary-hover-bg: rgba(255, 255, 255, 0.34);
+  --af-button-secondary-shadow: none;
+}
+
+[data-theme="dark"] .af-app-has-background {
+  --af-button-secondary-border: rgba(226, 232, 240, 0.14);
+  --af-button-secondary-hover-border: rgba(var(--af-accent-primary-rgb), 0.30);
+  --af-button-secondary-bg: rgba(15, 23, 42, 0.28);
+  --af-button-secondary-hover-bg: rgba(15, 23, 42, 0.38);
+}
+
 .af-btn-primary,
 .af-btn-secondary,
 .af-button-primary,
@@ -66,10 +92,10 @@ button:focus-visible {
 .af-search-submit,
 .af-create-playlist-btn:not(.af-btn-secondary),
 .af-library-button-primary {
-  border: 1px solid rgba(var(--af-accent-primary-rgb), 0.32);
-  background: rgba(var(--af-accent-primary-rgb), 0.12);
-  color: var(--af-accent-primary);
-  box-shadow: none;
+  border: 1px solid var(--af-button-secondary-border);
+  background: var(--af-button-secondary-bg);
+  color: var(--af-text-primary);
+  box-shadow: var(--af-button-secondary-shadow);
 }
 
 .af-btn-secondary,
@@ -79,17 +105,48 @@ button:focus-visible {
 .af-section-action,
 .af-home-secondary-action,
 .af-create-playlist-btn.af-btn-secondary {
-  border: 1px solid var(--af-border-primary);
-  background: var(--af-bg-surface);
+  border: 1px solid var(--af-button-secondary-border);
+  background: var(--af-button-secondary-bg);
   color: var(--af-text-primary);
-  box-shadow: none;
+  box-shadow: var(--af-button-secondary-shadow);
 }
 
 .af-library-button:not(.af-library-button-primary) {
-  border: 1px solid var(--af-border-primary);
-  background: var(--af-bg-surface);
+  border: 1px solid var(--af-button-secondary-border);
+  background: var(--af-button-secondary-bg);
   color: var(--af-text-primary);
-  box-shadow: none;
+  box-shadow: var(--af-button-secondary-shadow);
+}
+
+.af-back-btn,
+.af-bili-manage-button,
+.af-music-card-action-btn,
+.af-custom-source-icon-button,
+.af-sfx-pill,
+.af-fm-action-primary,
+.af-fm-action-secondary {
+  border: 1px solid var(--af-button-secondary-border);
+  background: var(--af-button-secondary-bg);
+  color: var(--af-text-primary);
+  box-shadow: var(--af-button-secondary-shadow);
+}
+
+.af-sfx-toggle {
+  border-color: var(--af-button-secondary-border);
+  background: var(--af-button-secondary-bg);
+}
+
+.af-sfx-toggle-btn {
+  background: transparent;
+  color: var(--af-text-primary);
+}
+
+.af-playlist-actions .af-btn-primary,
+.af-playlist-actions .af-btn-secondary {
+  border: 1px solid var(--af-button-secondary-border);
+  background: var(--af-button-secondary-bg);
+  color: var(--af-text-primary);
+  box-shadow: var(--af-button-secondary-shadow);
 }
 
 .af-btn-primary:hover:not(:disabled),
@@ -99,9 +156,9 @@ button:focus-visible {
 .af-search-submit:hover:not(:disabled),
 .af-create-playlist-btn:not(.af-btn-secondary):hover:not(:disabled),
 .af-library-button-primary:hover:not(:disabled) {
-  border-color: rgba(var(--af-accent-primary-rgb), 0.42);
-  background: rgba(var(--af-accent-primary-rgb), 0.18);
-  color: var(--af-accent-primary);
+  border-color: var(--af-button-secondary-hover-border);
+  background: var(--af-button-secondary-hover-bg);
+  color: var(--af-text-primary);
   box-shadow: none;
   transform: translateY(-1px);
 }
@@ -113,16 +170,39 @@ button:focus-visible {
 .af-section-action:hover:not(:disabled),
 .af-home-secondary-action:hover:not(:disabled),
 .af-create-playlist-btn.af-btn-secondary:hover:not(:disabled) {
-  border-color: rgba(var(--af-accent-primary-rgb), 0.32);
-  background: var(--af-bg-surface-hover);
+  border-color: var(--af-button-secondary-hover-border);
+  background: var(--af-button-secondary-hover-bg);
   color: var(--af-text-primary);
   box-shadow: none;
   transform: translateY(-1px);
 }
 
 .af-library-button:not(.af-library-button-primary):hover:not(:disabled) {
-  border-color: rgba(var(--af-accent-primary-rgb), 0.32);
-  background: var(--af-bg-surface-hover);
+  border-color: var(--af-button-secondary-hover-border);
+  background: var(--af-button-secondary-hover-bg);
+  color: var(--af-text-primary);
+  box-shadow: none;
+  transform: translateY(-1px);
+}
+
+.af-back-btn:hover:not(:disabled),
+.af-bili-manage-button:hover:not(:disabled),
+.af-music-card-action-btn:hover:not(:disabled),
+.af-custom-source-icon-button:hover:not(:disabled),
+.af-sfx-pill:hover:not(:disabled),
+.af-fm-action-primary:hover:not(:disabled),
+.af-fm-action-secondary:hover:not(:disabled),
+.af-sfx-toggle-btn:hover:not(:disabled) {
+  border-color: var(--af-button-secondary-hover-border);
+  background: var(--af-button-secondary-hover-bg);
+  color: var(--af-text-primary);
+  box-shadow: none;
+}
+
+.af-playlist-actions .af-btn-primary:hover:not(:disabled),
+.af-playlist-actions .af-btn-secondary:hover:not(:disabled) {
+  border-color: var(--af-button-secondary-hover-border);
+  background: var(--af-button-secondary-hover-bg);
   color: var(--af-text-primary);
   box-shadow: none;
   transform: translateY(-1px);
@@ -220,20 +300,40 @@ button:focus-visible {
 .af-control-btn:hover:not(:disabled),
 .af-view-mode-toggle button:hover:not(:disabled),
 .af-grid-edit-button:hover:not(:disabled) {
-  border-color: var(--af-border-primary);
-  background: var(--af-bg-surface-hover);
+  border-color: var(--af-button-secondary-border);
+  background: var(--af-button-secondary-hover-bg);
   color: var(--af-text-primary);
 }
 
 .af-icon-btn-active,
 .af-icon-btn-active:hover:not(:disabled),
 .af-action-btn.af-liked,
-.af-like-button.af-active,
-.af-control-btn.af-active,
 .af-view-mode-toggle button.af-active {
+  border-color: var(--af-button-active-border);
+  background: var(--af-button-active-bg);
+  box-shadow: var(--af-button-active-shadow);
+  color: var(--af-accent-primary);
+}
+
+.af-like-button.af-active,
+.af-control-btn.af-active {
   border-color: rgba(var(--af-accent-primary-rgb), 0.32);
   background: rgba(var(--af-accent-primary-rgb), 0.12);
   color: var(--af-accent-primary);
+}
+
+.af-custom-source-icon-button.af-active,
+.af-sfx-toggle-btn.af-active,
+.af-sfx-pill.af-active,
+.af-fm-action-secondary.af-liked {
+  border-color: var(--af-button-active-border);
+  background: var(--af-button-active-bg);
+  box-shadow: var(--af-button-active-shadow);
+  color: var(--af-accent-primary);
+}
+
+.af-sfx-toggle-btn.af-active {
+  box-shadow: inset 0 -2px 0 var(--af-accent-primary);
 }
 
 .af-action-btn,
@@ -277,28 +377,26 @@ button:focus-visible {
   color: var(--af-accent-primary);
 }
 
-.af-play-button,
 .af-grid-play-button,
 .af-play-all-btn,
 .af-playlist-play-button {
-  border: 1px solid rgba(var(--af-accent-primary-rgb), 0.32);
-  background: rgba(var(--af-accent-primary-rgb), 0.12);
-  color: var(--af-accent-primary);
-  box-shadow: none;
+  border: 1px solid var(--af-button-secondary-border);
+  background: var(--af-button-secondary-bg);
+  color: var(--af-text-primary);
+  box-shadow: var(--af-button-secondary-shadow);
 }
 
-.af-play-button:hover:not(:disabled),
 .af-grid-play-button:hover:not(:disabled),
 .af-play-all-btn:hover:not(:disabled),
 .af-playlist-play-button:hover:not(:disabled) {
-  border-color: rgba(var(--af-accent-primary-rgb), 0.42);
-  background: rgba(var(--af-accent-primary-rgb), 0.18);
-  color: var(--af-accent-primary);
+  border-color: var(--af-button-secondary-hover-border);
+  background: var(--af-button-secondary-hover-bg);
+  color: var(--af-text-primary);
 }
 
 .af-view-mode-toggle {
-  border: 1px solid var(--af-border-primary);
-  background: var(--af-bg-surface);
+  border: 1px solid var(--af-button-secondary-border);
+  background: var(--af-button-secondary-bg);
   border-radius: var(--af-radius-md);
 }
 

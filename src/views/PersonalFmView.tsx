@@ -354,31 +354,31 @@ export function PersonalFmView() {
           width: 44px;
           height: 44px;
           border-radius: var(--af-button-radius);
-          border-color: var(--af-border-primary);
-          background: var(--af-bg-surface);
+          border-color: var(--af-button-secondary-border);
+          background: var(--af-button-secondary-bg);
           color: var(--af-text-secondary);
         }
         .af-fm-action-primary {
           width: 64px;
           height: 64px;
           border-radius: 20px;
-          border-color: rgba(var(--af-accent-primary-rgb), 0.42);
-          background: linear-gradient(180deg, rgba(var(--af-accent-primary-rgb), 0.96), rgba(var(--af-accent-primary-rgb), 0.82));
-          color: var(--af-text-on-accent);
-          box-shadow: 0 10px 24px rgba(var(--af-accent-primary-rgb), 0.26);
+          border-color: var(--af-button-secondary-border);
+          background: var(--af-button-secondary-bg);
+          color: var(--af-text-primary);
+          box-shadow: var(--af-button-secondary-shadow);
         }
         .af-fm-action-secondary:hover:not(:disabled),
         .af-fm-action-primary:hover {
           transform: translateY(-1px);
         }
         .af-fm-action-secondary:hover:not(:disabled) {
-          border-color: var(--af-border-primary);
-          background: var(--af-bg-surface-hover);
+          border-color: var(--af-button-secondary-hover-border);
+          background: var(--af-button-secondary-hover-bg);
           color: var(--af-text-primary);
         }
         .af-fm-action-primary:hover {
-          background: var(--af-accent-gradient-hover);
-          box-shadow: 0 12px 28px rgba(var(--af-accent-primary-rgb), 0.3);
+          border-color: var(--af-button-secondary-hover-border);
+          background: var(--af-button-secondary-hover-bg);
         }
         .af-fm-action-secondary:disabled {
           opacity: 0.5;
@@ -386,8 +386,9 @@ export function PersonalFmView() {
         }
         .af-fm-action-secondary.af-liked {
           color: var(--af-accent-primary);
-          border-color: rgba(var(--af-accent-primary-rgb), 0.32);
-          background: rgba(var(--af-accent-primary-rgb), 0.12);
+          border-color: var(--af-button-active-border);
+          background: var(--af-button-active-bg);
+          box-shadow: var(--af-button-active-shadow);
         }
         .af-fm-upcoming h3 {
           font-size: 16px;

@@ -313,20 +313,23 @@ export function ArtistDetailView() {
         }
         .af-artist-tabs button {
           padding: 8px 18px;
-          background: transparent;
-          border: none;
-          color: var(--af-text-secondary);
+          background: var(--af-button-secondary-bg);
+          border: 1px solid var(--af-button-secondary-border);
+          color: var(--af-text-primary);
           font-size: 14px;
           font-weight: 600;
           cursor: pointer;
           border-radius: var(--af-radius-md);
         }
         .af-artist-tabs button:hover {
-          background: var(--af-bg-hover);
+          border-color: var(--af-button-secondary-hover-border);
+          background: var(--af-button-secondary-hover-bg);
         }
         .af-artist-tabs button.af-tab-active {
           color: var(--af-accent-primary);
-          background: rgba(var(--af-accent-primary-rgb), 0.12);
+          border-color: var(--af-button-active-border);
+          background: var(--af-button-active-bg);
+          box-shadow: var(--af-button-active-shadow);
         }
         .af-artist-albums-grid {
           display: grid;

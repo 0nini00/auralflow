@@ -16,7 +16,12 @@ export interface PrefetchNearbyTracksOptions {
   repeatMode: RepeatMode;
   isShuffle?: boolean;
   fmMode?: boolean;
-  resolvePlaybackUrl?: (music: MusicInfo, variants?: MusicInfo[]) => Promise<PrefetchResolvedUrl | null | undefined>;
+  resolvePlaybackUrl?: (
+    music: MusicInfo,
+    variants?: MusicInfo[],
+    preferredQuality?: string,
+    options?: { cacheMedia?: boolean },
+  ) => Promise<PrefetchResolvedUrl | null | undefined>;
   getLyrics?: (music: MusicInfo) => Promise<LyricResponse>;
   preloadUrl?: (url: string) => void;
   preloadCoverUrl?: (url: string) => void;
@@ -122,7 +127,7 @@ async function prefetchTrack(
       };
     } else if (shouldPrefetchPlaybackUrl(music)) {
       const variants = getPlaybackVariants(music);
-      const resolved = await options.resolvePlaybackUrl(music, variants);
+      const resolved = await options.resolvePlaybackUrl(music, variants, undefined, { cacheMedia: false });
       if (resolved?.url) {
         entry = {
           ...entry,

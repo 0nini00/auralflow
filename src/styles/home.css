@@ -122,18 +122,18 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--af-border-secondary);
+  border: 1px solid var(--af-button-secondary-border);
   border-radius: var(--af-button-radius);
-  background: var(--af-bg-elevated);
-  color: var(--af-text-secondary);
+  background: var(--af-button-secondary-bg);
+  color: var(--af-text-primary);
   cursor: pointer;
   transition: all var(--af-transition-fast);
 }
 
 .af-music-card-action-btn:hover {
-  border-color: rgba(var(--af-accent-primary-rgb), 0.38);
-  background: rgba(var(--af-accent-primary-rgb), 0.1);
-  color: var(--af-accent-primary);
+  border-color: var(--af-button-secondary-hover-border);
+  background: var(--af-button-secondary-hover-bg);
+  color: var(--af-text-primary);
 }
 
 /* Home View */
@@ -216,10 +216,10 @@
 }
 
 .af-home-primary-action {
-  border: none;
-  background: var(--af-accent-gradient);
-  color: var(--af-accent-text);
-  box-shadow: 0 4px 16px rgba(var(--af-accent-primary-rgb), 0.22);
+  border: 1px solid var(--af-button-secondary-border);
+  background: var(--af-button-secondary-bg);
+  color: var(--af-text-primary);
+  box-shadow: var(--af-button-secondary-shadow);
 }
 
 .af-home-secondary-action {
@@ -254,15 +254,15 @@
 .af-playlist-play-button {
   width: 56px;
   height: 56px;
-  background: var(--af-accent-gradient);
-  border: none;
+  background: var(--af-button-secondary-bg);
+  border: 1px solid var(--af-button-secondary-border);
   border-radius: 50%;
-  color: white;
+  color: var(--af-text-primary);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--af-button-secondary-shadow);
   transition: all var(--af-transition-base);
   transform: translateY(10px) scale(0.9);
 }
@@ -273,8 +273,9 @@
 
 .af-playlist-play-button:hover {
   transform: translateY(-4px) scale(1.1);
-  box-shadow: 0 12px 32px rgba(var(--af-accent-primary-rgb), 0.32);
-  background: var(--af-accent-gradient-hover);
+  border-color: var(--af-button-secondary-hover-border);
+  background: var(--af-button-secondary-hover-bg);
+  box-shadow: none;
 }
 
 .af-playlist-play-button:active {

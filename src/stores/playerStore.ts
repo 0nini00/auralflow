@@ -202,6 +202,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
       const run = (async () => {
         try {
+          let playedMusic = music;
           // 检查是否为本地音乐
           if ('isLocal' in music && music.isLocal && 'url' in music && music.url) {
             // 本地音乐直接使用已有的 URL
@@ -223,6 +224,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
             if (requestId !== activePlayRequestId) return;
 
             try {
+              playedMusic = cachedTarget.music;
               await playerEngine.play(cachedTarget.music, cachedTarget.url);
             } catch (cachedError) {
               invalidatePrefetchedTrack(music);
@@ -240,6 +242,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
                 throw cachedError;
               }
 
+              playedMusic = resolved.music;
               await playerEngine.play(resolved.music, resolved.url);
             }
 
@@ -266,6 +269,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
             }
 
             try {
+              playedMusic = resolved.music;
               await playerEngine.play(resolved.music, resolved.url);
             } catch (playbackError) {
               if (!resolved.fromCache) throw playbackError;
@@ -273,12 +277,13 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
               await invalidatePersistentPlaybackCache(music, resolved.music, resolved.quality);
               const refreshed = await resolvePlaybackUrl(music, variants, undefined, { bypassCache: true });
               if (requestId !== activePlayRequestId) return;
+              playedMusic = refreshed.music;
               await playerEngine.play(refreshed.music, refreshed.url);
             }
 
           }
           if (requestId !== activePlayRequestId) return;
-          useHistoryStore.getState().add(music);
+          useHistoryStore.getState().add(playedMusic);
           preloadNext(get);
         } catch (e) {
           if (requestId !== activePlayRequestId) return;

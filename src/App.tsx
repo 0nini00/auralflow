@@ -26,21 +26,12 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useNativeControls } from "./hooks/useNativeControls";
 import { setupPlayerSync } from "./stores/playerSync";
 import { detectWindowRoleFromParts, type AppWindowRole } from "./utils/windowRole";
-import { setupScrobble } from "./services/scrobbleService";
 import { customSourcePersistence, useCustomSourceStore } from "./stores/customSourceStore";
 import { usePlayerStore } from "./stores/playerStore";
 import { playerEngine } from "./services/playerEngine";
 import { normalizePauseOnExternalPlayback } from "./services/mediaInterruptionPolicy";
 import { loadSettings } from "@lx/tauri-bridge";
 import { logAsyncError } from "./utils/logAsyncError";
-
-let scrobbleStarted = false;
-
-function ensureScrobble() {
-  if (scrobbleStarted) return;
-  scrobbleStarted = true;
-  setupScrobble();
-}
 
 function MainApp() {
   useKeyboardShortcuts();
@@ -50,8 +41,6 @@ function MainApp() {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
 
   useEffect(() => {
-    ensureScrobble();
-
     const loadCursor = () => {
       loadSettings()
         .then((s) => {

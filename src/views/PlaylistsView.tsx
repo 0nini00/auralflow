@@ -35,6 +35,7 @@ export function PlaylistsView() {
   const wyLoading = useWyAccountStore((s) => s.isLoading);
   const wyLoaded = useWyAccountStore((s) => s.isLoaded);
   const wyError = useWyAccountStore((s) => s.error);
+  const wyPreloadSongs = useWyAccountStore((s) => s.preloadPlaylistSongs);
   const biliAccount = useBiliAccountStore((s) => s.account);
   const biliPlaylists = useBiliAccountStore((s) => s.playlists);
   const hiddenBiliCollectionIds = useBiliAccountStore((s) => s.hiddenCollectionIds);
@@ -404,6 +405,8 @@ export function PlaylistsView() {
                     key={playlist.id}
                     type="button"
                     className="af-playlist-card af-cloud-playlist-card"
+                    onMouseEnter={() => wyPreloadSongs(playlist.id)}
+                    onFocus={() => wyPreloadSongs(playlist.id)}
                     onClick={() => navigate(`/playlist/${playlist.id}`)}
                   >
                     <PlaylistCover src={playlist.picUrl} name={playlist.name} cloud />
@@ -427,6 +430,8 @@ export function PlaylistsView() {
                       key={playlist.id}
                       type="button"
                       className="af-playlist-card af-cloud-playlist-card"
+                      onMouseEnter={() => wyPreloadSongs(playlist.id)}
+                      onFocus={() => wyPreloadSongs(playlist.id)}
                       onClick={() => navigate(`/playlist/${playlist.id}`)}
                     >
                       <PlaylistCover src={playlist.picUrl} name={playlist.name} cloud />

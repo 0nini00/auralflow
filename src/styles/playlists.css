@@ -43,9 +43,9 @@
   gap: 8px;
   min-height: 42px;
   padding: 0 18px;
-  background: rgba(var(--af-accent-primary-rgb), 0.12);
-  color: var(--af-accent-primary);
-  border: 1px solid rgba(var(--af-accent-primary-rgb), 0.32);
+  background: var(--af-button-secondary-bg);
+  color: var(--af-text-primary);
+  border: 1px solid var(--af-button-secondary-border);
   border-radius: 999px;
   font-size: 14px;
   font-weight: 700;
@@ -56,7 +56,8 @@
 
 .af-create-playlist-btn:hover {
   transform: translateY(-1px);
-  background: rgba(var(--af-accent-primary-rgb), 0.18);
+  border-color: var(--af-button-secondary-hover-border);
+  background: var(--af-button-secondary-hover-bg);
   box-shadow: none;
 }
 
@@ -68,12 +69,14 @@
 }
 
 .af-create-playlist-btn.af-btn-secondary {
-  background: var(--af-bg-surface);
+  border-color: var(--af-button-secondary-border);
+  background: var(--af-button-secondary-bg);
   color: var(--af-text-primary);
   box-shadow: none;
 }
 .af-create-playlist-btn.af-btn-secondary:hover {
-  background: var(--af-bg-surface-hover);
+  border-color: var(--af-button-secondary-hover-border);
+  background: var(--af-button-secondary-hover-bg);
   box-shadow: none;
 }
 .af-create-playlist-btn:disabled {
@@ -142,10 +145,10 @@
 .af-bili-new-pill {
   min-height: 30px;
   padding: 0 12px;
-  border: 1px solid rgba(var(--af-accent-primary-rgb), 0.24);
+  border: 1px solid var(--af-button-secondary-border);
   border-radius: 999px;
-  background: rgba(var(--af-accent-primary-rgb), 0.1);
-  color: var(--af-accent-primary);
+  background: var(--af-button-secondary-bg);
+  color: var(--af-text-primary);
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
@@ -153,8 +156,8 @@
 }
 
 .af-bili-new-pill:hover {
-  background: rgba(var(--af-accent-primary-rgb), 0.16);
-  border-color: rgba(var(--af-accent-primary-rgb), 0.34);
+  background: var(--af-button-secondary-hover-bg);
+  border-color: var(--af-button-secondary-hover-border);
 }
 
 .af-quick-grid {
@@ -344,9 +347,9 @@ button.af-playlist-card {
   width: 42px;
   height: 42px;
   border-radius: 50%;
-  background: rgba(var(--af-accent-primary-rgb), 0.12);
-  color: var(--af-accent-primary);
-  border: 1px solid rgba(var(--af-accent-primary-rgb), 0.32);
+  background: var(--af-button-secondary-bg);
+  color: var(--af-text-primary);
+  border: 1px solid var(--af-button-secondary-border);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -452,8 +455,8 @@ button.af-playlist-card {
 }
 
 .af-menu-trigger:hover {
-  background: var(--af-bg-hover);
-  border-color: var(--af-border-primary);
+  background: var(--af-button-secondary-hover-bg);
+  border-color: var(--af-button-secondary-border);
   color: var(--af-text-primary);
 }
 
@@ -812,63 +815,6 @@ button.af-playlist-card {
   display: flex;
   gap: 12px;
   justify-content: flex-end;
-}
-
-.af-btn-primary,
-.af-btn-secondary {
-  min-height: 36px;
-  padding: 9px 14px;
-  font-size: 13px;
-  font-weight: 600;
-  border-radius: var(--af-button-radius);
-  cursor: pointer;
-  transition: transform 0.2s, opacity 0.2s, background 0.2s, border-color 0.2s, box-shadow 0.2s;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  white-space: nowrap;
-  line-height: 1;
-}
-
-.af-btn-primary > svg,
-.af-btn-secondary > svg {
-  flex: 0 0 auto;
-}
-
-.af-btn-secondary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.af-btn-primary {
-  border: 1px solid rgba(var(--af-accent-primary-rgb), 0.42);
-  background: linear-gradient(180deg, rgba(var(--af-accent-primary-rgb), 0.95), rgba(var(--af-accent-primary-rgb), 0.82));
-  color: var(--af-text-on-accent);
-  box-shadow: 0 8px 18px rgba(var(--af-accent-primary-rgb), 0.2);
-}
-
-.af-btn-primary:hover:not(:disabled) {
-  background: var(--af-accent-gradient-hover);
-  transform: translateY(-1px);
-  box-shadow: 0 10px 22px rgba(var(--af-accent-primary-rgb), 0.24);
-}
-
-.af-btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.af-btn-secondary {
-  border: 1px solid var(--af-border-primary);
-  background: var(--af-bg-surface);
-  color: var(--af-text-primary);
-}
-
-.af-btn-secondary:hover {
-  border-color: rgba(var(--af-accent-primary-rgb), 0.35);
-  background: var(--af-bg-surface-hover);
-  transform: translateY(-1px);
 }
 
 /* 歌单详情页 */

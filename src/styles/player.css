@@ -168,21 +168,21 @@
   width: 42px;
   height: 42px;
   border-radius: 14px;
-  background: linear-gradient(180deg, rgba(var(--af-accent-primary-rgb), 0.96), rgba(var(--af-accent-primary-rgb), 0.82));
-  color: var(--af-text-on-accent);
-  border: 1px solid rgba(var(--af-accent-primary-rgb), 0.45);
+  background: rgba(var(--af-accent-primary-rgb), 0.12);
+  color: var(--af-accent-primary);
+  border: 1px solid rgba(var(--af-accent-primary-rgb), 0.32);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: background var(--af-transition-fast), box-shadow var(--af-transition-fast), transform var(--af-transition-fast);
-  box-shadow: 0 8px 20px rgba(var(--af-accent-primary-rgb), 0.24);
+  box-shadow: none;
 }
 
 .af-play-button:hover {
-  background: var(--af-accent-gradient-hover);
+  background: rgba(var(--af-accent-primary-rgb), 0.18);
   transform: translateY(-1px);
-  box-shadow: 0 10px 24px rgba(var(--af-accent-primary-rgb), 0.28);
+  box-shadow: none;
 }
 
 .af-play-button:active {

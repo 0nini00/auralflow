@@ -51,6 +51,8 @@ pub fn run() {
             // B站 API
             commands::bili_get_json,
             commands::bili_cache_audio,
+            commands::cache_remote_audio,
+            commands::cache_remote_image,
             commands::get_song_cache_stats,
             commands::clear_song_cache,
             // 下载

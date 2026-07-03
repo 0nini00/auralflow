@@ -42,6 +42,7 @@ import {
   libraryReset,
   isLyricWindowOpen,
   setLyricWindowPinned,
+  type SongCacheStats,
 } from "@lx/tauri-bridge";
 import { useCustomSourceStore } from "@/stores/customSourceStore";
 import { useBiliAccountStore } from "@/stores/biliAccountStore";
@@ -158,7 +159,6 @@ export function SettingsView() {
   // 播放设置
   const [defaultQuality, setDefaultQuality] = useState("320k");
   const [pauseOnExternalPlayback, setPauseOnExternalPlayback] = useState(true);
-  const [neteaseScrobbleSync, setNeteaseScrobbleSync] = useState(true);
   const [customScriptText, setCustomScriptText] = useState("");
   const [customSourceStatus, setCustomSourceStatus] = useState("");
   const [customSourceAutoCheck, setCustomSourceAutoCheck] = useState(true);
@@ -167,7 +167,7 @@ export function SettingsView() {
   const [biliCookiePending, setBiliCookiePending] = useState(false);
   const [immersiveLyricFontSize, setImmersiveLyricFontSize] = useState(DEFAULT_IMMERSIVE_LYRIC_FONT_SIZE);
   const [immersiveLyricFontFamily, setImmersiveLyricFontFamily] = useState(DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
-  const [songCacheSize, setSongCacheSize] = useState<number | null>(null);
+  const [songCacheStats, setSongCacheStats] = useState<SongCacheStats | null>(null);
   const [dataPending, setDataPending] = useState(false);
   const [dataStatus, setDataStatus] = useState("");
   const {
@@ -188,7 +188,7 @@ export function SettingsView() {
 
   const refreshSongCacheStats = async () => {
     const stats = await getSongCacheStats();
-    setSongCacheSize(stats.totalSize);
+    setSongCacheStats(stats);
     return stats;
   };
 
@@ -199,7 +199,6 @@ export function SettingsView() {
       const nextPauseOnExternalPlayback = normalizePauseOnExternalPlayback(settings.pauseOnExternalPlayback);
       setPauseOnExternalPlayback(nextPauseOnExternalPlayback);
       playerEngine.setPauseOnExternalPlayback(nextPauseOnExternalPlayback);
-      setNeteaseScrobbleSync(settings.neteaseScrobbleSync !== false);
       setCustomSourceAutoCheck(settings.customSourceAutoCheck !== false);
       setAppBackgroundImagePath(settings.appBackgroundImagePath ?? "");
       setBiliCookieText(settings.biliCookie ?? "");
@@ -210,7 +209,7 @@ export function SettingsView() {
 
   useEffect(() => {
     refreshSongCacheStats().catch((error) => {
-      setDataStatus(`读取歌曲缓存大小失败：${error instanceof Error ? error.message : String(error)}`);
+      setDataStatus(`读取缓存大小失败：${error instanceof Error ? error.message : String(error)}`);
     });
   }, []);
 
@@ -275,17 +274,6 @@ export function SettingsView() {
       warnAsyncError("settings:patch-pause-on-external-playback", error);
       setPauseOnExternalPlayback(previous);
       playerEngine.setPauseOnExternalPlayback(previous);
-    }
-  };
-
-  const handleNeteaseScrobbleSyncChange = async (next: boolean) => {
-    const previous = neteaseScrobbleSync;
-    setNeteaseScrobbleSync(next);
-    try {
-      await patchSettings({ neteaseScrobbleSync: next });
-    } catch (error) {
-      warnAsyncError("settings:patch-netease-scrobble-sync", error);
-      setNeteaseScrobbleSync(previous);
     }
   };
 
@@ -381,7 +369,7 @@ export function SettingsView() {
   };
 
   const handleClearHistoryAndCache = async () => {
-    if (!confirm('确定清空播放历史与歌曲缓存？\n\n仅清空播放历史与歌曲缓存，其他数据保留。')) return;
+    if (!confirm('确定清空播放历史与缓存？\n\n清空历史、播放链接、歌词、音频和封面。')) return;
     setDataStatus("清理中...");
     setDataPending(true);
     try {
@@ -390,8 +378,8 @@ export function SettingsView() {
       await clearPersistentCache();
       clearPlaybackPrefetchCache();
       const stats = await clearSongCache();
-      setSongCacheSize(stats.totalSize);
-      setDataStatus("已清空播放历史与歌曲缓存。");
+      setSongCacheStats(stats);
+      setDataStatus("已清空播放历史与缓存。");
     } catch (err) {
       setDataStatus(`清理失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -654,33 +642,6 @@ export function SettingsView() {
           </div>
         </div>
 
-        <div className="af-settings-group">
-          <label className="af-settings-label">网易云听歌记录</label>
-          <div className="af-sfx-toggle">
-            <button
-              type="button"
-              className={`af-sfx-toggle-btn ${neteaseScrobbleSync ? "af-active" : ""}`}
-              onClick={() => { void handleNeteaseScrobbleSyncChange(true); }}
-              aria-pressed={neteaseScrobbleSync}
-              title="同步"
-            >
-              <Cloud size={14} />
-              同步
-            </button>
-            <button
-              type="button"
-              className={`af-sfx-toggle-btn ${!neteaseScrobbleSync ? "af-active" : ""}`}
-              onClick={() => { void handleNeteaseScrobbleSyncChange(false); }}
-              aria-pressed={!neteaseScrobbleSync}
-              title="不同步"
-            >
-              <Cloud size={14} />
-              不同步
-            </button>
-          </div>
-          <p className="af-settings-hint">仅同步网易云源歌曲，播放达到阈值后写入网易云听歌统计；失败会自动重试。</p>
-        </div>
-
       </section>
       )}
 
@@ -910,13 +871,27 @@ export function SettingsView() {
         <h2 className="af-settings-section-title">数据管理</h2>
         <div className="af-settings-row">
           <div>
-            <label className="af-settings-label">播放历史与歌曲缓存</label>
+            <label className="af-settings-label">播放历史与缓存</label>
             <p className="af-settings-hint">
-              仅清空播放历史与歌曲缓存，其他数据保留。
+              普通在线歌曲会缓存音频和封面。
             </p>
-            <div className="af-data-cache-size" aria-label="歌曲缓存大小">
-              <span>歌曲缓存</span>
-              <strong>{formatByteSize(songCacheSize)}</strong>
+            <div className="af-data-cache-size" aria-label="播放缓存大小">
+              <div className="af-data-cache-size-item af-total">
+                <span>总占用</span>
+                <strong>{formatByteSize(songCacheStats?.totalSize ?? null)}</strong>
+              </div>
+              <div className="af-data-cache-size-item">
+                <span>播放链接/歌词</span>
+                <strong>{formatByteSize(songCacheStats?.persistentCacheSize ?? null)}</strong>
+              </div>
+              <div className="af-data-cache-size-item">
+                <span>歌曲音频文件</span>
+                <strong>{formatByteSize(songCacheStats?.audioCacheSize ?? null)}</strong>
+              </div>
+              <div className="af-data-cache-size-item">
+                <span>封面图片</span>
+                <strong>{formatByteSize(songCacheStats?.coverCacheSize ?? null)}</strong>
+              </div>
             </div>
           </div>
           <button

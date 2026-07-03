@@ -112,20 +112,46 @@
 }
 
 .af-data-cache-size {
-  width: fit-content;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
+  width: min(100%, 640px);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
   margin-top: 12px;
-  padding: 7px 10px;
+  padding: 6px;
   border: 1px solid var(--af-border-secondary);
-  border-radius: var(--af-radius-sm);
+  border-radius: var(--af-radius-md);
   background: var(--af-bg-surface);
   color: var(--af-text-secondary);
   font-size: var(--af-font-size-xs);
 }
 
-.af-data-cache-size strong {
+@media (max-width: 720px) {
+  .af-data-cache-size {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.af-data-cache-size-item {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 8px;
+  border-radius: var(--af-radius-sm);
+  background: var(--af-bg-elevated);
+}
+
+.af-data-cache-size-item.af-total {
+  background: rgba(var(--af-accent-primary-rgb), 0.08);
+}
+
+.af-data-cache-size-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-data-cache-size-item strong {
   color: var(--af-text-primary);
   font-size: var(--af-font-size-sm);
 }
@@ -451,21 +477,22 @@
 
 .af-settings-button {
   padding: 10px 20px;
-  background: var(--af-accent-gradient);
-  border: none;
+  background: var(--af-button-secondary-bg);
+  border: 1px solid var(--af-button-secondary-border);
   border-radius: var(--af-radius-md);
-  color: var(--af-accent-text);
+  color: var(--af-text-primary);
   font-size: var(--af-font-size-sm);
   font-weight: var(--af-font-weight-medium);
   cursor: pointer;
   transition: all var(--af-transition-base);
   white-space: nowrap;
-  box-shadow: 0 2px 8px rgba(var(--af-accent-primary-rgb), 0.2);
+  box-shadow: var(--af-button-secondary-shadow);
 }
 
 .af-settings-button:hover {
-  background: var(--af-accent-gradient-hover);
-  box-shadow: 0 4px 12px rgba(var(--af-accent-primary-rgb), 0.3);
+  border-color: var(--af-button-secondary-hover-border);
+  background: var(--af-button-secondary-hover-bg);
+  box-shadow: none;
   transform: translateY(-1px);
 }
 
@@ -557,8 +584,9 @@
 }
 
 .af-settings-small-button.af-custom-source-auto-check.af-active {
-  border-color: rgba(var(--af-accent-primary-rgb), 0.32);
-  background: rgba(var(--af-accent-primary-rgb), 0.12);
+  border-color: var(--af-button-active-border);
+  background: var(--af-button-active-bg);
+  box-shadow: var(--af-button-active-shadow);
   color: var(--af-accent-primary);
 }
 
@@ -745,14 +773,15 @@
 }
 
 .af-custom-source-icon-button:hover:not(:disabled) {
-  border-color: var(--af-border-primary);
-  background: var(--af-bg-surface-hover);
+  border-color: var(--af-button-secondary-hover-border);
+  background: var(--af-button-secondary-hover-bg);
   color: var(--af-text-primary);
 }
 
 .af-custom-source-icon-button.af-active {
-  border-color: rgba(var(--af-accent-primary-rgb), 0.32);
-  background: rgba(var(--af-accent-primary-rgb), 0.1);
+  border-color: var(--af-button-active-border);
+  background: var(--af-button-active-bg);
+  box-shadow: var(--af-button-active-shadow);
   color: var(--af-accent-primary);
 }
 
@@ -974,11 +1003,12 @@
   border-left: 1px solid var(--af-border-secondary);
 }
 .af-sfx-toggle-btn:hover {
-  background: var(--af-bg-surface-hover);
+  background: var(--af-button-secondary-hover-bg);
 }
 .af-sfx-toggle-btn.af-active {
-  background: var(--af-accent-primary);
-  color: #fff;
+  background: var(--af-button-active-bg);
+  color: var(--af-accent-primary);
+  box-shadow: inset 0 -2px 0 var(--af-accent-primary);
 }
 
 .af-sfx-presets {
@@ -1001,12 +1031,14 @@
   transition: all var(--af-transition-base);
 }
 .af-sfx-pill:hover {
-  border-color: var(--af-border-primary);
+  border-color: var(--af-button-secondary-hover-border);
+  background: var(--af-button-secondary-hover-bg);
   color: var(--af-text-primary);
 }
 .af-sfx-pill.af-active {
-  background: rgba(var(--af-accent-primary-rgb), 0.12);
-  border-color: var(--af-accent-primary);
+  background: var(--af-button-active-bg);
+  border-color: var(--af-button-active-border);
+  box-shadow: var(--af-button-active-shadow);
   color: var(--af-accent-primary);
 }
 
@@ -1153,13 +1185,14 @@
 }
 
 .af-lyric-settings-tab:hover {
-  background: var(--af-bg-surface-hover);
+  background: var(--af-button-secondary-hover-bg);
   color: var(--af-text-primary);
 }
 
 .af-lyric-settings-tab.af-active {
-  border-color: rgba(var(--af-accent-primary-rgb), 0.26);
-  background: rgba(var(--af-accent-primary-rgb), 0.14);
+  border-color: var(--af-button-active-border);
+  background: var(--af-button-active-bg);
+  box-shadow: var(--af-button-active-shadow);
   color: var(--af-accent-primary);
 }
 

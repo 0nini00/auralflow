@@ -141,6 +141,7 @@ export function PlaylistDetailView() {
     let cancelled = false;
     setWySongsLoading(true);
     setWySongsError('');
+    setWySongs(null);
     wyGetSongs(wyPlaylist.id)
       .then(songs => { if (!cancelled) setWySongs(songs); })
       .catch(e => { if (!cancelled) setWySongsError(e instanceof Error ? e.message : String(e)); })
@@ -153,6 +154,7 @@ export function PlaylistDetailView() {
     let cancelled = false;
     setBiliSongsLoading(true);
     setBiliSongsError('');
+    setBiliSongs(null);
     biliGetSongs(biliPlaylist.id)
       .then((songs) => { if (!cancelled) setBiliSongs(songs); })
       .catch((error) => { if (!cancelled) setBiliSongsError(error instanceof Error ? error.message : String(error)); })
@@ -170,6 +172,7 @@ export function PlaylistDetailView() {
       setRemoteRefreshing(true);
     } else {
       setRemoteSongsLoading(true);
+      setRemoteSongs(null);
     }
     setRemoteSongsError('');
     return provider.getPlaylistDetail(playlist)
@@ -197,6 +200,7 @@ export function PlaylistDetailView() {
     }
     setRemoteSongsLoading(true);
     setRemoteSongsError('');
+    setRemoteSongs(null);
     provider.getPlaylistDetail(remotePlaylistInfo)
       .then((songs) => { if (!cancelled) setRemoteSongs(songs); })
       .catch((err) => {
@@ -241,24 +245,13 @@ export function PlaylistDetailView() {
     };
   }, []);
 
-  if (wySongsLoading || biliSongsLoading || remoteSongsLoading) {
-    return (
-      <div className="af-playlist-detail-view">
-        <div className="af-empty-state">
-          <Loader2 size={32} className="af-spin" />
-          <p>加载歌单中...</p>
-        </div>
-      </div>
-    );
-  }
-
   if (wySongsError || biliSongsError || remoteSongsError) {
     return (
       <div className="af-playlist-detail-view">
         <div className="af-empty-state">
           <p>加载失败</p>
           <span>{wySongsError || biliSongsError || remoteSongsError}</span>
-          <button onClick={() => remoteSource ? navigate(-1) : navigate('/playlists')} style={{ marginTop: 16 }}>返回</button>
+          <button className="af-btn-secondary" onClick={() => remoteSource ? navigate(-1) : navigate('/playlists')} style={{ marginTop: 16 }}>返回</button>
         </div>
       </div>
     );
@@ -269,7 +262,7 @@ export function PlaylistDetailView() {
       <div className="af-playlist-detail-view">
         <div className="af-empty-state">
           <p>歌单不存在</p>
-          <button onClick={() => navigate('/playlists')}>返回歌单列表</button>
+          <button className="af-btn-secondary" onClick={() => navigate('/playlists')}>返回歌单列表</button>
         </div>
       </div>
     );
@@ -293,6 +286,7 @@ export function PlaylistDetailView() {
   const remoteCollectLabel = remotePlaylistInfo?.source === "wy" ? "收藏到网易云账号" : "收藏到本地歌单";
   const remotePlaylistMeta = remotePlaylistInfo ? formatPlaylistSearchMeta(remotePlaylistInfo) : "--";
   const songs = playlist.songs;
+  const isSongsLoading = wySongsLoading || biliSongsLoading || remoteSongsLoading;
   const isPlayAllPending = pendingPlayAction === 'play-all';
   const isShufflePending = pendingPlayAction === 'shuffle';
 
@@ -598,7 +592,12 @@ export function PlaylistDetailView() {
       {actionStatus && <p className="af-playlist-action-status">{actionStatus}</p>}
 
       <div className="af-playlist-songs">
-        {songs.length === 0 ? (
+        {isSongsLoading ? (
+          <div className="af-empty-state">
+            <Loader2 size={32} className="af-spin" />
+            <p>正在加载歌曲...</p>
+          </div>
+        ) : songs.length === 0 ? (
           <div className="af-empty-state">
             <p>歌单是空的</p>
             <span>从搜索或其他地方添加歌曲</span>

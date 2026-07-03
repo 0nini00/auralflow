@@ -25,6 +25,7 @@ interface WyAccountState {
   load: (cookieStr?: string) => Promise<void>;
   logout: () => Promise<void>;
   getPlaylistSongs: (id: string) => Promise<MusicInfo[]>;
+  preloadPlaylistSongs: (id: string) => void;
   /** 强制刷新某个网易云歌单：清缓存并重新拉取详情 */
   refreshPlaylistSongs: (id: string) => Promise<MusicInfo[]>;
 
@@ -37,6 +38,42 @@ interface WyAccountState {
 }
 
 const playlistCache = new Map<string, MusicInfo[]>();
+const playlistRequestCache = new Map<string, Promise<MusicInfo[]>>();
+
+function clearPlaylistCaches() {
+  playlistCache.clear();
+  playlistRequestCache.clear();
+}
+
+function fetchAndCachePlaylistSongs(id: string, force = false): Promise<MusicInfo[]> {
+  if (!force) {
+    const cached = playlistCache.get(id);
+    if (cached) return Promise.resolve(cached);
+
+    const pending = playlistRequestCache.get(id);
+    if (pending) return pending;
+  } else {
+    playlistCache.delete(id);
+    playlistRequestCache.delete(id);
+  }
+
+  let request: Promise<MusicInfo[]>;
+  request = getPlaylistDetail(id)
+    .then((songs) => {
+      if (playlistRequestCache.get(id) === request) {
+        playlistCache.set(id, songs);
+      }
+      return songs;
+    })
+    .finally(() => {
+      if (playlistRequestCache.get(id) === request) {
+        playlistRequestCache.delete(id);
+      }
+    });
+
+  playlistRequestCache.set(id, request);
+  return request;
+}
 
 function extractWyTrackIds(songs: MusicInfo[]): string[] {
   const ids: string[] = [];
@@ -58,7 +95,7 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
     try {
       const cookie = cookieStr ?? (await getWyCookie());
       if (!cookie) {
-        playlistCache.clear();
+        clearPlaylistCaches();
         set({ isLoaded: true, playlists: [], account: null });
         return;
       }
@@ -68,11 +105,11 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
 
       const account = await checkAccount();
       const playlists = await getUserPlaylists(account.uid);
-      playlistCache.clear();
+      clearPlaylistCaches();
       set({ playlists, isLoaded: true, isLoading: false });
       set({ account });
     } catch (e) {
-      playlistCache.clear();
+      clearPlaylistCaches();
       set({
         account: null,
         playlists: [],
@@ -86,7 +123,7 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
   logout: async () => {
     await patchSettings({ wyCookie: null });
     setWyCookie("");
-    playlistCache.clear();
+    clearPlaylistCaches();
     set({
       account: null,
       playlists: [],
@@ -97,19 +134,19 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
   },
 
   getPlaylistSongs: async (id: string) => {
-    const cached = playlistCache.get(id);
-    if (cached) return cached;
+    return fetchAndCachePlaylistSongs(id);
+  },
 
-    const songs = await getPlaylistDetail(id);
-    playlistCache.set(id, songs);
-    return songs;
+  preloadPlaylistSongs: (id: string) => {
+    if (playlistCache.has(id) || playlistRequestCache.has(id)) return;
+
+    void fetchAndCachePlaylistSongs(id).catch(() => {
+      // 预热失败不改 UI；正式进入详情页时仍会走可见错误路径。
+    });
   },
 
   refreshPlaylistSongs: async (id: string) => {
-    playlistCache.delete(id);
-    const songs = await getPlaylistDetail(id);
-    playlistCache.set(id, songs);
-    return songs;
+    return fetchAndCachePlaylistSongs(id, true);
   },
 
   addTracks: async (playlistId, songs) => {
@@ -185,6 +222,7 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
     if (!subscribe) {
       // 取消收藏：从列表移除并清缓存
       playlistCache.delete(playlistId);
+      playlistRequestCache.delete(playlistId);
       set({ playlists: get().playlists.filter((p) => p.id !== playlistId) });
     } else {
       // 收藏：刷新一次列表，让新收藏出现

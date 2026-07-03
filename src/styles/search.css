@@ -45,21 +45,22 @@
 
 .af-search-submit {
   padding: 16px 32px;
-  background: var(--af-accent-gradient);
-  border: none;
+  background: var(--af-button-secondary-bg);
+  border: 1px solid var(--af-button-secondary-border);
   border-radius: var(--af-radius-xl);
-  color: var(--af-accent-text);
+  color: var(--af-text-primary);
   font-size: var(--af-font-size-base);
   font-weight: var(--af-font-weight-semibold);
   cursor: pointer;
   transition: all var(--af-transition-base);
-  box-shadow: 0 4px 12px rgba(var(--af-accent-primary-rgb), 0.25);
+  box-shadow: var(--af-button-secondary-shadow);
   white-space: nowrap;
 }
 
 .af-search-submit:hover {
-  background: var(--af-accent-gradient-hover);
-  box-shadow: 0 6px 16px rgba(var(--af-accent-primary-rgb), 0.35);
+  border-color: var(--af-button-secondary-hover-border);
+  background: var(--af-button-secondary-hover-bg);
+  box-shadow: none;
   transform: translateY(-1px);
 }
 

@@ -6,6 +6,7 @@ import { customSourceBackend } from './customSourceBackend';
 import type { PlaybackBackendId, PlaybackResolvedUrl } from './types';
 import { canResolveWithBuiltinMusicApi } from '@/services/builtinMusicApiModel';
 import { getCachedPlaybackUrl, saveCachedPlaybackUrl } from '@/services/persistentCache';
+import { cacheResolvedPlaybackMedia } from '@/services/mediaCache';
 
 function normalizeQualityPreference(value: string): string[] {
   if (value === 'high') return ['320k', '128k'];
@@ -22,7 +23,7 @@ export async function resolvePlaybackUrl(
   music: MusicInfo,
   variants?: MusicInfo[],
   preferredQuality?: string,
-  options: { bypassCache?: boolean } = {},
+  options: { bypassCache?: boolean; cacheMedia?: boolean } = {},
 ): Promise<PlaybackResolvedUrl> {
   const settings = await loadSettings();
   const qualityPreference = normalizeQualityPreference(preferredQuality ?? settings.defaultQuality);
@@ -49,10 +50,11 @@ export async function resolvePlaybackUrl(
         variants: allVariants,
         qualityPreference,
       });
-      void saveCachedPlaybackUrl(music, resolved).catch((error) => {
+      const playable = await prepareResolvedPlaybackMedia(music, resolved, options.cacheMedia !== false);
+      void saveCachedPlaybackUrl(music, playable).catch((error) => {
         console.warn('[playbackResolver] 写入播放缓存失败', error);
       });
-      return resolved;
+      return playable;
     } catch (error) {
       builtInError = error;
     }
@@ -64,10 +66,11 @@ export async function resolvePlaybackUrl(
       variants: allVariants,
       qualityPreference,
     });
-    void saveCachedPlaybackUrl(music, resolved).catch((error) => {
+    const playable = await prepareResolvedPlaybackMedia(music, resolved, options.cacheMedia !== false);
+    void saveCachedPlaybackUrl(music, playable).catch((error) => {
       console.warn('[playbackResolver] 写入播放缓存失败', error);
     });
-    return resolved;
+    return playable;
   } catch (providerError) {
     if (builtInError) {
       const builtInMessage = builtInError instanceof Error ? builtInError.message : String(builtInError);
@@ -84,10 +87,11 @@ export async function resolvePlaybackUrl(
       variants: allVariants,
       qualityPreference,
     });
-    void saveCachedPlaybackUrl(music, resolved).catch((error) => {
+    const playable = await prepareResolvedPlaybackMedia(music, resolved, options.cacheMedia !== false);
+    void saveCachedPlaybackUrl(music, playable).catch((error) => {
       console.warn('[playbackResolver] 写入播放缓存失败', error);
     });
-    return resolved;
+    return playable;
   } catch (fallbackError) {
     if (builtInError) {
       const builtInMessage = builtInError instanceof Error ? builtInError.message : String(builtInError);
@@ -95,6 +99,20 @@ export async function resolvePlaybackUrl(
       throw new Error(`${builtInMessage}\n自定义音源播放失败：${fallbackMessage}`);
     }
     throw fallbackError;
+  }
+}
+
+async function prepareResolvedPlaybackMedia(
+  primary: MusicInfo,
+  resolved: PlaybackResolvedUrl,
+  cacheMedia: boolean,
+): Promise<PlaybackResolvedUrl> {
+  if (!cacheMedia) return resolved;
+  try {
+    return await cacheResolvedPlaybackMedia(primary, resolved);
+  } catch (error) {
+    console.warn('[playbackResolver] 落盘缓存失败，继续使用在线播放', error);
+    return resolved;
   }
 }
 

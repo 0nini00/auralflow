@@ -56,21 +56,23 @@
 }
 
 .af-library-button-primary {
-  background: var(--af-accent-gradient);
-  color: var(--af-accent-text);
-  box-shadow: 0 2px 8px rgba(var(--af-accent-primary-rgb), 0.18);
+  background: var(--af-button-secondary-bg);
+  color: var(--af-text-primary);
+  border: 1px solid var(--af-button-secondary-border);
+  box-shadow: var(--af-button-secondary-shadow);
 }
 
 .af-library-button-primary:hover:not(:disabled) {
-  background: var(--af-accent-gradient-hover);
-  box-shadow: 0 4px 12px rgba(var(--af-accent-primary-rgb), 0.24);
+  background: var(--af-button-secondary-hover-bg);
+  border-color: var(--af-button-secondary-hover-border);
+  box-shadow: none;
   transform: translateY(-1px);
 }
 
 .af-library-button-danger {
-  background: var(--af-bg-surface);
-  color: var(--af-text-secondary);
-  border: 1px solid var(--af-border-secondary);
+  background: var(--af-button-secondary-bg);
+  color: var(--af-text-primary);
+  border: 1px solid var(--af-button-secondary-border);
 }
 
 .af-library-button-danger:hover {
@@ -87,14 +89,15 @@
 .af-library-button-sm {
   padding: 6px 12px;
   font-size: var(--af-font-size-sm);
-  background: var(--af-bg-surface);
-  color: var(--af-text-secondary);
-  border: 1px solid var(--af-border-secondary);
+  background: var(--af-button-secondary-bg);
+  color: var(--af-text-primary);
+  border: 1px solid var(--af-button-secondary-border);
   border-radius: 6px;
 }
 
 .af-library-button-sm:hover {
-  background: var(--af-bg-surface-hover);
+  border-color: var(--af-button-secondary-hover-border);
+  background: var(--af-button-secondary-hover-bg);
   color: var(--af-text-primary);
 }
 

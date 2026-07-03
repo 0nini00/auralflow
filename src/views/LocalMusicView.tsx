@@ -50,12 +50,9 @@ export function LocalMusicView() {
   const handleRefresh = async () => {
     if (scanPaths.length === 0) return;
     try {
-      const { added, removed, failedPaths } = await refreshLibrary();
+      const { failedPaths } = await refreshLibrary();
       if (failedPaths.length > 0) {
         alert(`以下文件夹刷新失败，已保留这些文件夹中原有歌曲：\n${failedPaths.join('\n')}`);
-      }
-      if (added > 0 || removed > 0) {
-        console.log(`[refresh] 新增 ${added} 首，移除 ${removed} 首`);
       }
     } catch (error) {
       console.error('Failed to refresh library:', error);
@@ -380,31 +377,32 @@ export function LocalMusicView() {
         }
 
         .af-button-secondary {
-          border: 1px solid var(--af-border-primary);
-          background: var(--af-bg-surface);
+          border: 1px solid var(--af-button-secondary-border);
+          background: var(--af-button-secondary-bg);
         }
 
         .af-button-secondary:hover:not(:disabled) {
-          border-color: rgba(var(--af-accent-primary-rgb), 0.32);
-          background: var(--af-bg-surface-hover);
+          border-color: var(--af-button-secondary-hover-border);
+          background: var(--af-button-secondary-hover-bg);
         }
 
         .af-button-primary {
-          border: 1px solid rgba(var(--af-accent-primary-rgb), 0.42);
-          background: linear-gradient(180deg, rgba(var(--af-accent-primary-rgb), 0.95), rgba(var(--af-accent-primary-rgb), 0.82));
-          color: var(--af-text-on-accent);
-          box-shadow: 0 8px 18px rgba(var(--af-accent-primary-rgb), 0.2);
+          border: 1px solid var(--af-button-secondary-border);
+          background: var(--af-button-secondary-bg);
+          color: var(--af-text-primary);
+          box-shadow: var(--af-button-secondary-shadow);
         }
 
         .af-button-primary:hover:not(:disabled) {
-          background: var(--af-accent-gradient-hover);
+          border-color: var(--af-button-secondary-hover-border);
+          background: var(--af-button-secondary-hover-bg);
         }
 
         .af-view-mode-toggle {
           display: flex;
           gap: 4px;
-          background: var(--af-bg-surface);
-          border: 1px solid var(--af-border-primary);
+          background: var(--af-button-secondary-bg);
+          border: 1px solid var(--af-button-secondary-border);
           border-radius: var(--af-radius-md);
           padding: 4px;
         }
@@ -429,8 +427,9 @@ export function LocalMusicView() {
         }
 
         .af-view-mode-toggle button.af-active {
-          background: rgba(var(--af-accent-primary-rgb), 0.12);
-          border-color: rgba(var(--af-accent-primary-rgb), 0.32);
+          background: var(--af-button-active-bg);
+          border-color: var(--af-button-active-border);
+          box-shadow: var(--af-button-active-shadow);
           color: var(--af-accent-primary);
         }
 
@@ -661,9 +660,9 @@ export function LocalMusicView() {
           width: 40px;
           height: 40px;
           border-radius: 50%;
-          background: var(--af-accent-primary);
-          color: white;
-          border: none;
+          background: var(--af-button-secondary-bg);
+          color: var(--af-text-primary);
+          border: 1px solid var(--af-button-secondary-border);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -671,7 +670,7 @@ export function LocalMusicView() {
           opacity: 0;
           transform: scale(0.9);
           transition: all 0.2s;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+          box-shadow: var(--af-button-secondary-shadow);
         }
 
         .af-local-grid-item:hover .af-grid-play-button,
@@ -681,7 +680,8 @@ export function LocalMusicView() {
         }
 
         .af-grid-play-button:hover {
-          background: var(--af-accent-hover);
+          border-color: var(--af-button-secondary-hover-border);
+          background: var(--af-button-secondary-hover-bg);
           transform: scale(1.05);
         }
 

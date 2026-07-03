@@ -25,9 +25,6 @@ pub struct AppSettings {
     pub default_quality: String,
     /// 其他媒体开始播放时，是否接受系统/浏览器触发的自动暂停
     pub pause_on_external_playback: bool,
-    /// 是否把网易云源歌曲同步到网易云听歌记录
-    #[serde(default = "default_true")]
-    pub netease_scrobble_sync: bool,
     /// 网易云 Cookie
     pub wy_cookie: Option<String>,
     /// B站 Cookie
@@ -111,7 +108,6 @@ impl Default for AppSettings {
             volume: 80,
             default_quality: "320k".to_string(),
             pause_on_external_playback: true,
-            netease_scrobble_sync: true,
             wy_cookie: None,
             bili_cookie: None,
             lyric_pinned: true,

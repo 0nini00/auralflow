@@ -590,35 +590,3 @@ export async function fmTrash(trackId: string): Promise<void> {
     time: 25,
   });
 }
-
-// ─── 听歌打卡（Scrobble） ───────────────────────────────────────
-
-/**
- * 网易云听歌打卡：上报一次播放记录，用于"听歌排行"统计。
- * 触发条件由调用方决定（通常为累计播放 ≥120s 或 ≥时长一半）。
- *
- * @param songId   网易云歌曲 id
- * @param sourceId 来源歌单/专辑 id；没有上下文时传空串
- * @param playedTime 已播放秒数
- */
-export async function scrobble(
-  songId: string,
-  sourceId: string,
-  playedTime: number,
-): Promise<void> {
-  const logs = JSON.stringify([
-    {
-      action: "play",
-      json: {
-        id: String(songId),
-        download: 0,
-        type: "song",
-        sourceId: String(sourceId ?? ""),
-        time: Math.floor(playedTime),
-        end: "playend",
-        wifi: 0,
-      },
-    },
-  ]);
-  await weapiPost("/feedback/weblog", { logs });
-}

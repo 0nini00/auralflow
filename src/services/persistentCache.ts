@@ -7,6 +7,7 @@ const CACHE_NAMESPACE = 'cache';
 
 export const PLAYBACK_URL_TTL_MS = 6 * 60 * 60 * 1000;
 export const BILI_PLAYBACK_URL_TTL_MS = 30 * 60 * 1000;
+export const LOCAL_PLAYBACK_CACHE_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 export const LYRIC_FOUND_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const LYRIC_EMPTY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -151,6 +152,15 @@ function getLyricCacheKey(music: Pick<MusicInfo, 'source' | 'id'>): string {
   return getTrackKey(music);
 }
 
+export function isLocalCachedPlaybackUrl(url: string): boolean {
+  return (
+    url.startsWith('asset:') ||
+    url.includes('__TAURI_ASSET__') ||
+    url.startsWith('http://asset.localhost') ||
+    url.startsWith('https://asset.localhost')
+  );
+}
+
 export async function getCachedPlaybackUrl(
   primary: MusicInfo,
   qualityPreference: string[],
@@ -165,7 +175,7 @@ export async function getCachedPlaybackUrl(
       const key = getPlaybackUrlCacheKey(music, quality);
       const entry = cache.playbackUrls[key];
       if (!entry) continue;
-      if (entry.expiresAt <= now) {
+      if (!isLocalCachedPlaybackUrl(entry.url) && entry.expiresAt <= now) {
         delete cache.playbackUrls[key];
         void saveCache(cache, now);
         continue;
@@ -205,7 +215,13 @@ export async function saveCachedPlaybackUrl(
     backend: resolved.backend,
     resolverName: resolved.resolverName,
     cachedAt: now,
-    expiresAt: now + (resolved.music.source === 'bili' ? BILI_PLAYBACK_URL_TTL_MS : PLAYBACK_URL_TTL_MS),
+    expiresAt: now + (
+      isLocalCachedPlaybackUrl(resolved.url)
+        ? LOCAL_PLAYBACK_CACHE_TTL_MS
+        : resolved.music.source === 'bili'
+          ? BILI_PLAYBACK_URL_TTL_MS
+          : PLAYBACK_URL_TTL_MS
+    ),
   };
 
   cache.playbackUrls[getPlaybackUrlCacheKey(primary, entry.quality)] = entry;

@@ -5,7 +5,7 @@ import ts from "typescript";
 const root = process.cwd();
 
 function read(path) {
-  return readFileSync(resolve(root, path), "utf8");
+  return readFileSync(resolve(root, path), "utf8").replace(/\r\n/g, "\n");
 }
 
 function fileExists(path) {
@@ -396,14 +396,22 @@ function testQuietAccentSystem() {
   const settingsCss = read("src/styles/settings.css");
   const buttonsCss = read("src/styles/buttons.css");
   const playlistsCss = read("src/styles/playlists.css");
+  const layoutCss = read("src/styles/layout.css");
+  const homeCss = read("src/styles/home.css");
+  const localMusicCss = read("src/styles/local-music.css");
+  const localMusicView = read("src/views/LocalMusicView.tsx");
+  const personalFmView = read("src/views/PersonalFmView.tsx");
+  const artistDetailView = read("src/views/ArtistDetailView.tsx");
   const accentDrivenUi = [
     read("src/index.css"),
     buttonsCss,
     playlistsCss,
     read("src/styles/player.css"),
-    read("src/styles/home.css"),
-    read("src/styles/local-music.css"),
-    read("src/views/ArtistDetailView.tsx"),
+    homeCss,
+    localMusicCss,
+    localMusicView,
+    personalFmView,
+    artistDetailView,
     read("src/views/LyricWindowView.tsx"),
   ].join("\n");
 
@@ -422,12 +430,39 @@ function testQuietAccentSystem() {
   assertIncludes(settingsCss, ".af-appearance-color-hex", "Appearance accent color hex input styles");
   assertIncludes(settingsCss, ".af-appearance-color-hex.af-invalid", "Appearance accent color invalid state styles");
 
+  assertIncludes(buttonsCss, "--af-button-secondary-bg", "Button system should centralize secondary button backgrounds");
+  assertIncludes(buttonsCss, "--af-button-active-bg", "Button system should centralize active button backgrounds");
+  assertIncludes(buttonsCss, ".af-app-has-background", "Button system should adapt controls over custom app backgrounds");
   assertIncludes(buttonsCss, ".af-create-playlist-btn:not(.af-btn-secondary),\n.af-library-button-primary", "Primary button selector set");
-  assertIncludes(buttonsCss, "background: rgba(var(--af-accent-primary-rgb), 0.12)", "Primary buttons should use quiet accent wash");
-  assertIncludes(buttonsCss, "color: var(--af-accent-primary)", "Primary buttons should use accent text");
-  assertIncludes(buttonsCss, "box-shadow: none", "Primary buttons should not use loud shadows");
-  assertNotIncludes(buttonsCss, "background: linear-gradient(180deg, rgba(var(--af-accent-primary-rgb)", "Primary buttons should not use filled gradients");
-  assertIncludes(buttonsCss, ".af-play-button", "Play button selector set");
+  assertCssRuleIncludes(buttonsCss, ".af-btn-primary,\n.af-button-primary,\n.af-settings-button:not(.af-settings-button-secondary),\n.af-home-primary-action,\n.af-search-submit,\n.af-create-playlist-btn:not(.af-btn-secondary),\n.af-library-button-primary", "background: var(--af-button-secondary-bg)", "Primary text buttons should share the same quiet background as secondary buttons");
+  assertCssRuleIncludes(buttonsCss, ".af-btn-primary,\n.af-button-primary,\n.af-settings-button:not(.af-settings-button-secondary),\n.af-home-primary-action,\n.af-search-submit,\n.af-create-playlist-btn:not(.af-btn-secondary),\n.af-library-button-primary", "color: var(--af-text-primary)", "Primary text buttons should not use accent text by default");
+  assertCssRuleNotIncludes(buttonsCss, ".af-btn-primary,\n.af-button-primary,\n.af-settings-button:not(.af-settings-button-secondary),\n.af-home-primary-action,\n.af-search-submit,\n.af-create-playlist-btn:not(.af-btn-secondary),\n.af-library-button-primary", "rgba(var(--af-accent-primary-rgb), 0.12)", "Primary text buttons should not keep an accent-filled background");
+  assertCssRuleIncludes(buttonsCss, ".af-btn-secondary,\n.af-button-secondary,\n.af-settings-button-secondary,\n.af-settings-small-button,\n.af-section-action,\n.af-home-secondary-action,\n.af-create-playlist-btn.af-btn-secondary", "background: var(--af-button-secondary-bg)", "Secondary buttons should use the shared quiet background token");
+  assertIncludes(buttonsCss, "background: var(--af-button-secondary-hover-bg)", "Secondary button hover states should use the shared quiet hover token");
+  assertIncludes(buttonsCss, ".af-back-btn", "Back buttons should share the unified button system");
+  assertIncludes(buttonsCss, ".af-bili-manage-button", "Bilibili manager buttons should share the unified button system");
+  assertIncludes(buttonsCss, ".af-music-card-action-btn", "Music card action buttons should share the unified button system");
+  assertIncludes(buttonsCss, ".af-custom-source-icon-button", "Custom source icon buttons should share the unified button system");
+  assertIncludes(buttonsCss, ".af-sfx-toggle-btn", "Settings toggle buttons should share the unified button system");
+  assertIncludes(buttonsCss, ".af-sfx-pill", "Settings preset buttons should share the unified button system");
+  assertIncludes(buttonsCss, ".af-fm-action-primary", "Personal FM primary action should share the unified button system");
+  assertIncludes(buttonsCss, ".af-settings-small-button", "Settings small buttons should share the unified button system");
+  assertIncludes(buttonsCss, ".af-library-button:not(.af-library-button-primary)", "Library buttons should share the unified button system");
+  assertIncludes(buttonsCss, ".af-playlist-actions .af-btn-primary", "Playlist toolbar primary buttons should use toolbar-specific quiet styling");
+  assertIncludes(buttonsCss, ".af-playlist-actions .af-btn-secondary", "Playlist toolbar secondary buttons should use the same quiet styling");
+  assertCssRuleIncludes(buttonsCss, ".af-playlist-actions .af-btn-primary,\n.af-playlist-actions .af-btn-secondary", "background: var(--af-button-secondary-bg)", "Playlist toolbar buttons should share one background");
+  assertCssRuleNotIncludes(buttonsCss, ".af-playlist-actions .af-btn-primary,\n.af-playlist-actions .af-btn-secondary", "rgba(var(--af-accent-primary-rgb), 0.12)", "Playlist toolbar primary button should not keep an accent-filled background");
+  assertNotIncludes(playlistsCss, "background: linear-gradient(180deg, rgba(var(--af-accent-primary-rgb)", "Playlist styles should not redefine primary buttons with filled gradients");
+  assertNotIncludes(read("src/styles/layout.css"), "background: linear-gradient(180deg, rgba(var(--af-accent-primary-rgb)", "Layout styles should not redefine primary buttons with filled gradients");
+  assertIncludes(localMusicView, "background: var(--af-button-secondary-bg)", "Local music inline buttons should use unified secondary token");
+  assertIncludes(personalFmView, "background: var(--af-button-secondary-bg)", "Personal FM inline buttons should use unified secondary token");
+  assertNotIncludes(localMusicView, "background: linear-gradient(180deg, rgba(var(--af-accent-primary-rgb)", "Local music inline buttons should not use filled gradients");
+  assertNotIncludes(personalFmView, "background: linear-gradient(180deg, rgba(var(--af-accent-primary-rgb)", "Personal FM inline buttons should not use filled gradients");
+  assertCssRuleIncludes(homeCss, ".af-music-card-action-btn:hover", "background: var(--af-button-secondary-hover-bg)", "Home card action buttons should use unified hover backgrounds");
+  assertCssRuleIncludes(layoutCss, ".af-action-btn:hover", "background: var(--af-button-secondary-hover-bg)", "Shared action buttons should use unified hover backgrounds");
+  assertCssRuleIncludes(localMusicCss, ".af-library-button-sm", "background: var(--af-button-secondary-bg)", "Small library buttons should use unified backgrounds");
+  assertCssRuleIncludes(playlistsCss, ".af-menu-trigger:hover", "background: var(--af-button-secondary-hover-bg)", "Playlist menu buttons should use unified hover backgrounds");
+  assertNotIncludes(buttonsCss, ".af-play-button", "Player play button should stay out of the ordinary button system");
   assertIncludes(buttonsCss, ".af-grid-play-button", "Play button selector set");
   assertIncludes(buttonsCss, ".af-play-all-btn", "Play button selector set");
   assertIncludes(buttonsCss, ".af-playlist-play-button", "Play button selector set");
@@ -436,6 +471,15 @@ function testQuietAccentSystem() {
   assertIncludes(buttonsCss, ".af-like-button.af-active", "Active icon button selector set");
   assertIncludes(buttonsCss, ".af-control-btn.af-active", "Active icon button selector set");
   assertIncludes(buttonsCss, ".af-view-mode-toggle button.af-active", "Active icon button selector set");
+  assertCssRuleIncludes(buttonsCss, ".af-icon-btn-active,\n.af-icon-btn-active:hover:not(:disabled),\n.af-action-btn.af-liked,\n.af-view-mode-toggle button.af-active", "background: var(--af-button-active-bg)", "Non-player active icon buttons should not use accent-filled backgrounds");
+  assertCssRuleNotIncludes(buttonsCss, ".af-icon-btn-active,\n.af-icon-btn-active:hover:not(:disabled),\n.af-action-btn.af-liked,\n.af-view-mode-toggle button.af-active", "rgba(var(--af-accent-primary-rgb), 0.12)", "Non-player active icon buttons should not keep accent-filled backgrounds");
+  assertCssRuleIncludes(buttonsCss, ".af-custom-source-icon-button.af-active,\n.af-sfx-toggle-btn.af-active,\n.af-sfx-pill.af-active,\n.af-fm-action-secondary.af-liked", "background: var(--af-button-active-bg)", "Settings and FM active buttons should use unified active backgrounds");
+  assertCssRuleNotIncludes(buttonsCss, ".af-custom-source-icon-button.af-active,\n.af-sfx-toggle-btn.af-active,\n.af-sfx-pill.af-active,\n.af-fm-action-secondary.af-liked", "rgba(var(--af-accent-primary-rgb), 0.12)", "Settings and FM active buttons should not keep accent-filled backgrounds");
+  assertCssRuleIncludes(buttonsCss, ".af-like-button.af-active,\n.af-control-btn.af-active", "background: rgba(var(--af-accent-primary-rgb), 0.12)", "Player active controls should keep their player-specific active wash");
+  assertNotIncludes(localMusicView, "background: rgba(var(--af-accent-primary-rgb), 0.12)", "Local music active controls should not keep accent-filled backgrounds");
+  assertNotIncludes(personalFmView, "background: rgba(var(--af-accent-primary-rgb), 0.12)", "Personal FM active controls should not keep accent-filled backgrounds");
+  assertNotIncludes(artistDetailView, "background: rgba(var(--af-accent-primary-rgb), 0.12)", "Artist tabs should not keep accent-filled backgrounds");
+  assertNotIncludes(settingsCss, "background: var(--af-accent-primary);\n  color: #fff;", "Settings toggle active buttons should not use solid accent fill");
 
   assertCssRuleIncludes(playlistsCss, ".af-liked-card", "background: rgba(var(--af-accent-primary-rgb), 0.12)", "Liked music card should use quiet accent wash");
   assertCssRuleIncludes(playlistsCss, ".af-liked-card", "color: var(--af-accent-primary)", "Liked music card should use accent text");
@@ -451,27 +495,24 @@ function testQuietAccentSystem() {
   assertNotIncludes(accentDrivenUi, "rgba(20, 145, 76", "Accent-driven UI components should not hard-code old green");
 }
 
-function testNeteaseScrobbleSync() {
-  const scrobbleService = read("src/services/scrobbleService.ts");
+function testNeteaseScrobbleSyncRemoved() {
+  const app = read("src/App.tsx");
   const settingsView = read("src/views/SettingsView.tsx");
   const bridge = read("packages/tauri-bridge/src/index.ts");
   const rustModels = read("src-tauri/src/models.rs");
+  const wyAccountService = read("src/services/wyAccountService.ts");
 
-  assertIncludes(bridge, "neteaseScrobbleSync", "Tauri settings expose Netease scrobble sync switch");
-  assertIncludes(rustModels, "netease_scrobble_sync", "Rust settings persist Netease scrobble sync switch");
-  assertIncludes(rustModels, "#[serde(default = \"default_true\")]\n    pub netease_scrobble_sync", "Existing settings should keep Netease scrobble sync enabled by default");
-  assertIncludes(settingsView, "neteaseScrobbleSync", "Playback settings should render Netease scrobble sync switch");
-  assertIncludes(settingsView, "handleNeteaseScrobbleSyncChange", "Playback settings should persist Netease scrobble sync switch");
-
-  assertIncludes(scrobbleService, "SCROBBLE_RETRY_QUEUE_KEY", "Netease scrobble failures should be persisted for retry");
-  assertIncludes(scrobbleService, "enqueueScrobbleRetry", "Netease scrobble failures should enter retry queue");
-  assertIncludes(scrobbleService, "flushScrobbleRetryQueue", "Netease scrobble retry queue should be flushed");
-  assertIncludes(scrobbleService, "loadSettings", "Netease scrobble should respect settings");
-  assertIncludes(scrobbleService, "settings.neteaseScrobbleSync !== false", "Netease scrobble should be enabled unless explicitly disabled");
-  assertIncludes(scrobbleService, "music.source === \"wy\"", "Netease scrobble should only sync Netease tracks");
-  assertIncludes(scrobbleService, "MAX_RETRY_QUEUE_SIZE", "Netease scrobble retry queue should be bounded");
-  assertIncludes(scrobbleService, "RETRY_FLUSH_INTERVAL_MS", "Netease scrobble retry should run periodically");
-  assertNotIncludes(scrobbleService, "console.warn(\"[scrobble] 上报失败\"", "Netease scrobble should not only log failures");
+  assertFileMissing("src/services/scrobbleService.ts", "Netease scrobble service");
+  assertNotIncludes(app, "setupScrobble", "App should not start Netease scrobble sync");
+  assertNotIncludes(app, "scrobbleStarted", "App should not keep Netease scrobble singleton state");
+  assertNotIncludes(settingsView, "neteaseScrobbleSync", "Settings should not expose Netease scrobble sync switch");
+  assertNotIncludes(settingsView, "handleNeteaseScrobbleSyncChange", "Settings should not persist Netease scrobble sync switch");
+  assertNotIncludes(settingsView, "网易云听歌记录", "Settings should not mention Netease scrobble sync");
+  assertNotIncludes(settingsView, "听歌统计", "Settings should not promise Netease play statistics sync");
+  assertNotIncludes(bridge, "neteaseScrobbleSync", "Tauri settings should not expose removed scrobble setting");
+  assertNotIncludes(rustModels, "netease_scrobble_sync", "Rust settings should not persist removed scrobble setting");
+  assertNotIncludes(wyAccountService, "/feedback/weblog", "Netease account service should not call unreliable scrobble endpoint");
+  assertNotIncludes(wyAccountService, "export async function scrobble", "Netease account service should not export removed scrobble API");
 }
 
 function testHistoryQuickEntryAndUpdateModalCentering() {
@@ -520,10 +561,18 @@ function testDataManagementClearsOnlyHistoryAndSongCache() {
   assertIncludes(settingsView, "useHistoryStore.getState().replaceAll([])", "Data management should clear playback history state");
   assertIncludes(settingsView, "clearPersistentCache", "Data management should clear persistent song cache");
   assertIncludes(settingsView, "clearPlaybackPrefetchCache", "Data management should clear in-memory playback prefetch cache");
-  assertIncludes(settingsView, "歌曲缓存", "Data management should label song cache size");
-  assertIncludes(settingsView, "播放历史与歌曲缓存", "Data management should describe the limited clear scope");
-  assertIncludes(settingsView, "仅清空播放历史与歌曲缓存，其他数据保留。", "Data management should use concise copy");
+  assertIncludes(settingsView, "songCacheStats", "Data management should keep cache size breakdown");
+  assertIncludes(settingsView, "persistentCacheSize", "Data management should show playback URL and lyric cache size");
+  assertIncludes(settingsView, "audioCacheSize", "Data management should show Bilibili audio cache size");
+  assertIncludes(settingsView, "coverCacheSize", "Data management should show cover cache size");
+  assertIncludes(settingsView, "播放链接/歌词", "Data management should label metadata cache separately");
+  assertIncludes(settingsView, "歌曲音频文件", "Data management should label cached song audio files");
+  assertIncludes(settingsView, "封面图片", "Data management should label cached cover files");
+  assertIncludes(settingsView, "总占用", "Data management should show total cache size separately");
+  assertIncludes(settingsView, "播放历史与缓存", "Data management should describe the limited clear scope");
+  assertIncludes(settingsView, "普通在线歌曲会缓存音频和封面。", "Data management should explain ordinary online songs are cached as files");
   assertNotIncludes(settingsView, "只清空播放历史、播放链接/歌词缓存和已缓存歌曲文件；", "Data management should not use long explanatory copy");
+  assertNotIncludes(settingsView, "<span>歌曲缓存</span>", "Data management should not use a misleading single cache label");
   assertNotIncludes(settingsView, "resetUserDataWithActions", "Data management should not reset all user data");
   assertNotIncludes(settingsView, "libraryResetAll", "Data management should not delete all library namespaces");
   assertNotIncludes(settingsView, "重置全部用户数据", "Data management should not present a destructive all-data reset");
@@ -532,14 +581,52 @@ function testDataManagementClearsOnlyHistoryAndSongCache() {
   assertIncludes(bridge, "SongCacheStats", "Tauri bridge should expose song cache stats type");
   assertIncludes(bridge, "getSongCacheStats", "Tauri bridge should expose cache stats command");
   assertIncludes(bridge, "clearSongCache", "Tauri bridge should expose cache clear command");
+  assertIncludes(bridge, "coverCacheSize", "Tauri bridge should expose cover cache size");
   assertIncludes(rustCommands, "pub struct SongCacheStats", "Rust commands should return cache stats");
   assertIncludes(rustCommands, "pub fn get_song_cache_stats", "Rust commands should expose cache stats");
   assertIncludes(rustCommands, "pub fn clear_song_cache", "Rust commands should expose cache clear");
+  assertIncludes(rustCommands, "song_audio_cache_dir", "Rust stats should include cached ordinary song audio files");
+  assertIncludes(rustCommands, "song_cover_cache_dir", "Rust stats should include cached cover image files");
   assertIncludes(rustMain, "commands::get_song_cache_stats", "Tauri main should register cache stats command");
   assertIncludes(rustMain, "commands::clear_song_cache", "Tauri main should register cache clear command");
   assertIncludes(persistentCache, "resetPersistentCacheMemory", "Persistent cache should expose memory reset");
   assertIncludes(persistentCache, "clearPersistentCache", "Persistent cache should expose disk and memory clear");
   assertIncludes(prefetchService, "clearPlaybackPrefetchCache", "Playback prefetch cache should remain clearable");
+}
+
+function testOnlineSongDiskAndCoverCache() {
+  const bridge = read("packages/tauri-bridge/src/index.ts");
+  const rustCommands = read("src-tauri/src/commands.rs");
+  const rustMain = read("src-tauri/src/main.rs");
+  const playbackResolver = read("src/services/playback/playbackResolver.ts");
+  const mediaCache = read("src/services/mediaCache.ts");
+  const persistentCache = read("src/services/persistentCache.ts");
+  const prefetchService = read("src/services/playback/prefetchService.ts");
+  const playerStore = read("src/stores/playerStore.ts");
+
+  assertIncludes(bridge, "cacheRemoteAudio", "Bridge should expose ordinary song audio cache command");
+  assertIncludes(bridge, "cacheRemoteImage", "Bridge should expose cover cache command");
+  assertIncludes(rustCommands, "SONG_AUDIO_CACHE_DIR", "Rust should keep ordinary song audio cache in its own directory");
+  assertIncludes(rustCommands, "SONG_COVER_CACHE_DIR", "Rust should keep cover cache in its own directory");
+  assertIncludes(rustCommands, "pub async fn cache_remote_audio", "Rust should expose ordinary song audio cache command");
+  assertIncludes(rustCommands, "pub async fn cache_remote_image", "Rust should expose cover cache command");
+  assertIncludes(rustMain, "commands::cache_remote_audio", "Tauri should register ordinary song audio cache command");
+  assertIncludes(rustMain, "commands::cache_remote_image", "Tauri should register cover cache command");
+
+  assertIncludes(mediaCache, "CACHEABLE_AUDIO_SOURCES", "Media cache service should define cacheable ordinary audio sources");
+  assertIncludes(mediaCache, "new Set<MusicInfo['source']>(['wy', 'tx'])", "Only Netease and QQ should use ordinary audio disk caching");
+  assertIncludes(mediaCache, "cacheRemoteAudio", "Media cache service should call audio cache command");
+  assertIncludes(mediaCache, "cacheRemoteImage", "Media cache service should call cover cache command");
+  assertIncludes(mediaCache, "convertFileSrc", "Media cache service should convert cached file paths for WebView playback");
+
+  assertIncludes(playbackResolver, "cacheResolvedPlaybackMedia", "Playback resolver should pass resolved URLs through media cache");
+  assertIncludes(playbackResolver, "cacheMedia?: boolean", "Playback resolver should allow prefetch to skip full media downloads");
+  assertIncludes(prefetchService, "cacheMedia: false", "Prefetch should not download full ordinary songs");
+  assertIncludes(persistentCache, "isLocalCachedPlaybackUrl", "Persistent cache should keep disk-cached URLs usable after URL TTL");
+  assertIncludes(persistentCache, "LOCAL_PLAYBACK_CACHE_TTL_MS", "Persistent cache should keep disk-cached playback entries for long-term offline reuse");
+
+  assertIncludes(playerStore, "let playedMusic = music", "Player store should track the actually played cached music metadata");
+  assertIncludes(playerStore, "useHistoryStore.getState().add(playedMusic)", "Playback history should save cached cover metadata");
 }
 
 function testPlaylistDetailLocatesCurrentSong() {
@@ -554,6 +641,28 @@ function testPlaylistDetailLocatesCurrentSong() {
   assertIncludes(playlistDetailView, "af-current-playing", "Playlist detail should mark the located playing row");
   assertIncludes(playlistDetailView, "当前播放", "Playlist detail should label the current song location action");
   assertCssRuleIncludes(playlistsCss, ".af-song-list-row.af-current-playing", "background", "Current playing song row should be visually highlighted");
+}
+
+function testNeteasePlaylistDetailFeelsResponsive() {
+  const wyAccountStore = read("src/stores/wyAccountStore.ts");
+  const playlistsView = read("src/views/PlaylistsView.tsx");
+  const playlistDetailView = read("src/views/PlaylistDetailView.tsx");
+
+  assertIncludes(wyAccountStore, "playlistRequestCache", "Netease playlist detail should reuse in-flight requests");
+  assertIncludes(wyAccountStore, "fetchAndCachePlaylistSongs", "Netease playlist detail should centralize song loading cache policy");
+  assertIncludes(wyAccountStore, "playlistRequestCache.get(id)", "Netease playlist detail should return an existing in-flight request");
+  assertIncludes(wyAccountStore, "playlistRequestCache.set(id, request)", "Netease playlist detail should remember in-flight requests");
+  assertIncludes(wyAccountStore, "playlistRequestCache.clear()", "Netease playlist request cache should be cleared with account state");
+  assertIncludes(wyAccountStore, "preloadPlaylistSongs", "Netease playlist cards should expose lightweight preload");
+
+  assertIncludes(playlistsView, "wyPreloadSongs", "Playlist view should read Netease playlist preload action");
+  assertIncludes(playlistsView, "onMouseEnter={() => wyPreloadSongs(playlist.id)}", "Netease playlist cards should preload on hover");
+  assertIncludes(playlistsView, "onFocus={() => wyPreloadSongs(playlist.id)}", "Netease playlist cards should preload on keyboard focus");
+
+  assertIncludes(playlistDetailView, "const isSongsLoading = wySongsLoading || biliSongsLoading || remoteSongsLoading", "Playlist detail should compute inline loading state");
+  assertIncludes(playlistDetailView, "正在加载歌曲...", "Playlist detail should keep the header visible while songs load");
+  assertNotIncludes(playlistDetailView, "if (wySongsLoading || biliSongsLoading || remoteSongsLoading)", "Playlist detail should not replace the whole page with a loading screen");
+  assertNotIncludes(playlistDetailView, "加载歌单中...", "Playlist detail should avoid a full-page blocking loading copy");
 }
 
 function testBilibiliSubscribedCollections() {
@@ -672,10 +781,12 @@ const tests = [
   ["daily recommend cover uses first song", testDailyRecommendCoverUsesFirstSong],
   ["quiet sidebar selection and immersive fonts", testQuietSidebarSelectionAndImmersiveFonts],
   ["quiet accent system", testQuietAccentSystem],
-  ["netease scrobble sync", testNeteaseScrobbleSync],
+  ["netease scrobble sync removed", testNeteaseScrobbleSyncRemoved],
   ["history quick entry and update modal centering", testHistoryQuickEntryAndUpdateModalCentering],
   ["data management clears only history and song cache", testDataManagementClearsOnlyHistoryAndSongCache],
+  ["online song disk and cover cache", testOnlineSongDiskAndCoverCache],
   ["playlist detail locates current song", testPlaylistDetailLocatesCurrentSong],
+  ["netease playlist detail feels responsive", testNeteasePlaylistDetailFeelsResponsive],
   ["bilibili subscribed collections", testBilibiliSubscribedCollections],
   ["bilibili cover referrer policy", testBilibiliCoverReferrerPolicy],
 ];

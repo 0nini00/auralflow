@@ -14,7 +14,6 @@ export interface RustAppSettings {
   volume: number;
   defaultQuality: string;
   pauseOnExternalPlayback: boolean;
-  neteaseScrobbleSync: boolean;
   wyCookie?: string | null;
   biliCookie?: string | null;
   lyricPinned: boolean;
@@ -111,9 +110,15 @@ export interface BiliCacheAudioOptions {
   cacheKey?: string | null;
 }
 
+export interface RemoteMediaCacheOptions {
+  url: string;
+  cacheKey: string;
+}
+
 export interface SongCacheStats {
   persistentCacheSize: number;
   audioCacheSize: number;
+  coverCacheSize: number;
   totalSize: number;
 }
 
@@ -207,6 +212,22 @@ export async function biliCacheAudio(options: BiliCacheAudioOptions): Promise<st
     referer: options.referer,
     cookie: options.cookie ?? null,
     cacheKey: options.cacheKey ?? null,
+  });
+}
+
+/** 下载普通在线歌曲音频到本地缓存，返回缓存文件路径 */
+export async function cacheRemoteAudio(options: RemoteMediaCacheOptions): Promise<string> {
+  return invoke<string>("cache_remote_audio", {
+    url: options.url,
+    cacheKey: options.cacheKey,
+  });
+}
+
+/** 下载远程封面图到本地缓存，返回缓存文件路径 */
+export async function cacheRemoteImage(options: RemoteMediaCacheOptions): Promise<string> {
+  return invoke<string>("cache_remote_image", {
+    url: options.url,
+    cacheKey: options.cacheKey,
   });
 }
 

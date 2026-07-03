@@ -8,22 +8,25 @@
 
 use crate::config;
 use crate::models::*;
-use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE, COOKIE, ORIGIN, REFERER, USER_AGENT};
+use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE, CONTENT_TYPE, COOKIE, ORIGIN, REFERER, USER_AGENT};
 use serde_json::Value;
-use std::net::IpAddr;
 use std::io::{Read, Write};
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 const BILI_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const BILI_AUDIO_CACHE_DIR: &str = "bili-audio";
+const SONG_AUDIO_CACHE_DIR: &str = "song-audio";
+const SONG_COVER_CACHE_DIR: &str = "song-covers";
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SongCacheStats {
     pub persistent_cache_size: u64,
     pub audio_cache_size: u64,
+    pub cover_cache_size: u64,
     pub total_size: u64,
 }
 
@@ -97,10 +100,7 @@ pub fn zlib_inflate(data: Vec<u8>, format: Option<String>) -> Result<Vec<u8>, St
                     raw_decoder
                         .read_to_end(&mut raw_output)
                         .map_err(|raw_err| {
-                            format!(
-                                "deflate 解压失败: zlib={}, raw={}",
-                                zlib_err, raw_err
-                            )
+                            format!("deflate 解压失败: zlib={}, raw={}", zlib_err, raw_err)
                         })?;
                     Ok(raw_output)
                 }
@@ -180,6 +180,31 @@ fn ensure_remote_https_url(url: &str) -> Result<reqwest::Url, String> {
     Ok(parsed)
 }
 
+fn ensure_remote_cache_url(url: &str, label: &str) -> Result<reqwest::Url, String> {
+    let parsed = reqwest::Url::parse(url).map_err(|err| format!("{}地址无效: {}", label, err))?;
+    if parsed.scheme() != "https" && parsed.scheme() != "http" {
+        return Err(format!("{}缓存只支持 HTTP/HTTPS 地址", label));
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| format!("{}地址缺少 host", label))?;
+    if host.eq_ignore_ascii_case("localhost") {
+        return Err(format!("{}缓存不允许访问 localhost", label));
+    }
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        let blocked = match ip {
+            IpAddr::V4(addr) => addr.is_loopback() || addr.is_private() || addr.is_link_local(),
+            IpAddr::V6(addr) => {
+                addr.is_loopback() || addr.is_unique_local() || addr.is_unicast_link_local()
+            }
+        };
+        if blocked {
+            return Err(format!("{}缓存不允许访问本地或内网地址", label));
+        }
+    }
+    Ok(parsed)
+}
+
 fn normalize_cache_key(value: Option<String>, fallback: &str) -> String {
     let raw = value.unwrap_or_else(|| format!("{:x}", md5::compute(fallback)));
     let normalized: String = raw
@@ -233,6 +258,22 @@ fn bili_audio_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
         .join(BILI_AUDIO_CACHE_DIR))
 }
 
+fn song_audio_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_cache_dir()
+        .map_err(|err| format!("获取 app_cache_dir 失败: {}", err))?
+        .join(SONG_AUDIO_CACHE_DIR))
+}
+
+fn song_cover_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_cache_dir()
+        .map_err(|err| format!("获取 app_cache_dir 失败: {}", err))?
+        .join(SONG_COVER_CACHE_DIR))
+}
+
 fn persistent_song_cache_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app
         .path()
@@ -247,8 +288,7 @@ fn path_size(path: &Path) -> Result<u64, String> {
         return Ok(0);
     }
 
-    let metadata = std::fs::metadata(path)
-        .map_err(|err| format!("读取缓存大小失败: {}", err))?;
+    let metadata = std::fs::metadata(path).map_err(|err| format!("读取缓存大小失败: {}", err))?;
     if metadata.is_file() {
         return Ok(metadata.len());
     }
@@ -269,13 +309,160 @@ fn path_size(path: &Path) -> Result<u64, String> {
     Ok(size)
 }
 
+fn extension_from_url(url: &reqwest::Url, allowed: &[&str], fallback: &str) -> String {
+    let ext = Path::new(url.path())
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if allowed.contains(&ext.as_str()) {
+        ext
+    } else {
+        fallback.to_string()
+    }
+}
+
+fn extension_from_content_type(
+    content_type: Option<&str>,
+    allowed: &[&str],
+    fallback: &str,
+) -> String {
+    let normalized = content_type
+        .unwrap_or_default()
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+
+    let ext = match normalized.as_str() {
+        "audio/mpeg" | "audio/mp3" => "mp3",
+        "audio/flac" | "audio/x-flac" => "flac",
+        "audio/mp4" | "audio/x-m4a" => "m4a",
+        "audio/aac" | "audio/aacp" => "aac",
+        "audio/ogg" | "application/ogg" => "ogg",
+        "audio/opus" => "opus",
+        "audio/wav" | "audio/x-wav" => "wav",
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/png" => "png",
+        "image/webp" => "webp",
+        "image/gif" => "gif",
+        "image/bmp" => "bmp",
+        _ => fallback,
+    };
+
+    if allowed.contains(&ext) {
+        ext.to_string()
+    } else {
+        fallback.to_string()
+    }
+}
+
+fn find_cached_file(
+    cache_dir: &Path,
+    key: &str,
+    allowed: &[&str],
+) -> Result<Option<PathBuf>, String> {
+    for ext in allowed {
+        let path = cache_dir.join(format!("{}.{}", key, ext));
+        if !path.exists() {
+            continue;
+        }
+        let size = std::fs::metadata(&path)
+            .map_err(|err| format!("读取缓存文件失败: {}", err))?
+            .len();
+        if size > 0 {
+            return Ok(Some(path));
+        }
+    }
+    Ok(None)
+}
+
+async fn cache_remote_file(
+    url: String,
+    cache_key: String,
+    cache_dir: PathBuf,
+    allowed_exts: &[&str],
+    fallback_ext: &str,
+    label: &str,
+) -> Result<String, String> {
+    let url = ensure_remote_cache_url(&url, label)?;
+    let key = normalize_cache_key(Some(cache_key), url.as_str());
+
+    if let Some(path) = find_cached_file(&cache_dir, &key, allowed_exts)? {
+        return Ok(path.to_string_lossy().to_string());
+    }
+
+    std::fs::create_dir_all(&cache_dir)
+        .map_err(|err| format!("创建{}缓存目录失败: {}", label, err))?;
+
+    let client = reqwest::Client::builder()
+        .user_agent(BILI_UA)
+        .build()
+        .map_err(|err| format!("创建{}下载客户端失败: {}", label, err))?;
+
+    let mut response = client
+        .get(url.clone())
+        .header(USER_AGENT, BILI_UA)
+        .header(ACCEPT, "*/*")
+        .header(ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9,en;q=0.8")
+        .send()
+        .await
+        .map_err(|err| format!("请求{}失败: {}", label, err))?;
+
+    if !response.status().is_success() {
+        return Err(format!("{}下载失败: HTTP {}", label, response.status()));
+    }
+
+    let fallback = extension_from_url(&url, allowed_exts, fallback_ext);
+    let content_type = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok());
+    let ext = extension_from_content_type(content_type, allowed_exts, &fallback);
+    let path = cache_dir.join(format!("{}.{}", key, ext));
+    let temp_path = path.with_extension(format!("{}.download", ext));
+
+    let mut file = std::fs::File::create(&temp_path)
+        .map_err(|err| format!("创建{}缓存文件失败: {}", label, err))?;
+    let mut downloaded = 0u64;
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|err| format!("读取{}数据失败: {}", label, err))?
+    {
+        file.write_all(&chunk)
+            .map_err(|err| format!("写入{}缓存失败: {}", label, err))?;
+        downloaded += chunk.len() as u64;
+    }
+    file.flush()
+        .map_err(|err| format!("保存{}缓存失败: {}", label, err))?;
+    drop(file);
+
+    if downloaded == 0 {
+        let _ = std::fs::remove_file(&temp_path);
+        return Err(format!("{}下载为空", label));
+    }
+    if path.exists() {
+        std::fs::remove_file(&path).map_err(|err| format!("覆盖旧{}缓存失败: {}", label, err))?;
+    }
+    std::fs::rename(&temp_path, &path).map_err(|err| format!("完成{}缓存失败: {}", label, err))?;
+
+    Ok(path.to_string_lossy().to_string())
+}
+
 fn song_cache_stats(app: &AppHandle) -> Result<SongCacheStats, String> {
     let persistent_cache_size = path_size(&persistent_song_cache_path(app)?)?;
-    let audio_cache_size = path_size(&bili_audio_cache_dir(app)?)?;
+    let audio_cache_size = path_size(&song_audio_cache_dir(app)?)?
+        .saturating_add(path_size(&bili_audio_cache_dir(app)?)?);
+    let cover_cache_size = path_size(&song_cover_cache_dir(app)?)?;
     Ok(SongCacheStats {
         persistent_cache_size,
         audio_cache_size,
-        total_size: persistent_cache_size.saturating_add(audio_cache_size),
+        cover_cache_size,
+        total_size: persistent_cache_size
+            .saturating_add(audio_cache_size)
+            .saturating_add(cover_cache_size),
     })
 }
 
@@ -285,12 +472,51 @@ pub fn get_song_cache_stats(app: AppHandle) -> Result<SongCacheStats, String> {
 }
 
 #[tauri::command]
+pub async fn cache_remote_audio(
+    app: AppHandle,
+    url: String,
+    cache_key: String,
+) -> Result<String, String> {
+    cache_remote_file(
+        url,
+        cache_key,
+        song_audio_cache_dir(&app)?,
+        &["mp3", "flac", "m4a", "aac", "ogg", "opus", "wav"],
+        "mp3",
+        "歌曲音频",
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn cache_remote_image(
+    app: AppHandle,
+    url: String,
+    cache_key: String,
+) -> Result<String, String> {
+    cache_remote_file(
+        url,
+        cache_key,
+        song_cover_cache_dir(&app)?,
+        &["jpg", "jpeg", "png", "webp", "gif", "bmp"],
+        "jpg",
+        "封面图片",
+    )
+    .await
+}
+
+#[tauri::command]
 pub fn clear_song_cache(app: AppHandle) -> Result<SongCacheStats, String> {
     crate::library::reset(&app, "cache")?;
-    let audio_cache_dir = bili_audio_cache_dir(&app)?;
-    if audio_cache_dir.exists() {
-        std::fs::remove_dir_all(&audio_cache_dir)
-            .map_err(|err| format!("删除歌曲缓存失败: {}", err))?;
+    for cache_dir in [
+        song_audio_cache_dir(&app)?,
+        bili_audio_cache_dir(&app)?,
+        song_cover_cache_dir(&app)?,
+    ] {
+        if cache_dir.exists() {
+            std::fs::remove_dir_all(&cache_dir)
+                .map_err(|err| format!("删除歌曲缓存失败: {}", err))?;
+        }
     }
     song_cache_stats(&app)
 }
@@ -313,7 +539,10 @@ pub async fn bili_get_json(
         .header(ACCEPT, "application/json, text/plain, */*")
         .header(ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9,en;q=0.8")
         .header(ORIGIN, "https://www.bilibili.com")
-        .header(REFERER, referer.unwrap_or_else(|| "https://www.bilibili.com/".to_string()));
+        .header(
+            REFERER,
+            referer.unwrap_or_else(|| "https://www.bilibili.com/".to_string()),
+        );
 
     if let Some(cookie) = cookie.filter(|value| !value.trim().is_empty()) {
         request = request.header(COOKIE, cookie);
@@ -365,11 +594,14 @@ pub async fn bili_cache_audio(
     }
 
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|err| format!("创建 B站音频缓存目录失败: {}", err))?;
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("创建 B站音频缓存目录失败: {}", err))?;
     }
     let temp_path = path.with_extension(format!(
         "{}.download",
-        path.extension().and_then(|ext| ext.to_str()).unwrap_or("tmp")
+        path.extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("tmp")
     ));
 
     let client = reqwest::Client::builder()
@@ -480,7 +712,9 @@ pub async fn download_file(
     let path = safe_join_download_path(&directory, &file_name)?;
     let temp_path = path.with_extension(format!(
         "{}.download",
-        path.extension().and_then(|ext| ext.to_str()).unwrap_or("tmp")
+        path.extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("tmp")
     ));
 
     let client = reqwest::Client::builder()
@@ -499,8 +733,8 @@ pub async fn download_file(
     }
 
     let total = resp.content_length();
-    let mut file = std::fs::File::create(&temp_path)
-        .map_err(|err| format!("创建文件失败: {}", err))?;
+    let mut file =
+        std::fs::File::create(&temp_path).map_err(|err| format!("创建文件失败: {}", err))?;
     let started = Instant::now();
     let mut last_emit = Instant::now();
     let mut downloaded = 0u64;
@@ -611,7 +845,7 @@ fn extract_metadata(path: &std::path::Path) -> Option<AudioFile> {
 
         // 提取封面并转换为 Base64
         if let Some(picture) = tag.album_cover() {
-            use base64::{Engine as _, engine::general_purpose};
+            use base64::{engine::general_purpose, Engine as _};
             let base64_string = general_purpose::STANDARD.encode(picture.data);
             let mime_type = match picture.mime_type {
                 audiotags::MimeType::Png => "image/png",
@@ -739,7 +973,9 @@ pub async fn set_audio_metadata(
         tag.set_album_title(&al);
     }
 
-    let path_str = path_buf.to_str().ok_or_else(|| "路径含非法字符".to_string())?;
+    let path_str = path_buf
+        .to_str()
+        .ok_or_else(|| "路径含非法字符".to_string())?;
     tag.write_to_path(path_str)
         .map_err(|e| format!("写入标签失败: {}", e))?;
 
@@ -771,7 +1007,7 @@ pub async fn set_audio_cover(path: String, cover_data: String) -> Result<(), Str
         audiotags::MimeType::Jpeg
     };
 
-    use base64::{Engine as _, engine::general_purpose};
+    use base64::{engine::general_purpose, Engine as _};
     let data = general_purpose::STANDARD
         .decode(b64.trim())
         .map_err(|e| format!("base64 解码失败: {}", e))?;
@@ -779,7 +1015,9 @@ pub async fn set_audio_cover(path: String, cover_data: String) -> Result<(), Str
     let mut tag = read_or_create_audio_tag(&path_buf)?;
     tag.set_album_cover(audiotags::Picture::new(&data, mime_type));
 
-    let path_str = path_buf.to_str().ok_or_else(|| "路径含非法字符".to_string())?;
+    let path_str = path_buf
+        .to_str()
+        .ok_or_else(|| "路径含非法字符".to_string())?;
     tag.write_to_path(path_str)
         .map_err(|e| format!("写入封面失败: {}", e))?;
 
@@ -799,8 +1037,8 @@ pub async fn set_audio_lyrics(path: String, lyrics: String) -> Result<(), String
         return Err(format!("File does not exist: {}", path));
     }
 
-    let mut tagged_file = lofty::read_from_path(&path_buf)
-        .map_err(|e| format!("读取文件失败: {}", e))?;
+    let mut tagged_file =
+        lofty::read_from_path(&path_buf).map_err(|e| format!("读取文件失败: {}", e))?;
 
     let tag = tagged_file
         .primary_tag_mut()
@@ -812,7 +1050,9 @@ pub async fn set_audio_lyrics(path: String, lyrics: String) -> Result<(), String
         tag.insert_text(ItemKey::Lyrics, lyrics);
     }
 
-    let path_str = path_buf.to_str().ok_or_else(|| "路径含非法字符".to_string())?;
+    let path_str = path_buf
+        .to_str()
+        .ok_or_else(|| "路径含非法字符".to_string())?;
     tagged_file
         .save_to_path(path_str, lofty::config::WriteOptions::default())
         .map_err(|e| format!("写入歌词失败: {}", e))?;

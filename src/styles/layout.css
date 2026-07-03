@@ -130,75 +130,6 @@
   font-weight: 600;
 }
 
-/* ── 通用按钮系统 ── */
-.af-btn-primary,
-.af-btn-secondary {
-  min-height: 36px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 9px 14px;
-  border-radius: var(--af-button-radius);
-  font-size: var(--af-font-size-sm);
-  font-weight: var(--af-font-weight-semibold);
-  line-height: 1;
-  white-space: nowrap;
-  cursor: pointer;
-  transition:
-    background var(--af-transition-fast),
-    border-color var(--af-transition-fast),
-    color var(--af-transition-fast),
-    box-shadow var(--af-transition-fast),
-    transform var(--af-transition-fast);
-}
-
-.af-btn-primary > svg,
-.af-btn-secondary > svg {
-  flex: 0 0 auto;
-}
-
-.af-btn-primary {
-  border: 1px solid rgba(var(--af-accent-primary-rgb), 0.42);
-  background: linear-gradient(180deg, rgba(var(--af-accent-primary-rgb), 0.95), rgba(var(--af-accent-primary-rgb), 0.82));
-  color: var(--af-text-on-accent);
-  box-shadow: 0 8px 18px rgba(var(--af-accent-primary-rgb), 0.2);
-}
-
-.af-btn-primary:hover:not(:disabled) {
-  border-color: rgba(var(--af-accent-primary-rgb), 0.65);
-  background: var(--af-accent-gradient-hover);
-  transform: translateY(-1px);
-  box-shadow: 0 10px 22px rgba(var(--af-accent-primary-rgb), 0.24);
-}
-
-.af-btn-secondary {
-  border: 1px solid var(--af-border-primary);
-  background: var(--af-bg-surface);
-  color: var(--af-text-primary);
-  box-shadow: none;
-}
-
-.af-btn-secondary:hover:not(:disabled) {
-  border-color: rgba(var(--af-accent-primary-rgb), 0.35);
-  background: var(--af-bg-surface-hover);
-  color: var(--af-text-primary);
-  transform: translateY(-1px);
-}
-
-.af-btn-primary:active:not(:disabled),
-.af-btn-secondary:active:not(:disabled) {
-  transform: translateY(0);
-}
-
-.af-btn-primary:disabled,
-.af-btn-secondary:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
-}
-
 .af-icon-btn,
 .af-menu-trigger {
   display: inline-flex;
@@ -235,15 +166,16 @@
 
 .af-icon-btn:hover:not(:disabled),
 .af-menu-trigger:hover:not(:disabled) {
-  border-color: var(--af-border-primary);
-  background: var(--af-bg-surface-hover);
+  border-color: var(--af-button-secondary-border);
+  background: var(--af-button-secondary-hover-bg);
   color: var(--af-text-primary);
 }
 
 .af-icon-btn-active,
 .af-icon-btn-active:hover:not(:disabled) {
-  border-color: rgba(var(--af-accent-primary-rgb), 0.35);
-  background: rgba(var(--af-accent-primary-rgb), 0.12);
+  border-color: var(--af-button-active-border);
+  background: var(--af-button-active-bg);
+  box-shadow: var(--af-button-active-shadow);
   color: var(--af-accent-primary);
 }
 
@@ -354,9 +286,9 @@
     transform 0.12s ease;
 }
 .af-action-btn:hover {
-  border-color: rgba(var(--af-accent-primary-rgb), 0.24);
-  background: rgba(var(--af-accent-primary-rgb), 0.1);
-  color: var(--af-accent-primary);
+  border-color: var(--af-button-secondary-border);
+  background: var(--af-button-secondary-hover-bg);
+  color: var(--af-text-primary);
 }
 .af-action-btn:active {
   transform: scale(0.92);
