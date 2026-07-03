@@ -80,7 +80,6 @@ pnpm dev
 ## 验证
 
 ```bash
-pnpm run test:regression
 pnpm run typecheck
 pnpm run build
 ```

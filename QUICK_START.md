@@ -13,7 +13,6 @@ pnpm tauri:dev
 
 ```bash
 pnpm dev
-pnpm run test:regression
 pnpm run typecheck
 pnpm run build
 pnpm tauri:build

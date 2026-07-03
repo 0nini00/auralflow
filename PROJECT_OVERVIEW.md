@@ -149,7 +149,6 @@ src-tauri/src/
 ## 常用验证
 
 ```bash
-pnpm run test:regression
 pnpm run typecheck
 pnpm run build
 cd src-tauri
