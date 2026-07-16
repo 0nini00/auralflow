@@ -1,0 +1,167 @@
+apply plugin: "com.android.application"
+apply plugin: "org.jetbrains.kotlin.android"
+apply plugin: "com.facebook.react"
+
+
+
+// Release 签名凭据从本机 keystore.properties 读取（该文件已被 .gitignore，不进仓库）。
+// 缺失时 release 回退到 debug 签名，保证在未配置的机器上仍可构建（仅供本地调试用途）。
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+def hasReleaseKeystore = keystorePropertiesFile.exists()
+if (hasReleaseKeystore) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+/**
+ * This is the configuration block to customize your React Native Android app.
+ * By default you don't need to apply any configuration, just uncomment the lines you need.
+ */
+react {
+    // monorepo + pnpm 符号链接下，插件自动探测 hermesc 会失败（%OS-BIN% 未替换）。
+    // 直接写死 hermesc 路径，插件会把 %OS-BIN% 替换为当前平台（Windows=win64-bin）。
+    hermesCommand = file("../../node_modules/react-native/sdks/hermesc/%OS-BIN%/hermesc").absolutePath
+
+    /* Folders */
+    //   The root of your project, i.e. where "package.json" lives. Default is '../..'
+    // root = file("../../")
+    //   The folder where the react-native NPM package is. Default is ../../node_modules/react-native
+    // reactNativeDir = file("../../node_modules/react-native")
+    //   The folder where the react-native Codegen package is. Default is ../../node_modules/@react-native/codegen
+    // codegenDir = file("../../node_modules/@react-native/codegen")
+    //   The cli.js file which is the React Native CLI entrypoint. Default is ../../node_modules/react-native/cli.js
+    // cliFile = file("../../node_modules/react-native/cli.js")
+
+    /* Variants */
+    //   The list of variants to that are debuggable. For those we're going to
+    //   skip the bundling of the JS bundle and the assets. Default is "debug", "debugOptimized".
+    //   If you add flavors like lite, prod, etc. you'll have to list your debuggableVariants.
+    debuggableVariants = []
+
+    /* Bundling */
+    //   A list containing the node command and its flags. Default is just 'node'.
+    nodeExecutableAndArgs = ["C:/Program Files/nodejs/node.exe"]
+    //
+    //   The command to run when bundling. By default is 'bundle'
+    // bundleCommand = "ram-bundle"
+    //
+    //   The path to the CLI configuration file. Default is empty.
+    // bundleConfig = file(../rn-cli.config.js)
+    //
+    //   The name of the generated asset file containing your JS bundle
+    // bundleAssetName = "MyApplication.android.bundle"
+    //
+    //   The entry file for bundle generation. Default is 'index.android.js' or 'index.js'
+    // entryFile = file("../js/MyApplication.android.js")
+    //
+    //   A list of extra flags to pass to the 'bundle' commands.
+    //   See https://github.com/react-native-community/cli/blob/main/docs/commands.md#bundle
+    // extraPackagerArgs = []
+
+    /* Hermes Commands */
+    //   The hermes compiler command to run. By default it is 'hermesc'
+    // hermesCommand = "$rootDir/my-custom-hermesc/bin/hermesc"
+    //
+    //   The list of flags to pass to the Hermes compiler. By default is "-O", "-output-source-map"
+    // hermesFlags = ["-O", "-output-source-map"]
+
+    /* Autolinking */
+    autolinkLibrariesWithApp()
+}
+
+/**
+ * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
+ */
+def enableProguardInReleaseBuilds = false
+
+/**
+ * The preferred build flavor of JavaScriptCore (JSC)
+ *
+ * For example, to use the international variant, you can use:
+ * `def jscFlavor = io.github.react-native-community:jsc-android-intl:2026004.+`
+ *
+ * The international variant includes ICU i18n library and necessary data
+ * allowing to use e.g. `Date.toLocaleString` and `String.localeCompare` that
+ * give correct results when using with locales other than en-US. Note that
+ * this variant is about 6MiB larger per architecture than default.
+ */
+def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
+
+android {
+    ndkVersion rootProject.ext.ndkVersion
+    buildToolsVersion rootProject.ext.buildToolsVersion
+    compileSdk rootProject.ext.compileSdkVersion
+
+    namespace "cn.chenle.auralflow.mobile"
+    defaultConfig {
+        applicationId "cn.chenle.auralflow.mobile"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "1.0"
+        ndk {
+            abiFilters "arm64-v8a"
+        }
+    }
+    signingConfigs {
+        debug {
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+        if (hasReleaseKeystore) {
+            release {
+                storeFile file(keystoreProperties['AURALFLOW_RELEASE_STORE_FILE'])
+                storePassword keystoreProperties['AURALFLOW_RELEASE_STORE_PASSWORD']
+                keyAlias keystoreProperties['AURALFLOW_RELEASE_KEY_ALIAS']
+                keyPassword keystoreProperties['AURALFLOW_RELEASE_KEY_PASSWORD']
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
+        release {
+            // 有本机 release keystore 时用正式签名；否则回退 debug 签名（仅本地可装，不用于分发）。
+            signingConfig hasReleaseKeystore ? signingConfigs.release : signingConfigs.debug
+            minifyEnabled enableProguardInReleaseBuilds
+            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+        }
+    }
+}
+
+dependencies {
+    // The version of react-native is set by the React Native Gradle Plugin
+    implementation("com.facebook.react:react-android")
+
+    if (hermesEnabled.toBoolean()) {
+        implementation("com.facebook.react:hermes-android")
+    } else {
+        implementation jscFlavor
+    }
+
+    // 本地音乐写回内嵌封面/歌词所需的 ID3/MP4 标签库（纯 Java，无需 NDK）。
+    implementation("net.jthink:jaudiotagger:3.0.1")
+    // 从封面提取主色调（播放页氛围色），AndroidX 官方调色板库。
+    implementation("androidx.palette:palette:1.0.0")
+}
+
+// Keep AGP's standard APK output intact because its listing task consumes the
+// metadata from that directory. Copy the completed APK to the stable external
+// path only after the variant has assembled successfully.
+android.applicationVariants.configureEach { variant ->
+    def variantName = variant.name
+    def outputFileName = "AuralFlow-${variant.versionName}-${variant.buildType.name}.apk"
+    def copyApkTask = tasks.register("copy${variantName.capitalize()}ApkToAlt", Copy) {
+        dependsOn variant.packageApplicationProvider
+        from layout.buildDirectory.file("outputs/apk/${variantName}/app-${variantName}.apk")
+        rename { outputFileName }
+        into layout.buildDirectory.dir("outputs/apk-alt")
+    }
+
+    variant.assembleProvider.configure {
+        finalizedBy copyApkTask
+    }
+}

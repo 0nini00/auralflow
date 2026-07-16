@@ -2,42 +2,16 @@
   "name": "auralflow",
   "private": true,
   "version": "0.1.0",
-  "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "typecheck": "tsc --noEmit",
-    "preview": "vite preview",
-    "tauri": "tauri",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
-  },
-  "dependencies": {
-    "@lx/core": "workspace:*",
-    "@lx/tauri-bridge": "workspace:*",
-    "@tauri-apps/api": "^2.0.0",
-    "@tauri-apps/plugin-deep-link": "^2.4.9",
-    "@tauri-apps/plugin-dialog": "^2.7.1",
-    "@tauri-apps/plugin-fs": "^2.5.1",
-    "@tauri-apps/plugin-http": "^2.0.0",
-    "@tauri-apps/plugin-shell": "^2.0.0",
-    "crypto-js": "^4.2.0",
-    "lucide-react": "^0.460.0",
-    "node-forge": "^1.3.1",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-router-dom": "^6.28.0",
-    "soundtouchjs": "^0.3.0",
-    "zustand": "^5.0.1"
-  },
-  "devDependencies": {
-    "@tauri-apps/cli": "^2.0.0",
-    "@types/crypto-js": "^4.2.2",
-    "@types/node-forge": "^1.3.11",
-    "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1",
-    "@vitejs/plugin-react": "^4.3.3",
-    "typescript": "~5.6.2",
-    "vite": "^5.4.10"
+    "mobile:start": "pnpm --filter @auralflow/mobile start",
+    "mobile:android": "pnpm --filter @auralflow/mobile android",
+    "mobile:build:debug": "pnpm --filter @auralflow/mobile android:assembleDebug",
+    "mobile:typecheck": "pnpm --filter @auralflow/mobile typecheck",
+    "desktop:dev": "pnpm --filter @auralflow/desktop dev",
+    "desktop:build": "pnpm --filter @auralflow/desktop build",
+    "desktop:typecheck": "pnpm --filter @auralflow/desktop typecheck",
+    "desktop:tauri": "pnpm --filter @auralflow/desktop tauri",
+    "desktop:tauri:dev": "pnpm --filter @auralflow/desktop tauri:dev",
+    "desktop:tauri:build": "pnpm --filter @auralflow/desktop tauri:build"
   }
 }

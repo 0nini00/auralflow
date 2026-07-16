@@ -31,6 +31,8 @@ export interface MusicInfo {
   url?: string;
   /** 标记为本地音乐（PlayerBar/LibraryView 使用） */
   isLocal?: boolean;
+  /** 移动端应用内管理的本地歌词文本，不表示已写回音频文件 */
+  localLyrics?: string;
   /** 内置音乐 API 解析元数据；source 仍保持 wy/tx/local 作为 UI 来源 */
   gateway?: MusicGatewayInfo;
 }

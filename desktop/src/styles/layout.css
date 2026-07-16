@@ -1,0 +1,306 @@
+/* Header */
+.af-header {
+  min-height: 56px;
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: auto minmax(240px, 520px) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 0 16px;
+  background: var(--af-bg-elevated);
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-xl);
+  box-shadow: var(--af-shadow-sm);
+}
+
+.af-header-left,
+.af-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.af-header-right {
+  justify-content: flex-end;
+}
+
+.af-header-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 38px;
+  padding: 0 14px;
+  color: var(--af-text-tertiary);
+  background: var(--af-bg-surface);
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-full);
+  transition: all var(--af-transition-base);
+}
+
+.af-header-search-popover {
+  top: calc(100% + 10px);
+  min-width: min(360px, calc(100vw - 32px));
+}
+
+.af-header-search:focus-within {
+  color: var(--af-text-secondary);
+  background: var(--af-bg-elevated);
+  border-color: var(--af-border-focus);
+  box-shadow: 0 0 0 3px rgba(var(--af-accent-primary-rgb), 0.12);
+}
+
+.af-header-search-input {
+  width: 100%;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--af-text-primary);
+  font-size: var(--af-font-size-sm);
+}
+
+.af-header-search-input::placeholder {
+  color: var(--af-text-tertiary);
+}
+
+@media (max-width: 768px) {
+  .af-header {
+    grid-template-columns: auto 1fr auto;
+    gap: 10px;
+    padding: 0 10px;
+  }
+
+  .af-header-search {
+    height: 36px;
+    padding: 0 10px;
+  }
+}
+
+/* ── 鼠标特效 ── */
+.af-cursor-effect {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ── 虚拟列表 ── */
+.af-virtual-list {
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  height: 100%;
+}
+
+.af-virtual-list.af-virtual-list-external {
+  overflow-y: visible;
+  overflow-x: visible;
+  height: auto;
+}
+
+/* ── 用户协议弹窗 ── */
+.af-pact-overlay {
+  z-index: 3000;
+}
+.af-pact-dialog {
+  max-width: 520px;
+}
+.af-pact-body p {
+  margin: 0 0 10px;
+  color: var(--af-text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.af-pact-body ul {
+  margin: 0 0 12px;
+  padding-left: 20px;
+  color: var(--af-text-secondary);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.af-pact-body li {
+  margin-bottom: 4px;
+}
+.af-pact-confirm {
+  color: var(--af-text-primary) !important;
+  font-weight: 600;
+}
+
+.af-icon-btn,
+.af-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--af-button-radius);
+  background: transparent;
+  color: var(--af-text-secondary);
+  cursor: pointer;
+  transition:
+    background var(--af-transition-fast),
+    border-color var(--af-transition-fast),
+    color var(--af-transition-fast),
+    transform var(--af-transition-fast);
+}
+
+.af-icon-btn-sm {
+  width: 30px;
+  height: 30px;
+}
+
+.af-icon-btn-md,
+.af-menu-trigger {
+  width: 34px;
+  height: 34px;
+}
+
+.af-icon-btn-lg {
+  width: 40px;
+  height: 40px;
+}
+
+.af-icon-btn:hover:not(:disabled),
+.af-menu-trigger:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--af-bg-hover);
+  color: var(--af-text-primary);
+}
+
+.af-icon-btn-active,
+.af-icon-btn-active:hover:not(:disabled) {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--af-accent-primary);
+}
+
+.af-icon-btn:active:not(:disabled),
+.af-menu-trigger:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.af-icon-btn:disabled,
+.af-menu-trigger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ── 更新弹窗 ── */
+.af-update-dialog {
+  max-width: 440px;
+}
+.af-update-version {
+  margin: 0 0 8px;
+  font-size: 16px;
+  color: var(--af-text-primary);
+}
+.af-update-version strong {
+  color: var(--af-accent-primary);
+}
+.af-update-arrow {
+  color: var(--af-text-tertiary);
+  margin: 0 6px;
+}
+.af-update-name {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--af-text-secondary);
+}
+
+.af-custom-source-update-dialog {
+  width: min(820px, calc(100vw - 48px));
+  min-width: min(500px, calc(100vw - 32px));
+  max-width: 820px;
+  overflow: hidden;
+  padding: 0;
+}
+
+.af-custom-source-update-overlay {
+  position: fixed;
+  inset: 0;
+  display: grid !important;
+  place-items: center;
+  align-items: center !important;
+  justify-content: center !important;
+  min-height: 100dvh;
+  box-sizing: border-box;
+  overflow: auto;
+  padding: 24px !important;
+}
+
+.af-custom-source-update-bar {
+  height: 18px;
+  background: rgba(65, 65, 65, 0.82);
+}
+
+.af-custom-source-update-body {
+  margin: 0;
+  padding: 18px 20px 14px;
+}
+
+.af-custom-source-update-heading {
+  margin: 0 0 4px;
+  color: var(--af-text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.af-custom-source-update-log {
+  max-height: 280px;
+  overflow: auto;
+  color: var(--af-text-primary);
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.af-custom-source-update-actions {
+  padding: 0 14px 14px;
+}
+
+/* ── 通用行内操作按钮（播放/加入队列/添加到歌单/下载等）── */
+.af-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: var(--af-bg-surface);
+  color: var(--af-text-secondary);
+  border-radius: var(--af-button-radius);
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    transform 0.12s ease;
+}
+.af-action-btn:hover {
+  border-color: var(--af-button-secondary-border);
+  background: var(--af-button-secondary-hover-bg);
+  color: var(--af-text-primary);
+}
+.af-action-btn:active {
+  transform: scale(0.92);
+}
+.af-action-btn.af-liked {
+  color: var(--af-accent-primary);
+}
+.af-action-btn.af-delete-btn:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+}
+.af-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

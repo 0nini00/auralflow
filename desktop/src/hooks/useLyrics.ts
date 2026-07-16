@@ -1,0 +1,110 @@
+import { useState, useEffect, useMemo } from "react";
+import type { MusicInfo } from "@lx/core";
+import { getLyrics, type LyricLine } from "@/services/lyricsService";
+import { findCurrentLyricLine } from "@/services/lyrics/playbackSync";
+
+export type { LyricLine };
+
+interface UseLyricsResult {
+  lyrics: LyricLine[];
+  currentLine: number;
+  isLoading: boolean;
+  error: string | null;
+}
+
+const LYRICS_CACHE_PREFIX = "auralflow:lyrics:v3:";
+
+function getLyricsCacheKey(music: MusicInfo): string {
+  return `${LYRICS_CACHE_PREFIX}${music.source}:${music.id}`;
+}
+
+function readCachedLyrics(music: MusicInfo): LyricLine[] | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(getLyricsCacheKey(music));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { lines?: LyricLine[] };
+    return Array.isArray(parsed.lines) ? parsed.lines : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedLyrics(music: MusicInfo, lines: LyricLine[]) {
+  if (typeof window === "undefined" || lines.length === 0) return;
+  try {
+    window.localStorage.setItem(getLyricsCacheKey(music), JSON.stringify({ lines }));
+  } catch {
+    // localStorage can be unavailable or full; lyrics fetching still works without the shared cache.
+  }
+}
+
+export function useLyrics(music: MusicInfo | null, progress: number, offsetSec = 0): UseLyricsResult {
+  const [lyrics, setLyrics] = useState<LyricLine[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!music) {
+      setLyrics([]);
+      setError(null);
+      setIsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const cachedLyrics = readCachedLyrics(music);
+    if (cachedLyrics) {
+      // 内存缓存命中：立刻显示，避免切歌白屏
+      setLyrics(cachedLyrics);
+      setError(null);
+      setIsLoading(false);
+    } else {
+      // 无缓存：先清掉上一首的歌词，避免短暂显示旧词
+      setLyrics([]);
+      setError(null);
+      setIsLoading(true);
+    }
+
+    async function fetchLyrics() {
+      setIsLoading(!cachedLyrics);
+      setError(null);
+
+      try {
+        if (!music) return;
+        const result = await getLyrics(music);
+        if (cancelled) return;
+
+        if (result.error) {
+          setError(result.error);
+          setLyrics([]);
+        } else {
+          setLyrics(result.lines);
+          writeCachedLyrics(music, result.lines);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        console.error("Failed to fetch lyrics:", err);
+        setError("获取歌词失败");
+        setLyrics([]);
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    fetchLyrics();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [music?.id, music?.source]);
+
+  // 同步计算当前行，不经过 state（避免额外渲染延迟）
+  const currentLine = useMemo(() => {
+    return findCurrentLyricLine(lyrics, progress + offsetSec);
+  }, [progress, lyrics, offsetSec]);
+
+  return { lyrics, currentLine, isLoading, error };
+}

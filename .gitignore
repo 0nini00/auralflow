@@ -24,10 +24,24 @@ dist-ssr
 *.sw?
 
 # Rust / Tauri
-src-tauri/target/
-src-tauri/gen/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
 .alma-snapshots/
 .codex_tmp/
 .mindfs/
 .pnpm-store/
 .worktrees/
+
+# Android signing secrets (NEVER commit)
+apps/mobile/android/keystore.properties
+apps/mobile/android/app/auralflow-release.keystore
+*.keystore
+!apps/mobile/android/app/debug.keystore
+
+# Android build artifacts
+apps/mobile/android/.gradle/
+apps/mobile/android/.kotlin/
+apps/mobile/android/app/build/
+apps/mobile/android/build/
+apps/mobile/android/node-bin/
+apps/mobile/android/local.properties

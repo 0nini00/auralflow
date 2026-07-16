@@ -1,0 +1,14 @@
+{
+  "extends": "@react-native/typescript-config",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "types": [],
+    "paths": {
+      "@/*": ["src/*"],
+      "@lx/core": ["../../packages/core/src"],
+      "@lx/core/*": ["../../packages/core/src/*"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["**/node_modules", "**/Pods", "**/_screen_backups"]
+}

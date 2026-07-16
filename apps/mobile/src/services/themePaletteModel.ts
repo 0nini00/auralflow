@@ -1,0 +1,95 @@
+export type ThemeMode = "light" | "dark" | "system";
+export type ResolvedTheme = "light" | "dark";
+
+export interface ThemePalette {
+  background: string;
+  surface: string;
+  surfaceMuted: string;
+  surfaceStrong: string;
+  border: string;
+  text: string;
+  textMuted: string;
+  textSubtle: string;
+  primary: string;
+  primaryText: string;
+  danger: string;
+  dangerSurface: string;
+  statusBar: "light-content" | "dark-content";
+}
+
+export const DEFAULT_ACCENT_COLOR = "#3bd877";
+const LEGACY_DEFAULT_ACCENT_COLOR = "#1db954";
+const LEGACY_RED_ACCENT_COLOR = "#d83b40";
+const HEX_COLOR_PATTERN = /^#?[0-9a-f]{6}$/;
+
+const lightBasePalette: Omit<ThemePalette, "primary" | "primaryText"> = {
+  // 对齐桌面 --af-bg-page / elevated / surface
+  background: "#f8f9fa",
+  surface: "#ffffff",
+  surfaceMuted: "#f1f3f5",
+  surfaceStrong: "#e9ecef",
+  border: "#e2e8f0",
+  text: "#0f172a",
+  textMuted: "#475569",
+  textSubtle: "#94a3b8",
+  danger: "#ef4444",
+  dangerSurface: "rgba(239, 68, 68, 0.1)",
+  statusBar: "dark-content",
+};
+
+const darkBasePalette: Omit<ThemePalette, "primary" | "primaryText"> = {
+  // 对齐桌面 dark --af-bg-page / elevated / surface
+  background: "#121212",
+  surface: "#1a1a1a",
+  surfaceMuted: "#1e1e1e",
+  surfaceStrong: "#2a2a2a",
+  border: "#2a2a2a",
+  text: "#f8fafc",
+  textMuted: "#cbd5e1",
+  textSubtle: "#64748b",
+  danger: "#ef4444",
+  dangerSurface: "rgba(239, 68, 68, 0.1)",
+  statusBar: "light-content",
+};
+
+function hexToRgb(color: string): [number, number, number] {
+  const normalized = normalizeAccentColor(color).slice(1);
+  return [
+    parseInt(normalized.slice(0, 2), 16),
+    parseInt(normalized.slice(2, 4), 16),
+    parseInt(normalized.slice(4, 6), 16),
+  ];
+}
+
+function getReadableTextColor(background: string): string {
+  const [red, green, blue] = hexToRgb(background);
+  const luminance = (0.299 * red + 0.587 * green + 0.114 * blue) / 255;
+  return luminance > 0.58 ? "#10241f" : "#ffffff";
+}
+
+export function normalizeAccentColor(color: string | null | undefined): string {
+  return parseAccentColorInput(color) ?? DEFAULT_ACCENT_COLOR;
+}
+
+export function parseAccentColorInput(color: string | null | undefined): string | null {
+  const normalized = (color ?? "").trim().toLowerCase();
+  if (!HEX_COLOR_PATTERN.test(normalized)) return null;
+  return normalized.startsWith("#") ? normalized : `#${normalized}`;
+}
+
+export function migrateAccentColor(color: string | null | undefined): string {
+  const normalized = normalizeAccentColor(color);
+  return normalized === LEGACY_DEFAULT_ACCENT_COLOR || normalized === LEGACY_RED_ACCENT_COLOR
+    ? DEFAULT_ACCENT_COLOR
+    : normalized;
+}
+
+export function buildThemePalette(theme: ResolvedTheme, accentColor = DEFAULT_ACCENT_COLOR): ThemePalette {
+  const primary = normalizeAccentColor(accentColor);
+  const base = theme === "light" ? lightBasePalette : darkBasePalette;
+  return {
+    ...base,
+    primary,
+    primaryText: getReadableTextColor(primary),
+  };
+}
