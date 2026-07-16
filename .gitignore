@@ -31,3 +31,10 @@ src-tauri/gen/
 .mindfs/
 .pnpm-store/
 .worktrees/
+
+# Android signing (keep out of repo)
+**/keystore.properties
+**/*-release.keystore
+apps/mobile/android/app/build/
+apps/mobile/android/.gradle/
+apps/mobile/android/.kotlin/
