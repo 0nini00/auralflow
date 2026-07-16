@@ -4,9 +4,9 @@ apply plugin: "com.facebook.react"
 
 
 
-// Release 签名凭据从本机 keystore.properties 读取（该文件已被 .gitignore，不进仓库）。
+// Release 签名凭据从仓库外的本机私密目录读取（F:/auralflow-secrets），密钥与密码永不进仓库。
 // 缺失时 release 回退到 debug 签名，保证在未配置的机器上仍可构建（仅供本地调试用途）。
-def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystorePropertiesFile = file("F:/auralflow-secrets/keystore.properties")
 def keystoreProperties = new Properties()
 def hasReleaseKeystore = keystorePropertiesFile.exists()
 if (hasReleaseKeystore) {
