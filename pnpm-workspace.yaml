@@ -1,8 +1,33 @@
 packages:
   - 'packages/*'
+  - 'apps/*'
+  - 'desktop'
+  - 'desktop/packages/*'
 
 allowBuilds:
   esbuild: true
 
 onlyBuiltDependencies:
   - esbuild
+
+# Keep React 18 apps resolving @types/react@18 even when React 19
+# is also present in the monorepo (avoids TS2786 JSX component errors).
+
+# Desktop (React 18) and mobile (React 19) share one store. Without this,
+# TypeScript resolves lucide-react / react-router against the hoisted
+# @types/react@19 and floods desktop with TS2786 JSX errors.
+packageExtensions:
+  "react@18":
+    dependencies:
+      "@types/react": "18.3.31"
+      "@types/react-dom": "18.3.7"
+  "lucide-react@0.460.0":
+    dependencies:
+      "@types/react": "18.3.31"
+  "react-router@6":
+    dependencies:
+      "@types/react": "18.3.31"
+  "react-router-dom@6":
+    dependencies:
+      "@types/react": "18.3.31"
+

@@ -1,0 +1,785 @@
+import { create } from "zustand";
+import type { MusicInfo } from "@lx/core";
+import { playerEngine } from "@/services/playerEngine";
+import { resolvePlaybackUrl } from "@/services/playback/playbackResolver";
+import { prefetchNearbyTracks, getPrefetchedTrack, invalidatePrefetchedTrack } from "@/services/playback/prefetchService";
+import { selectCachedPlaybackTarget } from "@/services/playback/prefetchModel";
+import { getPlayModeState, type PlayModeId } from "@/services/playback/playModeControl";
+import { invalidateCachedPlaybackUrl } from "@/services/persistentCache";
+import { patchSettings } from "@lx/tauri-bridge";
+import { useHistoryStore } from "./historyStore";
+import { useSleepTimerStore } from "./sleepTimerStore";
+import { useDiscoveryStore } from "./discoveryStore";
+import { logAsyncError } from "@/utils/logAsyncError";
+
+export type RepeatMode = "off" | "all" | "one";
+
+interface PlayerStore {
+  current: MusicInfo | null;
+  queue: MusicInfo[];
+  currentIndex: number;
+  status: "idle" | "loading" | "playing" | "paused" | "error";
+  progress: number;
+  duration: number;
+  volume: number;
+  isMuted: boolean;
+  playbackRate: number;
+  repeatMode: RepeatMode;
+  isShuffle: boolean;
+  error: string | null;
+  /** 私人 FM 模式：true 时播放结束/手动 next 走 discoveryStore.fmNext */
+
+  fmMode: boolean;
+
+  /** 随机模式下记录播放历史索引，用于 prev() 回退到真正上一首 */
+
+  playHistory: number[];
+
+  play: (music: MusicInfo) => Promise<void>;
+  playQueue: (queue: MusicInfo[], startIndex?: number) => Promise<void>;
+  playByIndex: (index: number) => Promise<void>;
+  addToQueue: (music: MusicInfo) => void;
+  playNext: (music: MusicInfo) => void;
+  removeFromQueue: (index: number) => void;
+  clearQueue: () => void;
+  togglePlay: () => void;
+  pause: () => void;
+  resume: () => void;
+  stop: () => void;
+  next: () => Promise<void>;
+  prev: () => Promise<void>;
+  setProgress: (progress: number) => void;
+  setVolume: (volume: number) => void;
+  toggleMute: () => void;
+  setPlaybackRate: (rate: number) => void;
+  setPlayMode: (mode: PlayModeId) => void;
+  setRepeatMode: (mode: RepeatMode) => void;
+  toggleShuffle: () => void;
+  enterFmMode: (options?: { soft?: boolean }) => void;
+  exitFmMode: () => void;
+}
+
+let volumePersistTimer: ReturnType<typeof setTimeout> | null = null;
+let activePlayRequestId = 0;
+let inflightPlayRequest: { id: number; key: string; promise: Promise<void> } | null = null;
+
+function buildPlayRequestKey(music: MusicInfo): string {
+  const localUrl =
+    'isLocal' in music && music.isLocal && 'url' in music && music.url
+      ? String(music.url)
+      : "";
+  return `${music.source}:${music.id}:${localUrl}`;
+}
+
+function didPlayFailForTarget(state: Pick<PlayerStore, "current" | "status">, music: MusicInfo): boolean {
+  return (
+    state.status === "error" &&
+    state.current != null &&
+    buildPlayRequestKey(state.current) === buildPlayRequestKey(music)
+  );
+}
+
+async function playAndDidFail(get: () => PlayerStore, music: MusicInfo): Promise<boolean> {
+  await get().play(music);
+  return didPlayFailForTarget(get(), music);
+}
+
+async function invalidatePersistentPlaybackCache(
+  original: MusicInfo,
+  target: MusicInfo,
+  quality?: string,
+): Promise<void> {
+  try {
+    await invalidateCachedPlaybackUrl(original, quality);
+    if (target.source !== original.source || target.id !== original.id) {
+      await invalidateCachedPlaybackUrl(target, quality);
+    }
+  } catch (error) {
+    console.warn("[player] invalidate playback cache failed", error);
+  }
+}
+
+function invalidatePlayRequest() {
+  activePlayRequestId += 1;
+  inflightPlayRequest = null;
+}
+
+function scheduleVolumePersist(volume: number) {
+  if (volumePersistTimer) clearTimeout(volumePersistTimer);
+  volumePersistTimer = setTimeout(() => {
+    volumePersistTimer = null;
+    patchSettings({ volume: Math.round(volume * 100) }).catch(logAsyncError("player:persist-volume"));
+  }, 400);
+}
+
+/** 调用 discoveryStore.fmNext 后播放下一首 FM 曲目；失败返回 false */
+/** FM 下一首：解析/播放失败时最多再试几首，避免卡在死链上 */
+async function playNextFmTrack(get: any, maxAttempts = 5): Promise<boolean> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const next = await useDiscoveryStore.getState().fmNext();
+      if (!next) return false;
+      const failed = await playAndDidFail(get, next);
+      if (!failed) return true;
+      console.warn("[player] fm track unplayable, try next", next.source, next.id);
+    } catch (err) {
+      console.warn("[player] fm auto-next failed", err);
+    }
+  }
+  return false;
+}
+
+/** 预热当前曲目附近的 URL、歌词和封面，切歌与看歌词时更快可用。 */
+async function preloadNext(get: any): Promise<void> {
+  const { queue, currentIndex, repeatMode, isShuffle, fmMode } = get();
+  await prefetchNearbyTracks({ queue, currentIndex, repeatMode, isShuffle, fmMode });
+}
+
+const syncEngineToStore = (set: any, get: any) => {
+  /** Previous engine status: detect mid-play error vs resolve failure */
+  let previousEngineStatus: PlayerStore["status"] | "idle" = "idle";
+  let autoSkipTimer: ReturnType<typeof setTimeout> | null = null;
+
+  playerEngine.subscribe((engineState) => {
+    const { isMuted, volume: storeVolume } = get() as PlayerStore;
+    const prevStatus = previousEngineStatus;
+    previousEngineStatus = engineState.status;
+
+    set({
+      status: engineState.status,
+      progress: engineState.currentTime,
+      duration: engineState.duration,
+      // While muted, engine volume is 0; keep store logical volume for unmute/slider
+      volume: isMuted ? storeVolume : engineState.volume,
+      playbackRate: engineState.playbackRate,
+      current: engineState.currentMusic,
+      error: engineState.error,
+    });
+
+    // 普通队列：仅 playing→error 自动跳（loading→error 由 playAndDidFail 处理）
+    // FM 模式：loading→error 也要跳，否则推荐死链会卡死
+    const shouldAutoSkip =
+      engineState.status === "error" &&
+      (prevStatus === "playing" ||
+        (prevStatus === "loading" && (get() as PlayerStore).fmMode));
+    if (shouldAutoSkip) {
+      if (autoSkipTimer) clearTimeout(autoSkipTimer);
+      autoSkipTimer = setTimeout(() => {
+        autoSkipTimer = null;
+        const store = get() as PlayerStore;
+        if (store.status !== "error") return;
+        if (store.fmMode) {
+          void playNextFmTrack(get);
+          return;
+        }
+        store.next().catch(logAsyncError("player:auto-skip-next"));
+      }, 250);
+    }
+  });
+
+  playerEngine.onEnded(() => {
+    const { repeatMode, queue, currentIndex, fmMode } = get();
+    // 定时关闭（按时间）：曲结束时若定时器到期直接停，不进入下一首
+    const sleep = useSleepTimerStore.getState();
+    if (sleep.mode === "timer" && sleep.remainingSec <= 0) {
+      useSleepTimerStore.setState({ mode: "off", remainingSec: 0 });
+      get().pause();
+      return;
+    }
+    // FM 模式：忽略 repeat / queue，永远拉下一首 FM 推荐
+    if (fmMode) {
+      void playNextFmTrack(get);
+      return;
+    }
+    if (repeatMode === "one" && queue.length > 0) {
+      get().play(queue[currentIndex]).catch(logAsyncError("player:auto-repeat-one"));
+    } else {
+      get().next().catch(logAsyncError("player:auto-next"));
+    }
+  });
+};
+
+export const usePlayerStore = create<PlayerStore>((set, get) => {
+  syncEngineToStore(set, get);
+
+  return {
+    current: null,
+    queue: [],
+    currentIndex: -1,
+    status: "idle",
+    progress: 0,
+    duration: 0,
+    volume: 0.8,
+    isMuted: false,
+    playbackRate: 1.0,
+    repeatMode: "all",
+    isShuffle: false,
+    error: null,
+
+    fmMode: false,
+
+    playHistory: [],
+
+
+
+    play: async (music) => {
+      const requestKey = buildPlayRequestKey(music);
+      if (get().status === "loading" && inflightPlayRequest?.key === requestKey) {
+        return inflightPlayRequest.promise;
+      }
+
+      const requestId = activePlayRequestId + 1;
+      activePlayRequestId = requestId;
+      set({ current: music, status: "loading", error: null, progress: 0, duration: 0 });
+
+      const run = (async () => {
+        try {
+          let playedMusic = music;
+          // 检查是否为本地音乐
+          if ('isLocal' in music && music.isLocal && 'url' in music && music.url) {
+            // 本地音乐直接使用已有的 URL
+            if (requestId !== activePlayRequestId) return;
+            await playerEngine.play(music, music.url as string);
+            if (requestId !== activePlayRequestId) return;
+            useHistoryStore.getState().add(music);
+            preloadNext(get);
+            return;
+          }
+
+          // 优先使用预加载缓存，命中则跳过网络解析
+
+          const variants = Array.isArray((music as any).variants) ? (music as any).variants as MusicInfo[] : undefined;
+          const cachedTarget = selectCachedPlaybackTarget(music, getPrefetchedTrack(music));
+
+          if (cachedTarget) {
+
+            if (requestId !== activePlayRequestId) return;
+
+            try {
+              playedMusic = cachedTarget.music;
+              await playerEngine.play(cachedTarget.music, cachedTarget.url);
+            } catch (cachedError) {
+              invalidatePrefetchedTrack(music);
+              if (cachedTarget.music.source !== music.source || cachedTarget.music.id !== music.id) {
+                invalidatePrefetchedTrack(cachedTarget.music);
+              }
+              if (cachedTarget.fromPersistentCache) {
+                await invalidatePersistentPlaybackCache(music, cachedTarget.music, cachedTarget.quality);
+              }
+
+              const resolved = await resolvePlaybackUrl(music, variants, undefined, { bypassCache: true });
+              if (requestId !== activePlayRequestId) return;
+
+              if (!resolved?.url) {
+                throw cachedError;
+              }
+
+              playedMusic = resolved.music;
+              await playerEngine.play(resolved.music, resolved.url);
+            }
+
+          } else {
+
+            // 在线音乐交给播放解析器：先内置网易云，失败后再走备用播放方式。
+
+            const resolved = await resolvePlaybackUrl(music, variants);
+
+            if (requestId !== activePlayRequestId) return;
+
+            if (!resolved?.url) {
+
+              set({
+
+                status: "error",
+
+                error: "当前播放方式没有返回可播放地址",
+
+              });
+
+              return;
+
+            }
+
+            try {
+              playedMusic = resolved.music;
+              await playerEngine.play(resolved.music, resolved.url);
+            } catch (playbackError) {
+              if (!resolved.fromCache) throw playbackError;
+
+              await invalidatePersistentPlaybackCache(music, resolved.music, resolved.quality);
+              const refreshed = await resolvePlaybackUrl(music, variants, undefined, { bypassCache: true });
+              if (requestId !== activePlayRequestId) return;
+              playedMusic = refreshed.music;
+              await playerEngine.play(refreshed.music, refreshed.url);
+            }
+
+          }
+          if (requestId !== activePlayRequestId) return;
+          useHistoryStore.getState().add(playedMusic);
+          preloadNext(get);
+        } catch (e) {
+          if (requestId !== activePlayRequestId) return;
+          console.error('[playerStore] play failed', e);
+          set({
+            status: "error",
+            error: e instanceof Error ? e.message : String(e),
+          });
+        } finally {
+          if (inflightPlayRequest?.id === requestId) {
+            inflightPlayRequest = null;
+          }
+        }
+      })();
+
+      inflightPlayRequest = { id: requestId, key: requestKey, promise: run };
+      return run;
+    },
+
+    playQueue: async (queue, startIndex = 0) => {
+
+      // 用户主动选了别的歌单/队列，自动退出 FM 模式，清空播放历史
+
+      set({ queue, currentIndex: startIndex, fmMode: false, playHistory: [] });
+      const music = queue[startIndex];
+      if (music) await get().play(music);
+    },
+
+    playByIndex: async (index) => {
+      const { queue } = get();
+      if (index < 0 || index >= queue.length) return;
+      const previousIndex = get().currentIndex;
+      set({ currentIndex: index });
+      try {
+        const failed = await playAndDidFail(get, queue[index]);
+        if (failed) set({ currentIndex: previousIndex });
+      } catch {
+        set({ currentIndex: previousIndex });
+      }
+    },
+
+    addToQueue: (music) => {
+      set((state) => ({ queue: [...state.queue, music] }));
+    },
+
+    playNext: (music) => {
+
+      const { queue, currentIndex } = get();
+
+      // 空队列 / 无当前曲：插入后立即开播，避免只改 index 不出声
+
+      if (queue.length === 0 || currentIndex < 0) {
+
+        set({ queue: [music], currentIndex: 0, playHistory: [] });
+
+        void get().play(music).catch(logAsyncError("player:play-next-empty"));
+
+        return;
+
+      }
+
+
+
+      set((state) => {
+
+        const nextIndex = Math.min(state.currentIndex + 1, state.queue.length);
+
+        const nextQueue = [...state.queue];
+
+        nextQueue.splice(nextIndex, 0, music);
+
+        // 与 removeFromQueue 对称：插入点及之后的 history 下标整体 +1
+
+        const playHistory = state.playHistory.map((h) => (h >= nextIndex ? h + 1 : h));
+
+        return { queue: nextQueue, playHistory };
+
+      });
+
+    },
+
+    removeFromQueue: (index) => {
+      let resumeTrack: MusicInfo | null = null;
+
+      set((state) => {
+        const newQueue = state.queue.filter((_, i) => i !== index);
+        let newIndex = state.currentIndex;
+
+        // Keep playHistory in sync: drop hit index, shift larger indices down
+        const newHistory = state.playHistory
+          .filter((h) => h !== index)
+          .map((h) => (h > index ? h - 1 : h));
+
+        if (index < state.currentIndex) {
+          newIndex = state.currentIndex - 1;
+          return { queue: newQueue, currentIndex: newIndex, playHistory: newHistory };
+        }
+
+        if (index === state.currentIndex) {
+          // Removing current track: resume next (same index after delete), else previous; stop if empty
+          if (newQueue.length === 0) {
+            invalidatePlayRequest();
+            playerEngine.stop();
+            return {
+              queue: [],
+              currentIndex: -1,
+              playHistory: [],
+              current: null,
+              status: "idle" as const,
+            };
+          }
+          newIndex = index < newQueue.length ? index : newQueue.length - 1;
+          resumeTrack = newQueue[newIndex] ?? null;
+          return { queue: newQueue, currentIndex: newIndex, playHistory: newHistory };
+        }
+
+        return { queue: newQueue, currentIndex: newIndex, playHistory: newHistory };
+      });
+
+      if (resumeTrack) {
+        void get().play(resumeTrack).catch(logAsyncError("player:remove-current-resume"));
+      }
+    },
+
+    clearQueue: () => {
+
+      invalidatePlayRequest();
+
+      playerEngine.stop();
+
+      set({
+
+        queue: [],
+
+        currentIndex: -1,
+
+        current: null,
+
+        status: "idle",
+
+        playHistory: [],
+
+      });
+
+    },
+
+    togglePlay: () => {
+      const { status, current, play, resume, pause } = get();
+      if (!current) return;
+      if (status === "playing") {
+        pause();
+      } else if (status === "paused") {
+        resume();
+      } else {
+        // idle / error / loading：重新解析播放（resume 无法从这些状态恢复）
+        play(current).catch(logAsyncError("player:toggle-play"));
+      }
+    },
+
+    pause: () => {
+      playerEngine.pause();
+    },
+
+    resume: () => {
+      playerEngine.resume();
+    },
+
+    stop: () => {
+
+      invalidatePlayRequest();
+
+      playerEngine.stop();
+
+      set({
+
+        current: null,
+
+        queue: [],
+
+        currentIndex: -1,
+
+        status: "idle",
+
+        progress: 0,
+
+        duration: 0,
+
+        error: null,
+
+        playHistory: [],
+
+      });
+
+    },
+
+    next: async () => {
+
+      const { queue, currentIndex, repeatMode, isShuffle, fmMode, playHistory } = get();
+
+
+
+      // FM 模式：放弃 queue 逻辑，拉下一首推荐
+
+      if (fmMode) {
+
+        await playNextFmTrack(get);
+
+        return;
+
+      }
+
+
+
+      if (queue.length === 0) {
+
+        playerEngine.pauseAtEnd();
+
+        return;
+
+      }
+
+
+
+      let nextIndex: number;
+
+
+
+      if (isShuffle) {
+
+        // Random mode: pick a random index (excluding current)
+
+        const availableIndices = queue
+
+          .map((_, i) => i)
+
+          .filter((i) => i !== currentIndex);
+
+        if (availableIndices.length === 0) {
+
+          // Only one song in queue, play it again if repeat is on
+
+          if (repeatMode === "all") {
+
+            nextIndex = 0;
+
+          } else {
+
+            playerEngine.pauseAtEnd();
+
+            return;
+
+          }
+
+        } else {
+
+          nextIndex = availableIndices[Math.floor(Math.random() * availableIndices.length)];
+
+        }
+
+        // 随机模式下把当前索引压入历史，供 prev() 回退
+
+        if (currentIndex >= 0) {
+
+          set({ playHistory: [...playHistory, currentIndex] });
+
+        }
+
+      } else {
+
+        // Sequential mode
+
+        nextIndex = currentIndex + 1;
+
+        if (nextIndex >= queue.length) {
+
+          if (repeatMode === "all") {
+
+            nextIndex = 0;
+
+          } else {
+
+            playerEngine.pauseAtEnd();
+
+            return;
+
+          }
+
+        }
+
+      }
+
+      
+
+      // 先更新 index，使 play() 内部的 preloadNext 能读到正确的下一首
+
+      const prevIndex = currentIndex;
+      const previousPlayHistory = playHistory;
+
+      try {
+
+        set({ currentIndex: nextIndex });
+
+        const failed = await playAndDidFail(get, queue[nextIndex]);
+        if (failed) {
+          set({ currentIndex: prevIndex, playHistory: previousPlayHistory });
+        }
+
+      } catch {
+
+        // play 失败时回滚 index，避免 UI 指向未成功播放的曲目
+
+        set({ currentIndex: prevIndex, playHistory: previousPlayHistory });
+
+      }
+
+    },
+
+
+
+    prev: async () => {
+
+      const { queue, currentIndex, isShuffle, playHistory } = get();
+
+      if (queue.length === 0) return;
+
+
+
+      let prevIndex: number;
+
+
+
+      if (isShuffle && playHistory.length > 0) {
+
+        // 随机模式：从历史栈弹出上一首
+
+        const history = [...playHistory];
+
+        prevIndex = history.pop()!;
+
+        set({ playHistory: history });
+
+      } else {
+
+        prevIndex = Math.max(0, currentIndex - 1);
+
+      }
+
+
+
+      if (prevIndex === currentIndex) return;
+
+      const savedIndex = currentIndex;
+      const savedPlayHistory = playHistory;
+
+      try {
+
+        set({ currentIndex: prevIndex });
+
+        const failed = await playAndDidFail(get, queue[prevIndex]);
+        if (failed) {
+          set({ currentIndex: savedIndex, playHistory: savedPlayHistory });
+        }
+
+      } catch {
+
+        set({ currentIndex: savedIndex, playHistory: savedPlayHistory });
+
+      }
+
+    },
+
+    setProgress: (progress) => {
+      playerEngine.seek(progress);
+    },
+
+    setVolume: (volume) => {
+
+      const clamped = Math.max(0, Math.min(volume, 1));
+
+      playerEngine.setVolume(clamped);
+
+      // 滑到 0 视为静音；非 0 则解除静音并写入逻辑音量
+
+      set({ volume: clamped, isMuted: clamped === 0 });
+
+      scheduleVolumePersist(clamped);
+
+    },
+
+
+
+    toggleMute: () => {
+
+      const { isMuted, volume } = get();
+
+
+
+      if (isMuted) {
+
+        // store.volume 在静音期间保持为静音前的逻辑音量
+
+        const restored = volume > 0 ? volume : 0.8;
+
+        playerEngine.setVolume(restored);
+
+        set({ isMuted: false, volume: restored });
+
+        scheduleVolumePersist(restored);
+
+      } else {
+
+        // 只把 engine 静音；不把 store.volume 改成 0，也不 persist 0
+
+        // 否则 unmute 只能回到默认 0.8，且下次启动音量被写成 0
+
+        playerEngine.setVolume(0);
+
+        set({ isMuted: true });
+
+      }
+
+    },
+
+    setPlaybackRate: (rate) => {
+      playerEngine.setPlaybackRate(rate);
+      set({ playbackRate: rate });
+    },
+
+    setPlayMode: (mode) => {
+      const next = getPlayModeState(mode);
+      set((state) => ({
+        repeatMode: next.repeatMode,
+        isShuffle: next.isShuffle,
+        playHistory: next.isShuffle ? state.playHistory : [],
+      }));
+    },
+
+    setRepeatMode: (mode) => set({ repeatMode: mode }),
+    toggleShuffle: () => set((state) => {
+      // 关闭随机模式时清空播放历史，避免残留的随机索引在 prev() 中指向错误的歌
+      if (state.isShuffle) return { isShuffle: false, playHistory: [] };
+      return { isShuffle: true };
+    }),
+
+    enterFmMode: (options) => {
+      // soft：当前已是 FM 曲目时只挂上模式，不打断播放
+      if (options?.soft) {
+        set({ fmMode: true });
+        return;
+      }
+      // 硬进入：停掉非 FM 播放，清普通队列，准备吃推荐流
+      invalidatePlayRequest();
+      playerEngine.stop();
+      set({
+        fmMode: true,
+        queue: [],
+        currentIndex: -1,
+        playHistory: [],
+        current: null,
+        status: "idle",
+      });
+    },
+    exitFmMode: () => {
+      set({ fmMode: false });
+    },
+  };
+});

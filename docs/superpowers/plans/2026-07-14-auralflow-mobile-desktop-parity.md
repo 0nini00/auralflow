@@ -58,6 +58,9 @@
 - `apps/mobile/src/services/libraryNavigation.ts`: duplicate detail-state model removed after Root Stack migration.
 - `apps/mobile/src/services/__tests__/miniPlayerNavigationIntegration.test.ts`: replaced by PlayerBar coverage.
 - `apps/mobile/src/services/__tests__/miniPlayerProgressIntegration.test.ts`: replaced by PlayerBar coverage.
+- `apps/mobile/src/services/__tests__/playerScreenThemeIntegration.test.ts`: obsolete source contract for the removed legacy PlayerScreen.
+- `apps/mobile/src/services/__tests__/playerScreenModalThemeIntegration.test.ts`: obsolete source contract for the removed legacy PlayerScreen.
+- `apps/mobile/src/services/__tests__/playerScreenLyricsIntegration.test.ts`: obsolete source contract for the removed legacy PlayerScreen.
 
 ### Modified files
 
@@ -435,7 +438,13 @@ interface AppShellController {
 
 The hook listens to `navigationRef` state changes, derives chrome state with `deriveAppShellNavigationState`, records semantic Root or Main Drawer route descriptors with `recordNavigation`, reconciles system-back transitions against adjacent history entries, and returns replay handlers through `headerProps`. A replay dispatches Root targets with `navigateRoot(name, params)` and Main targets with `navigateRoot("Main", { screen: name, params })`; React Navigation remains the active-route truth.
 
-Use this public shell structure; Task 5 supplies the final `PlayerBar` implementation:
+Until Task 5 creates the final component, import the current player under a transitional local name so this task remains compilable:
+
+```ts
+import { MiniPlayer as PlayerBar } from "@/components/MiniPlayer";
+```
+
+Use this public shell structure; Task 5 replaces the transitional import with the final `PlayerBar` implementation:
 
 ```tsx
 export interface AppShellProps {
@@ -711,6 +720,9 @@ Expected: selected tests pass and TypeScript exits `0`.
 - Remove: `apps/mobile/src/stores/sleepTimerStore.ts`
 - Remove: `apps/mobile/src/services/__tests__/miniPlayerNavigationIntegration.test.ts`
 - Remove: `apps/mobile/src/services/__tests__/miniPlayerProgressIntegration.test.ts`
+- Remove: `apps/mobile/src/services/__tests__/playerScreenThemeIntegration.test.ts`
+- Remove: `apps/mobile/src/services/__tests__/playerScreenModalThemeIntegration.test.ts`
+- Remove: `apps/mobile/src/services/__tests__/playerScreenLyricsIntegration.test.ts`
 
 **Interfaces:**
 - Consumes: `playerStore`, `playerService`, `playlistStore`, `ProgressBar`, `AddToLocalPlaylistModal`, `lyricOverlayStore`, and the existing Root `Player` route.
@@ -802,7 +814,7 @@ Use `flexWrap: "wrap"` and width-aware spacing only; do not conditionally remove
 
 - [ ] **Step 4: Delete duplicate player implementations**
 
-Confirm production Root `Player` renders `ImmersiveLyricsScreen`, then delete `PlayerScreen.tsx`, `sleepTimerStore.ts`, `MiniPlayer.tsx`, and the two MiniPlayer source-contract tests. Update AppShell imports to `PlayerBar`.
+Confirm production Root `Player` renders `ImmersiveLyricsScreen`, then delete `PlayerScreen.tsx`, `sleepTimerStore.ts`, `MiniPlayer.tsx`, the two MiniPlayer source-contract tests, and the three obsolete PlayerScreen source-contract tests. Update AppShell imports to `PlayerBar`.
 
 - [ ] **Step 5: Run player regressions and typecheck**
 
