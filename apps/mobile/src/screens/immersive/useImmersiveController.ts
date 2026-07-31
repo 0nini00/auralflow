@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, type LayoutChangeEvent, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -91,9 +91,9 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
 
   const [posterMode, setPosterMode] = useState(false);
 
-  // 手机折叠态：沉浸式默认只出封面，点一下才展开两行歌词
-
-  const [phoneLyricsVisible, setPhoneLyricsVisible] = useState(false);
+  // PagerView 页面索引：0=封面, 1=歌词（手机端使用）
+  const [currentPage, setCurrentPage] = useState(0);
+  const isLyricsPage = currentPage === 1;
 
   const [controlsVisible, setControlsVisible] = useState(true);
   const [layoutWidth, setLayoutWidth] = useState(0);
@@ -203,18 +203,12 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
     }).start();
   }, [controlsVisible, fadeAnim]);
 
-  // 打开时重置控制栏可见；手机端恢复「封面默认、歌词折叠」
-
+  // 打开时重置控制栏可见；手机端恢复「封面页」
   useEffect(() => {
-
     if (visible) {
-
       setControlsVisible(true);
-
-      setPhoneLyricsVisible(false);
-
+      setCurrentPage(0);
     }
-
   }, [visible]);
 
   // 平板：封面常驻（对齐桌面）；手机：封面由 PosterMode 始终渲染，不单独控制显隐
@@ -406,8 +400,9 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
     controlsVisible,
     posterMode,
     setPosterMode,
-    phoneLyricsVisible,
-    setPhoneLyricsVisible,
+    currentPage,
+    setCurrentPage,
+    isLyricsPage,
     lyricSettingsVisible,
     setLyricSettingsVisible,
     addToPlaylistVisible,

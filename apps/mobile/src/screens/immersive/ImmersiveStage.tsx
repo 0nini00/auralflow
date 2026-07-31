@@ -1,5 +1,5 @@
 import React from "react";
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 import type { MusicInfo } from "@lx/core";
 import { Music2 } from "lucide-react-native";
 import type { ThemePalette } from "@/stores/themeStore";
@@ -22,17 +22,15 @@ export interface ImmersiveStageProps {
   duration: number;
   isPlaying: boolean;
   showTranslation: boolean;
-  phoneLyricsVisible: boolean;
   controlsVisible: boolean;
   insetsTop: number;
   onSeek: (time: number) => void;
-  onTogglePhoneLyrics: () => void;
 }
 
 /**
  * 沉浸式舞台：
  * - 平板：封面 + 全屏歌词并排（或海报模式）
- * - 手机：封面默认，点一下展开两行歌词
+ * - 手机：仅封面（歌词页由 PagerView 在 ImmersiveLyricsScreen 中管理）
  */
 export function ImmersiveStage({
   isTablet,
@@ -48,11 +46,9 @@ export function ImmersiveStage({
   duration,
   isPlaying,
   showTranslation,
-  phoneLyricsVisible,
   controlsVisible,
   insetsTop,
   onSeek,
-  onTogglePhoneLyrics,
 }: ImmersiveStageProps) {
   if (isTablet) {
     if (posterMode) {
@@ -136,12 +132,7 @@ export function ImmersiveStage({
   }
 
   return (
-    <Pressable
-      style={styles.phoneStage}
-      onPress={onTogglePhoneLyrics}
-      accessibilityRole="button"
-      accessibilityLabel={phoneLyricsVisible ? "隐藏歌词" : "显示歌词"}
-    >
+    <View style={styles.phoneStage}>
       <PosterMode
         artwork={artwork}
         songName={currentSong.name}
@@ -156,8 +147,8 @@ export function ImmersiveStage({
         palette={palette}
         onSeek={onSeek}
         posterWidth={coverSize}
-        showLyrics={phoneLyricsVisible}
+        showLyrics={false}
       />
-    </Pressable>
+    </View>
   );
 }
