@@ -52,5 +52,9 @@ export function openSearchFallbackDetailScreen(detail: SearchFallbackDetailModel
 }
 
 export function openDailyRecommendScreen() {
-  navigateRoot("Main", { screen: "Daily" });
+  navigateRoot("DailyRecommend");
+}
+
+export function openPersonalFmScreen() {
+  navigateRoot("PersonalFm");
 }
