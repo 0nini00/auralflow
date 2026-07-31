@@ -46,6 +46,7 @@ export const layout = {
   artworkSize: 48,
   headerHeight: 56,
   compactControlHeight: 36,
+  playerBarHeight: 56,
 } as const;
 
 export const breakpoints = {
