@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useMemo, useCallback } from "react";
+import React, { useEffect, useRef, useMemo, useCallback, useState } from "react";
 import {
   Animated,
   FlatList,
+  PanResponder,
   Pressable,
   StyleSheet,
   Text,
@@ -60,6 +61,74 @@ export function LyricView({
   const textOpacity = useLyricSettingsStore((s) => s.textOpacity);
   const enableAnimation = useLyricSettingsStore((s) => s.enableAnimation);
   const animationIntensity = useLyricSettingsStore((s) => s.animationIntensity);
+  const setStoreFontSize = useLyricSettingsStore((s) => s.setFontSize);
+
+  // 本地字号状态：手势期间实时更新，结束后持久化到 store
+  const [localFontSize, setLocalFontSize] = useState(fontSize);
+  const localFontSizeRef = useRef(fontSize);
+
+  // store 外部更新时同步到本地状态
+  useEffect(() => {
+    setLocalFontSize(fontSize);
+    localFontSizeRef.current = fontSize;
+  }, [fontSize]);
+
+  // 双指缩放：字号范围 12–32
+  const FONT_SIZE_MIN = 12;
+  const FONT_SIZE_MAX = 32;
+
+  // PanResponder：双指捏合缩放歌词字号
+  const pinchStartDistRef = useRef(0);
+  const pinchStartFontSizeRef = useRef(16);
+  const isPinchingRef = useRef(false);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        // 仅对双指手势拦截（单指保持 FlatList 滚动）
+        return gestureState.numberActiveTouches === 2;
+      },
+      onPanResponderGrant: () => {
+        // 双指触摸开始时记录初始状态（由 onPanResponderMove 中首次检测触发）
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        if (gestureState.numberActiveTouches < 2) return;
+
+        // 计算两指间距（通过 nativeEvent.touches 获取多指坐标）
+        const touches = evt.nativeEvent.touches;
+        if (touches.length < 2) return;
+
+        const dx = touches[0].pageX - touches[1].pageX;
+        const dy = touches[0].pageY - touches[1].pageY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        // 首次检测到双指：记录初始距离和字号
+        if (!isPinchingRef.current) {
+          isPinchingRef.current = true;
+          pinchStartDistRef.current = dist;
+          pinchStartFontSizeRef.current = localFontSizeRef.current;
+          return;
+        }
+
+        const scale = dist / pinchStartDistRef.current;
+        const newSize = Math.round(pinchStartFontSizeRef.current * scale);
+        const clamped = Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, newSize));
+        setLocalFontSize(clamped);
+        localFontSizeRef.current = clamped;
+      },
+      onPanResponderRelease: () => {
+        if (isPinchingRef.current) {
+          // 手势结束，持久化最终字号到 store
+          setStoreFontSize(localFontSizeRef.current);
+          isPinchingRef.current = false;
+        }
+      },
+      onPanResponderTerminate: () => {
+        isPinchingRef.current = false;
+      },
+    })
+  ).current;
 
   // 译文开关：组件 prop 优先（运行时临时切换），否则使用持久化设置
   const showTranslation = showTranslationProp && storeShowTranslation;
@@ -119,7 +188,7 @@ export function LyricView({
 
   if (lyrics.length === 0) {
     return (
-      <View style={[styles.empty, style]}>
+      <View style={[styles.container, styles.empty, style]}>
         <Text style={[styles.emptyText, { color: palette.textMuted }]}>
           暂无歌词
         </Text>
@@ -139,7 +208,7 @@ export function LyricView({
       const hasTranslation = showTranslation && !!item.tr;
       const typography = buildLyricTypographyStyleModel({
         active: isActive,
-        fontSize,
+        fontSize: localFontSize,
         lineGap,
         fontFamily,
         activeColor: activeColorSetting,
@@ -164,7 +233,7 @@ export function LyricView({
     [
       targetIndex,
       showTranslation,
-      fontSize,
+      localFontSize,
       fontFamily,
       lineGap,
       activeColorSetting,
@@ -179,35 +248,36 @@ export function LyricView({
   );
 
   return (
-    <FlatList
-      ref={listRef}
-      data={data}
-      keyExtractor={(item, index) => `${index}-${item.time}`}
-      renderItem={renderItem}
-      getItemLayout={(_, index) => ({
-        length: ITEM_HEIGHT,
-        offset: index * ITEM_HEIGHT,
-        index,
-      })}
-      onScrollToIndexFailed={handleScrollToIndexFailed}
-      onScrollBeginDrag={() => {
-        userScrolledRef.current = true;
-        if (userScrollTimerRef.current) clearTimeout(userScrollTimerRef.current);
-        userScrollTimerRef.current = setTimeout(() => {
-          userScrolledRef.current = false;
-          userScrollTimerRef.current = null;
-          // 恢复后立即滚动到当前行
-          const idx = currentLineIndex >= 0 ? currentLineIndex + SPACING_ROWS : -1;
-          if (idx >= 0) {
-            try { listRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.5 }); } catch {}
-          }
-        }, 3000);
-      }}
-      showsVerticalScrollIndicator={false}
-      scrollEventThrottle={16}
-      contentContainerStyle={styles.listContent}
-      style={style}
-    />
+    <View style={[styles.container, style]} {...panResponder.panHandlers}>
+      <FlatList
+        ref={listRef}
+        data={data}
+        keyExtractor={(item, index) => `${index}-${item.time}`}
+        renderItem={renderItem}
+        getItemLayout={(_, index) => ({
+          length: ITEM_HEIGHT,
+          offset: index * ITEM_HEIGHT,
+          index,
+        })}
+        onScrollToIndexFailed={handleScrollToIndexFailed}
+        onScrollBeginDrag={() => {
+          userScrolledRef.current = true;
+          if (userScrollTimerRef.current) clearTimeout(userScrollTimerRef.current);
+          userScrollTimerRef.current = setTimeout(() => {
+            userScrolledRef.current = false;
+            userScrollTimerRef.current = null;
+            // 恢复后立即滚动到当前行
+            const idx = currentLineIndex >= 0 ? currentLineIndex + SPACING_ROWS : -1;
+            if (idx >= 0) {
+              try { listRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.5 }); } catch {}
+            }
+          }, 3000);
+        }}
+        showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        contentContainerStyle={styles.listContent}
+      />
+    </View>
   );
 }
 
@@ -281,6 +351,9 @@ function AnimatedLyricLine({
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
   listContent: {
     paddingVertical: 0,
   },
