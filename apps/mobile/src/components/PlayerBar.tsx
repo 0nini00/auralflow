@@ -1,35 +1,28 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Modal,
+  PanResponder,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import {
-  Heart,
-  ListPlus,
   Maximize2,
-  Music2,
   MoreHorizontal,
+  Music2,
   Pause,
   Play,
-  Repeat,
-  Repeat1,
-  Shuffle,
-  StepBack,
-  StepForward,
   Timer,
   Volume2,
   VolumeX,
   X,
 } from "lucide-react-native";
 
-import { AddToLocalPlaylistModal } from "@/components/AddToLocalPlaylistModal";
 import { CachedImage } from "@/components/CachedImage";
-import { ProgressBar } from "@/components/ProgressBar";
+import { MiniProgressBar } from "@/components/MiniProgressBar";
 import { Touchable } from "@/components/Touchable";
 import {
   canDrawOverlays,
@@ -40,13 +33,9 @@ import {
   showLyricOverlay,
   updateLyricOverlay,
 } from "@/services/lyricOverlayService";
-import type { MobilePlayMode } from "@/services/mobilePlayModeModel";
 import {
-  formatTime,
   getCurrentLyricIndex,
   playFromQueue,
-  playNext,
-  playPrevious,
 } from "@/services/playerService";
 import { buildMobileSleepTimerControl } from "@/services/songSleepTimerModel";
 import { useLyricOverlayStore } from "@/stores/lyricOverlayStore";
@@ -59,13 +48,6 @@ export interface PlayerBarProps {
   bottomInset?: number;
 }
 
-const PLAY_MODE_ICONS: Record<MobilePlayMode, React.ComponentType<{ size: number; color: string }>> = {
-  list: Repeat,
-  single: Repeat1,
-  shuffle: Shuffle,
-  sequence: Repeat,
-};
-
 function showActionError(title: string, error: unknown) {
   Alert.alert(title, error instanceof Error ? error.message : String(error));
 }
@@ -75,9 +57,6 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const loading = usePlayerStore((state) => state.loading);
   const position = usePlayerStore((state) => state.position);
-  const duration = usePlayerStore((state) => state.duration);
-  const playMode = usePlayerStore((state) => state.playMode);
-  const volume = usePlayerStore((state) => state.volume);
   const isMuted = usePlayerStore((state) => state.isMuted);
   const lyrics = usePlayerStore((state) => state.lyrics);
   const sleepTimerMinutes = usePlayerStore((state) => state.sleepTimerMinutes);
@@ -86,10 +65,7 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
   const sleepTimerSongActive = usePlayerStore((state) => state.sleepTimerSongActive);
   const pause = usePlayerStore((state) => state.pause);
   const resume = usePlayerStore((state) => state.resume);
-  const seekTo = usePlayerStore((state) => state.seekTo);
-  const togglePlayMode = usePlayerStore((state) => state.togglePlayMode);
   const toggleMute = usePlayerStore((state) => state.toggleMute);
-  const setVolume = usePlayerStore((state) => state.setVolume);
   const startSleepTimer = usePlayerStore((state) => state.startSleepTimer);
   const startSongSleepTimer = usePlayerStore((state) => state.startSongSleepTimer);
   const cancelSleepTimer = usePlayerStore((state) => state.cancelSleepTimer);
@@ -108,7 +84,6 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
     [themeMode, systemTheme, accentColor],
   );
 
-  const [addModalOpen, setAddModalOpen] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [sleepModalOpen, setSleepModalOpen] = useState(false);
 
@@ -165,7 +140,6 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
   if (!currentSong) return null;
 
   const coverUrl = currentSong.picUrl || currentSong.img;
-  const PlayModeIcon = PLAY_MODE_ICONS[playMode];
 
   const handleTogglePlayback = async () => {
     try {
@@ -184,39 +158,6 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
     }
   };
 
-  const handleToggleOverlay = async () => {
-    try {
-      if (overlayVisible) {
-        await hideLyricOverlay();
-        await setOverlayVisible(false);
-        return;
-      }
-
-      if (!isLyricOverlaySupported()) {
-        Alert.alert("无法显示悬浮歌词", "当前设备不支持原生悬浮歌词。");
-        return;
-      }
-
-      let granted = await canDrawOverlays();
-      if (!granted) {
-        granted = await requestOverlayPermission();
-      }
-      if (!granted) {
-        Alert.alert("悬浮歌词权限未开启", "请在系统设置中允许应用显示在其他应用上层。");
-        return;
-      }
-
-      const shown = await showLyricOverlay();
-      if (!shown) {
-        Alert.alert("悬浮歌词显示失败", "原生悬浮歌词窗口未能打开，请重试。");
-        return;
-      }
-      await setOverlayVisible(true);
-    } catch (error) {
-      showActionError("悬浮歌词操作失败", error);
-    }
-  };
-
   const handlePlayerAction = async (action: () => Promise<void>) => {
     try {
       await action();
@@ -225,28 +166,52 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
     }
   };
 
-  const closeAddModal = () => setAddModalOpen(false);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return gestureState.dy < -10 && Math.abs(gestureState.dx) < Math.abs(gestureState.dy);
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy < -50) {
+          onOpen();
+        }
+      },
+    }),
+  ).current;
+
+  const handleTouchStart = () => {
+    longPressTimer.current = setTimeout(() => {
+      onOpen();
+    }, 500);
+  };
+
+  const handleTouchEnd = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
 
   return (
     <View
+      {...panResponder.panHandlers}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
       style={[
         styles.root,
         {
           paddingBottom: bottomInset,
           backgroundColor: palette.surface,
           borderTopColor: palette.border,
+          borderTopLeftRadius: radius.lg,
+          borderTopRightRadius: radius.lg,
         },
       ]}
     >
-      <View
-        style={styles.progressRow}
-        accessible
-        accessibilityRole="adjustable"
-        accessibilityLabel="播放进度"
-        accessibilityValue={{ min: 0, max: Math.max(duration, 0), now: Math.max(position, 0) }}
-      >
-        <ProgressBar position={position} duration={duration} onSeek={seekTo} />
-      </View>
+      <MiniProgressBar />
 
       <View style={styles.content}>
         <Touchable
@@ -281,22 +246,6 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
         </Touchable>
 
         <View style={styles.transportControls}>
-          <Touchable
-            onPress={() => void handlePlayerAction(togglePlayMode)}
-            style={styles.iconButton}
-            accessibilityRole="button"
-            accessibilityLabel="播放模式"
-          >
-            <PlayModeIcon size={20} color={palette.text} />
-          </Touchable>
-          <Touchable
-            onPress={() => void handlePlayerAction(playPrevious)}
-            style={styles.iconButton}
-            accessibilityRole="button"
-            accessibilityLabel="上一首"
-          >
-            <StepBack size={21} color={palette.text} />
-          </Touchable>
           {isPlaying ? (
             <Touchable
               disabled={loading}
@@ -326,37 +275,6 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
               )}
             </Touchable>
           )}
-          <Touchable
-            onPress={() => void handlePlayerAction(playNext)}
-            style={styles.iconButton}
-            accessibilityRole="button"
-            accessibilityLabel="下一首"
-          >
-            <StepForward size={21} color={palette.text} />
-          </Touchable>
-        </View>
-
-        <View style={styles.utilityControls}>
-          <Touchable
-            onPress={() => setAddModalOpen(true)}
-            style={styles.iconButton}
-            accessibilityRole="button"
-            accessibilityLabel="添加到歌单"
-          >
-            <ListPlus size={20} color={palette.text} />
-          </Touchable>
-          <Touchable
-            onPress={() => void handleToggleOverlay()}
-            style={[
-              styles.iconButton,
-              overlayVisible && { backgroundColor: palette.surfaceStrong },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="歌词"
-            accessibilityState={{ selected: overlayVisible }}
-          >
-            <Music2 size={20} color={overlayVisible ? palette.primary : palette.text} />
-          </Touchable>
           <Touchable
             onPress={() => setMoreMenuOpen(true)}
             style={styles.iconButton}
@@ -550,11 +468,6 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
         </View>
       </Modal>
 
-      <AddToLocalPlaylistModal
-        visible={addModalOpen}
-        song={currentSong}
-        onClose={closeAddModal}
-      />
     </View>
   );
 }
@@ -562,10 +475,6 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
 const styles = StyleSheet.create({
   root: {
     borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: spacing.xs,
-  },
-  progressRow: {
-    paddingHorizontal: spacing.s,
   },
   content: {
     paddingHorizontal: spacing.s,
@@ -606,13 +515,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 2,
-  },
-  utilityControls: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    gap: 2,
+    gap: spacing.xs,
   },
   iconButton: {
     minWidth: touch.minTarget,
