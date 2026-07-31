@@ -2,13 +2,10 @@ import type { MainDrawerParamList } from "@/navigation/types";
 import type { VisibleTabId } from "@/services/appNavigation";
 
 const TAB_TO_ROUTE: Record<VisibleTabId, keyof MainDrawerParamList> = {
-  home: "Home",
-  search: "Search",
-  daily: "Daily",
-  fm: "FM",
-  playlists: "Playlists",
-  downloads: "Downloads",
-  local: "Local",
+  home: "MainTabs",
+  library: "MainTabs",
+  myMusic: "MainTabs",
+  search: "MainTabs",
   settings: "Settings",
 };
 
@@ -24,11 +21,7 @@ export function getActiveDrawerRouteName(
   if (!route) {
     throw new Error(`Active drawer route is missing at index ${state.index}`);
   }
-  if (route.name === "Library") return route.name;
-
-  const match = Object.values(TAB_TO_ROUTE).find((value) => value === route.name);
-  if (!match) throw new Error(`Unknown drawer route: ${route.name}`);
-  return match;
+  return route.name as keyof MainDrawerParamList;
 }
 
 export function tabIdToDrawerRoute(id: VisibleTabId): keyof MainDrawerParamList {
@@ -36,8 +29,7 @@ export function tabIdToDrawerRoute(id: VisibleTabId): keyof MainDrawerParamList 
 }
 
 export function drawerRouteToTabId(route: keyof MainDrawerParamList): VisibleTabId {
-  if (route === "Library") return "playlists";
-  const match = Object.entries(TAB_TO_ROUTE).find(([, value]) => value === route);
-  if (!match) throw new Error(`Unknown drawer route: ${route}`);
-  return match[0] as VisibleTabId;
+  if (route === "MainTabs") return "home";
+  if (route === "Settings") return "settings";
+  return "home";
 }
