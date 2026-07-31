@@ -15,11 +15,13 @@ import {
   Music2,
   Pause,
   Play,
+  Sliders,
   Timer,
   Volume2,
   VolumeX,
   X,
 } from "lucide-react-native";
+import { SoundEffectPanel } from "@/components/SoundEffectPanel";
 
 import { CachedImage } from "@/components/CachedImage";
 import { MiniProgressBar } from "@/components/MiniProgressBar";
@@ -86,6 +88,7 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
 
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [sleepModalOpen, setSleepModalOpen] = useState(false);
+  const [soundEffectModalOpen, setSoundEffectModalOpen] = useState(false);
 
   const sleepTimerControl = buildMobileSleepTimerControl({
     minuteActive: sleepTimerActive,
@@ -333,6 +336,17 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
             <Touchable
               onPress={() => {
                 setMoreMenuOpen(false);
+                setSoundEffectModalOpen(true);
+              }}
+              style={styles.moreMenuItem}
+              accessibilityRole="button"
+            >
+              <Sliders size={20} color={palette.text} />
+              <Text style={[styles.moreMenuText, { color: palette.text }]}>音效</Text>
+            </Touchable>
+            <Touchable
+              onPress={() => {
+                setMoreMenuOpen(false);
                 onOpen();
               }}
               style={styles.moreMenuItem}
@@ -466,6 +480,37 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
             ) : null}
           </View>
         </View>
+      </Modal>
+
+      <Modal
+        visible={soundEffectModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSoundEffectModalOpen(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setSoundEffectModalOpen(false)}>
+          <View
+            style={[
+              styles.sleepPanel,
+              { backgroundColor: palette.surface, borderColor: palette.border },
+            ]}
+          >
+            <View style={styles.modalHeader}>
+              <View style={styles.modalTitleGroup}>
+                <Text style={[styles.modalTitle, { color: palette.text }]}>音效设置</Text>
+              </View>
+              <Touchable
+                onPress={() => setSoundEffectModalOpen(false)}
+                style={styles.iconButton}
+                accessibilityRole="button"
+                accessibilityLabel="关闭音效设置"
+              >
+                <X size={20} color={palette.text} />
+              </Touchable>
+            </View>
+            <SoundEffectPanel />
+          </View>
+        </Pressable>
       </Modal>
 
     </View>
