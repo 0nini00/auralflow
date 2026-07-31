@@ -180,7 +180,7 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
           <PagerView
             style={styles.pagerView}
             initialPage={0}
-            overscrollMode="never"
+            overScrollMode="never"
             onPageSelected={(e) => setCurrentPage(e.nativeEvent.position)}
           >
             <View key="cover" style={styles.pagerPage}>
