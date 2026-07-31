@@ -7,6 +7,7 @@ import { HomeScreen } from "@/screens/HomeScreen";
 import { LibraryScreen } from "@/screens/LibraryScreen";
 import { MyMusicScreen } from "@/screens/MyMusicScreen";
 import { SearchScreen } from "@/screens/SearchScreen";
+import { openPlayerScreen } from "@/navigation/navigationRef";
 import type {
   MainTabParamList,
   LibraryTopTabParamList,
@@ -16,6 +17,26 @@ import type {
 const TopTab = createMaterialTopTabNavigator<LibraryTopTabParamList>();
 const MyMusicTopTab = createMaterialTopTabNavigator<MyMusicTopTabParamList>();
 const BottomTab = createBottomTabNavigator<MainTabParamList>();
+
+function PlaylistsScreen() {
+  return (
+    <LibraryScreen
+      onNavigateToPlayer={openPlayerScreen}
+      activeSection="playlists"
+      onSelectSection={() => {}}
+    />
+  );
+}
+
+function BiliScreen() {
+  return (
+    <LibraryScreen
+      onNavigateToPlayer={openPlayerScreen}
+      activeSection="bili"
+      onSelectSection={() => {}}
+    />
+  );
+}
 
 function LibraryTopTabs() {
   const { colors } = useTheme();
@@ -42,9 +63,36 @@ function LibraryTopTabs() {
         swipeEnabled: true,
       }}
     >
-      <TopTab.Screen name="Playlists" component={LibraryScreen} initialParams={{ tab: "playlists" }} options={{ tabBarLabel: "歌单" }} />
-      <TopTab.Screen name="Bili" component={LibraryScreen} initialParams={{ tab: "bili" }} options={{ tabBarLabel: "B站" }} />
+      <TopTab.Screen name="Playlists" component={PlaylistsScreen} options={{ tabBarLabel: "歌单" }} />
+      <TopTab.Screen name="Bili" component={BiliScreen} options={{ tabBarLabel: "B站" }} />
     </TopTab.Navigator>
+  );
+}
+
+function LocalScreen() {
+  return (
+    <MyMusicScreen
+      tab="local"
+      onNavigateToPlayer={openPlayerScreen}
+    />
+  );
+}
+
+function HistoryScreen() {
+  return (
+    <MyMusicScreen
+      tab="history"
+      onNavigateToPlayer={openPlayerScreen}
+    />
+  );
+}
+
+function DownloadsScreen() {
+  return (
+    <MyMusicScreen
+      tab="downloads"
+      onNavigateToPlayer={openPlayerScreen}
+    />
   );
 }
 
@@ -73,9 +121,9 @@ function MyMusicTopTabs() {
         swipeEnabled: true,
       }}
     >
-      <MyMusicTopTab.Screen name="Local" component={MyMusicScreen} initialParams={{ tab: "local" }} options={{ tabBarLabel: "本地" }} />
-      <MyMusicTopTab.Screen name="History" component={MyMusicScreen} initialParams={{ tab: "history" }} options={{ tabBarLabel: "历史" }} />
-      <MyMusicTopTab.Screen name="Downloads" component={MyMusicScreen} initialParams={{ tab: "downloads" }} options={{ tabBarLabel: "下载" }} />
+      <MyMusicTopTab.Screen name="Local" component={LocalScreen} options={{ tabBarLabel: "本地" }} />
+      <MyMusicTopTab.Screen name="History" component={HistoryScreen} options={{ tabBarLabel: "历史" }} />
+      <MyMusicTopTab.Screen name="Downloads" component={DownloadsScreen} options={{ tabBarLabel: "下载" }} />
     </MyMusicTopTab.Navigator>
   );
 }
