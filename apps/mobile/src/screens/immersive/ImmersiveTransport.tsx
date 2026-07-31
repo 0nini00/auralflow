@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -8,24 +8,20 @@ import {
 } from "react-native";
 import {
   ArrowRight,
-  FolderPlus,
-  Heart,
-  ListMusic,
+  MoreHorizontal,
   Pause,
   Play,
   Repeat,
   Repeat1,
-  Share2,
   Shuffle,
   SkipBack,
   SkipForward,
-  Volume2,
-  VolumeX,
 } from "lucide-react-native";
 import type { ThemePalette } from "@/stores/themeStore";
 import type { MobilePlayMode } from "@/services/mobilePlayModeModel";
 import { ProgressBar } from "@/components/ProgressBar";
 import { formatTime } from "@/services/playerService";
+import { ImmersiveMoreMenu } from "@/screens/immersive/ImmersiveMoreMenu";
 import { styles } from "@/screens/immersive/immersiveStyles";
 
 export interface ImmersiveTransportProps {
@@ -46,7 +42,6 @@ export interface ImmersiveTransportProps {
   palette: ThemePalette;
   isTablet: boolean;
   posterMode: boolean;
-  // aux row
   canLike: boolean;
   isLiked: boolean;
   liking: boolean;
@@ -130,6 +125,7 @@ export function ImmersiveTransport({
   controlsActionLabel,
   onToggleControlsVisibility,
 }: ImmersiveTransportProps) {
+  const [moreMenuVisible, setMoreMenuVisible] = useState(false);
   return (
     <Animated.View
       style={[
@@ -208,149 +204,40 @@ export function ImmersiveTransport({
         </Pressable>
 
         <Pressable
-          onPress={onOpenQueue}
+          onPress={() => setMoreMenuVisible(true)}
           style={styles.modeControlButton}
           hitSlop={8}
           accessibilityRole="button"
-          accessibilityLabel="播放列表"
+          accessibilityLabel="更多选项"
         >
-          <ListMusic size={22} color={palette.text} />
+          <MoreHorizontal size={22} color={palette.text} />
         </Pressable>
       </View>
 
-      <View style={styles.auxRow}>
-        {canLike && (
-          <Pressable
-            onPress={onLike}
-            disabled={liking}
-            style={[
-              styles.auxButton,
-              styles.auxIconButton,
-              liking && styles.auxButtonDisabled,
-              { backgroundColor: palette.surface },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={likeLabel}
-            accessibilityState={{ disabled: liking, selected: isLiked }}
-          >
-            <Heart
-              size={20}
-              color={isLiked ? palette.primary : palette.textMuted}
-              fill={isLiked ? palette.primary : "none"}
-            />
-          </Pressable>
-        )}
-
-        {canAddToPlaylist && (
-          <Pressable
-            onPress={onAddToPlaylist}
-            style={[styles.auxButton, styles.auxIconButton, { backgroundColor: palette.surface }]}
-            accessibilityRole="button"
-            accessibilityLabel={addToPlaylistLabel}
-          >
-            <FolderPlus size={20} color={palette.textMuted} />
-          </Pressable>
-        )}
-
-        {canShare && (
-          <Pressable
-            onPress={onShare}
-            style={[styles.auxButton, styles.auxIconButton, { backgroundColor: palette.surface }]}
-            accessibilityRole="button"
-            accessibilityLabel={shareLabel}
-          >
-            <Share2 size={20} color={palette.textMuted} />
-          </Pressable>
-        )}
-
-        <Pressable
-          onPress={onOpenVolume}
-          style={[styles.auxButton, styles.auxIconButton, { backgroundColor: palette.surface }]}
-          accessibilityRole="button"
-          accessibilityLabel={volumeLabel}
-        >
-          {volumeMuted
-            ? <VolumeX size={20} color={palette.textMuted} />
-            : <Volume2 size={20} color={palette.textMuted} />}
-        </Pressable>
-
-        <Pressable onPress={onOpenRate} style={[styles.auxButton, { backgroundColor: palette.surface }]}>
-          <Text style={[styles.auxText, { color: palette.textMuted }]}>{rateLabel}</Text>
-        </Pressable>
-
-        <Pressable
-          onPress={onOpenSoundEffect}
-          style={[styles.auxButton, { backgroundColor: palette.surface }]}
-        >
-          <Text style={[styles.auxText, { color: palette.textMuted }]}>音效</Text>
-        </Pressable>
-
-        <Pressable
-          onPress={onOpenSleep}
-          style={[
-            styles.auxButton,
-            { backgroundColor: sleepActive ? palette.primary : palette.surface },
-          ]}
-        >
-          <Text
-            style={[
-              styles.auxText,
-              { color: sleepActive ? palette.primaryText : palette.textMuted },
-            ]}
-          >
-            {sleepLabel}
-          </Text>
-        </Pressable>
-
-        <Pressable onPress={onOpenQueue} style={[styles.auxButton, { backgroundColor: palette.surface }]}>
-          <Text style={[styles.auxText, { color: palette.textMuted }]}>{queueLabel}</Text>
-        </Pressable>
-
-        <Pressable
-          onPress={onToggleTranslation}
-          style={[
-            styles.auxButton,
-            { backgroundColor: translationControl.active ? palette.primary : palette.surface },
-          ]}
-        >
-          <Text
-            style={[
-              styles.auxText,
-              {
-                color: translationControl.active ? palette.primaryText : palette.textMuted,
-              },
-            ]}
-          >
-            {translationControl.label}
-          </Text>
-        </Pressable>
-
-        {isTablet && (
-          <Pressable
-            onPress={onTogglePosterMode}
-            style={[
-              styles.auxButton,
-              { backgroundColor: posterMode ? palette.primary : palette.surface },
-            ]}
-          >
-            <Text
-              style={[
-                styles.auxText,
-                { color: posterMode ? palette.primaryText : palette.textMuted },
-              ]}
-            >
-              海报 {posterMode ? "开" : "关"}
-            </Text>
-          </Pressable>
-        )}
-
-        <Pressable
-          onPress={onToggleControlsVisibility}
-          style={[styles.auxButton, { backgroundColor: palette.surface }]}
-        >
-          <Text style={[styles.auxText, { color: palette.textMuted }]}>{controlsActionLabel}</Text>
-        </Pressable>
-      </View>
+      <ImmersiveMoreMenu
+        visible={moreMenuVisible}
+        onClose={() => setMoreMenuVisible(false)}
+        palette={palette}
+        canLike={canLike}
+        isLiked={isLiked}
+        onLike={onLike}
+        canAddToPlaylist={canAddToPlaylist}
+        onAddToPlaylist={onAddToPlaylist}
+        canShare={canShare}
+        onShare={onShare}
+        onOpenVolume={onOpenVolume}
+        volumeMuted={volumeMuted}
+        onOpenSleep={onOpenSleep}
+        sleepLabel={sleepLabel}
+        sleepActive={sleepActive}
+        onOpenQueue={onOpenQueue}
+        queueLabel={queueLabel}
+        onToggleTranslation={onToggleTranslation}
+        translationActive={translationControl.active}
+        onTogglePosterMode={onTogglePosterMode}
+        posterMode={posterMode}
+        onOpenSoundEffect={onOpenSoundEffect}
+      />
     </Animated.View>
   );
 }
