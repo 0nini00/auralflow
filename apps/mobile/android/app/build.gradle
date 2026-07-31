@@ -13,14 +13,42 @@ if (hasReleaseKeystore) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
+// Node 可执行文件路径：hermesc 解析与 Metro 打包共用，避免两处写死后漂移。
+def nodeExecutable = "C:/Program Files/nodejs/node.exe"
+
+// React Native 0.86 起 hermesc 迁出 react-native/sdks，改由独立的 hermes-compiler 包提供。
+// pnpm 的 store 目录名带内容哈希，写死路径会在重装依赖后失效；从 react-native 包出发用 Node 解析。
+// 解析失败直接抛错，不回退——静默跳过只会让构建产出无 Hermes 字节码的包。
+def resolveHermescDir(String nodeBin) {
+    def script = "const path=require('path');" +
+        "const rn=path.dirname(require.resolve('react-native/package.json'));" +
+        "const pkg=require.resolve('hermes-compiler/package.json',{paths:[rn]});" +
+        "process.stdout.write(path.join(path.dirname(pkg),'hermesc').split(path.sep).join('/'));"
+    def workDir = rootProject.projectDir.parentFile
+    def execResult = providers.exec {
+        it.workingDir = workDir
+        it.commandLine(nodeBin, "-e", script)
+    }
+    if (execResult.result.get().exitValue != 0) {
+        throw new GradleException(
+            "无法解析 hermes-compiler 位置，请先执行 pnpm install。\n" +
+            execResult.standardError.asText.get()
+        )
+    }
+    def dir = execResult.standardOutput.asText.get().trim()
+    if (!file(dir).isDirectory()) {
+        throw new GradleException("解析到的 hermesc 目录不存在: ${dir}")
+    }
+    return dir
+}
+
 /**
  * This is the configuration block to customize your React Native Android app.
  * By default you don't need to apply any configuration, just uncomment the lines you need.
  */
 react {
-    // monorepo + pnpm 符号链接下，插件自动探测 hermesc 会失败（%OS-BIN% 未替换）。
-    // 直接写死 hermesc 路径，插件会把 %OS-BIN% 替换为当前平台（Windows=win64-bin）。
-    hermesCommand = file("../../node_modules/react-native/sdks/hermesc/%OS-BIN%/hermesc").absolutePath
+    // 插件会把 %OS-BIN% 替换为当前平台（Windows=win64-bin）。
+    hermesCommand = "${resolveHermescDir(nodeExecutable)}/%OS-BIN%/hermesc"
 
     /* Folders */
     //   The root of your project, i.e. where "package.json" lives. Default is '../..'
@@ -40,7 +68,7 @@ react {
 
     /* Bundling */
     //   A list containing the node command and its flags. Default is just 'node'.
-    nodeExecutableAndArgs = ["C:/Program Files/nodejs/node.exe"]
+    nodeExecutableAndArgs = [nodeExecutable]
     //
     //   The command to run when bundling. By default is 'bundle'
     // bundleCommand = "ram-bundle"

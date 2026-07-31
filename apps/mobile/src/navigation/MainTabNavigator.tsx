@@ -1,13 +1,13 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { createMaterialTopTabNavigator } from "@react-navigation/material-top-tabs";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Home, Library, User, Search } from "lucide-react-native";
-import { useTheme } from "@/theme/useTheme";
 import { HomeScreen } from "@/screens/HomeScreen";
 import { LibraryScreen } from "@/screens/LibraryScreen";
 import { MyMusicScreen } from "@/screens/MyMusicScreen";
 import { SearchScreen } from "@/screens/SearchScreen";
 import { openPlayerScreen } from "@/navigation/navigationRef";
+import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import type {
   MainTabParamList,
   LibraryTopTabParamList,
@@ -17,6 +17,27 @@ import type {
 const TopTab = createMaterialTopTabNavigator<LibraryTopTabParamList>();
 const MyMusicTopTab = createMaterialTopTabNavigator<MyMusicTopTabParamList>();
 const BottomTab = createBottomTabNavigator<MainTabParamList>();
+
+function HomeScreenWrapper() {
+  return (
+    <HomeScreen
+      onNavigateToPlayer={openPlayerScreen}
+      onNavigateToSearch={() => {}}
+    />
+  );
+}
+
+function SearchScreenWrapper() {
+  return (
+    <SearchScreen
+      onNavigateToPlayer={openPlayerScreen}
+      initialKeyword={null}
+      onInitialKeywordConsumed={() => {}}
+      initialDetailRoute={null}
+      onInitialDetailRouteConsumed={() => {}}
+    />
+  );
+}
 
 function PlaylistsScreen() {
   return (
@@ -39,22 +60,28 @@ function BiliScreen() {
 }
 
 function LibraryTopTabs() {
-  const { colors } = useTheme();
+  const mode = useThemeStore((state) => state.mode);
+  const systemTheme = useThemeStore((state) => state.systemTheme);
+  const accentColor = useThemeStore((state) => state.accentColor);
+  const palette = useMemo(
+    () => getThemePalette(getResolvedTheme(mode, systemTheme), accentColor),
+    [mode, systemTheme, accentColor],
+  );
 
   return (
     <TopTab.Navigator
       screenOptions={{
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.textTertiary,
+        tabBarActiveTintColor: palette.primary,
+        tabBarInactiveTintColor: palette.textSubtle,
         tabBarStyle: {
-          backgroundColor: colors.surface,
+          backgroundColor: palette.surface,
           elevation: 0,
           shadowOpacity: 0,
           borderBottomWidth: 1,
-          borderBottomColor: colors.border,
+          borderBottomColor: palette.border,
         },
         tabBarIndicatorStyle: {
-          backgroundColor: colors.primary,
+          backgroundColor: palette.primary,
         },
         tabBarLabelStyle: {
           fontSize: 14,
@@ -97,22 +124,28 @@ function DownloadsScreen() {
 }
 
 function MyMusicTopTabs() {
-  const { colors } = useTheme();
+  const mode = useThemeStore((state) => state.mode);
+  const systemTheme = useThemeStore((state) => state.systemTheme);
+  const accentColor = useThemeStore((state) => state.accentColor);
+  const palette = useMemo(
+    () => getThemePalette(getResolvedTheme(mode, systemTheme), accentColor),
+    [mode, systemTheme, accentColor],
+  );
 
   return (
     <MyMusicTopTab.Navigator
       screenOptions={{
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.textTertiary,
+        tabBarActiveTintColor: palette.primary,
+        tabBarInactiveTintColor: palette.textSubtle,
         tabBarStyle: {
-          backgroundColor: colors.surface,
+          backgroundColor: palette.surface,
           elevation: 0,
           shadowOpacity: 0,
           borderBottomWidth: 1,
-          borderBottomColor: colors.border,
+          borderBottomColor: palette.border,
         },
         tabBarIndicatorStyle: {
-          backgroundColor: colors.primary,
+          backgroundColor: palette.primary,
         },
         tabBarLabelStyle: {
           fontSize: 14,
@@ -129,18 +162,24 @@ function MyMusicTopTabs() {
 }
 
 export function MainTabNavigator() {
-  const { colors } = useTheme();
+  const mode = useThemeStore((state) => state.mode);
+  const systemTheme = useThemeStore((state) => state.systemTheme);
+  const accentColor = useThemeStore((state) => state.accentColor);
+  const palette = useMemo(
+    () => getThemePalette(getResolvedTheme(mode, systemTheme), accentColor),
+    [mode, systemTheme, accentColor],
+  );
 
   return (
     <BottomTab.Navigator
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.textTertiary,
+        tabBarActiveTintColor: palette.primary,
+        tabBarInactiveTintColor: palette.textSubtle,
         tabBarStyle: {
-          backgroundColor: colors.surface,
+          backgroundColor: palette.surface,
           borderTopWidth: 1,
-          borderTopColor: colors.border,
+          borderTopColor: palette.border,
           height: 56,
           paddingBottom: 4,
           paddingTop: 4,
@@ -156,7 +195,7 @@ export function MainTabNavigator() {
     >
       <BottomTab.Screen
         name="HomeTab"
-        component={HomeScreen}
+        component={HomeScreenWrapper}
         options={{
           tabBarLabel: "发现",
           tabBarIcon: ({ color, size }) => <Home size={size} color={color} />,
@@ -180,7 +219,7 @@ export function MainTabNavigator() {
       />
       <BottomTab.Screen
         name="SearchTab"
-        component={SearchScreen}
+        component={SearchScreenWrapper}
         options={{
           tabBarLabel: "搜索",
           tabBarIcon: ({ color, size }) => <Search size={size} color={color} />,

@@ -1,6 +1,33 @@
-pluginManagement { includeBuild("../node_modules/@react-native/gradle-plugin") }
+pluginManagement {
+    // 本机直连 dl.google.com 会 TLS 握手失败，统一走国内镜像；镜像缺失时回落官方源。
+    repositories {
+        maven { url = uri("https://maven.aliyun.com/repository/google") }
+        maven { url = uri("https://maven.aliyun.com/repository/public") }
+        maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+    includeBuild("../node_modules/@react-native/gradle-plugin")
+}
 plugins { id("com.facebook.react.settings") }
 extensions.configure(com.facebook.react.ReactSettingsExtension){ ex -> ex.autolinkLibrariesFromCommand(["C:/Program Files/nodejs/node.exe", "node_modules/react-native/cli.js", "config", "--platform", "android"]) }
+
+dependencyResolutionManagement {
+    // PREFER_SETTINGS：允许子项目（如 RN 各原生模块）保留自己的本地 maven 目录声明，
+    // 同时让这里的镜像优先命中，避免逐个模块改仓库配置。
+    repositoriesMode = RepositoriesMode.PREFER_SETTINGS
+    repositories {
+        maven { url = uri("https://maven.aliyun.com/repository/google") }
+        maven { url = uri("https://maven.aliyun.com/repository/public") }
+        google()
+        mavenCentral()
+        // react-native-track-player 的 kotlinaudio 托管在 JitPack，
+        // 该库自身的 repositories 块未声明，需要在这里补上。
+        maven { url = uri("https://jitpack.io") }
+    }
+}
+
 rootProject.name = 'cn.chenle.auralflow.mobile'
 include ':app'
 includeBuild('../node_modules/@react-native/gradle-plugin')

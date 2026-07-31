@@ -87,21 +87,29 @@ export default function App() {
         }
         switch (intent.type) {
           case "search":
-            navigationRef.navigate("Main", {
-              screen: "Search",
-              params: { initialKeyword: intent.keyword },
-            });
+            navigationRef.navigate("Main" as never, {
+              screen: "MainTabs",
+              params: {
+                screen: "SearchTab",
+                params: { initialKeyword: intent.keyword },
+              },
+            } as never);
             break;
           case "homeMode":
-            navigationRef.navigate("Main", {
-              screen: intent.mode === "fm" ? "FM" : "Daily",
-            });
+            if (intent.mode === "fm") {
+              navigationRef.navigate("PersonalFm");
+            } else {
+              navigationRef.navigate("DailyRecommend");
+            }
             break;
           case "searchDetail":
-            navigationRef.navigate("Main", {
-              screen: "Search",
-              params: { initialDetailRoute: intent.route },
-            });
+            navigationRef.navigate("Main" as never, {
+              screen: "MainTabs",
+              params: {
+                screen: "SearchTab",
+                params: { initialDetailRoute: intent.route },
+              },
+            } as never);
             break;
         }
       };

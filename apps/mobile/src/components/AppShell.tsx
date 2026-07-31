@@ -116,13 +116,13 @@ function useAppShellController(): AppShellController {
   }, []);
 
   const submitSearch = useCallback((keyword: string) => {
-    navigateRoot("Main", {
+    navigateRoot("Main" as never, {
       screen: "MainTabs",
       params: {
         screen: "SearchTab",
         params: { initialKeyword: keyword || undefined },
       },
-    });
+    } as never);
   }, []);
 
   const isSearchActive = activeRouteName === "SearchTab";

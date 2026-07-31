@@ -13,7 +13,6 @@ import type { DrawerContentComponentProps } from "@react-navigation/drawer";
 import { AccountInfo } from "@/components/AccountInfo";
 import { Touchable } from "@/components/Touchable";
 import { LoginScreen } from "@/screens/LoginScreen";
-import { useNavigation } from "@/navigation/useNavigation";
 import { getThemePalette, useThemeStore, getResolvedTheme } from "@/stores/themeStore";
 import { radius, spacing, touch, typography } from "@/theme/tokens";
 
@@ -33,7 +32,6 @@ export function DrawerContent({ navigation }: DrawerContentComponentProps) {
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
   const [loginOpen, setLoginOpen] = useState(false);
-  const nav = useNavigation();
 
   const items: DrawerItem[] = [
     {
@@ -42,7 +40,7 @@ export function DrawerContent({ navigation }: DrawerContentComponentProps) {
       icon: Database,
       onPress: () => {
         navigation.closeDrawer();
-        nav.navigate("Settings", { screen: "CustomSources" });
+        navigation.navigate("Settings");
       },
     },
     {
@@ -51,7 +49,7 @@ export function DrawerContent({ navigation }: DrawerContentComponentProps) {
       icon: Upload,
       onPress: () => {
         navigation.closeDrawer();
-        nav.navigate("Settings", { screen: "WebDav" });
+        navigation.navigate("Settings");
       },
     },
     {
@@ -60,7 +58,7 @@ export function DrawerContent({ navigation }: DrawerContentComponentProps) {
       icon: HardDrive,
       onPress: () => {
         navigation.closeDrawer();
-        nav.navigate("Settings", { screen: "Data" });
+        navigation.navigate("Settings");
       },
     },
     {
@@ -69,7 +67,7 @@ export function DrawerContent({ navigation }: DrawerContentComponentProps) {
       icon: Settings,
       onPress: () => {
         navigation.closeDrawer();
-        nav.navigate("Settings");
+        navigation.navigate("Settings");
       },
     },
     {
@@ -78,7 +76,7 @@ export function DrawerContent({ navigation }: DrawerContentComponentProps) {
       icon: Info,
       onPress: () => {
         navigation.closeDrawer();
-        nav.navigate("Settings", { screen: "About" });
+        navigation.navigate("Settings");
       },
     },
   ];
@@ -135,7 +133,7 @@ export function DrawerContent({ navigation }: DrawerContentComponentProps) {
       </ScrollView>
 
       <View style={[styles.footer, { borderTopColor: palette.border }]}>
-        <Text style={[styles.version, { color: palette.textTertiary }]}>
+        <Text style={[styles.version, { color: palette.textSubtle }]}>
           {APP_VERSION}
         </Text>
       </View>
