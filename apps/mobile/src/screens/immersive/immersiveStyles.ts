@@ -3,6 +3,11 @@ import { radius, touch, typography } from "@/theme/tokens";
 
 export const styles = StyleSheet.create({
 
+  coverPageContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
   root: {
 
     flex: 1,
