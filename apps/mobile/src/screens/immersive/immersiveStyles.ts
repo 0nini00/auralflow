@@ -234,8 +234,17 @@ export const styles = StyleSheet.create({
 
 
 
-  // 手机折叠态：承载 PosterMode 的可点按舞台，点一下展开/收起两行歌词
+  pagerView: {
+    flex: 1,
+  },
+  pagerPage: {
+    flex: 1,
+  },
+  pagerLyricList: {
+    flex: 1,
+  },
 
+  // 手机折叠态：PagerView 承载封面/歌词左右滑动
   phoneStage: {
 
 

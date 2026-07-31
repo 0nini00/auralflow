@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect } from "react";
+import React from "react";
 import {
   Animated,
   Modal,
@@ -117,19 +117,6 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     currentSongActions,
     controlsVisibility,
   } = useImmersiveController({ visible, onClose });
-
-  // 歌词页保持屏幕常亮，离开时恢复
-  useEffect(() => {
-    if (!visible) return;
-    if (isLyricsPage) {
-      KeepAwake.activateKeepAwake();
-    } else {
-      KeepAwake.deactivateKeepAwake();
-    }
-    return () => {
-      KeepAwake.deactivateKeepAwake();
-    };
-  }, [visible, isLyricsPage]);
 
   if (!currentSong) {
     return null;
