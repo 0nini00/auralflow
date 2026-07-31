@@ -9,10 +9,11 @@ import {
   View,
 } from "react-native";
 import {
-  ArrowRight,
+  Heart,
   ListPlus,
   Maximize2,
   Music2,
+  MoreHorizontal,
   Pause,
   Play,
   Repeat,
@@ -58,19 +59,12 @@ export interface PlayerBarProps {
   bottomInset?: number;
 }
 
-const PLAY_MODE_LABELS: Record<MobilePlayMode, string> = {
-  list: "列表循环",
-  single: "单曲循环",
-  shuffle: "随机播放",
-  sequence: "顺序播放",
+const PLAY_MODE_ICONS: Record<MobilePlayMode, React.ComponentType<{ size: number; color: string }>> = {
+  list: Repeat,
+  single: Repeat1,
+  shuffle: Shuffle,
+  sequence: Repeat,
 };
-
-function PlayModeIcon({ mode, color }: { mode: MobilePlayMode; color: string }) {
-  if (mode === "shuffle") return <Shuffle size={20} color={color} />;
-  if (mode === "single") return <Repeat1 size={20} color={color} />;
-  if (mode === "sequence") return <ArrowRight size={20} color={color} />;
-  return <Repeat size={20} color={color} />;
-}
 
 function showActionError(title: string, error: unknown) {
   Alert.alert(title, error instanceof Error ? error.message : String(error));
@@ -82,7 +76,6 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
   const loading = usePlayerStore((state) => state.loading);
   const position = usePlayerStore((state) => state.position);
   const duration = usePlayerStore((state) => state.duration);
-  const currentIndex = usePlayerStore((state) => state.currentIndex);
   const playMode = usePlayerStore((state) => state.playMode);
   const volume = usePlayerStore((state) => state.volume);
   const isMuted = usePlayerStore((state) => state.isMuted);
@@ -116,6 +109,7 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
   );
 
   const [addModalOpen, setAddModalOpen] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [sleepModalOpen, setSleepModalOpen] = useState(false);
 
   const sleepTimerControl = buildMobileSleepTimerControl({
@@ -171,7 +165,7 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
   if (!currentSong) return null;
 
   const coverUrl = currentSong.picUrl || currentSong.img;
-  const playModeLabel = PLAY_MODE_LABELS[playMode];
+  const PlayModeIcon = PLAY_MODE_ICONS[playMode];
 
   const handleTogglePlayback = async () => {
     try {
@@ -292,9 +286,8 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
             style={styles.iconButton}
             accessibilityRole="button"
             accessibilityLabel="播放模式"
-            accessibilityValue={{ text: playModeLabel }}
           >
-            <PlayModeIcon mode={playMode} color={palette.text} />
+            <PlayModeIcon size={20} color={palette.text} />
           </Touchable>
           <Touchable
             onPress={() => void handlePlayerAction(playPrevious)}
@@ -365,64 +358,74 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
             <Music2 size={20} color={overlayVisible ? palette.primary : palette.text} />
           </Touchable>
           <Touchable
-            onPress={() => setSleepModalOpen(true)}
-            style={[
-              styles.iconButton,
-              sleepTimerControl.active && { backgroundColor: palette.surfaceStrong },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="定时关闭"
-            accessibilityValue={{ text: sleepTimerControl.label }}
-          >
-            <Timer size={20} color={sleepTimerControl.active ? palette.primary : palette.text} />
-          </Touchable>
-          <Touchable
-            onPress={onOpen}
+            onPress={() => setMoreMenuOpen(true)}
             style={styles.iconButton}
             accessibilityRole="button"
-            accessibilityLabel="打开沉浸式播放器"
+            accessibilityLabel="更多"
           >
-            <Maximize2 size={20} color={palette.text} />
+            <MoreHorizontal size={20} color={palette.text} />
           </Touchable>
-          {isMuted ? (
-            <Touchable
-              onPress={() => void handlePlayerAction(toggleMute)}
-              style={styles.iconButton}
-              accessibilityRole="button"
-              accessibilityLabel="取消静音"
-            >
-              <VolumeX size={20} color={palette.primary} />
-            </Touchable>
-          ) : (
-            <Touchable
-              onPress={() => void handlePlayerAction(toggleMute)}
-              style={styles.iconButton}
-              accessibilityRole="button"
-              accessibilityLabel="静音"
-            >
-              <Volume2 size={20} color={palette.text} />
-            </Touchable>
-          )}
-          <View
-            style={styles.volumeControl}
-            accessible
-            accessibilityRole="adjustable"
-            accessibilityLabel="音量"
-            accessibilityValue={{ min: 0, max: 100, now: Math.round(volume * 100) }}
-          >
-            <ProgressBar
-              position={volume * 100}
-              duration={100}
-              onSeek={(nextVolume) => void setVolume(nextVolume / 100)}
-            />
-          </View>
         </View>
       </View>
 
-      <View style={styles.timeRow}>
-        <Text style={[styles.timeText, { color: palette.textMuted }]}>{formatTime(position)}</Text>
-        <Text style={[styles.timeText, { color: palette.textMuted }]}>{formatTime(duration)}</Text>
-      </View>
+      <Modal
+        visible={moreMenuOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMoreMenuOpen(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setMoreMenuOpen(false)}>
+          <View
+            style={[
+              styles.moreMenu,
+              { backgroundColor: palette.surface, borderColor: palette.border },
+            ]}
+          >
+            <Touchable
+              onPress={() => {
+                setMoreMenuOpen(false);
+                setSleepModalOpen(true);
+              }}
+              style={styles.moreMenuItem}
+              accessibilityRole="button"
+            >
+              <Timer size={20} color={palette.text} />
+              <Text style={[styles.moreMenuText, { color: palette.text }]}>睡眠定时</Text>
+              {sleepTimerControl.active && (
+                <Text style={[styles.moreMenuMeta, { color: palette.primary }]}>{sleepTimerControl.label}</Text>
+              )}
+            </Touchable>
+            <Touchable
+              onPress={() => {
+                setMoreMenuOpen(false);
+                void handlePlayerAction(toggleMute);
+              }}
+              style={styles.moreMenuItem}
+              accessibilityRole="button"
+            >
+              {isMuted ? (
+                <VolumeX size={20} color={palette.primary} />
+              ) : (
+                <Volume2 size={20} color={palette.text} />
+              )}
+              <Text style={[styles.moreMenuText, { color: palette.text }]}>
+                {isMuted ? "取消静音" : "静音"}
+              </Text>
+            </Touchable>
+            <Touchable
+              onPress={() => {
+                setMoreMenuOpen(false);
+                onOpen();
+              }}
+              style={styles.moreMenuItem}
+              accessibilityRole="button"
+            >
+              <Maximize2 size={20} color={palette.text} />
+              <Text style={[styles.moreMenuText, { color: palette.text }]}>全屏播放</Text>
+            </Touchable>
+          </View>
+        </Pressable>
+      </Modal>
 
       <Modal
         visible={sleepModalOpen}
@@ -567,17 +570,13 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: spacing.s,
     flexDirection: "row",
-    flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "space-between",
     gap: spacing.xs,
   },
   trackSummary: {
     minHeight: touch.minTarget,
-    minWidth: 180,
-    flexBasis: 220,
-    flexGrow: 1,
-    flexShrink: 1,
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.xs,
@@ -611,7 +610,6 @@ const styles = StyleSheet.create({
   },
   utilityControls: {
     flexDirection: "row",
-    flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "flex-end",
     gap: 2,
@@ -630,31 +628,35 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  volumeControl: {
-    width: 132,
-    minHeight: touch.minTarget,
-    justifyContent: "center",
-  },
-  timeRow: {
-    paddingHorizontal: spacing.s,
-    paddingBottom: spacing.xs,
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  timeText: {
-    fontSize: typography.caption,
-    fontVariant: ["tabular-nums"],
-  },
   modalOverlay: {
     flex: 1,
-    padding: spacing.m,
     backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
+  },
+  moreMenu: {
+    margin: spacing.m,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.lg,
+    overflow: "hidden",
+  },
+  moreMenuItem: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    gap: spacing.s,
+    paddingHorizontal: spacing.m,
+    paddingVertical: spacing.s,
+    minHeight: touch.minTarget,
+  },
+  moreMenuText: {
+    flex: 1,
+    fontSize: typography.body,
+    fontWeight: "500",
+  },
+  moreMenuMeta: {
+    fontSize: typography.caption,
   },
   sleepPanel: {
-    width: "100%",
-    maxWidth: 480,
+    margin: spacing.m,
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.lg,
     padding: spacing.m,
