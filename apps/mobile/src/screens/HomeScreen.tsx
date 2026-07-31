@@ -53,7 +53,7 @@ export function HomeScreen({
   const [playbackError, setPlaybackError] = useState<string | null>(null);
 
   // 对齐桌面 auto-fill minmax(150/120)：窄屏 2 列，宽屏 3-4 列
-  const gap = 14;
+  const gap = 12;
   const contentWidth = Math.max(
     0,
     width - spacing.l * 2 - StyleSheet.hairlineWidth * 2,
@@ -65,15 +65,15 @@ export function HomeScreen({
     () =>
       StyleSheet.create({
         container: {
-          gap: 28,
+          gap: 20,
         },
         hero: {
           borderRadius: radius.xl,
           borderWidth: StyleSheet.hairlineWidth,
           borderColor: palette.border,
           backgroundColor: palette.surface,
-          padding: 24,
-          gap: 18,
+          padding: 16,
+          gap: 12,
           overflow: "hidden",
         },
         heroAccentBar: {
@@ -94,7 +94,7 @@ export function HomeScreen({
           marginBottom: 8,
         },
         heroTitle: {
-          fontSize: typography.display,
+          fontSize: typography.heading,
           fontWeight: "700",
           color: palette.text,
           letterSpacing: -0.4,
