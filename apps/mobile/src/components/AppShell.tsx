@@ -1,12 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { getDrawerStatusFromState } from "@react-navigation/drawer";
 import {
   DrawerActions,
   type DrawerNavigationState,
   type NavigationState,
-  type NavigatorScreenParams,
   type ParamListBase,
-  type PartialState,
 } from "@react-navigation/native";
 import { BackHandler, StatusBar, StyleSheet, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -14,97 +12,14 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { AppBackground } from "@/components/AppBackground";
 import { AppHeader, type AppHeaderProps } from "@/components/AppHeader";
 import { PlayerBar } from "@/components/PlayerBar";
-import {
-  applyNavigationState,
-  createMainNavigationTarget,
-  createNavigationHistory,
-  createRootNavigationTarget,
-  moveBackward,
-  moveForward,
-  navigationObservationsEqual,
-  navigationReplayTargetsEqual,
-  type NavigationHistory,
-  type NavigationMove,
-  type NavigationTarget,
-} from "@/navigation/navigationHistoryModel";
 import { navigateRoot, navigationRef, openPlayerScreen } from "@/navigation/navigationRef";
-import type { MainDrawerParamList, RootStackParamList } from "@/navigation/types";
-import {
-  deriveAppShellNavigationState,
-  type AppShellNavigationState,
-} from "@/services/appShellModel";
 import { useSearchQueryStore } from "@/stores/searchQueryStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-
-type NavigationTree = NavigationState | PartialState<NavigationState>;
-type MainRouteName = keyof MainDrawerParamList;
-type RootRouteName = Exclude<keyof RootStackParamList, "Main">;
-type AppNavigationTarget = NavigationTarget<MainRouteName, RootRouteName>;
 
 interface AppShellController {
   showChrome: boolean;
   statusBar: "default" | "light-content" | "dark-content";
   headerProps: AppHeaderProps;
-}
-
-const MAIN_ROUTE_NAMES = [
-  "Home",
-  "Search",
-  "Daily",
-  "FM",
-  "Playlists",
-  "Local",
-  "Downloads",
-  "Library",
-  "Settings",
-] as const satisfies readonly MainRouteName[];
-
-const ROOT_ROUTE_NAMES = [
-  "Player",
-  "ArtistDetail",
-  "AlbumDetail",
-  "PlaylistDetail",
-  "LocalPlaylistDetail",
-  "BiliCollectionDetail",
-  "LikedSongs",
-  "SearchFallbackDetail",
-] as const satisfies readonly RootRouteName[];
-
-function isMainRouteName(value: string): value is MainRouteName {
-  return (MAIN_ROUTE_NAMES as readonly string[]).includes(value);
-}
-
-function isRootRouteName(value: string): value is RootRouteName {
-  return (ROOT_ROUTE_NAMES as readonly string[]).includes(value);
-}
-
-function getActiveRoute(state: NavigationTree) {
-  return state.routes[state.index ?? 0];
-}
-
-function deriveNavigationTarget(state?: NavigationState): AppNavigationTarget | null {
-  if (!state) return null;
-
-  const rootRoute = getActiveRoute(state);
-  if (!rootRoute) return null;
-
-  if (rootRoute.name !== "Main") {
-    if (!isRootRouteName(rootRoute.name)) {
-      throw new Error(`Unsupported root navigation target: ${rootRoute.name}`);
-    }
-    return createRootNavigationTarget(rootRoute.name, rootRoute.params);
-  }
-
-  const mainState = rootRoute.state as NavigationTree | undefined;
-  if (!mainState) return null;
-
-  const mainRoute = getActiveRoute(mainState);
-  if (!mainRoute) return null;
-  if (!isMainRouteName(mainRoute.name)) {
-    throw new Error(`Unsupported main navigation target: ${mainRoute.name}`);
-  }
-
-  return createMainNavigationTarget(mainRoute.name, mainRoute.params);
 }
 
 function findOpenDrawerKey(state?: NavigationState): string | null {
@@ -125,34 +40,12 @@ function findMainDrawerKey(state?: NavigationState): string | null {
   if (!state) return null;
   if (
     state.type === "drawer" &&
-    state.routes.some((route) => route.name === "Home") &&
-    state.routes.some((route) => route.name === "Settings")
+    state.routes.some((route) => route.name === "MainTabs")
   ) {
     return state.key;
   }
   const activeRoute = state.routes[state.index ?? 0];
   return findMainDrawerKey(activeRoute?.state as NavigationState | undefined);
-}
-
-function hasNestedSettingsDetail(state?: NavigationState): boolean {
-  if (!state) return false;
-  const activeRoute = state.routes[state.index ?? 0];
-  if (state.type === "stack" && state.index > 0 && activeRoute?.name !== "Main") {
-    return true;
-  }
-  return hasNestedSettingsDetail(activeRoute?.state as NavigationState | undefined);
-}
-
-function replayNavigation(target: AppNavigationTarget) {
-  if (target.kind === "main") {
-    navigateRoot("Main", {
-      screen: target.name,
-      params: target.params,
-    } as NavigatorScreenParams<MainDrawerParamList>);
-    return;
-  }
-
-  navigateRoot(target.name, target.params as RootStackParamList[RootRouteName]);
 }
 
 function useAppShellController(): AppShellController {
@@ -165,32 +58,17 @@ function useAppShellController(): AppShellController {
     [themeMode, systemTheme, accentColor],
   );
 
-  const [navigationState, setNavigationState] = useState<AppShellNavigationState>(() =>
-    deriveAppShellNavigationState(),
-  );
-  const [history, setHistory] = useState(() =>
-    createNavigationHistory<AppNavigationTarget>(createMainNavigationTarget("Home")),
-  );
-  const historyRef = useRef(history);
-  const pendingReplayRef = useRef<AppNavigationTarget | null>(null);
+  const [activeRouteName, setActiveRouteName] = useState<string>("HomeTab");
 
   useEffect(() => {
     const syncFromNavigation = () => {
       const rootState = navigationRef.getRootState();
-      setNavigationState(deriveAppShellNavigationState(rootState));
-
-      const target = deriveNavigationTarget(rootState);
-      if (target) {
-        const transition = applyNavigationState(
-          historyRef.current,
-          target,
-          pendingReplayRef.current,
-          navigationObservationsEqual,
-          navigationReplayTargetsEqual,
-        );
-        historyRef.current = transition.history;
-        pendingReplayRef.current = transition.pendingReplay;
-        setHistory(transition.history);
+      const mainState = rootState.routes[0]?.state as NavigationState | undefined;
+      if (mainState) {
+        const activeRoute = mainState.routes[mainState.index ?? 0];
+        if (activeRoute) {
+          setActiveRouteName(activeRoute.name);
+        }
       }
     };
 
@@ -209,24 +87,12 @@ function useAppShellController(): AppShellController {
     });
   }, []);
 
-  const replayMove = useCallback((move: NavigationMove<AppNavigationTarget>): boolean => {
-    if (!move.value) return false;
-    pendingReplayRef.current = move.value;
-    historyRef.current = move.history;
-    setHistory(move.history);
-    replayNavigation(move.value);
-    return true;
-  }, []);
-
   const goBack = useCallback(() => {
-    if (!navigationRef.isReady()) return false;
-    return replayMove(moveBackward(historyRef.current));
-  }, [replayMove]);
-
-  const goForward = useCallback(() => {
-    if (!navigationRef.isReady()) return false;
-    return replayMove(moveForward(historyRef.current));
-  }, [replayMove]);
+    if (!navigationRef.isReady()) return;
+    if (navigationRef.canGoBack()) {
+      navigationRef.goBack();
+    }
+  }, []);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -240,33 +106,36 @@ function useAppShellController(): AppShellController {
         });
         return true;
       }
-      if (hasNestedSettingsDetail(rootState) && navigationRef.canGoBack()) {
+      if (navigationRef.canGoBack()) {
         navigationRef.goBack();
         return true;
       }
-      return goBack();
+      return false;
     });
     return () => subscription.remove();
-  }, [goBack]);
+  }, []);
 
   const submitSearch = useCallback((keyword: string) => {
     navigateRoot("Main", {
-      screen: "Search",
-      params: { initialKeyword: keyword || undefined },
+      screen: "MainTabs",
+      params: {
+        screen: "SearchTab",
+        params: { initialKeyword: keyword || undefined },
+      },
     });
   }, []);
 
+  const isSearchActive = activeRouteName === "SearchTab";
+
   return {
-    showChrome: navigationState.showChrome,
+    showChrome: true,
     statusBar: palette.statusBar,
     headerProps: {
-      canGoBack: history.index > 0,
-      canGoForward: history.index < history.entries.length - 1,
+      canGoBack: false,
       onOpenDrawer: openDrawer,
       onGoBack: goBack,
-      onGoForward: goForward,
       onSubmitSearch: submitSearch,
-      seedQuery: navigationState.activeRouteName === "Search" ? lastKeyword : "",
+      seedQuery: isSearchActive ? lastKeyword : "",
     },
   };
 }
@@ -278,8 +147,6 @@ export interface AppShellProps {
 export function AppShell({ children }: AppShellProps) {
   const insets = useSafeAreaInsets();
   const shellState = useAppShellController();
-
-  if (!shellState.showChrome) return <>{children}</>;
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>

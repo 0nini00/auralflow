@@ -1,13 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import {
-  ChevronLeft,
-  ChevronRight,
-  Menu,
-  Moon,
-  Search as SearchIcon,
-  Sun,
-} from "lucide-react-native";
+import { ChevronLeft, Menu, Moon, Search as SearchIcon, Sun } from "lucide-react-native";
 
 import { Touchable } from "@/components/Touchable";
 import {
@@ -19,20 +12,16 @@ import { layout, radius, spacing, touch, typography } from "@/theme/tokens";
 
 export interface AppHeaderProps {
   canGoBack: boolean;
-  canGoForward: boolean;
   onOpenDrawer: () => void;
   onGoBack: () => void;
-  onGoForward: () => void;
   onSubmitSearch: (keyword: string) => void;
   seedQuery?: string;
 }
 
 export function AppHeader({
   canGoBack,
-  canGoForward,
   onOpenDrawer,
   onGoBack,
-  onGoForward,
   onSubmitSearch,
   seedQuery = "",
 }: AppHeaderProps) {
@@ -129,19 +118,6 @@ export function AppHeader({
               size={20}
               strokeWidth={2}
               color={canGoBack ? palette.text : palette.textSubtle}
-            />
-          </Touchable>
-          <Touchable
-            disabled={!canGoForward}
-            onPress={onGoForward}
-            style={styles.iconButton}
-            accessibilityRole="button"
-            accessibilityLabel="前进"
-          >
-            <ChevronRight
-              size={20}
-              strokeWidth={2}
-              color={canGoForward ? palette.text : palette.textSubtle}
             />
           </Touchable>
         </View>
