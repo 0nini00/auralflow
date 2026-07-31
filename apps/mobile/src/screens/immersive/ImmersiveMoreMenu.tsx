@@ -12,7 +12,15 @@ import {
   Image,
   Sliders,
 } from "lucide-react-native";
+import type { LucideIcon } from "lucide-react-native";
 import type { ThemePalette } from "@/stores/themeStore";
+
+interface MenuItem {
+  icon: LucideIcon;
+  label: string;
+  onPress?: () => void;
+  active?: boolean;
+}
 
 export interface ImmersiveMoreMenuProps {
   visible: boolean;
@@ -65,22 +73,28 @@ export function ImmersiveMoreMenu({
   onOpenSoundEffect,
 }: ImmersiveMoreMenuProps) {
   const menuItems = [
-    canLike && {
-      icon: Heart,
-      label: isLiked ? "取消喜欢" : "喜欢",
-      onPress: onLike,
-      active: isLiked,
-    },
-    canAddToPlaylist && {
-      icon: FolderPlus,
-      label: "加入歌单",
-      onPress: onAddToPlaylist,
-    },
-    canShare && {
-      icon: Share2,
-      label: "分享",
-      onPress: onShare,
-    },
+    canLike
+      ? {
+          icon: Heart,
+          label: isLiked ? "取消喜欢" : "喜欢",
+          onPress: onLike,
+          active: isLiked,
+        }
+      : undefined,
+    canAddToPlaylist
+      ? {
+          icon: FolderPlus,
+          label: "加入歌单",
+          onPress: onAddToPlaylist,
+        }
+      : undefined,
+    canShare
+      ? {
+          icon: Share2,
+          label: "分享",
+          onPress: onShare,
+        }
+      : undefined,
     {
       icon: volumeMuted ? VolumeX : Volume2,
       label: "音量",
@@ -114,7 +128,7 @@ export function ImmersiveMoreMenu({
       label: "音效",
       onPress: onOpenSoundEffect,
     },
-  ].filter(Boolean);
+  ].filter(Boolean) as MenuItem[];
 
   return (
     <Modal
