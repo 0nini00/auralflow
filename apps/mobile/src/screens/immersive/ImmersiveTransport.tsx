@@ -40,7 +40,6 @@ export interface ImmersiveTransportProps {
   isPlaying: boolean;
   loading: boolean;
   palette: ThemePalette;
-  isTablet: boolean;
   posterMode: boolean;
   canLike: boolean;
   isLiked: boolean;
@@ -67,8 +66,6 @@ export interface ImmersiveTransportProps {
   translationControl: { label: string; active: boolean };
   onToggleTranslation: () => void;
   onTogglePosterMode: () => void;
-  controlsActionLabel: string;
-  onToggleControlsVisibility: () => void;
 }
 
 function PlayModeIcon({ mode, color }: { mode: MobilePlayMode; color: string }) {
@@ -95,7 +92,6 @@ export function ImmersiveTransport({
   isPlaying,
   loading,
   palette,
-  isTablet,
   posterMode,
   canLike,
   isLiked,
@@ -122,8 +118,6 @@ export function ImmersiveTransport({
   translationControl,
   onToggleTranslation,
   onTogglePosterMode,
-  controlsActionLabel,
-  onToggleControlsVisibility,
 }: ImmersiveTransportProps) {
   const [moreMenuVisible, setMoreMenuVisible] = useState(false);
   return (
@@ -237,6 +231,8 @@ export function ImmersiveTransport({
         onTogglePosterMode={onTogglePosterMode}
         posterMode={posterMode}
         onOpenSoundEffect={onOpenSoundEffect}
+        rateLabel={rateLabel}
+        onOpenRate={onOpenRate}
       />
     </Animated.View>
   );

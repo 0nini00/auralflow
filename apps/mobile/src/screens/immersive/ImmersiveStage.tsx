@@ -130,25 +130,4 @@ export function ImmersiveStage({
       </View>
     );
   }
-
-  return (
-    <View style={styles.phoneStage}>
-      <PosterMode
-        artwork={artwork}
-        songName={currentSong.name}
-        artist={currentSong.singer || "未知艺术家"}
-        lyrics={lyrics}
-        currentLineIndex={currentLyricIndex}
-        currentTime={position}
-        duration={duration}
-        isPlaying={isPlaying}
-        showTranslation={showTranslation}
-        controlsHidden={!controlsVisible}
-        palette={palette}
-        onSeek={onSeek}
-        posterWidth={coverSize}
-        showLyrics={false}
-      />
-    </View>
-  );
 }

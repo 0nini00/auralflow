@@ -11,6 +11,7 @@ import {
   Languages,
   Image,
   Sliders,
+  Gauge,
 } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
 import type { ThemePalette } from "@/stores/themeStore";
@@ -46,6 +47,8 @@ export interface ImmersiveMoreMenuProps {
   onTogglePosterMode?: () => void;
   posterMode?: boolean;
   onOpenSoundEffect?: () => void;
+  rateLabel?: string;
+  onOpenRate?: () => void;
 }
 
 export function ImmersiveMoreMenu({
@@ -71,6 +74,8 @@ export function ImmersiveMoreMenu({
   onTogglePosterMode,
   posterMode,
   onOpenSoundEffect,
+  rateLabel,
+  onOpenRate,
 }: ImmersiveMoreMenuProps) {
   const menuItems = [
     canLike
@@ -127,6 +132,11 @@ export function ImmersiveMoreMenu({
       icon: Sliders,
       label: "音效",
       onPress: onOpenSoundEffect,
+    },
+    {
+      icon: Gauge,
+      label: rateLabel || "倍速",
+      onPress: onOpenRate,
     },
   ].filter(Boolean) as MenuItem[];
 

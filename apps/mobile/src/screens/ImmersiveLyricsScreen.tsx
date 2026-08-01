@@ -19,6 +19,7 @@ import { ImmersiveTopBar } from "@/screens/immersive/ImmersiveTopBar";
 import { ImmersiveTransport } from "@/screens/immersive/ImmersiveTransport";
 import { ImmersiveModals } from "@/screens/immersive/ImmersiveModals";
 import { PosterMode } from "@/screens/immersive/PosterMode";
+import { ImmersiveCoverPage } from "@/screens/immersive/ImmersiveCoverPage";
 import { styles } from "@/screens/immersive/immersiveStyles";
 import { useImmersiveController } from "@/screens/immersive/useImmersiveController";
 import { darkenHex } from "@/services/artworkColorService";
@@ -184,22 +185,31 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
             onPageSelected={(e) => setCurrentPage(e.nativeEvent.position)}
           >
             <View key="cover" style={styles.pagerPage}>
-              <PosterMode
-                artwork={artwork}
-                songName={currentSong.name}
-                artist={currentSong.singer || "未知艺术家"}
-                lyrics={lyrics}
-                currentLineIndex={currentLyricIndex}
-                currentTime={position}
-                duration={duration}
-                isPlaying={isPlaying}
-                showTranslation={showTranslation}
-                controlsHidden={!controlsVisible}
-                palette={palette}
-                onSeek={handleSeek}
-                posterWidth={coverSize}
-                showLyrics={false}
-              />
+              {posterMode ? (
+                <PosterMode
+                  artwork={artwork}
+                  songName={currentSong.name}
+                  artist={currentSong.singer || "未知艺术家"}
+                  lyrics={lyrics}
+                  currentLineIndex={currentLyricIndex}
+                  currentTime={position}
+                  duration={duration}
+                  isPlaying={isPlaying}
+                  showTranslation={showTranslation}
+                  controlsHidden={!controlsVisible}
+                  palette={palette}
+                  onSeek={handleSeek}
+                  posterWidth={coverSize}
+                  showLyrics={false}
+                />
+              ) : (
+                <ImmersiveCoverPage
+                  artwork={artwork}
+                  coverSize={coverSize}
+                  isPlaying={isPlaying}
+                  palette={palette}
+                />
+              )}
             </View>
             <View key="lyrics" style={styles.pagerPage}>
               <LyricView
@@ -268,7 +278,6 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
           isPlaying={isPlaying}
           loading={loading}
           palette={palette}
-          isTablet={isTablet}
           posterMode={posterMode}
           canLike={currentSongActions.show}
           isLiked={isLiked}
@@ -299,8 +308,6 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
           translationControl={translationControl}
           onToggleTranslation={() => setShowTranslation(translationControl.nextShowTranslation)}
           onTogglePosterMode={() => setPosterMode((v) => !v)}
-          controlsActionLabel={controlsVisibility.actionLabel}
-          onToggleControlsVisibility={handleToggleControlsVisibility}
         />
 
         <ImmersiveModals

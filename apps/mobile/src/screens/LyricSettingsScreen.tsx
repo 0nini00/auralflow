@@ -15,6 +15,8 @@ import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
 import { SectionHeader } from "@/components/SectionHeader";
 import {
   useLyricSettingsStore,
+  LYRIC_FONT_SIZE_MIN,
+  LYRIC_FONT_SIZE_MAX,
   FONT_OPTIONS,
   ACTIVE_COLOR_PRESETS,
   INACTIVE_COLOR_PRESETS,
@@ -36,8 +38,6 @@ export interface LyricSettingsContentProps {
   onBack: () => void;
 }
 
-const FONT_SIZE_MIN = 12;
-const FONT_SIZE_MAX = 28;
 const LINE_GAP_MIN = 4;
 const LINE_GAP_MAX = 20;
 const TEXT_OPACITY_MIN = 0.2;
@@ -144,8 +144,8 @@ export function LyricSettingsContent({ onBack }: LyricSettingsContentProps) {
           <Section title="字号" palette={palette}>
             <Slider
               width={sliderWidth}
-              min={FONT_SIZE_MIN}
-              max={FONT_SIZE_MAX}
+              min={LYRIC_FONT_SIZE_MIN}
+              max={LYRIC_FONT_SIZE_MAX}
               value={fontSize}
               palette={palette}
               onChange={setFontSize}

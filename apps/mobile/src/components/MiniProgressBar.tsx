@@ -14,7 +14,15 @@ export function MiniProgressBar() {
   const progress = duration > 0 ? position / duration : 0;
 
   return (
-    <View style={styles.container}>
+    <View
+      style={[styles.container, { backgroundColor: palette.surfaceMuted }]}
+      accessibilityRole="progressbar"
+      accessibilityValue={{
+        min: 0,
+        max: 100,
+        now: Math.round(progress * 100),
+      }}
+    >
       <View
         style={[
           styles.progress,
@@ -31,7 +39,6 @@ export function MiniProgressBar() {
 const styles = StyleSheet.create({
   container: {
     height: 2,
-    backgroundColor: "rgba(255,255,255,0.1)",
   },
   progress: {
     height: "100%",

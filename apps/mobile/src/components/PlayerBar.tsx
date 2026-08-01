@@ -27,12 +27,8 @@ import { CachedImage } from "@/components/CachedImage";
 import { MiniProgressBar } from "@/components/MiniProgressBar";
 import { Touchable } from "@/components/Touchable";
 import {
-  canDrawOverlays,
   hideLyricOverlay,
-  isLyricOverlaySupported,
-  requestOverlayPermission,
   setLyricOverlayLocked,
-  showLyricOverlay,
   updateLyricOverlay,
 } from "@/services/lyricOverlayService";
 import {
@@ -201,8 +197,6 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
   return (
     <View
       {...panResponder.panHandlers}
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
       style={[
         styles.root,
         {
@@ -219,6 +213,8 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
       <View style={styles.content}>
         <Touchable
           onPress={onOpen}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
           style={styles.trackSummary}
           accessibilityRole="button"
           accessibilityLabel="打开沉浸式播放器"

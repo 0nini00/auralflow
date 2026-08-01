@@ -55,6 +55,10 @@ export interface LyricSettingsState {
   resetSettings: () => void;
 }
 
+/** 歌词字号范围常量，供 LyricView 与 LyricSettingsScreen 共享 */
+export const LYRIC_FONT_SIZE_MIN = 12;
+export const LYRIC_FONT_SIZE_MAX = 32;
+
 /** 系统默认字体（空串表示使用 RN 默认字体） */
 export const DEFAULT_FONT_FAMILY = "";
 

@@ -93,7 +93,6 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
 
   // PagerView 页面索引：0=封面, 1=歌词（手机端使用）
   const [currentPage, setCurrentPage] = useState(0);
-  const isLyricsPage = currentPage === 1;
 
   const [controlsVisible, setControlsVisible] = useState(true);
   const [layoutWidth, setLayoutWidth] = useState(0);
@@ -402,7 +401,6 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
     setPosterMode,
     currentPage,
     setCurrentPage,
-    isLyricsPage,
     lyricSettingsVisible,
     setLyricSettingsVisible,
     addToPlaylistVisible,

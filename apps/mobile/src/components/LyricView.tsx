@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import type { LyricLine } from "@lx/core";
 import type { ThemePalette } from "@/stores/themeStore";
-import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
+import { useLyricSettingsStore, LYRIC_FONT_SIZE_MIN, LYRIC_FONT_SIZE_MAX } from "@/stores/lyricSettingsStore";
 import {
   buildLyricAnimationModel,
   buildLyricTypographyStyleModel,
@@ -73,9 +73,7 @@ export function LyricView({
     localFontSizeRef.current = fontSize;
   }, [fontSize]);
 
-  // 双指缩放：字号范围 12–32
-  const FONT_SIZE_MIN = 12;
-  const FONT_SIZE_MAX = 32;
+  // 双指缩放：字号范围由共享常量统一定义
 
   // PanResponder：双指捏合缩放歌词字号
   const pinchStartDistRef = useRef(0);
@@ -113,7 +111,7 @@ export function LyricView({
 
         const scale = dist / pinchStartDistRef.current;
         const newSize = Math.round(pinchStartFontSizeRef.current * scale);
-        const clamped = Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, newSize));
+        const clamped = Math.max(LYRIC_FONT_SIZE_MIN, Math.min(LYRIC_FONT_SIZE_MAX, newSize));
         setLocalFontSize(clamped);
         localFontSizeRef.current = clamped;
       },
@@ -125,7 +123,10 @@ export function LyricView({
         }
       },
       onPanResponderTerminate: () => {
-        isPinchingRef.current = false;
+        if (isPinchingRef.current) {
+          setStoreFontSize(localFontSizeRef.current);
+          isPinchingRef.current = false;
+        }
       },
     })
   ).current;
