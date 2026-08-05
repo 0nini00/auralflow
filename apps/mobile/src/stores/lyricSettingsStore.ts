@@ -2,10 +2,16 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type {
+
   LyricAnimationIntensity,
+
   LyricFontWeight,
+
   LyricTextAlign,
+
 } from "@/services/lyricSettingsModel";
+
+import type { ChineseConversionMode } from "@/services/chineseConversionService";
 
 /**
  * 移动端歌词样式设置 store。
@@ -38,10 +44,19 @@ export interface LyricSettingsState {
   /** 歌词动效强度 */
   animationIntensity: LyricAnimationIntensity;
   /** 手动歌词偏移校准（毫秒）：正=歌词提前显示，负=延后，用于对齐音画不同步 */
+
   manualOffsetMs: number;
 
+  /** 简繁转换模式：off=关闭 / s2t=简→繁 / t2s=繁→简。作用于正文与译文行。 */
+
+  chineseConversion: ChineseConversionMode;
+
+
+
   setFontSize: (size: number) => void;
+
   setShowTranslation: (show: boolean) => void;
+
   setActiveColor: (color: string) => void;
   setInactiveColor: (color: string) => void;
   setLineGap: (gap: number) => void;
@@ -52,6 +67,7 @@ export interface LyricSettingsState {
   setEnableAnimation: (enabled: boolean) => void;
   setAnimationIntensity: (intensity: LyricAnimationIntensity) => void;
   setManualOffset: (ms: number) => void;
+  setChineseConversion: (mode: ChineseConversionMode) => void;
   resetSettings: () => void;
 }
 
@@ -101,7 +117,11 @@ export const DEFAULT_LYRIC_SETTINGS = {
   textOpacity: 0.45,
   enableAnimation: true,
   animationIntensity: "normal",
+
   manualOffsetMs: 0,
+
+  chineseConversion: "off",
+
 } as const;
 
 export const useLyricSettingsStore = create<LyricSettingsState>()(
@@ -121,6 +141,9 @@ export const useLyricSettingsStore = create<LyricSettingsState>()(
       setEnableAnimation: (enableAnimation) => set({ enableAnimation }),
       setAnimationIntensity: (animationIntensity) => set({ animationIntensity }),
       setManualOffset: (manualOffsetMs) => set({ manualOffsetMs }),
+
+      setChineseConversion: (chineseConversion) => set({ chineseConversion }),
+
       resetSettings: () => set({ ...DEFAULT_LYRIC_SETTINGS }),
     }),
     {

@@ -15,9 +15,17 @@ import type { LyricLine } from "@lx/core";
 import type { ThemePalette } from "@/stores/themeStore";
 import { useLyricSettingsStore, LYRIC_FONT_SIZE_MIN, LYRIC_FONT_SIZE_MAX } from "@/stores/lyricSettingsStore";
 import {
+
   buildLyricAnimationModel,
+
   buildLyricTypographyStyleModel,
+
 } from "@/services/lyricSettingsModel";
+
+import {
+  convertChineseText,
+  type ChineseConversionMode,
+} from "@/services/chineseConversionService";
 
 export interface LyricViewProps {
   lyrics: LyricLine[];
@@ -61,6 +69,9 @@ export function LyricView({
   const textOpacity = useLyricSettingsStore((s) => s.textOpacity);
   const enableAnimation = useLyricSettingsStore((s) => s.enableAnimation);
   const animationIntensity = useLyricSettingsStore((s) => s.animationIntensity);
+
+  const chineseConversion = useLyricSettingsStore((s) => s.chineseConversion);
+
   const setStoreFontSize = useLyricSettingsStore((s) => s.setFontSize);
 
   // 本地字号状态：手势期间实时更新，结束后持久化到 store
@@ -220,32 +231,34 @@ export function LyricView({
         palette,
       });
 
-      return (
-        <AnimatedLyricLine
-          item={item}
-          isActive={isActive}
-          hasTranslation={hasTranslation}
-          onSeek={onSeek}
-          typography={typography}
-          animationModel={animationModel}
-        />
-      );
-    },
-    [
-      targetIndex,
-      showTranslation,
-      localFontSize,
-      fontFamily,
-      lineGap,
-      activeColorSetting,
-      inactiveColorSetting,
-      textAlign,
-      fontWeight,
-      textOpacity,
-      palette,
-      onSeek,
-      animationModel,
-    ]
+      return (
+        <AnimatedLyricLine
+          item={item}
+          isActive={isActive}
+          hasTranslation={hasTranslation}
+          onSeek={onSeek}
+          typography={typography}
+          animationModel={animationModel}
+          chineseConversion={chineseConversion}
+        />
+      );
+    },
+    [
+      targetIndex,
+      showTranslation,
+      localFontSize,
+      fontFamily,
+      lineGap,
+      activeColorSetting,
+      inactiveColorSetting,
+      textAlign,
+      fontWeight,
+      textOpacity,
+      palette,
+      onSeek,
+      animationModel,
+      chineseConversion,
+    ]
   );
 
   return (
@@ -289,6 +302,8 @@ interface AnimatedLyricLineProps {
   onSeek?: (time: number) => void;
   typography: ReturnType<typeof buildLyricTypographyStyleModel>;
   animationModel: ReturnType<typeof buildLyricAnimationModel>;
+  /** 简繁转换模式：off 时原样返回，s2t/t2s 时对正文与译文行做转换 */
+  chineseConversion: ChineseConversionMode;
 }
 
 function AnimatedLyricLine({
@@ -298,6 +313,7 @@ function AnimatedLyricLine({
   onSeek,
   typography,
   animationModel,
+  chineseConversion,
 }: AnimatedLyricLineProps) {
   const progress = useRef(new Animated.Value(isActive ? 1 : 0)).current;
 
@@ -339,11 +355,11 @@ function AnimatedLyricLine({
         disabled={!onSeek}
       >
         <Text numberOfLines={2} style={[styles.lineText, typography.lineTextStyle as TextStyle]}>
-          {item.text}
+          {convertChineseText(item.text, chineseConversion)}
         </Text>
         {hasTranslation && (
           <Text numberOfLines={1} style={[styles.translation, typography.translationStyle as TextStyle]}>
-            {item.tr}
+            {convertChineseText(item.tr!, chineseConversion)}
           </Text>
         )}
       </Pressable>

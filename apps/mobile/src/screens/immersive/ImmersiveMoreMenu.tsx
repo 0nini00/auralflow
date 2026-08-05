@@ -44,6 +44,9 @@ export interface ImmersiveMoreMenuProps {
   queueLabel?: string;
   onToggleTranslation?: () => void;
   translationActive?: boolean;
+  onToggleChineseConversion?: () => void;
+  chineseConversionActive?: boolean;
+  chineseConversionLabel?: string;
   onTogglePosterMode?: () => void;
   posterMode?: boolean;
   onOpenSoundEffect?: () => void;
@@ -71,6 +74,9 @@ export function ImmersiveMoreMenu({
   queueLabel,
   onToggleTranslation,
   translationActive,
+  onToggleChineseConversion,
+  chineseConversionActive,
+  chineseConversionLabel,
   onTogglePosterMode,
   posterMode,
   onOpenSoundEffect,
@@ -121,6 +127,12 @@ export function ImmersiveMoreMenu({
       label: "翻译",
       onPress: onToggleTranslation,
       active: translationActive,
+    },
+    {
+      icon: Languages,
+      label: chineseConversionLabel || "简繁",
+      onPress: onToggleChineseConversion,
+      active: chineseConversionActive,
     },
     {
       icon: Image,

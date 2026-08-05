@@ -1,3 +1,8 @@
+import {
+  getNextChineseConversionMode,
+  type ChineseConversionMode,
+} from "@/services/chineseConversionService";
+
 export interface ImmersiveTranslationControlModel {
   label: string;
   active: boolean;
@@ -68,6 +73,31 @@ export function buildImmersiveTranslationControl(showTranslation: boolean): Imme
     label: showTranslation ? "译 开" : "译 关",
     active: showTranslation,
     nextShowTranslation: !showTranslation,
+  };
+}
+
+export interface ImmersiveChineseConversionControlModel {
+  /** 显示在按钮上的短标签（3-4 字，与「译 开/关」保持同风格） */
+  label: string;
+  /** 是否处于非 off 态（用于按钮高亮/激活样式） */
+  active: boolean;
+  /** 循环切换到的下一个模式：off → 简→繁 → 繁→简 → off */
+  nextMode: ChineseConversionMode;
+}
+
+const CHINESE_CONVERSION_LABELS: Record<ChineseConversionMode, string> = {
+  off: "繁 关",
+  s2t: "简→繁",
+  t2s: "繁→简",
+};
+
+export function buildImmersiveChineseConversionControl(
+  mode: ChineseConversionMode,
+): ImmersiveChineseConversionControlModel {
+  return {
+    label: CHINESE_CONVERSION_LABELS[mode] ?? CHINESE_CONVERSION_LABELS.off,
+    active: mode !== "off",
+    nextMode: getNextChineseConversionMode(mode),
   };
 }
 

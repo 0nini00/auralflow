@@ -65,6 +65,9 @@ export interface ImmersiveTransportProps {
   queueLabel: string;
   translationControl: { label: string; active: boolean };
   onToggleTranslation: () => void;
+  chineseConversionActive: boolean;
+  chineseConversionLabel: string;
+  onToggleChineseConversion: () => void;
   onTogglePosterMode: () => void;
 }
 
@@ -117,6 +120,9 @@ export function ImmersiveTransport({
   queueLabel,
   translationControl,
   onToggleTranslation,
+  chineseConversionActive,
+  chineseConversionLabel,
+  onToggleChineseConversion,
   onTogglePosterMode,
 }: ImmersiveTransportProps) {
   const [moreMenuVisible, setMoreMenuVisible] = useState(false);
@@ -228,6 +234,9 @@ export function ImmersiveTransport({
         queueLabel={queueLabel}
         onToggleTranslation={onToggleTranslation}
         translationActive={translationControl.active}
+        onToggleChineseConversion={onToggleChineseConversion}
+        chineseConversionActive={chineseConversionActive}
+        chineseConversionLabel={chineseConversionLabel}
         onTogglePosterMode={onTogglePosterMode}
         posterMode={posterMode}
         onOpenSoundEffect={onOpenSoundEffect}

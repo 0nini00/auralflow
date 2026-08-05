@@ -9,10 +9,13 @@ import {
   View,
 } from "react-native";
 import PagerView from "react-native-pager-view";
+import KeepAwake from "react-native-keep-awake";
 
 import { CachedImage } from "@/components/CachedImage";
 import { LyricView } from "@/components/LyricView";
 import { AddToLocalPlaylistModal } from "@/components/AddToLocalPlaylistModal";
+import { MiniLyric } from "@/components/MiniLyric";
+import { DownloadQualityModal } from "@/components/DownloadQualityModal";
 import { LyricSettingsScreen } from "@/screens/LyricSettingsScreen";
 import { ImmersiveStage } from "@/screens/immersive/ImmersiveStage";
 import { ImmersiveTopBar } from "@/screens/immersive/ImmersiveTopBar";
@@ -93,8 +96,10 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     liking,
     showTranslation,
     setShowTranslation,
+    setChineseConversion,
 
     translationControl,
+    chineseConversionControl,
     handleTogglePlay,
     handlePrevious,
     handleNext,
@@ -114,7 +119,17 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     handleShare,
     handleLike,
     toggleControls,
+    pokeControls,
     handleToggleControlsVisibility,
+    coverMenuVisible,
+    openCoverMenu,
+    closeCoverMenu,
+    coverSongDownloadVisible,
+    openCoverSongDownload,
+    closeCoverSongDownload,
+    handleCoverSongDownload,
+    handleCoverDownload,
+    dismissResponder,
     currentSongActions,
     controlsVisibility,
   } = useImmersiveController({ visible, onClose });
@@ -132,8 +147,10 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
       statusBarTranslucent
     >
       <View
+        {...dismissResponder}
         style={[styles.root, { backgroundColor: palette.background }]}
         onLayout={onLayout}
+        onTouchStart={pokeControls}
       >
         {artwork ? (
           <CachedImage
@@ -203,12 +220,20 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
                   showLyrics={false}
                 />
               ) : (
-                <ImmersiveCoverPage
-                  artwork={artwork}
-                  coverSize={coverSize}
-                  isPlaying={isPlaying}
-                  palette={palette}
-                />
+                <>
+                  <ImmersiveCoverPage
+                    artwork={artwork}
+                    coverSize={coverSize}
+                    isPlaying={isPlaying}
+                    palette={palette}
+                    onLongPress={openCoverMenu}
+                  />
+                  <MiniLyric
+                    lyrics={lyrics}
+                    currentLineIndex={currentLyricIndex}
+                    palette={palette}
+                  />
+                </>
               )}
             </View>
             <View key="lyrics" style={styles.pagerPage}>
@@ -223,6 +248,8 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
             </View>
           </PagerView>
         )}
+
+        {isLyricsPage && <KeepAwake />}
 
         <ImmersiveTopBar
           insetsTop={insets.top}
@@ -307,6 +334,9 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
           queueLabel={queueModel.triggerLabel}
           translationControl={translationControl}
           onToggleTranslation={() => setShowTranslation(translationControl.nextShowTranslation)}
+          chineseConversionActive={chineseConversionControl.active}
+          chineseConversionLabel={chineseConversionControl.label}
+          onToggleChineseConversion={() => setChineseConversion(chineseConversionControl.nextMode)}
           onTogglePosterMode={() => setPosterMode((v) => !v)}
         />
 
@@ -353,7 +383,79 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
           song={currentSong}
           onClose={() => setAddToPlaylistVisible(false)}
         />
+
+        <Modal
+          visible={coverMenuVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={closeCoverMenu}
+          statusBarTranslucent
+        >
+          <Pressable style={menuStyles.overlay} onPress={closeCoverMenu}>
+            <Pressable
+              style={[menuStyles.sheet, { backgroundColor: palette.surface }]}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <Text style={[menuStyles.title, { color: palette.text }]} numberOfLines={1}>
+                {currentSong.name}
+              </Text>
+              <Pressable style={menuStyles.row} onPress={openCoverSongDownload}>
+                <Text style={[menuStyles.rowText, { color: palette.text }]}>下载歌曲</Text>
+              </Pressable>
+              <Pressable style={menuStyles.row} onPress={() => void handleCoverDownload()}>
+                <Text style={[menuStyles.rowText, { color: palette.text }]}>下载封面</Text>
+              </Pressable>
+              <Pressable style={[menuStyles.row, menuStyles.cancel]} onPress={closeCoverMenu}>
+                <Text style={[menuStyles.rowText, { color: palette.textMuted }]}>取消</Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        <DownloadQualityModal
+          visible={coverSongDownloadVisible}
+          song={currentSong}
+          onClose={closeCoverSongDownload}
+          onDownload={handleCoverSongDownload}
+        />
       </View>
     </Modal>
   );
 }
+
+const menuStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.45)",
+  },
+  sheet: {
+    width: "78%",
+    maxWidth: 320,
+    borderRadius: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    overflow: "hidden",
+  },
+  title: {
+    fontSize: 15,
+    fontWeight: "700",
+    textAlign: "center",
+    paddingVertical: 10,
+    marginBottom: 4,
+  },
+  row: {
+    paddingVertical: 13,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  rowText: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  cancel: {
+    marginTop: 4,
+  },
+});
+
