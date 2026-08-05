@@ -5,12 +5,16 @@ export interface NextQueueNavigationInput {
   currentIndex: number;
   playMode: PlayMode;
   shuffleHistory: number[];
+  /** 本轮随机已播放过的索引，用于整轮去重（避免短期内重复随机到同一首） */
+  playedIndices?: number[];
   random?: () => number;
 }
 
 export interface NextQueueNavigationState {
   nextIndex: number | null;
   shuffleHistory: number[];
+  /** 更新后的本轮已播放索引表 */
+  playedIndices: number[];
 }
 
 export interface PreviousQueueNavigationInput {
@@ -35,11 +39,39 @@ function clampCurrentIndex(currentIndex: number, queueLength: number): number {
   return currentIndex;
 }
 
-function getRandomCandidateIndex(queueLength: number, currentIndex: number, random: () => number): number | null {
-  if (queueLength <= 0) return null;
-  if (queueLength === 1) return 0;
-  const candidates = Array.from({ length: queueLength }, (_, index) => index).filter((index) => index !== currentIndex);
-  return candidates[Math.floor(random() * candidates.length)] ?? candidates[0] ?? null;
+/**
+ * 随机挑一个候选索引，优先从「本轮未播放过」的索引里选（整轮去重）。
+ * 当除当前曲外的其它索引都已播放过时，视为一轮结束：清空 playedList 重新开一轮，
+ * 依然排除当前曲，避免连播同一首。
+ * 返回 nextIndex 与更新后的 playedIndices。
+ */
+function pickShuffleIndex(
+  queueLength: number,
+  currentIndex: number,
+  playedIndices: number[],
+  random: () => number,
+): { nextIndex: number | null; playedIndices: number[] } {
+  if (queueLength <= 0) return { nextIndex: null, playedIndices: [] };
+  if (queueLength === 1) return { nextIndex: 0, playedIndices: [0] };
+
+  const played = new Set(playedIndices);
+  const allExceptCurrent = Array.from({ length: queueLength }, (_, index) => index).filter(
+    (index) => index !== currentIndex,
+  );
+
+  // 本轮未播放过的候选
+  let candidates = allExceptCurrent.filter((index) => !played.has(index));
+
+  // 一轮已抽完：重置为新一轮（清空 playedList，只保留当前曲以免连播）
+  let roundPlayed = playedIndices;
+  if (candidates.length === 0) {
+    candidates = allExceptCurrent;
+    roundPlayed = currentIndex >= 0 && currentIndex < queueLength ? [currentIndex] : [];
+  }
+
+  const nextIndex = candidates[Math.floor(random() * candidates.length)] ?? candidates[0] ?? null;
+  const nextPlayed = nextIndex == null ? roundPlayed : [...roundPlayed, nextIndex];
+  return { nextIndex, playedIndices: nextPlayed };
 }
 
 export function getNextQueueNavigationState({
@@ -47,30 +79,33 @@ export function getNextQueueNavigationState({
   currentIndex,
   playMode,
   shuffleHistory,
+  playedIndices = [],
   random = Math.random,
 }: NextQueueNavigationInput): NextQueueNavigationState {
   const safeCurrentIndex = clampCurrentIndex(currentIndex, queueLength);
   if (queueLength <= 0 || safeCurrentIndex < 0) {
-    return { nextIndex: null, shuffleHistory };
+    return { nextIndex: null, shuffleHistory, playedIndices };
   }
 
   if (playMode === "shuffle") {
+    const picked = pickShuffleIndex(queueLength, safeCurrentIndex, playedIndices, random);
     return {
-      nextIndex: getRandomCandidateIndex(queueLength, safeCurrentIndex, random),
+      nextIndex: picked.nextIndex,
       shuffleHistory: [...shuffleHistory, safeCurrentIndex],
+      playedIndices: picked.playedIndices,
     };
   }
 
   const sequentialNext = safeCurrentIndex + 1;
   if (sequentialNext < queueLength) {
-    return { nextIndex: sequentialNext, shuffleHistory };
+    return { nextIndex: sequentialNext, shuffleHistory, playedIndices };
   }
 
   if (playMode === "list") {
-    return { nextIndex: 0, shuffleHistory };
+    return { nextIndex: 0, shuffleHistory, playedIndices };
   }
 
-  return { nextIndex: null, shuffleHistory };
+  return { nextIndex: null, shuffleHistory, playedIndices };
 }
 
 export function getPreviousQueueNavigationState({

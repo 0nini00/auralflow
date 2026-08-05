@@ -12,7 +12,12 @@ import { getNextSongSleepTimerState, getSongSleepTimerTrackKey, normalizeSongSle
 import { getNextMobilePlayMode, getTrackPlayerRepeatModeForPlayMode, type MobilePlayMode } from "@/services/mobilePlayModeModel";
 import { clampPlaybackRate, DEFAULT_PLAYBACK_RATE } from "@/services/playerRateModel";
 import { DEFAULT_VOLUME, getNextMuteState, getNextVolumeState } from "@/services/playerVolumeModel";
-import { insertSongAtQueueEnd, insertSongToPlayNext } from "@/services/songQueueActions";
+import {
+  insertSongAtQueueEnd,
+  insertSongToPlayNext,
+  enqueueTempPlayList,
+  removeFromTempPlayList as removeFromTempPlayListPure,
+} from "@/services/songQueueActions";
 import { syncPlaybackParameters } from "@/services/androidPitchService";
 
 
@@ -219,6 +224,10 @@ export interface PlayerState {
   queue: MusicInfo[];
   currentIndex: number;
   shuffleHistory: number[];
+  /** 随机模式本轮已播放过的索引，用于整轮去重（避免短期内重复随机到同一首） */
+  playedIndices: number[];
+  /** 稍后播放暂存区：独立于主队列，playNext 时优先消费，插播完自动回归主队列 */
+  tempPlayList: MusicInfo[];
 
   // 播放模式
   playMode: PlayMode;
@@ -259,6 +268,11 @@ interface PlayerActions {
   playNextInQueue: (song: MusicInfo) => void;
   removeFromQueue: (index: number) => void;
   clearQueue: () => Promise<void>;
+
+  // 稍后播放（独立暂存区）
+  addToTempPlayList: (song: MusicInfo) => void;
+  removeFromTempPlayListAt: (index: number) => void;
+  clearTempPlayList: () => void;
 
   // 播放模式
   setPlayMode: (mode: PlayMode) => Promise<void>;
@@ -303,6 +317,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   queue: [],
   currentIndex: -1,
   shuffleHistory: [],
+  playedIndices: [],
+  tempPlayList: [],
   playMode: "list",
   playbackContext: { type: "queue" },
   lyrics: [],
@@ -580,6 +596,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       queue: songs,
       currentIndex: startIndex,
       shuffleHistory: [],
+      playedIndices: [],
       playbackContext: { type: "queue" },
     });
   },
@@ -592,10 +609,27 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   },
 
   playNextInQueue: (song: MusicInfo) => {
+    // 「稍后播放」= 加入独立的 tempPlayList 暂存区，不污染主队列顺序。
+    // playNext 会优先消费暂存区首曲（见 playerService.playNext）。
     set((state) => ({
-      ...insertSongToPlayNext({ queue: state.queue, currentIndex: state.currentIndex, song }),
-      playbackContext: { type: "queue" },
+      tempPlayList: enqueueTempPlayList({ tempPlayList: state.tempPlayList, song }),
     }));
+  },
+
+  addToTempPlayList: (song: MusicInfo) => {
+    set((state) => ({
+      tempPlayList: enqueueTempPlayList({ tempPlayList: state.tempPlayList, song }),
+    }));
+  },
+
+  removeFromTempPlayListAt: (index: number) => {
+    set((state) => ({
+      tempPlayList: removeFromTempPlayListPure(state.tempPlayList, index),
+    }));
+  },
+
+  clearTempPlayList: () => {
+    set({ tempPlayList: [] });
   },
 
   removeFromQueue: (index: number) => {
@@ -610,10 +644,14 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       const nextShuffleHistory = state.shuffleHistory
         .filter((historyIndex) => historyIndex !== index)
         .map((historyIndex) => (historyIndex > index ? historyIndex - 1 : historyIndex));
+      const nextPlayedIndices = state.playedIndices
+        .filter((playedIndex) => playedIndex !== index)
+        .map((playedIndex) => (playedIndex > index ? playedIndex - 1 : playedIndex));
       return {
         queue: newQueue,
         currentIndex: newIndex,
         shuffleHistory: nextShuffleHistory,
+        playedIndices: nextPlayedIndices,
       };
     });
   },
@@ -635,6 +673,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       queue: [],
       currentIndex: -1,
       shuffleHistory: [],
+      playedIndices: [],
+      tempPlayList: [],
       playbackContext: { type: "queue" },
     });
   },
@@ -656,6 +696,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       queue: currentBatch,
       currentIndex: currentBatchIndex,
       shuffleHistory: [],
+      playedIndices: [],
     });
   },
 
@@ -737,7 +778,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
 
   // 播放模式
   setPlayMode: async (mode: PlayMode) => {
-    set({ playMode: mode });
+    // 切换播放模式（尤其进/出 shuffle）视为开新一轮，清空本轮去重记录。
+    set({ playMode: mode, playedIndices: [] });
 
     // 同步到 TrackPlayer；未 setup（如快照恢复后未播放）或原生异常时兜底，仅保留 UI 状态。
     const repeatMode = getTrackPlayerRepeatModeForPlayMode(mode);

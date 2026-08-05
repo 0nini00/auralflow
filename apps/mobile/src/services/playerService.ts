@@ -10,6 +10,7 @@ import { cacheCover, cacheLyrics, getCachedLyrics, cacheAudioFile, isLocalFilePl
 import { getCachedPlaybackUrl, saveCachedPlaybackUrl, invalidateCachedPlaybackUrl } from "./playbackUrlCache";
 import { getPersonalFmSongs, trashPersonalFmSong } from "./wyPlaylistService";
 import { getNextQueueNavigationState, getPreviousQueueNavigationState } from "@/services/queueNavigationModel";
+import { dequeueTempPlayList, insertSongToPlayNext } from "@/services/songQueueActions";
 import { getPlaybackQualityFallbacks, resolveEffectivePlaybackQuality } from "@/services/playbackQualityModel";
 import { usePlaybackSettingsStore } from "@/stores/playbackSettingsStore";
 // ─────────────────────────────────────────────────────────────
@@ -426,21 +427,42 @@ export async function playShuffledQueue(songs: MusicInfo[]): Promise<void> {
 /**
  * 播放下一首
  */
-export async function playNext(): Promise<void> {
-  const { playbackContext, queue, currentIndex, playMode, shuffleHistory } = usePlayerStore.getState();
-  if (playbackContext.type === "personalFm") {
-    await playNextPersonalFmSong();
-    return;
-  }
-  const next = getNextQueueNavigationState({
-    queueLength: queue.length,
-    currentIndex,
-    playMode,
-    shuffleHistory,
-  });
-  usePlayerStore.setState({ shuffleHistory: next.shuffleHistory });
-  if (next.nextIndex == null) return;
-  await playFromQueue(next.nextIndex);
+export async function playNext(): Promise<void> {
+  const store = usePlayerStore.getState();
+  const { playbackContext, queue, currentIndex, playMode, shuffleHistory, playedIndices, tempPlayList } = store;
+  if (playbackContext.type === "personalFm") {
+    await playNextPersonalFmSong();
+    return;
+  }
+
+  // 稍后播放：优先消费 tempPlayList 首曲。取出后插入主队列 currentIndex+1，
+  // 播完自然回到「原本的下一首」逻辑（因为主队列指针只前进了一步）。
+  if (tempPlayList.length > 0) {
+    const { nextSong, tempPlayList: nextTempList } = dequeueTempPlayList(tempPlayList);
+    if (nextSong) {
+      const inserted = insertSongToPlayNext({ queue, currentIndex, song: nextSong });
+      usePlayerStore.setState({
+        queue: inserted.queue,
+        currentIndex: inserted.currentIndex,
+        tempPlayList: nextTempList,
+      });
+      // 空队列场景：insertSongToPlayNext 返回 currentIndex=0 且 queue=[nextSong]，直接播这首。
+      const targetIndex = queue.length === 0 || currentIndex < 0 ? 0 : currentIndex + 1;
+      await playFromQueue(targetIndex);
+      return;
+    }
+  }
+
+  const next = getNextQueueNavigationState({
+    queueLength: queue.length,
+    currentIndex,
+    playMode,
+    shuffleHistory,
+    playedIndices,
+  });
+  usePlayerStore.setState({ shuffleHistory: next.shuffleHistory, playedIndices: next.playedIndices });
+  if (next.nextIndex == null) return;
+  await playFromQueue(next.nextIndex);
 }
 
 /**
