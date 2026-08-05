@@ -19,3 +19,23 @@ buildscript {
 }
 
 apply plugin: "com.facebook.react.rootproject"
+
+// react-native-pager-view 8.x 的 build.gradle 只把 Fabric codegen 目录挂到
+// java.srcDirs。AGP 8 + Kotlin 2.1.x 下 compileDebugKotlin 不再自动把动态追加的
+// java.srcDirs 纳入符号解析，导致生成的 RNCViewPagerManager{Interface,Delegate}
+// 对 Kotlin 不可见（Unresolved reference + overrides nothing）。这里显式把
+// codegen 目录补进 Kotlin 编译源，并让 Kotlin 编译依赖 codegen 任务先产出。
+subprojects { subproject ->
+    if (subproject.name == "react-native-pager-view") {
+        subproject.afterEvaluate {
+            def generatedCodegenDir = "${subproject.buildDir}/generated/source/codegen/java"
+            subproject.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach { kotlinTask ->
+                kotlinTask.source(generatedCodegenDir)
+                def codegenTask = subproject.tasks.findByName("generateCodegenArtifactsFromSchema")
+                if (codegenTask != null) {
+                    kotlinTask.dependsOn(codegenTask)
+                }
+            }
+        }
+    }
+}

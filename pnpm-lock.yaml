@@ -42,6 +42,9 @@ importers:
       node-forge:
         specifier: ^1.4.0
         version: 1.4.0
+      opencc-js:
+        specifier: ^1.4.1
+        version: 1.4.1
       pako:
         specifier: ^3.0.0
         version: 3.0.0
@@ -57,6 +60,9 @@ importers:
       react-native-gesture-handler:
         specifier: ^3.0.2
         version: 3.0.2(react-native@0.86.0(@babel/core@7.29.7)(@react-native-community/cli@20.1.0(typescript@5.8.3))(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3)
+      react-native-keep-awake:
+        specifier: ^4.0.0
+        version: 4.0.0
       react-native-pager-view:
         specifier: ^8.0.4
         version: 8.0.4(react-native@0.86.0(@babel/core@7.29.7)(@react-native-community/cli@20.1.0(typescript@5.8.3))(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3)
@@ -2691,6 +2697,9 @@ packages:
     resolution: {integrity: sha512-MVHddDVweXZF3awtlAS+6pgKLlm/JgxZ90+/NBurBoQctVOOB/zDdVjcyPzQ+0laDGbsWgrRkflI65sQeOgT9Q==}
     engines: {node: '>=8'}
 
+  opencc-js@1.4.1:
+    resolution: {integrity: sha512-2lPLcrg7cnh1ATSduOxhnk/jq6KlR6w+5Ihl4wF7Z5e5Rva4vxTyugV5rZ7EiUCOZl+EDOLetIix+BhgYDCC+A==}
+
   ora@5.4.1:
     resolution: {integrity: sha512-5b6Y85tPxZZ7QytO+BQzysW31HJku27cRIlkbAXaNx+BdcVi+LlRFmVXzeF6a7JCwJpyw5c4b+YSVImQIrBpuQ==}
     engines: {node: '>=10'}
@@ -2865,6 +2874,9 @@ packages:
     peerDependencies:
       react: '*'
       react-native: '*'
+
+  react-native-keep-awake@4.0.0:
+    resolution: {integrity: sha512-0Fotox+eLXQooeibVs3P60yASYUWjtRw9MZNmbuHt5UZQrgUrAKsE4jm7gTr4tPU1m1RkwGzcgUFpcOkh/ec7g==}
 
   react-native-pager-view@8.0.4:
     resolution: {integrity: sha512-9ASQA/gdQv63pESFbzyODgsY07kZoBjLqBRvZ/HNYn+h29XyOX2BICuvVmhemxw/pz3hKGqGEU31DDhDArwaRg==}
@@ -6277,6 +6289,8 @@ snapshots:
       is-docker: 2.2.1
       is-wsl: 2.1.1
 
+  opencc-js@1.4.1: {}
+
   ora@5.4.1:
     dependencies:
       bl: 4.1.0
@@ -6466,6 +6480,8 @@ snapshots:
     dependencies:
       react: 19.2.3
       react-native: 0.86.0(@babel/core@7.29.7)(@react-native-community/cli@20.1.0(typescript@5.8.3))(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3)
+
+  react-native-keep-awake@4.0.0: {}
 
   react-native-pager-view@8.0.4(react-native@0.86.0(@babel/core@7.29.7)(@react-native-community/cli@20.1.0(typescript@5.8.3))(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3):
     dependencies:

@@ -405,6 +405,38 @@ export async function getDownloadedFileSize(localPath: string): Promise<number> 
 }
 
 /**
+ * 保存封面图到下载目录（供「下载封面」使用）。
+ * @returns file:// 路径；失败返回空串。
+ */
+export async function saveCoverToDownloads(song: MusicInfo): Promise<string> {
+  const url = song.picUrl || song.img;
+  if (!url) return "";
+  try {
+    const exists = await RNFS.exists(DOWNLOAD_DIR);
+    if (!exists) await RNFS.mkdir(DOWNLOAD_DIR);
+
+    let ext = "jpg";
+    try {
+      const parsed = new URL(url);
+      const e = parsed.pathname.split(".").pop()?.toLowerCase();
+      if (e === "png" || e === "webp" || e === "gif" || e === "jpg") ext = e;
+    } catch {
+      // 忽略解析失败，默认 jpg
+    }
+
+    const path = `${DOWNLOAD_DIR}/${songKey(song)}-cover.${ext}`;
+    const result = await RNFS.downloadFile({ fromUrl: url, toFile: path }).promise;
+    if (result.statusCode !== 200) {
+      await RNFS.unlink(path).catch(() => undefined);
+      return "";
+    }
+    return `file://${path}`;
+  } catch {
+    return "";
+  }
+}
+
+/**
  * 清空所有已下载文件（保留目录）
  */
 export async function clearDownloadedFiles(): Promise<void> {
