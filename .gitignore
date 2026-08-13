@@ -32,6 +32,12 @@ desktop/src-tauri/gen/
 .pnpm-store/
 .worktrees/
 
+# 参考项目与临时文件（不进入仓库）
+.alma/
+.superpowers/
+.ui_review/
+.tmp-*
+
 # Android signing secrets (NEVER commit)
 apps/mobile/android/keystore.properties
 apps/mobile/android/app/auralflow-release.keystore
