@@ -57,7 +57,7 @@ interface CustomSourceStore {
 }
 
 function makeId(): string {
-  return `user_api_${Math.random().toString().slice(2, 5)}_${Date.now()}`;
+  return `user_api_${Math.random().toString(36).slice(2, 10)}_${Date.now()}`;
 }
 
 function formatError(error: unknown): string {

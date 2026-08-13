@@ -9,7 +9,8 @@ interface Props {
 
 export function UpdateModal({ info, onClose }: Props) {
   const handleOpen = () => {
-    void open(info.releaseUrl);
+    if (!info.releaseUrl) return;
+    void open(info.releaseUrl).catch(() => {});
   };
 
   return (

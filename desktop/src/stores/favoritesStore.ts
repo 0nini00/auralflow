@@ -10,6 +10,8 @@ interface FavoritesState {
   removeFavorite: (music: MusicInfo) => void;
   clearFavorites: () => void;
   replaceAll: (songs: MusicInfo[]) => void;
+  /** WebDAV 同步合并：本地与远端收藏并集(去重)。 */
+  mergeAll: (songs: MusicInfo[]) => void;
 }
 
 function getMusicKey(music: MusicInfo): string {
@@ -59,6 +61,21 @@ export const useFavoritesStore = create<FavoritesState>()((set, get) => ({
 
   replaceAll: (songs) => {
     set({ favorites: songs ?? [] });
+  },
+
+  mergeAll: (songs) => {
+    set((state) => {
+      const seen = new Set<string>(state.favorites.map(getMusicKey));
+      const merged = [...state.favorites];
+      for (const song of songs ?? []) {
+        if (!song?.source || !song?.id) continue;
+        const key = getMusicKey(song);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push(song);
+      }
+      return { favorites: merged };
+    });
   },
 }));
 

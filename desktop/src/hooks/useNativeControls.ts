@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { usePlayerStore } from "@/stores/playerStore";
-import { logAsyncError } from "@/utils/logAsyncError";
 import { getPlaybackSnapshotFromStore } from "@/services/playback/playbackSnapshot";
 
 /**
@@ -24,17 +23,17 @@ export function useNativeControls() {
           if (!snapshot.current) return;
           if (snapshot.status === "playing") pause();
           else if (snapshot.status === "paused") resume();
-          else void play(snapshot.current).catch(logAsyncError("native-action:play"));
+          else void play(snapshot.current).catch(() => undefined);
           break;
         }
         case "next":
-          void store.next().catch(logAsyncError("native-action:next"));
+          void store.next().catch(() => undefined);
           break;
         case "prev":
-          void store.prev().catch(logAsyncError("native-action:prev"));
+          void store.prev().catch(() => undefined);
           break;
         default:
-          console.warn("[native-action] unknown action", action);
+          break;
       }
     });
 

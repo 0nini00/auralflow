@@ -9,7 +9,6 @@ import {
   type SearchSuggestion,
 } from "@/services/search/searchSuggestions";
 import { useThemeStore } from "@/stores/themeStore";
-import { logAsyncError } from "@/utils/logAsyncError";
 import { IconButton } from "../IconButton";
 
 export function Header() {
@@ -60,11 +59,10 @@ export function Header() {
             setOnlineSuggestions(items);
           }
         })
-        .catch((error) => {
+        .catch(() => {
           if (requestId === suggestRequestSeqRef.current) {
             setOnlineSuggestions([]);
           }
-          logAsyncError("search:suggest:header")(error);
         });
     }, 220);
 

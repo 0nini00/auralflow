@@ -118,7 +118,6 @@ async function getLyricsForSingle(music: MusicInfo): Promise<LyricResponse> {
         return persisted;
       }
     } catch (error) {
-      console.warn('读取歌词缓存失败:', error);
     }
 
     let result: LyricResponse;
@@ -147,7 +146,6 @@ async function getLyricsForSingle(music: MusicInfo): Promise<LyricResponse> {
           result = lines.length > 0 ? { lines } : await searchAndMatchLyrics(music);
         } catch (providerError) {
           // 音源歌词接口抛错时不要直接失败：走网易云搜索匹配兜底
-          console.warn('Provider getLyric failed, fallback to search:', providerError);
           result = await searchAndMatchLyrics(music);
         }
       }
@@ -155,15 +153,12 @@ async function getLyricsForSingle(music: MusicInfo): Promise<LyricResponse> {
 
     if (result.lines.length > 0 || isCacheableEmptyLyricResult(result)) {
       lyricsCache.set(cacheKey, result);
-      void saveCachedLyrics(music, result).catch((error) => {
-        console.warn('写入歌词缓存失败:', error);
-      });
+      void saveCachedLyrics(music, result).catch(() => undefined);
     } else {
       lyricsCache.delete(cacheKey);
     }
     return result;
   } catch (error) {
-    console.error('Failed to get lyrics:', error);
     lyricsCache.delete(cacheKey);
     return { lines: [], error: '获取歌词失败' };
   }
@@ -217,16 +212,13 @@ export async function getLyrics(
       // variant 已经足够好也可以停
       if (!isPrimary && quality >= 60) break;
     } catch (err) {
-      console.warn('variant lyric fetch failed:', candidate.source, candidate.id, err);
     }
   }
 
   if (best) {
     // 写回主曲缓存键，后续切歌/重开直接用
     lyricsCache.set(primaryKey, best.result);
-    void saveCachedLyrics(music, best.result).catch((error) => {
-      console.warn('写入歌词缓存失败:', error);
-    });
+    void saveCachedLyrics(music, best.result).catch(() => undefined);
     return best.result;
   }
 
@@ -322,7 +314,6 @@ async function searchAndMatchLyrics(music: MusicInfo): Promise<LyricResponse> {
         // 已经非常优秀就提前停：高匹配 + 有逐字
         if (item.score >= 70 && scoreLyricContentQuality(lines) >= 50) break;
       } catch (err) {
-        console.warn('lyric candidate fetch failed:', item.candidate.id, err);
       }
     }
 
@@ -340,7 +331,6 @@ async function searchAndMatchLyrics(music: MusicInfo): Promise<LyricResponse> {
     });
     return lines.length > 0 ? { lines } : { lines: [], error: '暂无歌词' };
   } catch (error) {
-    console.error('Failed to match lyrics:', error);
     return { lines: [], error: '匹配歌词失败' };
   }
 }

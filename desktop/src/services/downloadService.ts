@@ -101,12 +101,10 @@ async function fetchRawLyric(music: MusicInfo): Promise<string | null> {
   return raw || null;
 }
 
-function logEnhanceWarning(step: string, error: unknown): void {
-  console.warn(`[download] ${step} failed`, error);
-}
+let downloadTaskIdCounter = 0;
 
 export function buildDownloadTaskId(music: MusicInfo): string {
-  return `${music.source}_${music.id}_${Date.now()}`;
+  return `${music.source}_${music.id}_${Date.now()}_${downloadTaskIdCounter++}`;
 }
 
 export function buildDownloadBaseName(music: MusicInfo): string {
@@ -166,16 +164,12 @@ export async function enhanceDownloadedFile(
       artist: music.singer || undefined,
       album: music.albumName || undefined,
     });
-  } catch (error) {
-    logEnhanceWarning('metadata', error);
-  }
+  } catch {}
 
   try {
     const coverData = await fetchCoverDataUrl(music);
     if (coverData) await setAudioCover(savedPath, coverData);
-  } catch (error) {
-    logEnhanceWarning('cover', error);
-  }
+  } catch {}
 
   try {
     const lyric = await fetchRawLyric(music);
@@ -183,16 +177,10 @@ export async function enhanceDownloadedFile(
 
     try {
       await setAudioLyrics(savedPath, lyric);
-    } catch (error) {
-      logEnhanceWarning('embedded lyric', error);
-    }
+    } catch {}
 
     try {
       await writeDownloadTextFile(directory, buildLrcFileName(fileName), `${lyric}\n`);
-    } catch (error) {
-      logEnhanceWarning('sidecar lyric', error);
-    }
-  } catch (error) {
-    logEnhanceWarning('lyric fetch', error);
-  }
+    } catch {}
+  } catch {}
 }

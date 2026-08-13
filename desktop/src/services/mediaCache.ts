@@ -27,9 +27,12 @@ function getCoverUrl(music: MusicInfo): string {
 
 function mergeResolvedMusic(primary: MusicInfo, resolved: MusicInfo): MusicInfo {
   const coverUrl = getCoverUrl(resolved) || getCoverUrl(primary);
+  const filteredResolved = Object.fromEntries(
+    Object.entries(resolved).filter(([, v]) => v !== undefined),
+  ) as MusicInfo;
   return {
     ...primary,
-    ...resolved,
+    ...filteredResolved,
     picUrl: resolved.picUrl || coverUrl || undefined,
     img: resolved.img || coverUrl || undefined,
   };
@@ -51,7 +54,6 @@ async function cacheMusicCover(music: MusicInfo): Promise<MusicInfo> {
       img: localCoverUrl,
     };
   } catch (error) {
-    console.warn('[mediaCache] 缓存封面失败', error);
     return music;
   }
 }
@@ -68,7 +70,6 @@ async function cachePlaybackAudio(music: MusicInfo, resolved: PlaybackResolvedUr
     });
     return convertFileSrc(path);
   } catch (error) {
-    console.warn('[mediaCache] 缓存音频失败', error);
     return resolved.url;
   }
 }

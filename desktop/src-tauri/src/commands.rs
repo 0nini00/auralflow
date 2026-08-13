@@ -791,6 +791,8 @@ pub async fn download_file(
     let mut last_emit = Instant::now();
     let mut downloaded = 0u64;
 
+    const MAX_DOWNLOAD_SIZE: u64 = 2 * 1024 * 1024 * 1024; // 2GiB
+
     while let Some(chunk) = resp
         .chunk()
         .await
@@ -802,9 +804,15 @@ pub async fn download_file(
             clear_download_cancel(&task_id);
             return Err("下载已取消".to_string());
         }
+        downloaded += chunk.len() as u64;
         file.write_all(&chunk)
             .map_err(|err| format!("写入文件失败: {}", err))?;
-        downloaded += chunk.len() as u64;
+        if downloaded > MAX_DOWNLOAD_SIZE {
+            drop(file);
+            let _ = std::fs::remove_file(&temp_path);
+            clear_download_cancel(&task_id);
+            return Err("文件过大,已超过 2GB 上限".to_string());
+        }
 
         if last_emit.elapsed() >= Duration::from_millis(180) {
             let elapsed = started.elapsed().as_secs_f64().max(0.001);
@@ -973,7 +981,7 @@ pub async fn scan_directory(path: String) -> Result<Vec<AudioFile>, String> {
     let mut audio_files = Vec::new();
 
     for entry in walkdir::WalkDir::new(path_buf)
-        .follow_links(true)
+        .follow_links(false)
         .into_iter()
         .filter_map(|e| e.ok())
     {
@@ -1017,6 +1025,9 @@ fn read_or_create_audio_tag(
                 "mp3" => Ok(Box::new(audiotags::Id3v2Tag::new())),
                 "flac" => Ok(Box::new(audiotags::FlacTag::new())),
                 "m4a" | "m4b" | "m4p" | "m4v" | "mp4" => Ok(Box::new(audiotags::Mp4Tag::new())),
+                "wav" | "aac" | "ogg" | "opus" | "wma" | "ape" | "aiff" => {
+                    Err(format!("该格式({})不支持写入元数据: {}", ext, read_err))
+                }
                 _ => Err(format!("读取标签失败: {}", read_err)),
             }
         }

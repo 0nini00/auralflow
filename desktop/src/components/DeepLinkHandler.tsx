@@ -47,14 +47,13 @@ export function DeepLinkHandler() {
           default:
             break;
         }
-      } catch (err) {
-        console.warn("[deep-link] 解析失败", err);
+      } catch {
       }
     };
 
     onOpenUrl((urls) => handleUrl(urls))
       .then((fn) => { unlisten = fn; })
-      .catch((err) => console.warn("[deep-link] 监听注册失败", err));
+      .catch(() => undefined);
 
     return () => {
       active = false;

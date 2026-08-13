@@ -12,6 +12,18 @@ export interface Playlist {
   updatedAt: number;
 }
 
+function dedupeSongs(songs: MusicInfo[]): MusicInfo[] {
+  const seen = new Set<string>();
+  const result: MusicInfo[] = [];
+  for (const song of songs) {
+    const key = `${song.source}:${song.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(song);
+  }
+  return result;
+}
+
 interface PlaylistStore {
   playlists: Playlist[];
 
@@ -31,6 +43,8 @@ interface PlaylistStore {
   clearPlaylist: (id: string) => void;
   duplicatePlaylist: (id: string) => Playlist;
   replaceAll: (playlists: Playlist[]) => void;
+  /** WebDAV 同步合并：本地与远端歌单按 id 并集,同名同 id 歌曲并集,取较新者。 */
+  mergeAll: (playlists: Playlist[]) => void;
 
   // 导入：用外部数据创建新歌单（用于导入导出）
   importPlaylist: (name: string, description: string | undefined, songs: MusicInfo[]) => Playlist;
@@ -41,7 +55,7 @@ export const usePlaylistStore = create<PlaylistStore>()((set, get) => ({
 
       createPlaylist: (name, description) => {
         const newPlaylist: Playlist = {
-          id: `playlist_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          id: `playlist_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
           name,
           description,
           songs: [],
@@ -155,8 +169,9 @@ export const usePlaylistStore = create<PlaylistStore>()((set, get) => ({
 
         const duplicated: Playlist = {
           ...original,
-          id: `playlist_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          id: `playlist_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
           name: `${original.name} (副本)`,
+          songs: original.songs.map((s) => ({ ...s })),
           createdAt: Date.now(),
           updatedAt: Date.now(),
         };
@@ -170,7 +185,7 @@ export const usePlaylistStore = create<PlaylistStore>()((set, get) => ({
 
       importPlaylist: (name, description, songs) => {
         const newPlaylist: Playlist = {
-          id: `playlist_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          id: `playlist_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
           name,
           description,
           songs: songs ?? [],
@@ -183,6 +198,25 @@ export const usePlaylistStore = create<PlaylistStore>()((set, get) => ({
 
       replaceAll: (playlists) => {
         set({ playlists: playlists ?? [] });
+      },
+
+      mergeAll: (remotePlaylists) => {
+        set((state) => {
+          const map = new Map<string, Playlist>();
+          for (const p of state.playlists) map.set(p.id, p);
+          for (const remote of remotePlaylists ?? []) {
+            const existing = map.get(remote.id);
+            if (!existing) {
+              map.set(remote.id, remote);
+              continue;
+            }
+            const mergedSongs = dedupeSongs([...existing.songs, ...(remote.songs ?? [])]);
+            map.set(remote.id, remote.updatedAt > existing.updatedAt
+              ? { ...remote, songs: mergedSongs }
+              : { ...existing, songs: mergedSongs });
+          }
+          return { playlists: Array.from(map.values()) };
+        });
       },
 }));
 

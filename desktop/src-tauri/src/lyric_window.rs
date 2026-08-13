@@ -256,9 +256,7 @@ fn schedule_apply_locked_window_state(app: &AppHandle, locked: bool) {
         if has_runtime_lock_target() != locked {
             return;
         }
-        if let Err(err) = apply_locked_window_state(&app, locked) {
-            eprintln!("[lyric] apply locked window state failed: {}", err);
-        }
+        let _ = apply_locked_window_state(&app, locked);
     });
 }
 
@@ -324,6 +322,7 @@ fn create(app: &AppHandle) -> Result<(), String> {
         .show()
         .map_err(|e| format!("显示歌词窗口失败: {}", e))?;
     LYRIC_CREATE_PENDING.store(false, Ordering::SeqCst);
+    invalidate_lyric_window_epoch("create");
     let runtime_known = LYRIC_LOCK_RUNTIME_KNOWN.load(Ordering::SeqCst);
     let runtime_target = has_runtime_lock_target();
     let initial_locked = if runtime_known { runtime_target } else { false };
@@ -396,9 +395,8 @@ fn schedule_create(app: &AppHandle) {
             LYRIC_CREATE_PENDING.store(false, Ordering::SeqCst);
             return;
         }
-        if let Err(err) = create(&app) {
+        if create(&app).is_err() {
             LYRIC_CREATE_PENDING.store(false, Ordering::SeqCst);
-            eprintln!("[lyric] create failed: {}", err);
             let _ = app.emit("lyric-window-open-changed", json!({ "open": false }));
         }
     });
@@ -442,8 +440,7 @@ fn schedule_create_unlock_window(app: &AppHandle) {
         if !has_runtime_lock_target() {
             return;
         }
-        if let Err(err) = create_unlock_window(&app) {
-            eprintln!("[lyric] create unlock window failed: {}", err);
+        if create_unlock_window(&app).is_err() {
             return;
         }
         if !has_runtime_lock_target() {
@@ -658,20 +655,14 @@ fn schedule_persist_size(
 fn persist_position(app: &AppHandle, pos: PhysicalPosition<i32>, scale: f64) {
     let x = pos.x as f64 / scale;
     let y = pos.y as f64 / scale;
-    if let Err(err) =
-        crate::config::patch_settings(app, json!({ "lyricWindowX": x, "lyricWindowY": y }))
-    {
-        eprintln!("[lyric] persist position failed: {}", err);
-    }
+    let _ = crate::config::patch_settings(app, json!({ "lyricWindowX": x, "lyricWindowY": y }));
 }
 
 fn persist_size(app: &AppHandle, size: PhysicalSize<u32>, scale: f64) {
     let w = size.width as f64 / scale;
     let h = size.height as f64 / scale;
-    if let Err(err) = crate::config::patch_settings(
+    let _ = crate::config::patch_settings(
         app,
         json!({ "lyricWindowWidth": w, "lyricWindowHeight": h }),
-    ) {
-        eprintln!("[lyric] persist size failed: {}", err);
-    }
+    );
 }

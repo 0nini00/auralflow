@@ -11,7 +11,6 @@ import {
   normalizeAppBackgroundPath,
   toAppBackgroundImageUrl,
 } from "@/services/appBackground";
-import { logAsyncError } from "@/utils/logAsyncError";
 
 export function Layout() {
   const [appBackgroundImagePath, setAppBackgroundImagePath] = useState<string | null>(null);
@@ -23,7 +22,7 @@ export function Layout() {
   useEffect(() => {
     loadSettings()
       .then((settings) => setAppBackgroundImagePath(normalizeAppBackgroundPath(settings.appBackgroundImagePath)))
-      .catch(logAsyncError("layout:load-app-background"));
+      .catch(() => undefined);
 
     const handleBackgroundChange = (event: Event) => {
       const detail = (event as CustomEvent<AppBackgroundChangeDetail>).detail;

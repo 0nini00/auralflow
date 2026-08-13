@@ -135,7 +135,6 @@ export async function searchBuiltinMusicApiWithMetadata(
         const metadataSongs = await fallbackSearch();
         return mergeSongSearchMetadata(apiSongs, metadataSongs);
       } catch (metadataError) {
-        console.warn("歌曲元数据补全失败，保留内置音乐 API 搜索结果", metadataError);
         return apiSongs;
       }
     }

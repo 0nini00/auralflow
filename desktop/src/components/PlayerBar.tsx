@@ -7,7 +7,6 @@ import { SongAddMenuButton } from '@/components/SongAddMenuButton';
 import { listen } from '@tauri-apps/api/event';
 import { subscribeLyricSettings } from '@/stores/lyricSettingsSync';
 import { toggleDesktopLyricFromPlayer } from '@/utils/desktopLyricToggle';
-import { logAsyncError } from '@/utils/logAsyncError';
 import { getNextPlayMode, getPlayModeControl } from '@/services/playback/playModeControl';
 import { getImageReferrerPolicy, normalizeImageUrl } from '@/utils/imageReferrerPolicy';
 import { formatTime } from '@/utils/formatTime';
@@ -67,10 +66,10 @@ export const PlayerBar: React.FC = () => {
   const [immersiveLyricsOpen, setImmersiveLyricsOpen] = useState(false);
 
   useEffect(() => {
-    void isLyricWindowOpen().then(setLyricOpen).catch(logAsyncError('player-bar:query-lyric-open'));
+    void isLyricWindowOpen().then(setLyricOpen).catch(() => undefined);
     void getLyricWindowState()
       .then((state) => setLyricLocked(state.locked))
-      .catch(logAsyncError('player-bar:query-lyric-state'));
+      .catch(() => undefined);
     const unlistenPromise = listen<{ open: boolean }>('lyric-window-open-changed', (event) => {
       setLyricOpen(event.payload.open);
     });
@@ -80,7 +79,7 @@ export const PlayerBar: React.FC = () => {
       }
     });
     return () => {
-      void unlistenPromise.then((unlisten) => unlisten()).catch(logAsyncError('player-bar:unlisten-lyric-window'));
+      void unlistenPromise.then((unlisten) => unlisten()).catch(() => undefined);
       unsubscribeLyricSettings();
     };
   }, []);
@@ -120,10 +119,9 @@ export const PlayerBar: React.FC = () => {
       setLyricOpen(result.open);
       setLyricLocked(result.locked);
       window.setTimeout(() => {
-        void isLyricWindowOpen().then(setLyricOpen).catch(logAsyncError('player-bar:refresh-lyric-open'));
+        void isLyricWindowOpen().then(setLyricOpen).catch(() => undefined);
       }, 120);
     } catch (error) {
-      console.error('[desktop lyric] toggle failed', error);
       setLyricOpen(false);
     }
   };

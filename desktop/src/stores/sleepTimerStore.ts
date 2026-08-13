@@ -21,7 +21,7 @@ const MIN_THRESHOLD_SEC = 120;
 
 let tickHandle: ReturnType<typeof setInterval> | null = null;
 let lastTrackKey: string | null = null;
-let songsWatcherActive = false;
+let songsWatcherUnsubscribe: (() => void) | null = null;
 
 function clearTick() {
   if (tickHandle != null) {
@@ -36,10 +36,12 @@ function trackKey(): string | null {
 }
 
 function ensureSongsWatcher() {
-  if (songsWatcherActive) return;
-  songsWatcherActive = true;
+  if (songsWatcherUnsubscribe) {
+    songsWatcherUnsubscribe();
+    songsWatcherUnsubscribe = null;
+  }
   lastTrackKey = trackKey();
-  usePlayerStore.subscribe(() => {
+  songsWatcherUnsubscribe = usePlayerStore.subscribe(() => {
     const key = trackKey();
     if (key === lastTrackKey) return;
     lastTrackKey = key;
@@ -95,8 +97,10 @@ export const useSleepTimerStore = create<SleepTimerState>((set) => ({
 
   cancel: () => {
     clearTick();
-    // 重置 songs watcher 状态，让下次 startSongs 能重新注册并同步当前曲目
-    songsWatcherActive = false;
+    if (songsWatcherUnsubscribe) {
+      songsWatcherUnsubscribe();
+      songsWatcherUnsubscribe = null;
+    }
     lastTrackKey = null;
     set({ mode: "off", remainingSec: 0, remainingSongs: 0 });
   },

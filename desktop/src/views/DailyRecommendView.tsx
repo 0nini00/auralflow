@@ -165,7 +165,7 @@ export function DailyRecommendView() {
               <div
                 key={`${song.source}-${song.id}-${index}`}
                 className="af-song-list-row"
-                onClick={() => playQueue(daily as any, index)}
+                onClick={() => runPlayQueueAction(`track:${index}`, daily, index)}
                 title="单击播放"
               >
                 <div className="af-col-index">{index + 1}</div>

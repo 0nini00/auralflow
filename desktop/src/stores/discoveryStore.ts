@@ -56,7 +56,6 @@ export const useDiscoveryStore = create<DiscoveryState>((set, get) => {
     },
     fetchTracks: async () => (await getPersonalFm()) as MusicInfo[],
     trashTrack: fmTrash,
-    warn: (message, error) => console.warn(message, error),
   });
 
   return {

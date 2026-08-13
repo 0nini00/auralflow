@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "lyric-unlock",
+  "description": "Desktop lyric unlock button window capabilities (minimal).",
+  "windows": ["lyric-unlock"],
+  "permissions": [
+    "core:default"
+  ]
+}

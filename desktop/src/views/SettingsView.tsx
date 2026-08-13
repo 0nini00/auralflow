@@ -54,7 +54,6 @@ import {
 } from "@/services/biliAccountService";
 import { broadcastLyricSettings, subscribeLyricSettings } from "@/stores/lyricSettingsSync";
 import { toggleDesktopLyricFromPlayer } from "@/utils/desktopLyricToggle";
-import { logAsyncError, warnAsyncError } from "@/utils/logAsyncError";
 import { openCustomSourceUpdateModal } from "@/components/CustomSourceUpdateModal";
 import { playerEngine } from "@/services/playerEngine";
 import { normalizePauseOnExternalPlayback } from "@/services/mediaInterruptionPolicy";
@@ -209,7 +208,7 @@ export function SettingsView() {
       setBiliCookieText(settings.biliCookie ?? "");
       setImmersiveLyricFontSize(settings.immersiveLyricFontSize || DEFAULT_IMMERSIVE_LYRIC_FONT_SIZE);
       setImmersiveLyricFontFamily(settings.immersiveLyricFontFamily || DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
-    }).catch(logAsyncError("settings:load-playback"));
+    }).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -266,7 +265,7 @@ export function SettingsView() {
   };
 
   const patchPlaybackSetting = (patch: Record<string, unknown>) => {
-    patchSettings(patch).catch(logAsyncError("settings:patch-playback"));
+    patchSettings(patch).catch(() => undefined);
   };
 
   const handlePauseOnExternalPlaybackChange = async (next: boolean) => {
@@ -276,7 +275,6 @@ export function SettingsView() {
     try {
       await patchSettings({ pauseOnExternalPlayback: next });
     } catch (error) {
-      warnAsyncError("settings:patch-pause-on-external-playback", error);
       setPauseOnExternalPlayback(previous);
       playerEngine.setPauseOnExternalPlayback(previous);
     }
@@ -285,15 +283,13 @@ export function SettingsView() {
   const handleCustomSourceAutoCheckToggle = () => {
     const next = !customSourceAutoCheck;
     setCustomSourceAutoCheck(next);
-    patchSettings({ customSourceAutoCheck: next }).catch((error) => {
-      warnAsyncError("settings:patch-custom-source-auto-check", error);
+    patchSettings({ customSourceAutoCheck: next }).catch(() => {
       setCustomSourceAutoCheck(!next);
     });
   };
 
   const openBilibiliWeb = () => {
-    void openUrl("https://www.bilibili.com").catch((err: unknown) => {
-      logAsyncError("settings:open-bilibili")(err);
+    void openUrl("https://www.bilibili.com").catch(() => {
       setBiliCookieStatus("无法打开浏览器，请手动访问 www.bilibili.com");
     });
   };
@@ -359,7 +355,7 @@ export function SettingsView() {
     immersiveLyricFontFamily?: string;
   }) => {
     broadcastLyricSettings(patch);
-    patchSettings(patch).catch(logAsyncError("settings:patch-immersive-lyric-style"));
+    patchSettings(patch).catch(() => undefined);
   };
 
   const handleImmersiveLyricFontSizeChange = (nextValue: number) => {
@@ -1030,8 +1026,8 @@ function DesktopLyricSection() {
         setAnimationIntensity(normalizeLyricAnimationIntensity(s.lyricAnimationIntensity));
         setManualOffsetMs(typeof s.lyricManualOffsetMs === "number" ? s.lyricManualOffsetMs : 0);
       })
-      .catch(logAsyncError("settings:load-lyric"));
-    isLyricWindowOpen().then(setWindowOpen).catch(logAsyncError("settings:query-lyric-open"));
+      .catch(() => undefined);
+    isLyricWindowOpen().then(setWindowOpen).catch(() => undefined);
   }, []);
 
   useEffect(() => subscribeLyricSettings((patch) => {
@@ -1061,7 +1057,6 @@ function DesktopLyricSection() {
       setWindowOpen(result.open);
       setStatus(result.message);
     } catch (error) {
-      console.error("[desktop lyric] toggle failed", error);
       setStatus(error instanceof Error ? error.message : String(error));
     }
   };
@@ -1679,7 +1674,7 @@ function MiscSection() {
   useEffect(() => {
     loadSettings()
       .then((s) => setCursorEffect(s.cursorEffect === "trail" ? "trail" : "off"))
-      .catch(logAsyncError("settings:load-cursor-effect"));
+      .catch(() => undefined);
   }, []);
 
   const handleCursorChange = async (mode: "off" | "trail") => {
@@ -1687,7 +1682,6 @@ function MiscSection() {
     try {
       await patchSettings({ cursorEffect: mode });
     } catch (error) {
-      warnAsyncError("settings:patch-cursor-effect", error);
     }
     // 触发 App 重新读取：通过 storage 事件不可靠，直接 reload 页面片段最简
     window.dispatchEvent(new Event("af-cursor-change"));
@@ -1752,7 +1746,7 @@ function SyncSection() {
       setWebdavUrl(s.webdavUrl ?? "");
       setWebdavUser(s.webdavUsername ?? "");
       setWebdavPass(s.webdavPassword ?? "");
-    }).catch(logAsyncError("settings:load-webdav"));
+    }).catch(() => undefined);
   }, []);
 
   const saveWebdavConfig = async () => {
@@ -1831,7 +1825,7 @@ function SyncSection() {
   };
 
   const handleDownloadPlaylists = () => {
-    if (!confirm("从 WebDAV 下载歌单和历史将覆盖本地收藏、本地歌单和播放历史，确定继续？")) return;
+    if (!confirm("从 WebDAV 下载歌单和历史将与本地合并（并集去重，保留本地独有内容），确定继续？")) return;
     void runSync("下载歌单历史", async () => {
       await saveWebdavConfig();
       const { downloadPlaylistsSync } = await import("@/services/webdavSyncService");

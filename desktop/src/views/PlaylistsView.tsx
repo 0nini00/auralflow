@@ -234,7 +234,7 @@ export function PlaylistsView() {
           <button
             type="button"
             className="af-quick-card"
-            onClick={() => navigate('/library')}
+            onClick={() => navigate('/playlist/favorites')}
           >
             <span className="af-quick-cover">
               {firstFavoriteCover ? (

@@ -238,13 +238,13 @@ class PlayerEngine {
     this.patchState({ currentTime: clamped });
   }
 
-  setVolume(volume: number): void {
+  setVolume(volume: number): void {
     const clamped = Math.max(0, Math.min(volume, 1));
     this.cancelFade();
-    this.audio.volume = clamped;
-    this.patchState({ volume: clamped });
-  }
-
+    this.audio.volume = clamped;
+    this.patchState({ volume: clamped });
+  }
+
   /** 切歌前做短淡出，避免爆音和瞬时音量跳变。 */
   private async fadeOut(): Promise<void> {
     if (this.audio.paused || this.state.status !== "playing") return;
@@ -380,7 +380,6 @@ class PlayerEngine {
       this.graphReady = true;
       this.graphReadyListeners.forEach((l) => l());
     } catch (err) {
-      console.warn("[playerEngine] 音效图构建失败，回退直连", err);
       this.graphReady = false;
     }
   }

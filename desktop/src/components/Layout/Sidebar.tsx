@@ -24,8 +24,8 @@ export function Sidebar() {
   const [loginOpen, setLoginOpen] = useState(false);
 
   useEffect(() => {
-    getWyCookie().then((c) => load(c));
-    getBiliCookie().then((c) => loadBili(c));
+    getWyCookie().then((c) => load(c)).catch(() => {});
+    getBiliCookie().then((c) => loadBili(c)).catch(() => {});
   }, []);
 
   return (

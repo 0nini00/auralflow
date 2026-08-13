@@ -14,7 +14,6 @@ import {
   runDownloadTask,
   cancelDownloadTask,
 } from '@/services/downloadService';
-import { logAsyncError } from '@/utils/logAsyncError';
 
 export type DownloadStatus = 'queued' | 'resolving' | 'downloading' | 'completed' | 'failed' | 'cancelled';
 export type { DownloadQuality };
@@ -323,16 +322,14 @@ export const useDownloadStore = create<DownloadStore>()(
         }));
         try {
           await cancelDownloadTask(taskId);
-        } catch (error) {
-          logAsyncError('download:cancel')(error);
-        }
+        } catch {}
       },
 
       removeTask: (taskId) => {
         const task = get().tasks.find((t) => t.id === taskId);
         if (task && (task.status === 'queued' || task.status === 'resolving' || task.status === 'downloading')) {
           cancelledTaskIds.add(taskId);
-          void cancelDownloadTask(taskId).catch(logAsyncError('download:remove-cancel'));
+          void cancelDownloadTask(taskId).catch(() => undefined);
         }
         set((state) => ({ tasks: state.tasks.filter((t) => t.id !== taskId) }));
         schedulePump(get, set);

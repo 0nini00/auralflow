@@ -6,7 +6,6 @@ import { usePlaylistStore, type Playlist } from "@/stores/playlistStore";
 import { useHistoryStore } from "@/stores/historyStore";
 import { useCustomSourceStore, type CustomSourceItem } from "@/stores/customSourceStore";
 import { parseDesktopUserApiInfo } from "@/services/customSourceRuntime";
-import { logAsyncError } from "@/utils/logAsyncError";
 import { inflateBytes } from "@/utils/compression";
 
 const PROBE_FILE = "auralflow-probe.txt";
@@ -57,7 +56,7 @@ interface RemotePlaylistItem {
 }
 
 interface PlaylistsSyncFile {
-  version: "2";
+  version: "2" | "3";
   lastModified: number;
   data: {
     defaultList: MusicInfo[];
@@ -132,7 +131,6 @@ function writeLocalBackup(kind: "sources" | "playlists", payload: unknown): void
       JSON.stringify({ savedAt: Date.now(), payload }),
     );
   } catch (err) {
-    console.warn(`[webdav] backup ${kind} failed`, err);
   }
 }
 
@@ -406,7 +404,7 @@ function buildPlayHistorySync(history: MusicInfo[]): PlayHistorySyncItem[] {
 
 function buildPlaylistsSyncFile(): PlaylistsSyncFile {
   return {
-    version: "2",
+    version: "3",
     lastModified: Date.now(),
     data: {
       defaultList: [],
@@ -415,6 +413,8 @@ function buildPlaylistsSyncFile(): PlaylistsSyncFile {
         const { songs, ...info } = playlist;
         return {
           ...info,
+          // 桌面端歌单均为本地歌单，显式标记 source 供移动端正确归类（避免被识别为云端歌单）
+          source: "local",
           list: songs,
         };
       }),
@@ -569,9 +569,10 @@ export async function downloadPlaylistsSync(options?: { force?: boolean }): Prom
     writeLocalBackup("playlists", { favorites, playlists, history });
 
     const parsed = parsePlaylistsSyncFile(text);
-    useFavoritesStore.getState().replaceAll(parsed.favorites);
-    usePlaylistStore.getState().replaceAll(parsed.playlists);
-    useHistoryStore.getState().replaceAll(parsed.history);
+    // 合并而非覆盖：本地与远端收藏/歌单/历史并集,保留双端数据不丢失。
+    useFavoritesStore.getState().mergeAll(parsed.favorites);
+    usePlaylistStore.getState().mergeAll(parsed.playlists);
+    useHistoryStore.getState().mergeAll(parsed.history);
 
     const remoteLm = extractRemoteLastModified(text) ?? Date.now();
     writeLocalMeta("playlists", {
@@ -595,9 +596,7 @@ export async function testSync(): Promise<string> {
       if (!putResp.ok) {
         return formatWriteFailure("写入", putResp.status, putResp.statusText);
       }
-      await webdavRequest(cfg, probePath(), { method: "DELETE" }).catch(
-        logAsyncError("webdav:test-cleanup-probe"),
-      );
+      await webdavRequest(cfg, probePath(), { method: "DELETE" }).catch(() => undefined);
       return "连接正常";
     });
   } catch (e) {

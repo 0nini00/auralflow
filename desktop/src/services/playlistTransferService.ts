@@ -52,8 +52,16 @@ export async function importPlaylists(): Promise<number> {
   if (!filePath) return 0;
 
   const raw = await readTextFile(filePath);
-  const data = JSON.parse(raw) as Partial<ExportEnvelope>;
-  const list = Array.isArray(data?.playlists) ? data!.playlists : [];
+  let data: Partial<ExportEnvelope>;
+  try {
+    data = JSON.parse(raw) as Partial<ExportEnvelope>;
+  } catch {
+    throw new Error("歌单文件格式无效");
+  }
+  if (data?.app !== "auralflow" || !Array.isArray(data?.playlists)) {
+    throw new Error("不是有效的 auralflow 歌单文件");
+  }
+  const list = data!.playlists;
   if (list.length === 0) return 0;
 
   const store = usePlaylistStore.getState();

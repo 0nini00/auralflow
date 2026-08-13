@@ -26,7 +26,6 @@ export function LocalMusicView() {
       addSongs(songs);
       addScanPath(path);
     } catch (error) {
-      console.error('Failed to scan directory:', error);
     } finally {
       setScanning(false);
     }
@@ -41,7 +40,6 @@ export function LocalMusicView() {
       const songs = await Promise.all(paths.map((path) => LocalMusicService.getAudioInfo(path)));
       addSongs(songs.filter((song): song is LocalSong => song !== null));
     } catch (error) {
-      console.error('Failed to add files:', error);
     } finally {
       setScanning(false);
     }
@@ -55,7 +53,6 @@ export function LocalMusicView() {
         alert(`以下文件夹刷新失败，已保留这些文件夹中原有歌曲：\n${failedPaths.join('\n')}`);
       }
     } catch (error) {
-      console.error('Failed to refresh library:', error);
     }
   };
 
@@ -78,7 +75,7 @@ export function LocalMusicView() {
     }
 
     const index = localSongs.findIndex((song) => song.id === track.id);
-    playQueue(localSongs.map(toMusicInfo), Math.max(0, index)).catch(console.error);
+    playQueue(localSongs.map(toMusicInfo), Math.max(0, index)).catch(() => undefined);
   };
 
   const handleRemoveTrack = (trackId: string, e: React.MouseEvent) => {
@@ -223,7 +220,7 @@ export function LocalMusicView() {
             {/* Table Body */}
             <div className="af-local-list-body">
               {localSongs.map((track, index) => {
-                const isCurrent = currentTrack?.id === track.id;
+                const isCurrent = currentTrack?.id === track.id && currentTrack?.source === 'local';
 
                 return (
                   <div
@@ -283,7 +280,7 @@ export function LocalMusicView() {
         ) : (
           <div className="af-local-grid-view">
             {localSongs.map((track) => {
-              const isCurrent = currentTrack?.id === track.id;
+              const isCurrent = currentTrack?.id === track.id && currentTrack?.source === 'local';
 
               return (
                 <div
@@ -737,20 +734,34 @@ export function LocalMusicView() {
           justify-content: space-between;
           margin-bottom: 8px;
         }
-        .af-metadata-header h2 {
-          margin: 0;
-          font-size: 18px;
-          font-weight: 700;
-          color: var(--af-text-primary);
-        }
-
-        .af-spin {
-          animation: af-spin 1s linear infinite;
-        }
-        @keyframes af-spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
+        .af-metadata-header h2 {
+
+          margin: 0;
+
+          font-size: 18px;
+
+          font-weight: 700;
+
+          color: var(--af-text-primary);
+
+        }
+
+
+
+        .af-spin {
+
+          animation: af-spin 1s linear infinite;
+
+        }
+
+        @keyframes af-spin {
+
+          from { transform: rotate(0deg); }
+
+          to { transform: rotate(360deg); }
+
+        }
+
       `}</style>
 
       <MetadataEditModal song={editingSong} onClose={() => setEditingSong(null)} />

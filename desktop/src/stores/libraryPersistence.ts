@@ -77,7 +77,6 @@ export function attachLibraryPersistence<T, S>(
     try {
       await librarySave(namespace, snapshot as unknown);
     } catch (err) {
-      console.error(`[library:${namespace}] save failed`, err);
     }
   };
 
@@ -115,7 +114,6 @@ export function attachLibraryPersistence<T, S>(
               localStorage.removeItem(legacyLocalStorageKey);
             }
           } catch (err) {
-            console.warn(`[library:${namespace}] legacy parse failed`, err);
           }
         }
       }
@@ -129,7 +127,6 @@ export function attachLibraryPersistence<T, S>(
         }
       }
     } catch (err) {
-      console.error(`[library:${namespace}] load failed`, err);
     } finally {
       resolveReady();
     }

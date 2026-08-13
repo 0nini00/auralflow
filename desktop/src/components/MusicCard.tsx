@@ -33,6 +33,16 @@ export function MusicCard({
         className={coverClass}
         role={onPlay || onClick ? "button" : undefined}
         tabIndex={onPlay || onClick ? 0 : undefined}
+        onKeyDown={
+          onPlay || onClick
+            ? (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  (onPlay ?? onClick)?.();
+                }
+              }
+            : undefined
+        }
       >
         {coverUrl ? (
           <img src={coverUrl} alt="" loading="lazy" />

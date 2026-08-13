@@ -8,7 +8,6 @@ import { usePlaylistStore } from "../stores/playlistStore";
 import { SongAddMenuButton } from "@/components/SongAddMenuButton";
 import { DownloadQualityButton } from "@/components/DownloadQualityButton";
 import { formatDuration } from "@/lib/utils";
-import { logAsyncError } from "@/utils/logAsyncError";
 import { formatPlaylistSearchMeta } from "@/services/neteasePlaylistUtils";
 import {
   countSearchResults,
@@ -258,11 +257,15 @@ export function SearchView() {
   const wyLoad = useWyAccountStore((s) => s.load);
   const wyPlaylists = useWyAccountStore((s) => s.playlists);
   const wySetSubscribed = useWyAccountStore((s) => s.setSubscribed);
-  const wyCollectedIds = new Set(wyPlaylists.map((p) => p.id));
-  const importedPlaylistMarkers = new Set(
-    localPlaylists
-      .map((playlist) => playlist.description?.match(/\[af-imported-playlist:[^\]]+\]/)?.[0])
-      .filter((marker): marker is string => Boolean(marker)),
+  const wyCollectedIds = useMemo(() => new Set(wyPlaylists.map((p) => p.id)), [wyPlaylists]);
+  const importedPlaylistMarkers = useMemo(
+    () =>
+      new Set(
+        localPlaylists
+          .map((playlist) => playlist.description?.match(/\[af-imported-playlist:[^\]]+\]/)?.[0])
+          .filter((marker): marker is string => Boolean(marker)),
+      ),
+    [localPlaylists],
   );
   const [busyPlaylistKey, setBusyPlaylistKey] = useState<string | null>(null);
   const searchRequestSeqRef = useRef(0);
@@ -366,7 +369,7 @@ export function SearchView() {
 
     const searchKey = buildSearchKey(trimmed);
     if (lastStartedSearchKeyRef.current === searchKey) return;
-    handleSearch(trimmed, { updateUrl: false, preferCache: true }).catch(logAsyncError("search:url-query"));
+    handleSearch(trimmed, { updateUrl: false, preferCache: true }).catch(() => undefined);
   }, [handleSearch, initialQuery]);
 
   useEffect(() => {
@@ -394,11 +397,10 @@ export function SearchView() {
             setOnlineSuggestions(items);
           }
         })
-        .catch((error) => {
+        .catch(() => {
           if (requestId === suggestRequestSeqRef.current) {
             setOnlineSuggestions([]);
           }
-          logAsyncError("search:suggest:view")(error);
         });
     }, 220);
 
@@ -407,7 +409,7 @@ export function SearchView() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    handleSearch().catch(logAsyncError("search:submit"));
+    handleSearch().catch(() => undefined);
   }
 
   function handleSearchInputChange(value: string) {
@@ -435,7 +437,7 @@ export function SearchView() {
   }
 
   function handleSuggestionClick(value: string) {
-    handleSearch(value).catch(logAsyncError("search:suggestion"));
+    handleSearch(value).catch(() => undefined);
   }
 
   function handleResultFilterChange(filter: ResultFilter) {
@@ -487,11 +489,14 @@ export function SearchView() {
     }
   };
 
-  const songGroups = groupSongResults(songResults);
-  const playableSongQueue = songGroups.map((group) => ({
-    ...group.primary,
-    variants: group.variants,
-  } as MusicInfo & { variants: MusicInfo[] }));
+  const songGroups = useMemo(() => groupSongResults(songResults), [songResults]);
+  const playableSongQueue = useMemo(
+    () => songGroups.map((group) => ({
+      ...group.primary,
+      variants: group.variants,
+    } as MusicInfo & { variants: MusicInfo[] })),
+    [songGroups],
+  );
   const resultCount = songGroups.length + playlistResults.length + artistResults.length + albumResults.length;
   const resultFilterCounts: Record<ResultFilter, number> = {
     overview: resultCount,

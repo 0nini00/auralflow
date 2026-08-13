@@ -47,9 +47,7 @@ pub fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             match id {
                 "show-window" => show_main_window(app),
                 "toggle-lyric" => {
-                    if let Err(err) = crate::lyric_window::toggle(app) {
-                        eprintln!("[tray] toggle lyric window failed: {}", err);
-                    }
+                    let _ = crate::lyric_window::toggle(app);
                 }
                 "quit" => {
                     app.exit(0);
@@ -74,8 +72,6 @@ pub fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(icon) = app.default_window_icon() {
         tray_builder = tray_builder.icon(icon.clone());
-    } else {
-        eprintln!("[tray] default window icon is missing; using platform fallback");
     }
 
     let _tray = tray_builder.build(app)?;

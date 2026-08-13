@@ -1,23 +1,22 @@
 import type { MouseEvent } from "react";
 import { Minus, Square, X } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { logAsyncError } from "@/utils/logAsyncError";
 
 const appWindow = getCurrentWindow();
 
-function runWindowCommand(command: () => Promise<void>, label: string) {
-  void command().catch(logAsyncError(`window-titlebar:${label}`));
+function runWindowCommand(command: () => Promise<void>) {
+  void command().catch(() => undefined);
 }
 
 export function AppTitleBar() {
   const handleDragStart = (event: MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     if ((event.target as HTMLElement).closest("button")) return;
-    runWindowCommand(() => appWindow.startDragging(), "start-dragging");
+    runWindowCommand(() => appWindow.startDragging());
   };
 
   const handleToggleMaximize = () => {
-    runWindowCommand(() => appWindow.toggleMaximize(), "toggle-maximize");
+    runWindowCommand(() => appWindow.toggleMaximize());
   };
 
   return (
@@ -36,7 +35,7 @@ export function AppTitleBar() {
         <button
           type="button"
           className="af-window-control"
-          onClick={() => runWindowCommand(() => appWindow.minimize(), "minimize")}
+          onClick={() => runWindowCommand(() => appWindow.minimize())}
           aria-label="最小化窗口"
           title="最小化"
         >
@@ -54,7 +53,7 @@ export function AppTitleBar() {
         <button
           type="button"
           className="af-window-control af-window-control-close"
-          onClick={() => runWindowCommand(() => appWindow.close(), "close")}
+          onClick={() => runWindowCommand(() => appWindow.close())}
           aria-label="关闭窗口"
           title="关闭"
         >

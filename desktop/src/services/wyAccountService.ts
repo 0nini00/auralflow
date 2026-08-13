@@ -360,9 +360,8 @@ export function assertMatchingWyLoginSession(
 }
 
 export async function checkAccount(): Promise<AccountInfo> {
-  const loginStatus = await weapiPost("/w/nuser/account/get", {});
-  const body = await weapiPost("/nuser/account/get", {});
-  assertMatchingWyLoginSession(loginStatus, body);
+  const body = await weapiPost("/w/nuser/account/get", {});
+  assertMatchingWyLoginSession(body, body);
 
   const account = body.account;
   if (!account) throw new Error("Cookie 已过期或无效");

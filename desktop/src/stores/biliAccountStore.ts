@@ -59,7 +59,12 @@ function readVisibilityPreferences(): BiliCollectionVisibilityPreferences {
   const raw = window.localStorage.getItem(BILI_COLLECTION_VISIBILITY_KEY);
   if (!raw) return fallback;
 
-  const parsed = JSON.parse(raw) as Partial<BiliCollectionVisibilityPreferences>;
+  let parsed: Partial<BiliCollectionVisibilityPreferences>;
+  try {
+    parsed = JSON.parse(raw) as Partial<BiliCollectionVisibilityPreferences>;
+  } catch {
+    return fallback;
+  }
   return {
     hiddenCollectionIds: Array.isArray(parsed.hiddenCollectionIds) ? uniqueIds(parsed.hiddenCollectionIds) : [],
     knownCollectionIds: Array.isArray(parsed.knownCollectionIds) ? uniqueIds(parsed.knownCollectionIds) : [],

@@ -23,7 +23,7 @@ import {
 // Tauri 环境用 plugin-http 绕过 CORS，纯 web dev 模式回退到 window.fetch
 const safeFetch: typeof fetch = (...args) => {
   try {
-    return tauriFetch(...args);
+    return Promise.resolve(tauriFetch(...args)).catch(() => window.fetch(...args));
   } catch {
     return window.fetch(...args);
   }

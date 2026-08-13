@@ -74,7 +74,6 @@ export async function toggleDesktopLyricFromPlayer(
       };
     }
   } catch (error) {
-    console.warn("[desktop lyric] unlock-first command failed, falling back", error);
   }
 
   try {
@@ -83,7 +82,6 @@ export async function toggleDesktopLyricFromPlayer(
       context.stateQueryTimeoutMs ?? 700,
     );
   } catch (error) {
-    console.warn("[desktop lyric] query lyric state failed, falling back", error);
   }
 
   const shouldUnlock = Boolean(backendState?.locked || context.knownLocked);
@@ -113,7 +111,6 @@ export async function toggleDesktopLyricFromPlayer(
   try {
     return await toggleCommand();
   } catch (error) {
-    console.warn("[desktop lyric] lock-aware toggle command failed, falling back", error);
   }
 
   if (Boolean(backendState?.open || context.knownOpen)) {

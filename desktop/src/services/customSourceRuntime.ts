@@ -387,6 +387,30 @@ function createUtils() {
   };
 }
 
+function assertSafeRequestUrl(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`自定义音源请求 URL 无效：${url}`);
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '::1') {
+    throw new Error(`自定义音源不允许请求本地地址：${host}`);
+  }
+  if (host.endsWith('.local')) {
+    throw new Error(`自定义音源不允许请求 .local 本地域名：${host}`);
+  }
+  const m = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (m) {
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+    if (a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) {
+      throw new Error(`自定义音源不允许请求内网地址：${host}`);
+    }
+  }
+}
+
 function runHttpRequest(
   url: string,
   options: { method?: string; timeout?: number; headers?: Record<string, string>; body?: unknown; form?: Record<string, string>; formData?: BodyInit },
@@ -398,6 +422,7 @@ function runHttpRequest(
 
   void (async () => {
     try {
+      assertSafeRequestUrl(url);
       let body: BodyInit | undefined;
       if (options.body != null) {
         body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
@@ -495,8 +520,27 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
   };
 
   try {
-    const runner = new Function('lx', 'window', 'globalThis', api.script);
-    runner(lx, { lx }, { lx });
+    // L1 沙箱:静态扫描拒绝逃逸手法(间接调用 constructor / eval)。
+    if (/constructor\s*\.\s*constructor|\beval\s*\(|\bFunction\s*\(/.test(api.script)) {
+      throw new Error('自定义音源脚本包含不允许的动态代码执行');
+    }
+    // L1 沙箱:遮蔽全局对象,脚本引用即 TypeError,提前拦截逃逸。
+    const runner = new Function(
+      'lx',
+      'window',
+      'globalThis',
+      'fetch',
+      'WebSocket',
+      'XMLHttpRequest',
+      'document',
+      'location',
+      'navigator',
+      'require',
+      'process',
+      'Buffer',
+      api.script,
+    );
+    runner(lx, { lx }, { lx }, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined);
   } catch (error) {
     initSettled = true;
     failInit(error instanceof Error ? error : new Error(String(error)));
@@ -555,6 +599,7 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
 // 按 api.id + api.script 的 hash 缓存已初始化的 RuntimeInstance，避免每次播放
 // 都重新执行脚本（createRuntime 内含 new Function + 网络初始化，耗时且有超时风险）。
 
+const RUNTIME_CACHE_MAX = 8;
 const runtimeCache = new Map<string, RuntimeInstance>();
 
 /** Fast non-crypto hash so script body changes always bust the runtime cache. */
@@ -578,6 +623,10 @@ function getCachedRuntime(api: CustomSourceItem): RuntimeInstance {
   const key = getCacheKey(api);
   const cached = runtimeCache.get(key);
   if (cached) return cached;
+  if (runtimeCache.size >= RUNTIME_CACHE_MAX) {
+    const oldest = runtimeCache.keys().next().value;
+    if (oldest !== undefined) runtimeCache.delete(oldest);
+  }
   const runtime = createRuntime(api);
   runtimeCache.set(key, runtime);
   // 初始化失败时从缓存中移除，下次重试

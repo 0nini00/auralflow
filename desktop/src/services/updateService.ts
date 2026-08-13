@@ -60,7 +60,6 @@ export async function checkForUpdates(): Promise<UpdateInfo | null> {
       releaseName: data.name ?? latest,
     };
   } catch (err) {
-    console.warn("[update] 检查失败", err);
     return null;
   }
 }

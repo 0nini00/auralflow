@@ -2,9 +2,28 @@ import { useEffect, useMemo, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { open } from "@tauri-apps/plugin-shell";
 import { useCustomSourceStore, type CustomSourceItem } from "@/stores/customSourceStore";
-import { logAsyncError } from "@/utils/logAsyncError";
 
 const OPEN_CUSTOM_SOURCE_UPDATE_MODAL_EVENT = "af-open-custom-source-update-modal";
+const DISMISSED_KEYS_STORAGE = "af-custom-source-update-dismissed";
+
+function loadDismissedKeys(): Set<string> {
+  try {
+    const raw = localStorage.getItem(DISMISSED_KEYS_STORAGE);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? new Set(parsed.filter((v): v is string => typeof v === "string")) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function persistDismissedKeys(keys: Set<string>): void {
+  try {
+    localStorage.setItem(DISMISSED_KEYS_STORAGE, JSON.stringify([...keys]));
+  } catch {
+    // ignore storage failures (quota / disabled storage)
+  }
+}
 
 interface OpenCustomSourceUpdateModalDetail {
   sourceId: string;
@@ -33,7 +52,7 @@ function getUpdateLog(source: CustomSourceItem): string {
 export function CustomSourceUpdateModal() {
   const sources = useCustomSourceStore((state) => state.sources);
   const [requestedSourceId, setRequestedSourceId] = useState<string | null>(null);
-  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(() => new Set());
+  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(() => loadDismissedKeys());
 
   useEffect(() => {
     const handleOpen = (event: Event) => {
@@ -72,6 +91,7 @@ export function CustomSourceUpdateModal() {
     setDismissedKeys((prev) => {
       const next = new Set(prev);
       next.add(dismissKey);
+      persistDismissedKeys(next);
       return next;
     });
   };
@@ -81,7 +101,7 @@ export function CustomSourceUpdateModal() {
       handleClose();
       return;
     }
-    void open(source.updateUrl).catch(logAsyncError("custom-source:update-open-url"));
+    void open(source.updateUrl).catch(() => undefined);
     handleClose();
   };
 

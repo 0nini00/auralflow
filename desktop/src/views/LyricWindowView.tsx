@@ -15,7 +15,6 @@ import {
 import { dispatchLyricAction } from "@/stores/playerSync";
 import { subscribeLyricSettings, broadcastLyricSettings } from "@/stores/lyricSettingsSync";
 import { buildDesktopLyricLines, type DesktopLyricDisplayLine } from "@/utils/desktopLyric";
-import { logAsyncError } from "@/utils/logAsyncError";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getLyricWindowState, loadSettings, patchSettings, prepareLyricWindowLock, setLyricWindowPinned, setLyricWindowLocked, toggleLyricWindow } from "@lx/tauri-bridge";
 import { Play, Pause, SkipBack, SkipForward, X, Pin, PinOff, Plus, Minus, Lock, Unlock } from "lucide-react";
@@ -90,7 +89,7 @@ export function LyricWindowView() {
           // Keep the default unlocked UI rather than trusting stale persisted lock state.
         }
       })
-      .catch(logAsyncError("lyric-window:load-settings"));
+      .catch(() => undefined);
 
     const unsubscribeLyricSettings = subscribeLyricSettings((patch) => {
       if (disposed) return;
@@ -141,14 +140,14 @@ export function LyricWindowView() {
   useEffect(() => {
     const window = getCurrentWindow();
     if (pauseHide && current && status === "paused") {
-      void window.hide().catch(logAsyncError("lyric-window:pause-hide"));
+      void window.hide().catch(() => undefined);
     } else {
-      void window.show().catch(logAsyncError("lyric-window:pause-show"));
+      void window.show().catch(() => undefined);
     }
   }, [current, pauseHide, status]);
 
   const handleClose = () => {
-    void toggleLyricWindow().catch(logAsyncError("lyric-window:close"));
+    void toggleLyricWindow().catch(() => undefined);
   };
 
   const togglePinned = async () => {
@@ -180,14 +179,14 @@ export function LyricWindowView() {
     const next = Math.max(16, Math.min(52, fontSize + delta));
     setFontSize(next);
     broadcastLyricSettings({ lyricFontSize: next });
-    void patchSettings({ lyricFontSize: next }).catch(logAsyncError("lyric-window:persist-font-size"));
+    void patchSettings({ lyricFontSize: next }).catch(() => undefined);
   };
 
   const startWindowDrag = (event: MouseEvent<HTMLDivElement>) => {
     if (locked) return;
     if (event.button !== 0) return;
     if ((event.target as HTMLElement).closest("button")) return;
-    void getCurrentWindow().startDragging().catch(logAsyncError("lyric-window:start-dragging"));
+    void getCurrentWindow().startDragging().catch(() => undefined);
   };
 
   const animationScale = getLyricAnimationIntensityScale(animationIntensity);

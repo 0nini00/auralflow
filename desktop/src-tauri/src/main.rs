@@ -18,9 +18,7 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
             // 系统托盘
-            if let Err(err) = tray::setup(app.handle()) {
-                eprintln!("[setup] 托盘初始化失败: {}", err);
-            }
+            let _ = tray::setup(app.handle());
             // 注册深链 scheme（Windows 运行时写入注册表）
             #[cfg(target_os = "windows")]
             {
@@ -82,8 +80,7 @@ pub fn run() {
         ])
         .run(tauri::generate_context!());
 
-    if let Err(err) = result {
-        eprintln!("[tauri] 应用运行失败: {}", err);
+    if result.is_err() {
         std::process::exit(1);
     }
 }

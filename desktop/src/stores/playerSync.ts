@@ -5,7 +5,6 @@ import {
   getPlaybackSnapshotFromStore,
   type PlaybackSnapshot,
 } from "@/services/playback/playbackSnapshot";
-import { logAsyncError } from "@/utils/logAsyncError";
 import type { AppWindowRole } from "@/utils/windowRole";
 
 const CHANNEL_NAME = "auralflow-player-sync";
@@ -27,14 +26,14 @@ function handleAction(action: "play-pause" | "next" | "prev") {
       if (!snapshot.current) return;
       if (snapshot.status === "playing") store.pause();
       else if (snapshot.status === "paused") store.resume();
-      else void store.play(snapshot.current).catch(logAsyncError("player-sync:play"));
+      else void store.play(snapshot.current).catch(() => undefined);
       break;
     }
     case "next":
-      void store.next().catch(logAsyncError("player-sync:next"));
+      void store.next().catch(() => undefined);
       break;
     case "prev":
-      void store.prev().catch(logAsyncError("player-sync:prev"));
+      void store.prev().catch(() => undefined);
       break;
   }
 }
@@ -43,10 +42,9 @@ function postSyncMessage(channel: BroadcastChannel | null, message: SyncMessage)
   try {
     channel?.postMessage(message);
   } catch (err) {
-    logAsyncError("player-sync:broadcast")(err);
   }
   // Dual channel: also emit via Tauri for cross-webview reliability
-  void emit(TAURI_EVENT, message).catch(logAsyncError("player-sync:tauri-emit"));
+  void emit(TAURI_EVENT, message).catch(() => undefined);
 }
 
 function setupMainWindow(channel: BroadcastChannel | null) {
@@ -76,7 +74,7 @@ function setupMainWindow(channel: BroadcastChannel | null) {
     .then((unlisten) => {
       unlistenTauri = unlisten;
     })
-    .catch(logAsyncError("player-sync:main-listen"));
+    .catch(() => undefined);
 
   // 订阅 store 变化，推送给歌词窗口
   // 进度类高频字段做轻量节流，降低歌词窗 setState 压力
@@ -144,7 +142,7 @@ function setupLyricWindow(channel: BroadcastChannel | null) {
     const msg = event.payload;
     if (!msg || msg.type !== "state") return;
     applyState(msg.snapshot);
-  }).catch(logAsyncError("player-sync:lyric-listen"));
+  }).catch(() => undefined);
 
   // 启动时主动请求一次状态（双通道）
   const askInit: SyncMessage = { type: "request-state" };

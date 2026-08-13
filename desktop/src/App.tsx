@@ -31,7 +31,6 @@ import { usePlayerStore } from "./stores/playerStore";
 import { playerEngine } from "./services/playerEngine";
 import { normalizePauseOnExternalPlayback } from "./services/mediaInterruptionPolicy";
 import { loadSettings } from "@lx/tauri-bridge";
-import { logAsyncError } from "./utils/logAsyncError";
 
 function MainApp() {
   useKeyboardShortcuts();
@@ -50,7 +49,7 @@ function MainApp() {
           }
           playerEngine.setPauseOnExternalPlayback(normalizePauseOnExternalPlayback(s.pauseOnExternalPlayback));
         })
-        .catch(logAsyncError("app:load-cursor-settings"));
+        .catch(() => undefined);
     };
     loadCursor();
     window.addEventListener("af-cursor-change", loadCursor);
@@ -59,7 +58,7 @@ function MainApp() {
       import("./services/updateService")
         .then(({ checkForUpdates }) => checkForUpdates())
         .then(setUpdateInfo)
-        .catch(logAsyncError("app:check-updates"));
+        .catch(() => undefined);
     }, 3000);
     let customSourceUpdateTimer: number | undefined;
     let disposed = false;
@@ -70,7 +69,7 @@ function MainApp() {
           void useCustomSourceStore.getState().checkAllUpdates();
         }, 4500);
       })
-      .catch(logAsyncError("app:custom-source-auto-check-settings"));
+      .catch(() => undefined);
     return () => {
       disposed = true;
       window.removeEventListener("af-cursor-change", loadCursor);

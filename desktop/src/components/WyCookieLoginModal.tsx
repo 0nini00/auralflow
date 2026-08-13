@@ -10,7 +10,6 @@ import {
   type WyQrLoginImage,
 } from "@/services/wyAccountService";
 import { useWyAccountStore } from "@/stores/wyAccountStore";
-import { warnAsyncError } from "@/utils/logAsyncError";
 
 interface WyCookieLoginModalProps {
   open: boolean;
@@ -74,7 +73,6 @@ export function WyCookieLoginModal({ open, onClose }: WyCookieLoginModalProps) {
       try {
         await patchSettings({ wyCookie: previousCookie || null });
       } catch (rollbackError) {
-        warnAsyncError("wy-login:rollback-cookie", rollbackError);
       }
       throw new Error(err instanceof Error ? err.message : String(err));
     }
@@ -211,8 +209,7 @@ export function WyCookieLoginModal({ open, onClose }: WyCookieLoginModalProps) {
   };
 
   const openNeteaseWebLogin = () => {
-    void openUrl("https://music.163.com").catch((err) => {
-      warnAsyncError("wy-login:open-web", err);
+    void openUrl("https://music.163.com").catch(() => {
       setError("无法打开浏览器，请手动访问 music.163.com");
     });
   };
@@ -235,8 +232,8 @@ export function WyCookieLoginModal({ open, onClose }: WyCookieLoginModalProps) {
   };
 
   return (
-    <div className="af-dialog-overlay">
-      <div className="af-dialog af-cookie-login-dialog">
+    <div className="af-dialog-overlay" onClick={onClose}>
+      <div className="af-dialog af-cookie-login-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="af-cookie-login-header">
           <div>
             <h2>登录网易云账号</h2>

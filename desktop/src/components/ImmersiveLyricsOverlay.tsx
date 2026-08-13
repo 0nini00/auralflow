@@ -30,7 +30,6 @@ import { useSoundEffectStore } from '@/stores/soundEffectStore';
 import { broadcastLyricSettings, subscribeLyricSettings } from '@/stores/lyricSettingsSync';
 import { usePlayerStore } from '@/stores/playerStore';
 import { formatTime } from '@/utils/formatTime';
-import { logAsyncError } from '@/utils/logAsyncError';
 import { buildMusicShareText } from '@/utils/shareLink';
 import { toggleDesktopLyricFromPlayer } from '@/utils/desktopLyricToggle';
 import { getImageReferrerPolicy, normalizeImageUrl } from '@/utils/imageReferrerPolicy';
@@ -114,7 +113,7 @@ export function ImmersiveLyricsOverlay({
     void appWindow
       .isFullscreen()
       .then(setIsNativeFullscreen)
-      .catch(logAsyncError('immersive-lyrics:query-fullscreen'));
+      .catch(() => undefined);
 
     return () => {
       if (fullscreenEnteredRef.current) {
@@ -124,7 +123,7 @@ export function ImmersiveLyricsOverlay({
           .then(() => {
             setIsNativeFullscreen(false);
           })
-          .catch(logAsyncError('immersive-lyrics:exit-fullscreen'));
+          .catch(() => undefined);
       }
     };
   }, [defaultControlsHidden, open]);
@@ -155,11 +154,11 @@ export function ImmersiveLyricsOverlay({
         setImmersiveLyricFontFamily(settings.immersiveLyricFontFamily || DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
         setManualOffsetMs(typeof settings.lyricManualOffsetMs === "number" ? settings.lyricManualOffsetMs : 0);
       })
-      .catch(logAsyncError('immersive-lyrics:load-settings'));
-    void isLyricWindowOpen().then(setDesktopLyricOpen).catch(logAsyncError('immersive-lyrics:query-lyric-open'));
+      .catch(() => undefined);
+    void isLyricWindowOpen().then(setDesktopLyricOpen).catch(() => undefined);
     void getLyricWindowState()
       .then((state) => setDesktopLyricLocked(state.locked))
-      .catch(logAsyncError('immersive-lyrics:query-lyric-state'));
+      .catch(() => undefined);
     const unlistenPromise = listen<{ open: boolean }>('lyric-window-open-changed', (event) => {
       setDesktopLyricOpen(event.payload.open);
     });
@@ -182,7 +181,7 @@ export function ImmersiveLyricsOverlay({
       }
     });
     return () => {
-      void unlistenPromise.then((unlisten) => unlisten()).catch(logAsyncError('immersive-lyrics:unlisten-lyric-window'));
+      void unlistenPromise.then((unlisten) => unlisten()).catch(() => undefined);
       unsubscribe();
     };
   }, [open]);
@@ -252,11 +251,10 @@ export function ImmersiveLyricsOverlay({
         setDesktopLyricOpen(result.open);
         setDesktopLyricLocked(result.locked);
         window.setTimeout(() => {
-          void isLyricWindowOpen().then(setDesktopLyricOpen).catch(logAsyncError('immersive-lyrics:refresh-lyric-open'));
+          void isLyricWindowOpen().then(setDesktopLyricOpen).catch(() => undefined);
         }, 120);
       })
       .catch((error) => {
-        console.error('[desktop lyric] toggle failed', error);
         setFullscreenError(`桌面歌词失败：${error instanceof Error ? error.message : String(error)}`);
       });
   };

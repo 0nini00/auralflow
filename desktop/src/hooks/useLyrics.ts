@@ -84,7 +84,6 @@ export function useLyrics(music: MusicInfo | null, progress: number, offsetSec =
         }
       } catch (err) {
         if (cancelled) return;
-        console.error("Failed to fetch lyrics:", err);
         setError("获取歌词失败");
         setLyrics([]);
       } finally {

@@ -10,7 +10,6 @@ import { patchSettings } from "@lx/tauri-bridge";
 import { useHistoryStore } from "./historyStore";
 import { useSleepTimerStore } from "./sleepTimerStore";
 import { useDiscoveryStore } from "./discoveryStore";
-import { logAsyncError } from "@/utils/logAsyncError";
 
 export type RepeatMode = "off" | "all" | "one";
 
@@ -95,7 +94,6 @@ async function invalidatePersistentPlaybackCache(
       await invalidateCachedPlaybackUrl(target, quality);
     }
   } catch (error) {
-    console.warn("[player] invalidate playback cache failed", error);
   }
 }
 
@@ -108,7 +106,7 @@ function scheduleVolumePersist(volume: number) {
   if (volumePersistTimer) clearTimeout(volumePersistTimer);
   volumePersistTimer = setTimeout(() => {
     volumePersistTimer = null;
-    patchSettings({ volume: Math.round(volume * 100) }).catch(logAsyncError("player:persist-volume"));
+    patchSettings({ volume: Math.round(volume * 100) }).catch(() => undefined);
   }, 400);
 }
 
@@ -121,9 +119,7 @@ async function playNextFmTrack(get: any, maxAttempts = 5): Promise<boolean> {
       if (!next) return false;
       const failed = await playAndDidFail(get, next);
       if (!failed) return true;
-      console.warn("[player] fm track unplayable, try next", next.source, next.id);
     } catch (err) {
-      console.warn("[player] fm auto-next failed", err);
     }
   }
   return false;
@@ -172,7 +168,7 @@ const syncEngineToStore = (set: any, get: any) => {
           void playNextFmTrack(get);
           return;
         }
-        store.next().catch(logAsyncError("player:auto-skip-next"));
+        store.next().catch(() => undefined);
       }, 250);
     }
   });
@@ -192,9 +188,9 @@ const syncEngineToStore = (set: any, get: any) => {
       return;
     }
     if (repeatMode === "one" && queue.length > 0) {
-      get().play(queue[currentIndex]).catch(logAsyncError("player:auto-repeat-one"));
+      get().play(queue[currentIndex]).catch(() => undefined);
     } else {
-      get().next().catch(logAsyncError("player:auto-next"));
+      get().next().catch(() => undefined);
     }
   });
 };
@@ -319,7 +315,6 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
           preloadNext(get);
         } catch (e) {
           if (requestId !== activePlayRequestId) return;
-          console.error('[playerStore] play failed', e);
           set({
             status: "error",
             error: e instanceof Error ? e.message : String(e),
@@ -371,7 +366,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
         set({ queue: [music], currentIndex: 0, playHistory: [] });
 
-        void get().play(music).catch(logAsyncError("player:play-next-empty"));
+        void get().play(music).catch(() => undefined);
 
         return;
 
@@ -436,7 +431,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
       });
 
       if (resumeTrack) {
-        void get().play(resumeTrack).catch(logAsyncError("player:remove-current-resume"));
+        void get().play(resumeTrack).catch(() => undefined);
       }
     },
 
@@ -471,7 +466,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
         resume();
       } else {
         // idle / error / loading：重新解析播放（resume 无法从这些状态恢复）
-        play(current).catch(logAsyncError("player:toggle-play"));
+        play(current).catch(() => undefined);
       }
     },
 

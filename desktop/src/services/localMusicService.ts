@@ -47,7 +47,6 @@ export class LocalMusicService {
       });
       return selected as string | null;
     } catch (error) {
-      console.error('Failed to select directory:', error);
       return null;
     }
   }
@@ -68,7 +67,6 @@ export class LocalMusicService {
       if (!selected) return [];
       return Array.isArray(selected) ? selected : [selected];
     } catch (error) {
-      console.error('Failed to select files:', error);
       return [];
     }
   }
@@ -83,7 +81,6 @@ export class LocalMusicService {
       const audioFile = await getAudioInfo(path);
       return rustToLocalSong(audioFile);
     } catch (error) {
-      console.error('Failed to get audio info:', error);
       return null;
     }
   }

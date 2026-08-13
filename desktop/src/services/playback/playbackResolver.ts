@@ -39,7 +39,6 @@ export async function resolvePlaybackUrl(
       const cached = await getCachedPlaybackUrl(music, qualityPreference, cacheVariants);
       if (cached) return cached;
     } catch (error) {
-      console.warn('[playbackResolver] 读取播放缓存失败', error);
     }
   }
 
@@ -51,9 +50,7 @@ export async function resolvePlaybackUrl(
         qualityPreference,
       });
       const playable = await prepareResolvedPlaybackMedia(music, resolved, options.cacheMedia !== false);
-      void saveCachedPlaybackUrl(music, playable).catch((error) => {
-        console.warn('[playbackResolver] 写入播放缓存失败', error);
-      });
+      void saveCachedPlaybackUrl(music, playable).catch(() => undefined);
       return playable;
     } catch (error) {
       builtInError = error;
@@ -67,9 +64,7 @@ export async function resolvePlaybackUrl(
       qualityPreference,
     });
     const playable = await prepareResolvedPlaybackMedia(music, resolved, options.cacheMedia !== false);
-    void saveCachedPlaybackUrl(music, playable).catch((error) => {
-      console.warn('[playbackResolver] 写入播放缓存失败', error);
-    });
+    void saveCachedPlaybackUrl(music, playable).catch(() => undefined);
     return playable;
   } catch (providerError) {
     if (builtInError) {
@@ -88,9 +83,7 @@ export async function resolvePlaybackUrl(
       qualityPreference,
     });
     const playable = await prepareResolvedPlaybackMedia(music, resolved, options.cacheMedia !== false);
-    void saveCachedPlaybackUrl(music, playable).catch((error) => {
-      console.warn('[playbackResolver] 写入播放缓存失败', error);
-    });
+    void saveCachedPlaybackUrl(music, playable).catch(() => undefined);
     return playable;
   } catch (fallbackError) {
     if (builtInError) {
@@ -111,7 +104,6 @@ async function prepareResolvedPlaybackMedia(
   try {
     return await cacheResolvedPlaybackMedia(primary, resolved);
   } catch (error) {
-    console.warn('[playbackResolver] 落盘缓存失败，继续使用在线播放', error);
     return resolved;
   }
 }
