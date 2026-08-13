@@ -1,13 +1,28 @@
-import React, { useMemo, useState } from "react";
-import { Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Linking, Modal, ScrollView, StyleSheet, Text, View } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
+import { ActionButton } from "@/components/ActionButton";
 import { useCustomSourceStore } from "@/stores/customSourceStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
+import { radius } from "@/theme/tokens";
 import {
   buildCustomSourceUpdateDismissKey,
   getCustomSourceUpdateLog,
   selectCustomSourceUpdateNotice,
 } from "@/services/customSourceUpdateNoticeModel";
+
+const DISMISSED_KEYS_STORAGE_KEY = "auralflow.mobile.customSourceUpdateDismissed";
+
+function parseDismissedKeys(value: string | null): Set<string> {
+  if (!value) return new Set();
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? new Set(parsed) : new Set();
+  } catch {
+    return new Set();
+  }
+}
 
 export function CustomSourceUpdateModal() {
   const sources = useCustomSourceStore((state) => state.sources);
@@ -17,23 +32,37 @@ export function CustomSourceUpdateModal() {
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
 
+  useEffect(() => {
+    let cancelled = false;
+    AsyncStorage.getItem(DISMISSED_KEYS_STORAGE_KEY)
+      .then((value) => {
+        if (!cancelled) setDismissedKeys(parseDismissedKeys(value));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const source = useMemo(
     () => selectCustomSourceUpdateNotice(sources, dismissedKeys),
     [dismissedKeys, sources],
   );
 
-  if (!source) return null;
+  const dismissKey = source ? buildCustomSourceUpdateDismissKey(source) : "";
 
-  const dismissKey = buildCustomSourceUpdateDismissKey(source);
-  const updateLog = getCustomSourceUpdateLog(source);
-
-  const close = () => {
+  const close = useCallback(() => {
     setDismissedKeys((current) => {
       const next = new Set(current);
       next.add(dismissKey);
+      AsyncStorage.setItem(DISMISSED_KEYS_STORAGE_KEY, JSON.stringify([...next])).catch(() => {});
       return next;
     });
-  };
+  }, [dismissKey]);
+
+  if (!source) return null;
+
+  const updateLog = getCustomSourceUpdateLog(source);
 
   const openUpdateUrl = () => {
     if (source.updateUrl) void Linking.openURL(source.updateUrl);
@@ -56,21 +85,18 @@ export function CustomSourceUpdateModal() {
             </Text>
           </ScrollView>
           <View style={styles.actions}>
-            <Pressable
-              style={[styles.button, { backgroundColor: palette.surfaceMuted }]}
+            <ActionButton
+              small
+              label="关闭"
               onPress={close}
-            >
-              <Text style={[styles.buttonText, { color: palette.textMuted }]}>关闭</Text>
-            </Pressable>
+            />
             {source.updateUrl ? (
-              <Pressable
-                style={[styles.button, { backgroundColor: palette.primary }]}
+              <ActionButton
+                small
+                variant="primary"
+                label="打开更新地址"
                 onPress={openUpdateUrl}
-              >
-                <Text style={[styles.buttonText, { color: palette.primaryText }]}>
-                  打开更新地址
-                </Text>
-              </Pressable>
+              />
             ) : null}
           </View>
         </View>
@@ -90,7 +116,7 @@ const styles = StyleSheet.create({
   card: {
     width: "100%",
     maxWidth: 360,
-    borderRadius: 14,
+    borderRadius: radius.lg,
     padding: 22,
   },
   title: {
@@ -115,15 +141,5 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "flex-end",
     gap: 10,
-  },
-  button: {
-    minHeight: 40,
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    justifyContent: "center",
-  },
-  buttonText: {
-    fontSize: 14,
-    fontWeight: "700",
   },
 });

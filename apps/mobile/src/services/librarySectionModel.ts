@@ -1,4 +1,4 @@
-export type LibrarySection = "playlists" | "history" | "local" | "downloads" | "bili";
+export type LibrarySection = "history" | "local" | "downloads" | "bili";
 
 export interface LibrarySectionHeader {
   title: string;
@@ -6,16 +6,14 @@ export interface LibrarySectionHeader {
 }
 
 export type LibrarySectionHeaderInput =
-  | { section: "playlists"; isLoggedIn: boolean; playlistCount: number }
   | { section: "history"; historyCount: number }
   | { section: "local"; localLoading: boolean; localSongCount: number }
   | { section: "downloads"; downloadsLoading: boolean; downloadCount: number }
   | { section: "bili"; hasBiliAccount: boolean; biliCollectionCount: number };
 
-export const LIBRARY_SECTIONS: LibrarySection[] = ["playlists", "history", "local", "downloads", "bili"];
+export const LIBRARY_SECTIONS: LibrarySection[] = ["local", "history", "downloads", "bili"];
 
 const SECTION_TITLES: Record<LibrarySection, string> = {
-  playlists: "我的歌单",
   history: "播放历史",
   local: "本地音乐",
   downloads: "下载管理",
@@ -23,7 +21,6 @@ const SECTION_TITLES: Record<LibrarySection, string> = {
 };
 
 const TAB_LABELS: Record<LibrarySection, string> = {
-  playlists: "我的歌单",
   history: "播放历史",
   local: "本地音乐",
   downloads: "下载",
@@ -38,15 +35,6 @@ export function getLibrarySectionTabLabel(section: LibrarySection, { count }: { 
 
 export function getLibrarySectionHeader(input: LibrarySectionHeaderInput): LibrarySectionHeader {
   switch (input.section) {
-    case "playlists":
-      return {
-        title: SECTION_TITLES.playlists,
-        caption: input.isLoggedIn
-          ? input.playlistCount === 0
-            ? "暂无歌单"
-            : `${input.playlistCount} 个歌单`
-          : "登录后同步网易云歌单",
-      };
     case "history":
       return {
         title: SECTION_TITLES.history,

@@ -38,6 +38,12 @@ export interface UpdateLocalPlaylistInfoInput {
   now?: number;
 }
 
+export interface AddSongsToLocalPlaylistResult {
+  playlists: LocalPlaylist[];
+  addedCount: number;
+  skippedCount: number;
+}
+
 const EMPTY_PLAYLIST_NAME_ERROR = "歌单名称不能为空";
 const PLAYLIST_NOT_FOUND_ERROR = "歌单不存在";
 
@@ -196,6 +202,40 @@ export function duplicateLocalPlaylist(
 
 export function deleteLocalPlaylist(playlists: LocalPlaylist[], playlistId: string): LocalPlaylist[] {
   return playlists.filter((playlist) => playlist.id !== playlistId);
+}
+
+export function addSongsToLocalPlaylist(
+  playlists: LocalPlaylist[],
+  playlistId: string,
+  songs: MusicInfo[],
+): AddSongsToLocalPlaylistResult {
+  const updatedAt = getNow();
+  let addedCount = 0;
+  let skippedCount = 0;
+  const updatedPlaylists = updateLocalPlaylist(playlists, playlistId, (playlist) => {
+    const existingKeys = new Set(playlist.songs.map(getSongKey));
+    const songsToAdd: MusicInfo[] = [];
+
+    for (const song of songs) {
+      const key = getSongKey(song);
+      if (existingKeys.has(key)) {
+        skippedCount += 1;
+        continue;
+      }
+      existingKeys.add(key);
+      songsToAdd.push(song);
+      addedCount += 1;
+    }
+
+    if (songsToAdd.length === 0) return playlist;
+    return {
+      ...playlist,
+      songs: [...playlist.songs, ...songsToAdd],
+      updatedAt,
+    };
+  });
+
+  return { playlists: updatedPlaylists, addedCount, skippedCount };
 }
 
 export function addSongToLocalPlaylist(

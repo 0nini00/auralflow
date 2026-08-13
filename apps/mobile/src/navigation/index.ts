@@ -4,13 +4,18 @@
 export type {
   MainDrawerParamList,
   RootStackParamList,
-  SettingsDrawerParamList,
   SettingsStackParamList,
 } from "./types";
 export {
   navigationRef,
   navigateRoot,
   openPlayerScreen,
+  openSearchScreen,
+  openLibrarySection,
+  openHistoryScreen,
+  openDownloadsScreen,
+  openSettingsScreen,
+  openMvPlayerScreen,
   openArtistDetailScreen,
   openAlbumDetailScreen,
   openPlaylistDetailScreen,
@@ -19,6 +24,7 @@ export {
   openLikedSongsScreen,
   openSearchFallbackDetailScreen,
   openDailyRecommendScreen,
+  openPersonalFmScreen,
 } from "./navigationRef";
 export { RootNavigator } from "./RootNavigator";
 export { MainDrawerNavigator } from "./MainDrawerNavigator";

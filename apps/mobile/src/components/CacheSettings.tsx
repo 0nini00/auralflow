@@ -1,258 +1,356 @@
-import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, Pressable, Alert, ActivityIndicator } from "react-native";
+import React, { useCallback, useEffect, useState } from "react";
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { ChevronRight } from "lucide-react-native";
+
+import { SectionHeader } from "@/components/SectionHeader";
+import { SettingsCard } from "@/components/settings/SettingsCard";
+import { openDownloadsScreen, openHistoryScreen } from "@/navigation";
 import {
-  getCacheStats,
-  formatCacheSize,
   cleanExpiredCache,
   clearAllCache,
+  formatCacheSize,
+  getCacheStats,
   type CacheStats,
 } from "@/services/cacheService";
-import {
-  clearPlaybackHistoryAndCache,
-  getPlaybackHistoryAndCacheCleanupAction,
-} from "@/services/dataCleanupService";
+import { useDownloadStore } from "@/stores/downloadStore";
+import { useHistoryStore } from "@/stores/historyStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
+import { radius, spacing, touch, typography } from "@/theme/tokens";
 
 const EMPTY_CACHE_STATS: CacheStats = {
   totalSize: 0,
   coverCacheSize: 0,
   lyricCacheSize: 0,
+  audioCacheSize: 0,
   otherCacheSize: 0,
 };
 
+type PendingAction = "stats" | "expired" | "cache" | "history" | null;
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function CacheSettings() {
   const [cacheStats, setCacheStats] = useState<CacheStats>(EMPTY_CACHE_STATS);
-  const [loading, setLoading] = useState(false);
-  const cleanupAction = getPlaybackHistoryAndCacheCleanupAction();
+  const [pendingAction, setPendingAction] = useState<PendingAction>("stats");
+  const historyEntries = useHistoryStore((state) => state.entries);
+  const loadHistory = useHistoryStore((state) => state.loadHistory);
+  const clearHistory = useHistoryStore((state) => state.clearHistory);
+  const downloads = useDownloadStore((state) => state.downloads);
+  const downloading = useDownloadStore((state) => state.downloading);
+  const failedDownloads = useDownloadStore((state) => state.failedDownloads);
+  const loadDownloads = useDownloadStore((state) => state.loadDownloads);
   const themeMode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor);
+  const busy = pendingAction !== null;
 
-  useEffect(() => {
-    loadCacheSize();
-  }, []);
-
-  const loadCacheSize = async () => {
-    setLoading(true);
+  const loadCacheSize = useCallback(async () => {
     const stats = await getCacheStats();
     setCacheStats(stats);
-    setLoading(false);
+  }, []);
+
+  const loadDataStatus = useCallback(async () => {
+    const results = await Promise.allSettled([loadCacheSize(), loadHistory(), loadDownloads()]);
+    const errors = results
+      .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+      .map((result) => getErrorMessage(result.reason));
+    const historyError = useHistoryStore.getState().error;
+    const downloadError = useDownloadStore.getState().error;
+    if (historyError) errors.push(`播放历史：${historyError}`);
+    if (downloadError) errors.push(`下载记录：${downloadError}`);
+    if (errors.length > 0) {
+      throw new Error([...new Set(errors)].join("；"));
+    }
+  }, [loadCacheSize, loadDownloads, loadHistory]);
+
+  useEffect(() => {
+    void loadDataStatus()
+      .catch((error) => {
+        Alert.alert("无法读取数据状态", `缓存、下载或播放历史状态读取失败：${getErrorMessage(error)}`);
+      })
+      .finally(() => setPendingAction(null));
+  }, [loadDataStatus]);
+
+  const runCacheAction = async (
+    action: Exclude<PendingAction, "stats" | "history" | null>,
+    operation: () => Promise<void>,
+    successMessage: string,
+  ) => {
+    if (busy) return;
+    setPendingAction(action);
+    try {
+      await operation();
+      await loadCacheSize();
+      Alert.alert("操作完成", successMessage);
+    } catch (error) {
+      Alert.alert("操作失败", `${successMessage.replace("已", "未能")}：${getErrorMessage(error)}`);
+    } finally {
+      setPendingAction(null);
+    }
   };
 
-  const handleCleanExpired = async () => {
+  const handleCleanExpired = () => {
     Alert.alert(
-      "清理过期缓存",
-      "将删除超过30天的缓存文件",
+      "清理过期歌词",
+      "封面与音频缓存长期有效（超过容量上限后自动清理），仅歌词按 30 天过期。播放历史与已下载歌曲不会受影响。",
       [
         { text: "取消", style: "cancel" },
         {
-          text: "确定",
-          onPress: async () => {
-            setLoading(true);
-            await cleanExpiredCache();
-            await loadCacheSize();
-            Alert.alert("完成", "已清理过期缓存");
-          },
-        },
-      ]
-    );
-  };
-
-  const handleClearAll = async () => {
-    Alert.alert(
-      "清空所有缓存",
-      "将删除所有封面和歌词缓存，下次播放时会重新下载",
-      [
-        { text: "取消", style: "cancel" },
-        {
-          text: "确定",
+          text: "清理过期歌词",
           style: "destructive",
-          onPress: async () => {
-            setLoading(true);
-            await clearAllCache();
-            await loadCacheSize();
-            Alert.alert("完成", "已清空所有缓存");
-          },
+          onPress: () => void runCacheAction("expired", cleanExpiredCache, "已清理过期歌词"),
         },
-      ]
+      ],
     );
   };
 
-  const handleClearHistoryAndCache = async () => {
+  const handleClearAll = () => {
     Alert.alert(
-      cleanupAction.confirmTitle,
-      cleanupAction.confirmMessage,
+      "清空全部缓存",
+      "将永久删除所有封面、歌词、音频和播放地址缓存，下次使用时需要重新下载。播放历史与已下载歌曲不会被删除。",
       [
         { text: "取消", style: "cancel" },
         {
-          text: "确定",
+          text: "清空缓存",
           style: "destructive",
-          onPress: async () => {
-            setLoading(true);
-            const result = await clearPlaybackHistoryAndCache();
-            setCacheStats({
-              ...EMPTY_CACHE_STATS,
-              totalSize: result.cacheSize,
-            });
-            setLoading(false);
-            Alert.alert("完成", result.message);
-          },
+          onPress: () => void runCacheAction("cache", clearAllCache, "已清空全部缓存"),
         },
-      ]
+      ],
     );
   };
+
+  const handleClearHistory = () => {
+    Alert.alert(
+      "清空播放历史",
+      "将永久删除全部播放历史记录。缓存与已下载歌曲不会受影响，此操作无法撤销。",
+      [
+        { text: "取消", style: "cancel" },
+        {
+          text: "清空播放历史",
+          style: "destructive",
+          onPress: () => {
+            if (busy) return;
+            void (async () => {
+              setPendingAction("history");
+              try {
+                await clearHistory();
+                Alert.alert("操作完成", "已清空播放历史");
+              } catch (error) {
+                Alert.alert("操作失败", `未能清空播放历史：${getErrorMessage(error)}`);
+              } finally {
+                setPendingAction(null);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  };
+
+  const downloadStatus = downloading.length > 0
+    ? `${downloading.length} 项下载中，已完成 ${downloads.length} 首`
+    : failedDownloads.length > 0
+      ? `已下载 ${downloads.length} 首，${failedDownloads.length} 项失败`
+      : `已下载 ${downloads.length} 首`;
 
   return (
     <View style={styles.container}>
       <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: palette.text }]}>缓存管理</Text>
-        <Text style={[styles.sectionCaption, { color: palette.textMuted }]}>
-          封面和歌词会自动缓存到本地，减少流量消耗
-        </Text>
+        <SectionHeader title="缓存" description="查看本地占用，清理不再使用的临时文件" />
+        <SettingsCard style={styles.cachePanel}>
+          <View
+            accessibilityLabel={pendingAction === "stats" ? "正在读取缓存占用" : `缓存占用 ${formatCacheSize(cacheStats.totalSize)}`}
+            accessibilityLiveRegion="polite"
+            accessibilityRole="text"
+            style={styles.totalRow}
+          >
+            <Text style={[styles.rowTitle, { color: palette.text }]}>缓存占用</Text>
+            {pendingAction === "stats" ? (
+              <ActivityIndicator accessibilityLabel="正在读取缓存占用" color={palette.primary} size="small" />
+            ) : (
+              <Text style={[styles.totalValue, { color: palette.primary }]}>
+                {formatCacheSize(cacheStats.totalSize)}
+              </Text>
+            )}
+          </View>
+          <View style={styles.breakdown}>
+            <CacheSizeItem label="封面" size={cacheStats.coverCacheSize} palette={palette} />
+            <CacheSizeItem label="歌词" size={cacheStats.lyricCacheSize} palette={palette} />
+            <CacheSizeItem label="音频" size={cacheStats.audioCacheSize} palette={palette} />
+            <CacheSizeItem label="其他" size={cacheStats.otherCacheSize} palette={palette} />
+          </View>
+        </SettingsCard>
+        <ActionRow
+          title="清理过期歌词"
+          subtitle="仅歌词 30 天过期，封面/音频自动按容量清理"
+          accessibilityLabel="清理过期歌词，仅歌词 30 天过期，封面与音频自动按容量清理"
+          disabled={busy}
+          loading={pendingAction === "expired"}
+          onPress={handleCleanExpired}
+          palette={palette}
+        />
       </View>
 
-      <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>
-        <View style={styles.row}>
-          <Text style={[styles.label, { color: palette.text }]}>总占用</Text>
-          {loading ? (
-            <ActivityIndicator color={palette.primary} size="small" />
-          ) : (
-            <Text style={[styles.value, { color: palette.primary }]}>
-              {formatCacheSize(cacheStats.totalSize)}
-            </Text>
-          )}
-        </View>
-        <View style={styles.cacheBreakdown}>
-          <CacheSizeItem label="封面图片" size={cacheStats.coverCacheSize} loading={loading} palette={palette} />
-          <CacheSizeItem label="歌词文件" size={cacheStats.lyricCacheSize} loading={loading} palette={palette} />
-          <CacheSizeItem label="其他缓存" size={cacheStats.otherCacheSize} loading={loading} palette={palette} />
-        </View>
+      <View style={styles.section}>
+        <SectionHeader title="数据入口" description="查看下载任务和播放记录" />
+        <NavigationRow
+          title="下载管理"
+          subtitle={downloadStatus}
+          onPress={openDownloadsScreen}
+          palette={palette}
+        />
+        <NavigationRow
+          title="播放历史"
+          subtitle={`${historyEntries.length} 条播放记录`}
+          onPress={openHistoryScreen}
+          palette={palette}
+        />
       </View>
 
-      <Pressable
-        style={[styles.button, { backgroundColor: palette.surface, borderColor: palette.border }]}
-        onPress={handleCleanExpired}
-        disabled={loading}
-      >
-        <Text style={[styles.buttonText, { color: palette.text }]}>清理过期缓存</Text>
-        <Text style={[styles.buttonCaption, { color: palette.textMuted }]}>删除超过30天的缓存文件</Text>
-      </Pressable>
-
-      <Pressable
-        style={[styles.button, { backgroundColor: palette.dangerSurface, borderColor: palette.dangerSurface }]}
-        onPress={handleClearAll}
-        disabled={loading}
-      >
-        <Text style={[styles.buttonText, { color: palette.danger }]}>
-          清空所有缓存
-        </Text>
-        <Text style={[styles.buttonCaption, { color: palette.textMuted }]}>
-          将删除所有缓存，下次播放时重新下载
-        </Text>
-      </Pressable>
-
-      <Pressable
-        style={[styles.button, { backgroundColor: palette.dangerSurface, borderColor: palette.dangerSurface }]}
-        onPress={handleClearHistoryAndCache}
-        disabled={loading}
-      >
-        <Text style={[styles.buttonText, { color: palette.danger }]}>
-          {cleanupAction.title}
-        </Text>
-        <Text style={[styles.buttonCaption, { color: palette.textMuted }]}>{cleanupAction.caption}</Text>
-      </Pressable>
+      <View style={[styles.section, styles.dangerSection]}>
+        <SectionHeader title="危险操作" description="以下操作会永久删除本地数据" />
+        <ActionRow
+          title="清空全部缓存"
+          subtitle="删除所有缓存文件，不影响下载和历史"
+          accessibilityLabel="清空全部缓存，删除所有缓存文件"
+          destructive
+          disabled={busy}
+          loading={pendingAction === "cache"}
+          onPress={handleClearAll}
+          palette={palette}
+        />
+        <ActionRow
+          title="清空播放历史"
+          subtitle="永久删除全部播放记录，不影响缓存和下载"
+          accessibilityLabel="清空播放历史，永久删除全部播放记录"
+          destructive
+          disabled={busy}
+          loading={pendingAction === "history"}
+          onPress={handleClearHistory}
+          palette={palette}
+        />
+      </View>
     </View>
   );
 }
 
-interface CacheSizeItemProps {
-  label: string;
-  size: number;
-  loading: boolean;
+interface PaletteProps {
   palette: ReturnType<typeof getThemePalette>;
 }
 
-function CacheSizeItem({ label, size, loading, palette }: CacheSizeItemProps) {
+function CacheSizeItem({ label, size, palette }: { label: string; size: number } & PaletteProps) {
   return (
-    <View style={[styles.cacheSizeItem, { backgroundColor: palette.surfaceMuted }]}>
+    <View style={styles.cacheSizeItem}>
       <Text style={[styles.cacheSizeLabel, { color: palette.textMuted }]}>{label}</Text>
-      <Text style={[styles.cacheSizeValue, { color: palette.text }]}>
-        {loading ? "计算中..." : formatCacheSize(size)}
-      </Text>
+      <Text style={[styles.cacheSizeValue, { color: palette.text }]}>{formatCacheSize(size)}</Text>
     </View>
+  );
+}
+
+interface ActionRowProps extends PaletteProps {
+  title: string;
+  subtitle: string;
+  accessibilityLabel: string;
+  destructive?: boolean;
+  disabled: boolean;
+  loading: boolean;
+  onPress: () => void;
+}
+
+function ActionRow({
+  title,
+  subtitle,
+  accessibilityLabel,
+  destructive = false,
+  disabled,
+  loading,
+  onPress,
+  palette,
+}: ActionRowProps) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ disabled, busy: loading }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.actionRow,
+        {
+          backgroundColor: destructive ? palette.dangerSurface : palette.surface,
+          borderColor: destructive ? palette.danger : palette.border,
+          opacity: disabled && !loading ? 0.55 : pressed ? 0.75 : 1,
+        },
+      ]}
+    >
+      <View style={styles.copy}>
+        <Text style={[styles.rowTitle, { color: destructive ? palette.danger : palette.text }]}>{title}</Text>
+        <Text style={[styles.rowSubtitle, { color: palette.textMuted }]}>{subtitle}</Text>
+      </View>
+      {loading ? (
+        <ActivityIndicator
+          accessibilityLabel={`${title}进行中`}
+          color={destructive ? palette.danger : palette.primary}
+          size="small"
+        />
+      ) : null}
+    </Pressable>
+  );
+}
+
+function NavigationRow({ title, subtitle, onPress, palette }: { title: string; subtitle: string; onPress: () => void } & PaletteProps) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${title}，${subtitle}`}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.actionRow,
+        { backgroundColor: palette.surface, borderColor: palette.border, opacity: pressed ? 0.75 : 1 },
+      ]}
+    >
+      <View style={styles.copy}>
+        <Text style={[styles.rowTitle, { color: palette.text }]}>{title}</Text>
+        <Text style={[styles.rowSubtitle, { color: palette.textMuted }]}>{subtitle}</Text>
+      </View>
+      <ChevronRight size={18} color={palette.primary} />
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 20,
+  container: { gap: spacing.xl },
+  section: { gap: spacing.xs },
+  dangerSection: { marginTop: spacing.m },
+  cachePanel: {
+    gap: spacing.s,
   },
-  section: {
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#ffffff",
-    marginBottom: 4,
-  },
-  sectionCaption: {
-    fontSize: 13,
-    color: "#8fa79f",
-  },
-  card: {
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 16,
-  },
-  row: {
+  totalRow: {
+    minHeight: touch.minTarget,
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.s,
   },
-  label: {
-    fontSize: 15,
-  },
-  value: {
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  cacheBreakdown: {
+  totalValue: { fontSize: typography.title, fontWeight: "700" },
+  breakdown: { flexDirection: "row" },
+  cacheSizeItem: { flex: 1, minWidth: 0, gap: spacing.xxs },
+  cacheSizeLabel: { fontSize: typography.caption },
+  cacheSizeValue: { fontSize: typography.meta, fontWeight: "700" },
+  actionRow: {
+    minHeight: touch.minTarget,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.s,
+    paddingVertical: spacing.s,
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 14,
+    alignItems: "center",
+    gap: spacing.s,
   },
-  cacheSizeItem: {
-    minWidth: "30%",
-    flex: 1,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    gap: 3,
-  },
-  cacheSizeLabel: {
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  cacheSizeValue: {
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  button: {
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 12,
-  },
-  buttonText: {
-    fontSize: 15,
-    fontWeight: "600",
-    marginBottom: 4,
-  },
-  buttonCaption: {
-    fontSize: 13,
-  },
+  copy: { flex: 1, minWidth: 0, gap: spacing.xxs },
+  rowTitle: { fontSize: typography.body, fontWeight: "600" },
+  rowSubtitle: { fontSize: typography.caption, lineHeight: 18 },
 });

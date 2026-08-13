@@ -14,6 +14,7 @@ import {
   checkQrLoginStatus,
   type QrLoginStatus,
 } from "@/services/wyQrLoginService";
+import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 
 const POLL_INTERVAL_MS = 2000;
 /** 二维码有效期（网易云约为 2 分钟），到期前主动刷新。 */
@@ -48,7 +49,10 @@ export function QrLoginView({
   onError,
   onBusyChange,
 }: QrLoginViewProps) {
-  const [qrKey, setQrKey] = useState<string | null>(null);
+  const mode = useThemeStore((state) => state.mode);
+  const systemTheme = useThemeStore((state) => state.systemTheme);
+  const accentColor = useThemeStore((state) => state.accentColor);
+  const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
   const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
   const [statusText, setStatusText] = useState("正在生成二维码…");
   const [busy, setBusy] = useState(false);
@@ -103,7 +107,6 @@ export function QrLoginView({
         setBusyState(true);
         setStatusText("正在生成二维码…");
       }
-      setQrKey(null);
       setQrImageUrl(null);
 
       try {
@@ -112,7 +115,6 @@ export function QrLoginView({
           return;
         }
         const imageUrl = getQrCodeUrl(key);
-        setQrKey(key);
         setQrImageUrl(imageUrl);
         setStatusText(STATUS_TEXT[QR_CODE.WAITING]);
 
@@ -223,39 +225,39 @@ export function QrLoginView({
   };
 
   return (
-    <View style={styles.qrPanel}>
-      <View style={styles.qrPreview}>
+    <View style={[styles.qrPanel, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+      <View style={[styles.qrPreview, { borderColor: palette.border }]}>
         {qrImageUrl ? (
           <CachedImage uri={qrImageUrl} style={styles.qrImage} />
         ) : (
           <View style={styles.qrPlaceholder}>
             {busy ? (
-              <ActivityIndicator color="#4c5c57" />
+              <ActivityIndicator color={palette.textMuted} />
             ) : (
-              <Text style={styles.qrPlaceholderText}>等待生成二维码</Text>
+              <Text style={[styles.qrPlaceholderText, { color: palette.textMuted }]}>等待生成二维码</Text>
             )}
           </View>
         )}
       </View>
 
-      <Text style={styles.qrStatus}>{statusText}</Text>
+      <Text style={[styles.qrStatus, { color: palette.text }]}>{statusText}</Text>
 
       <View style={styles.actions}>
         <Pressable
-          style={[styles.button, busy && styles.buttonDisabled]}
+          style={[styles.button, { backgroundColor: palette.primary }, busy && styles.buttonDisabled]}
           onPress={handleManualRefresh}
           disabled={busy}
         >
           {busy ? (
-            <ActivityIndicator color="#10241f" />
+            <ActivityIndicator color={palette.primaryText} />
           ) : (
-            <Text style={styles.buttonText}>刷新二维码</Text>
+            <Text style={[styles.buttonText, { color: palette.primaryText }]}>刷新二维码</Text>
           )}
         </Pressable>
 
         {qrImageUrl ? (
-          <Pressable style={styles.secondaryButton} onPress={openQrUrl}>
-            <Text style={styles.secondaryButtonText}>在浏览器打开</Text>
+          <Pressable style={[styles.secondaryButton, { borderColor: palette.border }]} onPress={openQrUrl}>
+            <Text style={[styles.secondaryButtonText, { color: palette.primary }]}>在浏览器打开</Text>
           </Pressable>
         ) : null}
       </View>
@@ -265,8 +267,8 @@ export function QrLoginView({
 
 const styles = StyleSheet.create({
   qrPanel: {
-    backgroundColor: "#152c26",
     borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
     padding: 16,
     marginBottom: 16,
     alignItems: "center",
@@ -276,6 +278,7 @@ const styles = StyleSheet.create({
     height: 220,
     borderRadius: 12,
     backgroundColor: "#ffffff",
+    borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
     marginBottom: 16,
   },
@@ -291,12 +294,10 @@ const styles = StyleSheet.create({
   },
   qrPlaceholderText: {
     fontSize: 14,
-    color: "#4c5c57",
     textAlign: "center",
   },
   qrStatus: {
     fontSize: 14,
-    color: "#ffffff",
     textAlign: "center",
     marginBottom: 12,
   },
@@ -306,7 +307,6 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   button: {
-    backgroundColor: "#45e58d",
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 10,
@@ -319,19 +319,16 @@ const styles = StyleSheet.create({
   buttonText: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#10241f",
   },
   secondaryButton: {
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#2d5a4d",
     alignItems: "center",
   },
   secondaryButtonText: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#c6f8db",
   },
 });

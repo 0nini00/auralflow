@@ -13,7 +13,7 @@ import {
 import { QrLoginView } from "@/components/QrLoginView";
 import { useAccountStore } from "@/stores/accountStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { radius, typography } from "@/theme/tokens";
+import { radius, spacing, typography } from "@/theme/tokens";
 
 interface LoginScreenProps {
   onSuccess?: () => void;
@@ -37,31 +37,31 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
 
   const styles = StyleSheet.create({
     container: {
-      padding: 20,
-      paddingBottom: 40,
+      padding: spacing.l,
+      paddingBottom: spacing.xl + spacing.m,
     },
     header: {
-      marginBottom: 32,
+      marginBottom: spacing.l + spacing.s,
     },
     title: {
       fontSize: typography.displayLg,
       fontWeight: "700",
       color: palette.text,
-      marginBottom: 8,
+      marginBottom: spacing.xs,
     },
     subtitle: {
       fontSize: typography.title,
       color: palette.textMuted,
     },
     form: {
-      marginBottom: 32,
+      marginBottom: spacing.l + spacing.s,
     },
     segmentedControl: {
       flexDirection: "row",
       backgroundColor: palette.surface,
       borderRadius: radius.md,
-      padding: 4,
-      marginBottom: 20,
+      padding: spacing.xxs,
+      marginBottom: spacing.l,
     },
     segmentButton: {
       flex: 1,
@@ -82,18 +82,18 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
       color: palette.primaryText,
     },
     inputContainer: {
-      marginBottom: 16,
+      marginBottom: spacing.m,
     },
     label: {
       fontSize: typography.body,
       fontWeight: "600",
       color: palette.text,
-      marginBottom: 8,
+      marginBottom: spacing.xs,
     },
     input: {
       backgroundColor: palette.surface,
       color: palette.text,
-      padding: 16,
+      padding: spacing.m,
       borderRadius: radius.md,
       fontSize: typography.body,
       minHeight: 120,
@@ -101,7 +101,7 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
     },
     helpButton: {
       alignSelf: "flex-start",
-      marginBottom: 24,
+      marginBottom: spacing.xl,
     },
     helpText: {
       fontSize: typography.body,
@@ -110,7 +110,7 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
     },
     loginButton: {
       backgroundColor: palette.primary,
-      padding: 16,
+      padding: spacing.m,
       borderRadius: radius.md,
       alignItems: "center",
     },
@@ -124,20 +124,20 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
     },
     notice: {
       backgroundColor: palette.dangerSurface,
-      padding: 16,
+      padding: spacing.m,
       borderRadius: radius.md,
       borderLeftWidth: 4,
-      borderLeftColor: "#ff9800",
+      borderLeftColor: palette.danger,
     },
     noticeTitle: {
       fontSize: typography.body,
       fontWeight: "600",
-      color: "#ff9800",
-      marginBottom: 8,
+      color: palette.danger,
+      marginBottom: spacing.xs,
     },
     noticeText: {
       fontSize: typography.meta,
-      color: "#d4c4b4",
+      color: palette.textMuted,
       lineHeight: 20,
     },
   });
@@ -195,8 +195,8 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
         {
           text: "查看详细教程",
           onPress: () => {
-            // 这里可以打开一个详细教程页面
-            Linking.openURL("https://github.com/example/tutorial");
+            // 打开详细教程页面
+            Linking.openURL("https://github.com/0nini00/auralflow");
           },
         },
       ]

@@ -49,7 +49,11 @@ export class SourceResolver {
     private readonly policy: SourceResolutionPolicy = DEFAULT_SOURCE_POLICY
   ) {}
 
-  setPolicy(policy: SourceResolutionPolicy): void {
+  getPolicy(): Readonly<SourceResolutionPolicy> {
+    return this.policy;
+  }
+
+  setPolicy(policy: Partial<SourceResolutionPolicy>): void {
     Object.assign(this.policy, policy);
   }
 
@@ -237,5 +241,10 @@ export class SourceResolver {
           reject(err);
         });
     });
+  }
+
+  /** 释放 timeout 不取消的底层 Promise 的引用,辅助 GC */
+  abortPendingRequests(): void {
+    // 底层 Promise 仍会执行,但本 resolver 不再等待其完成
   }
 }

@@ -11,7 +11,6 @@ export async function getSearchHistory(): Promise<string[]> {
     const data = await AsyncStorage.getItem(SEARCH_HISTORY_KEY);
     return data ? JSON.parse(data) : [];
   } catch (error) {
-    console.error("Get search history error:", error);
     return [];
   }
 }
@@ -25,18 +24,17 @@ export async function addSearchHistory(keyword: string): Promise<void> {
   }
 
   try {
+    const trimmed = keyword.trim();
     const history = await getSearchHistory();
-    
-    // 移除重复项
-    const filtered = history.filter((item) => item !== keyword);
-    
+
+    // 移除重复项（按 trim 后的值比较）
+    const filtered = history.filter((item) => item.trim() === trimmed);
+
     // 添加到最前面
-    const updated = [keyword, ...filtered].slice(0, MAX_HISTORY_COUNT);
+    const updated = [trimmed, ...filtered].slice(0, MAX_HISTORY_COUNT);
     
     await AsyncStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(updated));
-  } catch (error) {
-    console.error("Add search history error:", error);
-  }
+  } catch {}
 }
 
 /**
@@ -47,9 +45,7 @@ export async function removeSearchHistory(keyword: string): Promise<void> {
     const history = await getSearchHistory();
     const updated = history.filter((item) => item !== keyword);
     await AsyncStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(updated));
-  } catch (error) {
-    console.error("Remove search history error:", error);
-  }
+  } catch {}
 }
 
 /**
@@ -58,7 +54,5 @@ export async function removeSearchHistory(keyword: string): Promise<void> {
 export async function clearSearchHistory(): Promise<void> {
   try {
     await AsyncStorage.removeItem(SEARCH_HISTORY_KEY);
-  } catch (error) {
-    console.error("Clear search history error:", error);
-  }
+  } catch {}
 }

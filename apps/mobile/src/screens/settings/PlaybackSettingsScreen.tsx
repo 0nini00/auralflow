@@ -7,7 +7,7 @@ import { SettingsPage } from "@/components/settings/SettingsPage";
 
 export function PlaybackSettingsScreen() {
   return (
-    <SettingsPage title="播放与音效" description="播放音质、音频打断和音效">
+    <SettingsPage title="播放与音效" description="默认音质、音频打断和音效">
       <PlaybackQualitySettings />
       <ExternalPlaybackSettings />
       <SoundEffectPanel />

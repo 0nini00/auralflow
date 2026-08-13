@@ -14,6 +14,8 @@
  * - 500 二维码已过期
  */
 
+import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
+
 const NETEASE_API_BASE = "https://music.163.com";
 const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
@@ -40,7 +42,7 @@ export interface QrLoginStatus {
  * 获取二维码登录 key（unikey）
  */
 export async function getQrCodeKey(): Promise<string> {
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `${NETEASE_API_BASE}/api/login/qrcode/unikey?type=1`,
     {
       method: "GET",
@@ -97,7 +99,7 @@ function parseCookieFromHeaders(setCookieHeader: string | null): string | null {
  */
 export async function checkQrLoginStatus(key: string): Promise<QrLoginStatus> {
   const encodedKey = encodeURIComponent(key);
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `${NETEASE_API_BASE}/api/login/qrcode/client/login?key=${encodedKey}&type=1`,
     {
       method: "GET",

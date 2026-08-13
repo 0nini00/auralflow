@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import RNFS from "react-native-fs";
 import type { LyricLine, MusicInfo } from "@lx/core";
-import { fetchSongLyrics, resolveSongUrl } from "./musicApi";
+import { fetchSongLyrics, parseUrl, buildStreamHeaders } from "./musicApi";
 import { resolveBiliSongUrl } from "./biliService";
 import { embedId3Tag, type Id3Cover } from "./id3TagWriter";
 import { base64ToBytes, bytesToBase64 } from "@/utils/base64";
@@ -23,6 +23,38 @@ const DOWNLOAD_ROOT_DIR = `${RNFS.DocumentDirectoryPath}/auralflow`;
 const DOWNLOAD_DIR = `${DOWNLOAD_ROOT_DIR}/downloads`;
 
 const DOWNLOAD_STORE_KEY = "auralflow.mobile.downloads";
+
+/** 上次选择的下载音质（对齐 lx getLastSelectQuality/saveLastSelectQuality）。 */
+const LAST_QUALITY_KEY = "auralflow.mobile.download.lastQuality";
+
+/** 读取上次选择的下载音质；无记录返回 null。 */
+export async function getLastSelectQuality(): Promise<DownloadQuality | null> {
+  try {
+    const raw = await AsyncStorage.getItem(LAST_QUALITY_KEY);
+    if (!raw) return null;
+    return normalizeQualityKeyForDownload(raw);
+  } catch {
+    return null;
+  }
+}
+
+/** 保存本次选择的下载音质，供下次默认选中。 */
+export async function saveLastSelectQuality(quality: DownloadQuality): Promise<void> {
+  try {
+    await AsyncStorage.setItem(LAST_QUALITY_KEY, quality);
+  } catch {}
+}
+
+/** 兼容历史存储的别名值（如 "hires" → "flac24bit"），非法值回退 null。 */
+function normalizeQualityKeyForDownload(value: string): DownloadQuality | null {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "hires" || normalized === "hi-res" || normalized === "flac24bit") return "flac24bit";
+  if (normalized === "flac") return "flac";
+  if (normalized === "320k" || normalized === "320") return "320k";
+  if (normalized === "192k" || normalized === "192") return "192k";
+  if (normalized === "128k" || normalized === "128") return "128k";
+  return null;
+}
 
 
 
@@ -52,14 +84,32 @@ export interface DownloadProgressInfo {
   progress: number;
   bytesWritten: number;
   contentLength: number;
+  /** 下载速度（字节/秒），串行队列内实时计算；未知为 0 */
+  speed: number;
 }
 
-/** 进行中的下载任务句柄，用于取消 */
+/** 进行中的下载任务句柄，用于取消/暂停/继续 */
 interface ActiveJob {
   jobId: number;
+  /** 已写入的字节数，用于暂停后续传 */
+  bytesWritten: number;
 }
 
 const activeJobs = new Map<string, ActiveJob>();
+
+/** 串行下载队列（对齐 lx：一个任务完成后再下载下一个，避免并发抢带宽）。 */
+interface QueueTask {
+  key: string;
+  song: MusicInfo;
+  quality: DownloadQuality;
+  onProgress?: (info: DownloadProgressInfo) => void;
+  resolve: (path: string) => void;
+  reject: (error: Error) => void;
+}
+
+const taskQueue: QueueTask[] = [];
+let isQueueProcessing = false;
+let pausedKeys = new Set<string>();
 
 function songKey(song: MusicInfo): string {
   return `${song.source}:${song.id}`;
@@ -67,6 +117,80 @@ function songKey(song: MusicInfo): string {
 
 function downloadJobKey(song: MusicInfo, quality: DownloadQuality): string {
   return `${songKey(song)}:${quality}`;
+}
+
+/**
+ * 串行下载入口：把任务加入队列，等待前序任务完成后再真正下载。
+ * 返回的 Promise 在任务真正完成时 resolve（被取消/暂停时 reject）。
+ */
+export function enqueueDownloadTask(
+  song: MusicInfo,
+  quality: DownloadQuality,
+  onProgress?: (info: DownloadProgressInfo) => void,
+): Promise<string> {
+  const key = downloadJobKey(song, quality);
+  return new Promise<string>((resolve, reject) => {
+    taskQueue.push({ key, song, quality, onProgress, resolve, reject });
+    void processDownloadQueue();
+  });
+}
+
+/** 从队列移除某个任务（取消/暂停时调用）。返回 true 表示仍在排队未开始。 */
+export function dequeueDownloadTask(key: string): boolean {
+  const index = taskQueue.findIndex((task) => task.key === key);
+  if (index < 0) return false;
+  const [task] = taskQueue.splice(index, 1);
+  task.reject(new Error("已取消"));
+  return true;
+}
+
+async function processDownloadQueue(): Promise<void> {
+  if (isQueueProcessing) return;
+  isQueueProcessing = true;
+  try {
+    while (taskQueue.length > 0) {
+      const task = taskQueue.shift()!;
+      try {
+        const path = await downloadSongInternal(task);
+        task.resolve(path);
+      } catch (error) {
+        task.reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+  } finally {
+    isQueueProcessing = false;
+  }
+}
+
+/** 暂停：停止当前任务的网络写入（RNFS stopDownload），并标记为可续传。 */
+export function pauseDownload(song: MusicInfo, quality: DownloadQuality): boolean {
+  const key = downloadJobKey(song, quality);
+  if (dequeueDownloadTask(key)) {
+    // 排队未开始的任务直接出队，按暂停处理
+    pausedKeys.add(key);
+    return true;
+  }
+  const job = activeJobs.get(key);
+  if (!job) return false;
+  pausedKeys.add(key);
+  try {
+    RNFS.stopDownload(job.jobId);
+  } catch {}
+  activeJobs.delete(key);
+  return true;
+}
+
+/**
+ * 继续：标记任务可续传（不清除 pausedKeys——由 downloadSongInternal 读取续传点后清理，
+ * 避免 store.resumeDownload 先清标记再入队时，downloadSong 把半成品文件误判为已完成）。
+ */
+export function resumeDownload(song: MusicInfo, quality: DownloadQuality): boolean {
+  return pausedKeys.has(downloadJobKey(song, quality));
+}
+
+/** 任务是否处于暂停状态。 */
+export function isDownloadPaused(song: MusicInfo, quality: DownloadQuality): boolean {
+  return pausedKeys.has(downloadJobKey(song, quality));
 }
 
 /**
@@ -136,6 +260,28 @@ function downloadFileUri(song: MusicInfo, quality: DownloadQuality = "320k"): st
 }
 
 /**
+ * 查找已存在的下载文件。
+ *
+ * 下载时若解析出的真实扩展名与按音质推断的不一致（如 B站 m4s→m4a），文件会以调整后的
+ * 扩展名落盘；这里先查标准路径，再按文件名前缀扫描目录，避免把已下载文件当成未下载而重复下载。
+ */
+async function findExistingDownloadFile(
+  song: MusicInfo,
+  quality: DownloadQuality,
+): Promise<string | null> {
+  const expected = downloadFilePath(song, quality);
+  if (await RNFS.exists(expected)) return expected;
+  try {
+    const prefix = `${song.source}-${song.id}-${quality}.`;
+    const entries = await RNFS.readDir(DOWNLOAD_DIR);
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.startsWith(prefix)) return entry.path;
+    }
+  } catch {}
+  return null;
+}
+
+/**
  * 确保下载目录存在
  */
 export async function ensureDownloadDirectory(): Promise<string> {
@@ -158,9 +304,8 @@ export async function isSongDownloaded(
   quality: DownloadQuality = "320k",
 ): Promise<boolean> {
   try {
-    return await RNFS.exists(downloadFilePath(song, quality));
+    return (await findExistingDownloadFile(song, quality)) != null;
   } catch (error) {
-    console.error("Check downloaded error:", error);
     return false;
   }
 }
@@ -172,20 +317,18 @@ export async function getDownloadedPath(
   song: MusicInfo,
   quality: DownloadQuality = "320k",
 ): Promise<string | null> {
-  const exists = await isSongDownloaded(song, quality);
-  return exists ? downloadFileUri(song, quality) : null;
+  const path = await findExistingDownloadFile(song, quality);
+  return path ? `file://${path}` : null;
 }
 
 /**
- * 下载歌曲到本地
+ * 下载歌曲到本地（串行队列入口）
  *
- * 1. 根据音质解析对应的播放 URL（无损/Hi-Res 走高品质解析）
- * 2. 用 RNFS.downloadFile 下载到 DOWNLOAD_DIR
- * 3. 文件命名 {source}-{id}-{quality}.{ext}
- * 4. 返回本地 file:// 路径
+ * 加入串行下载队列（对齐 lx：一个完成再下一个），返回的 Promise 在真正完成时 resolve。
+ * 重复入队同一首歌同音质时直接返回已存在文件（去重）。
  *
  * @param song 歌曲信息
- * @param onProgress 下载进度回调
+ * @param onProgress 下载进度回调（含实时速度）
  * @param quality 下载音质，默认 320k
  * @returns 本地 file:// 路径
  */
@@ -196,17 +339,51 @@ export async function downloadSong(
 ): Promise<string> {
   await ensureDownloadDirectory();
 
-  const filePath = downloadFilePath(song, quality);
+  // 暂停后继续：半成品文件是续传起点，不能按「已下载」短路
+  const isResuming = isDownloadPaused(song, quality);
+  if (!isResuming) {
+    // 若已存在则直接返回，避免重复下载（含扩展名被调整过的历史文件）
+    const existingPath = await findExistingDownloadFile(song, quality);
+    if (existingPath) {
+      const stat = await RNFS.stat(existingPath);
+      onProgress?.({
+        progress: 1,
+        bytesWritten: Number(stat.size) || 0,
+        contentLength: Number(stat.size) || 0,
+        speed: 0,
+      });
+      return `file://${existingPath}`;
+    }
+  }
 
-  // 若已存在则直接返回，避免重复下载
-  if (await RNFS.exists(filePath)) {
-    const stat = await RNFS.stat(filePath);
-    onProgress?.({
-      progress: 1,
-      bytesWritten: Number(stat.size) || 0,
-      contentLength: Number(stat.size) || 0,
-    });
-    return downloadFileUri(song, quality);
+  return enqueueDownloadTask(song, quality, onProgress);
+}
+
+/**
+ * 真正执行单个下载任务（由串行队列 processDownloadQueue 调用）。
+ */
+async function downloadSongInternal(task: QueueTask): Promise<string> {
+  const { song, quality, onProgress } = task;
+  const key = task.key;
+
+  // 暂停后继续：RNFS 的 stopDownload 后重新 downloadFile 无法真正断点续传（fresh 请求会从头覆盖），
+  // 对齐 lx 的 resumeTask 行为——直接删除半成品、整曲重新下载，保证文件完整性与可播放性。
+  const isResuming = isDownloadPaused(song, quality);
+  const filePath = downloadFilePath(song, quality);
+  if (isResuming) {
+    // 清理暂停残留的半成品（标准路径 + 调整过扩展名的变体）
+    await safeUnlink(filePath);
+    try {
+      const prefix = `${song.source}-${song.id}-${quality}.`;
+      const entries = await RNFS.readDir(DOWNLOAD_DIR);
+      for (const entry of entries) {
+        if (entry.isFile() && entry.name.startsWith(prefix)) {
+          await safeUnlink(entry.path);
+        }
+      }
+    } catch {}
+    // 续传点已消费，清除暂停标记（若再次失败则按普通失败清理，不残留半成品）
+    pausedKeys.delete(key);
   }
 
   // 解析播放 URL（本地歌曲直接用其 url）
@@ -227,8 +404,9 @@ export async function downloadSong(
     };
     resolvedExt = inferExtFromUrl(url) ?? "m4a";
   } else {
-    const result = await resolveSongUrl(song, quality);
-    url = result.url;
+    // 播放/下载统一由内置音乐 API 网关解析（官方直连仅用于搜索与元数据）；与播放链路一致
+    url = await parseUrl(song, quality);
+    headers = buildStreamHeaders(song.source);
     resolvedExt = inferExtFromUrl(url) ?? qualityExt(quality);
   }
   if (!url) {
@@ -245,7 +423,10 @@ export async function downloadSong(
     finalUri = `file://${finalFilePath}`;
   }
 
-  const key = downloadJobKey(song, quality);
+  // 速度统计：每 500ms 采样一次字节增量
+  let lastBytes = 0;
+  let lastSampleAt = Date.now();
+  let currentSpeed = 0;
 
   const download = RNFS.downloadFile({
     fromUrl: url,
@@ -255,20 +436,29 @@ export async function downloadSong(
     progressDivider: 5,
     headers,
     progress: (event) => {
+      const now = Date.now();
+      const deltaTime = now - lastSampleAt;
+      const deltaBytes = event.bytesWritten - lastBytes;
+      if (deltaTime >= 500) {
+        currentSpeed = deltaTime > 0 ? deltaBytes / (deltaTime / 1000) : 0;
+        lastBytes = event.bytesWritten;
+        lastSampleAt = now;
+      }
       const progress = event.contentLength > 0 ? event.bytesWritten / event.contentLength : 0;
       onProgress?.({
         progress,
         bytesWritten: event.bytesWritten,
         contentLength: event.contentLength,
+        speed: currentSpeed,
       });
     },
   });
 
-  activeJobs.set(key, { jobId: download.jobId });
+  activeJobs.set(key, { jobId: download.jobId, bytesWritten: 0 });
 
   try {
     const result = await download.promise;
-    if (result.statusCode !== 200) {
+    if (result.statusCode !== 200 && result.statusCode !== 206) {
       // 清理失败文件
       await safeUnlink(finalFilePath);
       throw new Error(`下载失败，HTTP ${result.statusCode}`);
@@ -277,8 +467,10 @@ export async function downloadSong(
     await enhanceDownloadedFile(song, finalFilePath);
     return finalUri;
   } catch (error) {
-    // 取消或出错时清理半成品文件
-    await safeUnlink(finalFilePath);
+    // 取消/暂停或出错时清理半成品文件（暂停续传依赖服务端 Accept-Ranges，失败则整文件重下）
+    if (!isDownloadPaused(song, quality)) {
+      await safeUnlink(finalFilePath);
+    }
     throw error;
   } finally {
     activeJobs.delete(key);
@@ -288,24 +480,42 @@ export async function downloadSong(
 /**
  * 取消指定歌曲的下载任务
  *
- * @returns 是否成功取消（存在进行中的任务且已发出停止指令）
+ * 同时处理：排队中未开始的任务（直接出队）、进行中的任务（停止网络写入）。
+ *
+ * @returns 是否成功取消
  */
 export function cancelDownload(song: MusicInfo, quality?: DownloadQuality): boolean {
   const keys = quality
     ? [downloadJobKey(song, quality)]
-    : Array.from(activeJobs.keys()).filter((key) => key.startsWith(`${songKey(song)}:`));
+    : Array.from(new Set([
+        ...activeJobs.keys(),
+        ...taskQueue.map((task) => task.key),
+      ])).filter((key) => key.startsWith(`${songKey(song)}:`));
   let cancelled = false;
 
   for (const key of keys) {
-    const job = activeJobs.get(key);
-    if (!job) continue;
-    try {
-      RNFS.stopDownload(job.jobId);
-    } catch (error) {
-      console.error("Cancel download error:", error);
+    if (dequeueDownloadTask(key)) {
+      cancelled = true;
+      continue;
     }
-    activeJobs.delete(key);
-    cancelled = true;
+    const wasPaused = pausedKeys.delete(key);
+    const job = activeJobs.get(key);
+    if (job) {
+      try {
+        RNFS.stopDownload(job.jobId);
+      } catch {}
+      activeJobs.delete(key);
+      cancelled = true;
+      // 取消进行中任务：RNFS stopDownload 后由 downloadSongInternal 的 catch 清理半成品
+      continue;
+    }
+    if (wasPaused) {
+      // 取消已暂停任务：主动清理暂停时残留的半成品文件（异步，不阻塞取消返回）
+      cancelled = true;
+      const keyQuality = key.split(":").pop() as DownloadQuality;
+      const songOfKey = { source: key.split(":")[0]!, id: key.split(":")[1]! } as MusicInfo;
+      void removeDownloadedFile(songOfKey, keyQuality).catch(() => undefined);
+    }
   }
 
   return cancelled;
@@ -317,9 +527,7 @@ async function writeSidecarLyrics(song: MusicInfo, audioFilePath: string): Promi
     const lrc = formatLyricsAsLrc(lyrics);
     if (!lrc) return;
     await RNFS.writeFile(sidecarLrcPath(audioFilePath), `${lrc}\n`, "utf8");
-  } catch (error) {
-    console.warn("Write sidecar lyrics error:", error);
-  }
+  } catch {}
 }
 
 /** 拉取封面字节（对齐桌面端 fetchCoverDataUrl），失败返回 undefined 不阻断下载。 */
@@ -335,7 +543,6 @@ async function fetchCoverBytes(song: MusicInfo): Promise<Id3Cover | undefined> {
     await RNFS.unlink(tmpPath).catch(() => undefined);
     return { mime, data: base64ToBytes(b64) };
   } catch (error) {
-    console.warn("Fetch cover bytes error:", error);
     return undefined;
   }
 }
@@ -364,30 +571,44 @@ async function enhanceDownloadedFile(
       lyrics: lrc || undefined,
     });
     await RNFS.writeFile(audioFilePath, bytesToBase64(tagged), "base64");
-  } catch (error) {
-    console.warn("Enhance downloaded file (ID3) error:", error);
-  }
+  } catch {}
 }
 
 /**
- * 取消所有进行中的下载任务
+ * 取消所有下载任务（排队中 + 进行中）
  */
 export function cancelAllDownloads(): void {
+  while (taskQueue.length > 0) {
+    const task = taskQueue.shift()!;
+    task.reject(new Error("已取消"));
+  }
   for (const [, job] of activeJobs) {
     try {
       RNFS.stopDownload(job.jobId);
-    } catch (error) {
-      console.error("Cancel all downloads error:", error);
-    }
+    } catch {}
   }
   activeJobs.clear();
+  pausedKeys.clear();
 }
 
 /**
- * 删除已下载文件（按歌曲）
+ * 删除已下载文件（按歌曲 + 音质；不传音质默认 320k）
  */
-export async function removeDownloadedFile(song: MusicInfo): Promise<void> {
-  await safeUnlink(downloadFilePath(song));
+export async function removeDownloadedFile(
+  song: MusicInfo,
+  quality: DownloadQuality = "320k",
+): Promise<void> {
+  // 按文件名前缀扫描删除该音质的所有扩展名变体，避免调整过扩展名的残留文件。
+  await safeUnlink(downloadFilePath(song, quality));
+  try {
+    const prefix = `${song.source}-${song.id}-${quality}.`;
+    const entries = await RNFS.readDir(DOWNLOAD_DIR);
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.startsWith(prefix)) {
+        await safeUnlink(entry.path);
+      }
+    }
+  } catch {}
 }
 
 /**
@@ -424,7 +645,8 @@ export async function saveCoverToDownloads(song: MusicInfo): Promise<string> {
       // 忽略解析失败，默认 jpg
     }
 
-    const path = `${DOWNLOAD_DIR}/${songKey(song)}-cover.${ext}`;
+    const coverName = songKey(song).replace(/:/g, "-");
+    const path = `${DOWNLOAD_DIR}/${coverName}-cover.${ext}`;
     const result = await RNFS.downloadFile({ fromUrl: url, toFile: path }).promise;
     if (result.statusCode !== 200) {
       await RNFS.unlink(path).catch(() => undefined);
@@ -449,9 +671,7 @@ export async function clearDownloadedFiles(): Promise<void> {
         await RNFS.unlink(entry.path);
       }
     }
-  } catch (error) {
-    console.error("Clear downloaded files error:", error);
-  }
+  } catch {}
 }
 
 /**
@@ -464,7 +684,6 @@ export async function loadDownloads(): Promise<DownloadedItem[]> {
     const items = JSON.parse(raw) as DownloadedItem[];
     return Array.isArray(items) ? items : [];
   } catch (error) {
-    console.error("Load downloads error:", error);
     return [];
   }
 }
@@ -476,7 +695,7 @@ export async function saveDownloads(items: DownloadedItem[]): Promise<void> {
   try {
     await AsyncStorage.setItem(DOWNLOAD_STORE_KEY, JSON.stringify(items));
   } catch (error) {
-    console.error("Save downloads error:", error);
+    throw error;
   }
 }
 
@@ -486,8 +705,6 @@ async function safeUnlink(filePath: string): Promise<void> {
     if (exists) {
       await RNFS.unlink(filePath);
     }
-  } catch (error) {
-    console.error("Unlink file error:", error);
-  }
+  } catch {}
 }
 

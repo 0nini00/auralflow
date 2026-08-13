@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
+import { SettingsCard } from "@/components/settings/SettingsCard";
 import { usePlaybackSettingsStore } from "@/stores/playbackSettingsStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, touch, typography } from "@/theme/tokens";
@@ -20,7 +21,7 @@ export function ExternalPlaybackSettings() {
   }, [load, loaded]);
 
   return (
-    <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+    <SettingsCard style={styles.card}>
       <View style={styles.copy}>
         <Text style={[styles.title, { color: palette.text }]}>其他应用播放音频时</Text>
         <Text style={[styles.subtitle, { color: palette.textMuted }]}>选择暂停当前歌曲或仅降低音量</Text>
@@ -47,17 +48,12 @@ export function ExternalPlaybackSettings() {
           );
         })}
       </View>
-    </View>
+    </SettingsCard>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    minHeight: 56,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.s,
-    paddingVertical: spacing.xs,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.s,

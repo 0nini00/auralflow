@@ -1,7 +1,9 @@
 import RNFS from "react-native-fs";
+import CryptoJS from "crypto-js";
 import { Platform } from "react-native";
 import type { MusicInfo } from "@lx/core";
 import { clearPlaybackUrlCache } from "./playbackUrlCache";
+import { selectFilesToEvict, type CachedFileEntry } from "./cacheEvictionModel";
 
 // 缓存目录
 const CACHE_DIR = `${RNFS.CachesDirectoryPath}/auralflow`;
@@ -27,12 +29,15 @@ function getAudioCacheFilePath(music: MusicInfo, quality: string): string {
 
 // 缓存配置
 const MAX_CACHE_SIZE = 100 * 1024 * 1024; // 100MB
-const MAX_CACHE_AGE = 30 * 24 * 60 * 60 * 1000; // 30天
+// 歌词内容可能随版权/修词更新，保留 30 天过期；封面/音频采用 lx 的 immutable 语义
+// （URL 不变永不过期，仅受容量上限 LRU 约束），避免定期失效导致重新下载。
+const MAX_CACHE_AGE = 30 * 24 * 60 * 60 * 1000; // 30天（仅歌词使用）
 
 export interface CacheStats {
   totalSize: number;
   coverCacheSize: number;
   lyricCacheSize: number;
+  audioCacheSize: number;
   otherCacheSize: number;
 }
 
@@ -40,6 +45,7 @@ const emptyCacheStats = (): CacheStats => ({
   totalSize: 0,
   coverCacheSize: 0,
   lyricCacheSize: 0,
+  audioCacheSize: 0,
   otherCacheSize: 0,
 });
 
@@ -56,22 +62,15 @@ async function initCacheDirectories(): Promise<void> {
       }
     }
   } catch (error) {
-    console.error("Init cache directories error:", error);
+    throw error;
   }
 }
 
 /**
- * 生成缓存文件名（基于 URL 的 MD5）
+ * 生成缓存文件名（基于 URL 的真正 MD5，32 位小写十六进制）
  */
 function getCacheFileName(url: string): string {
-  // 简单的哈希函数（生产环境建议使用真正的 MD5）
-  let hash = 0;
-  for (let i = 0; i < url.length; i++) {
-    const char = url.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash = hash & hash;
-  }
-  return Math.abs(hash).toString(16);
+  return CryptoJS.MD5(url).toString();
 }
 
 /**
@@ -85,13 +84,23 @@ function getCacheFilePath(url: string, type: "cover" | "lyric"): string {
 }
 
 /**
- * 检查缓存是否存在且未过期
+ * 检查缓存文件是否存在（封面/音频：immutable，不做过期校验，仅容量 LRU 控制）。
+ * 歌词调用方用 isCacheValidWithAge 校验 30 天有效期。
  */
-async function isCacheValid(filePath: string): Promise<boolean> {
+async function isCacheFileExists(filePath: string): Promise<boolean> {
   try {
-    const exists = await RNFS.exists(filePath);
-    if (!exists) return false;
+    return await RNFS.exists(filePath);
+  } catch (error) {
+    return false;
+  }
+}
 
+/**
+ * 检查缓存是否存在且未过期（仅歌词使用）。
+ */
+async function isCacheValidWithAge(filePath: string): Promise<boolean> {
+  try {
+    if (!(await isCacheFileExists(filePath))) return false;
     const stat = await RNFS.stat(filePath);
     const age = Date.now() - new Date(stat.mtime).getTime();
     return age < MAX_CACHE_AGE;
@@ -99,6 +108,9 @@ async function isCacheValid(filePath: string): Promise<boolean> {
     return false;
   }
 }
+
+/** 同一封面 URL 的进行中下载去重（避免多行并发写同一文件导致损坏）。 */
+const coverDownloadsInFlight = new Map<string, Promise<string | null>>();
 
 /**
  * 缓存封面图片
@@ -110,27 +122,44 @@ export async function cacheCover(url: string): Promise<string | null> {
 
   const filePath = getCacheFilePath(url, "cover");
 
-  // 检查缓存
-  if (await isCacheValid(filePath)) {
+  // 检查缓存（immutable：URL 不变永不过期，对齐 lx）
+  if (await isCacheFileExists(filePath)) {
     return `file://${filePath}`;
   }
 
-  // 下载并缓存
-  try {
-    const downloadResult = await RNFS.downloadFile({
-      fromUrl: url,
-      toFile: filePath,
-    }).promise;
+  // 并发去重：同 URL 正在下载时直接复用同一 Promise
+  const inFlight = coverDownloadsInFlight.get(filePath);
+  if (inFlight) return inFlight;
 
-    if (downloadResult.statusCode === 200) {
-      return `file://${filePath}`;
-    } else {
+  const promise = (async () => {
+    // 下载并缓存（带 UA 请求头，对齐 lx defaultHeaders，避免部分图床 403）
+    try {
+      const downloadResult = await RNFS.downloadFile({
+        fromUrl: url,
+        toFile: filePath,
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36",
+        },
+      }).promise;
+
+      if (downloadResult.statusCode === 200) {
+        scheduleEnforceCacheSizeLimit();
+        return `file://${filePath}`;
+      }
+      // 非 200（404/403 等）：清理残留的响应体文件，避免下次被误判为有效缓存
+      await RNFS.unlink(filePath).catch(() => undefined);
       return null;
+    } catch (error) {
+      // 下载中断（网络错误）同样会留下部分文件，必须清理，否则下次会被误判为有效 immutable 缓存
+      await RNFS.unlink(filePath).catch(() => undefined);
+      return null;
+    } finally {
+      coverDownloadsInFlight.delete(filePath);
     }
-  } catch (error) {
-    console.error("Cache cover error:", error);
-    return null;
-  }
+  })();
+  coverDownloadsInFlight.set(filePath, promise);
+  return promise;
 }
 
 /**
@@ -140,7 +169,7 @@ export async function getCachedCover(url: string): Promise<string | null> {
   if (!url) return null;
 
   const filePath = getCacheFilePath(url, "cover");
-  if (await isCacheValid(filePath)) {
+  if (await isCacheFileExists(filePath)) {
     return `file://${filePath}`;
   }
 
@@ -172,9 +201,8 @@ export async function cacheLyrics(
     };
 
     await RNFS.writeFile(filePath, JSON.stringify(data), "utf8");
-  } catch (error) {
-    console.error("Cache lyrics error:", error);
-  }
+    scheduleEnforceCacheSizeLimit();
+  } catch {}
 }
 
 /**
@@ -186,7 +214,7 @@ export async function getCachedLyrics(
   const key = `${song.source}-${song.id}`;
   const filePath = getCacheFilePath(key, "lyric");
 
-  if (!(await isCacheValid(filePath))) {
+  if (!(await isCacheValidWithAge(filePath))) {
     return null;
   }
 
@@ -195,7 +223,6 @@ export async function getCachedLyrics(
     const data = JSON.parse(content);
     return data.lyrics;
   } catch (error) {
-    console.error("Get cached lyrics error:", error);
     return null;
   }
 }
@@ -215,9 +242,13 @@ export async function getCachedAudioFile(music: MusicInfo, quality: string): Pro
   }
 }
 
+/** 同一音频缓存文件的进行中下载去重（预读缓存、手动下载、再次播放可能并发触发同一文件）。 */
+const audioDownloadsInFlight = new Map<string, Promise<string | null>>();
+
 /**
  * 把音频文件下载到本地缓存目录，返回 file:// 路径。
- * 已存在则直接返回，避免重复下载。仅对可缓存音质 URL 生效（调用方负责筛选音源）。
+ * 已存在则直接返回，避免重复下载；同文件并发下载复用同一 Promise。
+ * 仅对可缓存音质 URL 生效（调用方负责筛选音源）。
  */
 export async function cacheAudioFile(
   url: string,
@@ -231,17 +262,28 @@ export async function cacheAudioFile(
   const existing = await getCachedAudioFile(music, quality);
   if (existing) return existing;
 
-  try {
-    const result = await RNFS.downloadFile({ fromUrl: url, toFile: filePath }).promise;
-    if (result.statusCode >= 200 && result.statusCode < 300) {
-      return `file://${filePath}`;
+  const inFlight = audioDownloadsInFlight.get(filePath);
+  if (inFlight) return inFlight;
+
+  const promise = (async () => {
+    try {
+      const result = await RNFS.downloadFile({ fromUrl: url, toFile: filePath }).promise;
+      if (result.statusCode >= 200 && result.statusCode < 300) {
+        scheduleEnforceCacheSizeLimit();
+        return `file://${filePath}`;
+      }
+      await RNFS.unlink(filePath).catch(() => undefined);
+      return null;
+    } catch (error) {
+      // 下载中断会留下部分文件（可能非空），清理避免被 getCachedAudioFile 误判为完整缓存
+      await RNFS.unlink(filePath).catch(() => undefined);
+      return null;
+    } finally {
+      audioDownloadsInFlight.delete(filePath);
     }
-    await RNFS.unlink(filePath).catch(() => undefined);
-    return null;
-  } catch (error) {
-    console.error("[cacheService] 缓存音频失败:", error);
-    return null;
-  }
+  })();
+  audioDownloadsInFlight.set(filePath, promise);
+  return promise;
 }
 
 /** 校验 file:// 本地文件是否仍存在（清理策略可能已回收）。 */
@@ -252,6 +294,66 @@ export async function isLocalFilePlayable(fileUrl: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * 写缓存后延迟去抖触发容量上限清理，避免每次写入都遍历文件系统。
+ */
+let enforceTimer: ReturnType<typeof setTimeout> | null = null;
+export function scheduleEnforceCacheSizeLimit(delayMs = 2000): void {
+  if (enforceTimer) {
+    clearTimeout(enforceTimer);
+  }
+  enforceTimer = setTimeout(() => {
+    enforceTimer = null;
+    void enforceCacheSizeLimit();
+  }, delayMs);
+}
+
+let enforceInFlight: Promise<void> | null = null;
+
+/** 收集四个缓存目录（含根目录）下的所有文件，附大小与 mtime。 */
+async function collectAllCacheFiles(now: number): Promise<CachedFileEntry[]> {
+  const files: CachedFileEntry[] = [];
+  const dirs = [CACHE_DIR, COVER_CACHE_DIR, LYRIC_CACHE_DIR, AUDIO_CACHE_DIR];
+  for (const dir of dirs) {
+    try {
+      if (!(await RNFS.exists(dir))) continue;
+      const entries = await RNFS.readDir(dir);
+      for (const entry of entries) {
+        if (!entry.isFile()) continue;
+        files.push({
+          path: entry.path,
+          size: entry.size || 0,
+          mtime: entry.mtime ? new Date(entry.mtime).getTime() : now,
+        });
+      }
+    } catch {
+      // 单个目录失败不阻断整体
+    }
+  }
+  return files;
+}
+
+/**
+ * 容量上限 LRU 清理：总缓存超过 MAX_CACHE_SIZE 时，按最旧优先删除直到低于上限。
+ * 并发安全（同一时刻仅执行一次）。
+ */
+export async function enforceCacheSizeLimit(now = Date.now()): Promise<void> {
+  if (enforceInFlight) return enforceInFlight;
+  enforceInFlight = (async () => {
+    try {
+      const files = await collectAllCacheFiles(now);
+      const toEvict = selectFilesToEvict(files, MAX_CACHE_SIZE);
+      if (toEvict.length === 0) return;
+      for (const path of toEvict) {
+        await RNFS.unlink(path).catch(() => undefined);
+      }
+    } catch {} finally {
+      enforceInFlight = null;
+    }
+  })();
+  return enforceInFlight;
 }
 
 async function getDirectorySize(dir: string): Promise<number> {
@@ -291,17 +393,19 @@ export async function getCacheStats(): Promise<CacheStats> {
 
     const coverCacheSize = await getDirectorySize(COVER_CACHE_DIR);
     const lyricCacheSize = await getDirectorySize(LYRIC_CACHE_DIR);
-    const totalSize = rootFileSize + coverCacheSize + lyricCacheSize;
+    const audioCacheSize = await getDirectorySize(AUDIO_CACHE_DIR);
+    const otherCacheSize = rootFileSize;
+    const totalSize = coverCacheSize + lyricCacheSize + audioCacheSize + otherCacheSize;
 
     return {
       totalSize,
       coverCacheSize,
       lyricCacheSize,
-      otherCacheSize: totalSize - coverCacheSize - lyricCacheSize,
+      audioCacheSize,
+      otherCacheSize,
     };
   } catch (error) {
-    console.error("Get cache stats error:", error);
-    return emptyCacheStats();
+    throw error;
   }
 }
 
@@ -348,36 +452,34 @@ export async function autoCleanCache(): Promise<void> {
         currentFreeSpace += file.size;
       }
     }
-  } catch (error) {
-    console.error("Auto clean cache error:", error);
-  }
+  } catch {}
 }
 
 /**
- * 清理过期缓存
+ * 清理过期缓存：仅清理歌词缓存（内容可能随版权/修词更新，30 天过期）。
+ * 封面/音频采用 immutable 语义（URL 不变永不过期），由容量上限 LRU 自动回收，
+ * 避免定期失效导致封面反复重新下载（对齐 lx 的 FastImage immutable 缓存）。
  */
 
 export async function cleanExpiredCache(): Promise<void> {
   try {
-    const dirs = [COVER_CACHE_DIR, LYRIC_CACHE_DIR, AUDIO_CACHE_DIR];
+    const exists = await RNFS.exists(LYRIC_CACHE_DIR);
+    if (!exists) return;
 
-    for (const dir of dirs) {
-      const exists = await RNFS.exists(dir);
-      if (!exists) continue;
+    const files = await RNFS.readDir(LYRIC_CACHE_DIR);
+    const now = Date.now();
 
-      const files = await RNFS.readDir(dir);
-      const now = Date.now();
-
-      for (const file of files) {
-        const mtime = file.mtime ? new Date(file.mtime).getTime() : 0;
-        const age = now - mtime;
-        if (age > MAX_CACHE_AGE) {
-          await RNFS.unlink(file.path);
-        }
+    for (const file of files) {
+      if (!file.isFile() || !file.mtime) continue;
+      const mtime = new Date(file.mtime).getTime();
+      if (!Number.isFinite(mtime)) continue;
+      const age = now - mtime;
+      if (age > MAX_CACHE_AGE) {
+        await RNFS.unlink(file.path);
       }
     }
   } catch (error) {
-    console.error("Clean expired cache error:", error);
+    throw error;
   }
 }
 
@@ -393,7 +495,7 @@ export async function clearAllCache(): Promise<void> {
     await clearPlaybackUrlCache();
     await initCacheDirectories();
   } catch (error) {
-    console.error("Clear all cache error:", error);
+    throw error;
   }
 }
 

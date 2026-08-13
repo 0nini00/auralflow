@@ -93,3 +93,16 @@ export function buildThemePalette(theme: ResolvedTheme, accentColor = DEFAULT_AC
     primaryText: getReadableTextColor(primary),
   };
 }
+
+/**
+ * 给 6 位 hex 颜色叠加透明度（如主色的轻量背景 / 进度条缓冲色）。
+ * 非 hex 输入（如 rgba）原样返回，避免破坏现有主题。
+ */
+export function withAlpha(color: string, alpha: number): string {
+  const normalized = (color ?? "").trim().replace(/^#/, "");
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return color;
+  const red = parseInt(normalized.slice(0, 2), 16);
+  const green = parseInt(normalized.slice(2, 4), 16);
+  const blue = parseInt(normalized.slice(4, 6), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}

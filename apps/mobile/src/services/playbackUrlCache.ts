@@ -63,7 +63,6 @@ async function loadCache(): Promise<PlaybackUrlCacheState> {
     cachePromise = AsyncStorage.getItem(STORAGE_KEY)
       .then((raw) => (raw ? normalizeCache(JSON.parse(raw)) : createEmptyCache()))
       .catch((error) => {
-        console.warn("[playbackUrlCache] 加载失败，重置:", error);
         cachePromise = null;
         return createEmptyCache();
       });

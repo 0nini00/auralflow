@@ -1,11 +1,10 @@
 ﻿import React, { useCallback, useEffect, useRef, useState } from "react";
-import { radius, typography } from "@/theme/tokens";
+import { spacing } from "@/theme/tokens";
 import {
   type ScrollView as ScrollViewType,
   StyleSheet,
   Text,
   View,
-  Pressable,
 } from "react-native";
 import type { MusicInfo } from "@lx/core";
 import type { BiliCollectionInfo } from "@/services/biliService";
@@ -14,9 +13,13 @@ import { useBiliAccountStore } from "@/stores/biliAccountStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import { playQueue } from "@/services/playerService";
 import { runPlaybackUiAction } from "@/services/playbackUiAction";
+import { ActionButton } from "@/components/ActionButton";
+import { PlaybackActionButtons } from "@/components/PlaybackActionButtons";
 import { SongList } from "@/components/SongList";
 import { DetailHero } from "@/components/DetailHero";
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
+import { ListMusic } from "lucide-react-native";
+
 import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
 import { SectionHeader } from "@/components/SectionHeader";
@@ -125,7 +128,6 @@ export function BiliCollectionDetailScreen({
       setPlaybackError(result.message);
       return;
     }
-    onNavigateToPlayer();
   };
 
   const handlePlay = async (_song: MusicInfo, index: number) => {
@@ -167,59 +169,18 @@ export function BiliCollectionDetailScreen({
       ];
   const heroActions = successfulSongs ? (
     <>
-      {playbackActions.show ? (
-        <Pressable
-          style={[styles.playAllButton, { backgroundColor: palette.primary }]}
-          onPress={handlePlayAll}
-        >
-          <Text style={[styles.playAllText, { color: palette.primaryText }]}>
-            {playbackActions.playAllLabel}
-          </Text>
-          <Text style={[styles.playAllCount, { color: palette.primaryText }]}>
-            ({songs.length})
-          </Text>
-        </Pressable>
-      ) : null}
-
-      {playbackActions.show ? (
-        <Pressable
-          style={[styles.secondaryButton, { backgroundColor: palette.surface }]}
-          onPress={handleShufflePlay}
-        >
-          <Text style={[styles.secondaryText, { color: palette.primary }]}>
-            {playbackActions.shuffleLabel}
-          </Text>
-        </Pressable>
-      ) : null}
-
-      {playbackActions.show ? (
-        <Pressable
-          style={[
-            styles.secondaryButton,
-            { backgroundColor: palette.surface },
-            !playbackActions.canLocateCurrentSong && styles.secondaryButtonDisabled,
-          ]}
-          onPress={handleLocateCurrentSong}
-          disabled={!playbackActions.canLocateCurrentSong}
-        >
-          <Text
-            style={[
-              styles.secondaryText,
-              { color: palette.primary },
-              !playbackActions.canLocateCurrentSong && { color: palette.textMuted },
-            ]}
-          >
-            {playbackActions.locateLabel}
-          </Text>
-        </Pressable>
-      ) : null}
-
-      <Pressable
-        style={[styles.refreshButton, { backgroundColor: palette.surface }]}
-        onPress={handleRefresh}
-      >
-        <Text style={[styles.refreshText, { color: palette.primary }]}>刷新</Text>
-      </Pressable>
+      <PlaybackActionButtons
+        show={playbackActions.show}
+        playAllLabel={playbackActions.playAllLabel}
+        playAllCount={`(${songs.length})`}
+        shuffleLabel={playbackActions.shuffleLabel}
+        locateLabel={playbackActions.locateLabel}
+        canLocateCurrentSong={playbackActions.canLocateCurrentSong}
+        onPlayAll={handlePlayAll}
+        onShuffle={handleShufflePlay}
+        onLocate={handleLocateCurrentSong}
+      />
+      <ActionButton small label="刷新" onPress={handleRefresh} />
     </>
   ) : undefined;
 
@@ -239,7 +200,7 @@ export function BiliCollectionDetailScreen({
         />
 
         {currentState.kind === "loading" ? (
-          <LoadingState label="正在加载 B 站合集内容" />
+          <LoadingState label="正在加载 B站合集内容" />
         ) : currentState.kind === "error" ? (
           <ErrorState message={currentState.message} onRetry={() => void handleRefresh()} />
         ) : (
@@ -250,11 +211,11 @@ export function BiliCollectionDetailScreen({
                 songs={songs}
                 onPlay={handlePlay}
                 emptyText="该合集暂无歌曲"
-                highlightedIndex={locatedSongIndex}
+                highlightedIndex={locatedSongIndex ?? currentSongIndex}
                 hideSourceTag
               />
             ) : (
-              <EmptyState title="该合集暂无歌曲" />
+              <EmptyState icon={ListMusic} title="该合集暂无歌曲" description="该合集可能为空，或内容尚未同步完成。" />
             )}
           </View>
         )}
@@ -264,45 +225,7 @@ export function BiliCollectionDetailScreen({
 }
 
 const styles = StyleSheet.create({
-  playAllButton: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 14,
-    borderRadius: radius.pill,
-    gap: 8,
-  },
-  playAllText: {
-    fontSize: typography.title,
-    fontWeight: "600",
-  },
-  playAllCount: {
-    fontSize: typography.body,
-    opacity: 0.7,
-  },
-  refreshButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderRadius: radius.pill,
-  },
-  refreshText: {
-    fontSize: typography.body,
-    fontWeight: "600",
-  },
-  secondaryButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderRadius: radius.pill,
-  },
-  secondaryButtonDisabled: {
-    opacity: 0.7,
-  },
-  secondaryText: {
-    fontSize: typography.body,
-    fontWeight: "600",
-  },
   section: {
-    gap: 12,
+    gap: spacing.s,
   },
 });

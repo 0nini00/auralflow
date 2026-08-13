@@ -10,9 +10,11 @@ interface QuickActionCardProps {
   coverUri?: string | null;
   disabled?: boolean;
   onPress?: () => void;
+  /** 让卡片在 flex 行里伸展占满剩余空间（我的页单卡时全宽展示） */
+  grow?: boolean;
 }
 
-export function QuickActionCard({ title, subtitle, coverUri, disabled, onPress }: QuickActionCardProps) {
+export function QuickActionCard({ title, subtitle, coverUri, disabled, onPress, grow }: QuickActionCardProps) {
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
@@ -22,6 +24,7 @@ export function QuickActionCard({ title, subtitle, coverUri, disabled, onPress }
     <Pressable
       style={[
         styles.quickCard,
+        grow && styles.quickCardGrow,
         {
           backgroundColor: palette.surface,
           borderColor: palette.border,
@@ -55,15 +58,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    backgroundColor: "#1a3a31",
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#2a4a41",
+  },
+  quickCardGrow: {
+    flexGrow: 1,
   },
   quickCardDisabled: {
-    backgroundColor: "#151f1c",
-    borderColor: "#1a3a31",
     opacity: 0.5,
   },
   cover: {
@@ -78,12 +80,10 @@ const styles = StyleSheet.create({
   quickCardTitle: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#ffffff",
     marginBottom: 4,
   },
   quickCardSubtitle: {
     fontSize: 12,
-    color: "#8fa79f",
     lineHeight: 17,
   },
 });

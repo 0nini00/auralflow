@@ -1,6 +1,7 @@
 import React from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
+import { SettingsCard } from "@/components/settings/SettingsCard";
 import { EQ_FREQS, EQ_PRESETS, useSoundEffectStore } from "@/stores/soundEffectStore";
 import { getResolvedTheme, getThemePalette, useThemeStore, type ThemePalette } from "@/stores/themeStore";
 import { isSoundEffectSupported } from "@/services/soundEffectService";
@@ -30,15 +31,15 @@ export function SoundEffectPanel() {
 
   if (!isSoundEffectSupported()) {
     return (
-      <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+      <SettingsCard style={styles.card}>
         <Text style={[styles.cardTitle, { color: palette.text }]}>音效</Text>
         <Text style={[styles.hint, { color: palette.textMuted }]}>当前设备不支持系统级音效。</Text>
-      </View>
+      </SettingsCard>
     );
   }
 
   return (
-    <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+    <SettingsCard style={styles.card}>
       <View style={styles.headerRow}>
         <View style={styles.headerText}>
           <Text style={[styles.cardTitle, { color: palette.text }]}>音效</Text>
@@ -127,7 +128,7 @@ export function SoundEffectPanel() {
       <Text style={[styles.footnote, { color: palette.textMuted }]}>
         变调依赖桌面 WebAudio，移动端 Android 内置音效链路不支持独立 Pitch Shift。
       </Text>
-    </View>
+    </SettingsCard>
   );
 }
 
@@ -221,9 +222,6 @@ function formatFreq(freq: number): string {
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: spacing.s,
     gap: spacing.s,
   },
   headerRow: {
@@ -312,7 +310,7 @@ const styles = StyleSheet.create({
   eqStep: {
     minWidth: 42,
     paddingVertical: 3,
-    borderRadius: 4,
+    borderRadius: radius.sm,
     borderWidth: 1,
     alignItems: "center",
   },

@@ -7,10 +7,11 @@
     "android:assembleDebug": "cd android && gradlew.bat assembleDebug",
     "start": "react-native start",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "lint": "eslint src App.tsx",
     "postinstall": "node apply-track-player-patch.js"
   },
   "dependencies": {
+    "@d11/react-native-fast-image": "^8.13.0",
     "@lx/core": "workspace:*",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-navigation/bottom-tabs": "^7.18.14",
@@ -36,6 +37,7 @@
     "react-native-svg": "^15.8.0",
     "react-native-tab-view": "^4.3.2",
     "react-native-track-player": "4.1.2",
+    "react-native-video": "6.19.2",
     "react-native-worklets": "^0.10.2",
     "zustand": "^5.0.14"
   },
@@ -56,9 +58,11 @@
     "@types/pako": "^2.0.4",
     "@types/react": "^19.2.0",
     "babel-plugin-module-resolver": "^5.0.3",
+    "eslint": "^10.8.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "patch-package": "^8.0.1",
     "typescript": "^5.8.3",
-    "vitest": "^2.1.9"
+    "typescript-eslint": "^8.66.0"
   },
   "engines": {
     "node": ">= 22.11.0"

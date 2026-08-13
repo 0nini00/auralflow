@@ -49,7 +49,7 @@ export const useAccountStore = create<AccountStore>((set) => ({
   },
 
   logout: async () => {
-    set({ loading: true });
+    set({ loading: true, error: null });
     try {
       await clearWyAccount();
       set({
@@ -58,23 +58,36 @@ export const useAccountStore = create<AccountStore>((set) => ({
         loading: false,
       });
     } catch (error) {
-      console.error("Logout error:", error);
-      set({ loading: false });
+      const message = error instanceof Error ? error.message : "退出账号失败";
+      set({ error: message, loading: false });
+      throw error instanceof Error ? error : new Error(message);
     }
   },
 
   checkStatus: async () => {
-    set({ loading: true });
+    set({ loading: true, error: null });
     try {
-      const { isLoggedIn, user } = await checkLoginStatus();
+      const status = await checkLoginStatus();
+      if (!status.isLoggedIn) {
+        set({
+          isLoggedIn: false,
+          user: null,
+          loading: false,
+        });
+        return;
+      }
+
       set({
-        isLoggedIn,
-        user,
+        isLoggedIn: true,
+        user: status.user,
         loading: false,
       });
     } catch (error) {
-      console.error("Check status error:", error);
-      set({ loading: false });
+      const message = error instanceof Error ? error.message : "账号状态检查失败";
+      set({
+        error: message,
+        loading: false,
+      });
     }
   },
 

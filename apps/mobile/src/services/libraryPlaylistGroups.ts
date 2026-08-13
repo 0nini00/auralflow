@@ -8,14 +8,25 @@ export interface WyPlaylistGroup {
   emptyText: string;
 }
 
-export function buildWyPlaylistGroups(playlists: WyPlaylistInfo[]): WyPlaylistGroup[] {
-  const owned = playlists.filter((playlist) => playlist.subscribed !== true);
+export function buildWyPlaylistGroups(
+  playlists: WyPlaylistInfo[],
+  userId: string | undefined,
+  likedPlaylistId: string | undefined,
+): WyPlaylistGroup[] {
+  const owned = userId
+    ? playlists.filter(
+        (playlist) =>
+          playlist.id !== likedPlaylistId &&
+          playlist.subscribed !== true &&
+          playlist.creator?.userId === userId,
+      )
+    : [];
   const collected = playlists.filter((playlist) => playlist.subscribed === true);
 
   return [
     {
       key: "owned",
-      title: "网易云自建歌单",
+      title: "创建的歌单",
       count: owned.length,
       playlists: owned,
       emptyText: "还没有网易云自建歌单",

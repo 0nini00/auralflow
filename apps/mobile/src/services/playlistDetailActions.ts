@@ -4,22 +4,15 @@ export interface PlaylistDetailActionsModel {
   show: boolean;
   playAllLabel: string;
   shuffleLabel: string;
-  showRefresh: boolean;
-  refreshLabel: string;
 }
 
 export interface PlaylistDetailActionInput {
   source?: string;
-  refreshing?: boolean;
 }
 
 export interface PlaylistDetailRemoveInput {
   source?: string;
   subscribed?: boolean;
-}
-
-function canRefreshPlaylist(source: string | undefined): boolean {
-  return source === "wy" || source === "tx";
 }
 
 export function canRemoveSongsFromPlaylistDetail(input: PlaylistDetailRemoveInput): boolean {
@@ -34,8 +27,6 @@ export function buildPlaylistDetailActions(
     show: songCount > 0,
     playAllLabel: "播放全部",
     shuffleLabel: "随机播放",
-    showRefresh: canRefreshPlaylist(input.source),
-    refreshLabel: input.refreshing ? "刷新中" : "刷新",
   };
 }
 

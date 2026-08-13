@@ -4,26 +4,19 @@ import {
   Text,
   TextInput,
   StyleSheet,
-  Pressable,
   Alert,
-  ActivityIndicator,
   ScrollView,
-  SafeAreaView,
-  StatusBar,
+  Switch,
 } from "react-native";
-import { ChevronLeft } from "lucide-react-native";
+import { ActionButton } from "@/components/ActionButton";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useWebdavStore } from "@/stores/webdavStore";
 import {
   getResolvedTheme,
   getThemePalette,
   useThemeStore,
 } from "@/stores/themeStore";
-import { radius, touch, typography } from "@/theme/tokens";
-
-interface WebDavSyncScreenProps {
-  /** 返回上一页的回调。 */
-  onBack: () => void;
-}
+import { radius, spacing, touch, typography } from "@/theme/tokens";
 
 /**
  * WebDAV 同步设置页面。
@@ -32,7 +25,8 @@ interface WebDavSyncScreenProps {
  * 自定义音源的上传 / 下载操作。配置与同步状态通过 webdavStore 管理，
  * 颜色取自 themeStore，与桌面端 LX Music 同步格式兼容。
  */
-export function WebDavSyncScreen({ onBack }: WebDavSyncScreenProps) {
+export function WebDavSyncScreen() {
+  const insets = useSafeAreaInsets();
   const themeMode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
@@ -42,10 +36,12 @@ export function WebDavSyncScreen({ onBack }: WebDavSyncScreenProps) {
   const webdavUsername = useWebdavStore((state) => state.username);
   const webdavPassword = useWebdavStore((state) => state.password);
   const webdavLoaded = useWebdavStore((state) => state.loaded);
+  const autoSyncPlaylists = useWebdavStore((state) => state.autoSyncPlaylists);
   const webdavSyncing = useWebdavStore((state) => state.syncing);
   const webdavMessage = useWebdavStore((state) => state.message);
   const webdavLoadConfig = useWebdavStore((state) => state.loadConfig);
   const webdavSetConfig = useWebdavStore((state) => state.setConfig);
+  const setAutoSyncPlaylists = useWebdavStore((state) => state.setAutoSyncPlaylists);
   const webdavTestSync = useWebdavStore((state) => state.testSync);
   const webdavUploadPlaylists = useWebdavStore((state) => state.uploadPlaylists);
   const webdavDownloadPlaylists = useWebdavStore(
@@ -55,11 +51,12 @@ export function WebDavSyncScreen({ onBack }: WebDavSyncScreenProps) {
   const webdavDownloadSources = useWebdavStore(
     (state) => state.downloadSources,
   );
-  const webdavClearMessage = useWebdavStore((state) => state.clearMessage);
 
   const [formUrl, setFormUrl] = useState("");
   const [formUsername, setFormUsername] = useState("");
   const [formPassword, setFormPassword] = useState("");
+  const [savingConfig, setSavingConfig] = useState(false);
+  const actionInProgress = savingConfig || webdavSyncing;
 
   // 首次进入加载已保存的配置
   useEffect(() => {
@@ -75,49 +72,112 @@ export function WebDavSyncScreen({ onBack }: WebDavSyncScreenProps) {
     }
   }, [webdavLoaded, webdavUrl, webdavUsername, webdavPassword]);
 
-  const persistForm = async () => {
-    await webdavSetConfig({
-      url: formUrl.trim(),
-      username: formUsername.trim(),
-      password: formPassword,
-    });
+  const persistForm = async (): Promise<boolean> => {
+    setSavingConfig(true);
+    try {
+      await webdavSetConfig({
+        url: formUrl.trim(),
+        username: formUsername.trim(),
+        password: formPassword,
+      });
+      return true;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      Alert.alert("本地配置保存失败", detail);
+      return false;
+    } finally {
+      setSavingConfig(false);
+    }
   };
 
   const handleSaveConfig = async () => {
-    await persistForm();
-    Alert.alert("已保存", "WebDAV 配置已保存");
+    if (await persistForm()) {
+      Alert.alert("已保存", "WebDAV 配置已保存");
+    }
   };
 
   const handleTestSync = async () => {
-    await persistForm();
+    if (!(await persistForm())) return;
     await webdavTestSync();
   };
 
+  const handleAutoSyncChange = async (enabled: boolean) => {
+    if (enabled && (!formUrl.trim() || !formUsername.trim() || !formPassword)) {
+      Alert.alert("请先配置 WebDAV", "请填写并保存 WebDAV 地址、用户名和密码后再开启自动同步。");
+      return;
+    }
+    if (!(await persistForm())) return;
+    try {
+      setSavingConfig(true);
+      await setAutoSyncPlaylists(enabled);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      Alert.alert("自动同步设置保存失败", detail);
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+
   const handleUploadPlaylists = async () => {
-    await persistForm();
+    if (!(await persistForm())) return;
     await webdavUploadPlaylists();
+  };
+
+  /** 下载歌单历史；若云端数据较旧被拦截，引导用户强制下载（对齐桌面端）。 */
+  const runDownloadPlaylists = async (force?: boolean) => {
+    if (!(await persistForm())) return;
+    try {
+      await webdavDownloadPlaylists(force);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      if (!force && (detail.includes("较旧") || detail.includes("强制下载"))) {
+        Alert.alert("云端数据较旧", `${detail}\n\n是否强制用云端合并本地？`, [
+          { text: "取消", style: "cancel" },
+          {
+            text: "强制下载",
+            onPress: () => void runDownloadPlaylists(true),
+          },
+        ]);
+      }
+    }
   };
 
   const handleDownloadPlaylists = () => {
     Alert.alert(
       "确认下载",
-      "从 WebDAV 下载将覆盖本地的收藏、歌单和播放历史，是否继续？",
+      "从 WebDAV 下载将合并本地的收藏、歌单和播放历史（并集去重，保留本地独有内容），是否继续？",
       [
         { text: "取消", style: "cancel" },
         {
           text: "下载",
-          onPress: async () => {
-            await persistForm();
-            await webdavDownloadPlaylists();
-          },
+          onPress: () => void runDownloadPlaylists(),
         },
       ],
     );
   };
 
   const handleUploadSources = async () => {
-    await persistForm();
+    if (!(await persistForm())) return;
     await webdavUploadSources();
+  };
+
+  /** 下载自定义音源；若云端数据较旧被拦截，引导用户强制下载（对齐桌面端）。 */
+  const runDownloadSources = async (force?: boolean) => {
+    if (!(await persistForm())) return;
+    try {
+      await webdavDownloadSources(force);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      if (!force && (detail.includes("较旧") || detail.includes("强制下载"))) {
+        Alert.alert("云端数据较旧", `${detail}\n\n是否强制用云端覆盖本地音源？`, [
+          { text: "取消", style: "cancel" },
+          {
+            text: "强制下载",
+            onPress: () => void runDownloadSources(true),
+          },
+        ]);
+      }
+    }
   };
 
   const handleDownloadSources = () => {
@@ -128,10 +188,7 @@ export function WebDavSyncScreen({ onBack }: WebDavSyncScreenProps) {
         { text: "取消", style: "cancel" },
         {
           text: "下载",
-          onPress: async () => {
-            await persistForm();
-            await webdavDownloadSources();
-          },
+          onPress: () => void runDownloadSources(),
         },
       ],
     );
@@ -141,45 +198,11 @@ export function WebDavSyncScreen({ onBack }: WebDavSyncScreenProps) {
     webdavMessage.includes("成功") || webdavMessage.includes("正常");
 
   return (
-    <SafeAreaView
+    <View
       style={[styles.container, { backgroundColor: palette.background }]}
     >
-      <StatusBar
-        barStyle={palette.statusBar}
-        backgroundColor={palette.background}
-      />
-
-      {/* 顶部导航栏 */}
-      <View
-        style={[
-          styles.navBar,
-          {
-            backgroundColor: palette.surface,
-            borderBottomColor: palette.border,
-          },
-        ]}
-      >
-        <Pressable
-          style={styles.navBackButton}
-          onPress={() => {
-            webdavClearMessage();
-            onBack();
-          }}
-          hitSlop={12}
-          accessibilityRole="button"
-          accessibilityLabel="返回"
-        >
-          <ChevronLeft size={20} color={palette.primary} />
-          <Text style={[styles.navBackText, { color: palette.primary }]}>返回</Text>
-        </Pressable>
-        <Text style={[styles.navTitle, { color: palette.text }]}>
-          WebDAV 同步
-        </Text>
-        <View style={styles.navSpacer} />
-      </View>
-
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: 40 + insets.bottom }]}
         keyboardShouldPersistTaps="handled"
       >
         {/* 配置区 */}
@@ -215,6 +238,8 @@ export function WebDavSyncScreen({ onBack }: WebDavSyncScreenProps) {
             autoCapitalize="none"
             autoCorrect={false}
             keyboardType="url"
+            accessibilityLabel="WebDAV 地址"
+            accessibilityHint="输入 WebDAV 服务地址，例如 https://dav.jianguoyun.com/dav/"
           />
 
           <Text style={[styles.label, { color: palette.textMuted }]}>
@@ -235,6 +260,8 @@ export function WebDavSyncScreen({ onBack }: WebDavSyncScreenProps) {
             placeholderTextColor={palette.textSubtle}
             autoCapitalize="none"
             autoCorrect={false}
+            accessibilityLabel="WebDAV 用户名"
+            accessibilityHint="输入 WebDAV 用户名或邮箱"
           />
 
           <Text style={[styles.label, { color: palette.textMuted }]}>
@@ -256,45 +283,29 @@ export function WebDavSyncScreen({ onBack }: WebDavSyncScreenProps) {
             autoCapitalize="none"
             autoCorrect={false}
             secureTextEntry
+            accessibilityLabel="WebDAV 密码或应用密码"
+            accessibilityHint="安全输入 WebDAV 密码或应用密码，输入内容将被隐藏"
           />
 
           <View style={styles.buttonRow}>
-            <Pressable
-              style={[
-                styles.button,
-                {
-                  backgroundColor: palette.surfaceMuted,
-                  borderColor: palette.border,
-                },
-              ]}
-              onPress={handleSaveConfig}
-              disabled={webdavSyncing}
-            >
-              <Text style={[styles.buttonText, { color: palette.text }]}>
-                保存配置
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[
-                styles.button,
-                {
-                  backgroundColor: palette.surfaceMuted,
-                  borderColor: palette.border,
-                },
-              ]}
-              onPress={handleTestSync}
-              disabled={webdavSyncing}
-            >
-              {webdavSyncing ? (
-                <ActivityIndicator color={palette.primary} size="small" />
-              ) : (
-                <Text
-                  style={[styles.buttonText, { color: palette.primary }]}
-                >
-                  测试连接
-                </Text>
-              )}
-            </Pressable>
+            <ActionButton
+              shrink
+              small
+              label="保存配置"
+              disabled={actionInProgress}
+              loading={savingConfig}
+              onPress={() => void handleSaveConfig()}
+              accessibilityLabel="保存 WebDAV 配置"
+            />
+            <ActionButton
+              shrink
+              small
+              label="测试连接"
+              disabled={actionInProgress}
+              loading={webdavSyncing}
+              onPress={() => void handleTestSync()}
+              accessibilityLabel="测试 WebDAV 连接"
+            />
           </View>
         </View>
 
@@ -309,43 +320,50 @@ export function WebDavSyncScreen({ onBack }: WebDavSyncScreenProps) {
             歌单历史同步
           </Text>
           <Text style={[styles.cardCaption, { color: palette.textMuted }]}>
-            上传将覆盖远端的收藏、歌单与播放历史；下载将覆盖本地数据。
+            上传将覆盖远端收藏、歌单与播放历史；下载将与本地合并，保留本地独有内容。
           </Text>
 
+          <View style={styles.switchRow}>
+            <View style={styles.switchCopy}>
+              <Text style={[styles.switchTitle, { color: palette.text }]}>自动同步歌单历史</Text>
+              <Text style={[styles.switchCaption, { color: palette.textMuted }]}>应用启动时先合并云端数据，再上传本地结果</Text>
+            </View>
+            <Switch
+              value={autoSyncPlaylists}
+              onValueChange={(enabled) => void handleAutoSyncChange(enabled)}
+              disabled={actionInProgress}
+              accessibilityRole="switch"
+              accessibilityLabel="自动同步歌单历史"
+              accessibilityState={{
+                disabled: actionInProgress,
+                busy: savingConfig,
+                checked: autoSyncPlaylists,
+              }}
+              style={styles.switchControl}
+              trackColor={{ false: palette.border, true: palette.primary }}
+              thumbColor={palette.surface}
+            />
+          </View>
+
           <View style={styles.buttonRow}>
-            <Pressable
-              style={[styles.button, { backgroundColor: palette.primary }]}
-              onPress={handleUploadPlaylists}
-              disabled={webdavSyncing}
-            >
-              {webdavSyncing ? (
-                <ActivityIndicator color={palette.primaryText} size="small" />
-              ) : (
-                <Text
-                  style={[
-                    styles.buttonText,
-                    { color: palette.primaryText },
-                  ]}
-                >
-                  上传歌单历史
-                </Text>
-              )}
-            </Pressable>
-            <Pressable
-              style={[
-                styles.button,
-                {
-                  backgroundColor: palette.surfaceMuted,
-                  borderColor: palette.border,
-                },
-              ]}
+            <ActionButton
+              shrink
+              small
+              variant="primary"
+              label="上传歌单历史"
+              loading={webdavSyncing}
+              disabled={actionInProgress}
+              onPress={() => void handleUploadPlaylists()}
+              accessibilityLabel="上传歌单历史到 WebDAV"
+            />
+            <ActionButton
+              shrink
+              small
+              label="下载歌单历史"
+              disabled={actionInProgress}
               onPress={handleDownloadPlaylists}
-              disabled={webdavSyncing}
-            >
-              <Text style={[styles.buttonText, { color: palette.text }]}>
-                下载歌单历史
-              </Text>
-            </Pressable>
+              accessibilityLabel="从 WebDAV 下载歌单历史"
+            />
           </View>
         </View>
 
@@ -364,42 +382,30 @@ export function WebDavSyncScreen({ onBack }: WebDavSyncScreenProps) {
           </Text>
 
           <View style={styles.buttonRow}>
-            <Pressable
-              style={[
-                styles.button,
-                {
-                  backgroundColor: palette.surfaceMuted,
-                  borderColor: palette.border,
-                },
-              ]}
-              onPress={handleUploadSources}
-              disabled={webdavSyncing}
-            >
-              <Text style={[styles.buttonText, { color: palette.text }]}>
-                上传音源
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[
-                styles.button,
-                {
-                  backgroundColor: palette.surfaceMuted,
-                  borderColor: palette.border,
-                },
-              ]}
+            <ActionButton
+              shrink
+              small
+              label="上传音源"
+              disabled={actionInProgress}
+              onPress={() => void handleUploadSources()}
+              accessibilityLabel="上传音源到 WebDAV"
+            />
+            <ActionButton
+              shrink
+              small
+              label="下载音源"
+              disabled={actionInProgress}
               onPress={handleDownloadSources}
-              disabled={webdavSyncing}
-            >
-              <Text style={[styles.buttonText, { color: palette.text }]}>
-                下载音源
-              </Text>
-            </Pressable>
+              accessibilityLabel="从 WebDAV 下载音源"
+            />
           </View>
         </View>
 
         {/* 同步状态 / 错误提示 */}
         {webdavMessage ? (
           <View
+            accessibilityRole="alert"
+            accessibilityLiveRegion="polite"
             style={[
               styles.messageBox,
               {
@@ -420,7 +426,7 @@ export function WebDavSyncScreen({ onBack }: WebDavSyncScreenProps) {
           </View>
         ) : null}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -428,85 +434,66 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  navBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-  },
-  navBackButton: {
-    minHeight: touch.minTarget,
-    paddingHorizontal: 4,
-    minWidth: 64,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-  },
-  navBackText: {
-    fontSize: typography.title,
-    fontWeight: "600",
-  },
-  navTitle: {
-    fontSize: typography.title,
-    fontWeight: "700",
-  },
-  navSpacer: {
-    minWidth: 64,
-  },
   scrollContent: {
-    padding: 16,
-    paddingBottom: 40,
-    gap: 16,
+    padding: spacing.m,
+    gap: spacing.m,
   },
   card: {
     borderWidth: 1,
     borderRadius: radius.md,
-    padding: 16,
+    padding: spacing.m,
   },
   cardTitle: {
     fontSize: typography.title,
     fontWeight: "700",
-    marginBottom: 4,
+    marginBottom: spacing.xxs,
   },
   cardCaption: {
     fontSize: typography.meta,
-    marginBottom: 12,
+    marginBottom: spacing.s,
   },
   label: {
     fontSize: typography.meta,
     fontWeight: "500",
-    marginTop: 10,
-    marginBottom: 2,
+    marginTop: spacing.s,
+    marginBottom: spacing.xxs,
   },
   input: {
     borderWidth: 1,
     borderRadius: radius.sm,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: spacing.s,
+    paddingVertical: spacing.xs,
     fontSize: typography.body,
   },
-  buttonRow: {
+  switchRow: {
+    minHeight: touch.minTarget,
     flexDirection: "row",
-    gap: 10,
-    marginTop: 16,
-  },
-  button: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: radius.sm,
-    paddingVertical: 12,
     alignItems: "center",
-    justifyContent: "center",
-    minHeight: 44,
+    gap: spacing.s,
   },
-  buttonText: {
+  switchCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  switchControl: {
+    minWidth: touch.minTarget,
+    minHeight: touch.minTarget,
+  },
+  switchTitle: {
     fontSize: typography.body,
     fontWeight: "600",
   },
+  switchCaption: {
+    fontSize: typography.caption,
+    marginTop: 2,
+  },
+  buttonRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginTop: spacing.m,
+  },
   messageBox: {
-    padding: 14,
+    padding: spacing.s,
     borderRadius: radius.sm,
   },
   messageText: {

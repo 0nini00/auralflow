@@ -9,6 +9,7 @@ import {
 } from "@/services/localPlaylistListActions";
 import { buildLocalPlaylistListMeta } from "@/services/localPlaylistListMetaModel";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
+import { radius, spacing, typography } from "@/theme/tokens";
 
 interface LocalPlaylistListProps {
   playlists: LocalPlaylist[];
@@ -120,57 +121,56 @@ function LocalPlaylistItem({ playlist, onPress, onAction }: LocalPlaylistItemPro
 
 const styles = StyleSheet.create({
   listContent: {
-    gap: 8,
+    gap: spacing.xs,
   },
   emptyContainer: {
-    paddingVertical: 20,
+    paddingVertical: spacing.l,
     alignItems: "center",
   },
   emptyText: {
-    fontSize: 14,
-    color: "#8fa79f",
+    fontSize: typography.meta,
   },
   item: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 12,
-    borderRadius: 8,
-    gap: 12,
+    padding: spacing.s,
+    borderRadius: radius.sm,
+    gap: spacing.s,
   },
   cover: {
-    width: 56,
-    height: 56,
-    borderRadius: 8,
+    width: 52,
+    height: 52,
+    borderRadius: radius.sm,
     justifyContent: "center",
     alignItems: "center",
   },
   info: {
     flex: 1,
-    gap: 4,
+    gap: spacing.xxs,
   },
   name: {
-    fontSize: 16,
+    fontSize: typography.title,
     fontWeight: "600",
   },
   description: {
-    fontSize: 12,
+    fontSize: typography.caption,
   },
   meta: {
-    fontSize: 12,
+    fontSize: typography.caption,
   },
   actions: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 6,
-    marginTop: 4,
+    gap: spacing.xs,
+    marginTop: spacing.xxs,
   },
   actionButton: {
-    borderRadius: 6,
-    paddingHorizontal: 8,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.xs,
     paddingVertical: 5,
   },
   actionText: {
-    fontSize: 12,
+    fontSize: typography.caption,
     fontWeight: "700",
   },
 });

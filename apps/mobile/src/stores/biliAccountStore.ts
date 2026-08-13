@@ -49,7 +49,19 @@ interface BiliCollectionVisibilityPreferences {
 /* ------------------------------------------------------------------ */
 
 const BILI_VISIBILITY_KEY = "auralflow.mobile.bili-collection-visibility";
+const COLLECTION_CACHE_MAX = 20;
 const collectionCache = new Map<string, MusicInfo[]>();
+
+/** 写入缓存并按 LRU 淘汰最久未用的条目，避免会话内无限增长。 */
+function cacheCollectionSongs(id: string, songs: MusicInfo[]): void {
+  collectionCache.delete(id);
+  collectionCache.set(id, songs);
+  while (collectionCache.size > COLLECTION_CACHE_MAX) {
+    const oldest = collectionCache.keys().next().value;
+    if (oldest == null) break;
+    collectionCache.delete(oldest);
+  }
+}
 
 function uniqueIds(ids: string[]): string[] {
   return Array.from(new Set(ids.filter(Boolean)));
@@ -97,9 +109,7 @@ async function writeVisibilityPreferences(
         autoShowNewCollections: preferences.autoShowNewCollections,
       }),
     );
-  } catch (error) {
-    console.error("Write bili visibility preferences error:", error);
-  }
+  } catch {}
 }
 
 function applyCollectionVisibilityUpdate(
@@ -265,12 +275,16 @@ export const useBiliAccountStore = create<BiliAccountState>((set, get) => ({
 
   getCollectionSongs: async (id) => {
     const cached = collectionCache.get(id);
-    if (cached) return cached;
+    if (cached) {
+      // 命中时刷新 LRU 顺序
+      cacheCollectionSongs(id, cached);
+      return cached;
+    }
 
     const collection = get().playlists.find((item) => item.id === id);
     if (!collection) throw new Error("B站合集不存在或尚未同步");
     const songs = await getBiliCollectionSongs(collection);
-    collectionCache.set(id, songs);
+    cacheCollectionSongs(id, songs);
     return songs;
   },
 
@@ -279,7 +293,7 @@ export const useBiliAccountStore = create<BiliAccountState>((set, get) => ({
     const collection = get().playlists.find((item) => item.id === id);
     if (!collection) throw new Error("B站合集不存在或尚未同步");
     const songs = await getBiliCollectionSongs(collection);
-    collectionCache.set(id, songs);
+    cacheCollectionSongs(id, songs);
     return songs;
   },
 }));

@@ -1,3 +1,15 @@
+import {
+  CircleUserRound,
+  Cloud,
+  Database,
+  Info,
+  Mic2,
+  Palette,
+  RadioTower,
+  Volume2,
+  type LucideIcon,
+} from "lucide-react-native";
+
 export type SettingsCategoryName =
   | "Account"
   | "Appearance"
@@ -24,15 +36,26 @@ export interface SettingsCategory {
 }
 
 export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
-  { name: "Account", label: "账号", description: "网易云与 B站账号", icon: "account" },
-  { name: "Appearance", label: "外观", description: "主题、强调色与背景", icon: "appearance" },
-  { name: "Playback", label: "播放与音效", description: "音质、打断策略与均衡器", icon: "playback" },
-  { name: "Sources", label: "音源", description: "自定义音源管理", icon: "sources" },
+  { name: "Account", label: "账号与服务", description: "网易云与 B站账号", icon: "account" },
+  { name: "Playback", label: "播放", description: "在线播放与新建下载的默认音质、打断策略与均衡器", icon: "playback" },
   { name: "Lyrics", label: "歌词", description: "沉浸歌词与悬浮歌词", icon: "lyrics" },
-  { name: "Sync", label: "同步", description: "WebDAV 数据同步", icon: "sync" },
-  { name: "Data", label: "数据", description: "缓存与历史清理", icon: "data" },
+  { name: "Appearance", label: "外观", description: "主题、强调色与背景", icon: "appearance" },
+  { name: "Sources", label: "音源", description: "自定义音源管理", icon: "sources" },
+  { name: "Sync", label: "同步与备份", description: "WebDAV 数据同步", icon: "sync" },
+  { name: "Data", label: "存储与数据", description: "缓存与历史清理", icon: "data" },
   { name: "About", label: "关于", description: "版本与软件更新", icon: "about" },
 ] as const;
+
+export const SETTINGS_CATEGORY_ICONS: Record<SettingsCategory["icon"], LucideIcon> = {
+  account: CircleUserRound,
+  appearance: Palette,
+  playback: Volume2,
+  sources: RadioTower,
+  lyrics: Mic2,
+  sync: Cloud,
+  data: Database,
+  about: Info,
+};
 
 export const DEFAULT_SETTINGS_CATEGORY: SettingsCategoryName = "Account";
 

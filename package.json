@@ -7,6 +7,7 @@
     "mobile:android": "pnpm --filter @auralflow/mobile android",
     "mobile:build:debug": "pnpm --filter @auralflow/mobile android:assembleDebug",
     "mobile:typecheck": "pnpm --filter @auralflow/mobile typecheck",
+    "mobile:lint": "pnpm --filter @auralflow/mobile lint",
     "desktop:dev": "pnpm --filter @auralflow/desktop dev",
     "desktop:build": "pnpm --filter @auralflow/desktop build",
     "desktop:typecheck": "pnpm --filter @auralflow/desktop typecheck",

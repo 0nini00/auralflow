@@ -15,8 +15,11 @@ import { ImmersiveLyricsScreen } from "@/screens/ImmersiveLyricsScreen";
 import { LikedSongsScreen } from "@/screens/LikedSongsScreen";
 import { LocalPlaylistDetailScreen } from "@/screens/LocalPlaylistDetailScreen";
 import { PersonalFmScreen } from "@/screens/PersonalFmScreen";
+import { MvPlayerScreen } from "@/screens/MvPlayerScreen";
 import { PlaylistDetailScreen } from "@/screens/PlaylistDetailScreen";
 import { SearchFallbackDetailScreen } from "@/screens/SearchFallbackDetailScreen";
+import { LeaderboardScreen } from "@/screens/LeaderboardScreen";
+import { PlaylistSquareScreen } from "@/screens/PlaylistSquareScreen";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -34,6 +37,18 @@ export function RootNavigator() {
       >
         {({ navigation }) => (
           <ImmersiveLyricsScreen visible onClose={() => navigation.goBack()} />
+        )}
+      </Stack.Screen>
+
+      <Stack.Screen
+        name="MvPlayer"
+        options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }}
+      >
+        {({ navigation, route }) => (
+          <MvPlayerScreen
+            {...route.params}
+            onBack={() => navigation.goBack()}
+          />
         )}
       </Stack.Screen>
 
@@ -75,7 +90,9 @@ export function RootNavigator() {
               onBack={() => navigation.goBack()}
               onNavigateToPlayer={openPlayerScreen}
               onOpenArtist={(artistRoute) =>
-                navigation.navigate("ArtistDetail", { artist: artistRoute.artist })
+                // 链式跳转必须 push：navigate 会回退到已存在的 ArtistDetail 旧实例
+                // 并覆盖参数，返回键行为错乱（与详情页 open* 的 push 语义一致）
+                navigation.push("ArtistDetail", { artist: artistRoute.artist })
               }
             />
           );
@@ -129,6 +146,18 @@ export function RootNavigator() {
             onBack={() => navigation.goBack()}
             onNavigateToPlayer={openPlayerScreen}
           />
+        )}
+      </Stack.Screen>
+
+      <Stack.Screen name="Leaderboard">
+        {({ navigation }) => (
+          <LeaderboardScreen onBack={() => navigation.goBack()} />
+        )}
+      </Stack.Screen>
+
+      <Stack.Screen name="PlaylistSquare">
+        {({ navigation }) => (
+          <PlaylistSquareScreen onBack={() => navigation.goBack()} />
         )}
       </Stack.Screen>
     </Stack.Navigator>

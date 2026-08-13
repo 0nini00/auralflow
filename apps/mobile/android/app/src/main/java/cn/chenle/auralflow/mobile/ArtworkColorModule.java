@@ -43,19 +43,23 @@ public class ArtworkColorModule extends ReactContextBaseJavaModule {
       }
       Uri uri = Uri.parse(imageUri);
       Bitmap bitmap;
-      InputStream in = openStream(uri);
-      if (in == null) {
-        promise.reject("ARTWORK_OPEN_FAILED", "无法打开封面流");
-        return;
-      }
-      try {
-        bitmap = BitmapFactory.decodeStream(in);
-      } finally {
-        try {
-          in.close();
-        } catch (Exception ignored) {
-          // 关闭失败不影响结果
+      BitmapFactory.Options bounds = new BitmapFactory.Options();
+      bounds.inJustDecodeBounds = true;
+      try (InputStream boundsIn = openStream(uri)) {
+        if (boundsIn == null) {
+          promise.reject("ARTWORK_OPEN_FAILED", "无法打开封面流");
+          return;
         }
+        BitmapFactory.decodeStream(boundsIn, null, bounds);
+      }
+      BitmapFactory.Options decode = new BitmapFactory.Options();
+      decode.inSampleSize = computeSampleSize(bounds.outWidth, bounds.outHeight, 256);
+      try (InputStream in = openStream(uri)) {
+        if (in == null) {
+          promise.reject("ARTWORK_OPEN_FAILED", "无法打开封面流");
+          return;
+        }
+        bitmap = BitmapFactory.decodeStream(in, null, decode);
       }
       if (bitmap == null) {
         promise.reject("ARTWORK_DECODE_FAILED", "封面解码失败");
@@ -63,11 +67,11 @@ public class ArtworkColorModule extends ReactContextBaseJavaModule {
       }
       Palette palette = Palette.from(bitmap).generate();
       WritableMap result = Arguments.createMap();
-      result.putString("dominant", toHex(palette.getDominantColor(0)));
-      result.putString("vibrant", toHex(palette.getVibrantColor(0)));
-      result.putString("darkVibrant", toHex(palette.getDarkVibrantColor(0)));
-      result.putString("muted", toHex(palette.getMutedColor(0)));
-      result.putString("darkMuted", toHex(palette.getDarkMutedColor(0)));
+      result.putString("dominant", toHex(palette.getDominantSwatch()));
+      result.putString("vibrant", toHex(palette.getVibrantSwatch()));
+      result.putString("darkVibrant", toHex(palette.getDarkVibrantSwatch()));
+      result.putString("muted", toHex(palette.getMutedSwatch()));
+      result.putString("darkMuted", toHex(palette.getDarkMutedSwatch()));
       promise.resolve(result);
     } catch (Exception error) {
       promise.reject("ARTWORK_COLOR_FAILED", error);
@@ -83,10 +87,22 @@ public class ArtworkColorModule extends ReactContextBaseJavaModule {
     return resolver.openInputStream(uri);
   }
 
-  private static String toHex(int color) {
-    if (color == 0) {
+  private static int computeSampleSize(int width, int height, int maxDim) {
+    if (width <= 0 || height <= 0) {
+      return 1;
+    }
+    int largest = Math.max(width, height);
+    int sample = 1;
+    while (largest / sample > maxDim) {
+      sample <<= 1;
+    }
+    return sample;
+  }
+
+  private static String toHex(Palette.Swatch swatch) {
+    if (swatch == null) {
       return null;
     }
-    return String.format("#%06X", 0xFFFFFF & color);
+    return String.format("#%06X", 0xFFFFFF & swatch.getRgb());
   }
 }

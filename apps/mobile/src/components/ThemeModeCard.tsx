@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
+import { SettingsCard } from "@/components/settings/SettingsCard";
 import { DEFAULT_ACCENT_COLOR, parseAccentColorInput } from "@/services/themePaletteModel";
 import { getResolvedTheme, getThemePalette, type ThemeMode, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, touch, typography } from "@/theme/tokens";
@@ -51,7 +52,7 @@ export function ThemeModeCard() {
   };
 
   return (
-    <View style={[styles.themeCard, { backgroundColor: palette.surface, borderColor: palette.border }]}> 
+    <SettingsCard style={styles.themeCard}>
       <View style={styles.themeHeader}>
         <View>
           <Text style={[styles.themeTitle, { color: palette.text }]}>主题</Text>
@@ -149,15 +150,12 @@ export function ThemeModeCard() {
           <Text style={[styles.resetAccentText, { color: palette.textMuted }]}>重置</Text>
         </Pressable>
       </View>
-    </View>
+    </SettingsCard>
   );
 }
 
 const styles = StyleSheet.create({
   themeCard: {
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: spacing.s,
     gap: spacing.s,
   },
   themeHeader: {

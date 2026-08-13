@@ -1,6 +1,8 @@
 import React from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
+import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
+
 interface ErrorBoundaryProps {
   children: React.ReactNode;
 }
@@ -23,10 +25,6 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     return { error };
   }
 
-  componentDidCatch(error: Error, info: React.ErrorInfo): void {
-    console.error("Unhandled render error:", error, info.componentStack);
-  }
-
   private handleReset = (): void => {
     this.setState({ error: null });
   };
@@ -35,20 +33,32 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     const { error } = this.state;
     if (!error) return this.props.children;
 
+    const mode = useThemeStore.getState().mode;
+    const systemTheme = useThemeStore.getState().systemTheme;
+    const accentColor = useThemeStore.getState().accentColor;
+    const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
+
     return (
-      <View style={styles.container}>
-        <Text style={styles.title}>应用遇到了一点问题</Text>
-        <Text style={styles.subtitle}>页面渲染时出现异常，可尝试重试。若反复出现，请重启应用。</Text>
-        <ScrollView style={styles.detailBox} contentContainerStyle={styles.detailContent}>
-          <Text style={styles.detailText}>{error.message || String(error)}</Text>
+      <View style={[styles.container, { backgroundColor: palette.background }]}>
+        <Text style={[styles.title, { color: palette.text }]}>应用遇到了一点问题</Text>
+        <Text style={[styles.subtitle, { color: palette.textMuted }]}>
+          页面渲染时出现异常，可尝试重试。若反复出现，请重启应用。
+        </Text>
+        <ScrollView
+          style={[styles.detailBox, { backgroundColor: palette.surface, borderColor: palette.border }]}
+          contentContainerStyle={styles.detailContent}
+        >
+          <Text style={[styles.detailText, { color: palette.textMuted }]}>
+            {error.message || String(error)}
+          </Text>
         </ScrollView>
         <Pressable
-          style={styles.retryButton}
+          style={[styles.retryButton, { backgroundColor: palette.primary }]}
           onPress={this.handleReset}
           accessibilityRole="button"
           accessibilityLabel="重试"
         >
-          <Text style={styles.retryText}>重试</Text>
+          <Text style={[styles.retryText, { color: palette.primaryText }]}>重试</Text>
         </Pressable>
       </View>
     );
@@ -60,26 +70,21 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 24,
     justifyContent: "center",
-    backgroundColor: "#10241f",
   },
   title: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#ffffff",
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 14,
-    color: "#8fa79f",
     marginBottom: 20,
     lineHeight: 20,
   },
   detailBox: {
     maxHeight: 160,
     borderRadius: 10,
-    backgroundColor: "#0d1d19",
     borderWidth: 1,
-    borderColor: "#1a3a31",
     marginBottom: 20,
   },
   detailContent: {
@@ -87,7 +92,6 @@ const styles = StyleSheet.create({
   },
   detailText: {
     fontSize: 12,
-    color: "#c6d6d0",
     fontFamily: "monospace",
   },
   retryButton: {
@@ -95,11 +99,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 10,
-    backgroundColor: "#45e58d",
   },
   retryText: {
     fontSize: 14,
     fontWeight: "700",
-    color: "#10241f",
   },
 });

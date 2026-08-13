@@ -6,6 +6,7 @@ import {
   Pressable,
   Switch,
   Modal,
+  Alert,
   useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -27,7 +28,7 @@ import {
   useThemeStore,
   type ThemePalette,
 } from "@/stores/themeStore";
-import { radius, touch, typography } from "@/theme/tokens";
+import { radius, spacing, touch, typography } from "@/theme/tokens";
 
 export interface LyricSettingsScreenProps {
   visible: boolean;
@@ -36,6 +37,7 @@ export interface LyricSettingsScreenProps {
 
 export interface LyricSettingsContentProps {
   onBack: () => void;
+  showNavigation?: boolean;
 }
 
 const LINE_GAP_MIN = 4;
@@ -76,7 +78,7 @@ export function LyricSettingsScreen({ visible, onBack }: LyricSettingsScreenProp
   );
 }
 
-export function LyricSettingsContent({ onBack }: LyricSettingsContentProps) {
+export function LyricSettingsContent({ onBack, showNavigation = true }: LyricSettingsContentProps) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
 
@@ -114,11 +116,25 @@ export function LyricSettingsContent({ onBack }: LyricSettingsContentProps) {
 
   const sliderWidth = Math.min(width - 64, 360);
 
+  const confirmResetSettings = () => {
+    Alert.alert("恢复默认样式", "确定恢复歌词默认样式吗？", [
+      { text: "取消", style: "cancel" },
+      {
+        text: "恢复",
+        style: "destructive",
+        onPress: () => {
+          void resetSettings();
+          Alert.alert("已恢复", "歌词样式已恢复为默认设置");
+        },
+      },
+    ]);
+  };
+
   return (
-      <View style={[styles.root, { backgroundColor: palette.background, paddingTop: insets.top }]}>
+      <View style={[styles.root, { backgroundColor: palette.background, paddingTop: showNavigation ? insets.top : 0 }]}>
         <ScreenScaffold style={styles.scaffold}>
-        {/* 顶部栏 */}
-        <View style={[styles.topBar, { borderBottomColor: palette.border }]}>
+        {showNavigation ? (
+          <View style={[styles.topBar, { borderBottomColor: palette.border }]}>
           <Pressable
             onPress={onBack}
             style={styles.backButton}
@@ -129,13 +145,16 @@ export function LyricSettingsContent({ onBack }: LyricSettingsContentProps) {
           </Pressable>
           <Text style={[styles.title, { color: palette.text }]}>歌词样式</Text>
           <Pressable
-            onPress={() => void resetSettings()}
+            onPress={confirmResetSettings}
             style={styles.resetButton}
             hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="恢复默认歌词样式"
           >
             <Text style={[styles.resetButtonText, { color: palette.primary }]}>恢复默认样式</Text>
           </Pressable>
-        </View>
+          </View>
+        ) : null}
 
         <ScreenScrollView
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
@@ -143,10 +162,12 @@ export function LyricSettingsContent({ onBack }: LyricSettingsContentProps) {
           {/* 字号 */}
           <Section title="字号" palette={palette}>
             <Slider
+              label="字号"
               width={sliderWidth}
               min={LYRIC_FONT_SIZE_MIN}
               max={LYRIC_FONT_SIZE_MAX}
               value={fontSize}
+              valueText={`${fontSize} 像素`}
               palette={palette}
               onChange={setFontSize}
             />
@@ -156,10 +177,12 @@ export function LyricSettingsContent({ onBack }: LyricSettingsContentProps) {
           {/* 行间距 */}
           <Section title="行间距" palette={palette}>
             <Slider
+              label="行间距"
               width={sliderWidth}
               min={LINE_GAP_MIN}
               max={LINE_GAP_MAX}
               value={lineGap}
+              valueText={`${lineGap} 像素`}
               palette={palette}
               onChange={setLineGap}
             />
@@ -168,10 +191,12 @@ export function LyricSettingsContent({ onBack }: LyricSettingsContentProps) {
 
           <Section title="其他行透明度" palette={palette}>
             <Slider
+              label="其他行透明度"
               width={sliderWidth}
               min={TEXT_OPACITY_MIN}
               max={TEXT_OPACITY_MAX}
               value={textOpacity}
+              valueText={`${Math.round(textOpacity * 100)}%`}
               palette={palette}
               onChange={setTextOpacity}
             />
@@ -181,10 +206,12 @@ export function LyricSettingsContent({ onBack }: LyricSettingsContentProps) {
           {/* 歌词偏移校准 */}
           <Section title="歌词偏移校准" palette={palette}>
             <Slider
+              label="歌词偏移校准"
               width={sliderWidth}
               min={OFFSET_MIN}
               max={OFFSET_MAX}
               value={manualOffsetMs}
+              valueText={`${Math.abs(manualOffsetMs)} 毫秒${manualOffsetMs > 0 ? "提前" : manualOffsetMs < 0 ? "延后" : "无偏移"}`}
               palette={palette}
               onChange={setManualOffset}
             />
@@ -223,6 +250,9 @@ export function LyricSettingsContent({ onBack }: LyricSettingsContentProps) {
                   <Pressable
                     key={option.value}
                     onPress={() => setTextAlign(option.value)}
+                    accessibilityRole="radio"
+                    accessibilityLabel={`对齐：${option.label}`}
+                    accessibilityState={{ selected }}
                     style={[
                       styles.optionChip,
                       {
@@ -248,6 +278,9 @@ export function LyricSettingsContent({ onBack }: LyricSettingsContentProps) {
                   <Pressable
                     key={option.value}
                     onPress={() => setFontWeight(option.value)}
+                    accessibilityRole="radio"
+                    accessibilityLabel={`当前行字重：${option.label}`}
+                    accessibilityState={{ selected }}
                     style={[
                       styles.optionChip,
                       {
@@ -281,6 +314,9 @@ export function LyricSettingsContent({ onBack }: LyricSettingsContentProps) {
                   <Pressable
                     key={option.value}
                     onPress={() => setAnimationIntensity(option.value)}
+                    accessibilityRole="radio"
+                    accessibilityLabel={`动效强度：${option.label}`}
+                    accessibilityState={{ selected, disabled: !enableAnimation }}
                     style={[
                       styles.optionChip,
                       {
@@ -303,6 +339,7 @@ export function LyricSettingsContent({ onBack }: LyricSettingsContentProps) {
           {/* 当前行颜色 */}
           <Section title="当前行颜色" palette={palette}>
             <ColorPicker
+              purpose="当前行歌词颜色"
               presets={ACTIVE_COLOR_PRESETS}
               value={activeColor}
               fallbackColor={palette.primary}
@@ -314,6 +351,7 @@ export function LyricSettingsContent({ onBack }: LyricSettingsContentProps) {
           {/* 其他行颜色 */}
           <Section title="其他行颜色" palette={palette}>
             <ColorPicker
+              purpose="其他行歌词颜色"
               presets={INACTIVE_COLOR_PRESETS}
               value={inactiveColor}
               fallbackColor={palette.textMuted}
@@ -331,6 +369,9 @@ export function LyricSettingsContent({ onBack }: LyricSettingsContentProps) {
                   <Pressable
                     key={opt.value || "system"}
                     onPress={() => setFontFamily(opt.value)}
+                    accessibilityRole="radio"
+                    accessibilityLabel={`字体：${opt.label}`}
+                    accessibilityState={{ selected }}
                     style={[
                       styles.fontChip,
                       {
@@ -431,16 +472,18 @@ function Section({ title, palette, children }: SectionProps) {
 }
 
 interface SliderProps {
+  label: string;
   width: number;
   min: number;
   max: number;
   value: number;
+  valueText: string;
   palette: ThemePalette;
   onChange: (v: number) => void;
 }
 
 /** 自定义滑块：用一行可点击的轨道 + 拖拽圆点实现，避免引入额外依赖 */
-function Slider({ width, min, max, value, palette, onChange }: SliderProps) {
+function Slider({ label, width, min, max, value, valueText, palette, onChange }: SliderProps) {
   const trackRef = React.useRef<View>(null);
   const stepRef = React.useRef((max - min) / SLIDER_STEPS);
 
@@ -450,8 +493,10 @@ function Slider({ width, min, max, value, palette, onChange }: SliderProps) {
   const usableWidth = width - thumbSize;
 
   const updateFromPageX = (pageX: number) => {
-    trackRef.current?.measure((_x, _y, w) => {
-      const localX = pageX - (w - usableWidth) / 2 - thumbSize / 2;
+    // measure 回调第 5 参是轨道视图的屏幕绝对横坐标，必须用它把触摸点换算成轨道内局部坐标，
+    // 否则 thumb 会整体偏移一个固定的屏幕距离（滑块越靠屏幕右侧偏移越明显）。
+    trackRef.current?.measure((_x, _y, _w, _h, trackPageX) => {
+      const localX = pageX - trackPageX - thumbSize / 2;
       const r = Math.max(0, Math.min(1, localX / usableWidth));
       const step = stepRef.current;
       const snapped = Math.round((min + r * (max - min)) / step) * step;
@@ -464,10 +509,31 @@ function Slider({ width, min, max, value, palette, onChange }: SliderProps) {
     updateFromPageX(e.nativeEvent.pageX);
   };
 
+  const handleAccessibilityAction = (e: { nativeEvent: { actionName: string } }) => {
+    const { actionName } = e.nativeEvent;
+    if (actionName !== "increment" && actionName !== "decrement") return;
+
+    const step = stepRef.current;
+    const nextValue = value + (actionName === "increment" ? step : -step);
+    const clamped = Math.max(min, Math.min(max, nextValue));
+    onChange(Math.round(clamped * 100) / 100);
+  };
+
   return (
     <View
       ref={trackRef}
       style={{ width, height: thumbSize, justifyContent: "center" }}
+      accessible
+      accessibilityRole="adjustable"
+      accessibilityLabel={label}
+      accessibilityValue={{
+        min,
+        max,
+        now: value,
+        text: valueText,
+      }}
+      accessibilityActions={[{ name: "increment" }, { name: "decrement" }]}
+      onAccessibilityAction={handleAccessibilityAction}
       onStartShouldSetResponder={() => true}
       onMoveShouldSetResponder={() => true}
       onResponderGrant={handlePress}
@@ -510,6 +576,7 @@ function Slider({ width, min, max, value, palette, onChange }: SliderProps) {
 }
 
 interface ColorPickerProps {
+  purpose: string;
   presets: Array<{ label: string; value: string }>;
   value: string;
   fallbackColor: string;
@@ -517,7 +584,7 @@ interface ColorPickerProps {
   onSelect: (v: string) => void;
 }
 
-function ColorPicker({ presets, value, fallbackColor, palette, onSelect }: ColorPickerProps) {
+function ColorPicker({ purpose, presets, value, fallbackColor, palette, onSelect }: ColorPickerProps) {
   return (
     <View style={styles.colorRow}>
       {presets.map((p) => {
@@ -527,6 +594,9 @@ function ColorPicker({ presets, value, fallbackColor, palette, onSelect }: Color
           <Pressable
             key={p.label}
             onPress={() => onSelect(p.value)}
+            accessibilityRole="radio"
+            accessibilityLabel={`${purpose}：${p.label}${p.value ? `，颜色 ${p.value}` : "，跟随主题"}`}
+            accessibilityState={{ selected }}
             style={[
               styles.colorChip,
               { borderColor: selected ? palette.primary : palette.border },
@@ -590,22 +660,22 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   content: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingHorizontal: spacing.m,
+    paddingTop: spacing.m,
   },
   section: {
-    marginBottom: 20,
+    marginBottom: spacing.l,
   },
   sectionHeader: {
-    marginBottom: 8,
+    marginBottom: spacing.xs,
   },
   sectionBody: {
     borderRadius: radius.md,
-    padding: 16,
+    padding: spacing.m,
   },
   valueLabel: {
     fontSize: typography.meta,
-    marginTop: 8,
+    marginTop: spacing.xs,
     textAlign: "right",
   },
   row: {
@@ -613,9 +683,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     borderRadius: radius.md,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    marginBottom: 20,
+    paddingHorizontal: spacing.m,
+    paddingVertical: spacing.s,
+    marginBottom: spacing.l,
   },
   rowLabel: {
     fontSize: typography.body,
@@ -680,7 +750,7 @@ const styles = StyleSheet.create({
   },
   previewBox: {
     borderRadius: radius.md,
-    padding: 16,
+    padding: spacing.m,
     alignItems: "center",
   },
   previewActive: {

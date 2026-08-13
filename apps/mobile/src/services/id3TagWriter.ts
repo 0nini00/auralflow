@@ -5,7 +5,7 @@
  * setAudioLyrics，但移动端无法使用 Tauri 原生桥，也没有任何 ID3 库，因此这里用
  * Uint8Array 手写 ID3v2.4 帧，配合 react-native-fs 的 base64 读写完成嵌入。
  *
- * 全部函数只操作字节，不依赖 RN，因此可直接在 Node（vitest）下单测。
+ * 全部函数只操作字节，不依赖 RN，因此可直接在 Node 环境下单测。
  */
 
 export interface Id3Cover {

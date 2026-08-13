@@ -3,6 +3,7 @@ import { View, Animated, Easing, Pressable } from "react-native";
 import { Music2 } from "lucide-react-native";
 import type { ThemePalette } from "@/stores/themeStore";
 import { CachedImage } from "@/components/CachedImage";
+import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
 import { styles } from "@/screens/immersive/immersiveStyles";
 
 export interface ImmersiveCoverPageProps {
@@ -23,6 +24,7 @@ export function ImmersiveCoverPage({
   const spinValue = useRef(new Animated.Value(0)).current;
   const animationRef = useRef<Animated.CompositeAnimation | null>(null);
   const isAnimating = useRef(false);
+  const coverSpin = useLyricSettingsStore((s) => s.coverSpin);
 
   const createAnimation = useCallback((value: number) => {
     return Animated.timing(spinValue, {
@@ -57,17 +59,24 @@ export function ImmersiveCoverPage({
   }, [spinValue]);
 
   useEffect(() => {
+    if (!coverSpin) {
+      stopAnimation();
+      spinValue.setValue(0);
+      return;
+    }
     if (isPlaying) {
       startAnimation();
     } else {
       stopAnimation();
     }
-  }, [isPlaying, startAnimation, stopAnimation]);
+  }, [isPlaying, startAnimation, stopAnimation, coverSpin, spinValue]);
 
   const spin = spinValue.interpolate({
     inputRange: [0, 1],
     outputRange: ["0deg", "360deg"],
   });
+
+  const coverBorderRadius = coverSpin ? coverSize / 2 : 8;
 
   return (
     <View style={styles.coverPageContainer}>
@@ -78,7 +87,7 @@ export function ImmersiveCoverPage({
             {
               width: coverSize,
               height: coverSize,
-              borderRadius: coverSize / 2,
+              borderRadius: coverBorderRadius,
             },
           ]}
         >
@@ -90,14 +99,14 @@ export function ImmersiveCoverPage({
                 uri={artwork}
                 style={[
                   styles.coverImage,
-                  { borderRadius: coverSize / 2 },
+                  { borderRadius: coverBorderRadius },
                 ]}
                 fallback={
                   <View
                     style={[
                       styles.coverImage,
                       styles.coverPlaceholder,
-                      { backgroundColor: palette.surfaceStrong },
+                      { backgroundColor: palette.surfaceStrong, borderRadius: coverBorderRadius },
                     ]}
                   >
                     <Music2 size={48} color={palette.primary} />
@@ -109,7 +118,7 @@ export function ImmersiveCoverPage({
                 style={[
                   styles.coverImage,
                   styles.coverPlaceholder,
-                  { backgroundColor: palette.primary },
+                  { backgroundColor: palette.primary, borderRadius: coverBorderRadius },
                 ]}
               >
                 <Music2 size={48} color={palette.primaryText} />

@@ -12,6 +12,9 @@ import { layout, radius, spacing, touch, typography } from "@/theme/tokens";
 
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
 import { SectionHeader } from "@/components/SectionHeader";
+import { SummaryCardGrid } from "@/components/SummaryCardGrid";
+import { SearchX } from "lucide-react-native";
+
 import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
 import { SongList } from "@/components/SongList";
@@ -56,14 +59,9 @@ import {
 } from "@/services/searchFallbackDetailModel";
 import { usePlaylistStore } from "@/stores/playlistStore";
 import { useAccountStore } from "@/stores/accountStore";
-import { getPlaylistDetail } from "@/services/wyPlaylistService";
-import { getTxPlaylistDetail, mapTxPlaylistInfo } from "@/services/txPlaylistService";
-import {
-  buildImportedSearchPlaylist,
-  getSearchPlaylistPrimaryAction,
-} from "@/services/searchPlaylistImportModel";
-import { buildScreenTheme } from "@/services/screenThemeModel";
+
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
+import { withAlpha } from "@/services/themePaletteModel";
 import { useSearchQueryStore } from "@/stores/searchQueryStore";
 
 interface SearchScreenProps {
@@ -113,18 +111,11 @@ export function SearchScreen({
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
   const [history, setHistory] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [importingPlaylistKey, setImportingPlaylistKey] = useState<string | null>(null);
-  const user = useAccountStore((state) => state.user);
-  const isLoggedIn = useAccountStore((state) => state.isLoggedIn);
-  const localPlaylists = usePlaylistStore((state) => state.localPlaylists);
-  const wyPlaylists = usePlaylistStore((state) => state.playlists);
-  const createLocalPlaylistWithSongs = usePlaylistStore((state) => state.createLocalPlaylistWithSongs);
-  const setWyPlaylistSubscribed = usePlaylistStore((state) => state.setWyPlaylistSubscribed);
   const themeMode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor);
-  const screenTheme = buildScreenTheme(palette);
+  const primarySubtleBackground = withAlpha(palette.primary, palette.statusBar === "dark-content" ? 0.12 : 0.16);
   // 标记当前搜索结果是否来自缓存
   const [fromCache, setFromCache] = useState(false);
   // 竞态保护：快速连续搜索只保留最新一次结果
@@ -187,7 +178,7 @@ export function SearchScreen({
         }
       }
     },
-    []
+    [setLastSearchKeyword]
   );
 
   useEffect(() => {
@@ -229,7 +220,6 @@ export function SearchScreen({
       setPlaybackError(result.message);
       return;
     }
-    onNavigateToPlayer();
   };
 
   const handlePlay = async (_song: MusicInfo, index: number) => {
@@ -256,8 +246,7 @@ export function SearchScreen({
     void runSearch(item);
   };
 
-  const handleRemoveHistory = async (item: string, e: any) => {
-    e.stopPropagation();
+  const handleRemoveHistory = async (item: string) => {
     await removeSearchHistory(item);
     await loadHistory();
   };
@@ -274,7 +263,7 @@ export function SearchScreen({
       { key: "albums", label: "专辑", count: results.albums.length },
       { key: "playlists", label: "歌单", count: results.playlists.length },
     ],
-    [results]
+    [results, dedupedSongs.length]
   );
 
   const hasResults =
@@ -311,47 +300,7 @@ export function SearchScreen({
     if (route) openPlaylistDetailScreen(route.playlist);
   };
 
-
-  const handleImportPlaylist = async (playlist: SearchPlaylistResult) => {
-    const key = `${playlist.source}:${playlist.id}`;
-    if (importingPlaylistKey) return;
-    setImportingPlaylistKey(key);
-    try {
-      if (playlist.source === "wy") {
-        if (!isLoggedIn || !user) {
-          Alert.alert("需要登录", "请先登录网易云账号");
-          return;
-        }
-
-        await setWyPlaylistSubscribed(user.userId, playlist, true);
-        Alert.alert("收藏成功", `已收藏「${playlist.name}」到网易云`);
-        return;
-      }
-
-      const songs = playlist.source === "tx"
-        ? await getTxPlaylistDetail(mapTxPlaylistInfo(playlist))
-        : await getPlaylistDetail(playlist.id);
-      const importedPlaylist = buildImportedSearchPlaylist(playlist, songs);
-      await createLocalPlaylistWithSongs(importedPlaylist);
-      Alert.alert("导入成功", `已导入「${playlist.name}」到本地歌单`);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      Alert.alert("导入失败", message);
-    } finally {
-      setImportingPlaylistKey(null);
-    }
-  };
-
-  const getPlaylistImportAction = (playlist: SearchPlaylistResult) => {
-    const action = getSearchPlaylistPrimaryAction(playlist, wyPlaylists, localPlaylists);
-    const key = `${playlist.source}:${playlist.id}`;
-    return {
-      label: action.label,
-      disabled: action.disabled,
-      loading: importingPlaylistKey === key,
-      onPress: handleImportPlaylist,
-    };
-  };
+  // 搜索结果页的歌单卡片只负责进入详情（对齐 lx）：收藏/导入功能在歌单详情页内。
 
   return (
     <ScreenScaffold>
@@ -369,17 +318,17 @@ export function SearchScreen({
           onChangeText={setKeyword}
           onSubmitEditing={handleSearch}
           placeholder="搜索歌曲、歌手、专辑…"
-          placeholderTextColor={screenTheme.bodyText}
-          style={[styles.searchInput, { backgroundColor: screenTheme.cardBackground, color: screenTheme.titleText }]}
+          placeholderTextColor={palette.textMuted}
+          style={[styles.searchInput, { backgroundColor: palette.surface, color: palette.text }]}
           returnKeyType="search"
         />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="搜索"
-          style={[styles.searchButton, { backgroundColor: screenTheme.primaryBackground }]}
+          style={[styles.searchButton, { backgroundColor: palette.primary }]}
           onPress={handleSearch}
         >
-          <Text style={[styles.searchButtonText, { color: screenTheme.primaryText }]}>搜索</Text>
+          <Text style={[styles.searchButtonText, { color: palette.primaryText }]}>搜索</Text>
         </Pressable>
         </View>
 
@@ -390,14 +339,14 @@ export function SearchScreen({
                 key={tab.key}
                 style={[
                   styles.tabButton,
-                  { backgroundColor: screenTheme.cardBackground },
-                  activeTab === tab.key && { backgroundColor: screenTheme.strongBackground, borderColor: screenTheme.primaryBackground, borderWidth: 1 },
+                  { backgroundColor: palette.surface },
+                  activeTab === tab.key && { backgroundColor: palette.surfaceStrong, borderColor: palette.primary, borderWidth: 1 },
                 ]}
                 onPress={() => setActiveTab(tab.key)}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: activeTab === tab.key }}
               >
-                <Text style={[styles.tabText, { color: screenTheme.bodyText }, activeTab === tab.key && { color: screenTheme.titleText }]}>
+                <Text style={[styles.tabText, { color: palette.textMuted }, activeTab === tab.key && { color: palette.text }]}>
                   {tab.label}
                 </Text>
               </Pressable>
@@ -416,28 +365,29 @@ export function SearchScreen({
                   style={styles.headerAction}
                   onPress={handleClearHistory}
                 >
-                  <Text style={[styles.clearHistoryText, { color: screenTheme.bodyText }]}>清空</Text>
+                  <Text style={[styles.clearHistoryText, { color: palette.textMuted }]}>清空</Text>
                 </Pressable>
               )}
               style={styles.historyHeader}
             />
           <View style={styles.historyList}>
-            {history.map((item, index) => (
+            {history.map((item) => (
               <Pressable
-                key={index}
+                key={item}
                 accessibilityRole="button"
                 accessibilityLabel={`搜索 ${item}`}
-                style={[styles.historyItem, { backgroundColor: screenTheme.cardBackground }]}
+                style={[styles.historyItem, { backgroundColor: palette.surface }]}
                 onPress={() => handleHistoryPress(item)}
               >
-                <Text style={[styles.historyItemText, { color: screenTheme.titleText }]}>{item}</Text>
+                <Text style={[styles.historyItemText, { color: palette.text }]}>{item}</Text>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={`删除搜索历史 ${item}`}
                   style={styles.historyItemDelete}
-                  onPress={(e) => handleRemoveHistory(item, e)}
+                  onStartShouldSetResponder={() => true}
+                  onResponderRelease={() => handleRemoveHistory(item)}
                 >
-                  <Text style={[styles.historyItemDeleteText, { color: screenTheme.bodyText }]}>删除</Text>
+                  <Text style={[styles.historyItemDeleteText, { color: palette.textMuted }]}>删除</Text>
                 </Pressable>
               </Pressable>
             ))}
@@ -454,11 +404,11 @@ export function SearchScreen({
                 key={index}
                 accessibilityRole="button"
                 accessibilityLabel={`搜索建议 ${suggestion.keyword}`}
-                style={[styles.suggestionItem, { backgroundColor: screenTheme.cardBackground }]}
+                style={[styles.suggestionItem, { backgroundColor: palette.surface }]}
                 onPress={() => handleSuggestionPress(suggestion)}
               >
-                <Text style={[styles.suggestionText, { color: screenTheme.titleText }]}>{suggestion.keyword}</Text>
-                <Text style={[styles.suggestionType, { color: screenTheme.bodyText, backgroundColor: screenTheme.strongBackground }]}>
+                <Text style={[styles.suggestionText, { color: palette.text }]}>{suggestion.keyword}</Text>
+                <Text style={[styles.suggestionType, { color: palette.textMuted, backgroundColor: palette.surfaceStrong }]}>
                   {suggestion.type === "song"
                     ? "单曲"
                     : suggestion.type === "artist"
@@ -478,35 +428,22 @@ export function SearchScreen({
         {loading && <LoadingState label="正在搜索" />}
 
         {fromCache && !loading && !error && hasResults && (
-        <View style={[styles.cacheBadgeBox, { backgroundColor: screenTheme.primarySubtleBackground }]}>
-          <Text style={[styles.cacheBadgeText, { color: screenTheme.primaryBackground }]}>来自缓存</Text>
+        <View style={[styles.cacheBadgeBox, { backgroundColor: primarySubtleBackground }]}>
+          <Text style={[styles.cacheBadgeText, { color: palette.primary }]}>来自缓存</Text>
         </View>
         )}
 
         {error && <ErrorState message={error} onRetry={() => void runSearch(submittedQuery)} />}
 
-        {showEmptyResults && (
-          <EmptyState
-            title="没有找到相关内容"
-            description={`没有找到与「${submittedQuery}」匹配的歌曲、歌手、专辑或歌单。`}
-          />
+        {showEmptyResults && (            <EmptyState
+              icon={SearchX}
+              title="没有找到相关内容"
+              description={`没有找到与「${submittedQuery}」匹配的歌曲、歌手、专辑或歌单。`}
+            />
         )}
 
         {showResults && activeTab === "all" && (
-        <View style={styles.summaryGrid}>
-          {summaryItems.map((item) => (
-            <Pressable
-              key={item.key}
-              accessibilityRole="button"
-              accessibilityLabel={`查看${item.label}结果，共 ${item.count} 项`}
-              style={[styles.summaryCard, { backgroundColor: screenTheme.cardBackground }]}
-              onPress={() => setActiveTab(item.key as SearchTab)}
-            >
-              <Text style={[styles.summaryValue, { color: screenTheme.titleText }]}>{item.count}</Text>
-              <Text style={[styles.summaryLabel, { color: screenTheme.bodyText }]}>{item.label}</Text>
-            </Pressable>
-          ))}
-        </View>
+          <SummaryCardGrid items={summaryItems} onPress={(key) => setActiveTab(key as SearchTab)} />
         )}
 
         {showResults && activeTab === "all" && (
@@ -522,7 +459,7 @@ export function SearchScreen({
                     style={styles.headerAction}
                     onPress={() => setActiveTab("artists")}
                   >
-                    <Text style={[styles.resultSectionAction, { color: screenTheme.primaryBackground }]}>查看全部</Text>
+                    <Text style={[styles.resultSectionAction, { color: palette.primary }]}>查看全部</Text>
                   </Pressable>
                 )}
               />
@@ -541,7 +478,7 @@ export function SearchScreen({
                     style={styles.headerAction}
                     onPress={() => setActiveTab("albums")}
                   >
-                    <Text style={[styles.resultSectionAction, { color: screenTheme.primaryBackground }]}>查看全部</Text>
+                    <Text style={[styles.resultSectionAction, { color: palette.primary }]}>查看全部</Text>
                   </Pressable>
                 )}
               />
@@ -560,14 +497,13 @@ export function SearchScreen({
                     style={styles.headerAction}
                     onPress={() => setActiveTab("playlists")}
                   >
-                    <Text style={[styles.resultSectionAction, { color: screenTheme.primaryBackground }]}>查看全部</Text>
+                    <Text style={[styles.resultSectionAction, { color: palette.primary }]}>查看全部</Text>
                   </Pressable>
                 )}
               />
               <PlaylistResultList
                 playlists={results.playlists.slice(0, 3)}
                 onPress={handlePlaylistPress}
-                getImportAction={getPlaylistImportAction}
               />
             </View>
           )}
@@ -582,7 +518,7 @@ export function SearchScreen({
                   style={styles.headerAction}
                   onPress={() => setActiveTab("songs")}
                 >
-                  <Text style={[styles.resultSectionAction, { color: screenTheme.primaryBackground }]}>查看全部</Text>
+                  <Text style={[styles.resultSectionAction, { color: palette.primary }]}>查看全部</Text>
                 </Pressable>
               ) : undefined}
             />
@@ -608,7 +544,6 @@ export function SearchScreen({
           playlists={results.playlists}
           emptyText="没有找到歌单"
           onPress={handlePlaylistPress}
-          getImportAction={getPlaylistImportAction}
         />
         )}
       </ScreenScrollView>
@@ -618,15 +553,15 @@ export function SearchScreen({
 
 const styles = StyleSheet.create({
   container: {
-    gap: 16,
+    gap: spacing.l,
   },
   section: {
-    marginBottom: 16,
+    marginBottom: spacing.m,
   },
   searchBox: {
     flexDirection: "row",
-    gap: 12,
-    marginBottom: 16,
+    gap: spacing.s,
+    marginBottom: spacing.m,
   },
   searchInput: {
     flex: 1,
@@ -666,40 +601,20 @@ const styles = StyleSheet.create({
     fontSize: typography.meta,
     fontWeight: "500",
   },
-  summaryGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 16,
-  },
-  summaryCard: {
-    width: "48%",
-    borderRadius: radius.sm,
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    gap: 4,
-  },
-  summaryValue: {
-    fontSize: typography.heading,
-    fontWeight: "700",
-  },
-  summaryLabel: {
-    fontSize: typography.caption,
-  },
   resultStack: {
-    gap: 20,
+    gap: spacing.l,
   },
   resultSection: {
-    gap: 10,
+    gap: spacing.s,
   },
   resultSectionAction: {
     fontSize: typography.meta,
   },
   historySection: {
-    marginBottom: 20,
+    marginBottom: spacing.l,
   },
   historyHeader: {
-    marginBottom: 12,
+    marginBottom: spacing.s,
   },
   headerAction: {
     minHeight: touch.minTarget,
@@ -712,7 +627,7 @@ const styles = StyleSheet.create({
     fontSize: typography.meta,
   },
   historyList: {
-    gap: 8,
+    gap: spacing.xs,
   },
   historyItem: {
     minHeight: touch.minTarget,
@@ -737,21 +652,21 @@ const styles = StyleSheet.create({
     fontSize: typography.meta,
   },
   suggestionsSection: {
-    marginBottom: 20,
+    marginBottom: spacing.l,
   },
   suggestionsHeader: {
-    marginBottom: 12,
+    marginBottom: spacing.s,
   },
   suggestionsList: {
-    gap: 8,
+    gap: spacing.xs,
   },
   suggestionItem: {
     minHeight: touch.minTarget,
     flexDirection: "row",
     alignItems: "center",
-    padding: 12,
+    padding: spacing.s,
     borderRadius: radius.sm,
-    gap: 12,
+    gap: spacing.s,
   },
   suggestionText: {
     flex: 1,
@@ -761,7 +676,7 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 4,
+    borderRadius: radius.sm,
   },
   cacheBadgeBox: {
     alignSelf: "flex-start",

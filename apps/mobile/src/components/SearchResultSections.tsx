@@ -2,8 +2,8 @@ import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { CachedImage } from "@/components/CachedImage";
-import { buildScreenTheme, type ScreenThemeModel } from "@/services/screenThemeModel";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
+import type { ThemePalette } from "@/services/themePaletteModel";
 import type {
   SearchAlbumResult,
   SearchArtistResult,
@@ -47,7 +47,7 @@ export function ArtistResultList({ artists, emptyText, onPress }: ArtistListProp
       data={artists}
       emptyText={emptyText || "没有找到歌手"}
       keyExtractor={(item) => item.id}
-      renderItem={(item, screenTheme) => <ArtistItem artist={item} onPress={onPress} screenTheme={screenTheme} />}
+      renderItem={(item, palette) => <ArtistItem artist={item} onPress={onPress} palette={palette} />}
     />
   );
 }
@@ -58,7 +58,7 @@ export function AlbumResultList({ albums, emptyText, onPress }: AlbumListProps) 
       data={albums}
       emptyText={emptyText || "没有找到专辑"}
       keyExtractor={(item) => item.id}
-      renderItem={(item, screenTheme) => <AlbumItem album={item} onPress={onPress} screenTheme={screenTheme} />}
+      renderItem={(item, palette) => <AlbumItem album={item} onPress={onPress} palette={palette} />}
     />
   );
 }
@@ -69,12 +69,12 @@ export function PlaylistResultList({ playlists, emptyText, onPress, getImportAct
       data={playlists}
       emptyText={emptyText || "没有找到歌单"}
       keyExtractor={(item) => item.id}
-      renderItem={(item, screenTheme) => (
+      renderItem={(item, palette) => (
         <PlaylistItem
           playlist={item}
           onPress={onPress}
           importAction={getImportAction?.(item)}
-          screenTheme={screenTheme}
+          palette={palette}
         />
       )}
     />
@@ -85,7 +85,7 @@ interface ResultListProps<T> {
   data: T[];
   emptyText: string;
   keyExtractor: (item: T) => string;
-  renderItem: (item: T, screenTheme: ScreenThemeModel) => React.ReactElement;
+  renderItem: (item: T, palette: ThemePalette) => React.ReactElement;
 }
 
 function ResultList<T>({ data, emptyText, keyExtractor, renderItem }: ResultListProps<T>) {
@@ -93,12 +93,11 @@ function ResultList<T>({ data, emptyText, keyExtractor, renderItem }: ResultList
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor);
-  const screenTheme = buildScreenTheme(palette);
 
   if (data.length === 0) {
     return (
       <View style={styles.emptyContainer}>
-        <Text style={[styles.emptyText, { color: screenTheme.bodyText }]}>{emptyText}</Text>
+        <Text style={[styles.emptyText, { color: palette.textMuted }]}>{emptyText}</Text>
       </View>
     );
   }
@@ -107,7 +106,7 @@ function ResultList<T>({ data, emptyText, keyExtractor, renderItem }: ResultList
     <View style={styles.listContent}>
       {data.map((item) => (
         <React.Fragment key={keyExtractor(item)}>
-          {renderItem(item, screenTheme)}
+          {renderItem(item, palette)}
         </React.Fragment>
       ))}
     </View>
@@ -117,24 +116,24 @@ function ResultList<T>({ data, emptyText, keyExtractor, renderItem }: ResultList
 function ArtistItem({
   artist,
   onPress,
-  screenTheme,
+  palette,
 }: {
   artist: SearchArtistResult;
   onPress?: ArtistPressHandler;
-  screenTheme: ScreenThemeModel;
+  palette: ThemePalette;
 }) {
   return (
-    <Pressable style={[styles.item, { backgroundColor: screenTheme.cardBackground }]} onPress={onPress ? () => onPress(artist) : undefined}>
-      <Artwork uri={artist.avatarUrl} fallbackText="歌手" screenTheme={screenTheme} />
+    <Pressable style={[styles.item, { backgroundColor: palette.surface }]} onPress={onPress ? () => onPress(artist) : undefined}>
+      <Artwork uri={artist.avatarUrl} fallbackText="歌手" palette={palette} />
       <View style={styles.info}>
-        <Text style={[styles.primaryText, { color: screenTheme.titleText }]} numberOfLines={1}>
+        <Text style={[styles.primaryText, { color: palette.text }]} numberOfLines={1}>
           {artist.name}
         </Text>
-        <Text style={[styles.secondaryText, { color: screenTheme.bodyText }]} numberOfLines={1}>
+        <Text style={[styles.secondaryText, { color: palette.textMuted }]} numberOfLines={1}>
           {artist.alias?.length ? artist.alias.join(" / ") : `${artist.songCount || 0} 首作品`}
         </Text>
       </View>
-      <Text style={[styles.sourceText, { color: screenTheme.bodyText, backgroundColor: screenTheme.strongBackground }]}>歌手</Text>
+      <Text style={[styles.sourceText, { color: palette.textMuted, backgroundColor: palette.surfaceStrong }]}>歌手</Text>
     </Pressable>
   );
 }
@@ -142,26 +141,26 @@ function ArtistItem({
 function AlbumItem({
   album,
   onPress,
-  screenTheme,
+  palette,
 }: {
   album: SearchAlbumResult;
   onPress?: AlbumPressHandler;
-  screenTheme: ScreenThemeModel;
+  palette: ThemePalette;
 }) {
   return (
-    <Pressable style={[styles.item, { backgroundColor: screenTheme.cardBackground }]} onPress={onPress ? () => onPress(album) : undefined}>
-      <Artwork uri={album.coverUrl} fallbackText="专辑" screenTheme={screenTheme} />
+    <Pressable style={[styles.item, { backgroundColor: palette.surface }]} onPress={onPress ? () => onPress(album) : undefined}>
+      <Artwork uri={album.coverUrl} fallbackText="专辑" palette={palette} />
       <View style={styles.info}>
-        <Text style={[styles.primaryText, { color: screenTheme.titleText }]} numberOfLines={1}>
+        <Text style={[styles.primaryText, { color: palette.text }]} numberOfLines={1}>
           {album.name}
         </Text>
-        <Text style={[styles.secondaryText, { color: screenTheme.bodyText }]} numberOfLines={1}>
+        <Text style={[styles.secondaryText, { color: palette.textMuted }]} numberOfLines={1}>
           {[album.artistName, album.trackCount ? `${album.trackCount} 首` : undefined, album.publishTime]
             .filter(Boolean)
             .join(" • ")}
         </Text>
       </View>
-      <Text style={[styles.sourceText, { color: screenTheme.bodyText, backgroundColor: screenTheme.strongBackground }]}>专辑</Text>
+      <Text style={[styles.sourceText, { color: palette.textMuted, backgroundColor: palette.surfaceStrong }]}>专辑</Text>
     </Pressable>
   );
 }
@@ -170,21 +169,21 @@ function PlaylistItem({
   playlist,
   onPress,
   importAction,
-  screenTheme,
+  palette,
 }: {
   playlist: SearchPlaylistResult;
   onPress?: PlaylistPressHandler;
   importAction?: PlaylistImportAction;
-  screenTheme: ScreenThemeModel;
+  palette: ThemePalette;
 }) {
   return (
-    <Pressable style={[styles.item, { backgroundColor: screenTheme.cardBackground }]} onPress={onPress ? () => onPress(playlist) : undefined}>
-      <Artwork uri={playlist.coverUrl} fallbackText="歌单" screenTheme={screenTheme} />
+    <Pressable style={[styles.item, { backgroundColor: palette.surface }]} onPress={onPress ? () => onPress(playlist) : undefined}>
+      <Artwork uri={playlist.coverUrl} fallbackText="歌单" palette={palette} />
       <View style={styles.info}>
-        <Text style={[styles.primaryText, { color: screenTheme.titleText }]} numberOfLines={1}>
+        <Text style={[styles.primaryText, { color: palette.text }]} numberOfLines={1}>
           {playlist.name}
         </Text>
-        <Text style={[styles.secondaryText, { color: screenTheme.bodyText }]} numberOfLines={1}>
+        <Text style={[styles.secondaryText, { color: palette.textMuted }]} numberOfLines={1}>
           {[playlist.creatorName, playlist.trackCount ? `${playlist.trackCount} 首` : undefined, formatPlayCount(playlist.playCount)]
             .filter(Boolean)
             .join(" • ")}
@@ -194,8 +193,8 @@ function PlaylistItem({
         <Pressable
           style={[
             styles.importButton,
-            { backgroundColor: screenTheme.mutedBackground },
-            importAction.disabled && { backgroundColor: screenTheme.strongBackground },
+            { backgroundColor: palette.surfaceMuted },
+            importAction.disabled && { backgroundColor: palette.surfaceStrong },
           ]}
           disabled={importAction.disabled || importAction.loading}
           onPress={(event) => {
@@ -203,29 +202,29 @@ function PlaylistItem({
             importAction.onPress(playlist);
           }}
         >
-          <Text style={[styles.importButtonText, { color: importAction.disabled ? screenTheme.bodyText : screenTheme.primaryBackground }]}>
+          <Text style={[styles.importButtonText, { color: importAction.disabled ? palette.textMuted : palette.primary }]}>
             {importAction.loading ? "导入中" : importAction.label}
           </Text>
         </Pressable>
       ) : (
-        <Text style={[styles.sourceText, { color: screenTheme.bodyText, backgroundColor: screenTheme.strongBackground }]}>歌单</Text>
+        <Text style={[styles.sourceText, { color: palette.textMuted, backgroundColor: palette.surfaceStrong }]}>歌单</Text>
       )}
     </Pressable>
   );
 }
 
-function Artwork({ uri, fallbackText, screenTheme }: { uri?: string; fallbackText: string; screenTheme: ScreenThemeModel }) {
+function Artwork({ uri, fallbackText, palette }: { uri?: string; fallbackText: string; palette: ThemePalette }) {
   if (uri) {
-    return <CachedImage uri={uri} style={styles.artwork} fallback={<ArtworkFallback text={fallbackText} screenTheme={screenTheme} />} />;
+    return <CachedImage uri={uri} style={styles.artwork} fallback={<ArtworkFallback text={fallbackText} palette={palette} />} />;
   }
 
-  return <ArtworkFallback text={fallbackText} screenTheme={screenTheme} />;
+  return <ArtworkFallback text={fallbackText} palette={palette} />;
 }
 
-function ArtworkFallback({ text, screenTheme }: { text: string; screenTheme: ScreenThemeModel }) {
+function ArtworkFallback({ text, palette }: { text: string; palette: ThemePalette }) {
   return (
-    <View style={[styles.artwork, styles.artworkFallback, { backgroundColor: screenTheme.strongBackground }]}>
-      <Text style={[styles.artworkFallbackText, { color: screenTheme.primaryBackground }]}>{text}</Text>
+    <View style={[styles.artwork, styles.artworkFallback, { backgroundColor: palette.surfaceStrong }]}>
+      <Text style={[styles.artworkFallbackText, { color: palette.primary }]}>{text}</Text>
     </View>
   );
 }
@@ -275,7 +274,7 @@ const styles = StyleSheet.create({
   },
   info: {
     flex: 1,
-    gap: 4,
+    gap: spacing.xxs,
   },
   primaryText: {
     fontSize: typography.body,
@@ -288,7 +287,7 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 4,
+    borderRadius: radius.sm,
   },
   importButton: {
     minWidth: 52,

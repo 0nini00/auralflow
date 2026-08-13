@@ -78,6 +78,9 @@ export function isSameSong(a: MusicInfo, b: MusicInfo): boolean {
  */
 function mergeMetadata(primary: MusicInfo, metadata: MusicInfo): MusicInfo {
   const cover = primary.picUrl || primary.img || metadata.picUrl || metadata.img;
+  const mvId = primary.source === "wy"
+    ? primary.mvId || (metadata.source === "wy" ? metadata.mvId : undefined)
+    : undefined;
   return {
     ...primary,
     albumName: primary.albumName || metadata.albumName,
@@ -85,6 +88,7 @@ function mergeMetadata(primary: MusicInfo, metadata: MusicInfo): MusicInfo {
     quality: primary.quality || metadata.quality,
     picUrl: primary.picUrl || cover,
     img: primary.img || cover,
+    mvId,
   };
 }
 

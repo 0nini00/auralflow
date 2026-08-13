@@ -24,8 +24,12 @@ export function buildSongListMetadata(song: MusicInfo): SongListMetadata {
     artistName,
     albumName,
     durationLabel,
-    metaParts: [artistName, albumName, durationLabel].filter(Boolean),
+    metaParts: [artistName, albumName].filter(Boolean),
   };
+}
+
+export function shouldShowSongListLikeAction(song: Pick<MusicInfo, "source">): boolean {
+  return song.source !== "local" && song.source !== "bili";
 }
 
 export function shouldShowSongListDownloadAction(song: Pick<MusicInfo, "source">): boolean {

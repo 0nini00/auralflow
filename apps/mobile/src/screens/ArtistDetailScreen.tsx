@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { radius, typography } from "@/theme/tokens";
+import { spacing, typography } from "@/theme/tokens";
 import {
-  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,7 +10,10 @@ import {
 import type { MusicInfo } from "@lx/core";
 
 import { DetailHero } from "@/components/DetailHero";
+import { PlaybackActionButtons } from "@/components/PlaybackActionButtons";
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
+import { Disc3 } from "lucide-react-native";
+
 import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
 import { SectionHeader } from "@/components/SectionHeader";
@@ -36,6 +38,9 @@ import {
 import { buildContentDescriptionModel } from "@/services/contentDescriptionModel";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { usePlayerStore } from "@/stores/playerStore";
+
+// 稳定空数组：避免加载态下 `?? []` 每次渲染生成新引用，导致下方 useMemo 依赖失效
+const EMPTY_SONGS: MusicInfo[] = [];
 
 interface ArtistDetailScreenProps {
   artist: SearchArtistResult;
@@ -125,7 +130,7 @@ export function ArtistDetailScreen({
     ? remoteState
     : { id: artist.id, kind: "loading" };
   const successfulDetail = currentState.kind === "success" ? currentState.value : null;
-  const songs = successfulDetail?.songs ?? [];
+  const songs = successfulDetail?.songs ?? EMPTY_SONGS;
   const albums = successfulDetail?.albums ?? [];
   const artistInfo = successfulDetail?.artist ?? artist;
   const artistAlbumCount = successfulDetail?.artist.albumCount ?? albums.length;
@@ -161,7 +166,6 @@ export function ArtistDetailScreen({
       setPlaybackError(result.message);
       return;
     }
-    onNavigateToPlayer();
   };
 
   const handlePlay = async (_song: MusicInfo, index: number) => {
@@ -213,72 +217,24 @@ export function ArtistDetailScreen({
           subtitle={heroSubtitle}
           metadata={heroMetadata}
           actions={
-            successfulDetail && playbackActions.show ? (
-              <>
-                <Pressable
-                  style={[
-                    styles.actionButton,
-                    { backgroundColor: palette.primary, borderColor: palette.primary },
-                    isPlayBusy && styles.actionButtonDisabled,
-                  ]}
-                  onPress={() => {
-                    void handlePlayAll();
-                  }}
-                  disabled={isPlayBusy}
-                >
-                  {pendingAction === "play-all" ? (
-                    <ActivityIndicator color={palette.primaryText} size="small" />
-                  ) : (
-                    <Text style={[styles.primaryActionText, { color: palette.primaryText }]}>
-                      {playbackActions.playAllLabel}
-                      {songs.length > 0 ? ` (${songs.length})` : ""}
-                    </Text>
-                  )}
-                </Pressable>
-                <Pressable
-                  style={[
-                    styles.actionButton,
-                    { backgroundColor: palette.surface, borderColor: palette.border },
-                    isPlayBusy && styles.actionButtonDisabled,
-                  ]}
-                  onPress={() => {
-                    void handleShufflePlay();
-                  }}
-                  disabled={isPlayBusy}
-                >
-                  {pendingAction === "shuffle" ? (
-                    <ActivityIndicator color={palette.primary} size="small" />
-                  ) : (
-                    <Text style={[styles.actionText, { color: palette.text }]}>
-                      {playbackActions.shuffleLabel}
-                    </Text>
-                  )}
-                </Pressable>
-                <Pressable
-                  style={[
-                    styles.actionButton,
-                    { backgroundColor: palette.surface, borderColor: palette.border },
-                    !playbackActions.canLocateCurrentSong && styles.actionButtonDisabled,
-                  ]}
-                  onPress={handleLocateCurrentSong}
-                  disabled={!playbackActions.canLocateCurrentSong}
-                  accessibilityRole="button"
-                  accessibilityLabel={playbackActions.locateLabel}
-                >
-                  <Text
-                    style={[
-                      styles.actionText,
-                      {
-                        color: playbackActions.canLocateCurrentSong
-                          ? palette.primary
-                          : palette.textMuted,
-                      },
-                    ]}
-                  >
-                    {playbackActions.locateLabel}
-                  </Text>
-                </Pressable>
-              </>
+            successfulDetail ? (
+              <PlaybackActionButtons
+                show={playbackActions.show}
+                playAllLabel={playbackActions.playAllLabel}
+                playAllCount={songs.length > 0 ? `(${songs.length})` : undefined}
+                shuffleLabel={playbackActions.shuffleLabel}
+                locateLabel={playbackActions.locateLabel}
+                canLocateCurrentSong={playbackActions.canLocateCurrentSong}
+                playAllBusy={pendingAction === "play-all"}
+                shuffleBusy={pendingAction === "shuffle"}
+                onPlayAll={() => {
+                  void handlePlayAll();
+                }}
+                onShuffle={() => {
+                  void handleShufflePlay();
+                }}
+                onLocate={handleLocateCurrentSong}
+              />
             ) : undefined
           }
         />
@@ -316,7 +272,7 @@ export function ArtistDetailScreen({
               {albums.length > 0 ? (
                 <AlbumResultList albums={albums} onPress={onOpenAlbum} />
               ) : (
-                <EmptyState title="暂无专辑" />
+                <EmptyState icon={Disc3} title="暂无专辑" description="该歌手暂时没有可展示的专辑。" />
               )}
             </View>
 
@@ -344,31 +300,10 @@ export function ArtistDetailScreen({
 }
 
 const styles = StyleSheet.create({
-  actionButton: {
-    minWidth: "30%",
-    flexGrow: 1,
-    minHeight: 44,
-    borderRadius: radius.pill,
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    paddingHorizontal: 12,
-  },
-  actionButtonDisabled: {
-    opacity: 0.55,
-  },
-  actionText: {
-    fontSize: typography.body,
-    fontWeight: "600",
-  },
-  primaryActionText: {
-    fontSize: typography.body,
-    fontWeight: "700",
-  },
   section: {
-    marginTop: 8,
-    marginBottom: 20,
-    gap: 12,
+    marginTop: spacing.xs,
+    marginBottom: spacing.l,
+    gap: spacing.s,
   },
   description: {
     fontSize: typography.body,

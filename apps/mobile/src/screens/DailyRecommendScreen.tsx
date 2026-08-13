@@ -1,7 +1,5 @@
 import React, { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -12,21 +10,22 @@ import type { MusicInfo } from "@lx/core";
 import { CachedImage } from "@/components/CachedImage";
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
 import { SectionHeader } from "@/components/SectionHeader";
+import { CalendarDays } from "lucide-react-native";
+
 import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
 import { SongList } from "@/components/SongList";
-import { LoginScreen } from "@/screens/LoginScreen";
 import { useAccountStore } from "@/stores/accountStore";
 import {
   getDailyRecommendSongs,
   type DailyRecommendResult,
 } from "@/services/wyPlaylistService";
 import { playQueue, playShuffledQueue } from "@/services/playerService";
+import { ActionButton } from "@/components/ActionButton";
 import { runPlaybackUiAction } from "@/services/playbackUiAction";
-import { buildScreenTheme } from "@/services/screenThemeModel";
 import { buildDailyRecommendMeta } from "@/services/dailyRecommendMetaModel";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { radius, touch, typography } from "@/theme/tokens";
+import { radius, spacing, touch, typography } from "@/theme/tokens";
 
 interface DailyRecommendScreenProps {
   onNavigateToPlayer: () => void;
@@ -44,7 +43,6 @@ export function DailyRecommendScreen({
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor);
   const styles = makeStyles(palette);
-  const screenTheme = buildScreenTheme(palette);
   const dailyMeta = buildDailyRecommendMeta();
 
   const [songs, setSongs] = useState<MusicInfo[]>([]);
@@ -53,7 +51,6 @@ export function DailyRecommendScreen({
   const [error, setError] = useState<string | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [showLoginModal, setShowLoginModal] = useState(false);
   const dailyCoverUrl = songs[0]?.img || songs[0]?.picUrl;
 
   useEffect(() => {
@@ -136,7 +133,6 @@ export function DailyRecommendScreen({
       setPlaybackError(result.message);
       return;
     }
-    onNavigateToPlayer();
   };
 
   const handlePlay = async (_song: MusicInfo, index: number) => {
@@ -166,7 +162,7 @@ export function DailyRecommendScreen({
           style={styles.backButton}
           onPress={onBack}
         >
-          <Text style={[styles.backText, { color: screenTheme.primaryBackground }]}>返回</Text>
+          <Text style={[styles.backText, { color: palette.primary }]}>返回</Text>
         </Pressable>
 
         <View style={styles.header}>
@@ -176,41 +172,40 @@ export function DailyRecommendScreen({
             style={styles.cover}
             fallback={
               <View
-                style={[styles.cover, styles.coverFallback, { backgroundColor: screenTheme.cardBackground }]}
+                style={[styles.cover, styles.coverFallback, { backgroundColor: palette.surface }]}
               >
-                <Text style={[styles.coverFallbackText, { color: screenTheme.primaryBackground }]}>推荐</Text>
+                <Text style={[styles.coverFallbackText, { color: palette.primary }]}>推荐</Text>
               </View>
             }
           />
         ) : (
-          <View style={[styles.cover, styles.coverFallback, { backgroundColor: screenTheme.cardBackground }]}>
-            <Text style={[styles.coverFallbackText, { color: screenTheme.primaryBackground }]}>推荐</Text>
+          <View style={[styles.cover, styles.coverFallback, { backgroundColor: palette.surface }]}>
+            <Text style={[styles.coverFallbackText, { color: palette.primary }]}>推荐</Text>
           </View>
         )}
         <View style={styles.headerText}>
-          <Text style={[styles.title, { color: screenTheme.titleText }]}>{dailyMeta.title}</Text>
-          <Text style={[styles.subtitle, { color: screenTheme.bodyText }]}>{isLoggedIn ? dailyMeta.subtitle : "登录网易云后查看今日推荐。"}</Text>
+          <Text style={[styles.title, { color: palette.text }]}>{dailyMeta.title}</Text>
+          <Text style={[styles.subtitle, { color: palette.textMuted }]}>{isLoggedIn ? dailyMeta.subtitle : "登录网易云后查看今日推荐。"}</Text>
         </View>
         </View>
 
         {isLoggedIn && songs.length > 0 && (
           <View style={styles.actions}>
-          <Pressable
-            accessibilityRole="button"
+          <ActionButton
+            shrink
+            small
+            variant="primary"
             accessibilityLabel="播放全部每日推荐"
-            style={[styles.actionButton, { backgroundColor: screenTheme.primaryBackground, borderColor: screenTheme.primaryBackground }]}
             onPress={handlePlayAll}
-          >
-            <Text style={[styles.primaryActionText, { color: screenTheme.primaryText }]}>播放全部</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
+            label="播放全部"
+          />
+          <ActionButton
+            shrink
+            small
             accessibilityLabel="随机播放每日推荐"
-            style={[styles.actionButton, { backgroundColor: screenTheme.cardBackground, borderColor: screenTheme.cardBorder }]}
             onPress={handleShufflePlay}
-          >
-            <Text style={[styles.actionText, { color: screenTheme.titleText }]}>随机播放</Text>
-          </Pressable>
+            label="随机播放"
+          />
           </View>
         )}
 
@@ -219,19 +214,14 @@ export function DailyRecommendScreen({
             title="歌曲列表"
             description={`${songs.length} 首${hasMore ? "，还有更多" : ""}`}
             action={(
-              <Pressable
-                accessibilityRole="button"
+              <ActionButton
+                small
                 accessibilityLabel="刷新每日推荐"
                 onPress={handleRefresh}
-                disabled={loading || refreshing}
-                style={[styles.refreshButton, { backgroundColor: screenTheme.cardBackground, borderColor: screenTheme.cardBorder }]}
-              >
-                {refreshing ? (
-                  <ActivityIndicator color={screenTheme.primaryBackground} size="small" />
-                ) : (
-                  <Text style={[styles.refreshText, { color: screenTheme.primaryBackground }]}>刷新</Text>
-                )}
-              </Pressable>
+                loading={refreshing}
+                disabled={loading}
+                label="刷新"
+              />
             )}
             style={styles.listHeader}
           />
@@ -241,46 +231,18 @@ export function DailyRecommendScreen({
           <View style={styles.stateWithAction}>
             <EmptyState
               title="未登录网易云账号"
-              description="当前页面需要登录态才能拉取每日推荐。"
+              description="请在 设置 → 账号与服务 登录网易云账号后查看每日推荐。"
             />
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="登录网易云账号"
-              style={[styles.primaryButton, { backgroundColor: screenTheme.primaryBackground }]}
-              onPress={() => setShowLoginModal(true)}
-            >
-              <Text style={[styles.primaryButtonText, { color: screenTheme.primaryText }]}>登录账号</Text>
-            </Pressable>
           </View>
         )}
 
-        <Modal
-        visible={showLoginModal}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowLoginModal(false)}
-      >
-        <View style={[styles.modalContainer, { backgroundColor: screenTheme.strongBackground }]}>
-          <View style={styles.modalHeader}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="关闭登录窗口"
-              style={styles.modalCloseButton}
-              onPress={() => setShowLoginModal(false)}
-            >
-              <Text style={[styles.modalClose, { color: screenTheme.titleText }]}>关闭</Text>
-            </Pressable>
-          </View>
-          <LoginScreen onSuccess={() => setShowLoginModal(false)} />
-        </View>
-        </Modal>
 
         {loading && <LoadingState label="正在加载每日推荐" />}
 
         {!!error && !loading && <ErrorState message={error} onRetry={() => void handleRefresh()} />}
 
         {!loading && isLoggedIn && !error && songs.length === 0 && (
-          <EmptyState title="今天还没有推荐歌曲" description="稍后刷新再试。" />
+          <EmptyState icon={CalendarDays} title="今天还没有推荐歌曲" description="稍后刷新再试。" />
         )}
 
         {!loading && isLoggedIn && songs.length > 0 && (
@@ -296,7 +258,7 @@ export function DailyRecommendScreen({
 function makeStyles(palette: ReturnType<typeof getThemePalette>) {
   return StyleSheet.create({
   container: {
-    gap: 16,
+    gap: spacing.l,
   },
   backButton: {
     minHeight: touch.minTarget,
@@ -313,8 +275,8 @@ function makeStyles(palette: ReturnType<typeof getThemePalette>) {
   header: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 20,
-    gap: 14,
+    marginBottom: spacing.l,
+    gap: spacing.s,
   },
   cover: {
     width: 96,
@@ -345,89 +307,17 @@ function makeStyles(palette: ReturnType<typeof getThemePalette>) {
   },
   actions: {
     flexDirection: "row",
-    gap: 12,
-    marginBottom: 16,
-  },
-  actionButton: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: radius.pill,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: palette.surface,
-    borderWidth: 1,
-    borderColor: palette.border,
-  },
-  actionText: {
-    fontSize: typography.body,
-    color: palette.text,
-    fontWeight: "600",
-  },
-  primaryActionText: {
-    fontSize: typography.body,
-    color: palette.primaryText,
-    fontWeight: "700",
+    gap: spacing.xs,
+    marginBottom: spacing.m,
   },
   listHeader: {
     marginTop: 4,
   },
-  refreshButton: {
-    marginLeft: "auto",
-    minWidth: 68,
-    minHeight: touch.minTarget,
-    paddingHorizontal: 16,
-    borderRadius: radius.xl,
-    backgroundColor: palette.surface,
-    borderWidth: 1,
-    borderColor: palette.border,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  refreshText: {
-    fontSize: typography.meta,
-    fontWeight: "600",
-    color: palette.primary,
-  },
   section: {
-    marginBottom: 20,
+    marginBottom: spacing.l,
   },
   stateWithAction: {
     gap: 8,
-  },
-  primaryButton: {
-    minHeight: 48,
-    borderRadius: radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: palette.primary,
-    paddingHorizontal: 20,
-    alignSelf: "stretch",
-    marginTop: 8,
-  },
-  primaryButtonText: {
-    fontSize: typography.body,
-    fontWeight: "700",
-    color: palette.primaryText,
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: palette.background,
-  },
-  modalHeader: {
-    alignItems: "flex-end",
-    paddingHorizontal: 20,
-    paddingTop: 16,
-  },
-  modalCloseButton: {
-    minHeight: touch.minTarget,
-    minWidth: touch.minTarget,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  modalClose: {
-    fontSize: typography.body,
-    fontWeight: "600",
-    color: palette.text,
   },
   });
 }

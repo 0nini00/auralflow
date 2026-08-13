@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -9,19 +8,21 @@ import {
 } from "react-native";
 import type { MusicInfo } from "@lx/core";
 
+import { ActionButton } from "@/components/ActionButton";
 import { CachedImage } from "@/components/CachedImage";
 import { AddToLocalPlaylistModal } from "@/components/AddToLocalPlaylistModal";
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
 import { SectionHeader } from "@/components/SectionHeader";
+import { SongList } from "@/components/SongList";
+import { Radio } from "lucide-react-native";
+
 import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
-import { LoginScreen } from "@/screens/LoginScreen";
 import { useAccountStore } from "@/stores/accountStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import { usePlaylistStore } from "@/stores/playlistStore";
 import { buildPersonalFmSongActions } from "@/services/currentSongActions";
 import { buildPersonalFmMeta } from "@/services/personalFmMetaModel";
 import { shouldShowNestedBackButton } from "@/services/appNavigation";
-import { buildScreenTheme } from "@/services/screenThemeModel";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import {
   dislikeCurrentPersonalFmSong,
@@ -29,7 +30,7 @@ import {
   startPersonalFm,
 } from "@/services/playerService";
 import { getPersonalFmSongs } from "@/services/wyPlaylistService";
-import { radius, touch, typography } from "@/theme/tokens";
+import { radius, spacing, touch, typography } from "@/theme/tokens";
 
 interface PersonalFmScreenProps {
   onNavigateToPlayer: () => void;
@@ -45,7 +46,6 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor);
   const styles = makeStyles(palette);
-  const screenTheme = buildScreenTheme(palette);
 
   const currentSong = usePlayerStore((state) => state.currentSong);
   const playbackContext = usePlayerStore((state) => state.playbackContext);
@@ -60,7 +60,6 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
   const [previewSongs, setPreviewSongs] = useState<MusicInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showLoginModal, setShowLoginModal] = useState(false);
   const [starting, setStarting] = useState(false);
   const [skipping, setSkipping] = useState(false);
   const [disliking, setDisliking] = useState(false);
@@ -69,7 +68,10 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
 
   const isFmPlaying = playbackContext.type === "personalFm" && !!currentSong;
   const fmSongs = playbackContext.type === "personalFm"
-    ? playbackContext.currentBatch.slice(playbackContext.currentBatchIndex)
+    ? [
+        ...playbackContext.currentBatch.slice(playbackContext.currentBatchIndex),
+        ...playbackContext.buffer,
+      ]
     : previewSongs;
 
   const loadPreviewSongs = useCallback(async (isMounted: () => boolean = () => true) => {
@@ -153,6 +155,12 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
     void loadPreviewSongs();
   };
 
+  const handleFmSongPress = (_song: MusicInfo, index: number) => {
+    if (isFmPlaying && index === 0) {
+      void handleTogglePlay();
+    }
+  };
+
   const handleNext = async () => {
     setSkipping(true);
     setError(null);
@@ -215,7 +223,7 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
             style={styles.backButton}
             onPress={onBack}
           >
-            <Text style={[styles.backText, { color: screenTheme.primaryBackground }]}>返回</Text>
+            <Text style={[styles.backText, { color: palette.primary }]}>返回</Text>
           </Pressable>
         ) : null}
 
@@ -223,142 +231,93 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
 
         {!isLoggedIn && !loading && (
           <View style={styles.stateWithAction}>
-            <EmptyState title="未登录网易云账号" description="私人 FM 依赖网易云登录态。" />
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="登录网易云账号"
-              style={[styles.primaryButton, { backgroundColor: screenTheme.primaryBackground }]}
-              onPress={() => setShowLoginModal(true)}
-            >
-              <Text style={[styles.primaryButtonText, { color: screenTheme.primaryText }]}>登录账号</Text>
-            </Pressable>
+            <EmptyState
+              title="未登录网易云账号"
+              description="请在 设置 → 账号与服务 登录网易云账号后使用私人 FM。"
+            />
           </View>
         )}
-
-        <Modal
-        visible={showLoginModal}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowLoginModal(false)}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="关闭登录窗口"
-              style={styles.modalCloseButton}
-              onPress={() => setShowLoginModal(false)}
-            >
-              <Text style={styles.modalClose}>关闭</Text>
-            </Pressable>
-          </View>
-          <LoginScreen onSuccess={() => setShowLoginModal(false)} />
-        </View>
-        </Modal>
 
         {loading && <LoadingState label="正在加载私人 FM" />}
 
         {!!error && !loading && <ErrorState message={error} onRetry={handleRetry} />}
 
         {!loading && isLoggedIn && activeSong && (
-        <View style={[styles.hero, { backgroundColor: screenTheme.cardBackground }]}>
+        <View style={[styles.hero, { backgroundColor: palette.surface }]}>
           {artwork ? (
             <CachedImage
               uri={artwork}
               style={styles.artwork}
               fallback={
-                <View style={[styles.artwork, styles.artworkFallback, { backgroundColor: screenTheme.strongBackground }]}>
-                  <Text style={[styles.artworkFallbackText, { color: screenTheme.primaryBackground }]}>FM</Text>
+                <View style={[styles.artwork, styles.artworkFallback, { backgroundColor: palette.surfaceStrong }]}>
+                  <Text style={[styles.artworkFallbackText, { color: palette.primary }]}>FM</Text>
                 </View>
               }
             />
           ) : (
-            <View style={[styles.artwork, styles.artworkFallback, { backgroundColor: screenTheme.strongBackground }]}>
-              <Text style={[styles.artworkFallbackText, { color: screenTheme.primaryBackground }]}>FM</Text>
+            <View style={[styles.artwork, styles.artworkFallback, { backgroundColor: palette.surfaceStrong }]}>
+              <Text style={[styles.artworkFallbackText, { color: palette.primary }]}>FM</Text>
             </View>
           )}
 
           <View style={styles.songInfo}>
-            <Text style={[styles.songName, { color: screenTheme.titleText }]} numberOfLines={1}>{activeSong.name}</Text>
-            <Text style={[styles.artistName, { color: screenTheme.bodyText }]} numberOfLines={1}>{activeSong.singer || "未知艺术家"}</Text>
-            <Text style={[styles.albumName, { color: screenTheme.subtleText }]} numberOfLines={1}>{activeSong.albumName || "未知专辑"}</Text>
+            <Text style={[styles.songName, { color: palette.text }]} numberOfLines={1}>{activeSong.name}</Text>
+            <Text style={[styles.artistName, { color: palette.textMuted }]} numberOfLines={1}>{activeSong.singer || "未知艺术家"}</Text>
+            <Text style={[styles.albumName, { color: palette.textSubtle }]} numberOfLines={1}>{activeSong.albumName || "未知专辑"}</Text>
           </View>
 
           <View style={styles.actions}>
             {fmSongActions.show && (
               <View style={styles.secondaryActionsRow}>
-                <Pressable
-                  accessibilityRole="button"
+                <ActionButton
+                  shrink
+                  small
+                  variant={isLiked ? "primary" : "secondary"}
+                  label={fmSongActions.likeLabel}
+                  loading={liking}
+                  onPress={() => void handleLike()}
                   accessibilityLabel={fmSongActions.likeLabel}
-                  style={[
-                    styles.secondaryActionButton,
-                    { backgroundColor: screenTheme.mutedBackground, borderColor: screenTheme.cardBorder },
-                    isLiked && { backgroundColor: screenTheme.strongBackground, borderColor: screenTheme.primaryBackground },
-                  ]}
-                  onPress={handleLike}
-                  disabled={liking}
-                >
-                  {liking ? (
-                    <ActivityIndicator color={screenTheme.primaryBackground} size="small" />
-                  ) : (
-                    <Text style={[styles.secondaryActionText, { color: isLiked ? screenTheme.primaryBackground : screenTheme.primaryBackground }]}>
-                      {fmSongActions.likeLabel}
-                    </Text>
-                  )}
-                </Pressable>
+                />
 
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={fmSongActions.addToPlaylistLabel}
-                  style={[styles.secondaryActionButton, { backgroundColor: screenTheme.mutedBackground, borderColor: screenTheme.cardBorder }]}
+                <ActionButton
+                  shrink
+                  small
+                  variant="secondary"
+                  label={fmSongActions.addToPlaylistLabel}
                   onPress={() => setAddToPlaylistVisible(true)}
-                >
-                  <Text style={[styles.secondaryActionText, { color: screenTheme.primaryBackground }]}>{fmSongActions.addToPlaylistLabel}</Text>
-                </Pressable>
+                  accessibilityLabel={fmSongActions.addToPlaylistLabel}
+                />
               </View>
             )}
 
-            <Pressable
-              accessibilityRole="button"
+            <ActionButton
+              grow
+              variant="primary"
+              label={isFmPlaying ? (isPlaying ? "暂停" : "继续") : "开始 FM"}
+              loading={starting || playerLoading}
+              onPress={() => void handleTogglePlay()}
               accessibilityLabel={isFmPlaying ? (isPlaying ? "暂停私人 FM" : "继续私人 FM") : "开始私人 FM"}
-              style={[styles.actionButton, { backgroundColor: screenTheme.primaryBackground, borderColor: screenTheme.primaryBackground }]}
-              onPress={handleTogglePlay}
-              disabled={starting || playerLoading}
-            >
-              {starting || playerLoading ? (
-                <ActivityIndicator color={screenTheme.primaryText} size="small" />
-              ) : (
-                <Text style={[styles.primaryActionText, { color: screenTheme.primaryText }]}>{isFmPlaying ? (isPlaying ? "暂停" : "继续") : "开始 FM"}</Text>
-              )}
-            </Pressable>
+            />
 
-            <Pressable
-              accessibilityRole="button"
+            <ActionButton
+              grow
+              variant="secondary"
+              label="下一首"
+              loading={skipping}
+              disabled={starting || disliking || (!isFmPlaying && previewSongs.length === 0)}
+              onPress={() => void handleNext()}
               accessibilityLabel="播放下一首私人 FM"
-              style={[styles.actionButton, { backgroundColor: screenTheme.mutedBackground, borderColor: screenTheme.cardBorder }]}
-              onPress={handleNext}
-              disabled={starting || skipping || disliking || (!isFmPlaying && previewSongs.length === 0)}
-            >
-              {skipping ? (
-                <ActivityIndicator color={screenTheme.primaryBackground} size="small" />
-              ) : (
-                <Text style={[styles.actionText, { color: screenTheme.titleText }]}>下一首</Text>
-              )}
-            </Pressable>
+            />
 
-            <Pressable
-              accessibilityRole="button"
+            <ActionButton
+              grow
+              variant="danger"
+              label="不喜欢"
+              loading={disliking}
+              disabled={starting || skipping || (!isFmPlaying && previewSongs.length === 0)}
+              onPress={() => void handleDislike()}
               accessibilityLabel="不喜欢当前私人 FM 歌曲"
-              style={[styles.actionButton, { backgroundColor: screenTheme.mutedBackground, borderColor: screenTheme.cardBorder }]}
-              onPress={handleDislike}
-              disabled={starting || skipping || disliking || (!isFmPlaying && previewSongs.length === 0)}
-            >
-              {disliking ? (
-                <ActivityIndicator color={screenTheme.dangerText} size="small" />
-              ) : (
-                <Text style={[styles.dislikeText, { color: screenTheme.dangerText }]}>不喜欢</Text>
-              )}
-            </Pressable>
+            />
           </View>
         </View>
         )}
@@ -372,25 +331,21 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
         )}
 
         {!loading && isLoggedIn && !error && fmSongs.length === 0 && (
-          <EmptyState title="暂无可用 FM" description="稍后重试。" />
+          <EmptyState icon={Radio} title="暂无可用 FM" description="暂时没有可播放的歌曲，稍后刷新再试。" />
         )}
 
         {!loading && isLoggedIn && fmSongs.length > 0 && (
           <View style={styles.section}>
             <SectionHeader title={isFmPlaying ? "接下来" : "当前推荐"} />
-            <View style={styles.list}>
-              {fmSongs.slice(0, 6).map((song, index) => (
-                <View key={`${song.source}-${song.id}-${index}`} style={[styles.songRow, { backgroundColor: screenTheme.cardBackground }]}>
-                  <View style={styles.songMeta}>
-                    <Text style={[styles.rowSongName, { color: screenTheme.titleText }]} numberOfLines={1}>{song.name}</Text>
-                    <Text style={[styles.rowArtistName, { color: screenTheme.bodyText }]} numberOfLines={1}>
-                      {song.singer || "未知艺术家"}
-                    </Text>
-                  </View>
-                  {isFmPlaying && index === 0 ? <Text style={[styles.playingTag, { color: screenTheme.primaryBackground }]}>播放中</Text> : null}
-                </View>
-              ))}
-            </View>
+            <SongList
+              songs={fmSongs}
+              onPlay={handleFmSongPress}
+              highlightedIndex={isFmPlaying ? 0 : null}
+              hideSourceTag
+              showLikeAction={false}
+              showMoreAction={false}
+              isSongPressable={(_song, index) => isFmPlaying && index === 0}
+            />
           </View>
         )}
       </ScreenScrollView>
@@ -401,7 +356,7 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
 function makeStyles(palette: ReturnType<typeof getThemePalette>) {
   return StyleSheet.create({
   container: {
-    gap: 16,
+    gap: spacing.l,
   },
   backButton: {
     minHeight: touch.minTarget,
@@ -417,9 +372,9 @@ function makeStyles(palette: ReturnType<typeof getThemePalette>) {
   },
   hero: {
     backgroundColor: palette.surface,
-    borderRadius: radius.sm,
-    padding: 16,
-    gap: 16,
+    borderRadius: radius.md,
+    padding: spacing.m,
+    gap: spacing.m,
   },
   artwork: {
     width: "100%",
@@ -453,120 +408,17 @@ function makeStyles(palette: ReturnType<typeof getThemePalette>) {
     color: palette.textSubtle,
   },
   actions: {
-    gap: 12,
+    gap: spacing.s,
   },
   secondaryActionsRow: {
     flexDirection: "row",
-    gap: 10,
-  },
-  secondaryActionButton: {
-    flex: 1,
-    minHeight: touch.minTarget,
-    borderRadius: radius.pill,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: palette.background,
-    borderWidth: 1,
-    borderColor: palette.border,
-    paddingHorizontal: 12,
-  },
-  secondaryActionText: {
-    fontSize: typography.body,
-    fontWeight: "700",
-    color: palette.primary,
-  },
-  actionButton: {
-    minHeight: 48,
-    borderRadius: radius.pill,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: palette.background,
-    borderWidth: 1,
-    borderColor: palette.border,
-    paddingHorizontal: 16,
-  },
-  actionText: {
-    fontSize: typography.body,
-    fontWeight: "600",
-    color: palette.text,
-  },
-  primaryButton: {
-    minHeight: 48,
-    borderRadius: radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: palette.primary,
-    paddingHorizontal: 20,
-    alignSelf: "stretch",
-  },
-  primaryButtonText: {
-    fontSize: typography.body,
-    fontWeight: "700",
-    color: palette.primaryText,
-  },
-  primaryActionText: {
-    fontSize: typography.body,
-    fontWeight: "700",
-    color: palette.primaryText,
-  },
-  dislikeText: {
-    fontSize: typography.body,
-    fontWeight: "600",
+    gap: spacing.xs,
   },
   stateWithAction: {
     gap: 8,
   },
   section: {
-    gap: 12,
-  },
-  list: {
-    gap: 8,
-  },
-  songRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    padding: 12,
-    borderRadius: radius.sm,
-    backgroundColor: palette.surface,
-  },
-  songMeta: {
-    flex: 1,
-    gap: 4,
-  },
-  rowSongName: {
-    fontSize: typography.body,
-    fontWeight: "600",
-    color: palette.text,
-  },
-  rowArtistName: {
-    fontSize: typography.meta,
-    color: palette.textMuted,
-  },
-  playingTag: {
-    fontSize: typography.caption,
-    fontWeight: "600",
-    color: palette.primary,
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: palette.background,
-  },
-  modalHeader: {
-    alignItems: "flex-end",
-    paddingHorizontal: 20,
-    paddingTop: 16,
-  },
-  modalCloseButton: {
-    minHeight: touch.minTarget,
-    minWidth: touch.minTarget,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  modalClose: {
-    fontSize: typography.body,
-    fontWeight: "600",
-    color: palette.text,
+    gap: spacing.s,
   },
   });
 }

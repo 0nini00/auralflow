@@ -61,7 +61,6 @@ export async function requestAudioPermission(): Promise<boolean> {
     const requestResult = await request(permission);
     return requestResult === RESULTS.GRANTED;
   } catch (error) {
-    console.error("Request audio permission error:", error);
     return false;
   }
 }
@@ -89,47 +88,47 @@ export async function scanLocalMusic(): Promise<MusicInfo[]> {
     );
   }
 
-  const songs = await nativeLocalMusicModule.scanLocalMusic();
-  return mapNativeLocalSongs(songs);
-}
-
-/**
- * 打开系统文件选择器，手动挑选音频文件加入本地曲库（对齐桌面端「添加文件」）。
- * 用户取消时返回空数组。
- */
-export async function pickLocalAudioFiles(): Promise<MusicInfo[]> {
-  if (Platform.OS !== "android") {
-    return [];
-  }
-
-  if (!nativeLocalMusicModule || typeof nativeLocalMusicModule.pickLocalAudioFiles !== "function") {
-    throw new Error(
-      "Android 本地音乐原生模块未注册（pickLocalAudioFiles 缺失）。请重新编译原生工程后再试。",
-    );
-  }
-
-  const songs = await nativeLocalMusicModule.pickLocalAudioFiles();
-  return mapNativeLocalSongs(Array.isArray(songs) ? songs : []);
-}
-
-function mapNativeLocalSongs(songs: NativeLocalSong[]): MusicInfo[] {
-  return songs.map((song) => {
-    const filePath = song.filePath || song.contentUri || "";
-    const cover = song.albumArtUri || undefined;
-
-    return {
-      id: song.id,
-      name: song.title,
-      singer: song.artist || "未知艺术家",
-      albumName: song.album || "未知专辑",
-      source: "local",
-      interval: Math.max(0, Math.round(song.duration / 1000)),
-      url: getLocalMusicUrl(filePath),
-      picUrl: cover,
-      img: cover,
-      isLocal: true,
-    } satisfies MusicInfo;
-  });
+  const songs = await nativeLocalMusicModule.scanLocalMusic();
+  return mapNativeLocalSongs(songs);
+}
+
+/**
+ * 打开系统文件选择器，手动挑选音频文件加入本地曲库（对齐桌面端「添加文件」）。
+ * 用户取消时返回空数组。
+ */
+export async function pickLocalAudioFiles(): Promise<MusicInfo[]> {
+  if (Platform.OS !== "android") {
+    return [];
+  }
+
+  if (!nativeLocalMusicModule || typeof nativeLocalMusicModule.pickLocalAudioFiles !== "function") {
+    throw new Error(
+      "Android 本地音乐原生模块未注册（pickLocalAudioFiles 缺失）。请重新编译原生工程后再试。",
+    );
+  }
+
+  const songs = await nativeLocalMusicModule.pickLocalAudioFiles();
+  return mapNativeLocalSongs(Array.isArray(songs) ? songs : []);
+}
+
+function mapNativeLocalSongs(songs: NativeLocalSong[]): MusicInfo[] {
+  return songs.map((song) => {
+    const filePath = song.filePath || song.contentUri || "";
+    const cover = song.albumArtUri || undefined;
+
+    return {
+      id: song.id,
+      name: song.title,
+      singer: song.artist || "未知艺术家",
+      albumName: song.album || "未知专辑",
+      source: "local",
+      interval: Math.max(0, Math.round(song.duration / 1000)),
+      url: getLocalMusicUrl(filePath),
+      picUrl: cover,
+      img: cover,
+      isLocal: true,
+    } satisfies MusicInfo;
+  });
 }
 
 /**

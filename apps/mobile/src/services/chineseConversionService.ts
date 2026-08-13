@@ -50,7 +50,6 @@ export function getChineseConverter(mode: ChineseConversionMode): ConverterFn {
 export function convertChineseText(text: string, mode: ChineseConversionMode): string {
   if (mode === "off" || !text) return text;
   // 纯 ASCII 无需转换（含大量英文歌词的场景常见，规避词典查找）
-  // eslint-disable-next-line no-control-regex
   if (/^[\x00-\x7F]*$/.test(text)) return text;
   return getChineseConverter(mode)(text);
 }

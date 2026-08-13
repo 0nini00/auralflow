@@ -8,20 +8,29 @@ import {
   clearDownloadedFiles,
   downloadSong,
   getDownloadedFileSize,
+  isDownloadPaused,
   loadDownloads,
+  pauseDownload,
   removeDownloadedByPath,
   removeDownloadedFile,
+  resumeDownload,
   saveDownloads,
 } from "@/services/downloadService";
+import { usePlaybackSettingsStore } from "@/stores/playbackSettingsStore";
 
 /** 重新导出音质类型，供组件使用 */
 export type { DownloadQuality };
+
+export type DownloadSongResult = {
+  status: "completed" | "skipped" | "failed" | "cancelled" | "inProgress";
+  error?: string;
+};
 
 /**
  * 下载管理 Store
  */
 
-/** 进行中的下载项 */
+/** 进行中的下载项（含排队等待与暂停状态） */
 export interface DownloadingItem {
   song: MusicInfo;
   quality: DownloadQuality;
@@ -29,6 +38,10 @@ export interface DownloadingItem {
   progress: number;
   bytesWritten: number;
   contentLength: number;
+  /** 下载速度（字节/秒），进行中实时更新 */
+  speed: number;
+  /** waiting: 排队未开始 | downloading: 下载中 | paused: 已暂停可继续 */
+  status: "waiting" | "downloading" | "paused";
   error?: string;
 }
 
@@ -53,10 +66,14 @@ interface DownloadState {
 interface DownloadActions {
   /** 从持久化存储加载已下载列表 */
   loadDownloads: () => Promise<void>;
-  /** 触发下载（编排：进入 downloading -> 下载 -> 落入 downloads） */
-  downloadSong: (song: MusicInfo, quality?: DownloadQuality) => Promise<void>;
+  /** 触发下载（编排：进入 waiting -> 串行队列下载 -> 落入 downloads） */
+  downloadSong: (song: MusicInfo, quality?: DownloadQuality) => Promise<DownloadSongResult>;
   /** 取消某首歌的下载 */
   cancelDownload: (song: MusicInfo, quality?: DownloadQuality) => void;
+  /** 暂停某首歌的下载（可继续） */
+  pauseDownload: (song: MusicInfo, quality?: DownloadQuality) => void;
+  /** 继续已暂停的下载 */
+  resumeDownload: (song: MusicInfo, quality?: DownloadQuality) => void;
   /** 新增一条已下载记录 */
   addDownload: (song: MusicInfo, localPath: string, quality?: DownloadQuality) => Promise<void>;
   /** 删除某条已下载文件 */
@@ -70,6 +87,15 @@ interface DownloadActions {
 }
 
 type DownloadStore = DownloadState & DownloadActions;
+
+const cancellationRequests = new Set<string>();
+let downloadsMutationQueue: Promise<void> = Promise.resolve();
+
+function queueDownloadsMutation(mutation: () => Promise<void>): Promise<void> {
+  const result = downloadsMutationQueue.then(mutation, mutation);
+  downloadsMutationQueue = result.catch(() => undefined);
+  return result;
+}
 
 function songKey(song: MusicInfo): string {
   return `${song.source}:${song.id}`;
@@ -114,29 +140,34 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
       const items = await loadDownloads();
       set({ downloads: sortByDateDesc(items), loading: false });
     } catch (error) {
-      console.error("Load downloads error:", error);
       set({ loading: false, error: error instanceof Error ? error.message : "加载下载记录失败" });
     }
   },
 
-  downloadSong: async (song: MusicInfo, quality: DownloadQuality = "320k") => {
+  downloadSong: async (song: MusicInfo, requestedQuality?: DownloadQuality) => {
+    const quality = requestedQuality ?? usePlaybackSettingsStore.getState().defaultQuality;
     const key = downloadKey(song, quality);
 
     // 已下载则跳过
-    if (get().downloads.some((item) => itemDownloadKey(item) === key)) return;
+    if (get().downloads.some((item) => itemDownloadKey(item) === key)) {
+      return { status: "skipped" };
+    }
     // 已在下载中则跳过
-    if (get().downloading.some((item) => downloadKey(item.song, item.quality) === key)) return;
+    if (get().downloading.some((item) => downloadKey(item.song, item.quality) === key)) {
+      return { status: "inProgress" };
+    }
 
-    // 进入 downloading
+    // 进入 waiting（串行队列排队），等待前序任务完成后自动转 downloading
     set((state) => ({
       downloading: [
         ...state.downloading,
-        { song, quality, progress: 0, bytesWritten: 0, contentLength: 0 },
+        { song, quality, progress: 0, bytesWritten: 0, contentLength: 0, speed: 0, status: "waiting" },
       ],
       failedDownloads: state.failedDownloads.filter((item) => failedDownloadKey(item) !== key),
       error: null,
     }));
 
+    let fileDownloaded = false;
     try {
       const localPath = await downloadSong(
         song,
@@ -145,6 +176,7 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
         },
         quality,
       );
+      fileDownloaded = true;
 
       // 下载完成：落入 downloads，移出 downloading
       await get().addDownload(song, localPath, quality);
@@ -152,9 +184,32 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
         downloading: state.downloading.filter((item) => downloadKey(item.song, item.quality) !== key),
         failedDownloads: state.failedDownloads.filter((item) => failedDownloadKey(item) !== key),
       }));
+      cancellationRequests.delete(key);
+      return { status: "completed" };
     } catch (error) {
-      const message = error instanceof Error ? error.message : "下载失败";
-      // 失败/取消：移出 downloading，并记录错误
+      const cause = error instanceof Error ? error.message : fileDownloaded ? "未知错误" : "下载失败";
+      const message = fileDownloaded ? `文件已下载，但记录保存失败：${cause}` : cause;
+      // 暂停引发的 rejection（stopDownload / 出队「已取消」）：保持 paused 状态，不记失败、不移出
+      if (!fileDownloaded && isDownloadPaused(song, quality)) {
+        set((state) => ({
+          downloading: state.downloading.map((item) =>
+            downloadKey(item.song, item.quality) === key
+              ? { ...item, status: "paused" as const }
+              : item
+          ),
+        }));
+        return { status: "inProgress" };
+      }
+      const cancellationRequested = cancellationRequests.delete(key);
+      const isCancelled = !fileDownloaded && (cancellationRequested || /cancel|取消/i.test(message));
+      if (isCancelled) {
+        // 取消：仅移出 downloading，不记失败、不设 error
+        set((state) => ({
+          downloading: state.downloading.filter((item) => downloadKey(item.song, item.quality) !== key),
+        }));
+        return { status: "cancelled" };
+      }
+      // 失败：移出 downloading，并记录错误
       set((state) => ({
         downloading: state.downloading.filter((item) => downloadKey(item.song, item.quality) !== key),
         failedDownloads: [
@@ -163,15 +218,65 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
         ],
         error: message,
       }));
-      console.error("Download song error:", error);
+      return { status: "failed", error: message };
     }
+  },
+
+  pauseDownload: (song: MusicInfo, quality?: DownloadQuality) => {
+    const targetQuality = quality ?? normalizeDownloadQuality(song.quality);
+    if (targetQuality) {
+      const key = downloadKey(song, targetQuality);
+      pauseDownload(song, targetQuality);
+      set((state) => ({
+        downloading: state.downloading.map((item) =>
+          downloadKey(item.song, item.quality) === key
+            ? { ...item, status: "paused" as const }
+            : item
+        ),
+      }));
+      return;
+    }
+    const key = songKey(song);
+    get().downloading.forEach((item) => {
+      if (songKey(item.song) === key) pauseDownload(item.song, item.quality);
+    });
+    set((state) => ({
+      downloading: state.downloading.map((item) =>
+        songKey(item.song) === key ? { ...item, status: "paused" as const } : item
+      ),
+    }));
+  },
+
+  resumeDownload: (song: MusicInfo, quality?: DownloadQuality) => {
+    const targetQuality = quality ?? normalizeDownloadQuality(song.quality);
+    if (targetQuality) {
+      const key = downloadKey(song, targetQuality);
+      // 标记为可续传（service 层）
+      resumeDownload(song, targetQuality);
+      // 先把 paused 项移出，再重新入队（downloadSong 会对已存在的 downloading 去重）
+      set((state) => ({
+        downloading: state.downloading.filter((item) => downloadKey(item.song, item.quality) !== key),
+      }));
+      void get().downloadSong(song, targetQuality);
+      return;
+    }
+    const key = songKey(song);
+    const pausedItems = get().downloading.filter((item) => songKey(item.song) === key);
+    pausedItems.forEach((item) => resumeDownload(item.song, item.quality));
+    set((state) => ({
+      downloading: state.downloading.filter((item) => songKey(item.song) !== key),
+    }));
+    pausedItems.forEach((item) => void get().downloadSong(item.song, item.quality));
   },
 
   cancelDownload: (song: MusicInfo, quality?: DownloadQuality) => {
     const targetQuality = quality ?? normalizeDownloadQuality(song.quality);
-    cancelDownload(song, targetQuality);
     if (targetQuality) {
       const key = downloadKey(song, targetQuality);
+      if (get().downloading.some((item) => downloadKey(item.song, item.quality) === key)) {
+        cancellationRequests.add(key);
+      }
+      cancelDownload(song, targetQuality);
       set((state) => ({
         downloading: state.downloading.filter((item) => downloadKey(item.song, item.quality) !== key),
       }));
@@ -179,6 +284,10 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
     }
 
     const key = songKey(song);
+    get().downloading.forEach((item) => {
+      if (songKey(item.song) === key) cancellationRequests.add(downloadKey(item.song, item.quality));
+    });
+    cancelDownload(song);
     set((state) => ({
       downloading: state.downloading.filter((item) => songKey(item.song) !== key),
     }));
@@ -189,9 +298,7 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
     let fileSize = 0;
     try {
       fileSize = await getDownloadedFileSize(localPath);
-    } catch (error) {
-      console.error("Read downloaded file size error:", error);
-    }
+    } catch {}
     const nextItem: DownloadedItem = {
       song: { ...song, quality },
       quality,
@@ -199,32 +306,35 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
       fileSize,
       downloadDate: Date.now(),
     };
-    const nextDownloads = sortByDateDesc([
-      nextItem,
-      ...get().downloads.filter((item) => itemDownloadKey(item) !== key),
-    ]);
-    set({ downloads: nextDownloads });
-    await saveDownloads(nextDownloads);
+    await queueDownloadsMutation(async () => {
+      const nextDownloads = sortByDateDesc([
+        nextItem,
+        ...get().downloads.filter((item) => itemDownloadKey(item) !== key),
+      ]);
+      await saveDownloads(nextDownloads);
+      set({ downloads: nextDownloads });
+    });
   },
 
   removeDownload: async (song: MusicInfo, quality?: DownloadQuality) => {
     const targetQuality = quality ?? normalizeDownloadQuality(song.quality) ?? "320k";
     const key = downloadKey(song, targetQuality);
-    const target = get().downloads.find((item) => itemDownloadKey(item) === key);
     try {
-      if (target) {
-        await removeDownloadedByPath(target.localPath);
-      } else {
-        await removeDownloadedFile(song);
-      }
-      const nextDownloads = get().downloads.filter((item) => itemDownloadKey(item) !== key);
-      set((state) => ({
-        downloads: nextDownloads,
-        failedDownloads: state.failedDownloads.filter((item) => failedDownloadKey(item) !== key),
-      }));
-      await saveDownloads(nextDownloads);
+      await queueDownloadsMutation(async () => {
+        const target = get().downloads.find((item) => itemDownloadKey(item) === key);
+        const nextDownloads = get().downloads.filter((item) => itemDownloadKey(item) !== key);
+        await saveDownloads(nextDownloads);
+        if (target) {
+          await removeDownloadedByPath(target.localPath);
+        } else {
+          await removeDownloadedFile(song);
+        }
+        set((state) => ({
+          downloads: nextDownloads,
+          failedDownloads: state.failedDownloads.filter((item) => failedDownloadKey(item) !== key),
+        }));
+      });
     } catch (error) {
-      console.error("Remove download error:", error);
       set({ error: error instanceof Error ? error.message : "删除下载失败" });
     }
   },
@@ -247,11 +357,12 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
 
   clearDownloads: async () => {
     try {
-      await clearDownloadedFiles();
-      set({ downloads: [], failedDownloads: [] });
-      await saveDownloads([]);
+      await queueDownloadsMutation(async () => {
+        await saveDownloads([]);
+        await clearDownloadedFiles();
+        set({ downloads: [], failedDownloads: [] });
+      });
     } catch (error) {
-      console.error("Clear downloads error:", error);
       set({ error: error instanceof Error ? error.message : "清空下载失败" });
     }
   },
@@ -267,6 +378,9 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
               progress: info.progress,
               bytesWritten: info.bytesWritten,
               contentLength: info.contentLength,
+              speed: info.speed,
+              // 首次收到进度回调 → 进入真正下载中
+              status: info.progress > 0 ? "downloading" : item.status,
               error: undefined,
             }
           : item

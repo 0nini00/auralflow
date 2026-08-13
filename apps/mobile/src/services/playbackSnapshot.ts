@@ -69,9 +69,7 @@ export async function savePlaybackSnapshot(): Promise<void> {
     // 空状态不写盘，避免覆盖有效快照
     if (!snapshot.currentSong && snapshot.queue.length === 0) return;
     await AsyncStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshot));
-  } catch (error) {
-    console.warn("[snapshot] 保存失败", error);
-  }
+  } catch {}
 }
 
 /** 从 AsyncStorage 恢复播放状态（仅恢复队列/当前歌曲/模式，不自动播放）。 */
@@ -129,7 +127,6 @@ export async function loadPlaybackSnapshot(): Promise<PlaybackSnapshot | null> {
 
     return snapshot;
   } catch (error) {
-    console.warn("[snapshot] 恢复失败", error);
     return null;
   }
 }
@@ -137,9 +134,7 @@ export async function loadPlaybackSnapshot(): Promise<PlaybackSnapshot | null> {
 export async function clearPlaybackSnapshot(): Promise<void> {
   try {
     await AsyncStorage.removeItem(SNAPSHOT_KEY);
-  } catch (error) {
-    console.warn("[snapshot] 清除失败", error);
-  }
+  } catch {}
 }
 
 // ─────────────────────────────────────────────────────────────

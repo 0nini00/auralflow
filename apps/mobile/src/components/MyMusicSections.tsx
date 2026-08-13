@@ -14,6 +14,7 @@ import {
 import type { MusicInfo } from "@lx/core";
 
 import { DownloadList } from "@/components/DownloadList";
+import { HistorySection } from "@/components/HistorySection";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
 import { SectionHeader } from "@/components/SectionHeader";
@@ -87,7 +88,6 @@ export function MyLocalMusicSection({ onNavigateToPlayer }: { onNavigateToPlayer
       setPlaybackError(result.message);
       return;
     }
-    onNavigateToPlayer();
   };
 
   const handlePlay = async (_song: MusicInfo, index: number) => {
@@ -358,6 +358,7 @@ export function MyLocalMusicSection({ onNavigateToPlayer }: { onNavigateToPlayer
 
 export function MyHistorySection({ onNavigateToPlayer }: { onNavigateToPlayer: () => void }) {
   const palette = useMyMusicPalette();
+  const entries = useHistoryStore((state) => state.entries);
   const history = useHistoryStore((state) => state.history);
   const clearHistory = useHistoryStore((state) => state.clearHistory);
   const removeFromHistory = useHistoryStore((state) => state.removeFromHistory);
@@ -372,11 +373,11 @@ export function MyHistorySection({ onNavigateToPlayer }: { onNavigateToPlayer: (
       setPlaybackError(result.message);
       return;
     }
-    onNavigateToPlayer();
   };
 
-  const handlePlay = async (_song: MusicInfo, index: number) => {
-    await runPlayback(() => playQueue(history, index));
+  // 分组列表内播放：传入的是组内歌曲与组内序号。
+  const handlePlayGroup = async (songs: MusicInfo[], index: number) => {
+    await runPlayback(() => playQueue(songs, index));
   };
 
   const handlePlayAll = async () => {
@@ -401,7 +402,7 @@ export function MyHistorySection({ onNavigateToPlayer }: { onNavigateToPlayer: (
         <PlaybackErrorState message={playbackError} onDismiss={() => setPlaybackError(null)} />
         <SectionHeader
           title="播放历史"
-          description={history.length === 0 ? "还没有播放记录" : `最近播放的 ${history.length} 首歌曲`}
+          description={entries.length === 0 ? "还没有播放记录" : `按时间记录，共 ${history.length} 首歌曲`}
           action={
             songActions.show ? (
               <View style={styles.songActionButtons}>
@@ -438,11 +439,11 @@ export function MyHistorySection({ onNavigateToPlayer }: { onNavigateToPlayer: (
           }
           style={styles.section}
         />
-        <SongList
-          songs={history}
-          onPlay={handlePlay}
+        <HistorySection
+          entries={entries}
+          onPlay={handlePlayGroup}
           onDelete={songActions.canDeleteSongs ? handleDelete : undefined}
-          emptyText="播放歌曲后会自动记录到这里"
+          emptyText="播放歌曲后会自动按时间记录到这里"
         />
       </ScreenScrollView>
     </ScreenScaffold>

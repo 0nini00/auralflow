@@ -1,6 +1,7 @@
 package cn.chenle.auralflow.mobile;
 
 import android.app.Activity;
+import android.content.ContentResolver;
 import android.content.Intent;
 import android.net.Uri;
 
@@ -36,6 +37,12 @@ public class CustomSourceFilePickerModule extends ReactContextBaseJavaModule {
       }
 
       Uri uri = data.getData();
+      try {
+        ContentResolver resolver = getReactApplicationContext().getContentResolver();
+        resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+      } catch (Exception ignored) {
+        // 部分文档提供方不支持 persistable permission，忽略后短期 URI 仍可用。
+      }
       promise.resolve(uri.toString());
     }
   };
@@ -74,7 +81,10 @@ public class CustomSourceFilePickerModule extends ReactContextBaseJavaModule {
       "application/json",
       "application/octet-stream",
     });
-    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+    intent.addFlags(
+        Intent.FLAG_GRANT_READ_URI_PERMISSION
+            | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+    );
 
     pendingPromise = promise;
     try {

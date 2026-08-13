@@ -56,6 +56,7 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
   private static final String ALBUM_ART_BASE_URI = "content://media/external/audio/albumart";
   private static final int REQUEST_WRITE_AUDIO = 43014;
   private static final int REQUEST_PICK_AUDIO = 43015;
+  private static final int REQUEST_UPDATE_AUDIO = 43016;
 
   /** 等待用户授权后重试的写操作。 */
   private static final class PendingWrite {
@@ -70,7 +71,21 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
     }
   }
 
+  /** 等待用户授权后重试的 MediaStore 元数据更新。 */
+  private static final class PendingMetadataUpdate {
+    final Uri audioUri;
+    final ContentValues values;
+    final Promise promise;
+
+    PendingMetadataUpdate(Uri audioUri, ContentValues values, Promise promise) {
+      this.audioUri = audioUri;
+      this.values = values;
+      this.promise = promise;
+    }
+  }
+
   private PendingWrite writePending;
+  private PendingMetadataUpdate updatePending;
   private Promise pickAudioPromise;
 
   private interface TagMutator {
@@ -82,6 +97,10 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
     public void onActivityResult(Activity activity, int requestCode, int resultCode, Intent data) {
       if (requestCode == REQUEST_PICK_AUDIO) {
         handlePickAudioResult(resultCode, data);
+        return;
+      }
+      if (requestCode == REQUEST_UPDATE_AUDIO) {
+        handleUpdateAccessResult(resultCode);
         return;
       }
       if (requestCode != REQUEST_WRITE_AUDIO) {
@@ -393,12 +412,14 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
    */
   @ReactMethod
   public void updateAudioMetadata(String mediaId, ReadableMap metadata, Promise promise) {
+    ContentResolver resolver = getReactApplicationContext().getContentResolver();
+    Uri uri = null;
+    ContentValues values = null;
     try {
-      ContentResolver resolver = getReactApplicationContext().getContentResolver();
-      Uri uri = ContentUris.withAppendedId(
+      uri = ContentUris.withAppendedId(
           MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, Long.parseLong(mediaId));
 
-      ContentValues values = new ContentValues();
+      values = new ContentValues();
       if (metadata.hasKey("title")) {
         values.put(MediaStore.Audio.Media.TITLE, metadata.getString("title"));
       }
@@ -411,6 +432,13 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
 
       int rows = resolver.update(uri, values, null, null);
       promise.resolve(rows);
+    } catch (SecurityException securityError) {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+          && securityError instanceof android.app.RecoverableSecurityException) {
+        requestUpdateAccess(uri, values, promise);
+      } else {
+        promise.reject("LOCAL_MUSIC_UPDATE_FAILED", securityError);
+      }
     } catch (Exception error) {
       promise.reject("LOCAL_MUSIC_UPDATE_FAILED", error);
     }
@@ -491,6 +519,9 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
       mutator.mutate(audioFile, tag);
       audioFile.commit();
 
+      // 注意：openOutputStream(audioUri, "wt") 会先截断原文件再写入，写入中途失败会损坏原文件。
+      // content:// URI 无法做原子 rename，故此处采用先把完整修改写入临时文件、再整体覆盖写回的策略，
+      // 以降低（但无法完全消除）损坏风险。
       try (InputStream in = new FileInputStream(temp);
            OutputStream out = resolver.openOutputStream(audioUri, "wt")) {
         copyStream(in, out);
@@ -510,6 +541,48 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
         //noinspection ResultOfMethodCallIgnored
         temp.delete();
       }
+    }
+  }
+
+  private void handleUpdateAccessResult(int resultCode) {
+    PendingMetadataUpdate pending = updatePending;
+    updatePending = null;
+    if (pending == null || pending.promise == null) {
+      return;
+    }
+    if (resultCode != Activity.RESULT_OK) {
+      pending.promise.reject("WRITE_DENIED", "用户拒绝了修改媒体文件的授权");
+      return;
+    }
+    ContentResolver resolver = getReactApplicationContext().getContentResolver();
+    try {
+      int rows = resolver.update(pending.audioUri, pending.values, null, null);
+      pending.promise.resolve(rows);
+    } catch (Exception error) {
+      pending.promise.reject("LOCAL_MUSIC_UPDATE_FAILED", error);
+    }
+  }
+
+  private void requestUpdateAccess(Uri audioUri, ContentValues values, Promise promise) {
+    if (updatePending != null) {
+      promise.reject("WRITE_BUSY", "已有写入授权请求进行中，请稍后再试");
+      return;
+    }
+    Activity activity = getCurrentActivity();
+    if (activity == null) {
+      promise.reject("NO_ACTIVITY", "无法发起写入授权：当前没有可用的 Android Activity");
+      return;
+    }
+    try {
+      PendingIntent pendingIntent = MediaStore.createWriteRequest(
+          getReactApplicationContext().getContentResolver(),
+          Collections.singletonList(audioUri));
+      updatePending = new PendingMetadataUpdate(audioUri, new ContentValues(values), promise);
+      activity.startIntentSenderForResult(
+          pendingIntent.getIntentSender(), REQUEST_UPDATE_AUDIO, null, 0, 0, 0);
+    } catch (Exception error) {
+      updatePending = null;
+      promise.reject("WRITE_REQUEST_FAILED", error);
     }
   }
 

@@ -1,4 +1,5 @@
 import type { MusicInfo } from "@lx/core";
+import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
 import type { SearchPlaylistResult } from "./musicApi";
 import type { WyPlaylistInfo } from "./wyPlaylistService";
 
@@ -65,7 +66,7 @@ function getMaxQuality(item: any): string {
 }
 
 async function defaultFetchJson(url: string, init?: RequestInit): Promise<any> {
-  const response = await fetch(url, init);
+  const response = await fetchWithTimeout(url, init);
   const text = await response.text();
   if (!response.ok) {
     throw new Error(`QQ 音乐请求失败 HTTP ${response.status}: ${text.slice(0, 160)}`);
@@ -154,6 +155,10 @@ export function mapTxPlaylistSong(item: any): MusicInfo | null {
     quality: getMaxQuality(item),
     picUrl: image,
     img: image,
+    // 注意：不挂 gateway。内置音乐 API 的 joox 源是 JOOX 平台（海外）专用，
+    // 其 id 是 base64 格式，与 QQ 音乐 songmid 是两套完全不同的体系，
+    // 挂 joox gateway 也无法解析 QQ 曲目（实测 URL/歌词均返回空）。
+    // 因此 QQ 音乐歌曲在「纯网关」播放策略下不尝试解析，直接报清晰错误。
   };
 }
 
@@ -167,6 +172,55 @@ async function musicuRequest(body: unknown, options: TxPlaylistRequestOptions): 
     },
     body: JSON.stringify(body),
   });
+}
+
+/**
+ * QQ 音乐直连搜索单曲（musicu DoSearchForQQMusicLite，search_type=0，免登录）。
+ *
+ * 背景：移动端此前歌曲搜索只走第三方网关，网关不稳定/限流时返回空列表；
+ * 此函数直连腾讯 musicu 接口，作为网关之后的兜底/元数据补全来源，
+ * 与桌面端 txProvider.search → searchQqSongs 对齐。
+ */
+export async function searchTxSongs(
+  keyword: string,
+  limit = 30,
+  options: TxPlaylistRequestOptions = {}
+): Promise<MusicInfo[]> {
+  const query = keyword.trim();
+  if (!query) return [];
+
+  const data = await musicuRequest({
+    comm: {
+      ct: 11,
+      cv: "1003006",
+      v: "1003006",
+      os_ver: "15",
+      tmeAppID: "qqmusiclight",
+      nettype: "NETWORK_WIFI",
+      uid: "0",
+    },
+    request: {
+      method: "DoSearchForQQMusicLite",
+      module: "music.search.SearchCgiService",
+      param: {
+        search_id: String(Math.floor(Math.random() * 100000000000000 + Date.now() % 86400000)),
+        remoteplace: "search.android.keyboard",
+        query: query.length > 60 ? query.slice(0, 60) : query,
+        search_type: 0, // 0=单曲（对齐桌面 searchQqSongs）
+        num_per_page: limit,
+        page_num: 1,
+        highlight: 0,
+        nqc_flag: 0,
+        page_id: 1,
+        grp: 1,
+      },
+    },
+  }, options);
+
+  const bodyData = data?.request?.data?.body ?? data?.body ?? {};
+  return firstArray(bodyData?.item_song, data?.item_song)
+    .map(mapTxPlaylistSong)
+    .filter((music): music is MusicInfo => music != null);
 }
 
 export async function searchTxPlaylists(

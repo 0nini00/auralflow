@@ -23,6 +23,8 @@
 | 音量控制 | ✅ | ✅ | 完全对齐 |
 | 播放队列 | ✅ | ✅ | 完全对齐 |
 | 播放模式（列表/单曲/随机） | ✅ | ✅ | 完全对齐 |
+| 迷你栏上一首/下一首 | ✅ | ✅ | 移动端 `PlayerBar` 工具栏含 ⏮/⏯/⏭（对应 lx `ControlBtn`） |
+| 迷你栏滚动歌词 | ✅ | ✅ | 移动端 `PlayerBar` 中间行播放时滚动显示当前歌词行，未播放回退歌手（对应 lx `Status`） |
 | 倍速播放 | ✅ | ✅ | 移动端 `playerRateModel` |
 | 后台播放 | N/A（常驻应用） | ✅ | 移动端 track-player 后台服务 |
 | 系统媒体控制 | ✅ 媒体键 | ✅ 通知栏/锁屏 | 两端各自平台形态 |
@@ -32,7 +34,9 @@
 | 搜索历史 | ✅ | ✅ | 移动端 `searchHistoryService` |
 | 歌词 |
 | 滚动歌词 | ✅ | ✅ | 完全对齐 |
-| 逐字（卡拉 OK）歌词 | ✅ | ✅ | 移动端 `KaraokeLyricLine` |
+| 用户滚动暂停 | ✅ | ✅ | 移动端 `LyricView` onScrollBeginDrag 置标，3000ms 后恢复自动跟唱 |
+| 行进度估算 | ✅ | ✅ | 无逐字歌词时按 CJK/拉丁词估算；移动端悬浮歌词 `PlayerBar` 用 `@lx/core calculateLyricLineProgress` |
+| 逐字（卡拉 OK）歌词 | ✅ | ✅ | 移动端 `KaraokeLyricLine` + 沉浸屏当前行用 `@lx/core calculateLyricLineProgress` 按行内进度填充 |
 | 译文显示 | ✅ | ✅ | 移动端 `lyricSettingsStore.showTranslation` |
 | 字号/颜色/字体/对齐/字重/行距 | ✅ | ✅ | 移动端 `lyricSettingsStore` 完整实现 |
 | 动效开关/强度 | ✅ | ✅ | 移动端 `animationIntensity` |

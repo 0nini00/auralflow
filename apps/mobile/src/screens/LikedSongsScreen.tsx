@@ -1,9 +1,12 @@
 ﻿import React from "react";
-import { Alert, Pressable, type ScrollView as ScrollViewType, StyleSheet, Text, View } from "react-native";
+import { Alert, type ScrollView as ScrollViewType, StyleSheet } from "react-native";
 import type { MusicInfo } from "@lx/core";
 
+import { PlaybackActionButtons } from "@/components/PlaybackActionButtons";
 import { SongList } from "@/components/SongList";
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
+import { Heart } from "lucide-react-native";
+
 import { EmptyState } from "@/components/ScreenState";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
 import { SectionHeader } from "@/components/SectionHeader";
@@ -13,7 +16,7 @@ import { getContentDetailLocateScrollOffset } from "@/services/contentDetailPlay
 import { buildPlaylistDetailActions, findPlaylistCurrentSongIndex, shufflePlaylistSongs } from "@/services/playlistDetailActions";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { usePlayerStore } from "@/stores/playerStore";
-import { radius, typography } from "@/theme/tokens";
+import { spacing } from "@/theme/tokens";
 import { usePlaylistStore } from "@/stores/playlistStore";
 
 interface LikedSongsScreenProps {
@@ -42,7 +45,6 @@ export function LikedSongsScreen({ onNavigateToPlayer }: LikedSongsScreenProps) 
       setPlaybackError(result.message);
       return;
     }
-    onNavigateToPlayer();
   };
 
   const handlePlay = async (_song: MusicInfo, index: number) => {
@@ -83,23 +85,17 @@ export function LikedSongsScreen({ onNavigateToPlayer }: LikedSongsScreenProps) 
         />
         <SectionHeader title="我喜欢的音乐" description={`${likedSongs.length} 首歌曲`} />
 
-      {detailActions.show ? (
-        <View style={styles.actions}>
-          <Pressable style={[styles.primaryButton, { backgroundColor: palette.primary }]} onPress={handlePlayAll}>
-            <Text style={[styles.primaryButtonText, { color: palette.primaryText }]}>{detailActions.playAllLabel}</Text>
-          </Pressable>
-          <Pressable style={[styles.secondaryButton, { backgroundColor: palette.surface }]} onPress={handleShufflePlay}>
-            <Text style={[styles.secondaryButtonText, { color: palette.primary }]}>{detailActions.shuffleLabel}</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.secondaryButton, { backgroundColor: palette.surface }, currentSongIndex < 0 && styles.secondaryButtonDisabled]}
-            onPress={handleLocateCurrentSong}
-            disabled={currentSongIndex < 0}
-          >
-            <Text style={[styles.secondaryButtonText, { color: currentSongIndex >= 0 ? palette.primary : palette.textMuted }]}>定位当前播放</Text>
-          </Pressable>
-        </View>
-      ) : null}
+      <PlaybackActionButtons
+        show={detailActions.show}
+        playAllLabel={detailActions.playAllLabel}
+        shuffleLabel={detailActions.shuffleLabel}
+        locateLabel="定位当前播放"
+        canLocateCurrentSong={currentSongIndex >= 0}
+        onPlayAll={() => void handlePlayAll()}
+        onShuffle={() => void handleShufflePlay()}
+        onLocate={handleLocateCurrentSong}
+        style={styles.actions}
+      />
 
         {likedSongs.length > 0 ? (
           <SongList
@@ -107,10 +103,10 @@ export function LikedSongsScreen({ onNavigateToPlayer }: LikedSongsScreenProps) 
             onPlay={handlePlay}
             onDelete={handleRemoveLikedSong}
             emptyText="还没有喜欢的歌曲"
-            highlightedIndex={locatedSongIndex}
+            highlightedIndex={locatedSongIndex ?? currentSongIndex}
           />
         ) : (
-          <EmptyState title="还没有喜欢的歌曲" />
+          <EmptyState icon={Heart} title="还没有喜欢的歌曲" description="在歌曲列表或播放页点击 ♥ 图标，喜欢的歌都会收在这里。" />
         )}
       </ScreenScrollView>
     </ScreenScaffold>
@@ -119,30 +115,6 @@ export function LikedSongsScreen({ onNavigateToPlayer }: LikedSongsScreenProps) 
 
 const styles = StyleSheet.create({
   actions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 20,
-  },
-  primaryButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: radius.pill,
-  },
-  primaryButtonText: {
-    fontSize: typography.body,
-    fontWeight: "700",
-  },
-  secondaryButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: radius.pill,
-  },
-  secondaryButtonDisabled: {
-    opacity: 0.7,
-  },
-  secondaryButtonText: {
-    fontSize: typography.body,
-    fontWeight: "600",
+    marginBottom: spacing.l,
   },
 });

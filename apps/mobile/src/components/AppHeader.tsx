@@ -149,7 +149,7 @@ export function AppHeader({
               blurTimer.current = setTimeout(() => setOpen(false), 140);
             }}
             onSubmitEditing={() => submit(query)}
-            placeholder="搜索歌曲、歌手、专辑"
+            placeholder="搜索歌曲、歌手、专辑…"
             placeholderTextColor={palette.textSubtle}
             returnKeyType="search"
             style={[styles.searchInput, { color: palette.text }]}

@@ -47,7 +47,6 @@ export const usePlaybackSettingsStore = create<PlaybackSettingsStore>((set) => (
         loaded: true,
       });
     } catch (error) {
-      console.error("Load playback settings error:", error);
       set({ defaultQuality: DEFAULT_PLAYBACK_QUALITY, pauseOnExternalPlayback: true, loaded: true });
     }
   },

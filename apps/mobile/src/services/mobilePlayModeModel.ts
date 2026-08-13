@@ -1,5 +1,4 @@
 export type MobilePlayMode = "list" | "single" | "shuffle" | "sequence";
-export type MobileTrackPlayerRepeatMode = "queue" | "track" | "off";
 
 export const MOBILE_PLAY_MODE_SEQUENCE: readonly MobilePlayMode[] = [
   "list",
@@ -22,13 +21,6 @@ const PLAY_MODE_ICON_LABELS: Record<MobilePlayMode, string> = {
   sequence: "顺序",
 };
 
-const TRACK_PLAYER_REPEAT_MODES: Record<MobilePlayMode, MobileTrackPlayerRepeatMode> = {
-  list: "queue",
-  single: "track",
-  shuffle: "queue",
-  sequence: "off",
-};
-
 export function getNextMobilePlayMode(mode: MobilePlayMode): MobilePlayMode {
   const currentIndex = MOBILE_PLAY_MODE_SEQUENCE.indexOf(mode);
   if (currentIndex < 0) return MOBILE_PLAY_MODE_SEQUENCE[0];
@@ -38,11 +30,6 @@ export function getNextMobilePlayMode(mode: MobilePlayMode): MobilePlayMode {
 export function getMobilePlayModeLabel(mode: MobilePlayMode): string {
   return PLAY_MODE_LABELS[mode];
 }
-
-export function getTrackPlayerRepeatModeForPlayMode(mode: MobilePlayMode): MobileTrackPlayerRepeatMode {
-  return TRACK_PLAYER_REPEAT_MODES[mode];
-}
-
 export interface ImmersivePlayModeControl {
   label: string;
   iconLabel: string;

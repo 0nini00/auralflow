@@ -8,6 +8,8 @@ import { NativeModules, Platform } from "react-native";
  */
 interface NativeLyricOverlayModule {
   canDrawOverlays(): Promise<boolean>;
+  isVisible(): Promise<boolean>;
+  setNotificationButtonEnabled(enabled: boolean): Promise<void>;
   requestOverlayPermission(): Promise<boolean>;
   show(): Promise<boolean>;
   hide(): Promise<boolean>;
@@ -32,6 +34,14 @@ function getNativeModule(): NativeLyricOverlayModule {
 
 export async function canDrawOverlays(): Promise<boolean> {
   return getNativeModule().canDrawOverlays();
+}
+
+export async function isLyricOverlayVisible(): Promise<boolean> {
+  return getNativeModule().isVisible();
+}
+
+export async function setLyricNotificationButtonEnabled(enabled: boolean): Promise<void> {
+  return getNativeModule().setNotificationButtonEnabled(enabled);
 }
 
 export async function requestOverlayPermission(): Promise<boolean> {

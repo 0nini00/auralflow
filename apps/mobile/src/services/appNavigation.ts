@@ -3,7 +3,7 @@
  *
  * "player" 不在标签列表中，由 PlayerBar / 程序化入口打开。
  *
- * 注意：本模块不引入 lucide-react-native（RN 原生库在 vitest/Node 环境解析失败），
+ * 注意：本模块不引入 lucide-react-native（RN 原生库在 Node 测试环境解析失败），
  *      icon 只声明语义键，由 UI 层映射到具体图标组件。
  */
 export type AppTabId =
@@ -41,10 +41,10 @@ export const DEFAULT_APP_TAB: AppTabId = "home";
 
 /** 主列表项：底部 4 标签 */
 export const APP_TABS: AppTabItem[] = [
-  { id: "home", label: "发现", icon: "home" },
+  { id: "home", label: "首页", icon: "home" },
+  { id: "search", label: "搜索", icon: "search" },
   { id: "library", label: "曲库", icon: "library" },
   { id: "myMusic", label: "我的", icon: "user" },
-  { id: "search", label: "搜索", icon: "search" },
 ];
 
 /** footer 设置项 */

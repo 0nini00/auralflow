@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Linking,
   StyleSheet,
   Text,
@@ -20,8 +21,12 @@ import { acceptMobilePact, hasAcceptedMobilePact } from "@/services/mobilePactSe
 import { parseMobileDeepLink } from "@/services/mobileDeepLinkService";
 import { checkForUpdates, type UpdateInfo } from "@/services/updateService";
 import { setupPlayerListeners } from "@/stores/playerStore";
-import { useHistoryStore } from "@/stores/historyStore";
 import { useCustomSourceStore } from "@/stores/customSourceStore";
+import { useApiKeyStore } from "@/stores/apiKeyStore";
+import { useHistoryStore } from "@/stores/historyStore";
+import { usePlaylistStore } from "@/stores/playlistStore";
+import { useLyricOverlayStore } from "@/stores/lyricOverlayStore";
+import { useWebdavStore } from "@/stores/webdavStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { typography } from "@/theme/tokens";
 
@@ -39,8 +44,16 @@ export default function App() {
     [themeMode, systemTheme, accentColor],
   );
 
-  const loadHistory = useHistoryStore((s) => s.loadHistory);
   const loadCustomSources = useCustomSourceStore((s) => s.loadFromStorage);
+  const loadApiKeys = useApiKeyStore((s) => s.loadFromStorage);
+  const loadLocalPlaylists = usePlaylistStore((s) => s.loadLocalPlaylists);
+  const loadLikedSongs = usePlaylistStore((s) => s.loadLikedSongsFromStorage);
+  const loadHistory = useHistoryStore((s) => s.loadHistory);
+  const lyricOverlaySettingsLoaded = useLyricOverlayStore((s) => s.loaded);
+  const loadLyricOverlaySettings = useLyricOverlayStore((s) => s.loadFromStorage);
+  const syncLyricOverlayVisible = useLyricOverlayStore((s) => s.syncVisibleFromNative);
+  const loadWebdavConfig = useWebdavStore((s) => s.loadConfig);
+  const autoSyncPlaylistsOnce = useWebdavStore((s) => s.autoSyncPlaylistsOnce);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,12 +61,32 @@ export default function App() {
     (async () => {
       try {
         setupPlayerListeners();
-        await loadHistory();
-        await loadCustomSources();
-        const accepted = await hasAcceptedMobilePact();
+        // 协议状态是纯本地读取：先于数据加载完成，未同意时立即弹窗，
+        // 不让用户等本地数据加载完才看到协议。
+        // 读取失败按“已同意”兜底，且绝不能因此跳过下面的数据加载。
+        const accepted = await hasAcceptedMobilePact().catch(() => true);
         if (!cancelled) setPactAccepted(accepted);
+        await Promise.all([
+          loadCustomSources(),
+          loadApiKeys(),
+          loadLocalPlaylists(),
+          loadLikedSongs(),
+          loadHistory(),
+          loadLyricOverlaySettings(),
+          loadWebdavConfig(),
+        ]);
+        const webdav = useWebdavStore.getState();
+        // 未同意协议前不发起 WebDAV 网络同步
+        if (
+          accepted &&
+          webdav.autoSyncPlaylists &&
+          webdav.url.trim() &&
+          webdav.username.trim() &&
+          webdav.password
+        ) {
+          void autoSyncPlaylistsOnce();
+        }
       } catch (error) {
-        console.warn("[App] bootstrap failed", error);
         if (!cancelled) setPactAccepted(true);
       } finally {
         if (!cancelled) setBooting(false);
@@ -70,8 +103,26 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [loadCustomSources, loadHistory]);
+  }, [
+    autoSyncPlaylistsOnce,
+    loadApiKeys,
+    loadCustomSources,
+    loadHistory,
+    loadLikedSongs,
+    loadLocalPlaylists,
+    loadLyricOverlaySettings,
+    loadWebdavConfig,
+  ]);
 
+  useEffect(() => {
+    if (!lyricOverlaySettingsLoaded) return;
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+      void syncLyricOverlayVisible().catch((error: unknown) => {
+      });
+    });
+    return () => subscription.remove();
+  }, [lyricOverlaySettingsLoaded, syncLyricOverlayVisible]);
 
   // Deep links: auralflow://search|daily|fm|playlist|album|artist
   useEffect(() => {
@@ -80,6 +131,9 @@ export default function App() {
       const intent = parseMobileDeepLink(rawUrl);
       if (!intent) return;
 
+      const nav = (name: string, params?: any) => {
+        (navigationRef as any).navigate(name, params);
+      };
       const go = () => {
         if (!navigationRef.isReady()) {
           setTimeout(go, 80);
@@ -87,29 +141,29 @@ export default function App() {
         }
         switch (intent.type) {
           case "search":
-            navigationRef.navigate("Main" as never, {
+            nav("Main", {
               screen: "MainTabs",
               params: {
                 screen: "SearchTab",
                 params: { initialKeyword: intent.keyword },
               },
-            } as never);
+            });
             break;
           case "homeMode":
             if (intent.mode === "fm") {
-              navigationRef.navigate("PersonalFm");
+              nav("PersonalFm");
             } else {
-              navigationRef.navigate("DailyRecommend");
+              nav("DailyRecommend");
             }
             break;
           case "searchDetail":
-            navigationRef.navigate("Main" as never, {
+            nav("Main", {
               screen: "MainTabs",
               params: {
                 screen: "SearchTab",
                 params: { initialDetailRoute: intent.route },
               },
-            } as never);
+            });
             break;
         }
       };

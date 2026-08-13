@@ -1,7 +1,8 @@
 ﻿import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import type { MusicInfo } from "@lx/core";
 
+import { ActionButton } from "@/components/ActionButton";
 import { SongList } from "@/components/SongList";
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
 import { EmptyState } from "@/components/ScreenState";
@@ -11,7 +12,7 @@ import type { SearchFallbackDetailModel } from "@/services/searchFallbackDetailM
 import { playQueue } from "@/services/playerService";
 import { runPlaybackUiAction } from "@/services/playbackUiAction";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { radius, typography } from "@/theme/tokens";
+import { spacing, typography } from "@/theme/tokens";
 
 interface SearchFallbackDetailScreenProps {
   detail: SearchFallbackDetailModel;
@@ -38,7 +39,6 @@ export function SearchFallbackDetailScreen({
       setPlaybackError(result.message);
       return;
     }
-    onNavigateToPlayer();
   };
 
   const handlePlay = async (_song: MusicInfo, index: number) => {
@@ -66,16 +66,15 @@ export function SearchFallbackDetailScreen({
         </View>
 
         {detail.songs.length > 0 && (
-          <Pressable
-            style={[styles.playAllButton, { backgroundColor: palette.primary }]}
+          <ActionButton
+            variant="primary"
+            label="播放全部"
+            count={`(${detail.songs.length})`}
+            style={styles.playAllButton}
             onPress={() => {
               void handlePlayAll();
             }}
-          >
-            <Text style={[styles.playAllText, { color: palette.primaryText }]}>
-              播放全部 ({detail.songs.length})
-            </Text>
-          </Pressable>
+          />
         )}
 
         <View style={styles.section}>
@@ -98,25 +97,17 @@ export function SearchFallbackDetailScreen({
 
 const styles = StyleSheet.create({
   header: {
-    gap: 8,
-    marginBottom: 16,
+    gap: spacing.xs,
+    marginBottom: spacing.m,
   },
   hint: {
     fontSize: typography.meta,
     lineHeight: 18,
   },
   playAllButton: {
-    minHeight: 44,
-    borderRadius: radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 16,
-  },
-  playAllText: {
-    fontSize: typography.body,
-    fontWeight: "700",
+    marginBottom: spacing.m,
   },
   section: {
-    gap: 12,
+    gap: spacing.s,
   },
 });

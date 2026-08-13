@@ -4,6 +4,8 @@
  * 检查 GitHub Releases 是否有新版本，供 UpdateModal 展示。
  */
 
+import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
+
 export interface UpdateInfo {
   hasUpdate: boolean;
   currentVersion: string;
@@ -17,8 +19,8 @@ const REPO_API = "https://api.github.com/repos/0nini00/auralflow/releases/latest
 export const CURRENT_VERSION = "0.1.0";
 
 function compareVersions(a: string, b: string): number {
-  const partsA = a.replace(/^v/, "").split(".").map(Number);
-  const partsB = b.replace(/^v/, "").split(".").map(Number);
+  const partsA = a.replace(/^v/, "").split(".").map((seg) => parseInt(seg, 10) || 0);
+  const partsB = b.replace(/^v/, "").split(".").map((seg) => parseInt(seg, 10) || 0);
   for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
     const va = partsA[i] ?? 0;
     const vb = partsB[i] ?? 0;
@@ -29,7 +31,7 @@ function compareVersions(a: string, b: string): number {
 }
 
 export async function checkForUpdates(): Promise<UpdateInfo> {
-  const resp = await fetch(REPO_API, {
+  const resp = await fetchWithTimeout(REPO_API, {
     headers: {
       Accept: "application/vnd.github+json",
       "User-Agent": "AuralFlowMobile/0.1",

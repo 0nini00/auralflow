@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
 
 const WY_COOKIE_KEY = "auralflow.mobile.wy.cookie";
 const WY_USER_KEY = "auralflow.mobile.wy.user";
@@ -64,8 +65,7 @@ export async function getWyUser(): Promise<WyUserInfo | null> {
  * 清除登录信息
  */
 export async function clearWyAccount(): Promise<void> {
-  await AsyncStorage.removeItem(WY_COOKIE_KEY);
-  await AsyncStorage.removeItem(WY_USER_KEY);
+  await AsyncStorage.multiRemove([WY_COOKIE_KEY, WY_USER_KEY]);
 }
 
 function parseWyUserFromAccountResponse(data: any): WyUserInfo | null {
@@ -96,7 +96,7 @@ function parseCookieFromHeaders(setCookieHeader: string | null): string | null {
 }
 
 async function requestWyJson(path: string, options?: RequestInit): Promise<any> {
-  const response = await fetch(`${NETEASE_API_BASE}${path}`, {
+  const response = await fetchWithTimeout(`${NETEASE_API_BASE}${path}`, {
     ...options,
     headers: {
       Accept: "application/json, text/plain, */*",
@@ -129,7 +129,6 @@ export async function validateWyCookie(cookie: string): Promise<WyUserInfo | nul
 
     return parseWyUserFromAccountResponse(data);
   } catch (error) {
-    console.error("Validate wy cookie error:", error);
     return null;
   }
 }
@@ -147,80 +146,6 @@ export async function loginWithCookie(cookie: string): Promise<WyUserInfo> {
   await saveWyUser(user);
 
   return user;
-}
-
-/**
- * 获取二维码登录 unikey
- */
-export async function createWyQrUnikey(): Promise<WyQrKeyResult> {
-  const data = await requestWyJson("/api/login/qrcode/unikey?type=1");
-  const unikey = data?.unikey || data?.data?.unikey;
-
-  if (!unikey) {
-    throw new Error("获取二维码登录密钥失败");
-  }
-
-  return { unikey: String(unikey) };
-}
-
-/**
- * 生成二维码 URL
- */
-export async function createWyQrCode(unikey: string): Promise<WyQrCodeResult> {
-  const encodedKey = encodeURIComponent(unikey);
-  const data = await requestWyJson(`/api/login/qrcode/create?key=${encodedKey}&qrimg=false`);
-  const qrUrl = data?.qrurl || data?.data?.qrurl;
-
-  if (!qrUrl) {
-    throw new Error("生成二维码失败");
-  }
-
-  return {
-    qrUrl,
-    qrImageUrl: `${NETEASE_API_BASE}/login?codekey=${encodedKey}`,
-  };
-}
-
-/**
- * 轮询二维码登录状态；成功时复用现有 Cookie 登录流程。
- */
-export async function pollWyQrLoginStatus(unikey: string): Promise<WyQrStatusResult> {
-  const encodedKey = encodeURIComponent(unikey);
-  const response = await fetch(`${NETEASE_API_BASE}/api/login/qrcode/client/login?key=${encodedKey}&type=1`, {
-    method: "GET",
-    headers: {
-      Accept: "application/json, text/plain, */*",
-      "User-Agent": DEFAULT_USER_AGENT,
-    },
-  });
-
-  const data = (await response.json()) as JsonRecord;
-  const code = Number(data?.code ?? -1);
-  const message = String(data?.message || data?.msg || "");
-
-  if (!response.ok) {
-    throw new Error(message || `轮询二维码状态失败 HTTP ${response.status}`);
-  }
-
-  if (code !== 803) {
-    return { code, message };
-  }
-
-  const rawCookieHeader = response.headers.get("set-cookie") || response.headers.get("Set-Cookie");
-  const cookie = parseCookieFromHeaders(rawCookieHeader);
-
-  if (!cookie) {
-    throw new Error("二维码登录成功，但未获取到 Cookie");
-  }
-
-  const user = await loginWithCookie(cookie);
-  return {
-    code,
-    message: message || "授权成功",
-    cookie,
-    rawCookie: rawCookieHeader || undefined,
-    user,
-  };
 }
 
 /**

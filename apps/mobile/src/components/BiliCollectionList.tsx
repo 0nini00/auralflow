@@ -1,12 +1,13 @@
 import React, { useState } from "react";
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ChevronRight, Music2 } from "lucide-react-native";
 
 import { CachedImage } from "@/components/CachedImage";
+import { getBiliCollectionVisibilityModel } from "@/services/biliCollectionVisibilityModel";
+import type { BiliCollectionInfo } from "@/services/biliService";
 import { useBiliAccountStore } from "@/stores/biliAccountStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import type { BiliCollectionInfo } from "@/services/biliService";
-import { getBiliCollectionVisibilityModel } from "@/services/biliCollectionVisibilityModel";
+import { radius, spacing, typography } from "@/theme/tokens";
 
 interface BiliCollectionListProps {
   onCollectionPress: (collection: BiliCollectionInfo) => void;
@@ -27,12 +28,9 @@ export function BiliCollectionList({ onCollectionPress }: BiliCollectionListProp
   const biliIsLoading = useBiliAccountStore((state) => state.isLoading);
   const biliError = useBiliAccountStore((state) => state.error);
   const biliLoad = useBiliAccountStore((state) => state.load);
-  const biliLogout = useBiliAccountStore((state) => state.logout);
   const setCollectionVisible = useBiliAccountStore((state) => state.setCollectionVisible);
   const setAutoShowNewCollections = useBiliAccountStore((state) => state.setAutoShowNewCollections);
   const clearNewCollectionState = useBiliAccountStore((state) => state.clearNewCollectionState);
-  const [cookieInput, setCookieInput] = useState("");
-  const [showCookieInput, setShowCookieInput] = useState(false);
   const [showManager, setShowManager] = useState(false);
 
   const visibility = getBiliCollectionVisibilityModel({
@@ -44,22 +42,6 @@ export function BiliCollectionList({ onCollectionPress }: BiliCollectionListProp
   const hiddenIdSet = new Set(hiddenCollectionIds);
   const newIdSet = new Set(newCollectionIds);
 
-  const handleLogin = async () => {
-    if (!cookieInput.trim()) return;
-    const { saveBiliCookie } = await import("@/services/biliService");
-    await saveBiliCookie(cookieInput.trim());
-    await biliLoad(cookieInput.trim());
-    setCookieInput("");
-    setShowCookieInput(false);
-  };
-
-  const handleLogout = () => {
-    Alert.alert("确认退出", "确定要退出 B站账号吗？", [
-      { text: "取消", style: "cancel" },
-      { text: "退出", style: "destructive", onPress: () => biliLogout() },
-    ]);
-  };
-
   const openManager = () => {
     setShowManager(true);
   };
@@ -70,49 +52,15 @@ export function BiliCollectionList({ onCollectionPress }: BiliCollectionListProp
   };
 
   if (!biliAccount) {
+    // 收敛方案：B站登录/退出只保留在「设置 → 账号与服务」，这里仅显示纯状态文字。
     return (
       <View style={styles.emptyContainer}>
-        {showCookieInput ? (
-          <>
-            <Text style={[styles.emptyText, { color: palette.text }]}>粘贴 B站 Cookie</Text>
-            <TextInput
-              style={[styles.webdavInput, { color: palette.text, borderColor: palette.border, backgroundColor: palette.surface }]}
-              placeholder="在此粘贴 Cookie..."
-              placeholderTextColor={palette.textMuted}
-              value={cookieInput}
-              onChangeText={setCookieInput}
-              multiline
-              numberOfLines={4}
-              textAlignVertical="top"
-            />
-            <View style={styles.webdavButtonRow}>
-              <Pressable
-                style={[styles.webdavButton, { borderColor: palette.border, backgroundColor: palette.surface }]}
-                onPress={() => setShowCookieInput(false)}
-              >
-                <Text style={[styles.webdavButtonText, { color: palette.textMuted }]}>取消</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.webdavButton, { borderColor: palette.primary, backgroundColor: palette.primary }]}
-                onPress={handleLogin}
-              >
-                <Text style={[styles.webdavButtonText, { color: palette.primaryText }]}>登录</Text>
-              </Pressable>
-            </View>
-          </>
-        ) : (
-          <>
-            <Text style={[styles.emptyText, { color: palette.textMuted }]}> 
-              {biliIsLoaded ? "未登录 B站" : "加载中..."}
-            </Text>
-            <Pressable
-              style={[styles.scanButton, { backgroundColor: palette.primary, marginTop: 12 }]}
-              onPress={() => setShowCookieInput(true)}
-            >
-              <Text style={[styles.scanButtonText, { color: palette.primaryText }]}>登录 B站</Text>
-            </Pressable>
-          </>
-        )}
+        <Text style={[styles.emptyText, { color: palette.textMuted }]}>
+          {biliIsLoaded ? "未登录 B站" : "加载中…"}
+        </Text>
+        <Text style={[styles.emptyHint, { color: palette.textMuted }]}>
+          请在 设置 → 账号与服务 登录 B站账号
+        </Text>
       </View>
     );
   }
@@ -121,7 +69,7 @@ export function BiliCollectionList({ onCollectionPress }: BiliCollectionListProp
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator color={palette.primary} size="large" />
-        <Text style={[styles.loadingText, { color: palette.textMuted }]}>加载合集...</Text>
+        <Text style={[styles.loadingText, { color: palette.textMuted }]}>加载合集…</Text>
       </View>
     );
   }
@@ -144,12 +92,6 @@ export function BiliCollectionList({ onCollectionPress }: BiliCollectionListProp
     return (
       <View style={styles.emptyContainer}>
         <Text style={[styles.emptyText, { color: palette.textMuted }]}>暂无可见合集</Text>
-        <Pressable
-          style={[styles.scanButton, { backgroundColor: palette.dangerSurface, marginTop: 12 }]}
-          onPress={handleLogout}
-        >
-          <Text style={[styles.scanButtonText, { color: palette.danger }]}>退出登录</Text>
-        </Pressable>
       </View>
     );
   }
@@ -277,84 +219,56 @@ export function BiliCollectionList({ onCollectionPress }: BiliCollectionListProp
           })}
         </ScrollView>
       </Modal>
-      <Pressable
-        style={[styles.scanButton, { backgroundColor: palette.dangerSurface, marginTop: 12, alignSelf: "center" }]}
-        onPress={handleLogout}
-      >
-        <Text style={[styles.scanButtonText, { color: palette.danger }]}>退出 B站登录</Text>
-      </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   emptyContainer: {
-    padding: 24,
+    padding: spacing.l,
     alignItems: "center",
+    gap: spacing.xs,
   },
   emptyText: {
-    fontSize: 14,
-    color: "#8fa79f",
+    fontSize: typography.body,
+  },
+  emptyHint: {
+    fontSize: typography.caption,
+    textAlign: "center",
   },
   errorText: {
-    fontSize: 14,
-    color: "#ff6b6b",
+    fontSize: typography.body,
     textAlign: "center",
   },
   loadingContainer: {
-    padding: 24,
+    padding: spacing.l,
     alignItems: "center",
   },
   loadingText: {
-    marginTop: 12,
-    fontSize: 14,
-    color: "#8fa79f",
+    marginTop: spacing.s,
+    fontSize: typography.body,
   },
   scanButton: {
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.s,
+    paddingVertical: spacing.xs,
   },
   scanButtonText: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  webdavInput: {
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: 12,
-    minHeight: 96,
-    width: "100%",
-    marginTop: 12,
-  },
-  webdavButtonRow: {
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 12,
-  },
-  webdavButton: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingVertical: 10,
-    alignItems: "center",
-  },
-  webdavButtonText: {
-    fontSize: 13,
+    fontSize: typography.meta,
     fontWeight: "600",
   },
   collectionList: {
-    gap: 10,
+    gap: spacing.xs,
   },
   managerHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
-    marginBottom: 4,
+    gap: spacing.s,
+    marginBottom: spacing.xxs,
   },
   managerTitle: {
-    fontSize: 16,
+    fontSize: typography.title,
     fontWeight: "700",
   },
   managerActions: {
@@ -362,91 +276,88 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexWrap: "wrap",
     justifyContent: "flex-end",
-    gap: 8,
+    gap: spacing.xs,
   },
   newBadge: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.xs,
     paddingVertical: 7,
   },
   newBadgeText: {
-    fontSize: 12,
+    fontSize: typography.caption,
     fontWeight: "700",
   },
   collectionItem: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#1a3a31",
-    borderRadius: 8,
-    padding: 12,
-    gap: 12,
+    borderRadius: radius.sm,
+    padding: spacing.s,
+    gap: spacing.s,
   },
   cover: {
-    width: 48,
-    height: 48,
-    borderRadius: 6,
+    width: 52,
+    height: 52,
+    borderRadius: radius.sm,
   },
   coverFallback: {
-    width: 48,
-    height: 48,
-    borderRadius: 6,
+    width: 52,
+    height: 52,
+    borderRadius: radius.sm,
     alignItems: "center",
     justifyContent: "center",
   },
   collectionInfo: {
     flex: 1,
-    gap: 4,
+    gap: spacing.xxs,
   },
   collectionName: {
-    fontSize: 15,
+    fontSize: typography.title,
     fontWeight: "600",
-    color: "#ffffff",
   },
   collectionMeta: {
-    fontSize: 12,
-    color: "#8fa79f",
+    fontSize: typography.caption,
   },
   managerModal: {
-    padding: 20,
+    padding: spacing.l,
     paddingBottom: 100,
-    gap: 10,
+    gap: spacing.xs,
   },
   managerModalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    gap: 12,
-    marginBottom: 8,
+    gap: spacing.s,
+    marginBottom: spacing.xs,
   },
   closeText: {
-    fontSize: 15,
+    fontSize: typography.title,
     fontWeight: "600",
   },
   autoShowRow: {
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 8,
-    padding: 12,
-    gap: 12,
+    borderRadius: radius.sm,
+    padding: spacing.s,
+    gap: spacing.s,
   },
   managerItem: {
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 8,
-    padding: 12,
-    gap: 12,
+    borderRadius: radius.sm,
+    padding: spacing.s,
+    gap: spacing.s,
   },
   managerNameRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: spacing.xs,
   },
   inlineNewBadge: {
-    fontSize: 11,
+    fontSize: typography.caption,
     fontWeight: "700",
   },
   toggleText: {
-    fontSize: 13,
+    fontSize: typography.meta,
     fontWeight: "700",
   },
 });

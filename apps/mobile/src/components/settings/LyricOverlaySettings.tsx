@@ -1,5 +1,5 @@
-import React, { useEffect } from "react";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import React from "react";
+import { Alert, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 
 import {
   canDrawOverlays,
@@ -10,24 +10,29 @@ import {
   showLyricOverlay,
 } from "@/services/lyricOverlayService";
 import { useLyricOverlayStore } from "@/stores/lyricOverlayStore";
+import { SettingsCard } from "@/components/settings/SettingsCard";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, touch, typography } from "@/theme/tokens";
 
 export function LyricOverlaySettings() {
   const visible = useLyricOverlayStore((state) => state.visible);
   const locked = useLyricOverlayStore((state) => state.locked);
+  const notificationButtonEnabled = useLyricOverlayStore((state) => state.notificationButtonEnabled);
+  const notificationButtonUpdating = useLyricOverlayStore(
+    (state) => state.notificationButtonUpdating,
+  );
   const loaded = useLyricOverlayStore((state) => state.loaded);
-  const load = useLyricOverlayStore((state) => state.loadFromStorage);
+  const overlayError = useLyricOverlayStore((state) => state.error);
   const setVisible = useLyricOverlayStore((state) => state.setVisible);
+  const setNotificationButtonEnabled = useLyricOverlayStore(
+    (state) => state.setNotificationButtonEnabled,
+  );
   const setLocked = useLyricOverlayStore((state) => state.setLocked);
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
-
-  useEffect(() => {
-    if (!loaded) void load();
-  }, [load, loaded]);
+  const supported = isLyricOverlaySupported();
 
   const toggleVisible = async () => {
     try {
@@ -57,8 +62,23 @@ export function LyricOverlaySettings() {
     }
   };
 
+  const toggleNotificationButton = async (enabled: boolean) => {
+    try {
+      await setNotificationButtonEnabled(enabled);
+    } catch (error) {
+      Alert.alert("通知歌词按钮设置失败", error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const notificationSubtitle = !supported
+    ? "当前设备不支持播放通知歌词按钮"
+    : !loaded
+      ? "正在加载设置"
+      : overlayError ?? "在 Android 播放通知中切换悬浮歌词";
+
   return (
-    <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+    <>
+    <SettingsCard style={styles.card}>
       <View style={styles.copy}>
         <Text style={[styles.title, { color: palette.text }]}>悬浮歌词</Text>
         <Text style={[styles.subtitle, { color: palette.textMuted }]}>在其他应用上层显示当前歌词</Text>
@@ -85,17 +105,28 @@ export function LyricOverlaySettings() {
           {locked ? "已锁定" : "可拖动"}
         </Text>
       </Pressable>
-    </View>
+    </SettingsCard>
+    <SettingsCard style={styles.card}>
+      <View style={styles.copy}>
+        <Text style={[styles.title, { color: palette.text }]}>播放通知显示歌词按钮</Text>
+        <Text style={[styles.subtitle, { color: palette.textMuted }]}>{notificationSubtitle}</Text>
+      </View>
+      <Switch
+        accessibilityLabel="播放通知显示歌词按钮"
+        accessibilityState={{ disabled: !loaded || notificationButtonUpdating || !supported }}
+        disabled={!loaded || notificationButtonUpdating || !supported}
+        value={notificationButtonEnabled}
+        onValueChange={(enabled) => void toggleNotificationButton(enabled)}
+        trackColor={{ false: palette.surfaceMuted, true: palette.primary }}
+      />
+    </SettingsCard>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
     minHeight: 56,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.s,
-    paddingVertical: spacing.xs,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.xs,

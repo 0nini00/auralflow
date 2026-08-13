@@ -1,54 +1,51 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Animated, PanResponder, type LayoutChangeEvent, useWindowDimensions } from "react-native";
+import { Alert, PanResponder, type LayoutChangeEvent, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { buildImmersiveControlsVisibilityModel } from "@/services/immersiveControlsModel";
-import { extractArtworkColors, darkenHex, type ArtworkColors } from "@/services/artworkColorService";
 import { buildImmersiveCurrentSongActions } from "@/services/currentSongActions";
 import { buildImmersivePlayModeControl } from "@/services/mobilePlayModeModel";
 import { buildImmersivePlaybackRateModel } from "@/services/playerRateModel";
 import { buildImmersiveQueuePanelModel } from "@/services/playerQueueModel";
 import { buildImmersiveVolumeControlModel } from "@/services/playerVolumeModel";
 import { buildMobileSleepTimerControl } from "@/services/songSleepTimerModel";
-import {
-  getCurrentLyricIndex,
-  playFromQueue,
-  playNext,
-  playPrevious,
-} from "@/services/playerService";
+import { playFromQueue, playNext, playPrevious } from "@/services/playerService";
+import { useLyricLineIndex } from "@/hooks/useLyricLineIndex";
 import { shareMusic } from "@/services/shareMusicService";
 import { saveCoverToDownloads } from "@/services/downloadService";
 import { buildImmersiveTranslationControl, buildImmersiveChineseConversionControl } from "@/services/lyricSettingsModel";
 import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
 import { usePlayerStore } from "@/stores/playerStore";
+import { useLyricOverlayStore } from "@/stores/lyricOverlayStore";
+import {
+  canDrawOverlays,
+  hideLyricOverlay,
+  isLyricOverlaySupported,
+  requestOverlayPermission,
+  showLyricOverlay,
+} from "@/services/lyricOverlayService";
 import { usePlaylistStore } from "@/stores/playlistStore";
 import { useDownloadStore, type DownloadQuality } from "@/stores/downloadStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { useDeviceForm } from "@/utils/responsive";
+import { openArtistDetailScreen } from "@/navigation/navigationRef";
+import type { SearchArtistResult } from "@/services/musicApi";
 
 export interface UseImmersiveControllerArgs {
   visible: boolean;
   onClose: () => void;
 }
 
-/** 控件自动隐藏间隔（毫秒） */
-const CONTROLS_AUTO_HIDE_MS = 3000;
-
-/** 沉浸式播放页状态与操作（Phase 2） */
+/** 沉浸式播放页状态与操作（对齐 lx 竖屏播放器：控件常驻，不做自动隐藏） */
 export function useImmersiveController({ visible, onClose }: UseImmersiveControllerArgs) {
   const insets = useSafeAreaInsets();
 
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
 
-  const { isTablet } = useDeviceForm();
-
   const currentSong = usePlayerStore((s) => s.currentSong);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
   const loading = usePlayerStore((s) => s.loading);
-  const position = usePlayerStore((s) => s.position);
+  // 进度（position/buffered/duration）已下沉到 ImmersiveTransport 内部订阅，
+  // 本控制器不再随 0.25s 进度事件高频重渲染。
   const manualOffsetMs = useLyricSettingsStore((s) => s.manualOffsetMs);
-  const lyricOffsetSec = manualOffsetMs / 1000;
-  const duration = usePlayerStore((s) => s.duration);
   const lyrics = usePlayerStore((s) => s.lyrics);
   const playbackRate = usePlayerStore((s) => s.playbackRate);
   const playMode = usePlayerStore((s) => s.playMode);
@@ -86,7 +83,12 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
   const mode = useThemeStore((s) => s.mode);
   const systemTheme = useThemeStore((s) => s.systemTheme);
   const accentColor = useThemeStore((s) => s.accentColor);
-  const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
+  // palette 引用稳定化：播放进度 0.25s 触发一次控制器重渲染，但主题不变时 palette 不应是新对象，
+  // 否则所有接收 palette 的子组件（含 memo 化的背景层）都会被拖着重渲染。
+  const palette = useMemo(
+    () => getThemePalette(getResolvedTheme(mode, systemTheme), accentColor),
+    [mode, systemTheme, accentColor],
+  );
 
   const showTranslation = useLyricSettingsStore((s) => s.showTranslation);
 
@@ -100,18 +102,16 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
   const likeSong = usePlaylistStore((s) => s.likeSong);
   const unlikeSong = usePlaylistStore((s) => s.unlikeSong);
 
-  const [posterMode, setPosterMode] = useState(false);
-
   // PagerView 页面索引：0=封面, 1=歌词（手机端使用）
   const [currentPage, setCurrentPage] = useState(0);
 
-  const [controlsVisible, setControlsVisible] = useState(true);
   const [layoutWidth, setLayoutWidth] = useState(0);
-  const [lyricSettingsVisible, setLyricSettingsVisible] = useState(false);
   const [rateModalVisible, setRateModalVisible] = useState(false);
   const [queueModalVisible, setQueueModalVisible] = useState(false);
   const [volumeModalVisible, setVolumeModalVisible] = useState(false);
   const [soundEffectModalVisible, setSoundEffectModalVisible] = useState(false);
+
+  const [playSettingVisible, setPlaySettingVisible] = useState(false);
 
   const [sleepModalVisible, setSleepModalVisible] = useState(false);
 
@@ -125,36 +125,12 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
 
   const [coverSongDownloadVisible, setCoverSongDownloadVisible] = useState(false);
 
+  const [commentsVisible, setCommentsVisible] = useState(false);
+
   const [liking, setLiking] = useState(false);
 
-  const fadeAnim = useRef(new Animated.Value(1)).current;
-
-  // ── 控件 3s 自动隐藏：任意交互时显示并重置计时，静止 3s 自动隐藏 ──
-  const controlsAutoHideRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearControlsAutoHide = useCallback(() => {
-    if (controlsAutoHideRef.current) {
-      clearTimeout(controlsAutoHideRef.current);
-      controlsAutoHideRef.current = null;
-    }
-  }, []);
-
-  const scheduleControlsAutoHide = useCallback(() => {
-    clearControlsAutoHide();
-    controlsAutoHideRef.current = setTimeout(() => {
-      controlsAutoHideRef.current = null;
-      setControlsVisible(false);
-    }, CONTROLS_AUTO_HIDE_MS);
-  }, [clearControlsAutoHide]);
-
-  /** 显示控制栏并重置自动隐藏计时（供点按/交互恢复） */
-  const pokeControls = useCallback(() => {
-    setControlsVisible(true);
-    scheduleControlsAutoHide();
-  }, [scheduleControlsAutoHide]);
-
-  // 手机端 PagerView 的歌词页标记（0=封面,1=歌词）
-  const isLyricsPage = !isTablet && currentPage === 1;
+  // PagerView 的歌词页标记（0=封面,1=歌词）
+  const isLyricsPage = currentPage === 1;
 
   // 供下滑关闭使用的实时引用（避免 PanResponder 闭包过期）
   const isLyricsPageRef = useRef(isLyricsPage);
@@ -179,33 +155,11 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
     })
   ).current;
 
-  const currentLyricIndex = useMemo(
-    () => getCurrentLyricIndex(lyrics, position + lyricOffsetSec),
-    [lyrics, position, lyricOffsetSec]
-  );
+  // lx 式行变更触发：行号只在歌词行切换时更新（不随 0.25s 进度事件高频重渲染）
+  const currentLyricIndex = useLyricLineIndex(lyrics, manualOffsetMs);
 
   const artwork = currentSong?.picUrl || currentSong?.img;
 
-  // 按封面生成氛围色（对齐播放页“根据封面生成背景氛围色”）。
-  const [ambientColors, setAmbientColors] = useState<ArtworkColors | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    if (!artwork) {
-      setAmbientColors(null);
-      return;
-    }
-    extractArtworkColors(artwork)
-      .then((colors) => {
-        if (!cancelled) setAmbientColors(colors);
-      })
-      .catch(() => {
-        if (!cancelled) setAmbientColors(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [artwork]);
-  const ambientBackground = ambientColors?.dominant ? darkenHex(ambientColors.dominant, 0.45) : null;
   const currentSongActions = useMemo(
     () => buildImmersiveCurrentSongActions(currentSong, isLiked),
     [currentSong, isLiked]
@@ -241,14 +195,6 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
     [chineseConversion]
 
   );
-  const controlsVisibility = useMemo(
-
-    () => buildImmersiveControlsVisibilityModel(controlsVisible),
-
-    [controlsVisible]
-
-  );
-
   const sleepTimerControl = useMemo(
 
     () =>
@@ -269,39 +215,16 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
 
   );
 
-  // 控制栏淡入淡出
+  // 打开时手机端恢复「封面页」
   useEffect(() => {
-    Animated.timing(fadeAnim, {
-      toValue: controlsVisible ? 1 : 0,
-      duration: 220,
-      useNativeDriver: true,
-    }).start();
-  }, [controlsVisible, fadeAnim]);
+    if (visible) setCurrentPage(0);
+  }, [visible]);
 
-  // 打开时重置控制栏可见并启动自动隐藏；手机端恢复「封面页」
-  useEffect(() => {
-    if (visible) {
-      setControlsVisible(true);
-      setCurrentPage(0);
-      scheduleControlsAutoHide();
-    } else {
-      clearControlsAutoHide();
-    }
-    return clearControlsAutoHide;
-  }, [visible, scheduleControlsAutoHide, clearControlsAutoHide]);
-
-  // 平板：封面常驻（对齐桌面）；手机：封面由 PosterMode 始终渲染，不单独控制显隐
-
-  const showCoverSection = isTablet;
-
-  // 高度约束：横屏/分屏等矮窗口下避免封面溢出（顶部栏 + 控制条 + 迷你歌词预留）
-  const maxCoverByHeight = Math.max(148, (windowHeight || 0) - 260);
-
+  // 封面尺寸对齐 lx 竖屏播放器：宽度的 85% 与可用高度的一半取较小值
+  // （lx 原公式：Math.min(winWidth * 0.85, (winHeight - statusBar - header) * 0.5)）
   const coverSize = Math.min(
-    isTablet
-      ? Math.min(Math.max(windowWidth * 0.32, 260), 420)
-      : Math.min(Math.max((layoutWidth || windowWidth) * 0.42, 148), 220),
-    maxCoverByHeight
+    (layoutWidth || windowWidth) * 0.85,
+    Math.max(140, ((windowHeight || 0) - 160) * 0.5)
   );
 
   const handleTogglePlay = async () => {
@@ -313,10 +236,13 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
       await resume();
       const after = usePlayerStore.getState();
       if (!after.isPlaying && after.currentIndex >= 0) {
-        await playFromQueue(after.currentIndex);
+        // 快照恢复后原生无曲：重新播放当前曲并续播上次保存的进度
+        await playFromQueue(after.currentIndex, after.position);
       }
     } catch {
-      if (currentIndex >= 0) await playFromQueue(currentIndex);
+      if (currentIndex >= 0) {
+        await playFromQueue(currentIndex, usePlayerStore.getState().position);
+      }
     }
   };
 
@@ -423,8 +349,55 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
     if (!currentSong) return;
     try {
       await shareMusic(currentSong);
+    } catch {}
+  };
+
+  // 顶部歌手点击 → 跳转歌手详情（仅网易云源支持详情，其它源禁用回调）。
+  const handleOpenArtist = useCallback(() => {
+    if (!currentSong || currentSong.source !== "wy" || !currentSong.artistId || !currentSong.singer) return;
+    const artist: SearchArtistResult = {
+      id: currentSong.artistId,
+      name: currentSong.singer,
+      source: "wy",
+    };
+    openArtistDetailScreen(artist);
+  }, [currentSong]);
+  const canOpenArtist = currentSong?.source === "wy" && !!currentSong?.artistId && !!currentSong?.singer;
+
+  // 桌面歌词（悬浮歌词 overlay）切换：能力不支持的设备显式报错，不静默失败
+  const floatingLyricActive = useLyricOverlayStore((s) => s.visible);
+  const setFloatingLyricVisible = useLyricOverlayStore((s) => s.setVisible);
+
+  const handleToggleFloatingLyric = async () => {
+    if (!isLyricOverlaySupported()) {
+      Alert.alert("悬浮歌词不可用", "当前设备不支持原生悬浮歌词");
+      return;
+    }
+    try {
+      if (floatingLyricActive) {
+        await hideLyricOverlay();
+        await setFloatingLyricVisible(false);
+        return;
+      }
+
+      // 打开前先确认悬浮窗权限：无权限时引导系统授权，而不是直接报操作失败
+      if (!(await canDrawOverlays())) {
+        const granted = await requestOverlayPermission();
+        if (!granted) {
+          Alert.alert(
+            "需要悬浮窗权限",
+            "悬浮歌词需要「显示在其他应用上层」权限，请在系统设置中授权后重试",
+          );
+          return;
+        }
+      }
+
+      if (!(await showLyricOverlay())) {
+        throw new Error("原生悬浮歌词窗口未能打开");
+      }
+      await setFloatingLyricVisible(true);
     } catch (error) {
-      console.error("Share music error:", error);
+      Alert.alert("悬浮歌词操作失败", error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -439,7 +412,13 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
         await likeSong(currentSong);
       }
     } catch (error) {
-      console.error("Like/unlike error:", error);
+      // 不再静默失败：未登录时引导去账号页，其他错误展示具体原因
+      const message = error instanceof Error ? error.message : "操作失败";
+      if (message.includes("未登录")) {
+        Alert.alert("需要登录", "请在 设置 → 账号与服务 登录网易云账号后再收藏");
+      } else {
+        Alert.alert("操作失败", message);
+      }
     } finally {
       setLiking(false);
     }
@@ -447,7 +426,6 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
 
   const openCoverMenu = () => {
     setCoverMenuVisible(true);
-    pokeControls();
   };
   const closeCoverMenu = () => setCoverMenuVisible(false);
   const openCoverSongDownload = () => {
@@ -458,10 +436,9 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
   const handleCoverSongDownload = async (quality: DownloadQuality) => {
     setCoverSongDownloadVisible(false);
     if (!currentSong) return;
-    try {
-      await downloadSong(currentSong, quality);
-    } catch (error) {
-      Alert.alert("下载失败", error instanceof Error ? error.message : String(error));
+    const result = await downloadSong(currentSong, quality);
+    if (result.status === "failed") {
+      Alert.alert("下载失败", result.error ?? "下载失败");
     }
   };
   const handleCoverDownload = async () => {
@@ -475,16 +452,6 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
     }
   };
 
-  const toggleControls = () => {
-    if (!controlsVisible) scheduleControlsAutoHide();
-    setControlsVisible((v) => !v);
-  };
-  const handleToggleControlsVisibility = () => {
-    const next = controlsVisibility.nextControlsVisible;
-    setControlsVisible(next);
-    if (next) scheduleControlsAutoHide();
-  };
-
   const onLayout = (e: LayoutChangeEvent) => {
     setLayoutWidth(e.nativeEvent.layout.width);
   };
@@ -494,19 +461,12 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
     onClose,
     dismissResponder: dismissResponder.panHandlers,
     insets,
-    windowWidth,
-    isTablet,
     layoutWidth,
     onLayout,
     palette,
-    ambientBackground,
-    ambientColors,
-    setAmbientColors,
     currentSong,
     isPlaying,
     loading,
-    position,
-    duration,
     playMode,
     volume,
     isMuted,
@@ -516,14 +476,9 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
     lyrics,
     currentLyricIndex,
     artwork,
-    controlsVisible,
     isLyricsPage,
-    posterMode,
-    setPosterMode,
     currentPage,
     setCurrentPage,
-    lyricSettingsVisible,
-    setLyricSettingsVisible,
     addToPlaylistVisible,
     setAddToPlaylistVisible,
     coverMenuVisible,
@@ -534,9 +489,9 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
     closeCoverSongDownload,
     handleCoverSongDownload,
     handleCoverDownload,
-    fadeAnim,
+    commentsVisible,
+    setCommentsVisible,
     coverSize,
-    showCoverSection,
     playModeControl,
     rateModel,
     volumeModel,
@@ -558,15 +513,21 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
     setVolumeModalVisible,
     soundEffectModalVisible,
     setSoundEffectModalVisible,
+    playSettingVisible,
+    setPlaySettingVisible,
     sleepModalVisible,
     setSleepModalVisible,
     isLiked,
-    liking,
-    showTranslation,
-    setShowTranslation,
-    translationControl,
-    chineseConversion,
-    setChineseConversion,
+    showTranslation,
+
+    setShowTranslation,
+
+    translationControl,
+
+    chineseConversion,
+
+    setChineseConversion,
+
     chineseConversionControl,
     handleTogglePlay,
     handlePrevious,
@@ -585,11 +546,11 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
     handleStartCustomSleepTimer,
     handleStartCustomSongSleepTimer,
     handleShare,
+    handleOpenArtist,
+    canOpenArtist,
     handleLike,
-    toggleControls,
-    pokeControls,
-    handleToggleControlsVisibility,
+    floatingLyricActive,
+    handleToggleFloatingLyric,
     currentSongActions,
-    controlsVisibility,
   };
 }

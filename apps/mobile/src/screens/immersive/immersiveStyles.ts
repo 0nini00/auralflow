@@ -4,45 +4,16 @@ import { radius, touch, typography } from "@/theme/tokens";
 export const styles = StyleSheet.create({
 
   coverPageContainer: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
+    // 对齐 lx Pic：底部留白给迷你歌词，封面视觉重心略微上移
+    paddingBottom: 24,
   },
 
   root: {
 
     flex: 1,
-
-  },
-
-  stage: {
-
-    flex: 1,
-
-    alignItems: "center",
-
-    justifyContent: "center",
-
-    paddingHorizontal: 20,
-
-    gap: 20,
-
-  },
-
-  coverSection: {
-
-    alignItems: "center",
-
-    justifyContent: "center",
-
-    gap: 8,
-
-  },
-
-  coverSectionTablet: {
-
-    flexShrink: 0,
-
-    paddingHorizontal: 12,
 
   },
 
@@ -82,34 +53,6 @@ export const styles = StyleSheet.create({
 
   },
 
-  coverHint: {
-
-    fontSize: typography.caption,
-
-    fontWeight: "600",
-
-  },
-
-  lyricSection: {
-
-    flex: 1,
-
-    width: "100%",
-
-    minHeight: 220,
-
-    justifyContent: "center",
-
-  },
-
-  lyricSectionTablet: {
-
-    minWidth: 0,
-
-    paddingLeft: 12,
-
-  },
-
   topBar: {
 
     position: "absolute",
@@ -138,8 +81,6 @@ export const styles = StyleSheet.create({
 
     height: touch.minTarget,
 
-    borderRadius: radius.xl,
-
     justifyContent: "center",
 
     alignItems: "center",
@@ -150,7 +91,7 @@ export const styles = StyleSheet.create({
 
     flex: 1,
 
-    alignItems: "center",
+    alignItems: "flex-start",
 
     paddingHorizontal: 8,
 
@@ -172,67 +113,17 @@ export const styles = StyleSheet.create({
 
   },
 
-  topRightButton: {
+  topRightIconButton: {
 
-    minWidth: 40,
+    width: 40,
 
     height: 40,
-
-    borderRadius: radius.xl,
 
     justifyContent: "center",
 
     alignItems: "center",
 
-    paddingHorizontal: 6,
-
   },
-
-  topRightButtonText: {
-
-    fontSize: typography.meta,
-
-    fontWeight: "700",
-
-  },
-
-  lyricList: {
-
-    flex: 1,
-
-  },
-
-  centerToggle: {
-
-
-
-    position: "absolute",
-
-
-
-    top: 120,
-
-
-
-    bottom: 200,
-
-
-
-    left: 0,
-
-
-
-    right: 0,
-
-
-
-    zIndex: 5,
-
-
-
-  },
-
-
 
   pagerView: {
     flex: 1,
@@ -244,183 +135,61 @@ export const styles = StyleSheet.create({
     flex: 1,
   },
 
-  // 手机折叠态：PagerView 承载封面/歌词左右滑动
-  phoneStage: {
-
-
-
-    flex: 1,
-
-
-
-    alignItems: "center",
-
-
-
-    justifyContent: "center",
-
-
-
+  // 对齐 lx 竖屏 Player：底部播放区（文档流三段式：PlayInfo / ControlBtn / MoreBtn）
+  playerArea: {
     paddingHorizontal: 20,
-
-
-
+    paddingTop: 8,
   },
 
-  restoreControlsButton: {
-
-    position: "absolute",
-
-    right: 16,
-
-    minHeight: 44,
-
-    borderRadius: 22,
-
-    borderWidth: 1,
-
-    alignItems: "center",
-
-    justifyContent: "center",
-
-    paddingHorizontal: 16,
-
-    zIndex: 12,
-
-  },
-
-  restoreControlsText: {
-
-    fontSize: typography.meta,
-
-    fontWeight: "700",
-
-  },
-
-  bottomBar: {
-
-    position: "absolute",
-
-    left: 0,
-
-    right: 0,
-
-    bottom: 0,
-
-    paddingHorizontal: 20,
-
-    paddingTop: 16,
-
-    backgroundColor: "rgba(0,0,0,0.0)",
-
-    zIndex: 10,
-
-  },
-
-  progressWrap: {
-
-    marginBottom: 8,
-
+  playInfoWrap: {
+    marginBottom: 4,
   },
 
   timeRow: {
-
     flexDirection: "row",
-
     justifyContent: "space-between",
-
     marginTop: 2,
-
   },
 
   timeText: {
-
     fontSize: typography.caption,
-
   },
 
   mainControls: {
-
     width: "100%",
-
     flexDirection: "row",
-
     alignItems: "center",
-
-    justifyContent: "space-between",
-
-    marginVertical: 12,
-
+    justifyContent: "space-evenly",
+    paddingVertical: 14,
   },
 
   modeControlButton: {
-
-    width: 48,
-
-    height: 48,
-
-    borderRadius: 24,
-
+    width: 44,
+    height: 44,
     justifyContent: "center",
-
     alignItems: "center",
-
   },
 
   controlButton: {
-
-    width: 52,
-
-    height: 52,
-
-    borderRadius: 26,
-
+    width: 56,
+    height: 56,
     justifyContent: "center",
-
     alignItems: "center",
-
   },
 
   playButton: {
-
     width: 64,
-
     height: 64,
-
-    borderRadius: 32,
-
     justifyContent: "center",
-
     alignItems: "center",
-
   },
 
-  auxRow: {
+  moreBtnRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    gap: 12,
-    rowGap: 8,
-    marginTop: 4,
-  },
-  auxButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: radius.pill,
-  },
-  auxIconButton: {
-    minWidth: touch.minTarget,
-    minHeight: touch.minTarget,
-    paddingHorizontal: 12,
     alignItems: "center",
-    justifyContent: "center",
-  },
-  auxButtonDisabled: {
-    opacity: 0.6,
-  },
-  auxText: {
-    fontSize: typography.meta,
-    fontWeight: "600",
+    justifyContent: "space-evenly",
+    gap: 8,
+    marginTop: 2,
   },
   rateModalOverlay: {
     flex: 1,
@@ -538,179 +307,7 @@ export const styles = StyleSheet.create({
     fontSize: typography.body,
     fontWeight: "700",
   },
-  queueModalOverlay: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.6)",
-    padding: 24,
-  },
-  queueModalContent: {
-    width: "100%",
-    maxWidth: 360,
-    maxHeight: "78%",
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    padding: 18,
-  },
-  queueModalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 12,
-    marginBottom: 14,
-  },
-  queueModalTitleWrap: {
-    flex: 1,
-  },
-  queueModalTitle: {
-    fontSize: typography.title,
-    fontWeight: "700",
-  },
-  queueModalMeta: {
-    fontSize: typography.caption,
-    marginTop: 4,
-  },
-  queueModalActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  queueClearButton: {
-    minHeight: 40,
-    borderRadius: radius.md,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 12,
-  },
-  queueClearButtonDisabled: {
-    opacity: 0.5,
-  },
-  queueClearText: {
-    fontSize: typography.meta,
-    fontWeight: "700",
-  },
-  queueCloseButton: {
-    minHeight: 40,
-    borderRadius: radius.md,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 12,
-  },
-  queueCloseText: {
-    fontSize: typography.meta,
-    fontWeight: "700",
-  },
-  queueList: {
-    maxHeight: 420,
-  },
-  queueListContent: {
-    gap: 8,
-  },
-  queueItem: {
-    minHeight: 56,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    padding: 12,
-  },
-  queueItemIndex: {
-    width: 28,
-    fontSize: typography.meta,
-    fontWeight: "700",
-    textAlign: "center",
-  },
-  queueItemInfo: {
-    flex: 1,
-    gap: 4,
-  },
-  queueItemTitle: {
-    fontSize: typography.body,
-    fontWeight: "700",
-  },
-  queueItemSubtitle: {
-    fontSize: typography.caption,
-  },
-  queuePlayingText: {
-    fontSize: typography.caption,
-    fontWeight: "700",
-  },
-  queueRemoveButton: {
-    minHeight: 36,
-    borderRadius: radius.sm,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 10,
-  },
-  queueRemoveText: {
-    fontSize: typography.caption,
-    fontWeight: "700",
-  },
-  // 海报模式
-  posterRoot: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 24,
-    paddingTop: 80,
-    paddingBottom: 200,
-  },
-  posterArtWrap: {
-    borderRadius: radius.xl,
-    overflow: "hidden",
-    marginBottom: 24,
-  },
-  posterArt: {
-    width: "100%",
-    height: "100%",
-    borderRadius: radius.xl,
-  },
-  posterArtPlaceholder: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  posterInfo: {
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  posterSongName: {
-    fontSize: typography.heading,
-    fontWeight: "700",
-  },
-  posterArtist: {
-    fontSize: typography.body,
-    marginTop: 4,
-  },
-  posterLyricWrap: {
-    alignItems: "center",
-    paddingHorizontal: 16,
-    minHeight: 60,
-    justifyContent: "center",
-  },
-  posterLyric: {
-    fontSize: typography.title,
-    fontWeight: "600",
-    textAlign: "center",
-    lineHeight: 24,
-  },
-  posterTranslation: {
-    fontSize: typography.meta,
-    marginTop: 4,
-    textAlign: "center",
-  },
-  posterKaraoke: {
-    alignSelf: "stretch",
-  },
-  posterWaveArea: {
-    position: "absolute",
-    left: 24,
-    right: 24,
-    bottom: 24,
-    minHeight: touch.minTarget,
-    justifyContent: "center",
-  },
+  // 海报模式已随桌面端风格移除（对齐 lx 竖屏播放器）
   soundEffectModalContent: {
 
     maxHeight: "80%",

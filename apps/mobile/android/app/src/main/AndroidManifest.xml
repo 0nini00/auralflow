@@ -53,5 +53,12 @@
       <service
         android:name=".LyricOverlayService"
         android:exported="false" />
+      <receiver
+        android:name=".LyricNotificationReceiver"
+        android:exported="false">
+        <intent-filter>
+          <action android:name="cn.chenle.auralflow.mobile.lyrics.NOTIFICATION_TOGGLE" />
+        </intent-filter>
+      </receiver>
     </application>
 </manifest>

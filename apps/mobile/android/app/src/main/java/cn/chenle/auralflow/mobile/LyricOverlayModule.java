@@ -64,6 +64,18 @@ public class LyricOverlayModule extends ReactContextBaseJavaModule {
     }
 
     @ReactMethod
+    public void isVisible(Promise promise) {
+        promise.resolve(LyricOverlayPreferences.isVisible(context));
+    }
+
+    @ReactMethod
+    public void setNotificationButtonEnabled(boolean enabled, Promise promise) {
+        LyricOverlayPreferences.setNotificationButtonEnabled(context, enabled);
+        LyricOverlayPreferences.notifyNotificationStateChanged(context);
+        promise.resolve(null);
+    }
+
+    @ReactMethod
     public void requestOverlayPermission(Promise promise) {
         if (Settings.canDrawOverlays(context)) {
             promise.resolve(true);

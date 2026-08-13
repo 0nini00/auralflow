@@ -1,31 +1,22 @@
 import React from "react";
-import {
-  Animated,
-  Modal,
-  Pressable,
-  StatusBar,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import PagerView from "react-native-pager-view";
 import KeepAwake from "react-native-keep-awake";
 
-import { CachedImage } from "@/components/CachedImage";
 import { LyricView } from "@/components/LyricView";
 import { AddToLocalPlaylistModal } from "@/components/AddToLocalPlaylistModal";
 import { MiniLyric } from "@/components/MiniLyric";
 import { DownloadQualityModal } from "@/components/DownloadQualityModal";
-import { LyricSettingsScreen } from "@/screens/LyricSettingsScreen";
-import { ImmersiveStage } from "@/screens/immersive/ImmersiveStage";
 import { ImmersiveTopBar } from "@/screens/immersive/ImmersiveTopBar";
 import { ImmersiveTransport } from "@/screens/immersive/ImmersiveTransport";
+import { ImmersiveCommentsSheet } from "@/screens/immersive/ImmersiveCommentsSheet";
 import { ImmersiveModals } from "@/screens/immersive/ImmersiveModals";
-import { PosterMode } from "@/screens/immersive/PosterMode";
+import { ImmersivePlaySettingSheet } from "@/screens/immersive/ImmersivePlaySettingSheet";
 import { ImmersiveCoverPage } from "@/screens/immersive/ImmersiveCoverPage";
 import { styles } from "@/screens/immersive/immersiveStyles";
 import { useImmersiveController } from "@/screens/immersive/useImmersiveController";
-import { darkenHex } from "@/services/artworkColorService";
+import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
+import { openMvPlayerScreen } from "@/navigation";
 
 export interface ImmersiveLyricsScreenProps {
   visible: boolean;
@@ -33,45 +24,38 @@ export interface ImmersiveLyricsScreenProps {
 }
 
 /**
- * 沉浸式播放页（Phase 2）：
+ * 播放页（对齐 lx 竖屏播放器）：
  * - 状态/操作 → useImmersiveController
- * - UI → Stage / TopBar / Transport / Modals
+ * - UI → TopBar / PagerView(封面|歌词) / Transport / Modals
+ * - 纯主题色背景，控件常驻（不再做桌面端风格的模糊背景与自动隐藏）
  */
 export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScreenProps) {
+  const showLyricProgress = useLyricSettingsStore((s) => s.showLyricProgress);
+  const pagerViewRef = React.useRef<PagerView>(null);
   const {
     insets,
-    isTablet,
     layoutWidth,
     onLayout,
     palette,
-    ambientBackground,
-    ambientColors,
-    setAmbientColors,
     currentSong,
     isPlaying,
     loading,
-    position,
-    duration,
     playMode,
     lyrics,
     currentLyricIndex,
     artwork,
-    controlsVisible,
-    posterMode,
-    setPosterMode,
     currentPage,
     setCurrentPage,
     isLyricsPage,
-    lyricSettingsVisible,
-    setLyricSettingsVisible,
     addToPlaylistVisible,
     setAddToPlaylistVisible,
-    fadeAnim,
     coverSize,
-    showCoverSection,
+    handleOpenArtist,
+    canOpenArtist,
     playModeControl,
     rateModel,
     volumeModel,
+    queue,
     queueModel,
     sleepTimerControl,
     sleepTimerMinutes,
@@ -90,16 +74,12 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     setVolumeModalVisible,
     soundEffectModalVisible,
     setSoundEffectModalVisible,
+    playSettingVisible,
+    setPlaySettingVisible,
     sleepModalVisible,
     setSleepModalVisible,
-    isLiked,
-    liking,
     showTranslation,
-    setShowTranslation,
-    setChineseConversion,
 
-    translationControl,
-    chineseConversionControl,
     handleTogglePlay,
     handlePrevious,
     handleNext,
@@ -117,10 +97,8 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     handleStartCustomSleepTimer,
     handleStartCustomSongSleepTimer,
     handleShare,
-    handleLike,
-    toggleControls,
-    pokeControls,
-    handleToggleControlsVisibility,
+    floatingLyricActive,
+    handleToggleFloatingLyric,
     coverMenuVisible,
     openCoverMenu,
     closeCoverMenu,
@@ -129,14 +107,19 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     closeCoverSongDownload,
     handleCoverSongDownload,
     handleCoverDownload,
+    commentsVisible,
+    setCommentsVisible,
     dismissResponder,
     currentSongActions,
-    controlsVisibility,
+    handleLike,
+    isLiked,
   } = useImmersiveController({ visible, onClose });
 
   if (!currentSong) {
     return null;
   }
+
+  const currentMvId = currentSong.source === "wy" ? currentSong.mvId : undefined;
 
   return (
     <Modal
@@ -150,104 +133,43 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
         {...dismissResponder}
         style={[styles.root, { backgroundColor: palette.background }]}
         onLayout={onLayout}
-        onTouchStart={pokeControls}
       >
-        {artwork ? (
-          <CachedImage
-            uri={artwork}
-            style={StyleSheet.absoluteFill}
-            blurRadius={40}
-            fallback={<View style={[StyleSheet.absoluteFill, { backgroundColor: palette.background }]} />}
-          />
-        ) : (
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: palette.background }]} />
-        )}
-        <View
-          pointerEvents="none"
-          style={[
-            StyleSheet.absoluteFill,
-            {
-              backgroundColor: ambientColors
-                ? darkenHex(ambientColors.dominant ?? "#000000", 0.72)
-                : palette.background,
-              opacity: ambientColors ? 0.88 : 0.92,
-            },
-          ]}
-        />
-
-        {isTablet ? (
-          <ImmersiveStage
-            isTablet={isTablet}
-            posterMode={posterMode}
-            showCoverSection={showCoverSection}
-            coverSize={coverSize}
-            artwork={artwork}
-            currentSong={currentSong}
-            palette={palette}
-            lyrics={lyrics}
-            currentLyricIndex={currentLyricIndex}
-            position={position}
-            duration={duration}
-            isPlaying={isPlaying}
-            showTranslation={showTranslation}
-            controlsVisible={controlsVisible}
-            insetsTop={insets.top}
-            onSeek={handleSeek}
-          />
-        ) : (
-          <PagerView
-            style={styles.pagerView}
-            initialPage={0}
-            overScrollMode="never"
-            onPageSelected={(e) => setCurrentPage(e.nativeEvent.position)}
-          >
-            <View key="cover" style={styles.pagerPage}>
-              {posterMode ? (
-                <PosterMode
-                  artwork={artwork}
-                  songName={currentSong.name}
-                  artist={currentSong.singer || "未知艺术家"}
-                  lyrics={lyrics}
-                  currentLineIndex={currentLyricIndex}
-                  currentTime={position}
-                  duration={duration}
-                  isPlaying={isPlaying}
-                  showTranslation={showTranslation}
-                  controlsHidden={!controlsVisible}
-                  palette={palette}
-                  onSeek={handleSeek}
-                  posterWidth={coverSize}
-                  showLyrics={false}
-                />
-              ) : (
-                <>
-                  <ImmersiveCoverPage
-                    artwork={artwork}
-                    coverSize={coverSize}
-                    isPlaying={isPlaying}
-                    palette={palette}
-                    onLongPress={openCoverMenu}
-                  />
-                  <MiniLyric
-                    lyrics={lyrics}
-                    currentLineIndex={currentLyricIndex}
-                    palette={palette}
-                  />
-                </>
-              )}
-            </View>
-            <View key="lyrics" style={styles.pagerPage}>
-              <LyricView
+        {/* 对齐 lx 竖屏：纯主题色背景（去模糊封面/氛围色） */}
+        <PagerView
+          ref={pagerViewRef}
+          style={styles.pagerView}
+          initialPage={0}
+          overScrollMode="never"
+          onPageSelected={(e) => setCurrentPage(e.nativeEvent.position)}
+        >
+          <View key="cover" style={styles.pagerPage}>
+            <ImmersiveCoverPage
+              artwork={artwork}
+              coverSize={coverSize}
+              isPlaying={isPlaying}
+              palette={palette}
+              onLongPress={openCoverMenu}
+            />
+            {showLyricProgress ? (
+              <MiniLyric
                 lyrics={lyrics}
                 currentLineIndex={currentLyricIndex}
-                showTranslation={showTranslation}
                 palette={palette}
-                onSeek={handleSeek}
-                style={styles.pagerLyricList}
+                onPress={() => pagerViewRef.current?.setPage(1)}
               />
-            </View>
-          </PagerView>
-        )}
+            ) : null}
+          </View>
+          <View key="lyrics" style={styles.pagerPage}>
+            <LyricView
+              lyrics={lyrics}
+              currentLineIndex={currentLyricIndex}
+              showTranslation={showTranslation}
+              palette={palette}
+              onSeek={handleSeek}
+              style={styles.pagerLyricList}
+            />
+          </View>
+        </PagerView>
 
         {isLyricsPage && <KeepAwake />}
 
@@ -255,46 +177,23 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
           insetsTop={insets.top}
           songName={currentSong.name}
           artist={currentSong.singer || "未知艺术家"}
-          isTablet={isTablet}
-          posterMode={posterMode}
           palette={palette}
           onClose={onClose}
-          onOpenLyricSettings={() => setLyricSettingsVisible(true)}
-          onTogglePosterMode={() => setPosterMode((v) => !v)}
+          onOpenPlaySetting={() => setPlaySettingVisible(true)}
+          onPressArtist={canOpenArtist ? handleOpenArtist : undefined}
+          sleepLabel={sleepTimerControl.label}
+          sleepActive={!!sleepTimerControl.active}
+          onOpenSleep={() => setSleepModalVisible(true)}
         />
 
-        <LyricSettingsScreen
-          visible={lyricSettingsVisible}
-          onBack={() => setLyricSettingsVisible(false)}
+        <ImmersivePlaySettingSheet
+          visible={playSettingVisible}
+          onClose={() => setPlaySettingVisible(false)}
+          palette={palette}
         />
-
-        {isTablet && !posterMode && (
-          <Pressable style={styles.centerToggle} onPress={toggleControls} />
-        )}
-
-        {controlsVisibility.hidden && (
-          <Pressable
-            onPress={handleToggleControlsVisibility}
-            style={[
-              styles.restoreControlsButton,
-              {
-                bottom: insets.bottom + 24,
-                backgroundColor: palette.surface,
-              },
-            ]}
-          >
-            <Text style={[styles.restoreControlsText, { color: palette.text }]}>
-              {controlsVisibility.restoreLabel}
-            </Text>
-          </Pressable>
-        )}
 
         <ImmersiveTransport
           insetsBottom={insets.bottom}
-          fadeAnim={fadeAnim}
-          controlsVisible={controlsVisible}
-          position={position}
-          duration={duration}
           onSeek={handleSeek}
           playMode={playMode}
           playModeControl={playModeControl}
@@ -305,39 +204,34 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
           isPlaying={isPlaying}
           loading={loading}
           palette={palette}
-          posterMode={posterMode}
-          canLike={currentSongActions.show}
           isLiked={isLiked}
-          liking={liking}
-          likeLabel={currentSongActions.likeLabel}
-          onLike={() => {
-            void handleLike();
-          }}
+          onToggleLike={() => void handleLike()}
+          floatingLyricActive={floatingLyricActive}
+          onToggleFloatingLyric={handleToggleFloatingLyric}
           canAddToPlaylist={currentSongActions.show}
-          addToPlaylistLabel={currentSongActions.addToPlaylistLabel}
           onAddToPlaylist={() => setAddToPlaylistVisible(true)}
           canShare={currentSongActions.show}
           shareLabel={currentSongActions.shareLabel}
           onShare={() => {
             void handleShare();
           }}
-          volumeLabel={volumeModel.triggerLabel}
-          volumeMuted={volumeModel.muted}
-          rateLabel={rateModel.triggerLabel}
-          onOpenVolume={() => setVolumeModalVisible(true)}
-          onOpenRate={() => setRateModalVisible(true)}
-          onOpenSoundEffect={() => setSoundEffectModalVisible(true)}
-          onOpenSleep={() => setSleepModalVisible(true)}
-          sleepLabel={sleepTimerControl.label}
-          sleepActive={!!sleepTimerControl.active}
+          onOpenDownload={openCoverSongDownload}
+          onPlayMv={
+            currentMvId
+              ? () => {
+                  openMvPlayerScreen({
+                    mvId: currentMvId,
+                    title: currentSong.name,
+                    artist: currentSong.singer,
+                    posterUrl: currentSong.img || currentSong.picUrl,
+                  });
+                }
+              : undefined
+          }
+          canShowComments={currentSong.source === "wy"}
+          onOpenComments={() => setCommentsVisible(true)}
           onOpenQueue={() => setQueueModalVisible(true)}
           queueLabel={queueModel.triggerLabel}
-          translationControl={translationControl}
-          onToggleTranslation={() => setShowTranslation(translationControl.nextShowTranslation)}
-          chineseConversionActive={chineseConversionControl.active}
-          chineseConversionLabel={chineseConversionControl.label}
-          onToggleChineseConversion={() => setChineseConversion(chineseConversionControl.nextMode)}
-          onTogglePosterMode={() => setPosterMode((v) => !v)}
         />
 
         <ImmersiveModals
@@ -356,6 +250,7 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
           handleToggleMute={handleToggleMute}
           management={queueModel.management}
           palette={palette}
+          queue={queue}
           queueModalVisible={queueModalVisible}
           queueModel={queueModel}
           rateModalVisible={rateModalVisible}
@@ -399,9 +294,6 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
               <Text style={[menuStyles.title, { color: palette.text }]} numberOfLines={1}>
                 {currentSong.name}
               </Text>
-              <Pressable style={menuStyles.row} onPress={openCoverSongDownload}>
-                <Text style={[menuStyles.rowText, { color: palette.text }]}>下载歌曲</Text>
-              </Pressable>
               <Pressable style={menuStyles.row} onPress={() => void handleCoverDownload()}>
                 <Text style={[menuStyles.rowText, { color: palette.text }]}>下载封面</Text>
               </Pressable>
@@ -417,6 +309,13 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
           song={currentSong}
           onClose={closeCoverSongDownload}
           onDownload={handleCoverSongDownload}
+        />
+
+        <ImmersiveCommentsSheet
+          visible={commentsVisible}
+          onClose={() => setCommentsVisible(false)}
+          song={currentSong}
+          palette={palette}
         />
       </View>
     </Modal>

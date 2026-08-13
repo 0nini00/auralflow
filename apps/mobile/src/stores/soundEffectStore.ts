@@ -123,7 +123,6 @@ export const useSoundEffectStore = create<SoundEffectState>((set, get) => ({
         set({ loaded: true });
       }
     } catch (error) {
-      console.warn("loadSoundEffect error:", error);
       set({ loaded: true });
     }
     // hydrate 完成后把设置回放到 native；播放器可能还没启动，attach 会在下一次播放时补上。
@@ -138,6 +137,7 @@ export const useSoundEffectStore = create<SoundEffectState>((set, get) => ({
   },
 
   setGain: async (index, value) => {
+    if (!Number.isInteger(index) || index < 0 || index >= EQ_FREQS.length) return;
     set((s) => {
       const gains = [...s.gains];
       gains[index] = value;
@@ -154,13 +154,15 @@ export const useSoundEffectStore = create<SoundEffectState>((set, get) => ({
   },
 
   setPan: async (v) => {
-    set({ pan: v });
+    const clamped = Math.max(-1, Math.min(1, v));
+    set({ pan: clamped });
     await persist(get());
     await applyToNative(get());
   },
 
   setReverbMix: async (v) => {
-    set({ reverbMix: v });
+    const clamped = Math.max(0, Math.min(1, v));
+    set({ reverbMix: clamped });
     await persist(get());
     await applyToNative(get());
   },

@@ -1,7 +1,6 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { radius, typography } from "@/theme/tokens";
+import { radius, spacing, typography } from "@/theme/tokens";
 import {
-  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,6 +10,8 @@ import {
 import type { MusicInfo } from "@lx/core";
 
 import { DetailHero } from "@/components/DetailHero";
+import { PlaybackActionButtons } from "@/components/PlaybackActionButtons";
+import { BatchDownloadModal } from "@/components/BatchDownloadModal";
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
@@ -21,6 +22,7 @@ import {
   type SearchAlbumResult,
 } from "@/services/musicApi";
 import { SongList } from "@/components/SongList";
+import { useDownloadStore, type DownloadQuality } from "@/stores/downloadStore";
 import { playQueue } from "@/services/playerService";
 import { runPlaybackUiAction } from "@/services/playbackUiAction";
 import {
@@ -37,6 +39,9 @@ import {
 } from "@/services/searchDetailNavigation";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { usePlayerStore } from "@/stores/playerStore";
+
+// 稳定空数组：避免加载态下 `?? []` 每次渲染生成新引用，导致下方 useMemo 依赖失效
+const EMPTY_SONGS: MusicInfo[] = [];
 
 interface AlbumDetailScreenProps {
   album: SearchAlbumResult;
@@ -75,6 +80,8 @@ export function AlbumDetailScreen({
   const [pendingAction, setPendingAction] = useState<"play-all" | "shuffle" | null>(null);
   const [locatedSongIndex, setLocatedSongIndex] = useState<number | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [batchDownloadVisible, setBatchDownloadVisible] = useState(false);
+  const downloadSong = useDownloadStore((state) => state.downloadSong);
 
   // 加载专辑详情，useEffect 与重试按钮共用同一逻辑
   const load = useCallback(async (isMounted: () => boolean = () => true) => {
@@ -122,7 +129,7 @@ export function AlbumDetailScreen({
     : { id: album.id, kind: "loading" };
   const successfulDetail = currentState.kind === "success" ? currentState.value : null;
   const albumInfo = successfulDetail?.album ?? album;
-  const songs = successfulDetail?.songs ?? [];
+  const songs = successfulDetail?.songs ?? EMPTY_SONGS;
   const albumDescription = successfulDetail?.album.description ?? "";
   const heroImageUrl = successfulDetail?.album.coverUrl ?? album.coverUrl;
   const heroTitle = successfulDetail?.album.name ?? album.name;
@@ -157,7 +164,6 @@ export function AlbumDetailScreen({
       setPlaybackError(result.message);
       return;
     }
-    onNavigateToPlayer();
   };
 
   const handlePlay = async (_song: MusicInfo, index: number) => {
@@ -212,73 +218,28 @@ export function AlbumDetailScreen({
           </Text>
         </Pressable>
       ) : null}
-      {playbackActions.show ? (
-        <>
-          <Pressable
-            style={[
-              styles.actionButton,
-              { backgroundColor: palette.primary, borderColor: palette.primary },
-              isPlayBusy && styles.actionButtonDisabled,
-            ]}
-            onPress={() => {
-              void handlePlayAll();
-            }}
-            disabled={isPlayBusy}
-          >
-            {pendingAction === "play-all" ? (
-              <ActivityIndicator color={palette.primaryText} size="small" />
-            ) : (
-              <Text style={[styles.primaryActionText, { color: palette.primaryText }]}>
-                {playbackActions.playAllLabel}
-                {songs.length > 0 ? ` (${songs.length})` : ""}
-              </Text>
-            )}
-          </Pressable>
-          <Pressable
-            style={[
-              styles.actionButton,
-              { backgroundColor: palette.surface, borderColor: palette.border },
-              isPlayBusy && styles.actionButtonDisabled,
-            ]}
-            onPress={() => {
-              void handleShufflePlay();
-            }}
-            disabled={isPlayBusy}
-          >
-            {pendingAction === "shuffle" ? (
-              <ActivityIndicator color={palette.primary} size="small" />
-            ) : (
-              <Text style={[styles.actionText, { color: palette.text }]}>
-                {playbackActions.shuffleLabel}
-              </Text>
-            )}
-          </Pressable>
-          <Pressable
-            style={[
-              styles.actionButton,
-              { backgroundColor: palette.surface, borderColor: palette.border },
-              !playbackActions.canLocateCurrentSong && styles.actionButtonDisabled,
-            ]}
-            onPress={handleLocateCurrentSong}
-            disabled={!playbackActions.canLocateCurrentSong}
-            accessibilityRole="button"
-            accessibilityLabel={playbackActions.locateLabel}
-          >
-            <Text
-              style={[
-                styles.actionText,
-                {
-                  color: playbackActions.canLocateCurrentSong
-                    ? palette.primary
-                    : palette.textMuted,
-                },
-              ]}
-            >
-              {playbackActions.locateLabel}
-            </Text>
-          </Pressable>
-        </>
-      ) : null}
+      <PlaybackActionButtons
+        show={playbackActions.show}
+        playAllLabel={playbackActions.playAllLabel}
+        playAllCount={songs.length > 0 ? `(${songs.length})` : undefined}
+        shuffleLabel={playbackActions.shuffleLabel}
+        locateLabel={playbackActions.locateLabel}
+        canLocateCurrentSong={playbackActions.canLocateCurrentSong}
+        playAllBusy={pendingAction === "play-all"}
+        shuffleBusy={pendingAction === "shuffle"}
+        onPlayAll={() => {
+          void handlePlayAll();
+        }}
+        onShuffle={() => {
+          void handleShufflePlay();
+        }}
+        onLocate={handleLocateCurrentSong}
+        extraActions={
+          songs.length > 0
+            ? [{ label: "下载全部", onPress: () => setBatchDownloadVisible(true) }]
+            : undefined
+        }
+      />
     </>
   ) : undefined;
 
@@ -344,6 +305,14 @@ export function AlbumDetailScreen({
           </>
         )}
       </ScreenScrollView>
+      <BatchDownloadModal
+        visible={batchDownloadVisible}
+        songs={songs}
+        onClose={() => setBatchDownloadVisible(false)}
+        onDownload={(song, quality: DownloadQuality) => {
+          void downloadSong(song, quality);
+        }}
+      />
     </ScreenScaffold>
   );
 }
@@ -358,31 +327,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: radius.pill,
   },
-  actionButton: {
-    minWidth: "30%",
-    flexGrow: 1,
-    minHeight: 44,
-    borderRadius: radius.pill,
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    paddingHorizontal: 12,
-  },
-  actionButtonDisabled: {
-    opacity: 0.55,
-  },
-  actionText: {
-    fontSize: typography.body,
-    fontWeight: "600",
-  },
-  primaryActionText: {
-    fontSize: typography.body,
-    fontWeight: "700",
-  },
   section: {
-    marginTop: 8,
-    marginBottom: 20,
-    gap: 12,
+    marginTop: spacing.xs,
+    marginBottom: spacing.l,
+    gap: spacing.s,
   },
   description: {
     fontSize: typography.body,

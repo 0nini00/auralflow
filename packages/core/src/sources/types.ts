@@ -18,6 +18,7 @@ export interface MusicInfo {
   id: string;
   name: string;
   singer: string;
+  artistId?: string;
   albumName: string;
   /** UI 展示的来源标签 */
   source: SourceTag;
@@ -33,6 +34,8 @@ export interface MusicInfo {
   isLocal?: boolean;
   /** 移动端应用内管理的本地歌词文本，不表示已写回音频文件 */
   localLyrics?: string;
+  /** 网易云关联 MV 的稳定标识，不包含临时播放地址 */
+  mvId?: string;
   /** 内置音乐 API 解析元数据；source 仍保持 wy/tx/local 作为 UI 来源 */
   gateway?: MusicGatewayInfo;
 }

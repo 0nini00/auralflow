@@ -4,9 +4,11 @@ apply plugin: "com.facebook.react"
 
 
 
-// Release 签名凭据从仓库外的本机私密目录读取（F:/auralflow-secrets），密钥与密码永不进仓库。
+// Release 签名凭据从仓库外的本机私密目录读取，密钥与密码永不进仓库。
+// 目录优先级：环境变量 AURALFLOW_KEYSTORE_DIR > 本机默认 F:/auralflow-secrets。
 // 缺失时 release 回退到 debug 签名，保证在未配置的机器上仍可构建（仅供本地调试用途）。
-def keystorePropertiesFile = file("F:/auralflow-secrets/keystore.properties")
+def keystoreDir = System.getenv("AURALFLOW_KEYSTORE_DIR") ?: "F:/auralflow-secrets"
+def keystorePropertiesFile = file("${keystoreDir}/keystore.properties")
 def keystoreProperties = new Properties()
 def hasReleaseKeystore = keystorePropertiesFile.exists()
 if (hasReleaseKeystore) {
@@ -14,7 +16,28 @@ if (hasReleaseKeystore) {
 }
 
 // Node 可执行文件路径：hermesc 解析与 Metro 打包共用，避免两处写死后漂移。
-def nodeExecutable = "C:/Program Files/nodejs/node.exe"
+// 优先级：环境变量 NODE_BIN > `node` 可执行名 > 本机默认路径。
+def detectNodeExecutable() {
+    def envNode = System.getenv("NODE_BIN")
+    if (envNode && file(envNode).exists()) return envNode
+    // 尝试 which/where 返回的 node（经 shell 解析，适用于 PATH 内 node）
+    def shellProbe = ["bash", "-lc", "command -v node"]
+    def probe = new ByteArrayOutputStream()
+    try {
+        def result = providers.exec {
+            it.commandLine(shellProbe)
+            it.standardOutput = probe
+        }.result.get()
+        if (result.exitValue == 0) {
+            def nodePath = probe.toString().trim()
+            if (nodePath && file(nodePath).exists()) return nodePath
+        }
+    } catch (ignored) {
+        // 探测失败回退默认
+    }
+    return "C:/Program Files/nodejs/node.exe"
+}
+def nodeExecutable = detectNodeExecutable()
 
 // React Native 0.86 起 hermesc 迁出 react-native/sdks，改由独立的 hermes-compiler 包提供。
 // pnpm 的 store 目录名带内容哈希，写死路径会在重装依赖后失效；从 react-native 包出发用 Node 解析。

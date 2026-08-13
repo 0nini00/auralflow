@@ -11,7 +11,9 @@ import {
   View,
 } from "react-native";
 import type { ThemePalette } from "@/stores/themeStore";
+import type { MusicInfo } from "@lx/core";
 import { SoundEffectPanel } from "@/components/SoundEffectPanel";
+import { QueueModal } from "@/components/QueueModal";
 import { styles } from "./immersiveStyles";
 
 export interface ImmersiveModalsProps {
@@ -32,6 +34,7 @@ export interface ImmersiveModalsProps {
   palette: ThemePalette;
   queueModalVisible: boolean;
   queueModel: any;
+  queue: MusicInfo[];
   rateModalVisible: boolean;
   rateModel: any;
   setCustomMinutes: (...args: any[]) => void;
@@ -53,7 +56,7 @@ export interface ImmersiveModalsProps {
 }
 
 export function ImmersiveModals({
-  customMinutes, customSongCount, handleCancelSleepTimer, handleClearQueue, handlePlayQueueItem, handleRemoveQueueItem, handleSetPlaybackRate, handleSetVolume, handleStartCustomSleepTimer, handleStartCustomSongSleepTimer, handleStartSleepTimer, handleStartSongSleepTimer, handleToggleMute, management, palette, queueModalVisible, queueModel, rateModalVisible, rateModel, setCustomMinutes, setCustomSongCount, setQueueModalVisible, setRateModalVisible, setSleepModalVisible, setSoundEffectModalVisible, setVolumeModalVisible, sleepModalVisible, sleepTimerActive, sleepTimerControl, sleepTimerMinutes, sleepTimerSongActive, sleepTimerSongCount, soundEffectModalVisible, volumeModalVisible, volumeModel
+  customMinutes, customSongCount, handleCancelSleepTimer, handleClearQueue, handlePlayQueueItem, handleRemoveQueueItem, handleSetPlaybackRate, handleSetVolume, handleStartCustomSleepTimer, handleStartCustomSongSleepTimer, handleStartSleepTimer, handleStartSongSleepTimer, handleToggleMute, management, palette, queueModalVisible, queueModel, rateModalVisible, rateModel, setCustomMinutes, setCustomSongCount, setQueueModalVisible, setRateModalVisible, setSleepModalVisible, setSoundEffectModalVisible, setVolumeModalVisible, sleepModalVisible, sleepTimerActive, sleepTimerControl, sleepTimerMinutes, sleepTimerSongActive, sleepTimerSongCount,  soundEffectModalVisible, volumeModalVisible, volumeModel, queue
 }: ImmersiveModalsProps) {
   return (
     <>
@@ -162,7 +165,7 @@ export function ImmersiveModals({
 
   <View style={styles.volumeModalOverlay}>
 
-    <View style={[styles.volumeModalContent, styles.soundEffectModalContent]}>
+    <View style={[styles.volumeModalContent, styles.soundEffectModalContent, { backgroundColor: palette.background, borderColor: palette.border }]}>
 
       <Text style={[styles.volumeModalTitle, { color: palette.text }]}>音效</Text>
 
@@ -222,7 +225,7 @@ export function ImmersiveModals({
 
   >
 
-    <View style={[styles.volumeModalContent, { borderColor: palette.border }]}>
+    <View style={[styles.volumeModalContent, { backgroundColor: palette.background, borderColor: palette.border }]}>
 
       <Text style={[styles.volumeModalTitle, { color: palette.text }]}>睡眠定时器</Text>
 
@@ -550,94 +553,16 @@ export function ImmersiveModals({
 
 
 
-<Modal
-
+<QueueModal
   visible={queueModalVisible}
-
-  transparent
-  animationType="fade"
-  onRequestClose={() => setQueueModalVisible(false)}
->
-  <View style={styles.queueModalOverlay}>
-    <View style={[styles.queueModalContent, { backgroundColor: palette.background, borderColor: palette.border }]}> 
-      <View style={styles.queueModalHeader}>
-        <View style={styles.queueModalTitleWrap}>
-          <Text style={[styles.queueModalTitle, { color: palette.text }]}>{queueModel.title}</Text>
-          <Text style={[styles.queueModalMeta, { color: palette.textMuted }]}>{queueModel.summary}</Text>
-        </View>
-        <View style={styles.queueModalActions}>
-          <Pressable
-            style={[
-              styles.queueClearButton,
-              { backgroundColor: palette.surface },
-              !queueModel.management.canClearQueue && styles.queueClearButtonDisabled,
-            ]}
-            onPress={() => void handleClearQueue()}
-            disabled={!queueModel.management.canClearQueue}
-          >
-            <Text style={[styles.queueClearText, { color: palette.danger }]}>{queueModel.management.clearLabel}</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.queueCloseButton, { backgroundColor: palette.surface }]}
-            onPress={() => setQueueModalVisible(false)}
-          >
-            <Text style={[styles.queueCloseText, { color: palette.textMuted }]}>{queueModel.closeLabel}</Text>
-          </Pressable>
-        </View>
-      </View>
-      <ScrollView style={styles.queueList} contentContainerStyle={styles.queueListContent}>
-        {queueModel.items.map((item: any) => {
-          const management = queueModel.management.items[item.index];
-          return (
-            <Pressable
-              key={item.key}
-              style={[
-                styles.queueItem,
-                { backgroundColor: palette.surface, borderColor: palette.border },
-                item.isCurrent && { borderColor: palette.primary },
-              ]}
-              onPress={() => void handlePlayQueueItem(item.index)}
-            >
-              <Text style={[styles.queueItemIndex, { color: item.isCurrent ? palette.primary : palette.textMuted }]}>
-                {item.index + 1}
-              </Text>
-              <View style={styles.queueItemInfo}>
-                <Text style={[styles.queueItemTitle, { color: item.isCurrent ? palette.primary : palette.text }]} numberOfLines={1}>
-                  {item.title}
-                </Text>
-                <Text style={[styles.queueItemSubtitle, { color: palette.textMuted }]} numberOfLines={1}>
-                  {item.subtitle}
-                </Text>
-              </View>
-              {(() => {
-                const row = management?.items?.[item.index];
-                if (row?.statusLabel) {
-                  return (
-                    <Text style={[styles.queuePlayingText, { color: palette.primary }]}>{row.statusLabel}</Text>
-                  );
-                }
-                if (row?.canRemove && row.removeLabel) {
-                  return (
-                    <Pressable
-                      style={[styles.queueRemoveButton, { backgroundColor: palette.background }]}
-                      onPress={(event) => {
-                        event.stopPropagation();
-                        handleRemoveQueueItem(item.index);
-                      }}
-                    >
-                      <Text style={[styles.queueRemoveText, { color: palette.danger }]}>{row.removeLabel}</Text>
-                    </Pressable>
-                  );
-                }
-                return null;
-              })()}
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-    </View>
-  </View>
-</Modal>
+  queueModel={queueModel}
+  queue={queue}
+  palette={palette}
+  onClose={() => setQueueModalVisible(false)}
+  onPlayItem={(index) => void handlePlayQueueItem(index)}
+  onRemoveItem={handleRemoveQueueItem}
+  onClear={() => void handleClearQueue()}
+/>
     </>
   );
 }

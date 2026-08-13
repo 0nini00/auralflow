@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
+import { SettingsCard } from "@/components/settings/SettingsCard";
 import { saveBiliCookie } from "@/services/biliService";
 import { useBiliAccountStore } from "@/stores/biliAccountStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
@@ -37,6 +38,7 @@ export function BiliAccountCard() {
       if (!latest.account) throw new Error(latest.error || "B站 Cookie 验证失败");
       setCookie("");
       setEditing(false);
+      Alert.alert("登录成功", `已登录 B站账号：${latest.account.nickname}`);
     } catch (loginError) {
       Alert.alert("B站登录失败", loginError instanceof Error ? loginError.message : String(loginError));
     }
@@ -45,12 +47,26 @@ export function BiliAccountCard() {
   const handleLogout = () => {
     Alert.alert("退出 B站账号", "确定要退出当前 B站账号吗？", [
       { text: "取消", style: "cancel" },
-      { text: "退出", style: "destructive", onPress: () => void logout() },
+      {
+        text: "退出 B站账号",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await logout();
+            Alert.alert("已退出", "已退出 B站账号");
+          } catch (logoutError) {
+            Alert.alert(
+              "退出 B站账号失败",
+              logoutError instanceof Error ? logoutError.message : "无法清除本地 B站账号信息",
+            );
+          }
+        },
+      },
     ]);
   };
 
   return (
-    <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+    <SettingsCard style={styles.card}>
       <View style={styles.header}>
         <View style={styles.copy}>
           <Text style={[styles.title, { color: palette.text }]}>B站账号</Text>
@@ -64,6 +80,8 @@ export function BiliAccountCard() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="退出 B站账号"
+            accessibilityState={{ disabled: loading, busy: loading }}
+            disabled={loading}
             onPress={handleLogout}
             style={[styles.button, { backgroundColor: palette.dangerSurface }]}
           >
@@ -72,7 +90,9 @@ export function BiliAccountCard() {
         ) : (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="登录 B站账号"
+            accessibilityLabel={editing ? "收起 B站账号登录" : "登录 B站账号"}
+            accessibilityState={{ expanded: editing, disabled: loading, busy: loading }}
+            disabled={loading}
             onPress={() => setEditing((value) => !value)}
             style={[styles.button, { backgroundColor: palette.primary }]}
           >
@@ -84,6 +104,8 @@ export function BiliAccountCard() {
         <View style={styles.form}>
           <TextInput
             accessibilityLabel="B站 Cookie"
+            accessibilityState={{ disabled: loading }}
+            editable={!loading}
             value={cookie}
             onChangeText={setCookie}
             placeholder="粘贴 B站 Cookie"
@@ -98,6 +120,8 @@ export function BiliAccountCard() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="验证并登录 B站账号"
+            accessibilityState={{ disabled: loading, busy: loading }}
+            disabled={loading}
             onPress={() => void handleLogin()}
             style={[styles.submit, { backgroundColor: palette.primary }]}
           >
@@ -105,15 +129,12 @@ export function BiliAccountCard() {
           </Pressable>
         </View>
       ) : null}
-    </View>
+    </SettingsCard>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.md,
-    padding: spacing.s,
     gap: spacing.s,
   },
   header: { minHeight: touch.minTarget, flexDirection: "row", alignItems: "center", gap: spacing.s },

@@ -163,9 +163,7 @@ async function persistState(sources: CustomSourceItem[], customSourceAutoCheck: 
       STORAGE_KEY,
       JSON.stringify({ sources: serializable, customSourceAutoCheck }),
     );
-  } catch (error) {
-    console.error("Persist custom sources error:", error);
-  }
+  } catch {}
 }
 
 export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
@@ -183,7 +181,6 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
         loaded: true,
       });
     } catch (error) {
-      console.error("Load custom sources error:", error);
       set({ customSourceAutoCheck: true, loaded: true });
     }
   },
@@ -318,7 +315,12 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
 
   checkAllUpdates: async () => {
     const ids = get().sources.map((source) => source.id);
-    await Promise.allSettled(ids.map((id) => get().checkSourceUpdate(id)));
+    // 限制并发，避免一次拉起过多自定义音源更新请求（对齐桌面端 CONCURRENCY = 2）
+    const CONCURRENCY = 2;
+    for (let i = 0; i < ids.length; i += CONCURRENCY) {
+      const batch = ids.slice(i, i + CONCURRENCY);
+      await Promise.allSettled(batch.map((id) => get().checkSourceUpdate(id)));
+    }
   },
 
   checkStartupUpdates: async () => {

@@ -1,33 +1,38 @@
-import React from "react";
-import { Pressable, Text, View } from "react-native";
-import { ChevronDown } from "lucide-react-native";
+import React, { useState } from "react";
+import { Pressable, Text, View, type LayoutChangeEvent } from "react-native";
+import { ChevronLeft, SlidersHorizontal, Timer } from "lucide-react-native";
 import type { ThemePalette } from "@/stores/themeStore";
 import { styles } from "@/screens/immersive/immersiveStyles";
+import { Marquee } from "@/screens/immersive/Marquee";
 
 export interface ImmersiveTopBarProps {
   insetsTop: number;
   songName: string;
   artist: string;
-  isTablet: boolean;
-  posterMode: boolean;
   palette: ThemePalette;
   onClose: () => void;
-  onOpenLyricSettings: () => void;
-  onTogglePosterMode: () => void;
+  onOpenPlaySetting: () => void;
+  onPressArtist?: () => void;
+  sleepLabel: string;
+  sleepActive: boolean;
+  onOpenSleep: () => void;
 }
 
-/** 顶部信息栏：关闭 / 歌名歌手 / 设置（平板还有海报切换） */
+/** 顶部信息栏（对齐 lx 竖屏 Header）：关闭 / 歌名歌手 / 睡眠 / 设置 */
 export function ImmersiveTopBar({
   insetsTop,
   songName,
   artist,
-  isTablet,
-  posterMode,
   palette,
   onClose,
-  onOpenLyricSettings,
-  onTogglePosterMode,
+  onOpenPlaySetting,
+  onPressArtist,
+  sleepLabel,
+  sleepActive,
+  onOpenSleep,
 }: ImmersiveTopBarProps) {
+  const [titleWidth, setTitleWidth] = useState(0);
+
   return (
     <View style={[styles.topBar, { paddingTop: insetsTop + 8 }]}>
       <Pressable
@@ -35,30 +40,45 @@ export function ImmersiveTopBar({
         style={styles.closeButton}
         hitSlop={12}
         accessibilityRole="button"
-        accessibilityLabel="关闭沉浸式播放器"
+        accessibilityLabel="关闭播放器"
       >
-        <ChevronDown size={26} color={palette.text} />
+        <ChevronLeft size={26} color={palette.text} />
       </Pressable>
 
-      <View style={styles.topInfo}>
-        <Text style={[styles.songName, { color: palette.text }]} numberOfLines={1}>
-          {songName}
-        </Text>
-        <Text style={[styles.artistName, { color: palette.textMuted }]} numberOfLines={1}>
-          {artist}
-        </Text>
-      </View>
-
-      {isTablet ? (
-        <Pressable onPress={onTogglePosterMode} style={styles.topRightButton} hitSlop={12}>
-          <Text style={[styles.topRightButtonText, { color: palette.text }]}>
-            {posterMode ? "歌词" : "海报"}
+      <View
+        style={styles.topInfo}
+        onLayout={(e: LayoutChangeEvent) => setTitleWidth(e.nativeEvent.layout.width)}
+      >
+        {titleWidth > 0 ? (
+          <Marquee
+            text={songName}
+            width={titleWidth}
+            style={[styles.songName, { color: palette.text }]}
+          />
+        ) : (
+          <Text style={[styles.songName, { color: palette.text }]} numberOfLines={1}>
+            {songName}
+          </Text>
+        )}
+        <Pressable
+          onPress={onPressArtist}
+          disabled={!onPressArtist}
+          hitSlop={8}
+          accessibilityRole={onPressArtist ? "button" : "text"}
+          accessibilityLabel={onPressArtist ? `查看歌手 ${artist}` : undefined}
+        >
+          <Text style={[styles.artistName, { color: palette.textMuted }]} numberOfLines={1}>
+            {artist}
           </Text>
         </Pressable>
-      ) : null}
+      </View>
 
-      <Pressable onPress={onOpenLyricSettings} style={styles.topRightButton} hitSlop={12}>
-        <Text style={[styles.topRightButtonText, { color: palette.text }]}>设置</Text>
+      <Pressable onPress={onOpenSleep} style={styles.topRightIconButton} hitSlop={12}>
+        <Timer size={20} color={sleepActive ? palette.primary : palette.text} />
+      </Pressable>
+
+      <Pressable onPress={onOpenPlaySetting} style={styles.topRightIconButton} hitSlop={12}>
+        <SlidersHorizontal size={20} color={palette.text} />
       </Pressable>
     </View>
   );

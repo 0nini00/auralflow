@@ -47,9 +47,15 @@ export interface LyricSettingsState {
 
   manualOffsetMs: number;
 
-  /** 简繁转换模式：off=关闭 / s2t=简→繁 / t2s=繁→简。作用于正文与译文行。 */
+/** 简繁转换模式：off=关闭 / s2t=简→繁 / t2s=繁→简。作用于正文与译文行。 */
 
   chineseConversion: ChineseConversionMode;
+
+  /** 封面旋转开关（对齐 lx playDetail.isCoverSpin） */
+  coverSpin: boolean;
+
+  /** 歌词滚动进度条显示开关（对齐 lx playDetail.isShowLyricProgressSetting） */
+  showLyricProgress: boolean;
 
 
 
@@ -68,6 +74,8 @@ export interface LyricSettingsState {
   setAnimationIntensity: (intensity: LyricAnimationIntensity) => void;
   setManualOffset: (ms: number) => void;
   setChineseConversion: (mode: ChineseConversionMode) => void;
+  setCoverSpin: (enabled: boolean) => void;
+  setShowLyricProgress: (enabled: boolean) => void;
   resetSettings: () => void;
 }
 
@@ -120,7 +128,11 @@ export const DEFAULT_LYRIC_SETTINGS = {
 
   manualOffsetMs: 0,
 
-  chineseConversion: "off",
+chineseConversion: "off",
+
+  coverSpin: true,
+
+  showLyricProgress: true,
 
 } as const;
 
@@ -142,7 +154,11 @@ export const useLyricSettingsStore = create<LyricSettingsState>()(
       setAnimationIntensity: (animationIntensity) => set({ animationIntensity }),
       setManualOffset: (manualOffsetMs) => set({ manualOffsetMs }),
 
-      setChineseConversion: (chineseConversion) => set({ chineseConversion }),
+setChineseConversion: (chineseConversion) => set({ chineseConversion }),
+
+      setCoverSpin: (coverSpin) => set({ coverSpin }),
+
+      setShowLyricProgress: (showLyricProgress) => set({ showLyricProgress }),
 
       resetSettings: () => set({ ...DEFAULT_LYRIC_SETTINGS }),
     }),

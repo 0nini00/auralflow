@@ -7,45 +7,107 @@ import {
   StyleSheet,
   Text,
   View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   type ViewStyle,
   type TextStyle,
   type StyleProp,
 } from "react-native";
+import { Play } from "lucide-react-native";
 import type { LyricLine } from "@lx/core";
 import type { ThemePalette } from "@/stores/themeStore";
 import { useLyricSettingsStore, LYRIC_FONT_SIZE_MIN, LYRIC_FONT_SIZE_MAX } from "@/stores/lyricSettingsStore";
 import {
-
   buildLyricAnimationModel,
-
   buildLyricTypographyStyleModel,
-
 } from "@/services/lyricSettingsModel";
-
 import {
   convertChineseText,
   type ChineseConversionMode,
 } from "@/services/chineseConversionService";
+import { formatTime } from "@/services/playerService";
 
 export interface LyricViewProps {
   lyrics: LyricLine[];
-  /** 当前高亮行索引，-1 表示无 */
+  /** 当前高亮歌词行索引，无匹配时为 -1 */
   currentLineIndex: number;
   /** 是否显示译文 */
   showTranslation: boolean;
-  /** 主题色板 */
+  /** 主题调色板 */
   palette: ThemePalette;
-  /** 点击某行时 seek 到该行时间（秒） */
+  /** 点击歌词行定位到对应时间点（seek） */
   onSeek?: (time: number) => void;
-  /** 自定义容器样式 */
+  /** 容器样式 */
   style?: StyleProp<ViewStyle>;
 }
 
-// 固定行高，便于 FlatList getItemLayout / scrollToIndex
-const ITEM_HEIGHT = 68;
-// 顶部/底部填充占位行数，让当前行可以居中
+// 未测量行高的兜底估算（首次渲染 / 行高尚未 onLayout 时用于滚动偏移计算，对齐 lx 的动态行高方案）
+const FALLBACK_ITEM_HEIGHT = 68;
+// 上下各填充几行空白，让当前歌词始终显示在列表中间
 const SPACING_ROWS = 4;
 const AnimatedView = Animated.createAnimatedComponent(View);
+
+/** easeInOutQuad 缓动（对齐 lx utils/scroll.ts）。 */
+function easeInOutQuad(t: number, b: number, c: number, d: number): number {
+  t /= d / 2;
+  if (t < 1) return (c / 2) * t * t + b;
+  t -= 1;
+  return (-c / 2) * (t * (t - 2) - 1) + b;
+}
+
+/**
+ * 平滑滚动到指定偏移（对齐 lx scrollTo：10ms 步进 + easeInOutQuad 缓动 + scrollToOffset animated:false）。
+ * 返回取消函数；新滚动 / 用户拖动时调用取消，避免动画与新目标打架。
+ */
+function smoothScrollToOffset(
+  list: FlatList<LyricLine> | null,
+  info: NativeSyntheticEvent<NativeScrollEvent>["nativeEvent"] | null,
+  to: number,
+  duration: number,
+  onDone?: () => void,
+): () => void {
+  let cancelled = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  if (list == null || info == null) {
+    onDone?.();
+    return () => undefined;
+  }
+
+  let start = info.contentOffset.y;
+  if (to > start) {
+    const maxScrollTop = Math.max(0, info.contentSize.height - info.layoutMeasurement.height);
+    if (to > maxScrollTop) to = maxScrollTop;
+  } else if (to < start) {
+    if (to < 0) to = 0;
+  } else {
+    onDone?.();
+    return () => undefined;
+  }
+
+  const change = to - start;
+  const increment = 10;
+  let currentTime = 0;
+
+  const step = () => {
+    if (cancelled) return;
+    timer = null;
+    currentTime += increment;
+    const val = Math.trunc(easeInOutQuad(currentTime, start, change, duration));
+    list?.scrollToOffset({ offset: val, animated: false });
+    if (currentTime < duration) {
+      timer = setTimeout(step, increment);
+    } else {
+      onDone?.();
+    }
+  };
+
+  step();
+  return () => {
+    cancelled = true;
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
+}
 
 export function LyricView({
   lyrics,
@@ -57,7 +119,7 @@ export function LyricView({
 }: LyricViewProps) {
   const listRef = useRef<FlatList<LyricLine>>(null);
 
-  // 从歌词样式 store 读取样式参数
+  // 从 store 读取歌词显示设置（字号/颜色/行距/对齐/字重/透明度/动画等）
   const fontSize = useLyricSettingsStore((s) => s.fontSize);
   const storeShowTranslation = useLyricSettingsStore((s) => s.showTranslation);
   const activeColorSetting = useLyricSettingsStore((s) => s.activeColor);
@@ -74,19 +136,17 @@ export function LyricView({
 
   const setStoreFontSize = useLyricSettingsStore((s) => s.setFontSize);
 
-  // 本地字号状态：手势期间实时更新，结束后持久化到 store
+  // 捏合缩放：先用本地 state 即时更新字号，松手后再写入 store
   const [localFontSize, setLocalFontSize] = useState(fontSize);
   const localFontSizeRef = useRef(fontSize);
 
-  // store 外部更新时同步到本地状态
+  // store 字号变化（设置页修改）时同步本地值
   useEffect(() => {
     setLocalFontSize(fontSize);
     localFontSizeRef.current = fontSize;
   }, [fontSize]);
 
-  // 双指缩放：字号范围由共享常量统一定义
-
-  // PanResponder：双指捏合缩放歌词字号
+  // 捏合手势：仅双指触控生效，避免与 FlatList 纵向滚动冲突
   const pinchStartDistRef = useRef(0);
   const pinchStartFontSizeRef = useRef(16);
   const isPinchingRef = useRef(false);
@@ -95,16 +155,11 @@ export function LyricView({
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_, gestureState) => {
-        // 仅对双指手势拦截（单指保持 FlatList 滚动）
         return gestureState.numberActiveTouches === 2;
       },
-      onPanResponderGrant: () => {
-        // 双指触摸开始时记录初始状态（由 onPanResponderMove 中首次检测触发）
-      },
+      onPanResponderGrant: () => {},
       onPanResponderMove: (evt, gestureState) => {
         if (gestureState.numberActiveTouches < 2) return;
-
-        // 计算两指间距（通过 nativeEvent.touches 获取多指坐标）
         const touches = evt.nativeEvent.touches;
         if (touches.length < 2) return;
 
@@ -112,7 +167,6 @@ export function LyricView({
         const dy = touches[0].pageY - touches[1].pageY;
         const dist = Math.sqrt(dx * dx + dy * dy);
 
-        // 首次检测到双指：记录初始距离和字号
         if (!isPinchingRef.current) {
           isPinchingRef.current = true;
           pinchStartDistRef.current = dist;
@@ -128,7 +182,6 @@ export function LyricView({
       },
       onPanResponderRelease: () => {
         if (isPinchingRef.current) {
-          // 手势结束，持久化最终字号到 store
           setStoreFontSize(localFontSizeRef.current);
           isPinchingRef.current = false;
         }
@@ -142,71 +195,210 @@ export function LyricView({
     })
   ).current;
 
-  // 译文开关：组件 prop 优先（运行时临时切换），否则使用持久化设置
+  // 译文开关：页面级 prop 与 store 设置同时生效
   const showTranslation = showTranslationProp && storeShowTranslation;
 
-  // 在歌词前后加入占位行，使首尾行也能滚动到视口中部
+  // 在歌词数组上下各插入空白行，用于居中显示当前行
   const data = useMemo<LyricLine[]>(() => {
     if (lyrics.length === 0) return [];
     const spacer: LyricLine = { time: -1, text: "" };
     return [...Array(SPACING_ROWS).fill(spacer), ...lyrics, ...Array(SPACING_ROWS).fill(spacer)];
   }, [lyrics]);
 
-  // 占位行偏移：真实索引 -> 列表索引
+  // 高亮行在插入空白后的真实索引
   const targetIndex = currentLineIndex >= 0 ? currentLineIndex + SPACING_ROWS : -1;
   const animationModel = useMemo(
     () => buildLyricAnimationModel({ enabled: enableAnimation, intensity: animationIntensity }),
     [enableAnimation, animationIntensity]
   );
 
-  // 用户手动滚动后暂停自动跟唱 3 秒（对齐桌面端 USER_SCROLL_RESUME_DELAY_MS）
-  const userScrolledRef = useRef(false);
-  const userScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // ── 动态行高（对齐 lx：onLayout 记录每行真实高度，滚动偏移按累计高度计算，解决译文行高度不一的偏移）──
+  const lineHeightsRef = useRef<number[]>([]);
+  const scrollInfoRef = useRef<NativeSyntheticEvent<NativeScrollEvent>["nativeEvent"] | null>(null);
+  const scrollCancelRef = useRef<(() => void) | null>(null);
+
+  const handleLineLayout = useCallback((index: number, height: number) => {
+    if (height > 0) lineHeightsRef.current[index] = height;
+  }, []);
+
+  // 计算目标行居中所需的滚动偏移（对齐 lx handleScrollToActive）：
+  // offset = 累计行高(0..index-1) + 当前行一半 - 视口高度 × 0.42
+  const computeTargetOffset = useCallback((index: number): number => {
+    const heights = lineHeightsRef.current;
+    let offset = 0;
+    for (let i = 0; i < index; i += 1) {
+      offset += heights[i] ?? FALLBACK_ITEM_HEIGHT;
+    }
+    offset += (heights[index] ?? FALLBACK_ITEM_HEIGHT) / 2;
+    const viewportHeight =
+      scrollInfoRef.current?.layoutMeasurement.height ?? 0;
+    return offset - viewportHeight * 0.42;
+  }, []);
+
+  // 滚动到目标行（对齐 lx）：
+  //  - 相邻行（diff==1）→ 平滑滚动动画（easeInOutQuad 600ms，按动态行高精确计算偏移）
+  //  - 跨行/seek/首次 → scrollToIndex viewPosition 0.42（立即定位，不播动画）
+  const handleScrollToActive = useCallback(
+    (index: number, adjacent = false) => {
+      if (index < 0 || !listRef.current) return;
+      if (scrollCancelRef.current) {
+        scrollCancelRef.current();
+        scrollCancelRef.current = null;
+      }
+      // 相邻行且已有滚动信息 → 平滑滚动（对齐 lx 的精确偏移计算）
+      if (adjacent && scrollInfoRef.current) {
+        const to = computeTargetOffset(index);
+        scrollCancelRef.current = smoothScrollToOffset(
+          listRef.current,
+          scrollInfoRef.current,
+          to,
+          600,
+          () => {
+            scrollCancelRef.current = null;
+          }
+        );
+        return;
+      }
+      // 跨行/首次 → scrollToIndex 立即定位
+      try {
+        listRef.current.scrollToIndex({ index, animated: false, viewPosition: 0.42 });
+      } catch {
+        // 目标未就绪静默忽略（由 onScrollToIndexFailed 重试）
+      }
+    },
+    [computeTargetOffset]
+  );
+
+  // ── 行切换 → 滚动（对齐 lx）：连续逐行（diff==1）延迟 600ms，跨行/seek 立即滚 ──
+  const prevTargetRef = useRef(targetIndex);
+  const delayScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 最新目标行号 ref：供延迟回调/恢复回调读取，避免闭包捕获过期行号
+  const targetIndexRef = useRef(targetIndex);
+  targetIndexRef.current = targetIndex;
+
+  // 用户滚动后暂停自动跟唱（对齐 lx：onScrollEndDrag 后 3s 恢复）
+  const isPauseScrollRef = useRef(false);
+  const scrollResumeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     return () => {
-      if (userScrollTimerRef.current) clearTimeout(userScrollTimerRef.current);
+      if (delayScrollTimeoutRef.current) clearTimeout(delayScrollTimeoutRef.current);
+      if (scrollResumeTimeoutRef.current) clearTimeout(scrollResumeTimeoutRef.current);
+      if (scrollCancelRef.current) scrollCancelRef.current();
     };
   }, []);
 
+  // 切歌/歌词更新时：重置滚动状态，立即滚回首行（对齐 lx：歌词更新即重置 isPauseScrollRef）
   useEffect(() => {
-    if (targetIndex < 0 || data.length === 0) return;
-    // 用户手动滚动期间暂停自动跟唱
-    if (userScrolledRef.current) return;
-    const t = setTimeout(() => {
+    isPauseScrollRef.current = false;
+    if (scrollResumeTimeoutRef.current) {
+      clearTimeout(scrollResumeTimeoutRef.current);
+      scrollResumeTimeoutRef.current = null;
+    }
+    lineHeightsRef.current = [];
+    prevTargetRef.current = -1;
+    if (listRef.current) {
       try {
-        listRef.current?.scrollToIndex({
-          index: targetIndex,
-          animated: animationModel.scrollAnimated,
-          viewPosition: 0.5,
-        });
+        listRef.current.scrollToOffset({ offset: 0, animated: false });
       } catch {
         // 忽略
       }
-    }, 60);
-    return () => clearTimeout(t);
-  }, [targetIndex, data.length, animationModel.scrollAnimated]);
+    }
+  }, [lyrics]);
+
+  // 字号/行距变化（捏合缩放、设置页修改）时：行高缓存失效，等待 onLayout 重新测量，
+  // 避免用旧高度计算滚动偏移导致错位
+  useEffect(() => {
+    lineHeightsRef.current = [];
+  }, [localFontSize, lineGap]);
+
+  useEffect(() => {
+    if (targetIndex < 0 || data.length === 0) return;
+    // 用户正在手动浏览歌词时不抢滚动（同时不推进 prevTargetRef，保持暂停前的相邻判定基线）
+    if (isPauseScrollRef.current) return;
+
+    const prev = prevTargetRef.current;
+    prevTargetRef.current = targetIndex;
+    const isAdjacent = targetIndex - prev === 1;
+
+    const doScroll = () => {
+      handleScrollToActive(targetIndex, isAdjacent);
+    };
+
+    if (delayScrollTimeoutRef.current) {
+      clearTimeout(delayScrollTimeoutRef.current);
+      delayScrollTimeoutRef.current = null;
+    }
+    if (scrollCancelRef.current) {
+      scrollCancelRef.current();
+      scrollCancelRef.current = null;
+    }
+
+    if (isAdjacent) {
+      // 连续逐行：延迟 600ms 再滚（对齐 lx），给用户留出看清当前行的时间
+      delayScrollTimeoutRef.current = setTimeout(() => {
+        delayScrollTimeoutRef.current = null;
+        if (isPauseScrollRef.current) return;
+        doScroll();
+      }, 600);
+    } else {
+      // 跨行/seek/首次：立即滚
+      doScroll();
+    }
+  }, [targetIndex, data.length, handleScrollToActive]);
 
   const handleScrollToIndexFailed = (info: { index: number; highestMeasuredFrameIndex: number; averageItemLength: number }) => {
-    try {
-      listRef.current?.scrollToOffset({
-        offset: info.index * ITEM_HEIGHT,
-        animated: true,
-      });
-    } catch {
-      // 忽略
-    }
+    // 目标未渲染时重试（对齐 lx：等待后再次滚动到目标）
+    setTimeout(() => {
+      handleScrollToActive(info.index, false);
+    }, 100);
   };
 
-  if (lyrics.length === 0) {
-    return (
-      <View style={[styles.container, styles.empty, style]}>
-        <Text style={[styles.emptyText, { color: palette.textMuted }]}>
-          暂无歌词
-        </Text>
-      </View>
-    );
-  }
+  // ── PlayLine（对齐 lx）：用户滚动歌词时在 40% 处显示虚线播放线 + 时间标签 ──
+  const [playLineVisible, setPlayLineVisible] = useState(false);
+  const playLineVisibleRef = useRef(false);
+  const [playLineIndex, setPlayLineIndex] = useState(-1);
+  const playLineIndexRef = useRef(-1);
+  const viewportHeightRef = useRef(0);
+
+  // 按动态行高计算播放线指向的行号
+  const computePlayLineIndex = useCallback(
+    (scrollY: number): number => {
+      const heights = lineHeightsRef.current;
+      const y = scrollY + viewportHeightRef.current * 0.4;
+      let acc = 0;
+      for (let i = 0; i < heights.length; i += 1) {
+        acc += heights[i] ?? FALLBACK_ITEM_HEIGHT;
+        if (acc >= y) {
+          const raw = i - SPACING_ROWS;
+          return Math.max(0, Math.min(lyrics.length - 1, raw));
+        }
+      }
+      return Math.max(0, lyrics.length - 1);
+    },
+    [lyrics.length]
+  );
+
+  const handlePlayLineScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (!playLineVisibleRef.current) return;
+      const idx = computePlayLineIndex(event.nativeEvent.contentOffset.y);
+      if (idx !== playLineIndexRef.current) {
+        playLineIndexRef.current = idx;
+        setPlayLineIndex(idx);
+      }
+    },
+    [computePlayLineIndex]
+  );
+
+  const handlePlayLinePress = useCallback(() => {
+    const line = lyrics[playLineIndexRef.current];
+    if (line && onSeek) onSeek(line.time);
+    setPlayLineVisible(false);
+    playLineVisibleRef.current = false;
+    isPauseScrollRef.current = false;
+    if (scrollResumeTimeoutRef.current) clearTimeout(scrollResumeTimeoutRef.current);
+  }, [lyrics, onSeek]);
 
   const renderItem = useCallback(
     ({ item, index }: { item: LyricLine; index: number }) => {
@@ -214,7 +406,12 @@ export function LyricView({
       const isSpacer = item.time < 0;
 
       if (isSpacer) {
-        return <View style={{ height: ITEM_HEIGHT }} />;
+        return (
+          <View
+            style={{ height: FALLBACK_ITEM_HEIGHT }}
+            onLayout={(e) => handleLineLayout(index, e.nativeEvent.layout.height)}
+          />
+        );
       }
 
       const hasTranslation = showTranslation && !!item.tr;
@@ -231,66 +428,125 @@ export function LyricView({
         palette,
       });
 
-      return (
-        <AnimatedLyricLine
-          item={item}
-          isActive={isActive}
-          hasTranslation={hasTranslation}
-          onSeek={onSeek}
-          typography={typography}
-          animationModel={animationModel}
-          chineseConversion={chineseConversion}
-        />
-      );
-    },
-    [
-      targetIndex,
-      showTranslation,
-      localFontSize,
-      fontFamily,
-      lineGap,
-      activeColorSetting,
-      inactiveColorSetting,
-      textAlign,
-      fontWeight,
-      textOpacity,
-      palette,
-      onSeek,
-      animationModel,
-      chineseConversion,
-    ]
+      // 对齐 lx：高亮行只用颜色区分（active 纯色），不做逐字卡拉 OK 双层文本填充
+      return (
+        <View onLayout={(e) => handleLineLayout(index, e.nativeEvent.layout.height)}>
+          <AnimatedLyricLine
+            item={item}
+            isActive={isActive}
+            hasTranslation={hasTranslation}
+            onSeek={onSeek}
+            typography={typography}
+            animationModel={animationModel}
+            chineseConversion={chineseConversion}
+          />
+        </View>
+      );
+    },
+    [
+      targetIndex,
+      showTranslation,
+      localFontSize,
+      fontFamily,
+      lineGap,
+      activeColorSetting,
+      inactiveColorSetting,
+      textAlign,
+      fontWeight,
+      textOpacity,
+      palette,
+      onSeek,
+      animationModel,
+      chineseConversion,
+      handleLineLayout,
+    ]
   );
 
   return (
-    <View style={[styles.container, style]} {...panResponder.panHandlers}>
-      <FlatList
-        ref={listRef}
-        data={data}
-        keyExtractor={(item, index) => `${index}-${item.time}`}
-        renderItem={renderItem}
-        getItemLayout={(_, index) => ({
-          length: ITEM_HEIGHT,
-          offset: index * ITEM_HEIGHT,
-          index,
-        })}
-        onScrollToIndexFailed={handleScrollToIndexFailed}
-        onScrollBeginDrag={() => {
-          userScrolledRef.current = true;
-          if (userScrollTimerRef.current) clearTimeout(userScrollTimerRef.current);
-          userScrollTimerRef.current = setTimeout(() => {
-            userScrolledRef.current = false;
-            userScrollTimerRef.current = null;
-            // 恢复后立即滚动到当前行
-            const idx = currentLineIndex >= 0 ? currentLineIndex + SPACING_ROWS : -1;
-            if (idx >= 0) {
-              try { listRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.5 }); } catch {}
+    <View
+      style={[styles.container, style]}
+      {...panResponder.panHandlers}
+      onLayout={(event) => {
+        viewportHeightRef.current = event.nativeEvent.layout.height;
+      }}
+    >
+      {data.length === 0 ? (
+        <View style={styles.empty}>
+          <Text style={[styles.emptyText, { color: palette.textMuted }]}>暂无歌词</Text>
+        </View>
+      ) : (
+        <FlatList
+          ref={listRef}
+          data={data}
+          keyExtractor={(item, index) => `${index}-${item.time}`}
+          renderItem={renderItem}
+          onScrollToIndexFailed={handleScrollToIndexFailed}
+          fadingEdgeLength={100}
+          initialNumToRender={Math.max(targetIndex + 10, 10)}
+          onScrollBeginDrag={() => {
+            // 对齐 lx：开始拖动 → 取消自动滚动动画与延迟，暂停自动跟唱，显示 PlayLine
+            isPauseScrollRef.current = true;
+            if (delayScrollTimeoutRef.current) {
+              clearTimeout(delayScrollTimeoutRef.current);
+              delayScrollTimeoutRef.current = null;
             }
-          }, 3000);
-        }}
-        showsVerticalScrollIndicator={false}
-        scrollEventThrottle={16}
-        contentContainerStyle={styles.listContent}
-      />
+            if (scrollResumeTimeoutRef.current) {
+              clearTimeout(scrollResumeTimeoutRef.current);
+              scrollResumeTimeoutRef.current = null;
+            }
+            if (scrollCancelRef.current) {
+              scrollCancelRef.current();
+              scrollCancelRef.current = null;
+            }
+            setPlayLineVisible(true);
+            playLineVisibleRef.current = true;
+          }}
+          onScrollEndDrag={() => {
+            // 对齐 lx：松手后 3s 恢复自动跟唱（滚动持续时不会提前恢复）
+            if (scrollResumeTimeoutRef.current) {
+              clearTimeout(scrollResumeTimeoutRef.current);
+              scrollResumeTimeoutRef.current = null;
+            }
+            scrollResumeTimeoutRef.current = setTimeout(() => {
+              scrollResumeTimeoutRef.current = null;
+              isPauseScrollRef.current = false;
+              setPlayLineVisible(false);
+              playLineVisibleRef.current = false;
+              // 读取最新行号（ref），暂停期间行号已前进时恢复仍滚到当前行；
+              // 恢复属于跨行跳转（暂停期间行号可能前进多行），用非动画立即定位
+              const latest = targetIndexRef.current;
+              prevTargetRef.current = latest;
+              if (latest >= 0) handleScrollToActive(latest, false);
+            }, 3000);
+          }}
+          onScroll={(event) => {
+            scrollInfoRef.current = event.nativeEvent;
+            handlePlayLineScroll(event);
+          }}
+          showsVerticalScrollIndicator={false}
+          scrollEventThrottle={16}
+          contentContainerStyle={styles.listContent}
+        />
+      )}
+      {playLineVisible && playLineIndex >= 0 && lyrics.length > 0 ? (
+        <View pointerEvents="box-none" style={styles.playLineContainer}>
+          <View style={styles.playLineRow}>
+            <Text style={[styles.playLineTime, { color: palette.primary }]}>
+              {formatTime(lyrics[playLineIndex].time)}
+            </Text>
+            <View style={[styles.playLineDashed, { borderBottomColor: palette.primary }]} />
+            <Pressable
+              onPress={handlePlayLinePress}
+              hitSlop={10}
+              style={styles.playLineButton}
+              accessibilityRole="button"
+              accessibilityLabel="从播放线位置播放"
+            >
+              <Play size={16} color={palette.primary} />
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -302,7 +558,7 @@ interface AnimatedLyricLineProps {
   onSeek?: (time: number) => void;
   typography: ReturnType<typeof buildLyricTypographyStyleModel>;
   animationModel: ReturnType<typeof buildLyricAnimationModel>;
-  /** 简繁转换模式：off 时原样返回，s2t/t2s 时对正文与译文行做转换 */
+  /** 简繁转换模式：off / t2s / s2t，作用于歌词与译文文本 */
   chineseConversion: ChineseConversionMode;
 }
 
@@ -375,7 +631,7 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
   },
   lineWrap: {
-    height: ITEM_HEIGHT,
+    minHeight: FALLBACK_ITEM_HEIGHT,
     justifyContent: "center",
     paddingHorizontal: 24,
   },
@@ -398,5 +654,32 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 15,
+  },
+  playLineContainer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: "40%",
+  },
+  playLineRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 28,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderStyle: "dashed",
+  },
+  playLineTime: {
+    fontSize: 12,
+    fontWeight: "600",
+    paddingRight: 8,
+  },
+  playLineDashed: {
+    flex: 1,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderStyle: "dashed",
+  },
+  playLineButton: {
+    paddingLeft: 12,
+    paddingVertical: 6,
   },
 });

@@ -5,11 +5,14 @@ import type { MusicInfo } from "@lx/core";
 import { useDownloadStore } from "@/stores/downloadStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
+import { CachedImage } from "@/components/CachedImage";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
+import { radius, spacing, typography } from "@/theme/tokens";
 import {
   buildCompletedDownloadMetadata,
   buildDownloadingMetadata,
   buildFailedDownloadMetadata,
+  formatDownloadSpeed,
 } from "@/services/downloadListMetadataModel";
 import { runPlaybackUiAction } from "@/services/playbackUiAction";
 
@@ -23,6 +26,8 @@ interface DownloadListProps {
 export function DownloadList({ downloads, downloading, failedDownloads = [], onNavigateToPlayer }: DownloadListProps) {
   const removeDownload = useDownloadStore((state) => state.removeDownload);
   const cancelDownload = useDownloadStore((state) => state.cancelDownload);
+  const pauseDownload = useDownloadStore((state) => state.pauseDownload);
+  const resumeDownload = useDownloadStore((state) => state.resumeDownload);
   const downloadSong = useDownloadStore((state) => state.downloadSong);
   const removeFailedDownload = useDownloadStore((state) => state.removeFailedDownload);
   const mode = useThemeStore((state) => state.mode);
@@ -48,8 +53,9 @@ export function DownloadList({ downloads, downloading, failedDownloads = [], onN
       setPlaybackError(result.message);
       return;
     }
-    onNavigateToPlayer();
   };
+
+  const coverFor = (song: MusicInfo) => song.picUrl || song.img;
 
   return (
     <View style={styles.downloadList}>
@@ -60,8 +66,16 @@ export function DownloadList({ downloads, downloading, failedDownloads = [], onN
       {downloading.map((item) => {
         const key = `${item.song.source}:${item.song.id}:${item.quality}`;
         const metadata = buildDownloadingMetadata(item);
+        const isPaused = item.status === "paused";
+        const isWaiting = item.status === "waiting";
+        const speedLabel = formatDownloadSpeed(item.speed);
         return (
-          <View key={key} style={[styles.downloadItem, { backgroundColor: palette.surface }]}> 
+          <View key={key} style={[styles.downloadItem, { backgroundColor: palette.surface }]}>
+            <CachedImage
+              uri={coverFor(item.song) || ""}
+              style={styles.cover}
+              fallback={<View style={[styles.coverFallback, { backgroundColor: palette.surfaceStrong }]} />}
+            />
             <View style={styles.downloadInfo}>
               <Text style={[styles.downloadSongName, { color: palette.text }]} numberOfLines={1}>
                 {item.song.name}
@@ -69,14 +83,52 @@ export function DownloadList({ downloads, downloading, failedDownloads = [], onN
               <Text style={[styles.downloadMeta, { color: palette.textMuted }]} numberOfLines={1}>
                 {metadata.titleMeta}
               </Text>
-              <Text style={[styles.downloadStatus, { color: palette.primary }]}> 
-                {metadata.statusLabel}
-              </Text>
-              <Text style={[styles.downloadDetail, { color: palette.textSubtle }]} numberOfLines={1}>
-                {metadata.detailLabel}
-              </Text>
+              {isWaiting ? (
+                <Text style={[styles.downloadStatus, { color: palette.textMuted }]}>等待中…</Text>
+              ) : isPaused ? (
+                <Text style={[styles.downloadStatus, { color: palette.textMuted }]}>已暂停</Text>
+              ) : (
+                <View style={styles.progressBlock}>
+                  <View style={[styles.progressTrack, { backgroundColor: palette.surfaceStrong }]}>
+                    <View
+                      style={[
+                        styles.progressFill,
+                        {
+                          width: `${Math.max(0, Math.min(100, Math.round((item.progress || 0) * 100)))}%`,
+                          backgroundColor: palette.primary,
+                        },
+                      ]}
+                    />
+                  </View>
+                  <View style={styles.progressMetaRow}>
+                    <Text style={[styles.downloadDetail, { color: palette.textSubtle }]} numberOfLines={1}>
+                      {metadata.detailLabel}
+                    </Text>
+                    {speedLabel ? (
+                      <Text style={[styles.speedText, { color: palette.primary }]} numberOfLines={1}>
+                        {speedLabel}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              )}
             </View>
             <View style={styles.downloadActions}>
+              {isPaused ? (
+                <Pressable
+                  style={[styles.downloadActionButton, { backgroundColor: palette.background }]}
+                  onPress={() => resumeDownload(item.song, item.quality)}
+                >
+                  <Text style={[styles.downloadActionText, { color: palette.primary }]}>继续</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  style={[styles.downloadActionButton, { backgroundColor: palette.background }]}
+                  onPress={() => pauseDownload(item.song, item.quality)}
+                >
+                  <Text style={[styles.downloadActionText, { color: palette.text }]}>暂停</Text>
+                </Pressable>
+              )}
               <Pressable
                 style={[styles.downloadRemoveButton, { backgroundColor: palette.dangerSurface }]}
                 onPress={() => cancelDownload(item.song, item.quality)}
@@ -92,7 +144,12 @@ export function DownloadList({ downloads, downloading, failedDownloads = [], onN
         const key = `${item.song.source}:${item.song.id}:${item.quality}`;
         const metadata = buildFailedDownloadMetadata(item);
         return (
-          <View key={key} style={[styles.downloadItem, { backgroundColor: palette.surface }]}> 
+          <View key={key} style={[styles.downloadItem, { backgroundColor: palette.surface }]}>
+            <CachedImage
+              uri={coverFor(item.song) || ""}
+              style={styles.cover}
+              fallback={<View style={[styles.coverFallback, { backgroundColor: palette.surfaceStrong }]} />}
+            />
             <View style={styles.downloadInfo}>
               <Text style={[styles.downloadSongName, { color: palette.text }]} numberOfLines={1}>
                 {item.song.name}
@@ -127,7 +184,12 @@ export function DownloadList({ downloads, downloading, failedDownloads = [], onN
         const key = `${item.song.source}:${item.song.id}:${quality}`;
         const metadata = buildCompletedDownloadMetadata(item);
         return (
-          <View key={key} style={[styles.downloadItem, { backgroundColor: palette.surface }]}> 
+          <View key={key} style={[styles.downloadItem, { backgroundColor: palette.surface }]}>
+            <CachedImage
+              uri={coverFor(item.song) || ""}
+              style={styles.cover}
+              fallback={<View style={[styles.coverFallback, { backgroundColor: palette.surfaceStrong }]} />}
+            />
             <View style={styles.downloadInfo}>
               <Text style={[styles.downloadSongName, { color: palette.text }]} numberOfLines={1}>
                 {item.song.name}
@@ -167,65 +229,89 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   emptyText: {
-    fontSize: 14,
-    color: "#8fa79f",
+    fontSize: typography.meta,
   },
   downloadList: {
-    gap: 10,
+    gap: spacing.xs,
   },
   downloadItem: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#1a3a31",
-    borderRadius: 8,
-    padding: 12,
-    gap: 12,
+    borderRadius: radius.sm,
+    padding: spacing.s,
+    gap: spacing.s,
+  },
+  cover: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.sm,
+  },
+  coverFallback: {
+    flex: 1,
+    width: "100%",
+    borderRadius: radius.sm,
   },
   downloadInfo: {
     flex: 1,
-    gap: 4,
+    minWidth: 0,
+    gap: spacing.xxs,
   },
   downloadSongName: {
-    fontSize: 15,
+    fontSize: typography.title,
     fontWeight: "600",
-    color: "#ffffff",
   },
   downloadMeta: {
-    fontSize: 12,
-    color: "#8fa79f",
+    fontSize: typography.caption,
   },
   downloadStatus: {
-    fontSize: 12,
-    color: "#45e58d",
+    fontSize: typography.caption,
   },
   downloadDetail: {
     fontSize: 11,
-    color: "#5a6a67",
+  },
+  progressBlock: {
+    gap: 4,
+    marginTop: 2,
+  },
+  progressTrack: {
+    height: 3,
+    borderRadius: 2,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    borderRadius: 2,
+  },
+  progressMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.xs,
+  },
+  speedText: {
+    fontSize: 11,
+    fontWeight: "600",
   },
   downloadActions: {
-    gap: 8,
+    gap: spacing.xs,
     alignItems: "flex-end",
   },
   downloadActionButton: {
-    backgroundColor: "#10241f",
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.s,
+    paddingVertical: spacing.xs,
   },
   downloadActionText: {
-    fontSize: 12,
+    fontSize: typography.caption,
     fontWeight: "600",
-    color: "#45e58d",
   },
   downloadRemoveButton: {
-    backgroundColor: "#3a1a1a",
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.s,
+    paddingVertical: spacing.xs,
   },
   downloadRemoveText: {
-    fontSize: 12,
+    fontSize: typography.caption,
     fontWeight: "600",
-    color: "#ff6b6b",
   },
 });

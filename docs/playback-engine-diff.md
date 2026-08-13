@@ -76,15 +76,13 @@
 | 匹配评分 | ✅ `matchScore.ts` — 多源歌词择优（标题/歌手/时长相似度） | ❌ 直接用主源歌词，不做多源匹配 |
 | 歌词缓存 | ✅ 内存缓存 + 持久化缓存 | ✅ `getCachedLyrics` / `cacheLyrics` |
 | 滚动渲染 | DOM 滚动 + `scrollIntoView` + 用户滚动暂停 3s 恢复 | `FlatList` + `scrollToIndex` + 动画 |
-| 用户滚动暂停 | ✅ `USER_SCROLL_RESUME_DELAY_MS = 3000` | ❌ 自动跟唱，无用户滚动暂停机制 |
-| 行进度估算 | ✅ `playbackSync.ts` — 无逐字歌词时按 CJK 字符/拉丁词估算行内进度 | ❌ 无行进度估算 |
-| 逐字高亮 | ✅ `LyricWord` start/dur 驱动，Enhanced-LRC / YRC / QRC / KRC | ✅ `KaraokeLyricLine` 组件逐字渲染 |
+| 用户滚动暂停 | ✅ `USER_SCROLL_RESUME_DELAY_MS = 3000` | ✅ `LyricView` onScrollBeginDrag 置标 + 3000ms 后恢复自动跟唱 |
+| 行进度估算 | ✅ `playbackSync.ts` — 无逐字歌词时按 CJK 字符/拉丁词估算行内进度 | ✅ 悬浮歌词 `PlayerBar` 用 `@lx/core calculateLyricLineProgress`（与桌面同算法） |
+| 逐字高亮 | ✅ `LyricWord` start/dur 驱动，Enhanced-LRC / YRC / QRC / KRC | ✅ 沉浸屏当前行用 `KaraokeLyricLine` + `@lx/core calculateLyricLineProgress` 按行内进度填充（逐字与估算统一走同一进度） |
 | 动画强度 | ✅ `animationIntensity` 三级（reduced/normal/enhanced） | ✅ `lyricSettingsStore.animationIntensity` |
 | 字体/字号/颜色 | ✅ 持久化设置 + 广播同步 | ✅ `lyricSettingsStore` 持久化 |
 
 **差距**：
-- 🟡 **用户滚动暂停** — 移动端没有，用户手动滚动歌词后无法暂停自动跟唱
-- 🟡 **行进度估算** — 移动端无逐字歌词时当前行无进度动画
 - 🟡 **多源歌词匹配** — 移动端直接用主源歌词，不做择优
 
 ---

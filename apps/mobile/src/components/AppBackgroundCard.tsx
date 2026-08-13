@@ -1,8 +1,10 @@
 import React, { useState } from "react";
 import { Alert, Image, Pressable, StyleSheet, Text, View } from "react-native";
 
+import { SettingsCard } from "@/components/settings/SettingsCard";
 import { pickImageFromGallery } from "@/services/imagePickerService";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
+import { radius, spacing, touch, typography } from "@/theme/tokens";
 
 /**
  * 应用背景图选择卡片。
@@ -62,7 +64,7 @@ export function AppBackgroundCard() {
   ];
 
   return (
-    <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+    <SettingsCard style={styles.card}>
       <View style={styles.header}>
         <View style={styles.headerText}>
           <Text style={[styles.title, { color: palette.text }]}>应用背景图</Text>
@@ -105,7 +107,7 @@ export function AppBackgroundCard() {
         disabled={picking}
       >
         <Text style={[styles.primaryButtonText, { color: palette.primaryText }]}>
-          {picking ? "选择中..." : backgroundImageUri ? "更换图片" : "选择图片"}
+          {picking ? "选择中…" : backgroundImageUri ? "更换图片" : "选择图片"}
         </Text>
       </Pressable>
 
@@ -139,48 +141,45 @@ export function AppBackgroundCard() {
           </View>
         </View>
       ) : null}
-    </View>
+    </SettingsCard>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 12,
-    borderWidth: 1,
-    padding: 14,
-    gap: 12,
+    gap: spacing.s,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: spacing.s,
   },
   headerText: {
     flex: 1,
   },
   title: {
-    fontSize: 15,
+    fontSize: typography.body,
     fontWeight: "700",
   },
   subtitle: {
-    fontSize: 12,
-    marginTop: 3,
+    fontSize: typography.caption,
+    marginTop: spacing.xxs,
   },
   smallButton: {
-    minHeight: 34,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    minHeight: touch.iconButton,
+    paddingHorizontal: spacing.s,
+    borderRadius: radius.sm,
     alignItems: "center",
     justifyContent: "center",
   },
   smallButtonText: {
-    fontSize: 13,
+    fontSize: typography.meta,
     fontWeight: "700",
   },
   previewWrap: {
     height: 140,
-    borderRadius: 10,
-    borderWidth: 1,
+    borderRadius: radius.sm,
+    borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
   },
   preview: {
@@ -199,47 +198,47 @@ const styles = StyleSheet.create({
   },
   emptyPreview: {
     height: 90,
-    borderRadius: 10,
-    borderWidth: 1,
+    borderRadius: radius.sm,
+    borderWidth: StyleSheet.hairlineWidth,
     borderStyle: "dashed",
     alignItems: "center",
     justifyContent: "center",
   },
   emptyText: {
-    fontSize: 13,
+    fontSize: typography.meta,
   },
   primaryButton: {
-    minHeight: 42,
-    borderRadius: 10,
+    minHeight: touch.minTarget,
+    borderRadius: radius.sm,
     alignItems: "center",
     justifyContent: "center",
   },
   primaryButtonText: {
-    fontSize: 14,
+    fontSize: typography.body,
     fontWeight: "700",
   },
   opacitySection: {
-    gap: 8,
+    gap: spacing.xs,
   },
   opacityLabel: {
-    fontSize: 12,
+    fontSize: typography.caption,
     fontWeight: "600",
   },
   opacityGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
+    gap: spacing.xs,
   },
   opacityOption: {
-    minHeight: 36,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderRadius: 8,
+    minHeight: touch.iconButton,
+    paddingHorizontal: spacing.s,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.sm,
     alignItems: "center",
     justifyContent: "center",
   },
   opacityText: {
-    fontSize: 12,
+    fontSize: typography.caption,
     fontWeight: "700",
   },
 });

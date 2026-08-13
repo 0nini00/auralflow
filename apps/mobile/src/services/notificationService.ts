@@ -16,9 +16,7 @@ export async function updateNotificationMetadata(song: MusicInfo): Promise<void>
       album: song.albumName || "未知专辑",
       artwork: song.picUrl || song.img || undefined,
     });
-  } catch (error) {
-    console.error("Update notification metadata error:", error);
-  }
+  } catch {}
 }
 
 /**
@@ -27,7 +25,5 @@ export async function updateNotificationMetadata(song: MusicInfo): Promise<void>
 export async function clearNotification(): Promise<void> {
   try {
     await TrackPlayer.reset();
-  } catch (error) {
-    console.error("Clear notification error:", error);
-  }
+  } catch {}
 }

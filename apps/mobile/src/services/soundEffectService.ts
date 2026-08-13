@@ -56,14 +56,17 @@ let attachPromise: Promise<boolean> | null = null;
 
 /**
  * 首次调用时把音效链路挂到当前 ExoPlayer；重复调用会复用同一次 Promise。
- * 播放器还没启动时 attach 会返回 false，调用侧应在 attach 成功后再 setEnabled(true)。
+ * 播放器还没启动时 attach 会返回 false——此时不记忆结果，下次调用重新尝试，
+ * 避免“播放器就绪后音效永远挂不上”的假失效。
  */
 export async function attachSoundEffects(): Promise<boolean> {
   const mod = getNativeModule();
   if (!mod) return false;
   if (!attachPromise) {
-    attachPromise = mod.attach().catch((error) => {
-      console.warn("attachSoundEffects error:", error);
+    attachPromise = mod.attach().then((ok) => {
+      if (!ok) attachPromise = null;
+      return ok;
+    }).catch((error) => {
       attachPromise = null;
       return false;
     });
@@ -77,9 +80,7 @@ export async function detachSoundEffects(): Promise<void> {
   attachPromise = null;
   try {
     await mod.detach();
-  } catch (error) {
-    console.warn("detachSoundEffects error:", error);
-  }
+  } catch {}
 }
 
 export async function setSoundEffectsEnabled(enabled: boolean): Promise<void> {
@@ -87,9 +88,7 @@ export async function setSoundEffectsEnabled(enabled: boolean): Promise<void> {
   if (!mod) return;
   try {
     await mod.setEnabled(enabled);
-  } catch (error) {
-    console.warn("setSoundEffectsEnabled error:", error);
-  }
+  } catch {}
 }
 
 export async function setEqGains(gainsDb: number[]): Promise<void> {
@@ -97,9 +96,7 @@ export async function setEqGains(gainsDb: number[]): Promise<void> {
   if (!mod) return;
   try {
     await mod.setEqGains(gainsDb);
-  } catch (error) {
-    console.warn("setEqGains error:", error);
-  }
+  } catch {}
 }
 
 export async function setPan(pan: number): Promise<void> {
@@ -107,9 +104,7 @@ export async function setPan(pan: number): Promise<void> {
   if (!mod) return;
   try {
     await mod.setPan(pan);
-  } catch (error) {
-    console.warn("setPan error:", error);
-  }
+  } catch {}
 }
 
 export async function setReverbMix(mix: number): Promise<void> {
@@ -117,9 +112,7 @@ export async function setReverbMix(mix: number): Promise<void> {
   if (!mod) return;
   try {
     await mod.setReverbMix(mix);
-  } catch (error) {
-    console.warn("setReverbMix error:", error);
-  }
+  } catch {}
 }
 
 export async function setPitch(semitones: number): Promise<boolean> {
@@ -128,7 +121,6 @@ export async function setPitch(semitones: number): Promise<boolean> {
   try {
     return await mod.setPitch(semitones);
   } catch (error) {
-    console.warn("setPitch error:", error);
     return false;
   }
 }
@@ -139,7 +131,6 @@ export async function getSoundEffectCapabilities(): Promise<SoundEffectCapabilit
   try {
     return await mod.getCapabilities();
   } catch (error) {
-    console.warn("getSoundEffectCapabilities error:", error);
     return DEFAULT_CAPABILITIES;
   }
 }

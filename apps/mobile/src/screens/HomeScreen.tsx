@@ -1,285 +1,121 @@
-import React, { useMemo, useState } from "react";
-import {
-  Pressable,
-  StyleSheet,
-  Text,
-  useWindowDimensions,
-  View,
-} from "react-native";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import type { MusicInfo } from "@lx/core";
-
-import { MusicCard, musicCardSubtitle } from "@/components/MusicCard";
+import { CalendarDays, Clock3, LayoutGrid, Radio, Search, Trophy } from "lucide-react-native";
+import { HomeQuickActions, HomeSectionError, LeaderboardRail, PlaylistRail } from "@/components/HomeFeedSections";
+import { PlaybackErrorState } from "@/components/PlaybackErrorState";
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
 import { SectionHeader } from "@/components/SectionHeader";
-import { EmptyState } from "@/components/ScreenState";
-import { PlaybackErrorState } from "@/components/PlaybackErrorState";
-import { useHistoryStore } from "@/stores/historyStore";
+import { SongList } from "@/components/SongList";
+import { openDailyRecommendScreen, openLeaderboardScreen, openPlaylistDetailScreen, openPlaylistSquareScreen } from "@/navigation/navigationRef";
+import { getHomeFeedScope } from "@/services/homeFeedModels";
+import type { HomeFeedSection, HomeFeedSectionId } from "@/services/homeFeedService";
+import {
+  boardToPlaylistInfo,
+  fetchWyLeaderboardBoards,
+  type WyLeaderboardBoard,
+} from "@/services/wyLeaderboardService";
 import { playQueue } from "@/services/playerService";
 import { runPlaybackUiAction } from "@/services/playbackUiAction";
-import { buildHomeSongActions } from "@/services/homeSongActions";
+import { useAccountStore } from "@/stores/accountStore";
+import { useHomeFeedStore } from "@/stores/homeFeedStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, touch, typography } from "@/theme/tokens";
 
 interface HomeScreenProps {
-  onNavigateToPlayer: () => void;
   onNavigateToSearch: () => void;
-  /** 跳到私人 FM（独立路由，对齐桌面 /fm） */
-  onNavigateToFm?: () => void;
-  /** 跳到曲库历史分区，查看完整最近播放 */
-  onNavigateToHistory?: () => void;
+  onNavigateToFm: () => void;
+  onNavigateToHistory: () => void;
 }
 
-/**
- * 发现页 —— 对齐桌面 HomeView：
- * 1. Hero：品牌文案 + 私人 FM / 搜索音乐 快捷入口
- * 2. 最近播放：封面卡片网格（非列表行）
- *
- * 每日推荐 / 私人 FM 走独立抽屉路由，不再内嵌在 Home 的 mode 状态里。
- */
-export function HomeScreen({
-  onNavigateToPlayer,
-  onNavigateToSearch,
-  onNavigateToFm,
-  onNavigateToHistory,
-}: HomeScreenProps) {
-  const history = useHistoryStore((state) => state.history);
-  const songActions = buildHomeSongActions(history);
-  const { width } = useWindowDimensions();
+const SONG_PREVIEW_LIMIT = 5;
 
+export function HomeScreen({ onNavigateToSearch, onNavigateToFm, onNavigateToHistory }: HomeScreenProps) {
+  const isLoggedIn = useAccountStore((state) => state.isLoggedIn);
+  const userId = useAccountStore((state) => state.user?.userId ?? null);
+  const sections = useHomeFeedStore((state) => state.sections);
+  const loaded = useHomeFeedStore((state) => state.loaded);
+  const refreshing = useHomeFeedStore((state) => state.refreshing);
+  const sectionLoading = useHomeFeedStore((state) => state.sectionLoading);
+  const load = useHomeFeedStore((state) => state.load);
+  const refreshAll = useHomeFeedStore((state) => state.refreshAll);
+  const refreshSection = useHomeFeedStore((state) => state.refreshSection);
   const themeMode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const context = useMemo(() => ({ scopeKey: getHomeFeedScope(userId), isLoggedIn, userId }), [isLoggedIn, userId]);
 
-  // 对齐桌面 auto-fill minmax(150/120)：窄屏 2 列，宽屏 3-4 列
-  const gap = 12;
-  const contentWidth = Math.max(
-    0,
-    width - spacing.l * 2 - StyleSheet.hairlineWidth * 2,
-  );
-  const columns = contentWidth >= 720 ? 4 : contentWidth >= 480 ? 3 : 2;
-  const cardWidth = Math.max(0, (contentWidth - gap * (columns - 1)) / columns);
+  useEffect(() => { void load(context); }, [context, load]);
 
-  const styles = useMemo(
-    () =>
-      StyleSheet.create({
-        container: {
-          gap: 20,
-        },
-        hero: {
-          borderRadius: radius.xl,
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: palette.border,
-          backgroundColor: palette.surface,
-          padding: 16,
-          gap: 12,
-          overflow: "hidden",
-        },
-        heroAccentBar: {
-          position: "absolute",
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: 4,
-          backgroundColor: palette.primary,
-          opacity: 0.85,
-        },
-        eyebrow: {
-          color: palette.primary,
-          fontSize: typography.caption,
-          fontWeight: "700",
-          letterSpacing: 1.2,
-          textTransform: "uppercase",
-          marginBottom: 8,
-        },
-        heroTitle: {
-          fontSize: typography.heading,
-          fontWeight: "700",
-          color: palette.text,
-          letterSpacing: -0.4,
-          marginBottom: 8,
-        },
-        heroText: {
-          fontSize: typography.body,
-          color: palette.textMuted,
-          lineHeight: 21,
-        },
-        heroActions: {
-          flexDirection: "row",
-          flexWrap: "wrap",
-          gap: 10,
-        },
-        primaryAction: {
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
-          borderRadius: radius.pill,
-          minHeight: touch.minTarget,
-          paddingHorizontal: 16,
-          paddingVertical: 11,
-          backgroundColor: palette.primary,
-        },
-        primaryActionText: {
-          color: palette.primaryText,
-          fontSize: typography.body,
-          fontWeight: "600",
-        },
-        secondaryAction: {
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
-          borderRadius: radius.pill,
-          minHeight: touch.minTarget,
-          paddingHorizontal: 16,
-          paddingVertical: 11,
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: palette.border,
-          backgroundColor: palette.surfaceMuted,
-        },
-        secondaryActionText: {
-          color: palette.text,
-          fontSize: typography.body,
-          fontWeight: "600",
-        },
-        section: {
-          minWidth: 0,
-          gap: 14,
-        },
-        sectionActions: {
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
-        },
-        sectionAction: {
-          borderRadius: radius.pill,
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: palette.border,
-          backgroundColor: palette.surface,
-          minHeight: touch.minTarget,
-          justifyContent: "center",
-          paddingHorizontal: 12,
-          paddingVertical: 8,
-        },
-        sectionActionText: {
-          color: palette.textMuted,
-          fontSize: typography.meta,
-          fontWeight: "500",
-        },
-        grid: {
-          flexDirection: "row",
-          flexWrap: "wrap",
-          gap,
-        },
-        gridItem: {
-          width: cardWidth,
-        },
-      }),
-    [palette, cardWidth, gap],
-  );
+  const recommendedPlaylists = sections.find((section) => section.kind === "recommendedPlaylists");
+  const dailySongs = sections.find((section) => section.kind === "dailySongs");
+  const styles = useMemo(() => createStyles(palette), [palette]);
+  const [leaderboards, setLeaderboards] = useState<WyLeaderboardBoard[]>([]);
 
-  const runPlayback = async (action: () => Promise<void>) => {
+  // 首页排行榜区块：仅取官方榜前 4 个；失败静默（区块隐藏，不影响其余内容）。
+  const refreshLeaderboards = useCallback(() => {
+    void fetchWyLeaderboardBoards().then((list) => {
+      setLeaderboards(list.filter((board) => board.group === "official").slice(0, 4));
+    }).catch(() => setLeaderboards([]));
+  }, []);
+
+  useEffect(() => {
+    refreshLeaderboards();
+  }, [refreshLeaderboards]);
+
+  const runPlayback = async (songs: MusicInfo[], index: number) => {
+    if (songs.length === 0) return;
     setPlaybackError(null);
-    const result = await runPlaybackUiAction(action);
-    if (!result.ok) {
-      setPlaybackError(result.message);
-      return;
-    }
-    onNavigateToPlayer();
+    const result = await runPlaybackUiAction(() => playQueue(songs, index));
+    if (!result.ok) { setPlaybackError(result.message); return; }
   };
-
-  const handlePlay = async (_song: MusicInfo, index: number) => {
-    await runPlayback(() => playQueue(songActions.playAllSongs, index));
+  const quickActions = [
+    { id: "search", label: "搜索", icon: <Search size={18} color={palette.background} /> },
+    { id: "history", label: "播放历史", icon: <Clock3 size={18} color={palette.background} /> },
+    { id: "daily", label: "每日推荐", icon: <CalendarDays size={18} color={palette.background} /> },
+    { id: "fm", label: "私人 FM", icon: <Radio size={18} color={palette.background} /> },
+    { id: "leaderboard", label: "排行榜", icon: <Trophy size={18} color={palette.background} /> },
+    { id: "square", label: "歌单广场", icon: <LayoutGrid size={18} color={palette.background} /> },
+  ];
+  const handleQuickAction = (id: string) => {
+    if (id === "search") { onNavigateToSearch(); return; }
+    if (id === "history") { onNavigateToHistory(); return; }
+    if (id === "fm") { onNavigateToFm(); return; }
+    if (id === "daily") { openDailyRecommendScreen(); return; }
+    if (id === "leaderboard") { openLeaderboardScreen(); return; }
+    if (id === "square") { openPlaylistSquareScreen(); return; }
   };
-
-  const handlePlayAll = async () => {
-    if (!songActions.showPlayAll || songActions.playAllSongs.length === 0) return;
-    await runPlayback(() => playQueue(songActions.playAllSongs, 0));
+  const handleRefresh = async () => {
+    await refreshAll(context, { force: true });
+    refreshLeaderboards();
   };
+  const renderLoading = (label: string) => <View accessibilityLiveRegion="polite" style={styles.loadingPlaceholder}><ActivityIndicator size="small" color={palette.primary} /><Text style={styles.loadingText}>{label}</Text></View>;
+  const renderSectionError = (section: HomeFeedSection | undefined, id: HomeFeedSectionId) => section?.status === "error" ? <HomeSectionError message={section.error?.message ?? "加载失败"} loading={sectionLoading[id]} onRetry={() => void refreshSection(id, context)} /> : null;
 
   return (
     <ScreenScaffold>
-      <ScreenScrollView contentContainerStyle={styles.container}>
-        <PlaybackErrorState
-          message={playbackError}
-          onDismiss={() => setPlaybackError(null)}
-        />
-        <View style={styles.hero}>
-        <View style={styles.heroAccentBar} />
-        <View>
-          <Text style={styles.eyebrow}>AuralFlow</Text>
-          <Text style={styles.heroTitle}>发现音乐</Text>
-          <Text style={styles.heroText}>
-            从搜索、本地曲库和私人 FM 开始，把想听的歌快速接到播放队列里。
-          </Text>
-        </View>
-        <View style={styles.heroActions}>
-          <Pressable
-            style={styles.primaryAction}
-            onPress={() => onNavigateToFm?.()}
-            accessibilityRole="button"
-            accessibilityLabel="私人 FM"
-          >
-            <Text style={styles.primaryActionText}>私人 FM</Text>
-          </Pressable>
-          <Pressable
-            style={styles.secondaryAction}
-            onPress={onNavigateToSearch}
-            accessibilityRole="button"
-            accessibilityLabel="搜索音乐"
-          >
-            <Text style={styles.secondaryActionText}>搜索音乐</Text>
-          </Pressable>
-        </View>
-        </View>
-
+      <ScreenScrollView contentContainerStyle={styles.container} refreshControl={<RefreshControl refreshing={refreshing} tintColor={palette.primary} colors={[palette.primary]} onRefresh={() => void handleRefresh()} />}>
+        <PlaybackErrorState message={playbackError} onDismiss={() => setPlaybackError(null)} />
         <View style={styles.section}>
-          <SectionHeader
-            title={songActions.title}
-            action={(
-              <View style={styles.sectionActions}>
-            {songActions.showViewAll && onNavigateToHistory ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={songActions.viewAllLabel}
-                style={styles.sectionAction}
-                onPress={onNavigateToHistory}
-              >
-                <Text style={styles.sectionActionText}>{songActions.viewAllLabel}</Text>
-              </Pressable>
-            ) : null}
-            {songActions.showPlayAll ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={songActions.playAllLabel}
-                style={styles.sectionAction}
-                onPress={() => void handlePlayAll()}
-              >
-                <Text style={styles.sectionActionText}>{songActions.playAllLabel}</Text>
-              </Pressable>
-            ) : null}
-              </View>
-            )}
-          />
-
-          {songActions.songs.length === 0 ? (
-            <EmptyState title={songActions.emptyText} description={songActions.emptyCaption} />
-          ) : (
-            <View style={styles.grid}>
-              {songActions.songs.map((track, index) => (
-                <View key={`${track.source}:${track.id}:${index}`} style={styles.gridItem}>
-                  <MusicCard
-                    title={track.name}
-                    subtitle={musicCardSubtitle(track)}
-                    coverUrl={track.img || track.picUrl}
-                    onPlay={() => void handlePlay(track, index)}
-                  />
-                </View>
-              ))}
-            </View>
-          )}
+          <SectionHeader title="快捷入口" />
+          <HomeQuickActions actions={quickActions} onPress={handleQuickAction} />
         </View>
+        <View style={styles.section}><SectionHeader title="推荐歌单" action={<SectionAction label="更多" onPress={openPlaylistSquareScreen} styles={styles} />} />{!recommendedPlaylists && (!loaded || refreshing) ? renderLoading("正在加载推荐歌单") : null}{recommendedPlaylists?.items?.length ? <PlaylistRail items={recommendedPlaylists.items.map((playlist) => ({ id: playlist.id, name: playlist.name, coverImgUrl: playlist.coverImgUrl }))} onPress={(id) => { const playlist = recommendedPlaylists.items.find((item) => item.id === id); if (playlist) openPlaylistDetailScreen(playlist); }} /> : null}{renderSectionError(recommendedPlaylists, "recommendedPlaylists")}</View>
+        <View style={styles.section}><SectionHeader title="排行榜" action={<SectionAction label="更多" onPress={openLeaderboardScreen} styles={styles} />} />{leaderboards.length > 0 ? <LeaderboardRail items={leaderboards} onPress={(id) => { const board = leaderboards.find((item) => item.id === id); if (board) openPlaylistDetailScreen(boardToPlaylistInfo(board)); }} /> : null}</View>
+        {isLoggedIn ? <View style={styles.section}><SectionHeader title="每日推荐" action={<SectionAction label="查看全部" onPress={openDailyRecommendScreen} styles={styles} />} />{!dailySongs && (!loaded || refreshing || sectionLoading.dailySongs) ? renderLoading("正在加载每日推荐") : null}{dailySongs?.items?.length ? <SongList songs={dailySongs.items.slice(0, SONG_PREVIEW_LIMIT)} hideSourceTag onPlay={(_song, index) => void runPlayback(dailySongs.items, index)} /> : null}{renderSectionError(dailySongs, "dailySongs")}</View> : null}
       </ScreenScrollView>
     </ScreenScaffold>
   );
+}
+
+function SectionAction({ label, onPress, styles }: { label: string; onPress: () => void; styles: ReturnType<typeof createStyles> }) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} style={styles.sectionAction} onPress={onPress}><Text style={styles.sectionActionText}>{label}</Text></Pressable>;
+}
+
+function createStyles(palette: ReturnType<typeof getThemePalette>) {
+  return StyleSheet.create({
+    container: { gap: spacing.l }, section: { minWidth: 0, gap: spacing.s }, loadingPlaceholder: { minHeight: 112, alignItems: "center", justifyContent: "center", gap: spacing.xs }, loadingText: { color: palette.textMuted, fontSize: typography.meta }, sectionAction: { minHeight: touch.minTarget, justifyContent: "center", paddingHorizontal: spacing.s, borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border, borderRadius: radius.sm, backgroundColor: palette.surface }, sectionActionText: { color: palette.textMuted, fontSize: typography.meta, fontWeight: "600" },
+  });
 }

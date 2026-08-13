@@ -10,6 +10,7 @@ import android.os.Bundle;
 import android.os.IBinder;
 import android.os.ResultReceiver;
 import android.provider.Settings;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -28,6 +29,7 @@ public class LyricOverlayService extends Service {
     public static final String EXTRA_NEXT = "next";
     public static final String EXTRA_PROGRESS = "progress";
     public static final String EXTRA_LOCKED = "locked";
+    public static final String EXTRA_FROM_NOTIFICATION = "fromNotification";
     public static final String EXTRA_RESULT_RECEIVER = "resultReceiver";
     public static final int RESULT_SUCCESS = 1;
     public static final int RESULT_FAILURE = 2;
@@ -82,24 +84,38 @@ public class LyricOverlayService extends Service {
 
     private void executeOperation(Intent intent, int startId, ResultReceiver receiver) {
         String action = intent.getAction();
-        if (receiver == null) {
+        boolean fromNotification = intent.getBooleanExtra(EXTRA_FROM_NOTIFICATION, false);
+        if (receiver == null && !fromNotification) {
             Log.e(TAG, "Missing result receiver for action: " + action);
             return;
         }
 
+        if (
+            ACTION_UPDATE.equals(action)
+                && (!LyricOverlayPreferences.isVisible(this) || !Settings.canDrawOverlays(this))
+        ) {
+            return;
+        }
+
         if (requiresOverlayPermission(action) && !Settings.canDrawOverlays(this)) {
-            sendFailure(
-                receiver,
-                ERROR_PERMISSION_REVOKED,
-                "悬浮窗权限已被撤销，操作未执行"
-            );
+            LyricOverlayPreferences.setVisible(this, false);
+            LyricOverlayPreferences.notifyNotificationStateChanged(this);
+            if (receiver != null) {
+                sendFailure(
+                    receiver,
+                    ERROR_PERMISSION_REVOKED,
+                    "悬浮窗权限已被撤销，操作未执行"
+                );
+            }
             return;
         }
 
         try {
             if (ACTION_SHOW.equals(action)) {
                 ensureWindow();
-                sendSuccess(receiver);
+                LyricOverlayPreferences.setVisible(this, true);
+                LyricOverlayPreferences.notifyNotificationStateChanged(this);
+                if (receiver != null) sendSuccess(receiver);
                 return;
             }
             if (ACTION_UPDATE.equals(action)) {
@@ -108,7 +124,7 @@ public class LyricOverlayService extends Service {
                 progress = clampProgress(intent.getFloatExtra(EXTRA_PROGRESS, 0f));
                 ensureWindow();
                 renderState();
-                sendSuccess(receiver);
+                if (receiver != null) sendSuccess(receiver);
                 return;
             }
             if (ACTION_SET_LOCKED.equals(action)) {
@@ -117,19 +133,32 @@ public class LyricOverlayService extends Service {
                 }
                 locked = intent.getBooleanExtra(EXTRA_LOCKED, false);
                 applyLockedState();
-                sendSuccess(receiver);
+                if (receiver != null) sendSuccess(receiver);
                 return;
             }
             if (ACTION_HIDE.equals(action)) {
+                LyricOverlayPreferences.setVisible(this, false);
+                LyricOverlayPreferences.notifyNotificationStateChanged(this);
                 removeOverlayWindow();
-                sendSuccess(receiver);
+                if (receiver != null) sendSuccess(receiver);
                 stopSelf(startId);
                 return;
             }
-            sendFailure(receiver, ERROR_UNKNOWN_ACTION, "未知的悬浮歌词操作");
+            if (receiver != null) sendFailure(receiver, ERROR_UNKNOWN_ACTION, "未知的悬浮歌词操作");
         } catch (SecurityException error) {
-            sendFailure(receiver, errorCodeForAction(action), errorMessage(error));
+            handleOperationFailure(receiver, action, error);
         } catch (RuntimeException error) {
+            handleOperationFailure(receiver, action, error);
+        }
+    }
+
+    private void handleOperationFailure(ResultReceiver receiver, String action, RuntimeException error) {
+        if (ACTION_SHOW.equals(action)) {
+            LyricOverlayPreferences.setVisible(this, false);
+            LyricOverlayPreferences.notifyNotificationStateChanged(this);
+        }
+        Log.e(TAG, "Lyric overlay operation failed: " + action, error);
+        if (receiver != null) {
             sendFailure(receiver, errorCodeForAction(action), errorMessage(error));
         }
     }
@@ -277,6 +306,7 @@ public class LyricOverlayService extends Service {
             case MotionEvent.ACTION_MOVE:
                 layoutParams.x = dragStartX + Math.round(event.getRawX() - dragTouchX);
                 layoutParams.y = dragStartY + Math.round(event.getRawY() - dragTouchY);
+                clampWindowPosition(view);
                 windowManager.updateViewLayout(overlayView, layoutParams);
                 return true;
             case MotionEvent.ACTION_UP:
@@ -285,6 +315,18 @@ public class LyricOverlayService extends Service {
             default:
                 return false;
         }
+    }
+
+    private void clampWindowPosition(View view) {
+        DisplayMetrics metrics = getResources().getDisplayMetrics();
+        int screenWidth = metrics.widthPixels;
+        int screenHeight = metrics.heightPixels;
+        int windowWidth = layoutParams.width > 0 ? layoutParams.width : view.getWidth();
+        int windowHeight = view.getHeight() > 0 ? view.getHeight() : 0;
+        int maxX = Math.max(0, screenWidth - windowWidth);
+        int maxY = Math.max(0, screenHeight - windowHeight);
+        layoutParams.x = Math.max(0, Math.min(maxX, layoutParams.x));
+        layoutParams.y = Math.max(0, Math.min(maxY, layoutParams.y));
     }
 
     private float clampProgress(float value) {
@@ -313,6 +355,8 @@ public class LyricOverlayService extends Service {
 
     @Override
     public void onDestroy() {
+        LyricOverlayPreferences.setVisible(this, false);
+        LyricOverlayPreferences.notifyNotificationStateChanged(this);
         if (windowAttached) {
             try {
                 removeOverlayWindow();

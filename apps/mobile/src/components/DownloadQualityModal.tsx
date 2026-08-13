@@ -16,6 +16,8 @@ import {
 } from "@/stores/themeStore";
 import type { DownloadQuality } from "@/stores/downloadStore";
 import { PLAYBACK_QUALITY_OPTIONS } from "@/services/playbackQualityModel";
+import { withAlpha } from "@/services/themePaletteModel";
+import { radius } from "@/theme/tokens";
 
 interface DownloadQualityModalProps {
   /** 弹窗是否可见 */
@@ -28,6 +30,10 @@ interface DownloadQualityModalProps {
   onDownload: (quality: DownloadQuality) => void;
   /** 当前正在下载的音质（用于显示加载态），无则 null */
   pendingQuality?: DownloadQuality | null;
+  /** 默认选中的音质（读取上次选择后回填），无则 null */
+  defaultQuality?: DownloadQuality | null;
+  summaryText?: string;
+  progressText?: string | null;
 }
 
 export function DownloadQualityModal({
@@ -36,18 +42,30 @@ export function DownloadQualityModal({
   onClose,
   onDownload,
   pendingQuality = null,
+  defaultQuality = null,
+  summaryText,
+  progressText = null,
 }: DownloadQualityModalProps) {
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
+  // 上次选择的音质作为默认高亮（对齐 lx：记住上次选择）
+  const [selectedQuality, setSelectedQuality] = React.useState<DownloadQuality | null>(defaultQuality);
+
+  React.useEffect(() => {
+    if (visible) setSelectedQuality(defaultQuality);
+  }, [visible, defaultQuality]);
 
   const busy = pendingQuality != null;
 
   const handleSelect = (quality: DownloadQuality) => {
     if (busy) return;
+    setSelectedQuality(quality);
     onDownload(quality);
   };
+
+  const isSelected = (quality: DownloadQuality) => selectedQuality === quality;
 
   return (
     <Modal
@@ -56,19 +74,24 @@ export function DownloadQualityModal({
       animationType="slide"
       onRequestClose={onClose}
       statusBarTranslucent={Platform.OS === "android"}
+      accessibilityViewIsModal
     >
-      <Pressable style={styles.overlay} onPress={onClose}>
+      <Pressable style={styles.overlay} accessible={false} onPress={onClose}>
         <Pressable
           style={[styles.sheet, { backgroundColor: palette.surface }]}
+          accessible={false}
           onPress={(e) => e.stopPropagation()}
         >
           <View style={[styles.handle, { backgroundColor: palette.border }]} />
 
           <Text style={[styles.title, { color: palette.text }]}>选择下载音质</Text>
-          {song ? (
+          {summaryText || song ? (
             <Text style={[styles.songName, { color: palette.textMuted }]} numberOfLines={1}>
-              {song.name} · {song.singer || "未知歌手"}
+              {summaryText ?? `${song?.name} · ${song?.singer || "未知歌手"}`}
             </Text>
+          ) : null}
+          {progressText ? (
+            <Text style={[styles.progressText, { color: palette.primary }]}>{progressText}</Text>
           ) : null}
 
           <View style={styles.optionList}>
@@ -77,16 +100,23 @@ export function DownloadQualityModal({
               return (
                 <Pressable
                   key={option.value}
+                  accessibilityRole="button"
+                  accessibilityLabel={`下载音质，${option.label}，${option.description}`}
+                  accessibilityState={{ disabled: busy, busy: isPending }}
                   style={({ pressed }) => [
                     styles.option,
-                    { backgroundColor: palette.surfaceMuted },
+                    {
+                      backgroundColor: isSelected(option.value) ? withAlpha(palette.primary, 0.08) : palette.surfaceMuted,
+                      borderWidth: 1,
+                      borderColor: isSelected(option.value) ? palette.primary : "transparent",
+                    },
                     pressed && { opacity: 0.7 },
                   ]}
                   onPress={() => handleSelect(option.value)}
                   disabled={busy}
                 >
                   <View style={styles.optionTextWrap}>
-                    <Text style={[styles.optionLabel, { color: palette.text }]}>
+                    <Text style={[styles.optionLabel, { color: isSelected(option.value) ? palette.primary : palette.text }]}>
                       {option.label}
                     </Text>
                     <Text style={[styles.optionDesc, { color: palette.textSubtle }]}>
@@ -96,8 +126,8 @@ export function DownloadQualityModal({
                   {isPending ? (
                     <ActivityIndicator color={palette.primary} size="small" />
                   ) : (
-                    <Text style={[styles.optionAction, { color: palette.primary }]}>
-                      下载
+                    <Text style={[styles.optionAction, { color: isSelected(option.value) ? palette.primary : palette.textMuted }]}>
+                      {isSelected(option.value) ? "✓ 已选" : "下载"}
                     </Text>
                   )}
                 </Pressable>
@@ -106,6 +136,9 @@ export function DownloadQualityModal({
           </View>
 
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="取消下载音质选择"
+            accessibilityState={{ disabled: busy }}
             style={({ pressed }) => [
               styles.cancelButton,
               { backgroundColor: palette.surfaceStrong },
@@ -154,16 +187,23 @@ const styles = StyleSheet.create({
     marginTop: 4,
     marginBottom: 12,
   },
+  progressText: {
+    fontSize: 14,
+    fontWeight: "700",
+    textAlign: "center",
+    marginBottom: 12,
+  },
   optionList: {
     gap: 8,
   },
   option: {
+    minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 14,
     paddingVertical: 12,
-    borderRadius: 10,
+    borderRadius: radius.md,
   },
   optionTextWrap: {
     flex: 1,
@@ -182,9 +222,10 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   cancelButton: {
+    minHeight: 44,
     marginTop: 14,
     paddingVertical: 12,
-    borderRadius: 10,
+    borderRadius: radius.md,
     alignItems: "center",
   },
   cancelText: {

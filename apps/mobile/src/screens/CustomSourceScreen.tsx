@@ -11,29 +11,25 @@ import {
   Alert,
   Linking,
 } from "react-native";
-import { ChevronLeft } from "lucide-react-native";
-
+import { ActionButton } from "@/components/ActionButton";
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
+import { Code2 } from "lucide-react-native";
+
 import { EmptyState } from "@/components/ScreenState";
-import { SectionHeader } from "@/components/SectionHeader";
 import {
   useCustomSourceStore,
   type CustomSourceItem,
 } from "@/stores/customSourceStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { pickCustomSourceScriptFile } from "@/services/customSourceFilePicker";
-import { radius, touch, typography } from "@/theme/tokens";
-
-interface CustomSourceScreenProps {
-  onBack: () => void;
-}
+import { radius, spacing, typography } from "@/theme/tokens";
 
 function openCustomSourceUpdateUrl(updateUrl?: string) {
   if (!updateUrl) return;
   void Linking.openURL(updateUrl);
 }
 
-export function CustomSourceScreen({ onBack }: CustomSourceScreenProps) {
+export function CustomSourceScreen() {
   const sources = useCustomSourceStore((state) => state.sources);
   const loaded = useCustomSourceStore((state) => state.loaded);
   const loadFromStorage = useCustomSourceStore((state) => state.loadFromStorage);
@@ -123,58 +119,32 @@ export function CustomSourceScreen({ onBack }: CustomSourceScreenProps) {
   return (
     <ScreenScaffold>
       <ScreenScrollView keyboardShouldPersistTaps="handled">
-        <View style={styles.header}>
-          <Pressable
-            style={styles.backButton}
-            onPress={onBack}
-            accessibilityRole="button"
-            accessibilityLabel="返回设置"
-          >
-            <ChevronLeft size={20} strokeWidth={2} color={palette.primary} />
-          </Pressable>
-          <SectionHeader
-            title="自定义音源"
-            description={
-              sources.length > 0
-                ? `已导入 ${sources.length} 个音源`
-                : "导入 LX Music 自定义音源脚本"
-            }
-            style={styles.headerTitleWrap}
-          />
-          <View style={styles.headerActions}>
-            <Pressable
-              style={[styles.importButton, { backgroundColor: palette.surface }]}
+        <View style={styles.headerActions}>
+            <ActionButton
+              small
+              label="从文件导入"
+              loading={importingFile}
               onPress={() => void handleImportFromFile()}
-              disabled={importingFile}
-            >
-              {importingFile ? (
-                <ActivityIndicator color={palette.primary} size="small" />
-              ) : (
-                <Text style={[styles.importButtonText, { color: palette.primary }]}>
-                  从文件导入
-                </Text>
-              )}
-            </Pressable>
-            <Pressable
-              style={[styles.importButton, { backgroundColor: palette.primary }]}
+              accessibilityLabel="从文件导入自定义音源"
+            />
+            <ActionButton
+              small
+              variant="primary"
+              label="粘贴导入"
               onPress={() => setImportModalVisible(true)}
-            >
-              <Text style={[styles.importButtonText, { color: palette.primaryText }]}>
-                粘贴导入
-              </Text>
-            </Pressable>
-          </View>
+              accessibilityLabel="粘贴导入自定义音源"
+            />
         </View>
 
       {/* 操作栏 */}
       {sources.length > 0 && (
         <View style={styles.actionBar}>
-          <Pressable
-            style={[styles.actionButton, { backgroundColor: palette.surface }]}
+          <ActionButton
+            small
+            label="检测全部更新"
             onPress={handleCheckAll}
-          >
-            <Text style={[styles.actionText, { color: palette.text }]}>检测全部更新</Text>
-          </Pressable>
+            accessibilityLabel="检测全部音源更新"
+          />
         </View>
       )}
 
@@ -186,6 +156,9 @@ export function CustomSourceScreen({ onBack }: CustomSourceScreenProps) {
         <Switch
           value={customSourceAutoCheck}
           onValueChange={(enabled) => void setCustomSourceAutoCheck(enabled)}
+          accessibilityRole="switch"
+          accessibilityLabel="启动自定义音源自动检测更新"
+          accessibilityState={{ checked: customSourceAutoCheck, disabled: false }}
           trackColor={{ false: palette.surfaceStrong, true: palette.primary }}
         />
       </View>
@@ -193,6 +166,7 @@ export function CustomSourceScreen({ onBack }: CustomSourceScreenProps) {
       {/* 音源列表 */}
       {sources.length === 0 ? (
         <EmptyState
+          icon={Code2}
           title="还没有导入自定义音源"
           description="使用上方按钮粘贴脚本文本，或选择本机 JS 文件导入。"
         />
@@ -242,35 +216,28 @@ export function CustomSourceScreen({ onBack }: CustomSourceScreenProps) {
               ]}
               value={scriptInput}
               onChangeText={setScriptInput}
-              placeholder="在此粘贴脚本文本..."
+              placeholder="在此粘贴脚本文本…"
               placeholderTextColor={palette.textSubtle}
               multiline
               textAlignVertical="top"
               autoFocus
             />
             <View style={styles.modalActions}>
-              <Pressable
-                style={[styles.modalButton, { backgroundColor: palette.surfaceMuted }]}
+              <ActionButton
+                small
+                label="取消"
                 onPress={() => {
                   setImportModalVisible(false);
                   setScriptInput("");
                 }}
-              >
-                <Text style={[styles.modalButtonText, { color: palette.text }]}>取消</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.modalButton, { backgroundColor: palette.primary }]}
-                onPress={handleImport}
-                disabled={importing}
-              >
-                {importing ? (
-                  <ActivityIndicator color={palette.primaryText} size="small" />
-                ) : (
-                  <Text style={[styles.modalButtonText, { color: palette.primaryText }]}>
-                    确认导入
-                  </Text>
-                )}
-              </Pressable>
+              />
+              <ActionButton
+                small
+                variant="primary"
+                label="确认导入"
+                loading={importing}
+                onPress={() => void handleImport()}
+              />
             </View>
           </View>
         </View>
@@ -342,6 +309,9 @@ function SourceCard({
         <Switch
           value={source.enabled}
           onValueChange={onToggle}
+          accessibilityRole="switch"
+          accessibilityLabel={`启用音源 ${source.name}`}
+          accessibilityState={{ checked: source.enabled, disabled: false }}
           trackColor={{ false: palette.surfaceStrong, true: palette.primary }}
         />
       </View>
@@ -387,14 +357,12 @@ function SourceCard({
               <Text style={[styles.updateUrl, { color: palette.textSubtle }]} numberOfLines={1}>
                 {source.updateUrl}
               </Text>
-              <Pressable
-                style={[styles.updateLinkButton, { backgroundColor: palette.surface }]}
+              <ActionButton
+                small
+                label="打开更新地址"
                 onPress={onOpenUpdateUrl}
-                accessibilityRole="button"
                 accessibilityLabel="打开更新地址"
-              >
-                <Text style={[styles.updateLinkButtonText, { color: palette.primary }]}>打开更新地址</Text>
-              </Pressable>
+              />
             </View>
           ) : null}
         </View>
@@ -406,62 +374,41 @@ function SourceCard({
 
       {/* 操作按钮 */}
       <View style={styles.cardActions}>
-        <Pressable
-          style={[styles.miniButton, { backgroundColor: palette.surfaceMuted }]}
+        <ActionButton
+          small
+          label="测试"
+          loading={isTesting}
           onPress={onTest}
-          disabled={isTesting}
-        >
-          {isTesting ? (
-            <ActivityIndicator color={palette.primary} size="small" />
-          ) : (
-            <Text style={[styles.miniButtonText, { color: palette.text }]}>测试</Text>
-          )}
-        </Pressable>
-        <Pressable
-          style={[styles.miniButton, { backgroundColor: palette.surfaceMuted }]}
+          accessibilityLabel={`测试音源 ${source.name}`}
+        />
+        <ActionButton
+          small
+          label="检测更新"
+          loading={isChecking}
           onPress={onCheckUpdate}
-          disabled={isChecking}
-        >
-          {isChecking ? (
-            <ActivityIndicator color={palette.primary} size="small" />
-          ) : (
-            <Text style={[styles.miniButtonText, { color: palette.text }]}>检测更新</Text>
-          )}
-        </Pressable>
-        <Pressable
-          style={[styles.miniButton, { backgroundColor: palette.surfaceMuted }]}
-          onPress={onMoveUp}
+          accessibilityLabel={`检测音源 ${source.name} 更新`}
+        />
+        <ActionButton
+          small
+          label="上移"
           disabled={!canMoveUp}
-        >
-          <Text
-            style={[
-              styles.miniButtonText,
-              { color: canMoveUp ? palette.text : palette.textSubtle },
-            ]}
-          >
-            上移
-          </Text>
-        </Pressable>
-        <Pressable
-          style={[styles.miniButton, { backgroundColor: palette.surfaceMuted }]}
-          onPress={onMoveDown}
+          onPress={onMoveUp}
+          accessibilityLabel={`上移音源 ${source.name}`}
+        />
+        <ActionButton
+          small
+          label="下移"
           disabled={!canMoveDown}
-        >
-          <Text
-            style={[
-              styles.miniButtonText,
-              { color: canMoveDown ? palette.text : palette.textSubtle },
-            ]}
-          >
-            下移
-          </Text>
-        </Pressable>
-        <Pressable
-          style={[styles.miniButton, { backgroundColor: palette.dangerSurface }]}
+          onPress={onMoveDown}
+          accessibilityLabel={`下移音源 ${source.name}`}
+        />
+        <ActionButton
+          small
+          variant="danger"
+          label="删除"
           onPress={onRemove}
-        >
-          <Text style={[styles.miniButtonText, { color: palette.danger }]}>删除</Text>
-        </Pressable>
+          accessibilityLabel={`删除音源 ${source.name}`}
+        />
       </View>
 
       {/* 更新提醒开关 */}
@@ -472,6 +419,9 @@ function SourceCard({
         <Switch
           value={source.allowShowUpdateAlert}
           onValueChange={onToggleUpdateAlert}
+          accessibilityRole="switch"
+          accessibilityLabel={`显示音源 ${source.name} 更新提醒`}
+          accessibilityState={{ checked: source.allowShowUpdateAlert, disabled: false }}
           trackColor={{ false: palette.surfaceStrong, true: palette.primary }}
         />
       </View>
@@ -484,62 +434,33 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
-    marginBottom: 16,
-    gap: 12,
-  },
-  backButton: {
-    minWidth: touch.minTarget,
-    minHeight: touch.minTarget,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.sm,
+    marginBottom: spacing.m,
+    gap: spacing.s,
   },
   headerTitleWrap: {
     flex: 1,
     minWidth: 180,
   },
-  importButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: radius.sm,
-    minHeight: 40,
-    minWidth: 92,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  importButtonText: {
-    fontSize: typography.body,
-    fontWeight: "700",
-  },
   headerActions: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
+    gap: spacing.xs,
     alignItems: "center",
   },
   actionBar: {
     flexDirection: "row",
-    marginBottom: 12,
-    gap: 8,
-  },
-  actionButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: radius.sm,
-  },
-  actionText: {
-    fontSize: typography.meta,
-    fontWeight: "600",
+    marginBottom: spacing.s,
+    gap: spacing.xs,
   },
   autoCheckRow: {
     minHeight: 68,
     borderRadius: radius.md,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 12,
+    paddingHorizontal: spacing.s,
+    paddingVertical: spacing.s,
+    marginBottom: spacing.s,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: spacing.s,
   },
   autoCheckTextWrap: {
     flex: 1,
@@ -554,22 +475,22 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   list: {
-    gap: 12,
+    gap: spacing.s,
   },
   card: {
     borderRadius: radius.md,
-    padding: 14,
-    gap: 10,
+    padding: spacing.s,
+    gap: spacing.xs,
   },
   cardHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    gap: 12,
+    gap: spacing.s,
   },
   cardTitleWrap: {
     flex: 1,
-    gap: 4,
+    gap: spacing.xxs,
   },
   cardName: {
     fontSize: typography.title,
@@ -578,7 +499,7 @@ const styles = StyleSheet.create({
   cardMetaRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: spacing.xs,
   },
   cardVersion: {
     fontSize: typography.caption,
@@ -618,17 +539,7 @@ const styles = StyleSheet.create({
   updateLinkRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-  },
-  updateLinkButton: {
-    minHeight: 30,
-    borderRadius: radius.sm,
-    paddingHorizontal: 10,
-    justifyContent: "center",
-  },
-  updateLinkButtonText: {
-    fontSize: typography.caption,
-    fontWeight: "700",
+    gap: spacing.xs,
   },
   latestText: {
     fontSize: typography.caption,
@@ -636,16 +547,7 @@ const styles = StyleSheet.create({
   cardActions: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-  },
-  miniButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: radius.sm,
-  },
-  miniButtonText: {
-    fontSize: typography.caption,
-    fontWeight: "600",
+    gap: spacing.xs,
   },
   alertToggleRow: {
     flexDirection: "row",
@@ -665,8 +567,8 @@ const styles = StyleSheet.create({
   },
   modalCard: {
     borderRadius: radius.md,
-    padding: 16,
-    gap: 10,
+    padding: spacing.m,
+    gap: spacing.xs,
   },
   modalTitle: {
     fontSize: typography.heading,
@@ -687,18 +589,7 @@ const styles = StyleSheet.create({
   modalActions: {
     flexDirection: "row",
     justifyContent: "flex-end",
-    gap: 10,
-    marginTop: 4,
-  },
-  modalButton: {
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: radius.sm,
-    minWidth: 90,
-    alignItems: "center",
-  },
-  modalButtonText: {
-    fontSize: typography.body,
-    fontWeight: "700",
+    gap: spacing.xs,
+    marginTop: spacing.xxs,
   },
 });

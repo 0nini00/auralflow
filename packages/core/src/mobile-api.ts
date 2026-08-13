@@ -37,6 +37,11 @@ function joinArtists(value: unknown): string {
   return asString(value);
 }
 
+function normalizeNeteaseMvId(value: unknown): string | undefined {
+  const mvId = asString(value).trim();
+  return mvId && mvId !== "0" ? mvId : undefined;
+}
+
 function getJooxPicUrl(picId: string): string | undefined {
   if (!picId) return undefined;
   return `https://image.joox.com/JOOXcover/0/${picId}/300`;
@@ -80,6 +85,9 @@ export function mapBuiltinMusicApiSong(item: unknown, displaySource: Extract<Sou
     quality: "320k",
     picUrl,
     img: picUrl,
+    mvId: displaySource === "wy" && (!apiSource || apiSource === "netease")
+      ? normalizeNeteaseMvId(raw.mv ?? raw.mvId ?? raw.mv_id)
+      : undefined,
     gateway: {
       source: apiSource || displaySource,
       trackId,
@@ -145,7 +153,9 @@ export function createBuiltinMusicApiClient(fetchText: (url: string) => Promise<
         pages: page,
       }));
       const json = JSON.parse(text);
-      if (!Array.isArray(json)) return [];
+      // 非数组响应是网关异常（如 HTML 错误页 / 限流页），按失败处理而非空结果，
+      // 否则竞速网关会把「快速空结果」当成成功，吞掉其它网关的真实结果。
+      if (!Array.isArray(json)) throw new Error(`内置音乐 API 搜索响应异常: ${text.slice(0, 120)}`);
 
       return json
         .map((item) => mapBuiltinMusicApiSong(item, displaySource))
@@ -189,5 +199,69 @@ export function createBuiltinMusicApiClient(fetchText: (url: string) => Promise<
         tlyric: typeof json?.tlyric === "string" ? json.tlyric : undefined,
       };
     },
+  };
+}
+
+/**
+ * 多网关并发竞速客户端：同时向所有可用网关发起请求，先成功者胜。
+ *
+ * 语义：
+ *  - 并发（非串行）发起全部网关请求，Promise 先 resolve 的结果胜出；
+ *  - 某个网关先失败不影响其余网关继续（失败结果被忽略）；
+ *  - 全部网关失败时，抛出聚合后的错误信息；
+ *  - 单网关场景退化为直通（零额外开销）。
+ */
+export function createRacingBuiltinMusicApiClient(
+  clients: BuiltinMusicApiClient[],
+): BuiltinMusicApiClient {
+  const race = async <T>(
+    run: (client: BuiltinMusicApiClient) => Promise<T>,
+  ): Promise<T> => {
+    if (clients.length === 1) return run(clients[0]);
+    if (clients.length === 0) throw new Error("没有可用的音乐 API 网关");
+
+    return new Promise<T>((resolve, reject) => {
+      let settled = 0;
+      const errors: string[] = [];
+      for (const client of clients) {
+        run(client).then(
+          (value) => resolve(value),
+          (error: unknown) => {
+            errors.push(error instanceof Error ? error.message : String(error));
+            settled += 1;
+            if (settled === clients.length) {
+              reject(new Error(errors.join(" | ")));
+            }
+          },
+        );
+      }
+    });
+  };
+
+  return {
+    searchSongs: async (source, keyword, page, limit, displaySource) => {
+      // 搜索的特殊竞速语义：空数组不视为成功（某网关可能快速返回空结果，
+      // 但另一网关有真实数据），全部网关都出空才返回空。
+      if (clients.length === 1) {
+        return clients[0].searchSongs(source, keyword, page, limit, displaySource);
+      }
+      const settled = await Promise.allSettled(
+        clients.map((client) => client.searchSongs(source, keyword, page, limit, displaySource)),
+      );
+      const fulfilled = settled.filter(
+        (result): result is PromiseFulfilledResult<MusicInfo[]> => result.status === "fulfilled",
+      );
+      const nonEmpty = fulfilled.map((result) => result.value).find((list) => list.length > 0);
+      if (nonEmpty) return nonEmpty;
+      if (fulfilled.length > 0) return fulfilled[0].value;
+      throw new Error(
+        settled
+          .map((result) => (result.status === "rejected" ? result.reason?.message ?? String(result.reason) : ""))
+          .filter(Boolean)
+          .join(" | "),
+      );
+    },
+    resolveUrl: (music, quality) => race((client) => client.resolveUrl(music, quality)),
+    getLyric: (music) => race((client) => client.getLyric(music)),
   };
 }

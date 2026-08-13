@@ -2,3 +2,5 @@
 export * from "./sources";
 export * from "./lyrics";
 export * from "./mobile-api";
+export * from "./chksz-api";
+export * from "./webdav-merge";

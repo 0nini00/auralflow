@@ -1,6 +1,7 @@
 import React from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View, Linking } from "react-native";
+import { Modal, ScrollView, StyleSheet, Text, View, Linking } from "react-native";
 import { ChevronRight } from "lucide-react-native";
+import { ActionButton } from "@/components/ActionButton";
 import type { UpdateInfo } from "@/services/updateService";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 
@@ -42,18 +43,17 @@ export function UpdateModal({ visible, info, onClose }: UpdateModalProps) {
             </Text>
           </ScrollView>
           <View style={styles.actions}>
-            <Pressable
-              style={[styles.button, { backgroundColor: palette.surfaceMuted }]}
+            <ActionButton
+              small
+              label="稍后"
               onPress={onClose}
-            >
-              <Text style={[styles.buttonText, { color: palette.textMuted }]}>稍后</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.button, { backgroundColor: palette.primary }]}
+            />
+            <ActionButton
+              small
+              variant="primary"
+              label="打开发布页"
               onPress={handleDownload}
-            >
-              <Text style={[styles.buttonText, { color: palette.primaryText }]}>打开发布页</Text>
-            </Pressable>
+            />
           </View>
         </View>
       </View>
@@ -107,14 +107,5 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
     justifyContent: "flex-end",
-  },
-  button: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  buttonText: {
-    fontSize: 14,
-    fontWeight: "600",
   },
 });

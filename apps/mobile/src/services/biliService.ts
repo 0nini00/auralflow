@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import CryptoJS from "crypto-js";
 import type { MusicInfo, PlaylistInfo } from "@lx/core";
+import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
 
 /* ------------------------------------------------------------------ */
 /* 常量                                                                */
@@ -172,8 +173,8 @@ export async function getBiliCookie(): Promise<string> {
 }
 
 export async function clearBiliCookie(): Promise<void> {
-  cookieCache = "";
   await AsyncStorage.removeItem(BILI_COOKIE_KEY);
+  cookieCache = "";
 }
 
 /* ------------------------------------------------------------------ */
@@ -220,7 +221,7 @@ async function biliFetchJson<T>(
 
   let response: Response;
   try {
-    response = await fetch(url, { headers });
+    response = await fetchWithTimeout(url, { headers });
   } catch (error) {
     throw new Error(`B站请求失败: ${getErrorMessage(error)}`);
   }

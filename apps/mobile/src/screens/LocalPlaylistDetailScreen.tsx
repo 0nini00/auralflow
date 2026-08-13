@@ -1,11 +1,15 @@
 ﻿import React, { useMemo, useState } from "react";
-import { radius, typography } from "@/theme/tokens";
+import { radius, spacing, typography } from "@/theme/tokens";
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, type ScrollView as ScrollViewType, StyleSheet, Text, TextInput, View } from "react-native";
 import type { MusicInfo } from "@lx/core";
 
+import { ActionButton } from "@/components/ActionButton";
+import { PlaybackActionButtons } from "@/components/PlaybackActionButtons";
 import { SongList } from "@/components/SongList";
 import { DetailHero } from "@/components/DetailHero";
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
+import { ListMusic } from "lucide-react-native";
+
 import { EmptyState } from "@/components/ScreenState";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
 import { SectionHeader } from "@/components/SectionHeader";
@@ -68,7 +72,7 @@ export function LocalPlaylistDetailScreen({ playlistId, onBack, onNavigateToPlay
     return (
       <ScreenScaffold>
         <View style={styles.missingState}>
-          <EmptyState title="本地歌单不存在" />
+          <EmptyState icon={ListMusic} title="本地歌单不存在" description="歌单可能已被删除，返回曲库查看其他歌单。" />
         </View>
       </ScreenScaffold>
     );
@@ -82,7 +86,6 @@ export function LocalPlaylistDetailScreen({ playlistId, onBack, onNavigateToPlay
       setPlaybackError(result.message);
       return;
     }
-    onNavigateToPlayer();
   };
 
   const handlePlay = async (_song: MusicInfo, index: number) => {
@@ -204,61 +207,29 @@ export function LocalPlaylistDetailScreen({ playlistId, onBack, onNavigateToPlay
           metadata={[`${playlist.songs.length} 首歌曲`]}
           actions={
             <>
-        {detailActions.show ? (
-          <>
-            <Pressable style={[styles.primaryButton, { backgroundColor: palette.primary }]} onPress={handlePlayAll}>
-              <Text style={[styles.primaryButtonText, { color: palette.primaryText }]}>{detailActions.playAllLabel}</Text>
-            </Pressable>
-            <Pressable style={[styles.secondaryButton, { backgroundColor: palette.surface }]} onPress={handleShufflePlay}>
-              <Text style={[styles.secondaryButtonText, { color: palette.primary }]}>{detailActions.shuffleLabel}</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.secondaryButton, { backgroundColor: palette.surface }, currentSongIndex < 0 && styles.secondaryButtonDisabled]}
-              onPress={handleLocateCurrentSong}
-              disabled={currentSongIndex < 0}
-            >
-              <Text style={[styles.secondaryButtonText, { color: currentSongIndex >= 0 ? palette.primary : palette.textMuted }]}>定位当前播放</Text>
-            </Pressable>
-          </>
-        ) : null}
-        <Pressable style={[styles.secondaryButton, { backgroundColor: palette.surface }]} onPress={handleOpenAdd}>
-          <Text style={[styles.secondaryButtonText, { color: palette.primary }]}>添加歌曲</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.secondaryButton, { backgroundColor: palette.surface }]}
+        <PlaybackActionButtons
+          show={detailActions.show}
+          playAllLabel={detailActions.playAllLabel}
+          shuffleLabel={detailActions.shuffleLabel}
+          locateLabel="定位当前播放"
+          canLocateCurrentSong={currentSongIndex >= 0}
+          onPlayAll={() => void handlePlayAll()}
+          onShuffle={() => void handleShufflePlay()}
+          onLocate={handleLocateCurrentSong}
+        />
+        <ActionButton small label="添加歌曲" onPress={handleOpenAdd} />
+        <ActionButton
+          small
+          label="编辑信息"
           onPress={() => {
             setNameInput(playlist.name);
             setDescriptionInput(playlist.description ?? "");
             setRenameVisible(true);
           }}
-        >
-          <Text style={[styles.secondaryButtonText, { color: palette.primary }]}>编辑信息</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.secondaryButton, { backgroundColor: palette.surface }]}
-          onPress={handleDuplicatePlaylist}
-          disabled={duplicating}
-        >
-          {duplicating ? (
-            <ActivityIndicator color={palette.primary} size="small" />
-          ) : (
-            <Text style={[styles.secondaryButtonText, { color: palette.primary }]}>复制歌单</Text>
-          )}
-        </Pressable>
-        <Pressable
-          style={[styles.secondaryButton, { backgroundColor: palette.surface }]}
-          onPress={handleExportPlaylist}
-          disabled={exporting}
-        >
-          {exporting ? (
-            <ActivityIndicator color={palette.primary} size="small" />
-          ) : (
-            <Text style={[styles.secondaryButtonText, { color: palette.primary }]}>导出歌单</Text>
-          )}
-        </Pressable>
-        <Pressable style={[styles.dangerButton, { backgroundColor: palette.dangerSurface }]} onPress={handleDeletePlaylist}>
-          <Text style={[styles.dangerButtonText, { color: palette.danger }]}>删除歌单</Text>
-        </Pressable>
+        />
+        <ActionButton small label="复制歌单" loading={duplicating} onPress={handleDuplicatePlaylist} />
+        <ActionButton small label="导出歌单" loading={exporting} onPress={handleExportPlaylist} />
+        <ActionButton small variant="danger" label="删除歌单" onPress={handleDeletePlaylist} />
             </>
           }
         />
@@ -302,16 +273,19 @@ export function LocalPlaylistDetailScreen({ playlistId, onBack, onNavigateToPlay
               style={[styles.input, styles.textArea, { borderColor: palette.border, color: palette.text }]}
             />
             <View style={styles.modalActions}>
-              <Pressable style={styles.modalButton} onPress={() => setRenameVisible(false)} disabled={saving}>
-                <Text style={[styles.modalButtonText, { color: palette.textMuted }]}>取消</Text>
-              </Pressable>
-              <Pressable style={[styles.modalButton, { backgroundColor: palette.primary }]} onPress={handleRename} disabled={saving}>
-                {saving ? (
-                  <ActivityIndicator color={palette.primaryText} size="small" />
-                ) : (
-                  <Text style={[styles.modalButtonText, { color: palette.primaryText }]}>保存</Text>
-                )}
-              </Pressable>
+              <ActionButton
+                small
+                label="取消"
+                onPress={() => setRenameVisible(false)}
+                disabled={saving}
+              />
+              <ActionButton
+                small
+                variant="primary"
+                label="保存"
+                loading={saving}
+                onPress={() => void handleRename()}
+              />
             </View>
           </View>
         </View>
@@ -358,50 +332,20 @@ export function LocalPlaylistDetailScreen({ playlistId, onBack, onNavigateToPlay
 
 const styles = StyleSheet.create({
   modalScrollContent: {
-    padding: 20,
+    padding: spacing.l,
   },
   missingState: {
     flex: 1,
     justifyContent: "center",
     padding: 20,
   },
-  primaryButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: radius.pill,
-  },
-  primaryButtonText: {
-    fontSize: typography.body,
-    fontWeight: "700",
-  },
-  secondaryButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: radius.pill,
-  },
-  secondaryButtonDisabled: {
-    opacity: 0.7,
-  },
-  secondaryButtonText: {
-    fontSize: typography.body,
-    fontWeight: "600",
-  },
-  dangerButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: radius.pill,
-  },
-  dangerButtonText: {
-    fontSize: typography.body,
-    fontWeight: "600",
-  },
   songSection: {
-    gap: 12,
+    gap: spacing.s,
   },
   emptyContainer: {
     paddingVertical: 40,
     alignItems: "center",
-    gap: 12,
+    gap: spacing.s,
   },
   emptyText: {
     fontSize: typography.body,
@@ -414,8 +358,8 @@ const styles = StyleSheet.create({
   },
   modalCard: {
     borderRadius: radius.lg,
-    padding: 20,
-    gap: 16,
+    padding: spacing.l,
+    gap: spacing.m,
   },
   modalTitle: {
     fontSize: typography.heading,
@@ -435,25 +379,13 @@ const styles = StyleSheet.create({
   modalActions: {
     flexDirection: "row",
     justifyContent: "flex-end",
-    gap: 12,
-  },
-  modalButton: {
-    minWidth: 80,
-    minHeight: 40,
-    borderRadius: radius.sm,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 12,
-  },
-  modalButtonText: {
-    fontSize: typography.body,
-    fontWeight: "600",
+    gap: spacing.s,
   },
   modalHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: spacing.m,
   },
   closeText: {
     fontSize: typography.body,
@@ -462,14 +394,14 @@ const styles = StyleSheet.create({
   addSongItem: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 12,
+    padding: spacing.s,
     borderRadius: radius.sm,
-    marginBottom: 8,
-    gap: 12,
+    marginBottom: spacing.xs,
+    gap: spacing.s,
   },
   addSongInfo: {
     flex: 1,
-    gap: 4,
+    gap: spacing.xxs,
   },
   addSongName: {
     fontSize: typography.body,

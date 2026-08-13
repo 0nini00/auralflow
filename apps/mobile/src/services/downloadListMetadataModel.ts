@@ -2,6 +2,7 @@ import type { MusicInfo } from "@lx/core";
 
 import type { DownloadedItem, DownloadProgressInfo, DownloadQuality } from "@/services/downloadService";
 import { formatDownloadSize } from "@/services/downloadSizeFormatter";
+import { getPlaybackQualityLabel } from "@/services/playbackQualityModel";
 
 export interface DownloadRowMetadata {
   titleMeta: string;
@@ -28,7 +29,7 @@ export function getDownloadFileName(localPath: string): string {
 }
 
 export function buildCompletedDownloadMetadata(item: DownloadedItem): DownloadRowMetadata {
-  const quality = item.quality ?? item.song.quality ?? "320k";
+  const quality = getPlaybackQualityLabel(item.quality ?? item.song.quality ?? "320k");
   const sizeLabel = item.fileSize && item.fileSize > 0 ? formatDownloadSize(item.fileSize) : "未知大小";
 
   return {
@@ -36,6 +37,14 @@ export function buildCompletedDownloadMetadata(item: DownloadedItem): DownloadRo
     statusLabel: "已下载",
     detailLabel: `${getDownloadFileName(item.localPath)} · ${sizeLabel}`,
   };
+}
+
+/** 格式化下载速度（字节/秒 → 人类可读）。 */
+export function formatDownloadSpeed(speed: number): string {
+  if (!Number.isFinite(speed) || speed <= 0) return "";
+  const kb = speed / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB/s`;
+  return `${(kb / 1024).toFixed(1)} MB/s`;
 }
 
 export function buildDownloadingMetadata(input: DownloadingMetadataInput): DownloadRowMetadata {
@@ -47,7 +56,7 @@ export function buildDownloadingMetadata(input: DownloadingMetadataInput): Downl
       : "等待接收数据";
 
   return {
-    titleMeta: `${getArtistName(input.song)} · ${input.quality}`,
+    titleMeta: `${getArtistName(input.song)} · ${getPlaybackQualityLabel(input.quality)}`,
     statusLabel: `下载中 ${percent}%`,
     detailLabel,
   };
@@ -63,7 +72,7 @@ export function buildFailedDownloadMetadata({
   error: string;
 }): DownloadRowMetadata {
   return {
-    titleMeta: `${getArtistName(song)} · ${quality}`,
+    titleMeta: `${getArtistName(song)} · ${getPlaybackQualityLabel(quality)}`,
     statusLabel: "下载失败",
     detailLabel: error || "下载失败",
   };

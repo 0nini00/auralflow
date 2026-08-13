@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
+import { ApiKeyCard } from "@/components/settings/ApiKeyCard";
 import { SettingsLinkRow } from "@/components/settings/SettingsLinkRow";
 import { SettingsPage } from "@/components/settings/SettingsPage";
 import type { SettingsStackParamList } from "@/navigation/types";
@@ -18,7 +19,8 @@ export function SourcesSettingsScreen() {
   }, [load, loaded]);
 
   return (
-    <SettingsPage title="音源" description="导入、测试和更新自定义音源">
+    <SettingsPage title="音源" description="内置网关解析播放地址；自定义音源作为播放兜底">
+      <ApiKeyCard />
       <SettingsLinkRow
         title="自定义音源"
         subtitle={sources.length > 0 ? `${sources.length} 个音源` : "导入 LX Music 音源脚本"}

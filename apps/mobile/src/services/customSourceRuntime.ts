@@ -575,12 +575,43 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
   };
 
   // RN 没有 DOM window，注入一个最小兼容对象，使脚本内 window.lx / globalThis.lx 可用。
-  const fakeWindow = { lx };
-  const fakeGlobalThis = { lx };
+  // 用无原型对象（Object.create(null)）承载：window.constructor / globalThis.constructor
+  // 为 undefined，切断经属性链拿到 Function 构造器的逃逸路径。
+  const fakeWindow = Object.create(null) as { lx: typeof lx };
+  fakeWindow.lx = lx;
+  const fakeGlobalThis = Object.create(null) as { lx: typeof lx };
+  fakeGlobalThis.lx = lx;
 
   try {
-    const runner = new Function("lx", "window", "globalThis", api.script);
-    runner(lx, fakeWindow, fakeGlobalThis);
+    // L1 沙箱（尽力而为，非强隔离）：自定义音源脚本与用户主动安装的浏览器扩展同权，
+    // 请勿放入不受信任的第三方脚本。以下为多层缓解：
+    // 1. 静态扫描拒绝明显的动态代码执行手法（constructor 链 / eval / Function）；
+    // 2. 以严格模式执行，函数体内 this 为 undefined，`this.fetch` 等全局逃逸直接抛错；
+    // 3. 注入的 window / globalThis 为无原型对象，constructor 属性链不可达。
+    if (
+      /constructor\s*\.\s*constructor|\.constructor\s*\(|\beval\s*\(|\bFunction\s*\(/.test(
+        api.script
+      )
+    ) {
+      throw new Error("自定义音源脚本包含不允许的动态代码执行");
+    }
+    const runner = new Function(
+      "lx",
+      "window",
+      "globalThis",
+      "fetch",
+      "WebSocket",
+      "XMLHttpRequest",
+      "document",
+      "location",
+      "navigator",
+      "require",
+      "process",
+      "Buffer",
+      // 严格模式：this 不再指向真实全局对象
+      `"use strict";\n${api.script}`
+    );
+    runner(lx, fakeWindow, fakeGlobalThis, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined);
   } catch (error) {
     initSettled = true;
     failInit(error instanceof Error ? error : new Error(String(error)));

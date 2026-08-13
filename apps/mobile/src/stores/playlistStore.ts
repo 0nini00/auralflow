@@ -3,8 +3,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { WyPlaylistInfo } from "../services/wyPlaylistService";
 import { getTxPlaylistDetail } from "../services/txPlaylistService";
 import type { MusicInfo } from "@lx/core";
+import { useAccountStore } from "./accountStore";
 import type { CreateLocalPlaylistInput, CreateLocalPlaylistWithSongInput, CreateLocalPlaylistWithSongsInput, LocalPlaylist } from "../services/localPlaylistModel";
 import {
+  addSongsToLocalPlaylist as addSongsToLocalPlaylistModel,
   addSongToLocalPlaylist as addSongToLocalPlaylistModel,
   createLocalPlaylist as createLocalPlaylistModel,
   createLocalPlaylistWithSongs as createLocalPlaylistWithSongsModel,
@@ -26,6 +28,9 @@ import {
   removePlaylistTracks,
   subscribePlaylist,
   unlikeSong as unlikeSongApi,
+  createWyPlaylist as createWyPlaylistApi,
+  updateWyPlaylistInfo as updateWyPlaylistInfoApi,
+  deleteWyPlaylist as deleteWyPlaylistApi,
 } from "../services/wyPlaylistService";
 
 export interface PlaylistState {
@@ -42,6 +47,12 @@ export interface PlaylistState {
 
 interface PlaylistActions {
   fetchPlaylists: (userId: string) => Promise<void>;
+  /** 新建网易云自建歌单成功后刷新歌单列表。 */
+  createWyPlaylist: (name: string, description?: string) => Promise<void>;
+  /** 编辑网易云自建歌单（名称/简介），成功后更新本地歌单缓存。 */
+  updateWyPlaylistInfo: (playlistId: string, changes: { name?: string; description?: string }) => Promise<void>;
+  /** 删除网易云自建歌单。 */
+  deleteWyPlaylist: (playlistId: string) => Promise<void>;
   fetchPlaylistDetail: (playlistId: string, source?: WyPlaylistInfo["source"], playlist?: WyPlaylistInfo) => Promise<void>;
   fetchLikedSongs: (userId: string) => Promise<void>;
   likeSong: (song: MusicInfo) => Promise<void>;
@@ -64,11 +75,18 @@ interface PlaylistActions {
   renameLocalPlaylist: (playlistId: string, name: string, now?: number) => Promise<void>;
   deleteLocalPlaylist: (playlistId: string) => Promise<void>;
   addSongToLocalPlaylist: (playlistId: string, song: MusicInfo, now?: number) => Promise<void>;
+  addSongsToLocalPlaylist: (playlistId: string, songs: MusicInfo[]) => Promise<{ addedCount: number; skippedCount: number }>;
   addSongToWyPlaylist: (playlistId: string, song: MusicInfo) => Promise<void>;
   removeSongFromWyPlaylist: (playlistId: string, song: MusicInfo) => Promise<void>;
   removeSongFromLocalPlaylist: (playlistId: string, song: Pick<MusicInfo, "source" | "id">, now?: number) => Promise<void>;
   /** WebDAV 同步覆盖：同时替换收藏歌曲和歌单列表。 */
   replaceAllFromSync: (likedSongs: MusicInfo[], playlists: WyPlaylistInfo[]) => void;
+  /** WebDAV 同步合并：收藏/云端歌单/本地歌单均与远端合并（不丢本地独有项）。 */
+  mergeFromSync: (input: {
+    likedSongs: MusicInfo[];
+    cloudPlaylists: WyPlaylistInfo[];
+    localPlaylists: LocalPlaylist[];
+  }) => Promise<void>;
 }
 
 const LIKED_PLAYLIST_NAME = "我喜欢的音乐";
@@ -81,6 +99,47 @@ function getLikedPlaylist(playlists: WyPlaylistInfo[]) {
 
 function songKey(song: Pick<MusicInfo, "source" | "id">): string {
   return `${song.source}:${song.id}`;
+}
+
+/** 收藏歌曲并集去重(按 source:id),保留本地顺序,远端追加不在本地的。 */
+function mergeFavorites(local: MusicInfo[], remote: MusicInfo[]): MusicInfo[] {
+  const seen = new Set<string>();
+  const result: MusicInfo[] = [];
+  for (const song of [...local, ...remote]) {
+    const key = songKey(song);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(song);
+  }
+  return result;
+}
+
+/** 本地歌单合并:同 id 取 updatedAt 新者为基础,歌曲保留并集。 */
+function mergeLocalPlaylists(local: LocalPlaylist[], remote: LocalPlaylist[]): LocalPlaylist[] {
+  const map = new Map<string, LocalPlaylist>();
+  for (const pl of local) map.set(pl.id, pl);
+  for (const pl of remote) {
+    const existing = map.get(pl.id);
+    if (!existing) {
+      map.set(pl.id, pl);
+    } else if (pl.updatedAt > existing.updatedAt) {
+      map.set(pl.id, { ...pl, songs: mergeFavorites(existing.songs, pl.songs) });
+    } else {
+      map.set(pl.id, { ...existing, songs: mergeFavorites(existing.songs, pl.songs) });
+    }
+  }
+  return Array.from(map.values());
+}
+
+/** 云端歌单(引用)合并:同 id 保留较新者。 */
+function mergeCloudPlaylists(local: WyPlaylistInfo[], remote: WyPlaylistInfo[]): WyPlaylistInfo[] {
+  const map = new Map<string, WyPlaylistInfo>();
+  for (const pl of local) map.set(pl.id, pl);
+  for (const pl of remote) {
+    const existing = map.get(pl.id);
+    if (!existing) map.set(pl.id, pl);
+  }
+  return Array.from(map.values());
 }
 
 async function persistLocalPlaylists(localPlaylists: LocalPlaylist[]): Promise<void> {
@@ -133,6 +192,70 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
     }
   },
 
+  createWyPlaylist: async (name, description) => {
+    set({ loading: true, error: null });
+    try {
+      await createWyPlaylistApi(name, { description });
+      const { user } = useAccountStore.getState();
+      if (user) {
+        const playlists = await getUserPlaylists(user.userId);
+        set({
+          playlists,
+          likedPlaylist: getLikedPlaylist(playlists),
+          loading: false,
+        });
+      } else {
+        set({ loading: false });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "创建歌单失败";
+      set({ error: message, loading: false });
+      throw error;
+    }
+  },
+
+  updateWyPlaylistInfo: async (playlistId, changes) => {
+    set({ loading: true, error: null });
+    try {
+      await updateWyPlaylistInfoApi(playlistId, changes);
+      // 成功后本地乐观更新缓存字段。
+      set((state) => ({
+        loading: false,
+        error: null,
+        playlists: state.playlists.map((pl) =>
+          pl.id === playlistId && pl.source === "wy"
+            ? {
+                ...pl,
+                name: changes.name !== undefined ? changes.name : pl.name,
+                desc: changes.description !== undefined ? changes.description : pl.desc,
+              }
+            : pl,
+        ),
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "编辑歌单失败";
+      set({ error: message, loading: false });
+      throw error;
+    }
+  },
+
+  deleteWyPlaylist: async (playlistId) => {
+    set({ loading: true, error: null });
+    try {
+      await deleteWyPlaylistApi(playlistId);
+      // 删除成功后从本地列表移除。
+      set((state) => ({
+        loading: false,
+        error: null,
+        playlists: state.playlists.filter((pl) => !(pl.id === playlistId && pl.source === "wy")),
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "删除歌单失败";
+      set({ error: message, loading: false });
+      throw error;
+    }
+  },
+
   fetchPlaylistDetail: async (playlistId, source = "wy", inputPlaylist) => {
     set({ loading: true, error: null });
     try {
@@ -173,9 +296,7 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
             }
           : null,
       });
-    } catch (error) {
-      console.error("Fetch liked songs error:", error);
-    }
+    } catch {}
   },
 
   likeSong: async (song) => {
@@ -200,7 +321,7 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
         likedPlaylist: likedPlaylist
           ? {
               ...likedPlaylist,
-              trackCount: nextLikedSongs.length || likedPlaylist.trackCount + 1,
+              trackCount: nextLikedSongs.length,
             }
           : likedPlaylist,
       });
@@ -425,6 +546,19 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
     }
   },
 
+  addSongsToLocalPlaylist: async (playlistId, songs) => {
+    try {
+      const result = addSongsToLocalPlaylistModel(get().localPlaylists, playlistId, songs);
+      await persistLocalPlaylists(result.playlists);
+      set({ localPlaylists: result.playlists, error: null });
+      return { addedCount: result.addedCount, skippedCount: result.skippedCount };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "添加到本地歌单失败";
+      set({ error: message });
+      throw error;
+    }
+  },
+
   addSongToWyPlaylist: async (playlistId, song) => {
     try {
       if (song.source !== "wy") {
@@ -516,6 +650,22 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
       set({ error: message });
       throw error;
     }
+  },
+  mergeFromSync: async ({ likedSongs, cloudPlaylists, localPlaylists }) => {
+    const current = get();
+    const mergedFavorites = mergeFavorites(current.likedSongs, likedSongs);
+    const mergedLocal = mergeLocalPlaylists(current.localPlaylists, localPlaylists);
+    const mergedCloud = mergeCloudPlaylists(current.playlists, cloudPlaylists);
+    await persistLikedSongs(mergedFavorites);
+    await persistLocalPlaylists(mergedLocal);
+    set({
+      likedSongs: mergedFavorites,
+      likedSongIds: new Set(mergedFavorites.map(songKey)),
+      likedPlaylist: getLikedPlaylist(mergedCloud) || current.likedPlaylist,
+      playlists: mergedCloud,
+      localPlaylists: mergedLocal,
+      error: null,
+    });
   },
   replaceAllFromSync: (likedSongs, playlists) => {
     const likedPlaylist = getLikedPlaylist(playlists);

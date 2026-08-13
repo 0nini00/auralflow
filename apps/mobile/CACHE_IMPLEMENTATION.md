@@ -5,7 +5,7 @@
 ### 1️⃣ **封面缓存**
 - ✅ 自动下载并缓存封面图片到本地
 - ✅ 优先使用缓存，减少网络请求
-- ✅ 基于 URL 哈希的文件命名
+- ✅ 基于 URL 的 MD5 文件命名（crypto-js）
 - ✅ 30天缓存有效期
 
 ### 2️⃣ **歌词缓存**
@@ -234,10 +234,10 @@ const MAX_CACHE_AGE = 30 * 24 * 60 * 60 * 1000;  // 可调整
 ```
 
 ### 哈希算法
-当前使用简单哈希，生产环境建议使用：
+✅ 已改用真正 MD5：
 ```typescript
-import md5 from 'crypto-js/md5';
-const hash = md5(url).toString();
+import CryptoJS from "crypto-js";
+const hash = CryptoJS.MD5(url).toString();  // 32 位小写十六进制
 ```
 
 ---
@@ -264,10 +264,16 @@ adb shell du -sh /data/data/cn.chenle.auralflow.mobile/cache/auralflow
 
 ## 🔜 后续优化
 
-### 高优先级
-- [ ] 使用真正的 MD5 哈希（而非简单哈希）
-- [ ] 添加缓存预加载（播放队列的下一首）
-- [ ] 缓存大小自动清理（超过100MB时）
+### 高优先级（均已实现 ✅）
+#### ✅ 使用真正的 MD5 哈希（而非简单哈希）
+- `getCacheFileName` 改用 `crypto-js` 的 `CryptoJS.MD5(url)`（32 位小写十六进制）；切换后旧文件名不再命中，首次重新下载一次
+
+#### ✅ 缓存预加载（播放队列附近多首）
+- `playerService.prefetchNearbySongs()` — 预读上一首 + 下两首（与桌面 `PREFETCH_OFFSETS=[-1,1,2]` 一致）
+
+#### ✅ 缓存大小自动清理（超过 100MB 时）
+- `cacheEvictionModel.selectFilesToEvict()` + `cacheService.enforceCacheSizeLimit()`
+- 写入封面/歌词/音频后去抖触发；超上限时按 mtime 最旧优先（LRU）淘汰，直到低于 `MAX_CACHE_SIZE`
 
 ### 中优先级
 - [ ] 压缩封面图片（减少存储空间）

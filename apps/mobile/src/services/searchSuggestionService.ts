@@ -16,6 +16,9 @@ export async function getSearchSuggestions(keyword: string): Promise<SearchSugge
     return [];
   }
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+
   try {
     const response = await fetch(
       `https://music.163.com/api/search/suggest/web?s=${encodeURIComponent(keyword)}&limit=10`,
@@ -24,8 +27,11 @@ export async function getSearchSuggestions(keyword: string): Promise<SearchSugge
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         },
+        signal: controller.signal as any,
       }
     );
+
+    clearTimeout(timeoutId);
 
     const data = (await response.json()) as JsonRecord;
     
@@ -77,7 +83,6 @@ export async function getSearchSuggestions(keyword: string): Promise<SearchSugge
 
     return [];
   } catch (error) {
-    console.error("Get search suggestions error:", error);
     return [];
   }
 }

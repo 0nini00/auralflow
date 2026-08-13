@@ -1,27 +1,21 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Modal,
+  Keyboard,
   PanResponder,
-  Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import {
-  Maximize2,
-  MoreHorizontal,
+  ListMusic,
   Music2,
   Pause,
   Play,
-  Sliders,
-  Timer,
-  Volume2,
-  VolumeX,
-  X,
+  SkipBack,
+  SkipForward,
 } from "lucide-react-native";
-import { SoundEffectPanel } from "@/components/SoundEffectPanel";
 
 import { CachedImage } from "@/components/CachedImage";
 import { MiniProgressBar } from "@/components/MiniProgressBar";
@@ -34,15 +28,23 @@ import {
 import {
   getCurrentLyricIndex,
   playFromQueue,
+  playNext,
+  playPrevious,
 } from "@/services/playerService";
-import { buildMobileSleepTimerControl } from "@/services/songSleepTimerModel";
+import { buildImmersiveQueuePanelModel } from "@/services/playerQueueModel";
+import { convertChineseText } from "@/services/chineseConversionService";
+import { QueueModal } from "@/components/QueueModal";
 import { useLyricOverlayStore } from "@/stores/lyricOverlayStore";
+import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
 import { usePlayerStore } from "@/stores/playerStore";
+import { PLAYER_BAR_HEIGHT } from "@/navigation/tabLayout";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, touch, typography } from "@/theme/tokens";
+import { calculateLyricLineProgress } from "@lx/core";
 
 export interface PlayerBarProps {
   onOpen: () => void;
+  /** 底部安全区高度：push 页无 Tab 栏时贴屏底需避让手势条；Tab 页内嵌于 tabBar 时为 0。 */
   bottomInset?: number;
 }
 
@@ -54,24 +56,15 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
   const currentSong = usePlayerStore((state) => state.currentSong);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const loading = usePlayerStore((state) => state.loading);
-  const position = usePlayerStore((state) => state.position);
-  const isMuted = usePlayerStore((state) => state.isMuted);
-  const lyrics = usePlayerStore((state) => state.lyrics);
-  const sleepTimerMinutes = usePlayerStore((state) => state.sleepTimerMinutes);
-  const sleepTimerActive = usePlayerStore((state) => state.sleepTimerActive);
-  const sleepTimerSongCount = usePlayerStore((state) => state.sleepTimerSongCount);
-  const sleepTimerSongActive = usePlayerStore((state) => state.sleepTimerSongActive);
   const pause = usePlayerStore((state) => state.pause);
   const resume = usePlayerStore((state) => state.resume);
-  const toggleMute = usePlayerStore((state) => state.toggleMute);
-  const startSleepTimer = usePlayerStore((state) => state.startSleepTimer);
-  const startSongSleepTimer = usePlayerStore((state) => state.startSongSleepTimer);
-  const cancelSleepTimer = usePlayerStore((state) => state.cancelSleepTimer);
+  const queue = usePlayerStore((state) => state.queue);
+  const currentIndex = usePlayerStore((state) => state.currentIndex);
+  const removeFromQueue = usePlayerStore((state) => state.removeFromQueue);
+  const clearQueue = usePlayerStore((state) => state.clearQueue);
 
   const overlayVisible = useLyricOverlayStore((state) => state.visible);
   const overlayLocked = useLyricOverlayStore((state) => state.locked);
-  const overlayLoaded = useLyricOverlayStore((state) => state.loaded);
-  const loadOverlayState = useLyricOverlayStore((state) => state.loadFromStorage);
   const setOverlayVisible = useLyricOverlayStore((state) => state.setVisible);
 
   const themeMode = useThemeStore((state) => state.mode);
@@ -82,21 +75,23 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
     [themeMode, systemTheme, accentColor],
   );
 
-  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
-  const [sleepModalOpen, setSleepModalOpen] = useState(false);
-  const [soundEffectModalOpen, setSoundEffectModalOpen] = useState(false);
+  const [queueModalOpen, setQueueModalOpen] = useState(false);
 
-  const sleepTimerControl = buildMobileSleepTimerControl({
-    minuteActive: sleepTimerActive,
-    minuteRemaining: sleepTimerMinutes,
-    songActive: sleepTimerSongActive,
-    songRemaining: sleepTimerSongCount,
-  });
-
+  // 键盘弹出时隐藏迷你栏（对齐 lx PlayerBar：搜索/输入时不遮挡键盘）
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   useEffect(() => {
-    if (overlayLoaded) return;
-    void loadOverlayState();
-  }, [loadOverlayState, overlayLoaded]);
+    const showSub = Keyboard.addListener("keyboardDidShow", () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener("keyboardDidHide", () => setKeyboardVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  const queueModel = useMemo(
+    () => buildImmersiveQueuePanelModel(queue, currentIndex),
+    [queue, currentIndex],
+  );
 
   useEffect(() => {
     if (currentSong || !overlayVisible) return;
@@ -105,7 +100,6 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
         await hideLyricOverlay();
         await setOverlayVisible(false);
       } catch (error) {
-        console.error("[lyric overlay] no-song hide failed", error);
         showActionError("关闭悬浮歌词失败", error);
       }
     })();
@@ -113,58 +107,12 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
 
   useEffect(() => {
     if (!overlayVisible || !currentSong) return;
-
-    const currentIndex = getCurrentLyricIndex(lyrics, position);
-    const currentLine = lyrics[currentIndex];
-    const nextLine = lyrics[currentIndex + 1];
-    const lineDuration = (nextLine?.time ?? position) - (currentLine?.time ?? position);
-    const lineProgress = lineDuration > 0
-      ? Math.max(0, Math.min(1, (position - (currentLine?.time ?? position)) / lineDuration))
-      : 0;
-
-    void updateLyricOverlay(currentLine?.text ?? "", nextLine?.text ?? "", lineProgress).catch(
-      (error: unknown) => {
-        console.error("[lyric overlay] lyric update failed", error);
-      },
-    );
-  }, [currentSong, lyrics, overlayVisible, position]);
-
-  useEffect(() => {
-    if (!overlayVisible || !currentSong) return;
     void setLyricOverlayLocked(overlayLocked).catch((error: unknown) => {
-      console.error("[lyric overlay] lock sync failed", error);
     });
   }, [currentSong, overlayLocked, overlayVisible]);
 
-  if (!currentSong) return null;
-
-  const coverUrl = currentSong.picUrl || currentSong.img;
-
-  const handleTogglePlayback = async () => {
-    try {
-      if (isPlaying) {
-        await pause();
-        return;
-      }
-
-      await resume();
-      const state = usePlayerStore.getState();
-      if (!state.isPlaying && state.currentIndex >= 0) {
-        await playFromQueue(state.currentIndex);
-      }
-    } catch (error) {
-      showActionError("播放操作失败", error);
-    }
-  };
-
-  const handlePlayerAction = async (action: () => Promise<void>) => {
-    try {
-      await action();
-    } catch (error) {
-      showActionError("播放操作失败", error);
-    }
-  };
-
+  // 注意：useRef 必须在任何条件 return 之前声明，否则 currentSong 从空到有歌时
+  // 会触发 “rendered fewer hooks than expected” 崩溃（hook 顺序违规）。
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const panResponder = useRef(
@@ -180,6 +128,62 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
       },
     }),
   ).current;
+
+  if (!currentSong || keyboardVisible) return null;
+
+  const coverUrl = currentSong.picUrl || currentSong.img;
+
+  const handleTogglePlayback = async () => {
+    try {
+      if (isPlaying) {
+        await pause();
+        return;
+      }
+
+      await resume();
+      const state = usePlayerStore.getState();
+      if (!state.isPlaying && state.currentIndex >= 0) {
+        // 快照恢复后原生无曲：重新播放当前曲并续播上次保存的进度
+        await playFromQueue(state.currentIndex, state.position);
+      }
+    } catch (error) {
+      showActionError("播放操作失败", error);
+    }
+  };
+
+  const handlePlayerAction = async (action: () => Promise<void>) => {
+    try {
+      await action();
+    } catch (error) {
+      showActionError("播放操作失败", error);
+    }
+  };
+
+  const handleNext = () => void handlePlayerAction(playNext);
+
+  const handlePrevious = () => void handlePlayerAction(playPrevious);
+
+  const handlePlayQueueItem = async (index: number) => {
+    try {
+      await playFromQueue(index);
+    } catch (error) {
+      showActionError("播放队列歌曲失败", error);
+    }
+    setQueueModalOpen(false);
+  };
+
+  const handleRemoveQueueItem = (index: number) => {
+    removeFromQueue(index);
+  };
+
+  const handleClearQueue = async () => {
+    try {
+      await clearQueue();
+    } catch (error) {
+      showActionError("清空播放队列失败", error);
+    }
+    setQueueModalOpen(false);
+  };
 
   const handleTouchStart = () => {
     longPressTimer.current = setTimeout(() => {
@@ -200,11 +204,11 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
       style={[
         styles.root,
         {
+          // 固定高度 + 底部安全区延伸（push 页手势条区域同底色）
+          height: PLAYER_BAR_HEIGHT + bottomInset,
           paddingBottom: bottomInset,
           backgroundColor: palette.surface,
           borderTopColor: palette.border,
-          borderTopLeftRadius: radius.lg,
-          borderTopRightRadius: radius.lg,
         },
       ]}
     >
@@ -225,26 +229,40 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
               style={styles.cover}
               fallback={
                 <View style={[styles.cover, styles.coverFallback, { backgroundColor: palette.surfaceStrong }]}>
-                  <Music2 size={22} color={palette.primary} />
+                  <Music2 size={20} color={palette.primary} />
                 </View>
               }
             />
           ) : (
             <View style={[styles.cover, styles.coverFallback, { backgroundColor: palette.surfaceStrong }]}>
-              <Music2 size={22} color={palette.primary} />
+              <Music2 size={20} color={palette.primary} />
             </View>
           )}
           <View style={styles.trackText}>
-            <Text style={[styles.trackName, { color: palette.text }]} numberOfLines={1}>
-              {currentSong.name}
+            {/* 对齐 lx Title：第一行“歌名 - 歌手”（formatMusicName 格式）。
+                迷你栏空间有限，超长时自动缩小字号保整段可见，不再从尾部截掉歌手。 */}
+            <Text
+              style={[styles.trackName, { color: palette.text }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.78}
+            >
+              {`${currentSong.name} - ${currentSong.singer?.trim() || "未知歌手"}`}
             </Text>
-            <Text style={[styles.trackArtist, { color: palette.textMuted }]} numberOfLines={1}>
-              {currentSong.singer || "未知艺术家"}
-            </Text>
+            {/* 对齐 lx Status：播放时滚动显示当前歌词行，未播放回退状态文案 */}
+            <MiniLyricStatus overlayVisible={overlayVisible} color={palette.textMuted} />
           </View>
         </Touchable>
 
         <View style={styles.transportControls}>
+          <Touchable
+            onPress={handlePrevious}
+            style={styles.iconButton}
+            accessibilityRole="button"
+            accessibilityLabel="上一首"
+          >
+            <SkipBack size={18} color={palette.text} />
+          </Touchable>
           {isPlaying ? (
             <Touchable
               disabled={loading}
@@ -256,7 +274,7 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
               {loading ? (
                 <ActivityIndicator color={palette.primaryText} size="small" />
               ) : (
-                <Pause size={22} color={palette.primaryText} fill={palette.primaryText} />
+                <Pause size={20} color={palette.primaryText} fill={palette.primaryText} />
               )}
             </Touchable>
           ) : (
@@ -270,270 +288,136 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
               {loading ? (
                 <ActivityIndicator color={palette.primaryText} size="small" />
               ) : (
-                <Play size={22} color={palette.primaryText} fill={palette.primaryText} />
+                <Play size={20} color={palette.primaryText} fill={palette.primaryText} />
               )}
             </Touchable>
           )}
           <Touchable
-            onPress={() => setMoreMenuOpen(true)}
+            onPress={handleNext}
             style={styles.iconButton}
             accessibilityRole="button"
-            accessibilityLabel="更多"
+            accessibilityLabel="下一首"
           >
-            <MoreHorizontal size={20} color={palette.text} />
+            <SkipForward size={18} color={palette.text} />
+          </Touchable>
+          <Touchable
+            onPress={() => setQueueModalOpen(true)}
+            style={styles.iconButton}
+            accessibilityRole="button"
+            accessibilityLabel="播放列表"
+          >
+            <ListMusic size={18} color={palette.text} />
           </Touchable>
         </View>
       </View>
 
-      <Modal
-        visible={moreMenuOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setMoreMenuOpen(false)}
-      >
-        <Pressable style={styles.modalOverlay} onPress={() => setMoreMenuOpen(false)}>
-          <View
-            style={[
-              styles.moreMenu,
-              { backgroundColor: palette.surface, borderColor: palette.border },
-            ]}
-          >
-            <Touchable
-              onPress={() => {
-                setMoreMenuOpen(false);
-                setSleepModalOpen(true);
-              }}
-              style={styles.moreMenuItem}
-              accessibilityRole="button"
-            >
-              <Timer size={20} color={palette.text} />
-              <Text style={[styles.moreMenuText, { color: palette.text }]}>睡眠定时</Text>
-              {sleepTimerControl.active && (
-                <Text style={[styles.moreMenuMeta, { color: palette.primary }]}>{sleepTimerControl.label}</Text>
-              )}
-            </Touchable>
-            <Touchable
-              onPress={() => {
-                setMoreMenuOpen(false);
-                void handlePlayerAction(toggleMute);
-              }}
-              style={styles.moreMenuItem}
-              accessibilityRole="button"
-            >
-              {isMuted ? (
-                <VolumeX size={20} color={palette.primary} />
-              ) : (
-                <Volume2 size={20} color={palette.text} />
-              )}
-              <Text style={[styles.moreMenuText, { color: palette.text }]}>
-                {isMuted ? "取消静音" : "静音"}
-              </Text>
-            </Touchable>
-            <Touchable
-              onPress={() => {
-                setMoreMenuOpen(false);
-                setSoundEffectModalOpen(true);
-              }}
-              style={styles.moreMenuItem}
-              accessibilityRole="button"
-            >
-              <Sliders size={20} color={palette.text} />
-              <Text style={[styles.moreMenuText, { color: palette.text }]}>音效</Text>
-            </Touchable>
-            <Touchable
-              onPress={() => {
-                setMoreMenuOpen(false);
-                onOpen();
-              }}
-              style={styles.moreMenuItem}
-              accessibilityRole="button"
-            >
-              <Maximize2 size={20} color={palette.text} />
-              <Text style={[styles.moreMenuText, { color: palette.text }]}>全屏播放</Text>
-            </Touchable>
-          </View>
-        </Pressable>
-      </Modal>
-
-      <Modal
-        visible={sleepModalOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setSleepModalOpen(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View
-            style={[
-              styles.sleepPanel,
-              { backgroundColor: palette.surface, borderColor: palette.border },
-            ]}
-          >
-            <View style={styles.modalHeader}>
-              <View style={styles.modalTitleGroup}>
-                <Text style={[styles.modalTitle, { color: palette.text }]}>睡眠定时器</Text>
-                <Text style={[styles.modalStatus, { color: palette.textMuted }]}>
-                  {sleepTimerControl.label}
-                </Text>
-              </View>
-              <Touchable
-                onPress={() => setSleepModalOpen(false)}
-                style={styles.iconButton}
-                accessibilityRole="button"
-                accessibilityLabel="关闭睡眠定时器设置"
-              >
-                <X size={20} color={palette.text} />
-              </Touchable>
-            </View>
-
-            <Text style={[styles.optionTitle, { color: palette.textMuted }]}>按时间停止</Text>
-            <View style={styles.optionRow}>
-              {sleepTimerControl.minutePresets.map((minutes) => (
-                <Pressable
-                  key={minutes}
-                  onPress={() => {
-                    startSleepTimer(minutes);
-                    setSleepModalOpen(false);
-                  }}
-                  style={[
-                    styles.optionButton,
-                    {
-                      backgroundColor:
-                        sleepTimerActive && sleepTimerMinutes === minutes
-                          ? palette.primary
-                          : palette.surfaceMuted,
-                    },
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${minutes} 分钟后停止`}
-                >
-                  <Text
-                    style={[
-                      styles.optionText,
-                      {
-                        color:
-                          sleepTimerActive && sleepTimerMinutes === minutes
-                            ? palette.primaryText
-                            : palette.text,
-                      },
-                    ]}
-                  >
-                    {minutes} 分钟
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-
-            <Text style={[styles.optionTitle, { color: palette.textMuted }]}>按歌曲数停止</Text>
-            <View style={styles.optionRow}>
-              {sleepTimerControl.songCountPresets.map((songCount) => (
-                <Pressable
-                  key={songCount}
-                  onPress={() => {
-                    startSongSleepTimer(songCount);
-                    setSleepModalOpen(false);
-                  }}
-                  style={[
-                    styles.optionButton,
-                    {
-                      backgroundColor:
-                        sleepTimerSongActive && sleepTimerSongCount === songCount
-                          ? palette.primary
-                          : palette.surfaceMuted,
-                    },
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityLabel={`听完 ${songCount} 首后停止`}
-                >
-                  <Text
-                    style={[
-                      styles.optionText,
-                      {
-                        color:
-                          sleepTimerSongActive && sleepTimerSongCount === songCount
-                            ? palette.primaryText
-                            : palette.text,
-                      },
-                    ]}
-                  >
-                    {songCount} 首
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-
-            {sleepTimerControl.active ? (
-              <Pressable
-                onPress={() => {
-                  cancelSleepTimer();
-                  setSleepModalOpen(false);
-                }}
-                style={[styles.cancelButton, { borderColor: palette.danger }]}
-                accessibilityRole="button"
-                accessibilityLabel="取消定时关闭"
-              >
-                <Text style={[styles.cancelText, { color: palette.danger }]}>取消定时</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        visible={soundEffectModalOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setSoundEffectModalOpen(false)}
-      >
-        <Pressable style={styles.modalOverlay} onPress={() => setSoundEffectModalOpen(false)}>
-          <View
-            style={[
-              styles.sleepPanel,
-              { backgroundColor: palette.surface, borderColor: palette.border },
-            ]}
-          >
-            <View style={styles.modalHeader}>
-              <View style={styles.modalTitleGroup}>
-                <Text style={[styles.modalTitle, { color: palette.text }]}>音效设置</Text>
-              </View>
-              <Touchable
-                onPress={() => setSoundEffectModalOpen(false)}
-                style={styles.iconButton}
-                accessibilityRole="button"
-                accessibilityLabel="关闭音效设置"
-              >
-                <X size={20} color={palette.text} />
-              </Touchable>
-            </View>
-            <SoundEffectPanel />
-          </View>
-        </Pressable>
-      </Modal>
-
+      <QueueModal
+        visible={queueModalOpen}
+        queueModel={queueModel}
+        queue={queue}
+        palette={palette}
+        onClose={() => setQueueModalOpen(false)}
+        onPlayItem={(index) => void handlePlayQueueItem(index)}
+        onRemoveItem={handleRemoveQueueItem}
+        onClear={() => void handleClearQueue()}
+      />
     </View>
+  );
+}
+
+interface MiniLyricStatusProps {
+  overlayVisible: boolean;
+  /** 歌词行文字颜色（迷你栏第二行） */
+  color: string;
+}
+
+/**
+ * 迷你栏实时歌词行（对应 lx `Status`）。
+ *
+ * 播放进度（position）0.25s 更新一次，这里把它隔离到叶子组件：
+ * - 只有这一行 Text 随进度重渲染，整个 PlayerBar（封面、按钮、弹窗）不再随进度重建；
+ * - 悬浮歌词原生桥调用做节流：仅当行号切换或行内进度跨档（10%）且距上次 ≥250ms 时才发送。
+ */
+function MiniLyricStatus({ overlayVisible, color }: MiniLyricStatusProps) {
+  const position = usePlayerStore((state) => state.position);
+  const lyrics = usePlayerStore((state) => state.lyrics);
+  const isPlaying = usePlayerStore((state) => state.isPlaying);
+  const loading = usePlayerStore((state) => state.loading);
+  // 与沉浸歌词保持一致：手动偏移校准 + 简繁转换（否则设置后迷你栏/悬浮歌词与其他歌词不一致）
+  const manualOffsetMs = useLyricSettingsStore((s) => s.manualOffsetMs);
+  const chineseConversion = useLyricSettingsStore((s) => s.chineseConversion);
+
+  const offsetSec = manualOffsetMs / 1000;
+  const currentIndex = getCurrentLyricIndex(lyrics, position + offsetSec);
+  const convertText = useCallback(
+    (text: string) => convertChineseText(text, chineseConversion),
+    [chineseConversion],
+  );
+  const displayText = !isPlaying
+    ? loading
+      ? "加载中…"
+      : "已暂停"
+    : currentIndex >= 0
+      ? convertText(lyrics[currentIndex]?.text ?? "")
+      : "";
+
+  const lastSentRef = useRef({ index: -1, bucket: -1, ts: 0 });
+
+  useEffect(() => {
+    if (!overlayVisible) return;
+
+    const now = Date.now();
+    const last = lastSentRef.current;
+    // 无逐字歌词时按 CJK 字符/拉丁词估算行内进度（与桌面 playbackSync 同一算法）
+    const lineProgress = calculateLyricLineProgress(lyrics, currentIndex, position + offsetSec);
+    const bucket = Math.floor(lineProgress * 10);
+    const indexChanged = currentIndex !== last.index;
+    const bucketChanged = bucket !== last.bucket;
+    if (!indexChanged && !(bucketChanged && now - last.ts >= 250)) return;
+
+    lastSentRef.current = { index: currentIndex, bucket, ts: now };
+    const currentLine = lyrics[currentIndex];
+    const nextLine = lyrics[currentIndex + 1];
+    void updateLyricOverlay(
+      currentLine ? convertText(currentLine.text) : "",
+      nextLine ? convertText(nextLine.text) : "",
+      lineProgress,
+    ).catch((error: unknown) => {
+    });
+  }, [currentIndex, lyrics, overlayVisible, position, offsetSec, convertText]);
+
+  return (
+    <Text style={[styles.trackArtist, { color }]} numberOfLines={1}>
+      {displayText}
+    </Text>
   );
 }
 
 const styles = StyleSheet.create({
   root: {
+    // 文档流布局：Tab 页作为自定义 tabBar 的上一行（导航键正上方），
+    // push 页由 AppShell 贴底渲染。不做 absolute，导航键布局完全不变、零遮挡。
     borderTopWidth: StyleSheet.hairlineWidth,
+    flexDirection: "column",
   },
   content: {
-    paddingHorizontal: spacing.s,
+    flex: 1,
+    paddingHorizontal: spacing.xs,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: spacing.xs,
+    gap: spacing.xxs,
   },
   trackSummary: {
     minHeight: touch.minTarget,
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.xs,
+    gap: spacing.xxs,
   },
   cover: {
-    width: touch.minTarget,
-    height: touch.minTarget,
+    width: 40,
+    height: 40,
     borderRadius: radius.sm,
   },
   coverFallback: {
@@ -556,103 +440,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: spacing.xs,
+    gap: spacing.xxs,
   },
   iconButton: {
-    minWidth: touch.minTarget,
-    minHeight: touch.minTarget,
+    minWidth: 36,
+    minHeight: 40,
     borderRadius: radius.sm,
     alignItems: "center",
     justifyContent: "center",
   },
   playButton: {
-    minWidth: touch.minTarget,
-    minHeight: touch.minTarget,
+    minWidth: 40,
+    minHeight: 40,
     borderRadius: radius.pill,
     alignItems: "center",
     justifyContent: "center",
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "flex-end",
-  },
-  moreMenu: {
-    margin: spacing.m,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.lg,
-    overflow: "hidden",
-  },
-  moreMenuItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.s,
-    paddingHorizontal: spacing.m,
-    paddingVertical: spacing.s,
-    minHeight: touch.minTarget,
-  },
-  moreMenuText: {
-    flex: 1,
-    fontSize: typography.body,
-    fontWeight: "500",
-  },
-  moreMenuMeta: {
-    fontSize: typography.caption,
-  },
-  sleepPanel: {
-    margin: spacing.m,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.lg,
-    padding: spacing.m,
-    gap: spacing.s,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing.s,
-  },
-  modalTitleGroup: {
-    flex: 1,
-  },
-  modalTitle: {
-    fontSize: typography.heading,
-    fontWeight: "700",
-  },
-  modalStatus: {
-    marginTop: 2,
-    fontSize: typography.caption,
-  },
-  optionTitle: {
-    fontSize: typography.meta,
-    fontWeight: "600",
-  },
-  optionRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.xs,
-  },
-  optionButton: {
-    minHeight: touch.minTarget,
-    minWidth: 88,
-    paddingHorizontal: spacing.s,
-    borderRadius: radius.sm,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  optionText: {
-    fontSize: typography.body,
-    fontWeight: "600",
-  },
-  cancelButton: {
-    minHeight: touch.minTarget,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.sm,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cancelText: {
-    fontSize: typography.body,
-    fontWeight: "600",
   },
 });

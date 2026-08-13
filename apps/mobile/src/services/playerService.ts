@@ -1,12 +1,12 @@
 import type { MusicInfo, LyricLine } from "@lx/core";
-import TrackPlayer from "react-native-track-player";
-import { parseUrl, getLyrics } from "./musicApi";
+import { parseUrl, getLyrics, buildStreamHeaders, STREAM_USER_AGENT } from "./musicApi";
 import { resolveBiliSongUrl } from "./biliService";
 import { usePlayerStore } from "../stores/playerStore";
+import type { PlayMode } from "../stores/playerStore";
 import { useHistoryStore } from "../stores/historyStore";
 import { useCustomSourceStore } from "../stores/customSourceStore";
 import { requestCustomSourceMusicUrl } from "./customSourceRuntime";
-import { cacheCover, cacheLyrics, getCachedLyrics, cacheAudioFile, isLocalFilePlayable, CACHEABLE_AUDIO_SOURCES } from "./cacheService";
+import { cacheCover, cacheLyrics, getCachedLyrics, cacheAudioFile, getCachedAudioFile, isLocalFilePlayable, CACHEABLE_AUDIO_SOURCES } from "./cacheService";
 import { getCachedPlaybackUrl, saveCachedPlaybackUrl, invalidateCachedPlaybackUrl } from "./playbackUrlCache";
 import { getPersonalFmSongs, trashPersonalFmSong } from "./wyPlaylistService";
 import { getNextQueueNavigationState, getPreviousQueueNavigationState } from "@/services/queueNavigationModel";
@@ -26,6 +26,8 @@ const prefetchCache = new Map<string, PrefetchedUrl>();
 function getTrackKey(song: MusicInfo): string {
   return `${song.source}:${song.id}`;
 }
+
+/** 在线音频流统一浏览器 UA / wy、tx CDN 防盗链头由 musicApi 共享（播放与下载共用）。 */
 
 function getCachedPrefetch(song: MusicInfo): PrefetchedUrl | undefined {
   const key = getTrackKey(song);
@@ -69,7 +71,6 @@ async function resolveUrlWithCustomSource(
       return result.url;
     } catch (error) {
       lastError = error;
-      console.warn(`Custom source "${source.name}" resolve failed:`, error);
     }
   }
   throw lastError instanceof Error
@@ -97,6 +98,22 @@ async function resolveSongUrl(
     if (prefetched) {
       return { url: prefetched.url, headers: prefetched.headers };
     }
+    // 1.2 直接命中本地音频缓存文件（lx isCached 等价）：优先整曲落盘的 wy/tx 等可缓存音源，
+    // 离线可播、省流量，不必依赖持久化 URL 缓存中的 file:// 条目（该条目可能被清理/过期）。
+    // 按降级链逐个候选查（cacheAudioFile 写盘用的是实际解析成功的音质，可能低于有效音质），
+    // 与持久化 URL 缓存的降级语义一致，避免降级播放后下次播放查不到本地文件。
+    if (CACHEABLE_AUDIO_SOURCES.has(song.source)) {
+      for (const candidate of qualityCandidates) {
+        const cachedAudioPath = await getCachedAudioFile(song, candidate);
+        if (!cachedAudioPath) continue;
+        prefetchCache.set(getTrackKey(song), {
+          url: cachedAudioPath,
+          headers: undefined,
+          fetchedAt: Date.now(),
+        });
+        return { url: cachedAudioPath, headers: undefined };
+      }
+    }
     // 1.5 命中持久化 URL 缓存：冷启动/重启后免重新解析网关，对齐桌面端 persistentCache
     const persisted = await getCachedPlaybackUrl(song, qualityCandidates);
     if (persisted) {
@@ -112,12 +129,14 @@ async function resolveSongUrl(
         }
         void invalidateCachedPlaybackUrl(song, persisted.quality).catch(() => undefined);
       } else {
+        // 旧持久化条目可能没存 headers（修复前写入）：按音源补齐防盗链头，避免命中旧缓存仍 403
+        const persistedHeaders = persisted.headers ?? buildStreamHeaders(song.source);
         prefetchCache.set(getTrackKey(song), {
           url: persisted.url,
-          headers: persisted.headers,
+          headers: persistedHeaders,
           fetchedAt: Date.now(),
         });
-        return { url: persisted.url, headers: persisted.headers };
+        return { url: persisted.url, headers: persistedHeaders };
       }
     }
   }
@@ -133,8 +152,7 @@ async function resolveSongUrl(
     url = result.url;
     headers = {
       Referer: result.referer,
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "User-Agent": STREAM_USER_AGENT,
     };
   } else {
     // 内置解析：从目标音质逐级降级重试，全部失败后再尝试自定义音源
@@ -152,9 +170,10 @@ async function resolveSongUrl(
     if (resolvedUrl) {
       url = resolvedUrl;
     } else {
-      console.warn("Builtin URL resolve failed at all qualities, trying custom sources:", builtinError);
       url = await resolveUrlWithCustomSource(song, quality);
     }
+    // wy/tx 音源 CDN 防盗链：附 Referer/UA，避免 403（修复实机验证的播放失败）
+    headers = buildStreamHeaders(song.source);
   }
   if (!url) {
     throw new Error("无法获取播放地址");
@@ -189,28 +208,53 @@ async function resolveSongUrl(
 }
 
 /**
- * 计算队列中下一首要播放的歌曲（不播放，仅用于预读）。
- * 仅处理 queue 上下文；私人 FM 由其独立缓冲逻辑处理。
+ * 邻近歌曲预读窗口（对齐桌面端 PREFETCH_OFFSETS：上一首 + 下两首）。
+ * 非随机模式按 [-1, 1, 2]；随机模式按 [1, 2, -1]。
  */
-function peekNextSong(): MusicInfo | null {
-  const { playbackContext, queue, currentIndex, playMode } = usePlayerStore.getState();
-  if (playbackContext.type === "personalFm") return null;
-  if (queue.length === 0) return null;
-  let nextIndex: number;
-  if (playMode === "shuffle") {
-    const candidates = queue.map((_, i) => i).filter((i) => i !== currentIndex);
-    nextIndex = candidates[Math.floor(Math.random() * candidates.length)] ?? 0;
-  } else {
-    nextIndex = currentIndex + 1;
-    if (nextIndex >= queue.length) {
-      if (playMode === "list") {
-        nextIndex = 0;
-      } else {
-        return null;
-      }
+const PREFETCH_OFFSETS = [-1, 1, 2] as const;
+const SHUFFLE_PREFETCH_OFFSETS = [1, 2, -1] as const;
+
+function isQueueWrappingMode(playMode: PlayMode): boolean {
+  return playMode === "list" || playMode === "shuffle";
+}
+
+/**
+ * 计算当前曲周围需预读的候选索引（去重、排除当前曲、按播放模式处理越界环绕）。
+ * single 单曲循环无邻近预读。
+ */
+export function getNearbyQueueIndexes(
+  queueLength: number,
+  currentIndex: number,
+  playMode: PlayMode,
+): number[] {
+  if (queueLength <= 0 || currentIndex < 0 || currentIndex >= queueLength) return [];
+  if (playMode === "single") return [];
+  const wrap = isQueueWrappingMode(playMode);
+  const offsets = playMode === "shuffle" ? SHUFFLE_PREFETCH_OFFSETS : PREFETCH_OFFSETS;
+  const seen = new Set<number>([currentIndex]);
+  const result: number[] = [];
+  for (const offset of offsets) {
+    const rawIndex = currentIndex + offset;
+    let index: number | null = null;
+    if (rawIndex >= 0 && rawIndex < queueLength) {
+      index = rawIndex;
+    } else if (wrap) {
+      index = ((rawIndex % queueLength) + queueLength) % queueLength;
     }
+    if (index == null || seen.has(index)) continue;
+    seen.add(index);
+    result.push(index);
   }
-  return queue[nextIndex] ?? null;
+  return result;
+}
+
+/** 取当前曲邻近需预读的歌曲列表（仅 queue 上下文；私人 FM 由其独立缓冲处理）。 */
+function getNearbySongs(): MusicInfo[] {
+  const { playbackContext, queue, currentIndex, playMode } = usePlayerStore.getState();
+  if (playbackContext.type === "personalFm") return [];
+  return getNearbyQueueIndexes(queue.length, currentIndex, playMode)
+    .map((index) => queue[index])
+    .filter((song): song is MusicInfo => !!song);
 }
 
 /**
@@ -225,9 +269,7 @@ function prefetchLyrics(song: MusicInfo): void {
         if (lyrics.length > 0) return cacheLyrics(song, lyrics);
       });
     })
-    .catch((error) => {
-      console.warn("Prefetch lyrics failed:", error);
-    });
+    .catch(() => undefined);
 }
 
 /**
@@ -236,50 +278,35 @@ function prefetchLyrics(song: MusicInfo): void {
 function prefetchCover(song: MusicInfo): void {
   const cover = song.picUrl || song.img;
   if (!cover) return;
-  cacheCover(cover).catch((error) => {
-    console.warn("Prefetch cover failed:", error);
-  });
+  cacheCover(cover).catch(() => undefined);
 }
 
 /**
- * 异步预读下一首：解析并缓存播放 URL、提前加入 TrackPlayer，
- * 并预取歌词与封面，使切歌时歌词/封面秒开。
+ * 异步预读邻近歌曲（上一首 + 下两首，对齐桌面端 prefetchNearbyTracks）：
+ * 解析并缓存播放 URL、预取歌词与封面，使切歌时 URL/歌词/封面秒开。
+ * 只做缓存预取，不写入 TrackPlayer 原生队列（原生始终保持单曲，切歌由 JS 调度）。
  */
-function prefetchNextSong(): void {
-  const next = peekNextSong();
-  if (!next) return;
-  // 歌词/封面无论 URL 是否已缓存都尝试预取（各自内部会跳过已命中项）
-  prefetchLyrics(next);
-  prefetchCover(next);
-  // 已有新鲜 URL 缓存则跳过 URL 解析
-  if (getCachedPrefetch(next)) return;
-  resolveSongUrl(next)
-    .then(({ url, headers }) => {
-      // 提前把下 track 加入 TrackPlayer 队列，切换时更流畅
-      TrackPlayer.add([
-        {
-          id: `${next.source}-${next.id}`,
-          url,
-          title: next.name,
-          artist: next.singer || "未知艺术家",
-          album: next.albumName || "未知专辑",
-          artwork: next.picUrl || next.img || undefined,
-          duration: next.interval,
-          headers: headers ?? undefined,
-        },
-      ]).catch((error) => {
-        console.warn("Prefetch add to TrackPlayer failed:", error);
-      });
-    })
-    .catch((error) => {
-      console.warn("Prefetch next song failed:", error);
-    });
+function prefetchNearbySongs(): void {
+  const nearby = getNearbySongs();
+
+  for (const song of nearby) {
+    // 歌词/封面无论 URL 是否已缓存都尝试预取（各自内部会跳过已命中项）
+    prefetchLyrics(song);
+    prefetchCover(song);
+    // 已有新鲜 URL 缓存则跳过 URL 解析
+    if (getCachedPrefetch(song)) continue;
+    // 只解析并缓存播放 URL（prefetchCache 命中后 playNext/playPrevious 秒开），
+    // 不再把下一首 add 进 TrackPlayer 原生队列——原生队列始终保持单曲，歌曲结束由
+    // PlaybackQueueEnded 事件驱动 JS 切歌，避免原生自动切歌导致 currentSong/歌词/
+    // 进度等 JS 状态不同步（对齐 lx-mobile：原生只播单曲，切歌一律由 JS 调度）。
+    resolveSongUrl(song).catch(() => undefined);
+  }
 }
 
 /**
  * 播放歌曲（完整流程）
  */
-async function playSongCore(song: MusicInfo): Promise<void> {
+async function playSongCore(song: MusicInfo, startPosition?: number): Promise<void> {
   const { play, setLoading, setError } = usePlayerStore.getState();
   const { addToHistory } = useHistoryStore.getState();
   try {
@@ -287,23 +314,20 @@ async function playSongCore(song: MusicInfo): Promise<void> {
     setError(null);
     // 1. 解析播放 URL（命中预读缓存时无需等待网络）
     const { url, headers } = await resolveSongUrl(song);
-    // 2. 播放（B站音源需要带 headers）
-    await play(song, url, headers);
+    // 2. 播放（B站音源需要带 headers；startPosition 用于快照恢复续播）
+    await play(song, url, headers, startPosition);
     // 3. 添加到历史
     await addToHistory(song);
     // 4. 异步加载歌词（优先缓存）
     loadLyrics(song);
     // 5. 异步缓存封面
     if (song.picUrl || song.img) {
-      cacheCover(song.picUrl || song.img!).catch((error) => {
-        console.error("Cache cover error:", error);
-      });
+      cacheCover(song.picUrl || song.img!).catch(() => undefined);
     }
-    // 6. 异步预读下一首的播放 URL（不播放，仅解析缓存 + 提前加入 TrackPlayer）
-    prefetchNextSong();
+    // 6. 异步预读邻近歌曲（上一首 + 下两首）：解析 URL/歌词/封面入缓存，下一首提前入队
+    prefetchNearbySongs();
   } catch (error) {
     const message = error instanceof Error ? error.message : "播放失败";
-    console.error("Play song error:", error);
     setError(message);
     throw error;
   } finally {
@@ -313,7 +337,7 @@ async function playSongCore(song: MusicInfo): Promise<void> {
 
 /**
  * 切换当前曲的播放音质：清缓存 → 按目标音质重解析 → 尽量从原进度续播。
- * 本地曲 / B 站等不走音质阶梯的源会直接抛错。
+ * 本地曲 / B站等不走音质阶梯的源会直接抛错。
  */
 export async function switchCurrentPlaybackQuality(quality: string): Promise<void> {
   const store = usePlayerStore.getState();
@@ -358,16 +382,13 @@ export async function switchCurrentPlaybackQuality(quality: string): Promise<voi
     if (resumePosition > 1) {
       try {
         await usePlayerStore.getState().seekTo(resumePosition);
-      } catch (error) {
-        console.warn("Restore position after quality switch failed:", error);
-      }
+      } catch {}
     }
     if (!wasPlaying) {
       await usePlayerStore.getState().pause();
     }
-    prefetchNextSong();
+    prefetchNearbySongs();
   } catch (error) {
-    console.error("Switch quality error:", error);
     setError(error instanceof Error ? error.message : "切换音质失败");
     throw error;
   } finally {
@@ -386,7 +407,7 @@ export async function playSong(song: MusicInfo): Promise<void> {
 /**
  * 播放队列中的歌曲
  */
-export async function playFromQueue(index: number): Promise<void> {
+export async function playFromQueue(index: number, startPosition?: number): Promise<void> {
   const { playbackContext, queue } = usePlayerStore.getState();
   if (index < 0 || index >= queue.length) return;
   const song = queue[index];
@@ -395,7 +416,7 @@ export async function playFromQueue(index: number): Promise<void> {
   } else {
     usePlayerStore.setState({ currentIndex: index });
   }
-  await playSongCore(song);
+  await playSongCore(song, startPosition);
 }
 
 /**
@@ -427,42 +448,42 @@ export async function playShuffledQueue(songs: MusicInfo[]): Promise<void> {
 /**
  * 播放下一首
  */
-export async function playNext(): Promise<void> {
-  const store = usePlayerStore.getState();
-  const { playbackContext, queue, currentIndex, playMode, shuffleHistory, playedIndices, tempPlayList } = store;
-  if (playbackContext.type === "personalFm") {
-    await playNextPersonalFmSong();
-    return;
-  }
-
-  // 稍后播放：优先消费 tempPlayList 首曲。取出后插入主队列 currentIndex+1，
-  // 播完自然回到「原本的下一首」逻辑（因为主队列指针只前进了一步）。
-  if (tempPlayList.length > 0) {
-    const { nextSong, tempPlayList: nextTempList } = dequeueTempPlayList(tempPlayList);
-    if (nextSong) {
-      const inserted = insertSongToPlayNext({ queue, currentIndex, song: nextSong });
-      usePlayerStore.setState({
-        queue: inserted.queue,
-        currentIndex: inserted.currentIndex,
-        tempPlayList: nextTempList,
-      });
-      // 空队列场景：insertSongToPlayNext 返回 currentIndex=0 且 queue=[nextSong]，直接播这首。
-      const targetIndex = queue.length === 0 || currentIndex < 0 ? 0 : currentIndex + 1;
-      await playFromQueue(targetIndex);
-      return;
-    }
-  }
-
-  const next = getNextQueueNavigationState({
-    queueLength: queue.length,
-    currentIndex,
-    playMode,
-    shuffleHistory,
-    playedIndices,
-  });
-  usePlayerStore.setState({ shuffleHistory: next.shuffleHistory, playedIndices: next.playedIndices });
-  if (next.nextIndex == null) return;
-  await playFromQueue(next.nextIndex);
+export async function playNext(): Promise<void> {
+  const store = usePlayerStore.getState();
+  const { playbackContext, queue, currentIndex, playMode, shuffleHistory, playedIndices, tempPlayList } = store;
+  if (playbackContext.type === "personalFm") {
+    await playNextPersonalFmSong();
+    return;
+  }
+
+  // 稍后播放：优先消费 tempPlayList 首曲。取出后插入主队列 currentIndex+1，
+  // 播完自然回到「原本的下一首」逻辑（因为主队列指针只前进了一步）。
+  if (tempPlayList.length > 0) {
+    const { nextSong, tempPlayList: nextTempList } = dequeueTempPlayList(tempPlayList);
+    if (nextSong) {
+      const inserted = insertSongToPlayNext({ queue, currentIndex, song: nextSong });
+      usePlayerStore.setState({
+        queue: inserted.queue,
+        currentIndex: inserted.currentIndex,
+        tempPlayList: nextTempList,
+      });
+      // 空队列场景：insertSongToPlayNext 返回 currentIndex=0 且 queue=[nextSong]，直接播这首。
+      const targetIndex = queue.length === 0 || currentIndex < 0 ? 0 : currentIndex + 1;
+      await playFromQueue(targetIndex);
+      return;
+    }
+  }
+
+  const next = getNextQueueNavigationState({
+    queueLength: queue.length,
+    currentIndex,
+    playMode,
+    shuffleHistory,
+    playedIndices,
+  });
+  usePlayerStore.setState({ shuffleHistory: next.shuffleHistory, playedIndices: next.playedIndices });
+  if (next.nextIndex == null) return;
+  await playFromQueue(next.nextIndex);
 }
 
 /**
@@ -569,9 +590,7 @@ export async function playNextPersonalFmSong(): Promise<void> {
     try {
       const refill = await getPersonalFmSongs();
       usePlayerStore.getState().appendPersonalFmBuffer(refill.songs, refill.hasMore);
-    } catch (error) {
-      console.error("Refill personal fm buffer error:", error);
-    }
+    } catch {}
   }
 }
 
@@ -592,7 +611,6 @@ async function loadLyrics(song: MusicInfo): Promise<void> {
     // 1. 尝试从缓存加载
     const cachedLyrics = await getCachedLyrics(song);
     if (cachedLyrics && cachedLyrics.length > 0) {
-      console.log("Load lyrics from cache");
       setLyrics(cachedLyrics);
       return;
     }
@@ -604,7 +622,6 @@ async function loadLyrics(song: MusicInfo): Promise<void> {
       await cacheLyrics(song, lyrics);
     }
   } catch (error) {
-    console.error("Load lyrics error:", error);
     usePlayerStore.getState().setLyrics([]);
   }
 }

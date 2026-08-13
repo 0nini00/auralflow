@@ -3,6 +3,7 @@ import { useWindowDimensions } from "react-native";
 import { createDrawerNavigator } from "@react-navigation/drawer";
 import { DrawerContent } from "@/components/DrawerContent";
 import { MainTabNavigator } from "@/navigation/MainTabNavigator";
+import { SettingsNavigator } from "@/navigation/SettingsNavigator";
 import type { MainDrawerParamList } from "@/navigation/types";
 
 const Drawer = createDrawerNavigator<MainDrawerParamList>();
@@ -25,6 +26,7 @@ export function MainDrawerNavigator() {
       }}
     >
       <Drawer.Screen name="MainTabs" component={MainTabNavigator} />
+      <Drawer.Screen name="Settings" component={SettingsNavigator} />
     </Drawer.Navigator>
   );
 }

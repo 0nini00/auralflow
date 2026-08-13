@@ -1,4 +1,4 @@
-export type LibraryQuickActionType = "openLikedPlaylist" | "openDailyRecommend";
+export type LibraryQuickActionType = "openLikedPlaylist";
 
 export interface LibraryQuickAction {
   action: LibraryQuickActionType;
@@ -38,12 +38,6 @@ export function buildLibraryQuickActions(input: BuildLibraryQuickActionsInput): 
       subtitle: getLikedSubtitle(input),
       disabled: likedDisabled,
       ...(input.likedCoverUri ? { coverUri: input.likedCoverUri } : {}),
-    },
-    {
-      action: "openDailyRecommend",
-      title: "每日推荐",
-      subtitle: input.isLoggedIn ? "根据你的口味" : "登录后查看",
-      disabled: false,
     },
   ];
 }

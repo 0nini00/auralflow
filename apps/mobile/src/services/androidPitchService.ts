@@ -2,38 +2,23 @@ import { Platform } from "react-native";
 import TrackPlayer from "react-native-track-player";
 
 import { usePlayerStore } from "@/stores/playerStore";
-import { useSoundEffectStore } from "@/stores/soundEffectStore";
 
 /**
- * Android 变调（Pitch）桥接。
+ * Android 倍速同步。
  *
- * RNTP 的 Android 实现只设 `player.playbackSpeed`，会把音高与速度耦合。
- * ExoPlayer 的 `PlaybackParameters(speed, pitch)` 支持独立变调且不改变速度，
- * 这里把"倍速"与"变调"合并为一次调用（半音 → 频率比：2^(semitones/12)）。
+ * RNTP 4.1.2 的原生 `setRate` 只接收单参数（ExoPlayer `player.playbackSpeed`），
+ * **不支持独立变调（pitch）**——v4 系列的 `PlaybackParameters(speed, pitch)` 链路
+ * 在 4.1.2 中已被移除以简化播放器。因此：
+ * - 倍速通过 `setRate(rate)` 生效（ExoPlayer 变调与变速耦合，速度改变时音高随之改变）。
+ * - 独立变调在移动端无实现：原生 AudioFx 的 setPitch 返回 false，UI 亦不提供该控件。
+ *   （详见 `stores/soundEffectStore` 与 `components/SoundEffectPanel` 的说明。）
  *
- * 依赖对 react-native-track-player 的补丁（见 patches/），使其 setRate 透传 pitch。
- * iOS 不支持独立变调，按用户要求仅做 Android；非 Android 走原生单参数 setRate。
- */
-export function semitonesToRate(semitones: number): number {
-  return Math.pow(2, semitones / 12);
-}
-
-/**
- * 用当前的倍速与变调值同步播放参数。由 playerStore / soundEffectStore 在各自变化时调用，
- * 保证两端中的一个变化后，ExoPlayer 的 PlaybackParameters(speed, pitch) 始终一致。
+ * 本函数由 playerStore / soundEffectStore 在参数变化时调用，保证倍速始终同步到原生播放器。
  */
 export async function syncPlaybackParameters(): Promise<void> {
   const rate = usePlayerStore.getState().playbackRate || 1;
-  const semitones = useSoundEffectStore.getState().pitch || 0;
 
   try {
-    if (Platform.OS !== "android") {
-      await TrackPlayer.setRate(rate);
-      return;
-    }
-    // v5 的 setRate 只接收 rate 一个参数（pitch 不再走 setRate）
     await TrackPlayer.setRate(rate);
-  } catch (error) {
-    console.warn("syncPlaybackParameters failed:", error);
-  }
+  } catch {}
 }
