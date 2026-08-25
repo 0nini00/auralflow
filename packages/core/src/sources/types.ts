@@ -14,6 +14,23 @@ export interface MusicGatewayInfo {
   picId?: string;
 }
 
+/**
+ * QQ 音乐取链所需的平台元数据。
+ *
+ * lx 自定义音源脚本按 lx-music 协议消费 musicInfo，tx 取链依赖 strMediaMid
+ * 拼文件名（M500{mid}.mp3 / F000{mid}.flac）。只传 songmid 时脚本拿不到
+ * 媒体标识，解析必然失败——这是移动端与桌面端 lx 源都播不了 tx 的根因。
+ * 提取函数见 ./tx-meta.ts。
+ */
+export interface TxTrackMeta {
+  /** file.media_mid，取链拼文件名用 */
+  strMediaMid?: string;
+  /** 专辑 mid；lx 的 musicInfo 里 albumId 存的也是它 */
+  albumMid?: string;
+  /** QQ 数字 songId。MusicInfo.id 存的是字符串 songmid，两者不可混用 */
+  songId?: string;
+}
+
 export interface MusicInfo {
   id: string;
   name: string;
@@ -38,6 +55,8 @@ export interface MusicInfo {
   mvId?: string;
   /** 内置音乐 API 解析元数据；source 仍保持 wy/tx/local 作为 UI 来源 */
   gateway?: MusicGatewayInfo;
+  /** QQ 音乐取链元数据，传给 lx 自定义音源脚本；仅 source === "tx" 时存在 */
+  txMeta?: TxTrackMeta;
 }
 
 export interface PlaylistInfo {
