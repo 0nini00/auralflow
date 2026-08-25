@@ -38,6 +38,16 @@ desktop/src-tauri/gen/
 .ui_review/
 .tmp-*
 
+# 本机 AI 工具链配置（含本机绝对路径与符号链接）
+.agents/
+.aionrs/
+.claude/
+.config/alma/
+
+# 误建的空文件
+/Configure
+/Task
+
 # Android signing secrets (NEVER commit)
 apps/mobile/android/keystore.properties
 apps/mobile/android/app/auralflow-release.keystore
