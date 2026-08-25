@@ -30,12 +30,12 @@ function toDateText(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-function dayStartOf(time: number): number {
+export function dayStartOf(time: number): number {
   const date = new Date(time);
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+export const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** 按「今天 / 昨天 / 具体日期」对条目分组，保持每组内时间倒序。 */
 export function groupHistoryEntries(entries: HistoryEntry[]): HistoryGroup[] {
@@ -70,4 +70,32 @@ export function groupHistoryEntries(entries: HistoryEntry[]): HistoryGroup[] {
 /** 判断两个时间戳是否属于同一天（用于「同一天同一首歌去重」）。 */
 export function isSameDay(a: number, b: number): boolean {
   return toDateText(new Date(a)) === toDateText(new Date(b));
+}
+
+export function filterEntriesByDay(entries: HistoryEntry[], dayStart: number): HistoryEntry[] {
+  const start = dayStart;
+  const end = start + DAY_MS;
+  return entries
+    .filter((e) => e.playedAt >= start && e.playedAt < end)
+    .sort((a, b) => b.playedAt - a.playedAt);
+}
+
+export function addDays(dayStart: number, n: number): number {
+  return dayStart + n * DAY_MS;
+}
+
+export function formatHistoryDayTitle(dayStart: number, now = Date.now()): string {
+  const date = new Date(dayStart);
+  const nowDate = new Date(now);
+  const todayStart = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()).getTime();
+
+  if (dayStart === todayStart) {
+    return "今天";
+  } else if (dayStart === todayStart - DAY_MS) {
+    return "昨天";
+  } else {
+    return date.getFullYear() === nowDate.getFullYear()
+      ? `${date.getMonth() + 1}月${date.getDate()}日`
+      : `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+  }
 }

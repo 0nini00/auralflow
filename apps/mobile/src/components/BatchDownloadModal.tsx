@@ -116,7 +116,7 @@ export function BatchDownloadModal({
                     </Text>
                   </View>
                   <Text style={[styles.optionAction, { color: isSelected ? palette.primary : palette.textMuted }]}>
-                    {isSelected ? "✓ 已选" : ""}
+                    {isSelected ? "已选" : ""}
                   </Text>
                 </Pressable>
               );
@@ -143,7 +143,7 @@ export function BatchDownloadModal({
               accessibilityState={{ disabled: busy || songs.length === 0 }}
               style={({ pressed }) => [
                 styles.confirmButton,
-                { backgroundColor: palette.primary },
+                { backgroundColor: palette.surface, borderColor: palette.border, borderWidth: 1 },
                 pressed && { opacity: 0.8 },
                 (busy || songs.length === 0) && { opacity: 0.5 },
               ]}
@@ -151,9 +151,9 @@ export function BatchDownloadModal({
               disabled={busy || songs.length === 0}
             >
               {busy ? (
-                <ActivityIndicator color={palette.primaryText} size="small" />
+                <ActivityIndicator color={palette.primary} size="small" />
               ) : (
-                <Text style={[styles.confirmText, { color: palette.primaryText }]}>开始下载</Text>
+                <Text style={[styles.confirmText, { color: palette.primary }]}>开始下载</Text>
               )}
             </Pressable>
           </View>

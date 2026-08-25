@@ -7,45 +7,73 @@ import type { SearchAlbumResult, SearchArtistResult } from "@/services/musicApi"
 import type { SearchFallbackDetailModel } from "@/services/searchFallbackDetailModel";
 import type { WyPlaylistInfo } from "@/services/wyPlaylistService";
 import type { SettingsCategoryName } from "./settingsRouteModel";
+import { nextSettingsCategoryNavId } from "./settingsRouteModel";
 import type {
   LibraryTopTabParamList,
+  MainDrawerParamList,
   RootStackParamList,
 } from "./types";
 
-export const navigationRef = createNavigationContainerRef<RootStackParamList>();
+export const navigationRef = createNavigationContainerRef<MainDrawerParamList>();
 
-export function navigateRoot<Name extends keyof RootStackParamList>(
+/**
+ * 导航到根抽屉（Main 分支 = RootStack）的页面。抽屉在根层级，
+ * 一切内容页都从抽屉的 Main 分支进入，因此始终能保证抽屉可用。
+ */
+export function navigateRoot<Name extends keyof MainDrawerParamList>(
   name: Name,
-  params?: RootStackParamList[Name],
+  params?: MainDrawerParamList[Name],
 ) {
   if (!navigationRef.isReady()) return;
   // @ts-expect-error react-navigation overload for optional params
   navigationRef.navigate(name, params);
 }
 
+/** 导航到 Main 栈（RootStack）内的页面。 */
+function navigateStackScreen<Name extends keyof RootStackParamList>(
+  name: Name,
+  params?: RootStackParamList[Name],
+) {
+  if (!navigationRef.isReady()) return;
+  navigateRoot("Main", {
+    screen: name,
+    params: params as never,
+  });
+}
+
 /**
- * 根栈 push 语义导航。详情页间链式跳转（如 专辑 → 歌手 → 专辑）必须用 push：
- * navigate 在目标 screen 已存在于栈中时会“回退到旧实例并更新参数”，
- * 导致返回键直接跳回更早的页面（AlbumDetail(A)→ArtistDetail→AlbumDetail(B)
- * 时返回会回 Main 而非 ArtistDetail），与设置返回 bug 同类。
- * push 总是压入新实例，返回逐层回退，行为可预期。
+ * 根抽屉 Main 分支栈内 push 语义导航。详情页间链式跳转（如 专辑 → 歌手 → 专辑）
+ * 必须用 push：navigate 在目标 screen 已存在于栈中时会“回退到旧实例并更新参数”，
+ * 导致返回键直接跳回更早的页面。push 总是压入新实例，返回逐层回退。
  */
 export function pushRoot<Name extends keyof RootStackParamList>(
   name: Name,
   params?: RootStackParamList[Name],
 ) {
   if (!navigationRef.isReady()) return;
-  navigationRef.dispatch(
-    StackActions.push(name, params as never),
-  );
+  // 根容器是抽屉，push 需要定向派发给 Main 分支的栈导航器
+  const rootState = navigationRef.getRootState();
+  const mainRoute = rootState.routes.find((route) => route.name === "Main");
+  const stackKey = mainRoute?.state?.key;
+  if (stackKey) {
+    navigationRef.dispatch({
+      ...StackActions.push(name, params as never),
+      target: stackKey,
+    });
+    return;
+  }
+  navigateStackScreen(name, params);
 }
 
 export function openPlayerScreen() {
-  navigateRoot("Player");
+  navigateStackScreen("Player");
 }
 
 export function openSearchScreen() {
-  navigateRoot("Main", { screen: "MainTabs", params: { screen: "SearchTab" } });
+  navigateRoot("Main", {
+    screen: "MainTabs",
+    params: { screen: "SearchTab" },
+  });
 }
 
 export function openLibrarySection(section: keyof LibraryTopTabParamList) {
@@ -63,18 +91,15 @@ export function openDownloadsScreen() {
   openLibrarySection("Downloads");
 }
 
-// 注意：当前无调用方（设置入口统一走抽屉 DrawerContent）。
-// 若后续启用，需与 DrawerContent 一致携带 navId（否则 SettingsStack key 恒为
-// `${target}-0`，同一分类重复打开不会重建/跳转）。
 export function openSettingsScreen(category?: SettingsCategoryName) {
-  navigateRoot("Main", {
-    screen: "Settings",
-    params: { screen: category ?? "SettingsHome" },
+  navigateRoot("Settings", {
+    screen: category ?? "SettingsHome",
+    navId: nextSettingsCategoryNavId(),
   });
 }
 
 export function openMvPlayerScreen(params: RootStackParamList["MvPlayer"]) {
-  navigateRoot("MvPlayer", params);
+  navigateStackScreen("MvPlayer", params);
 }
 
 export function openArtistDetailScreen(artist: SearchArtistResult) {
@@ -101,7 +126,7 @@ export function openBiliCollectionDetailScreen(collection: BiliCollectionInfo) {
 }
 
 export function openLikedSongsScreen() {
-  navigateRoot("LikedSongs");
+  navigateStackScreen("LikedSongs");
 }
 
 export function openSearchFallbackDetailScreen(detail: SearchFallbackDetailModel) {
@@ -109,7 +134,7 @@ export function openSearchFallbackDetailScreen(detail: SearchFallbackDetailModel
 }
 
 export function openDailyRecommendScreen() {
-  navigateRoot("DailyRecommend");
+  navigateStackScreen("DailyRecommend");
 }
 
 export function openLeaderboardScreen() {
@@ -121,5 +146,5 @@ export function openPlaylistSquareScreen() {
 }
 
 export function openPersonalFmScreen() {
-  navigateRoot("PersonalFm");
+  navigateStackScreen("PersonalFm");
 }

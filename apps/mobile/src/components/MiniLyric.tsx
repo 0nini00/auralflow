@@ -1,7 +1,8 @@
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import type { LyricLine } from "@lx/core";
 import type { ThemePalette } from "@/stores/themeStore";
+import { Touchable } from "@/components/Touchable";
 import { convertChineseText } from "@/services/chineseConversionService";
 import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
 
@@ -28,7 +29,7 @@ export function MiniLyric({ lyrics, currentLineIndex, palette, onPress }: MiniLy
     );
     if (onPress) {
       return (
-        <Pressable
+        <Touchable
           style={styles.container}
           onPress={onPress}
           hitSlop={8}
@@ -36,7 +37,7 @@ export function MiniLyric({ lyrics, currentLineIndex, palette, onPress }: MiniLy
           accessibilityLabel="查看歌词"
         >
           {empty}
-        </Pressable>
+        </Touchable>
       );
     }
     return <View style={styles.container} pointerEvents="none">{empty}</View>;
@@ -63,7 +64,7 @@ export function MiniLyric({ lyrics, currentLineIndex, palette, onPress }: MiniLy
 
   if (onPress) {
     return (
-      <Pressable
+      <Touchable
         style={styles.container}
         onPress={onPress}
         hitSlop={8}
@@ -71,7 +72,7 @@ export function MiniLyric({ lyrics, currentLineIndex, palette, onPress }: MiniLy
         accessibilityLabel="查看歌词"
       >
         {content}
-      </Pressable>
+      </Touchable>
     );
   }
 

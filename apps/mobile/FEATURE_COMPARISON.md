@@ -18,72 +18,71 @@
 | 功能模块 | 桌面端 | 移动端 | 说明 |
 |---------|--------|--------|------|
 | 核心播放 |
-| 播放/暂停/上下首 | ✅ | ✅ | 完全对齐 |
-| 进度条与 seek | ✅ | ✅ | 完全对齐 |
-| 音量控制 | ✅ | ✅ | 完全对齐 |
-| 播放队列 | ✅ | ✅ | 完全对齐 |
-| 播放模式（列表/单曲/随机） | ✅ | ✅ | 完全对齐 |
-| 迷你栏上一首/下一首 | ✅ | ✅ | 移动端 `PlayerBar` 工具栏含 ⏮/⏯/⏭（对应 lx `ControlBtn`） |
-| 迷你栏滚动歌词 | ✅ | ✅ | 移动端 `PlayerBar` 中间行播放时滚动显示当前歌词行，未播放回退歌手（对应 lx `Status`） |
-| 倍速播放 | ✅ | ✅ | 移动端 `playerRateModel` |
-| 后台播放 | N/A（常驻应用） | ✅ | 移动端 track-player 后台服务 |
-| 系统媒体控制 | ✅ 媒体键 | ✅ 通知栏/锁屏 | 两端各自平台形态 |
+| 播放/暂停/上下首 | [完成] | [完成] | 完全对齐 |
+| 进度条与 seek | [完成] | [完成] | 完全对齐 |
+| 音量控制 | [完成] | [完成] | 完全对齐 |
+| 播放队列 | [完成] | [完成] | 完全对齐 |
+| 播放模式（列表/单曲/随机） | [完成] | [完成] | 完全对齐 |
+| 迷你栏上一首/下一首 | [完成] | [完成] | 移动端 `PlayerBar` 工具栏含 ⏮/⏯/⏭（对应 lx `ControlBtn`） |
+| 迷你栏滚动歌词 | [完成] | [完成] | 移动端 `PlayerBar` 中间行播放时滚动显示当前歌词行，未播放回退歌手（对应 lx `Status`） |
+| 倍速播放 | [完成] | [完成] | 移动端 `playerRateModel` |
+| 后台播放 | N/A（常驻应用） | [完成] | 移动端 track-player 后台服务 |
+| 系统媒体控制 | [完成] 媒体键 | [完成] 通知栏/锁屏 | 两端各自平台形态 |
 | 搜索 |
-| 单曲/综合/歌手/专辑/歌单 | ✅ | ✅ | 移动端 `SearchResultSections`/`searchDetailNavigation` |
-| 搜索联想 | ✅ | ✅ | 移动端 `searchSuggestionService` |
-| 搜索历史 | ✅ | ✅ | 移动端 `searchHistoryService` |
+| 单曲/综合/歌手/专辑/歌单 | [完成] | [完成] | 移动端 `SearchResultSections`/`searchDetailNavigation` |
+| 搜索联想 | [完成] | [完成] | 移动端 `searchSuggestionService` |
+| 搜索历史 | [完成] | [完成] | 移动端 `searchHistoryService` |
 | 歌词 |
-| 滚动歌词 | ✅ | ✅ | 完全对齐 |
-| 用户滚动暂停 | ✅ | ✅ | 移动端 `LyricView` onScrollBeginDrag 置标，3000ms 后恢复自动跟唱 |
-| 行进度估算 | ✅ | ✅ | 无逐字歌词时按 CJK/拉丁词估算；移动端悬浮歌词 `PlayerBar` 用 `@lx/core calculateLyricLineProgress` |
-| 逐字（卡拉 OK）歌词 | ✅ | ✅ | 移动端 `KaraokeLyricLine` + 沉浸屏当前行用 `@lx/core calculateLyricLineProgress` 按行内进度填充 |
-| 译文显示 | ✅ | ✅ | 移动端 `lyricSettingsStore.showTranslation` |
-| 字号/颜色/字体/对齐/字重/行距 | ✅ | ✅ | 移动端 `lyricSettingsStore` 完整实现 |
-| 动效开关/强度 | ✅ | ✅ | 移动端 `animationIntensity` |
-| 沉浸式歌词 | ✅ 覆盖层 | ✅ `ImmersiveLyricsScreen` | 对齐 |
-| 海报式波线 | ✅ `PosterLyricsVisualizer` | ✅ `PosterWaveVisualizer` | 对齐 |
-| 独立桌面歌词窗口（置顶/锁定） | ✅ | ❌ | 桌面端独有（平台特性） |
+| 滚动歌词 | [完成] | [完成] | 完全对齐 |
+| 用户滚动暂停 | [完成] | [完成] | 移动端 `LyricView` onScrollBeginDrag 置标，3000ms 后恢复自动跟唱 |
+| 行进度估算 | [完成] | [完成] | 无逐字歌词时按 CJK/拉丁词估算；移动端悬浮歌词 `PlayerBar` 用 `@lx/core calculateLyricLineProgress` |
+| 逐字（卡拉 OK）歌词 | [完成] | [完成] | 移动端 `KaraokeLyricLine` + 沉浸屏当前行用 `@lx/core calculateLyricLineProgress` 按行内进度填充 |
+| 译文显示 | [完成] | [完成] | 移动端 `lyricSettingsStore.showTranslation` |
+| 字号/颜色/字体/对齐/字重/行距 | [完成] | [完成] | 移动端 `lyricSettingsStore` 完整实现 |
+| 动效开关/强度 | [完成] | [完成] | 移动端 `animationIntensity` |
+| 沉浸式歌词 | [完成] 覆盖层 | [完成] `ImmersiveLyricsScreen` | 对齐 |
+| 海报式波线 | [完成] `PosterLyricsVisualizer` | [完成] `PosterWaveVisualizer` | 对齐 |
+| 独立桌面歌词窗口（置顶/锁定） | [完成] | [缺失] | 桌面端独有（平台特性） |
 | 账号 |
-| Cookie 登录 | ✅ | ✅ | 对齐 |
-| 二维码登录 | ✅ | ✅ | 移动端 `wyQrLoginService`/`QrLoginView` |
-| 用户歌单同步与详情 | ✅ | ✅ | 对齐 |
-| B 站账号与收藏合集 | ✅ | ✅ | 移动端 `biliService`（约 800 行）/`biliAccountStore` |
+| Cookie 登录 | [完成] | [完成] | 对齐 |
+| 二维码登录 | [完成] | [完成] | 移动端 `wyQrLoginService`/`QrLoginView` |
+| 用户歌单同步与详情 | [完成] | [完成] | 对齐 |
+| B 站账号与收藏合集 | [完成] | [完成] | 移动端 `biliService`（约 800 行）/`biliAccountStore` |
 | 歌单与收藏 |
-| 喜欢歌曲 | ✅ | ✅ | 对齐 |
-| 我喜欢的音乐页 | ✅ | ✅ | 移动端 `LikedSongsScreen` |
-| 本地歌单 | ✅ | ✅ | 移动端 `LocalPlaylist*` |
-| 播放历史 | ✅ | ✅ | 对齐 |
-| 网易云歌单 | ✅ | ✅ | 移动端 `wyPlaylistService` |
-| 自定义音源 | ✅ | ✅ | 移动端 `CustomSourceScreen`/`customSourceRuntime` |
+| 喜欢歌曲 | [完成] | [完成] | 对齐 |
+| 我喜欢的音乐页 | [完成] | [完成] | 移动端 `LikedSongsScreen` |
+| 本地歌单 | [完成] | [完成] | 移动端 `LocalPlaylist*` |
+| 播放历史 | [完成] | [完成] | 对齐 |
+| 网易云歌单 | [完成] | [完成] | 移动端 `wyPlaylistService` |
+| 自定义音源 | [完成] | [完成] | 移动端 `CustomSourceScreen`/`customSourceRuntime` |
 | 本地音乐 |
-| 目录扫描 | ✅ | ✅ | 移动端 `localMusicService` + RN-FS + 权限 |
-| 元数据读取 | ✅ | ✅ | 对齐 |
-| 元数据编辑/封面/内嵌歌词写入 | ✅ 完整 | ✅ | 移动端经 jaudiotagger 写回 ID3（APIC/USLT），Android 10+ 写回需用户授权 |
+| 目录扫描 | [完成] | [完成] | 移动端 `localMusicService` + RN-FS + 权限 |
+| 元数据读取 | [完成] | [完成] | 对齐 |
+| 元数据编辑/封面/内嵌歌词写入 | [完成] 完整 | [完成] | 移动端经 jaudiotagger 写回 ID3（APIC/USLT），Android 10+ 写回需用户授权 |
 | 内容浏览 |
-| 艺术家详情页 | ✅ | ✅ | 移动端 `ArtistDetailScreen` |
-| 专辑详情页 | ✅ | ✅ | 移动端 `AlbumDetailScreen` |
-| 每日推荐 | ✅ | ✅ | 移动端 `DailyRecommendScreen` |
-| 私人 FM | ✅ | ✅ | 移动端 `PersonalFmScreen`（约 640 行） |
-| 下载管理 | ✅ | ✅ | 移动端 `DownloadScreen`/`downloadService` |
-| 睡眠定时器 | ✅ | ✅ | 双端 `sleepTimerStore` |
-| 音效 |
-| 倍速 | ✅ | ✅ | 对齐 |
-| 音效预设/均衡器 | ✅ | ✅ | 移动端 `soundEffectService`/`SoundEffectPanel` |
+| 艺术家详情页 | [完成] | [完成] | 移动端 `ArtistDetailScreen` |
+| 专辑详情页 | [完成] | [完成] | 移动端 `AlbumDetailScreen` |
+| 每日推荐 | [完成] | [完成] | 移动端 `DailyRecommendScreen` |
+| 私人 FM | [完成] | [完成] | 移动端 `PersonalFmScreen`（约 640 行） |
+| 下载管理 | [完成] | [完成] | 移动端 `DownloadScreen`/`downloadService` |
+| 睡眠定时器 | [完成] | [完成] | 双端 `sleepTimerStore` |
+| 播放参数 |
+| 倍速 | [完成] | [完成] | 对齐 |
 | 外观 |
-| 主题（亮/暗/跟随系统） | ✅ | ✅ | 双端 `themeStore` |
-| 强调色 | ✅ | ✅ | 对齐 |
-| 自定义主背景图/毛玻璃 | ✅ | ⚠️ 待确认 | 桌面端完整；移动端 `AppBackground` 为卡片式背景 |
+| 主题（亮/暗/跟随系统） | [完成] | [完成] | 双端 `themeStore` |
+| 强调色 | [完成] | [完成] | 对齐 |
+| 自定义主背景图/毛玻璃 | [完成] | [注意]️ 待确认 | 桌面端完整；移动端 `AppBackground` 为卡片式背景 |
 | 数据管理 |
-| 播放历史 | ✅ | ✅ | 对齐 |
-| 封面/歌词缓存 | ✅ | ✅ | 移动端独立 `CachedImage`/`cacheService` |
-| 数据清空 | ✅ | ✅ | 对齐 |
-| WebDAV 同步 | ✅ | ✅ | 移动端 `webdavSyncService`（约 600 行） |
+| 播放历史 | [完成] | [完成] | 对齐 |
+| 封面/歌词缓存 | [完成] | [完成] | 移动端独立 `CachedImage`/`cacheService` |
+| 数据清空 | [完成] | [完成] | 对齐 |
+| WebDAV 同步 | [完成] | [完成] | 移动端 `webdavSyncService`（约 600 行） |
 | 其他 |
-| 系统托盘 | ✅ | N/A | 桌面端独有 |
-| 全局快捷键 | ✅ | N/A | 桌面端独有 |
-| 分享链接 | ✅ | ✅ | 移动端 `shareMusicService` |
-| 深链 | ✅ | ✅ | 移动端 `mobileDeepLinkService` |
-| 应用更新检查 | ❌ | ✅ | 移动端 `updateService`/`UpdateModal` |
+| 系统托盘 | [完成] | N/A | 桌面端独有 |
+| 全局快捷键 | [完成] | N/A | 桌面端独有 |
+| 分享链接 | [完成] | [完成] | 移动端 `shareMusicService` |
+| 深链 | [完成] | [完成] | 移动端 `mobileDeepLinkService` |
+| 应用更新检查 | [缺失] | [完成] | 移动端 `updateService`/`UpdateModal` |
 
 ## 平台形态差异（非功能缺失）
 
@@ -104,16 +103,16 @@
 
 | 功能类别 | 对齐度 |
 |---------|-------|
-| 核心播放 | ✅ 100% |
-| 搜索 | ✅ ~100% |
-| 歌词 | ✅ ~95%（仅缺桌面独立歌词窗口） |
-| 账号登录 | ✅ 100% |
-| 歌单与收藏 | ✅ 100% |
-| 本地音乐 | ✅ ~95% |
-| 内容浏览 | ✅ 100% |
-| 音效与设置 | ✅ ~95%（主背景自定义待确认） |
-| 数据管理 | ✅ 100% |
-| 总体 | ✅ 约 90%+ |
+| 核心播放 | [完成] 100% |
+| 搜索 | [完成] ~100% |
+| 歌词 | [完成] ~95%（仅缺桌面独立歌词窗口） |
+| 账号登录 | [完成] 100% |
+| 歌单与收藏 | [完成] 100% |
+| 本地音乐 | [完成] ~95% |
+| 内容浏览 | [完成] 100% |
+| 音效与设置 | [完成] ~95%（主背景自定义待确认） |
+| 数据管理 | [完成] 100% |
+| 总体 | [完成] 约 90%+ |
 
 ## 仍需确认的点
 

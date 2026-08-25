@@ -3,16 +3,14 @@ import {
   StyleSheet,
   Text,
   View,
-  Pressable,
   TextInput,
   Modal,
   Switch,
-  ActivityIndicator,
   Alert,
   Linking,
 } from "react-native";
 import { ActionButton } from "@/components/ActionButton";
-import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
+import { SettingsCard } from "@/components/settings/SettingsCard";
 import { Code2 } from "lucide-react-native";
 
 import { EmptyState } from "@/components/ScreenState";
@@ -22,7 +20,7 @@ import {
 } from "@/stores/customSourceStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { pickCustomSourceScriptFile } from "@/services/customSourceFilePicker";
-import { radius, spacing, typography } from "@/theme/tokens";
+import { radius, spacing, touch, typography } from "@/theme/tokens";
 
 function openCustomSourceUpdateUrl(updateUrl?: string) {
   if (!updateUrl) return;
@@ -117,24 +115,23 @@ export function CustomSourceScreen() {
   };
 
   return (
-    <ScreenScaffold>
-      <ScreenScrollView keyboardShouldPersistTaps="handled">
-        <View style={styles.headerActions}>
-            <ActionButton
-              small
-              label="从文件导入"
-              loading={importingFile}
-              onPress={() => void handleImportFromFile()}
-              accessibilityLabel="从文件导入自定义音源"
-            />
-            <ActionButton
-              small
-              variant="primary"
-              label="粘贴导入"
-              onPress={() => setImportModalVisible(true)}
-              accessibilityLabel="粘贴导入自定义音源"
-            />
-        </View>
+    <View style={styles.inlineContent}>
+      <View style={styles.headerActions}>
+        <ActionButton
+          small
+          label="从文件导入"
+          loading={importingFile}
+          onPress={() => void handleImportFromFile()}
+          accessibilityLabel="从文件导入自定义音源"
+        />
+        <ActionButton
+          small
+          variant="primary"
+          label="粘贴导入"
+          onPress={() => setImportModalVisible(true)}
+          accessibilityLabel="粘贴导入自定义音源"
+        />
+      </View>
 
       {/* 操作栏 */}
       {sources.length > 0 && (
@@ -148,20 +145,22 @@ export function CustomSourceScreen() {
         </View>
       )}
 
-      <View style={[styles.autoCheckRow, { backgroundColor: palette.surface }]}>
-        <View style={styles.autoCheckTextWrap}>
-          <Text style={[styles.autoCheckTitle, { color: palette.text }]}>启动自动检测更新</Text>
-          <Text style={[styles.autoCheckSubtitle, { color: palette.textMuted }]}>打开应用后自动检测已导入音源的新版本</Text>
+      <SettingsCard style={styles.autoCheckCard}>
+        <View style={styles.autoCheckRow}>
+          <View style={styles.autoCheckTextWrap}>
+            <Text style={[styles.autoCheckTitle, { color: palette.text }]}>启动自动检测更新</Text>
+            <Text style={[styles.autoCheckSubtitle, { color: palette.textMuted }]}>打开应用后自动检测已导入音源的新版本</Text>
+          </View>
+          <Switch
+            value={customSourceAutoCheck}
+            onValueChange={(enabled) => void setCustomSourceAutoCheck(enabled)}
+            accessibilityRole="switch"
+            accessibilityLabel="启动自定义音源自动检测更新"
+            accessibilityState={{ checked: customSourceAutoCheck, disabled: false }}
+            trackColor={{ false: palette.surfaceStrong, true: palette.primary }}
+          />
         </View>
-        <Switch
-          value={customSourceAutoCheck}
-          onValueChange={(enabled) => void setCustomSourceAutoCheck(enabled)}
-          accessibilityRole="switch"
-          accessibilityLabel="启动自定义音源自动检测更新"
-          accessibilityState={{ checked: customSourceAutoCheck, disabled: false }}
-          trackColor={{ false: palette.surfaceStrong, true: palette.primary }}
-        />
-      </View>
+      </SettingsCard>
 
       {/* 音源列表 */}
       {sources.length === 0 ? (
@@ -242,8 +241,7 @@ export function CustomSourceScreen() {
           </View>
         </View>
       </Modal>
-      </ScreenScrollView>
-    </ScreenScaffold>
+    </View>
   );
 }
 
@@ -281,7 +279,7 @@ function SourceCard({
   const hasUpdate = source.updateStatus === "available";
 
   return (
-    <View style={[styles.card, { backgroundColor: palette.surface }]}>
+    <SettingsCard style={styles.card}>
       {/* 头部：名称 + 启用开关 */}
       <View style={styles.cardHeader}>
         <View style={styles.cardTitleWrap}>
@@ -425,21 +423,14 @@ function SourceCard({
           trackColor={{ false: palette.surfaceStrong, true: palette.primary }}
         />
       </View>
-    </View>
+    </SettingsCard>
   );
 }
 
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "center",
-    marginBottom: spacing.m,
+  // 作为 section 内嵌进二级设置页时的容器样式
+  inlineContent: {
     gap: spacing.s,
-  },
-  headerTitleWrap: {
-    flex: 1,
-    minWidth: 180,
   },
   headerActions: {
     flexDirection: "row",
@@ -449,15 +440,13 @@ const styles = StyleSheet.create({
   },
   actionBar: {
     flexDirection: "row",
-    marginBottom: spacing.s,
+    gap: spacing.xs,
+  },
+  autoCheckCard: {
     gap: spacing.xs,
   },
   autoCheckRow: {
-    minHeight: 68,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.s,
-    paddingVertical: spacing.s,
-    marginBottom: spacing.s,
+    minHeight: touch.minTarget,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.s,
@@ -468,7 +457,7 @@ const styles = StyleSheet.create({
   },
   autoCheckTitle: {
     fontSize: typography.body,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   autoCheckSubtitle: {
     fontSize: typography.caption,
@@ -478,8 +467,6 @@ const styles = StyleSheet.create({
     gap: spacing.s,
   },
   card: {
-    borderRadius: radius.md,
-    padding: spacing.s,
     gap: spacing.xs,
   },
   cardHeader: {
@@ -493,8 +480,8 @@ const styles = StyleSheet.create({
     gap: spacing.xxs,
   },
   cardName: {
-    fontSize: typography.title,
-    fontWeight: "700",
+    fontSize: typography.body,
+    fontWeight: "600",
   },
   cardMetaRow: {
     flexDirection: "row",

@@ -35,7 +35,7 @@ export function getLibraryContentModel(input: LibraryContentModelInput): Library
         kind: "songList",
         songSource: "history",
         emptyText: "播放歌曲后会自动记录到这里",
-        showClearHistory: input.historyCount > 0,
+        showClearHistory: false,
         showLocalScan: false,
         error: null,
       };

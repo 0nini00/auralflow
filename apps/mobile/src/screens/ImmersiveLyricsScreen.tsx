@@ -72,8 +72,6 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     setQueueModalVisible,
     volumeModalVisible,
     setVolumeModalVisible,
-    soundEffectModalVisible,
-    setSoundEffectModalVisible,
     playSettingVisible,
     setPlaySettingVisible,
     sleepModalVisible,
@@ -219,6 +217,8 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
           onPlayMv={
             currentMvId
               ? () => {
+                  // 先关闭播放页 Modal 再压 MV 路由，否则新页面被 Modal 盖住不可见
+                  onClose();
                   openMvPlayerScreen({
                     mvId: currentMvId,
                     title: currentSong.name,
@@ -260,7 +260,6 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
           setQueueModalVisible={setQueueModalVisible}
           setRateModalVisible={setRateModalVisible}
           setSleepModalVisible={setSleepModalVisible}
-          setSoundEffectModalVisible={setSoundEffectModalVisible}
           setVolumeModalVisible={setVolumeModalVisible}
           sleepModalVisible={sleepModalVisible}
           sleepTimerActive={sleepTimerActive}
@@ -268,9 +267,9 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
           sleepTimerMinutes={sleepTimerMinutes ?? 0}
           sleepTimerSongActive={sleepTimerSongActive}
           sleepTimerSongCount={sleepTimerSongCount ?? 0}
-          soundEffectModalVisible={soundEffectModalVisible}
           volumeModalVisible={volumeModalVisible}
           volumeModel={volumeModel}
+          onQueueNavigate={onClose}
         />
 
         <AddToLocalPlaylistModal

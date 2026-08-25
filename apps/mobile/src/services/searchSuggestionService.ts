@@ -1,3 +1,5 @@
+import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
+
 /**
  * 搜索建议结果
  */
@@ -16,22 +18,17 @@ export async function getSearchSuggestions(keyword: string): Promise<SearchSugge
     return [];
   }
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000);
-
   try {
-    const response = await fetch(
+    const response = await fetchWithTimeout(
       `https://music.163.com/api/search/suggest/web?s=${encodeURIComponent(keyword)}&limit=10`,
       {
         method: "GET",
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         },
-        signal: controller.signal as any,
-      }
+      },
+      10_000,
     );
-
-    clearTimeout(timeoutId);
 
     const data = (await response.json()) as JsonRecord;
     

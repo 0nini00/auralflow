@@ -1,11 +1,19 @@
-import React from "react";
-import { StyleSheet, Text, View } from "react-native";
+import React, { useState } from "react";
+import { StyleSheet, Text, View, Pressable } from "react-native";
 import type { MusicInfo } from "@lx/core";
+import { ChevronLeft, ChevronRight } from "lucide-react-native";
 
 import { SongList } from "@/components/SongList";
-import { groupHistoryEntries, type HistoryEntry } from "@/services/historyGroupModel";
+import {
+  DAY_MS,
+  addDays,
+  dayStartOf,
+  filterEntriesByDay,
+  formatHistoryDayTitle,
+  type HistoryEntry,
+} from "@/services/historyGroupModel";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { spacing, typography } from "@/theme/tokens";
+import { spacing, touch, typography } from "@/theme/tokens";
 
 interface HistorySectionProps {
   /** 分时间记录的条目（按播放时间倒序）。 */
@@ -18,14 +26,15 @@ interface HistorySectionProps {
 }
 
 /**
- * 播放历史分组列表（对齐 lx「分时间记录」）：
- * 今天 / 昨天 / M月D日 / YYYY年M月D日 分组头 + 组内歌曲列表。
+ * 播放历史（单日视图）：
+ * 一次只展示某一天的历史，顶部 ‹ 日期 › 前后调节；
+ * 空日期保留导航，可继续翻到有记录的日子。
  */
 export function HistorySection({
   entries,
   onPlay,
   onDelete,
-  emptyText = "播放歌曲后会自动按时间记录到这里",
+  emptyText = "当天没有播放记录",
   hideSourceTag,
 }: HistorySectionProps) {
   const mode = useThemeStore((state) => state.mode);
@@ -33,30 +42,62 @@ export function HistorySection({
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
 
-  const groups = groupHistoryEntries(entries);
-  if (groups.length === 0) {
-    // 空态无可播放歌曲，SongList 的 onPlay 仅用于空态占位。
-    return <SongList songs={[]} onPlay={() => undefined} emptyText={emptyText} hideSourceTag={hideSourceTag} />;
-  }
+  const [selectedDay, setSelectedDay] = useState(() => dayStartOf(Date.now()));
+
+  const dayEntries = filterEntriesByDay(entries, selectedDay);
+  const songs = dayEntries.map((entry) => entry.song);
+  const handlePlay = (_song: MusicInfo, index: number) => {
+    onPlay(songs, index);
+  };
+
+  const canGoNext = selectedDay < dayStartOf(Date.now());
+  const goPrev = () => setSelectedDay((day) => addDays(day, -1));
+  const goNext = () => {
+    if (canGoNext) setSelectedDay((day) => addDays(day, 1));
+  };
 
   return (
     <View style={styles.root}>
-      {groups.map((group) => {
-        const songs = group.entries.map((entry) => entry.song);
-        return (
-          <View key={group.title} style={styles.group}>
-            <Text style={[styles.groupTitle, { color: palette.textMuted }]}>
-              {group.title}
-            </Text>
-            <SongList
-              songs={songs}
-              onPlay={(_song, index) => onPlay(songs, index)}
-              onDelete={onDelete}
-              hideSourceTag={hideSourceTag}
-            />
-          </View>
-        );
-      })}
+      <View style={styles.navigationRow}>
+        <Pressable
+          onPress={goPrev}
+          accessibilityLabel="前一天"
+          style={({ pressed }) => [
+            styles.navButton,
+            { borderColor: palette.border },
+            pressed && styles.navButtonPressed,
+          ]}
+        >
+          <ChevronLeft size={22} color={palette.text} />
+        </Pressable>
+
+        <Text style={[styles.dayTitle, { color: palette.text }]} numberOfLines={1}>
+          {formatHistoryDayTitle(selectedDay)}
+        </Text>
+
+        <Pressable
+          onPress={goNext}
+          accessibilityLabel="后一天"
+          accessibilityState={{ disabled: !canGoNext }}
+          disabled={!canGoNext}
+          style={({ pressed }) => [
+            styles.navButton,
+            { borderColor: palette.border },
+            !canGoNext && styles.navButtonDisabled,
+            pressed && canGoNext && styles.navButtonPressed,
+          ]}
+        >
+          <ChevronRight size={22} color={palette.text} />
+        </Pressable>
+      </View>
+
+      <SongList
+        songs={songs}
+        onPlay={songs.length > 0 ? handlePlay : () => undefined}
+        onDelete={onDelete}
+        emptyText={emptyText}
+        hideSourceTag={hideSourceTag}
+      />
     </View>
   );
 }
@@ -65,12 +106,29 @@ const styles = StyleSheet.create({
   root: {
     gap: spacing.s,
   },
-  group: {
-    gap: spacing.xxs,
+  navigationRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.s,
   },
-  groupTitle: {
-    fontSize: typography.meta,
+  navButton: {
+    width: touch.minTarget,
+    height: touch.minTarget,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: touch.minTarget / 2,
+  },
+  navButtonPressed: {
+    opacity: 0.7,
+  },
+  navButtonDisabled: {
+    opacity: 0.35,
+  },
+  dayTitle: {
+    flex: 1,
+    textAlign: "center",
+    fontSize: typography.body,
     fontWeight: "700",
-    paddingVertical: spacing.xs,
   },
 });

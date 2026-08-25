@@ -20,6 +20,8 @@ export function useLyricLineIndex(
 ): number {
   const [index, setIndex] = useState(-1);
   const indexRef = useRef(-1);
+  // 上次向用户输出的行号（单调钳制用）：防止锚点估算锯齿导致行号回跳一格
+  const lastIndexRef = useRef(-1);
 
   const lyricsRef = useRef(lyrics);
   const offsetSecRef = useRef(manualOffsetMs / 1000);
@@ -33,7 +35,14 @@ export function useLyricLineIndex(
   // 前推会把行号瞬间推到末行；钳制到 2 秒避免闪烁，随后 0.25s 刻度会用真实位置校正
   const MAX_ESTIMATE_AHEAD_SEC = 2;
 
-  const applyIndex = (next: number) => {
+  const applyIndex = (next: number, authoritative: boolean) => {
+    // 单调钳制：仅回跳一格（lastIndex - next === 1）视为估算锯齿的微抖，忽略保持上一行；
+    // 回跳 ≥ 2 行（seek 往回多行/换歌）或前进均放行。
+    // 只对「锚点外推」的回跳钳制：store 真实位置在播放中单调（authoritative），
+    // 其回跳必为真实 seek——「往回拖一行重听上一句」必须放行，否则高亮停在错误的行。
+    const lastIndex = lastIndexRef.current;
+    if (!authoritative && next < lastIndex && lastIndex - next === 1) return;
+    lastIndexRef.current = next;
     if (next === indexRef.current) return;
     indexRef.current = next;
     setIndex(next);
@@ -60,7 +69,7 @@ export function useLyricLineIndex(
     const pos = estimate + offsetSec;
 
     const current = getCurrentLyricIndex(lines, pos);
-    applyIndex(current);
+    applyIndex(current, freshPosition != null);
     // 暂停时不需要定时器（恢复/seek 会重新校准）；最后一行没有下一行可调度
     if (!isPlaying || current < 0 || current >= lines.length - 1) return;
 
@@ -76,8 +85,15 @@ export function useLyricLineIndex(
   const scheduleRef = useRef(schedule);
   scheduleRef.current = schedule;
 
-  // 歌词 / 手动偏移变化：立即按最新 store 位置重新校准（含首次挂载）
+  // 歌词 / 手动偏移变化：立即按最新 store 位置重新校准（含首次挂载）。
+  // 歌词数组变化（换歌）时重置钳制基准为初始计算值，避免换歌行号 5→0 被「回跳一格」误拦
   useEffect(() => {
+    lastIndexRef.current = getCurrentLyricIndex(
+      lyricsRef.current,
+      usePlayerStore.getState().position + offsetSecRef.current,
+    );
+    indexRef.current = lastIndexRef.current;
+    setIndex(lastIndexRef.current);
     schedule(usePlayerStore.getState().position);
   }, [lyrics, manualOffsetMs, schedule]);
 

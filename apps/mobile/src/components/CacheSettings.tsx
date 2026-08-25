@@ -1,17 +1,18 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import { ChevronRight } from "lucide-react-native";
 
 import { SectionHeader } from "@/components/SectionHeader";
+import { ListItemButton } from "@/components/ui/ListItemButton";
 import { SettingsCard } from "@/components/settings/SettingsCard";
 import { openDownloadsScreen, openHistoryScreen } from "@/navigation";
 import {
   cleanExpiredCache,
-  clearAllCache,
   formatCacheSize,
   getCacheStats,
   type CacheStats,
 } from "@/services/cacheService";
+import { clearMediaCache } from "@/services/dataCleanupService";
 import { useDownloadStore } from "@/stores/downloadStore";
 import { useHistoryStore } from "@/stores/historyStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
@@ -116,7 +117,7 @@ export function CacheSettings() {
         {
           text: "清空缓存",
           style: "destructive",
-          onPress: () => void runCacheAction("cache", clearAllCache, "已清空全部缓存"),
+          onPress: () => void runCacheAction("cache", async () => { await clearMediaCache(); }, "已清空全部缓存"),
         },
       ],
     );
@@ -271,53 +272,30 @@ function ActionRow({
   palette,
 }: ActionRowProps) {
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      accessibilityState={{ disabled, busy: loading }}
+    <ListItemButton
+      title={title}
+      subtitle={subtitle}
+      destructive={destructive}
       disabled={disabled}
+      loading={loading}
+      accessibilityLabel={accessibilityLabel}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.actionRow,
-        {
-          backgroundColor: destructive ? palette.dangerSurface : palette.surface,
-          borderColor: destructive ? palette.danger : palette.border,
-          opacity: disabled && !loading ? 0.55 : pressed ? 0.75 : 1,
-        },
-      ]}
-    >
-      <View style={styles.copy}>
-        <Text style={[styles.rowTitle, { color: destructive ? palette.danger : palette.text }]}>{title}</Text>
-        <Text style={[styles.rowSubtitle, { color: palette.textMuted }]}>{subtitle}</Text>
-      </View>
-      {loading ? (
-        <ActivityIndicator
-          accessibilityLabel={`${title}进行中`}
-          color={destructive ? palette.danger : palette.primary}
-          size="small"
-        />
-      ) : null}
-    </Pressable>
+      trailing={loading ? <ActivityIndicator accessibilityLabel={`${title}进行中`} size="small" /> : undefined}
+      style={[styles.actionRow, { backgroundColor: destructive ? palette.dangerSurface : palette.surface, borderColor: destructive ? palette.danger : palette.border }]}
+    />
   );
 }
 
 function NavigationRow({ title, subtitle, onPress, palette }: { title: string; subtitle: string; onPress: () => void } & PaletteProps) {
   return (
-    <Pressable
-      accessibilityRole="button"
+    <ListItemButton
+      title={title}
+      subtitle={subtitle}
       accessibilityLabel={`${title}，${subtitle}`}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.actionRow,
-        { backgroundColor: palette.surface, borderColor: palette.border, opacity: pressed ? 0.75 : 1 },
-      ]}
-    >
-      <View style={styles.copy}>
-        <Text style={[styles.rowTitle, { color: palette.text }]}>{title}</Text>
-        <Text style={[styles.rowSubtitle, { color: palette.textMuted }]}>{subtitle}</Text>
-      </View>
-      <ChevronRight size={18} color={palette.primary} />
-    </Pressable>
+      trailing={<ChevronRight size={20} color={palette.primary} />}
+      style={[styles.actionRow, { backgroundColor: palette.surface, borderColor: palette.border }]}
+    />
   );
 }
 

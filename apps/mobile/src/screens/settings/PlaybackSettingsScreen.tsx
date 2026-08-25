@@ -1,16 +1,14 @@
 import React from "react";
 
-import { SoundEffectPanel } from "@/components/SoundEffectPanel";
 import { ExternalPlaybackSettings } from "@/components/settings/ExternalPlaybackSettings";
 import { PlaybackQualitySettings } from "@/components/settings/PlaybackQualitySettings";
 import { SettingsPage } from "@/components/settings/SettingsPage";
 
 export function PlaybackSettingsScreen() {
   return (
-    <SettingsPage title="播放与音效" description="默认音质、音频打断和音效">
+    <SettingsPage title="播放" description="默认音质和音频打断">
       <PlaybackQualitySettings />
       <ExternalPlaybackSettings />
-      <SoundEffectPanel />
     </SettingsPage>
   );
 }

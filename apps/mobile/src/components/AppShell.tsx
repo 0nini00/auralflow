@@ -41,18 +41,6 @@ function findOpenDrawerKey(state?: NavigationState): string | null {
     : null;
 }
 
-function findMainDrawerKey(state?: NavigationState): string | null {
-  if (!state) return null;
-  if (
-    state.type === "drawer" &&
-    state.routes.some((route) => route.name === "MainTabs")
-  ) {
-    return state.key;
-  }
-  const activeRoute = state.routes[state.index ?? 0];
-  return findMainDrawerKey(activeRoute?.state as NavigationState | undefined);
-}
-
 interface ActiveRoute {
   name: string;
   ancestors: string[];
@@ -98,12 +86,8 @@ function useAppShellController(): AppShellController {
 
   const openDrawer = useCallback(() => {
     if (!navigationRef.isReady()) return;
-    const mainDrawerKey = findMainDrawerKey(navigationRef.getRootState());
-    if (!mainDrawerKey) throw new Error("Main drawer is unavailable");
-    navigationRef.dispatch({
-      ...DrawerActions.openDrawer(),
-      target: mainDrawerKey,
-    });
+    // 抽屉已提升为根导航：任何页面（含推入页）都能直接打开侧边栏。
+    navigationRef.dispatch(DrawerActions.openDrawer());
   }, []);
 
   const goBack = useCallback(() => {
@@ -135,13 +119,13 @@ function useAppShellController(): AppShellController {
   }, []);
 
   const submitSearch = useCallback((keyword: string) => {
-    navigateRoot("Main" as never, {
+    navigateRoot("Main", {
       screen: "MainTabs",
       params: {
         screen: "SearchTab",
         params: { initialKeyword: keyword || undefined },
       },
-    } as never);
+    });
   }, []);
 
   const isSearchActive = activeRoute.name === "SearchTab";

@@ -1,6 +1,6 @@
 import React from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { MainDrawerNavigator } from "@/navigation/MainDrawerNavigator";
+import { MainTabNavigator } from "@/navigation/MainTabNavigator";
 import {
   openAlbumDetailScreen,
   openLocalPlaylistDetailScreen,
@@ -26,7 +26,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 export function RootNavigator() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false, animation: "slide_from_right" }}>
-      <Stack.Screen name="Main" component={MainDrawerNavigator} />
+      <Stack.Screen name="MainTabs" component={MainTabNavigator} />
 
       <Stack.Screen
         name="Player"
@@ -53,12 +53,7 @@ export function RootNavigator() {
       </Stack.Screen>
 
       <Stack.Screen name="DailyRecommend">
-        {({ navigation }) => (
-          <DailyRecommendScreen
-            onNavigateToPlayer={openPlayerScreen}
-            onBack={() => navigation.goBack()}
-          />
-        )}
+        {() => <DailyRecommendScreen onNavigateToPlayer={openPlayerScreen} />}
       </Stack.Screen>
 
       <Stack.Screen name="PersonalFm">
@@ -150,15 +145,11 @@ export function RootNavigator() {
       </Stack.Screen>
 
       <Stack.Screen name="Leaderboard">
-        {({ navigation }) => (
-          <LeaderboardScreen onBack={() => navigation.goBack()} />
-        )}
+        {() => <LeaderboardScreen />}
       </Stack.Screen>
 
       <Stack.Screen name="PlaylistSquare">
-        {({ navigation }) => (
-          <PlaylistSquareScreen onBack={() => navigation.goBack()} />
-        )}
+        {() => <PlaylistSquareScreen />}
       </Stack.Screen>
     </Stack.Navigator>
   );

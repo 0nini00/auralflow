@@ -5,6 +5,7 @@
  */
 
 import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
+import { CURRENT_VERSION } from "./mobileVersion";
 
 export interface UpdateInfo {
   hasUpdate: boolean;
@@ -16,7 +17,7 @@ export interface UpdateInfo {
 }
 
 const REPO_API = "https://api.github.com/repos/0nini00/auralflow/releases/latest";
-export const CURRENT_VERSION = "0.1.0";
+export { CURRENT_VERSION } from "./mobileVersion";
 
 function compareVersions(a: string, b: string): number {
   const partsA = a.replace(/^v/, "").split(".").map((seg) => parseInt(seg, 10) || 0);

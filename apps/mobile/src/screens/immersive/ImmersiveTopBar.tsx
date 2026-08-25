@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Pressable, Text, View, type LayoutChangeEvent } from "react-native";
 import { ChevronLeft, SlidersHorizontal, Timer } from "lucide-react-native";
 import type { ThemePalette } from "@/stores/themeStore";
+import { IconButton } from "@/components/IconButton";
 import { styles } from "@/screens/immersive/immersiveStyles";
 import { Marquee } from "@/screens/immersive/Marquee";
 
@@ -35,15 +36,12 @@ export function ImmersiveTopBar({
 
   return (
     <View style={[styles.topBar, { paddingTop: insetsTop + 8 }]}>
-      <Pressable
+      <IconButton
         onPress={onClose}
-        style={styles.closeButton}
-        hitSlop={12}
-        accessibilityRole="button"
+        tone="strong"
         accessibilityLabel="关闭播放器"
-      >
-        <ChevronLeft size={26} color={palette.text} />
-      </Pressable>
+        render={({ size, color }) => <ChevronLeft size={size} color={color} />}
+      />
 
       <View
         style={styles.topInfo}
@@ -73,13 +71,20 @@ export function ImmersiveTopBar({
         </Pressable>
       </View>
 
-      <Pressable onPress={onOpenSleep} style={styles.topRightIconButton} hitSlop={12}>
-        <Timer size={20} color={sleepActive ? palette.primary : palette.text} />
-      </Pressable>
+      <IconButton
+        onPress={onOpenSleep}
+        tone={sleepActive ? "primary" : "strong"}
+        selected={sleepActive}
+        accessibilityLabel={sleepActive ? `睡眠定时：${sleepLabel}` : "睡眠定时"}
+        render={({ size, color }) => <Timer size={size} color={color} />}
+      />
 
-      <Pressable onPress={onOpenPlaySetting} style={styles.topRightIconButton} hitSlop={12}>
-        <SlidersHorizontal size={20} color={palette.text} />
-      </Pressable>
+      <IconButton
+        onPress={onOpenPlaySetting}
+        tone="strong"
+        accessibilityLabel="播放设置"
+        render={({ size, color }) => <SlidersHorizontal size={size} color={color} />}
+      />
     </View>
   );
 }

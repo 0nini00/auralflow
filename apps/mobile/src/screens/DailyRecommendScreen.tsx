@@ -29,13 +29,9 @@ import { radius, spacing, touch, typography } from "@/theme/tokens";
 
 interface DailyRecommendScreenProps {
   onNavigateToPlayer: () => void;
-  onBack: () => void;
 }
 
-export function DailyRecommendScreen({
-  onNavigateToPlayer,
-  onBack,
-}: DailyRecommendScreenProps) {
+export function DailyRecommendScreen({ onNavigateToPlayer }: DailyRecommendScreenProps) {
   const isLoggedIn = useAccountStore((state) => state.isLoggedIn);
   const checkStatus = useAccountStore((state) => state.checkStatus);
   const themeMode = useThemeStore((state) => state.mode);
@@ -156,15 +152,6 @@ export function DailyRecommendScreen({
           message={playbackError}
           onDismiss={() => setPlaybackError(null)}
         />
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="返回"
-          style={styles.backButton}
-          onPress={onBack}
-        >
-          <Text style={[styles.backText, { color: palette.primary }]}>返回</Text>
-        </Pressable>
-
         <View style={styles.header}>
         {dailyCoverUrl ? (
           <CachedImage
@@ -259,18 +246,6 @@ function makeStyles(palette: ReturnType<typeof getThemePalette>) {
   return StyleSheet.create({
   container: {
     gap: spacing.l,
-  },
-  backButton: {
-    minHeight: touch.minTarget,
-    minWidth: touch.minTarget,
-    alignItems: "center",
-    justifyContent: "center",
-    alignSelf: "flex-start",
-  },
-  backText: {
-    fontSize: typography.title,
-    color: palette.primary,
-    fontWeight: "600",
   },
   header: {
     flexDirection: "row",

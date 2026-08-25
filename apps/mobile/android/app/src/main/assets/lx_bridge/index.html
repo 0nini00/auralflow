@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>lx-bridge</title>
+<script src="./vendor.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  'use strict';
+  // ============ LX 音源 WebView 桥（RN Hermes 不支持 new Function，用户脚本移到这里执行） ============
+  // 每个音源脚本一个 rid（runtime id），独立 lx 闭包环境，互不干扰。
+  // 协议（window.ReactNativeWebView.postMessage 双向 JSON）：
+  //   RN→WV { type:'run', rid, script, scriptInfo }        执行用户脚本（new Function + 参数遮蔽，同桌面）
+  //   RN→WV { type:'request', rid, id, payload }           RN 发起取链 → 脚本 lx.on(request) handler
+  //   RN→WV { type:'http-response', rid, id, response, body, error }  RN fetch 代理结果
+  //   WV→RN { type:'ready' }                               vendor 加载完成
+  //   WV→RN { type:'inited', rid, sources, updateAlert }   脚本 send(inited)
+  //   WV→RN { type:'updateAlert', rid, alert }             脚本 send(updateAlert)
+  //   WV→RN { type:'error', rid, message }                 脚本执行失败
+  //   WV→RN { type:'http', rid, id, url, options }         脚本 lx.request → RN fetch 代理
+  //   WV→RN { type:'request-response', rid, id, result|error }        取链结果回 RN
+  // 二进制 body（ArrayBuffer/TypedArray）不能过 JSON：脚本侧 formData/base64 加密输入
+  // 经 utils 处理后如需出站，由脚本自身序列化为字符串；桥只透传 JSON 可表达数据。
+
+  var post = function (msg) {
+    try { window.ReactNativeWebView.postMessage(JSON.stringify(msg)); } catch (e) {}
+  };
+
+  var EVENT_NAMES = { request: 'request', inited: 'inited', updateAlert: 'updateAlert' };
+
+  // rid → { requestHandler, httpPending: Map<id, cb>, scriptInfo }
+  var runtimes = new Map();
+
+  function makeUtils() {
+    var vendor = window.__lxVendor || {};
+    var CryptoJS = vendor.CryptoJS;
+    var pako = vendor.pako;
+    function toBytes(value, encoding) {
+      if (typeof value === 'string') {
+        if (encoding === 'base64') {
+          var bin = atob(value);
+          var out = new Uint8Array(bin.length);
+          for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+          return out;
+        }
+        if (encoding === 'hex') {
+          var hout = new Uint8Array(value.length / 2);
+          for (var j = 0; j < hout.length; j++) hout[j] = parseInt(value.substr(j * 2, 2), 16);
+          return hout;
+        }
+        return new TextEncoder().encode(value);
+      }
+      if (ArrayBuffer.isView(value)) {
+        return new Uint8Array(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
+      }
+      return new Uint8Array(value);
+    }
+    function bytesToBinaryString(bytes) {
+      var s = '';
+      for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+      return s;
+    }
+    function bytesToString(bytes, format) {
+      if (format === 'hex') {
+        var h = '';
+        for (var i = 0; i < bytes.length; i++) h += bytes[i].toString(16).padStart(2, '0');
+        return h;
+      }
+      if (format === 'base64') return btoa(bytesToBinaryString(bytes));
+      if (format === 'binary') return bytesToBinaryString(bytes);
+      return new TextDecoder().decode(bytes);
+    }
+    function bytesToWordArray(bytes) {
+      var words = [];
+      for (var i = 0; i < bytes.length; i++) words[i >>> 2] |= bytes[i] << (24 - (i % 4) * 8);
+      return CryptoJS.lib.WordArray.create(words, bytes.length);
+    }
+    function wordArrayToBytes(wa) {
+      var words = wa.words || [];
+      var out = new Uint8Array(wa.sigBytes);
+      for (var i = 0; i < out.length; i++) out[i] = (words[i >>> 2] >>> (24 - (i % 4) * 8)) & 0xff;
+      return out;
+    }
+    return {
+      crypto: {
+        aesEncrypt: function (buffer, mode, key, iv) {
+          var encrypted = CryptoJS.AES.encrypt(
+            bytesToWordArray(toBytes(buffer)), bytesToWordArray(toBytes(key)),
+            {
+              iv: iv == null ? undefined : bytesToWordArray(toBytes(iv)),
+              mode: /ecb/i.test(mode) ? CryptoJS.mode.ECB : CryptoJS.mode.CBC,
+              padding: CryptoJS.pad.Pkcs7,
+            }
+          );
+          return wordArrayToBytes(encrypted.ciphertext);
+        },
+        rsaEncrypt: function (buffer, key) {
+          // RSA-RAW（无填充）：LX 音源常用；用 WebCrypto 不支持 RAW，这里以
+          // bigint 模幂实现（无填充即 m^e mod n，输入短于模数即安全等价）。
+          var data = toBytes(buffer);
+          var pem = key.replace(/-----(BEGIN|END) PUBLIC KEY-----/g, '').replace(/\s+/g, '');
+          var der = atob(pem);
+          // SPKI 解析：跳过头，取模数 n 与指数 e（简化 DER 解析，.SubjectPublicKeyInfo 内 RSA 公钥）
+          var idx = der.indexOf('\u0030\u0003\u0002\u0001\u0001'); // BIT STRING RSA OID 后的 01 01 (e=65537 标记)
+          var nHex = '';
+          if (idx > 0) {
+            // 回找 INTEGER 模数：SPKI 结构 ...INTEGER(n) BIT STRING(03) 00 30 03 02 01 01
+            var i2 = der.lastIndexOf('\u0002', idx); // 模数 INTEGER tag
+            if (i2 > 0) {
+              var len = der.charCodeAt(i2 + 1);
+              var nStart = i2 + 2;
+              if (len & 0x80) { // 长度多字节
+                var nLenBytes = len & 0x7f;
+                len = 0;
+                for (var k = 0; k < nLenBytes; k++) len = len * 256 + der.charCodeAt(nStart + k);
+                nStart += nLenBytes;
+              }
+              if (der.charCodeAt(nStart) === 0) { nStart++; len--; } // 去符号位前导 0
+              for (var m = 0; m < len; m++) nHex += der.charCodeAt(nStart + m).toString(16).padStart(2, '0');
+            }
+          }
+          if (!nHex) throw new Error('RSA 公钥解析失败');
+          var n = BigInt('0x' + nHex);
+          var e = 65537n;
+          // 输入右对齐（与桌面 node-forge RAW 一致）
+          var mInt = 0n;
+          for (var b = 0; b < data.length; b++) mInt = (mInt << 8n) | BigInt(data[b]);
+          var enc = modPow(mInt, e, n);
+          var outLen = (nHex.length / 2) | 0;
+          var out = new Uint8Array(outLen);
+          for (var p = outLen - 1; p >= 0; p--) { out[p] = Number(enc & 0xffn); enc >>= 8n; }
+          return out;
+        },
+        md5: function (value) { return CryptoJS.MD5(value).toString(); },
+        randomBytes: function (size) {
+          var bytes = new Uint8Array(size);
+          crypto.getRandomValues(bytes);
+          return bytes;
+        },
+      },
+      buffer: {
+        from: function (value, encoding) { return toBytes(value, encoding); },
+        bufToString: function (buf, format) { return bytesToString(toBytes(buf), format); },
+      },
+      zlib: {
+        inflate: function (value, options) {
+          var fmt = options && typeof options === 'object' ? (options.format || 'deflate') : 'deflate';
+          var fn = fmt === 'gzip' ? pako.inflate : (fmt === 'deflate-raw' || fmt === 'unzip' ? pako.inflateRaw : pako.inflate);
+          return Promise.resolve(fn(toBytes(value)));
+        },
+        deflate: function (value) { return Promise.resolve(pako.deflate(toBytes(value))); },
+      },
+    };
+  }
+  function modPow(base, exp, mod) {
+    var result = 1n;
+    base %= mod;
+    while (exp > 0n) {
+      if (exp & 1n) result = (result * base) % mod;
+      base = (base * base) % mod;
+      exp >>= 1n;
+    }
+    return result;
+  }
+
+  function makeLx(rid, scriptInfo) {
+    var rt = runtimes.get(rid);
+    var lx = {
+      EVENT_NAMES: EVENT_NAMES,
+      request: function (url, options, callback) {
+        var id = 'http-' + rid + '-' + Math.random().toString(36).slice(2);
+        rt.httpPending.set(id, callback);
+        // options 过 JSON 桥：formData 二进制（Uint8Array）转 base64 占位对象
+        var opts = options || {};
+        var safeOpts = {};
+        Object.keys(opts).forEach(function (k) {
+          var v = opts[k];
+          if (v instanceof Uint8Array || v instanceof ArrayBuffer) {
+            var u8 = v instanceof Uint8Array ? v : new Uint8Array(v);
+            var bin = '';
+            for (var i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
+            safeOpts[k] = { __lxBase64: btoa(bin) };
+          } else if (typeof v === 'object' && v !== null) {
+            safeOpts[k] = JSON.parse(JSON.stringify(v, function (key, val) {
+              if (val instanceof Uint8Array || val instanceof ArrayBuffer) return undefined;
+              return val;
+            }));
+          } else {
+            safeOpts[k] = v;
+          }
+        });
+        post({ type: 'http', rid: rid, id: id, url: String(url), options: safeOpts });
+      },
+      send: function (eventName, data) {
+        return new Promise(function (resolve, reject) {
+          if (eventName === EVENT_NAMES.inited) {
+            rt.inited = true;
+            post({ type: 'inited', rid: rid, sources: data, updateAlert: rt.pendingAlert });
+            resolve();
+            return;
+          }
+          if (eventName === EVENT_NAMES.updateAlert) {
+            if (rt.inited) post({ type: 'updateAlert', rid: rid, alert: data });
+            else rt.pendingAlert = data;
+            resolve();
+            return;
+          }
+          reject(new Error('The event is not supported: ' + eventName));
+        });
+      },
+      on: function (eventName, handler) {
+        if (eventName !== EVENT_NAMES.request) {
+          return Promise.reject(new Error('The event is not supported: ' + eventName));
+        }
+        rt.requestHandler = handler;
+        return Promise.resolve();
+      },
+      utils: makeUtils(),
+      currentScriptInfo: scriptInfo,
+      version: '2.0.0',
+      env: 'mobile',
+    };
+    return lx;
+  }
+
+  window.addEventListener('message', function (ev) {
+    var data = null;
+    try { data = JSON.parse(ev.data); } catch (e) { return; }
+    if (!data || typeof data !== 'object') return;
+
+    if (data.type === 'run') {
+      var rid = data.rid;
+      var scriptInfo = data.scriptInfo || {};
+      scriptInfo.rawScript = data.script;
+      var rt = { requestHandler: null, httpPending: new Map(), pendingAlert: null, inited: false, scriptInfo: scriptInfo };
+      runtimes.set(rid, rt);
+      try {
+        var lx = makeLx(rid, scriptInfo);
+        // 与桌面 new Function 同构的参数遮蔽沙箱（WebView 内核无 Hermes 限制）
+        var fakeWindow = Object.create(null); fakeWindow.lx = lx;
+        var fakeGlobalThis = Object.create(null); fakeGlobalThis.lx = lx;
+        var runner = new Function(
+          'lx', 'window', 'globalThis', 'global', 'self',
+          'fetch', 'WebSocket', 'XMLHttpRequest', 'document', 'location', 'navigator',
+          'require', 'process', 'Buffer',
+          '"use strict";\n' + data.script
+        );
+        runner(lx, fakeWindow, fakeGlobalThis, fakeGlobalThis, fakeGlobalThis,
+          undefined, undefined, undefined, undefined, undefined, undefined,
+          undefined, undefined, undefined);
+      } catch (e) {
+        post({ type: 'error', rid: rid, message: e && e.message ? e.message : String(e) });
+      }
+      return;
+    }
+
+    if (data.type === 'dispose') {
+      var disposedRuntime = runtimes.get(data.rid);
+      if (disposedRuntime) {
+        disposedRuntime.httpPending.forEach(function (callback) {
+          callback(new Error('自定义音源运行时已释放'), null, null);
+        });
+        disposedRuntime.httpPending.clear();
+        disposedRuntime.requestHandler = null;
+        runtimes.delete(data.rid);
+      }
+      return;
+    }
+
+    if (data.type === 'request') {
+      var rt2 = runtimes.get(data.rid);
+      if (!rt2 || !rt2.requestHandler) {
+        post({ type: 'request-response', rid: data.rid, id: data.id, error: '音源脚本未注册取链处理器' });
+        return;
+      }
+      Promise.resolve(rt2.requestHandler(data.payload))
+        .then(function (result) { post({ type: 'request-response', rid: data.rid, id: data.id, result: result }); })
+        .catch(function (err) {
+          post({ type: 'request-response', rid: data.rid, id: data.id, error: err && err.message ? err.message : String(err) });
+        });
+      return;
+    }
+
+    if (data.type === 'http-response') {
+      var rt3 = runtimes.get(data.rid);
+      var cb = rt3 && rt3.httpPending.get(data.id);
+      if (!cb) return;
+      rt3.httpPending.delete(data.id);
+      if (data.error) cb(new Error(data.error), null, null);
+      else cb(null, data.response, data.body);
+      return;
+    }
+  });
+
+  post({ type: 'ready' });
+})();
+</script>
+</body>
+</html>

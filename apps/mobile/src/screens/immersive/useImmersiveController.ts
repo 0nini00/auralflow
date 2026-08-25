@@ -109,7 +109,6 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
   const [rateModalVisible, setRateModalVisible] = useState(false);
   const [queueModalVisible, setQueueModalVisible] = useState(false);
   const [volumeModalVisible, setVolumeModalVisible] = useState(false);
-  const [soundEffectModalVisible, setSoundEffectModalVisible] = useState(false);
 
   const [playSettingVisible, setPlaySettingVisible] = useState(false);
 
@@ -323,9 +322,11 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
 
   const handleStartCustomSleepTimer = () => {
 
-    const minutes = parseInt(customMinutes, 10);
+    // Number("") 为 0、Number("abc") 为 NaN，统一走严格校验；
+    // 小数输入四舍五入到整数分钟（parseInt 会把 "1.5" 静默截成 1）
+    const minutes = Math.round(Number(customMinutes));
 
-    if (!Number.isNaN(minutes) && minutes > 0) {
+    if (Number.isFinite(minutes) && minutes > 0) {
 
       handleStartSleepTimer(minutes);
 
@@ -335,9 +336,9 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
 
   const handleStartCustomSongSleepTimer = () => {
 
-    const songCount = parseInt(customSongCount, 10);
+    const songCount = Math.round(Number(customSongCount));
 
-    if (!Number.isNaN(songCount) && songCount > 0) {
+    if (Number.isFinite(songCount) && songCount > 0) {
 
       handleStartSongSleepTimer(songCount);
 
@@ -360,6 +361,9 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
       name: currentSong.singer,
       source: "wy",
     };
+    // 播放页整体包在 RN Modal 里（浮于导航栈之上）：必须先关闭本页再压路由，
+    // 否则新页面被 Modal 盖住不可见，且关闭按钮会误弹栈底下的新路由
+    onCloseRef.current();
     openArtistDetailScreen(artist);
   }, [currentSong]);
   const canOpenArtist = currentSong?.source === "wy" && !!currentSong?.artistId && !!currentSong?.singer;
@@ -511,8 +515,6 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
     setQueueModalVisible,
     volumeModalVisible,
     setVolumeModalVisible,
-    soundEffectModalVisible,
-    setSoundEffectModalVisible,
     playSettingVisible,
     setPlaySettingVisible,
     sleepModalVisible,

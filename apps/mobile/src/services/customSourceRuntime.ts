@@ -1,8 +1,138 @@
-import CryptoJS from "crypto-js";
-import forge from "node-forge";
 import type { MusicInfo } from "@lx/core";
+import CryptoJS from "crypto-js";
+import {
+  assertPublicOutboundUrl,
+  compareCustomSourceVersions,
+  isLikelyCustomSourceRemoteUrl,
+  normalizeCustomSourceRemoteUrl,
+  normalizeCustomSourceScript,
+  normalizeCustomSourceVersion,
+} from "@lx/core";
 import type { CustomSourceItem, CustomSourceSourceInfo } from "@/stores/customSourceStore";
-import { deflateBytes, inflateBytes, zlibFormatFromOptions } from "@/utils/compression";
+import {
+  sendToWebView,
+  setLxBridgeHandlers,
+  waitForBridge,
+} from "@/services/customSourceWebViewBridge";
+import { disposeRuntimePendingRequests } from "@/services/customSourceRuntimeLifecycleModel";
+
+// 桥消息处理：WebView→RN 的 inited/updateAlert/error/http/request-response 分发。
+// 各 runtime 实例用 rid（runtime id）路由，见 createRuntime 内 bridgeRoutes。
+interface BridgeRoute {
+  inited?: (sources: unknown, updateAlert: unknown) => void;
+  updateAlert?: (alert: unknown) => void;
+  error?: (message: string) => void;
+  http?: (id: string, url: string, options: Record<string, unknown>) => void;
+  requestResponse?: (ok: boolean, value: unknown) => void;
+}
+const bridgeRoutes = new Map<string, BridgeRoute>();
+// request-response 消息按全局消息 id 路由（跨 runtime 唯一）：rid → pendingById
+const ensureRequestIdRoutes = new Map<string, Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>>();
+let bridgeHandlersInstalled = false;
+let runtimeSeq = 0;
+
+function ensureBridgeHandlers(): void {
+  if (bridgeHandlersInstalled) return;
+  bridgeHandlersInstalled = true;
+  setLxBridgeHandlers({
+    onMessage(msg) {
+      if (msg.rid) {
+        const route = bridgeRoutes.get(msg.rid);
+        if (route) {
+          if (msg.type === "inited") route.inited?.(msg.sources, msg.updateAlert);
+          else if (msg.type === "updateAlert") route.updateAlert?.(msg.alert);
+          else if (msg.type === "error") route.error?.(msg.message ?? "未知错误");
+          else if (msg.type === "http") {
+            if (msg.id && msg.url) route.http?.(msg.id, msg.url, msg.options ?? {});
+          } else if (msg.type === "request-response") {
+            // 按消息 id 跨 runtime 路由（req-{rid}-{seq}）
+            const ownerRid = msg.rid ?? "";
+            const table = ensureRequestIdRoutes.get(ownerRid);
+            const pending = msg.id ? table?.get(msg.id) : undefined;
+            if (pending) {
+              table!.delete(msg.id!);
+              if (msg.error == null) pending.resolve(msg.result);
+              else pending.reject(new Error(msg.error));
+            }
+          }
+          return;
+        }
+      }
+      if (msg.type === "http") {
+        // 无 rid 的 http（脚本直接调 lx.request 且 runtime 尚未注册）：忽略
+      }
+    },
+    onError(message) {
+      // 桥级错误广播给所有在册 runtime，让挂起的 init 尽快失败
+      for (const route of bridgeRoutes.values()) route.error?.(message);
+    },
+  });
+}
+
+/** RN 侧 http 代理：供 WebView 里脚本发起的 lx.request 走 RN fetch（出站校验+超时） */
+function bridgeProxyFetch(
+  id: string,
+  url: string,
+  options: Record<string, unknown>,
+  rid: string,
+): void {
+  const finish = (response: unknown, body: unknown, error?: string) => {
+    sendToWebView({ type: "http-response", id, response, body, error, rid });
+  };
+  void (async () => {
+    const controller = new AbortController();
+    const timeoutMs =
+      typeof options.timeout === "number" && options.timeout > 0
+        ? Math.min(options.timeout, 60_000)
+        : 60_000;
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      // 出站校验规则见 @lx/core/outbound-host，与桌面端 Rust 侧同源。
+      assertPublicOutboundUrl(url, "自定义音源请求");
+      const headers: Record<string, string> = { ...(options.headers as Record<string, string>) };
+      let body: BodyInit_ | undefined;
+      const rawBody = options.body;
+      if (rawBody != null) {
+        body = typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody);
+      } else if (options.form) {
+        body = new URLSearchParams(options.form as Record<string, string>).toString();
+        if (!headers["Content-Type"] && !headers["content-type"]) {
+          headers["Content-Type"] = "application/x-www-form-urlencoded";
+        }
+      } else if (options.formData != null) {
+        // formData 二进制不过 JSON 桥：WebView 侧已转为 base64，这里解码为二进制
+        const b64 = (options.formData as { __lxBase64?: string }).__lxBase64;
+        if (typeof b64 === "string") {
+          const bin = globalThis.atob(b64);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          body = bytes;
+        }
+      }
+      const response = await fetch(url, {
+        method: (options.method as string) ?? "GET",
+        headers,
+        body,
+        signal: controller.signal as unknown as RequestInit["signal"],
+      });
+      const text = await response.text();
+      let parsed: unknown = text;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = text;
+      }
+      finish(
+        createRequestResponse(parsed, response.status, response.statusText, headersToRecord(response.headers)),
+        parsed,
+      );
+    } catch (error) {
+      finish(null, null, error instanceof Error ? error.message : String(error));
+    } finally {
+      clearTimeout(timer);
+    }
+  })();
+}
 
 /**
  * React Native 版自定义音源运行时。
@@ -50,6 +180,8 @@ interface RuntimeInstance {
   request: (data: RuntimeRequestPayload) => Promise<RuntimeRequestResult>;
   getUpdateAlert: () => CustomSourceUpdateAlert | undefined;
   waitForUpdateAlert: (timeoutMs: number) => Promise<CustomSourceUpdateAlert | undefined>;
+  setUpdateAlertHandler: (handler: ((alert: CustomSourceUpdateAlert) => void) | null) => void;
+  dispose: () => void;
 }
 
 interface RuntimeRequestPayload {
@@ -156,65 +288,12 @@ function normalizeUpdateAlert(data: unknown): CustomSourceUpdateAlert | undefine
   };
 }
 
-function normalizeScriptForCompare(script: string): string {
-  return script.replace(/\r\n?/g, "\n").trim();
-}
-
-function normalizeVersion(value?: string): string {
-  return (value ?? "").trim().replace(/^v/i, "");
-}
-
-function compareVersions(left?: string, right?: string): number {
-  const leftParts = normalizeVersion(left).split(".").map((part) => Number.parseInt(part, 10));
-  const rightParts = normalizeVersion(right).split(".").map((part) => Number.parseInt(part, 10));
-  const size = Math.max(leftParts.length, rightParts.length);
-  for (let index = 0; index < size; index += 1) {
-    const a = Number.isFinite(leftParts[index]) ? leftParts[index] : 0;
-    const b = Number.isFinite(rightParts[index]) ? rightParts[index] : 0;
-    if (a > b) return 1;
-    if (a < b) return -1;
-  }
-  return 0;
-}
-
-function normalizeRemoteScriptUrl(url: string): string {
-  const parsed = new URL(url);
-  if (parsed.hostname === "github.com") {
-    const parts = parsed.pathname.split("/").filter(Boolean);
-    const markerIndex = parts.findIndex((part) => part === "blob" || part === "raw");
-    if (parts.length >= 5 && markerIndex === 2) {
-      const [owner, repo, , branch, ...filePath] = parts;
-      return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filePath.join("/")}${parsed.search}`;
-    }
-  }
-  if (parsed.hostname === "gitee.com") {
-    const parts = parsed.pathname.split("/").filter(Boolean);
-    const markerIndex = parts.findIndex((part) => part === "blob");
-    if (parts.length >= 5 && markerIndex === 2) {
-      const [owner, repo, , branch, ...filePath] = parts;
-      return `https://gitee.com/${owner}/${repo}/raw/${branch}/${filePath.join("/")}${parsed.search}${parsed.hash}`;
-    }
-  }
-  return parsed.toString();
-}
-
-function isLikelyRemoteScriptUrl(url: string): boolean {
-  const parsed = new URL(url);
-  const pathname = parsed.pathname.toLowerCase();
-  if (/\.(?:js|txt)(?:$|[?#])/.test(`${pathname}${parsed.search}${parsed.hash}`)) return true;
-  if (parsed.hostname === "raw.githubusercontent.com") return true;
-  if (parsed.hostname === "github.com" || parsed.hostname === "gitee.com") {
-    return pathname.includes("/raw/") || pathname.includes("/blob/");
-  }
-  return false;
-}
-
 function getRemoteScriptUrl(api: CustomSourceItem): string | null {
   const candidate = api.homepage?.trim();
   if (!candidate || !/^https?:\/\//.test(candidate)) return null;
   try {
-    const normalized = normalizeRemoteScriptUrl(candidate);
-    return isLikelyRemoteScriptUrl(normalized) ? normalized : null;
+    const normalized = normalizeCustomSourceRemoteUrl(candidate);
+    return isLikelyCustomSourceRemoteUrl(normalized) ? normalized : null;
   } catch {
     return null;
   }
@@ -244,12 +323,12 @@ export async function checkCustomSourceRemoteUpdate(
   const remoteScript = await fetchRemoteScript(updateUrl);
   const localInfo = parseDesktopUserApiInfo(api.script);
   const remoteInfo = parseDesktopUserApiInfo(remoteScript);
-  const localVersion = normalizeVersion(api.version || localInfo.version);
-  const remoteVersion = normalizeVersion(remoteInfo.version);
-  const hasScriptChanged = normalizeScriptForCompare(remoteScript) !== normalizeScriptForCompare(api.script);
+  const localVersion = normalizeCustomSourceVersion(api.version || localInfo.version);
+  const remoteVersion = normalizeCustomSourceVersion(remoteInfo.version);
+  const hasScriptChanged = normalizeCustomSourceScript(remoteScript) !== normalizeCustomSourceScript(api.script);
 
   if (remoteVersion && localVersion) {
-    if (compareVersions(remoteVersion, localVersion) <= 0) return undefined;
+    if (compareCustomSourceVersions(remoteVersion, localVersion) <= 0) return undefined;
     return {
       log: `发现新版本：v${localVersion} -> v${remoteVersion}`,
       updateUrl,
@@ -267,16 +346,26 @@ export async function checkCustomSourceRemoteUpdate(
   return undefined;
 }
 
+/**
+ * 转换为 lx-music 协议的 musicInfo。
+ *
+ * tx 取链依赖 strMediaMid（脚本用它拼 M500{mid}.mp3 / F000{mid}.flac），
+ * albumId 在 lx 的 tx musicInfo 里存的也是专辑 mid 而非数字 id；
+ * songmid 与 songId 对 tx 是两个不同的值，不能都填 music.id。
+ */
 function toOldMusicInfo(music: MusicInfo): Record<string, unknown> {
+  const tx = music.txMeta;
   return {
     name: music.name,
     singer: music.singer,
     source: music.source,
     songmid: music.id,
-    songId: music.id,
+    songId: tx?.songId || music.id,
     interval: music.interval,
     albumName: music.albumName,
-    albumId: "",
+    albumId: tx?.albumMid ?? "",
+    albumMid: tx?.albumMid ?? "",
+    strMediaMid: tx?.strMediaMid ?? "",
     img: music.picUrl ?? music.img ?? "",
     types: [],
     _types: {},
@@ -321,273 +410,121 @@ function headersToRecord(headers: Headers): Record<string, string> {
   return headerObject;
 }
 
-function toBytes(value: string | ArrayBuffer | ArrayBufferView, encoding?: string): Uint8Array {
-  if (typeof value === "string") {
-    if (encoding === "hex") {
-      const bytes = new Uint8Array(Math.floor(value.length / 2));
-      for (let index = 0; index < bytes.length; index += 1) {
-        bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
-      }
-      return bytes;
-    }
-    if (encoding === "base64") {
-      const binary = globalThis.atob(value);
-      return Uint8Array.from(binary, (char) => char.charCodeAt(0));
-    }
-    return new TextEncoder().encode(value);
-  }
-  if (ArrayBuffer.isView(value)) {
-    return new Uint8Array(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
-  }
-  return new Uint8Array(value);
-}
-
-function bytesToWordArray(bytes: Uint8Array): CryptoJS.lib.WordArray {
-  const words: number[] = [];
-  for (let index = 0; index < bytes.length; index += 1) {
-    words[index >>> 2] |= bytes[index] << (24 - (index % 4) * 8);
-  }
-  return CryptoJS.lib.WordArray.create(words, bytes.length);
-}
-
-function wordArrayToBytes(wordArray: CryptoJS.lib.WordArray): Uint8Array {
-  const { words, sigBytes } = wordArray;
-  const bytes = new Uint8Array(sigBytes);
-  for (let index = 0; index < sigBytes; index += 1) {
-    bytes[index] = (words[index >>> 2] >>> (24 - (index % 4) * 8)) & 0xff;
-  }
-  return bytes;
-}
-
-function bytesToBinaryString(bytes: Uint8Array): string {
-  let result = "";
-  for (const byte of bytes) result += String.fromCharCode(byte);
-  return result;
-}
-
-function bytesToString(bytes: Uint8Array, format?: string): string {
-  if (format === "hex") {
-    return Array.from(bytes)
-      .map((byte) => byte.toString(16).padStart(2, "0"))
-      .join("");
-  }
-  if (format === "base64") return globalThis.btoa(bytesToBinaryString(bytes));
-  if (format === "binary") return bytesToBinaryString(bytes);
-  return new TextDecoder().decode(bytes);
-}
-
-function getAesMode(mode: string) {
-  return mode.toLowerCase().includes("ecb") ? CryptoJS.mode.ECB : CryptoJS.mode.CBC;
-}
-
-function createUtils() {
-  return {
-    crypto: {
-      aesEncrypt(
-        buffer: string | ArrayBuffer | ArrayBufferView,
-        mode: string,
-        key: string | ArrayBuffer | ArrayBufferView,
-        iv?: string | ArrayBuffer | ArrayBufferView,
-      ) {
-        const encrypted = CryptoJS.AES.encrypt(
-          bytesToWordArray(toBytes(buffer)),
-          bytesToWordArray(toBytes(key)),
-          {
-            iv: iv == null ? undefined : bytesToWordArray(toBytes(iv)),
-            mode: getAesMode(mode),
-            padding: CryptoJS.pad.Pkcs7,
-          },
-        );
-        return wordArrayToBytes(encrypted.ciphertext);
-      },
-      rsaEncrypt(buffer: string | ArrayBuffer | ArrayBufferView, key: string) {
-        const source = toBytes(buffer);
-        const padded = new Uint8Array(Math.max(128, source.length));
-        padded.set(source, padded.length - source.length);
-        const publicKey = forge.pki.publicKeyFromPem(key);
-        const encrypted = publicKey.encrypt(bytesToBinaryString(padded), "RAW");
-        return Uint8Array.from(encrypted, (char) => char.charCodeAt(0));
-      },
-      md5(value: string) {
-        return CryptoJS.MD5(value).toString();
-      },
-      randomBytes(size: number) {
-        const bytes = new Uint8Array(size);
-        globalThis.crypto.getRandomValues(bytes);
-        return bytes;
-      },
-    },
-    buffer: {
-      from(value: string | ArrayBuffer | ArrayBufferView, encoding?: string) {
-        return toBytes(value, encoding);
-      },
-      bufToString(buf: ArrayBuffer | ArrayBufferView, format?: string) {
-        return bytesToString(toBytes(buf), format);
-      },
-    },
-    zlib: {
-      async inflate(value: string | ArrayBuffer | ArrayBufferView, options?: unknown) {
-        return inflateBytes(toBytes(value), zlibFormatFromOptions(options));
-      },
-      async deflate(value: string | ArrayBuffer | ArrayBufferView, options?: unknown) {
-        return deflateBytes(toBytes(value), zlibFormatFromOptions(options));
-      },
-    },
-  };
-}
-
-interface HttpRequestOptions {
-  method?: string;
-  timeout?: number;
-  headers?: Record<string, string>;
-  body?: unknown;
-  form?: Record<string, string>;
-  formData?: BodyInit_;
-}
-
-function runHttpRequest(
-  url: string,
-  options: HttpRequestOptions,
-  callback: (error: Error | null, response: unknown, body: unknown) => void,
-): () => void {
-  const controller = new AbortController();
-  const timeoutMs =
-    typeof options.timeout === "number" && options.timeout > 0
-      ? Math.min(options.timeout, 60_000)
-      : 60_000;
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-  void (async () => {
-    try {
-      const requestHeaders: Record<string, string> = { ...options.headers };
-      let body: BodyInit_ | undefined;
-      if (options.body != null) {
-        body = typeof options.body === "string" ? options.body : JSON.stringify(options.body);
-      } else if (options.form) {
-        body = new URLSearchParams(options.form).toString();
-        if (!requestHeaders["Content-Type"] && !requestHeaders["content-type"]) {
-          requestHeaders["Content-Type"] = "application/x-www-form-urlencoded";
-        }
-      } else if (options.formData) {
-        body = options.formData;
-      }
-
-      const response = await fetch(url, {
-        method: options.method ?? "GET",
-        headers: requestHeaders,
-        body,
-        signal: controller.signal as unknown as RequestInit["signal"],
-      });
-      const text = await response.text();
-      let parsed: unknown = text;
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        parsed = text;
-      }
-      callback(
-        null,
-        createRequestResponse(
-          parsed,
-          response.status,
-          response.statusText,
-          headersToRecord(response.headers),
-        ),
-        parsed,
-      );
-    } catch (error) {
-      callback(error instanceof Error ? error : new Error(String(error)), null, null);
-    } finally {
-      clearTimeout(timer);
-    }
-  })();
-
-  return () => controller.abort();
-}
-
 function createRuntime(api: CustomSourceItem): RuntimeInstance {
   let requestHandler: ((payload: RuntimeRequestPayload) => Promise<unknown>) | null = null;
   let finishInit: (value: RuntimeInitResult) => void = () => undefined;
   let failInit: (error: Error) => void = () => undefined;
   let initSettled = false;
+  let disposed = false;
+  let initTimeoutId: ReturnType<typeof setTimeout> | null = null;
   let updateAlert: CustomSourceUpdateAlert | undefined;
   const updateAlertWaiters = new Set<(alert: CustomSourceUpdateAlert | undefined) => void>();
+  // 正常播放/下载取链时脚本主动 send(updateAlert) 的透传回调；
+  // 仅在没有任何 waiter 等待时触发，避免与测试/更新检查流程的等待重复上报
+  let updateAlertHandler: ((alert: CustomSourceUpdateAlert) => void) | null = null;
   const init = new Promise<RuntimeInitResult>((resolve, reject) => {
     finishInit = resolve;
     failInit = reject;
   });
 
-  const lx = {
-    EVENT_NAMES,
-    request(
-      url: string,
-      options: HttpRequestOptions = {},
-      callback: (error: Error | null, response: unknown, body: unknown) => void,
-    ) {
-      return runHttpRequest(url, options, callback);
-    },
-    send(eventName: string, data?: unknown) {
-      return new Promise<void>((resolve, reject) => {
-        if (eventName === EVENT_NAMES.inited) {
-          if (initSettled) {
-            reject(new Error("Script is inited"));
-            return;
-          }
-          initSettled = true;
-          try {
-            finishInit({ sources: normalizeInitSources(data), updateAlert });
-            resolve();
-          } catch (error) {
-            reject(error);
-          }
-          return;
-        }
-        if (eventName === EVENT_NAMES.updateAlert) {
-          updateAlert = normalizeUpdateAlert(data) ?? updateAlert;
-          if (updateAlert) {
-            for (const waiter of updateAlertWaiters) waiter(updateAlert);
-            updateAlertWaiters.clear();
-          }
-          resolve();
-          return;
-        }
-        reject(new Error(`The event is not supported: ${eventName}`));
-      });
-    },
-    on(eventName: string, handler: (payload: RuntimeRequestPayload) => Promise<unknown>) {
-      if (eventName !== EVENT_NAMES.request) {
-        return Promise.reject(new Error(`The event is not supported: ${eventName}`));
+  // —— WebView 桥路由（Hermes 不支持 new Function，脚本在隐藏 WebView 内执行） ——
+  const rid = `rt-${++runtimeSeq}`;
+  let requestSeq = 0;
+
+  ensureBridgeHandlers();
+  bridgeRoutes.set(rid, {
+    inited(sources, alert) {
+      if (disposed || initSettled) return;
+      initSettled = true;
+      if (initTimeoutId) clearTimeout(initTimeoutId);
+      if (alert) updateAlert = normalizeUpdateAlert(alert) ?? updateAlert;
+      try {
+        finishInit({ sources: normalizeInitSources(sources), updateAlert });
+      } catch (error) {
+        failInit(error instanceof Error ? error : new Error(String(error)));
       }
-      requestHandler = handler;
-      return Promise.resolve();
     },
-    utils: createUtils(),
-    currentScriptInfo: {
-      name: api.name,
-      description: api.description,
-      version: api.version,
-      author: api.author,
-      homepage: api.homepage,
-      rawScript: api.script,
+    updateAlert(alert) {
+      if (disposed) return;
+      updateAlert = normalizeUpdateAlert(alert) ?? updateAlert;
+      if (updateAlert) {
+        if (updateAlertWaiters.size > 0) {
+          for (const waiter of updateAlertWaiters) waiter(updateAlert);
+          updateAlertWaiters.clear();
+        } else {
+          updateAlertHandler?.(updateAlert);
+        }
+      }
     },
-    version: "2.0.0",
-    env: "mobile",
+    error(message) {
+      if (!disposed && !initSettled) {
+        initSettled = true;
+        if (initTimeoutId) clearTimeout(initTimeoutId);
+        failInit(new Error(message));
+      }
+    },
+    http(id, url, options) {
+      if (disposed) return;
+      // 脚本发起的 lx.request → RN 侧 fetch 代理（出站校验+超时），结果回传 WebView
+      bridgeProxyFetch(id, url, options, rid);
+    },
+    requestResponse(ok, value) {
+      // 占位：request-response 按消息 id 路由（见 inflightById），不按 rid
+      void ok; void value;
+    },
+  });
+
+  // request-response 统一按 id 路由（createRuntime 之外的模块级表）
+  const pendingById = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+
+  // lx 环境在 WebView 桥内构造（见 lx_bridge/index.html）；RN 侧仅保留
+  // 请求路由/初始化状态机/缓存。runHttpRequest/createUtils 等已随桥迁移。
+  ensureRequestIdRoutes.set(rid, pendingById);
+
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    if (initTimeoutId) {
+      clearTimeout(initTimeoutId);
+      initTimeoutId = null;
+    }
+    const error = new Error("自定义音源运行时已释放");
+    if (!initSettled) {
+      initSettled = true;
+      failInit(error);
+    }
+    for (const waiter of updateAlertWaiters) waiter(undefined);
+    updateAlertWaiters.clear();
+    updateAlertHandler = null;
+    requestHandler = null;
+    bridgeRoutes.delete(rid);
+    disposeRuntimePendingRequests(ensureRequestIdRoutes, rid, error);
+    sendToWebView({ type: "dispose", rid });
   };
 
-  // RN 没有 DOM window，注入一个最小兼容对象，使脚本内 window.lx / globalThis.lx 可用。
-  // 用无原型对象（Object.create(null)）承载：window.constructor / globalThis.constructor
-  // 为 undefined，切断经属性链拿到 Function 构造器的逃逸路径。
-  const fakeWindow = Object.create(null) as { lx: typeof lx };
-  fakeWindow.lx = lx;
-  const fakeGlobalThis = Object.create(null) as { lx: typeof lx };
-  fakeGlobalThis.lx = lx;
+  // 取链请求：发 WebView 内脚本的 lx.on(request) handler，按消息 id 配对应答
+  requestHandler = (payload) =>
+    new Promise<unknown>((resolve, reject) => {
+      if (disposed) {
+        reject(new Error("自定义音源运行时已释放"));
+        return;
+      }
+      const id = `req-${rid}-${++requestSeq}`;
+      pendingById.set(id, { resolve, reject });
+      setTimeout(() => {
+        const pending = pendingById.get(id);
+        if (pending) {
+          pendingById.delete(id);
+          pending.reject(new Error("自定义音源取链超时"));
+        }
+      }, 30_000);
+      sendToWebView({ type: "request", rid, id, payload });
+    });
 
+  // WebView 内执行（Hermes 不支持 new Function）：把脚本发送给桥，
+  // 桥内以与桌面同构的参数遮蔽沙箱执行，init 结果经 inited/error 消息回传。
   try {
-    // L1 沙箱（尽力而为，非强隔离）：自定义音源脚本与用户主动安装的浏览器扩展同权，
-    // 请勿放入不受信任的第三方脚本。以下为多层缓解：
-    // 1. 静态扫描拒绝明显的动态代码执行手法（constructor 链 / eval / Function）；
-    // 2. 以严格模式执行，函数体内 this 为 undefined，`this.fetch` 等全局逃逸直接抛错；
-    // 3. 注入的 window / globalThis 为无原型对象，constructor 属性链不可达。
+    // 静态扫描（与桌面一致）：拒绝明显的动态代码执行手法，双层防御
     if (
       /constructor\s*\.\s*constructor|\.constructor\s*\(|\beval\s*\(|\bFunction\s*\(/.test(
         api.script
@@ -595,30 +532,42 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
     ) {
       throw new Error("自定义音源脚本包含不允许的动态代码执行");
     }
-    const runner = new Function(
-      "lx",
-      "window",
-      "globalThis",
-      "fetch",
-      "WebSocket",
-      "XMLHttpRequest",
-      "document",
-      "location",
-      "navigator",
-      "require",
-      "process",
-      "Buffer",
-      // 严格模式：this 不再指向真实全局对象
-      `"use strict";\n${api.script}`
+    void waitForBridge().then(
+      () => {
+        if (disposed) return;
+        sendToWebView({
+          type: "run",
+          rid,
+          script: api.script,
+          scriptInfo: {
+            name: api.name,
+            description: api.description,
+            version: api.version,
+            author: api.author,
+            homepage: api.homepage,
+          },
+        });
+      },
+      (error) => {
+        // 桥不可用（加载失败/超时）：立即让 init 失败，不再等 30s 总超时
+        if (!disposed && !initSettled) {
+          initSettled = true;
+          if (initTimeoutId) clearTimeout(initTimeoutId);
+          failInit(
+            error instanceof Error
+              ? error
+              : new Error("自定义音源 WebView 桥不可用"),
+          );
+        }
+      },
     );
-    runner(lx, fakeWindow, fakeGlobalThis, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined);
   } catch (error) {
     initSettled = true;
     failInit(error instanceof Error ? error : new Error(String(error)));
   }
 
-  setTimeout(() => {
-    if (!initSettled) {
+  initTimeoutId = setTimeout(() => {
+    if (!disposed && !initSettled) {
       initSettled = true;
       failInit(
         new Error("自定义音源初始化超时，脚本没有调用 lx.send(lx.EVENT_NAMES.inited, ...)"),
@@ -632,6 +581,7 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
       return updateAlert;
     },
     waitForUpdateAlert(timeoutMs) {
+      if (disposed) return Promise.resolve(undefined);
       if (updateAlert) return Promise.resolve(updateAlert);
       return new Promise((resolve) => {
         let settled = false;
@@ -646,7 +596,11 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
         updateAlertWaiters.add(finish);
       });
     },
+    setUpdateAlertHandler(handler) {
+      if (!disposed) updateAlertHandler = handler;
+    },
     async request(data) {
+      if (disposed) throw new Error("自定义音源运行时已释放");
       await init;
       if (!requestHandler) throw new Error("Request event is not defined");
       const response = await requestHandler({
@@ -669,6 +623,7 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
       }
       return { source: data.source, action: data.action, data: response as string };
     },
+    dispose,
   };
 }
 
@@ -679,8 +634,8 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
 const runtimeCache = new Map<string, RuntimeInstance>();
 
 function getCacheKey(api: CustomSourceItem): string {
-  // script 变化（用户重新导入）时应让缓存失效
-  return `${api.id}::${api.script.length}::${api.script.slice(0, 64)}`;
+  const scriptHash = CryptoJS.SHA256(normalizeCustomSourceScript(api.script)).toString();
+  return `${api.id}::${scriptHash}`;
 }
 
 function getCachedRuntime(api: CustomSourceItem): RuntimeInstance {
@@ -689,18 +644,29 @@ function getCachedRuntime(api: CustomSourceItem): RuntimeInstance {
   if (cached) return cached;
   const runtime = createRuntime(api);
   runtimeCache.set(key, runtime);
-  // 初始化失败时从缓存中移除，下次重试
-  runtime.init.catch(() => runtimeCache.delete(key));
+  // 初始化失败时从缓存中移除并释放，下次重试。
+  runtime.init.catch(() => {
+    if (runtimeCache.get(key) === runtime) runtimeCache.delete(key);
+    runtime.dispose();
+  });
   return runtime;
 }
 
 /** 清除某个音源的 Runtime 缓存（重新导入脚本时调用） */
 export function invalidateRuntimeCache(apiId: string): void {
-  for (const key of runtimeCache.keys()) {
-    if (key.startsWith(`${apiId}::`)) {
-      runtimeCache.delete(key);
-    }
+  for (const [key, runtime] of runtimeCache.entries()) {
+    if (!key.startsWith(`${apiId}::`)) continue;
+    runtimeCache.delete(key);
+    runtime.dispose();
   }
+}
+
+/** 把已初始化的 Runtime 放回缓存（深度测试复用，避免重复执行脚本） */
+function primeRuntimeCache(api: CustomSourceItem, runtime: RuntimeInstance): void {
+  const key = getCacheKey(api);
+  const previous = runtimeCache.get(key);
+  if (previous && previous !== runtime) previous.dispose();
+  runtimeCache.set(key, runtime);
 }
 
 export async function testCustomSource(
@@ -710,9 +676,118 @@ export async function testCustomSource(
   // 测试时强制重建，不走缓存
   invalidateRuntimeCache(api.id);
   const runtime = createRuntime(api);
-  const result = await runtime.init;
-  const updateAlert = result.updateAlert ?? (await runtime.waitForUpdateAlert(updateAlertWaitMs));
-  return { ...result, updateAlert };
+  try {
+    const result = await runtime.init;
+    const updateAlert = result.updateAlert ?? (await runtime.waitForUpdateAlert(updateAlertWaitMs));
+    return { ...result, updateAlert };
+  } finally {
+    runtime.dispose();
+  }
+}
+
+// ─── 深度测试：真实取链 ────────────────────────────────────────
+// 初始化通过不代表脚本真的能取到播放地址（假阳性），这里用内置固定测试曲走一次真实
+// musicUrl 请求验证端到端可用性。超时 20s，与现有播放解析预期对齐。
+
+const DEEP_TEST_TIMEOUT_MS = 20_000;
+const DEEP_TEST_QUALITY = "128k";
+
+/** 内置固定测试曲（id 均为公开常驻曲目，可按需替换）：
+ *  - wy：2034742057 林俊杰-江南（备选 1492167768）
+ *  - tx：songmid 0039MnYb0qxYhV
+ */
+const DEEP_TEST_TRACKS: Record<"wy" | "tx", { id: string; name: string; singer: string; albumName: string }> = {
+  wy: { id: "2034742057", name: "江南", singer: "林俊杰", albumName: "第二天堂" },
+  tx: { id: "0039MnYb0qxYhV", name: "江南", singer: "林俊杰", albumName: "第二天堂" },
+};
+
+/** 取链测试结果，结构兼容现有 testCustomSource 返回，ok 表示两阶段全部通过 */
+export interface DeepTestResult {
+  ok: boolean;
+  message: string;
+  sources?: Record<string, CustomSourceSourceInfo>;
+  updateAlert?: CustomSourceUpdateAlert;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+export async function testCustomSourceDeep(
+  api: CustomSourceItem,
+  updateAlertWaitMs = TEST_UPDATE_ALERT_WAIT_MS,
+): Promise<DeepTestResult> {
+  // 阶段一：复用现有 init 流程
+  invalidateRuntimeCache(api.id);
+  const runtime = createRuntime(api);
+  let initResult: RuntimeInitResult;
+  try {
+    initResult = await runtime.init;
+    initResult = { ...initResult, updateAlert: initResult.updateAlert ?? (await runtime.waitForUpdateAlert(updateAlertWaitMs)) };
+  } catch (error) {
+    runtime.dispose();
+    return {
+      ok: false,
+      message: `初始化失败：${error instanceof Error ? error.message : String(error)}`,
+      sources: undefined,
+      updateAlert: undefined,
+    };
+  }
+
+  primeRuntimeCache(api, runtime);
+
+  // 阶段二：选平台与测试曲（声明 musicUrl 能力的平台中优先 wy），走真实取链
+  const sources = initResult.sources ?? {};
+  const pickSource = (["wy", "tx"] as const).find((name) => sources[name]?.actions.includes("musicUrl"));
+  if (!pickSource) {
+    return { ok: true, message: "初始化正常；未声明 musicUrl，仅验证初始化", sources, updateAlert: initResult.updateAlert };
+  }
+
+  const track = DEEP_TEST_TRACKS[pickSource];
+  const music: MusicInfo = {
+    id: track.id,
+    name: track.name,
+    singer: track.singer,
+    albumName: track.albumName,
+    source: pickSource,
+  };
+
+  // quality 兼容：128k 不在脚本声明白名单时退回声明的最低音质
+  const declared = sources[pickSource]?.qualitys ?? [];
+  const quality = declared.includes(DEEP_TEST_QUALITY) ? DEEP_TEST_QUALITY : declared[0] ?? DEEP_TEST_QUALITY;
+
+  // 深度测试重建的 Runtime 已放回缓存，取链走现有 requestCustomSourceMusicUrl。
+  try {
+    const result = await withTimeout(
+      requestCustomSourceMusicUrl(api, music, quality),
+      DEEP_TEST_TIMEOUT_MS,
+      `取链测试超时（超过 ${DEEP_TEST_TIMEOUT_MS / 1000}s 未返回播放地址）`,
+    );
+    if (!/^https?:\/\//.test(result.url)) {
+      throw new Error(`未返回可播放 URL：${result.url.slice(0, 128)}`);
+    }
+    return {
+      ok: true,
+      message: `初始化正常；取链测试通过（${pickSource} ${result.quality || quality}）`,
+      sources: result.sources ?? sources,
+      updateAlert: initResult.updateAlert,
+    };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { ok: false, message: `初始化正常；取链测试失败：${reason}`, sources, updateAlert: initResult.updateAlert };
+  }
 }
 
 export async function checkCustomSourceUpdate(api: CustomSourceItem): Promise<RuntimeInitResult> {
@@ -726,8 +801,12 @@ export async function requestCustomSourceMusicUrl(
   api: CustomSourceItem,
   music: MusicInfo,
   quality: string,
+  onUpdateAlert?: (alert: CustomSourceUpdateAlert) => void,
 ): Promise<{ url: string; quality: string; sources?: Record<string, CustomSourceSourceInfo> }> {
   const runtime = getCachedRuntime(api);
+  // 注入回调后，取链期间脚本 send(updateAlert) 且无 waiter 等待时会透传给消费方；
+  // 传 null 可清掉历史回调。runtime 不感知 store，由消费方决定如何消费
+  runtime.setUpdateAlertHandler(onUpdateAlert ?? null);
   const initResult = await runtime.init;
   const sourceInfo = initResult.sources?.[music.source];
   if (!sourceInfo?.actions.includes("musicUrl")) {

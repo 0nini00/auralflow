@@ -25,12 +25,16 @@ export function getPlaybackHistoryAndCacheCleanupAction(): PlaybackHistoryAndCac
   };
 }
 
+export async function clearMediaCache(): Promise<number> {
+  await clearAllCache();
+  clearPrefetchCache();
+  return getCacheSize();
+}
+
 export async function clearPlaybackHistoryAndCache(): Promise<PlaybackHistoryAndCacheCleanupResult> {
   const action = getPlaybackHistoryAndCacheCleanupAction();
   await useHistoryStore.getState().clearHistory();
-  await clearAllCache();
-  clearPrefetchCache();
-  const cacheSize = await getCacheSize();
+  const cacheSize = await clearMediaCache();
 
   return {
     cacheSize,

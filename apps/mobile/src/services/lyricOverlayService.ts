@@ -13,8 +13,22 @@ interface NativeLyricOverlayModule {
   requestOverlayPermission(): Promise<boolean>;
   show(): Promise<boolean>;
   hide(): Promise<boolean>;
-  update(data: { current: string; next: string; progress: number }): Promise<boolean>;
+  update(data: { current: string; next: string }): Promise<boolean>;
   setLocked(locked: boolean): Promise<void>;
+  setStyle(style: LyricOverlayStyle): Promise<void>;
+  getStyle(): Promise<Required<LyricOverlayStyle>>;
+}
+
+/** 悬浮歌词外观。字段留空表示保持原值。 */
+export interface LyricOverlayStyle {
+  /** 正在播放行的字号（sp），10-40 */
+  fontSize?: number;
+  /** 文字不透明度，10-100 */
+  textOpacity?: number;
+  /** 是否显示下一行 */
+  showNextLine?: boolean;
+  /** 文字投影。关掉后浅色壁纸上会难以辨认 */
+  shadowEnabled?: boolean;
 }
 
 const nativeModule = (NativeModules as Record<string, unknown>).LyricOverlayModule as
@@ -59,9 +73,17 @@ export async function hideLyricOverlay(): Promise<boolean> {
 export async function updateLyricOverlay(
   current: string,
   next: string,
-  progress: number,
 ): Promise<boolean> {
-  return getNativeModule().update({ current, next, progress });
+  return getNativeModule().update({ current, next });
+}
+
+export async function setLyricOverlayStyle(style: LyricOverlayStyle): Promise<void> {
+  return getNativeModule().setStyle(style);
+}
+
+/** 读回原生侧当前外观（Preferences 为唯一真相）。 */
+export async function getLyricOverlayStyle(): Promise<Required<LyricOverlayStyle>> {
+  return getNativeModule().getStyle();
 }
 
 export async function setLyricOverlayLocked(locked: boolean): Promise<void> {

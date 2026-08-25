@@ -1,3 +1,5 @@
+import groovy.json.JsonSlurper
+
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
@@ -6,7 +8,7 @@ apply plugin: "com.facebook.react"
 
 // Release 签名凭据从仓库外的本机私密目录读取，密钥与密码永不进仓库。
 // 目录优先级：环境变量 AURALFLOW_KEYSTORE_DIR > 本机默认 F:/auralflow-secrets。
-// 缺失时 release 回退到 debug 签名，保证在未配置的机器上仍可构建（仅供本地调试用途）。
+// release 构建必须具备正式签名；缺失时显式失败，禁止产出 debug 签名的 release APK。
 def keystoreDir = System.getenv("AURALFLOW_KEYSTORE_DIR") ?: "F:/auralflow-secrets"
 def keystorePropertiesFile = file("${keystoreDir}/keystore.properties")
 def keystoreProperties = new Properties()
@@ -14,30 +16,17 @@ def hasReleaseKeystore = keystorePropertiesFile.exists()
 if (hasReleaseKeystore) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
-
-// Node 可执行文件路径：hermesc 解析与 Metro 打包共用，避免两处写死后漂移。
-// 优先级：环境变量 NODE_BIN > `node` 可执行名 > 本机默认路径。
-def detectNodeExecutable() {
-    def envNode = System.getenv("NODE_BIN")
-    if (envNode && file(envNode).exists()) return envNode
-    // 尝试 which/where 返回的 node（经 shell 解析，适用于 PATH 内 node）
-    def shellProbe = ["bash", "-lc", "command -v node"]
-    def probe = new ByteArrayOutputStream()
-    try {
-        def result = providers.exec {
-            it.commandLine(shellProbe)
-            it.standardOutput = probe
-        }.result.get()
-        if (result.exitValue == 0) {
-            def nodePath = probe.toString().trim()
-            if (nodePath && file(nodePath).exists()) return nodePath
-        }
-    } catch (ignored) {
-        // 探测失败回退默认
-    }
-    return "C:/Program Files/nodejs/node.exe"
+def releaseRequested = gradle.startParameter.taskNames.any { taskName ->
+    taskName.toLowerCase().contains("release")
 }
-def nodeExecutable = detectNodeExecutable()
+if (releaseRequested && !hasReleaseKeystore) {
+    throw new GradleException(
+        "Release 构建缺少正式签名配置。请设置 AURALFLOW_KEYSTORE_DIR 并提供 keystore.properties。"
+    )
+}
+
+// Node 可执行文件由 NODE_BIN 覆盖，默认通过 PATH 解析，避免绑定特定操作系统路径。
+def nodeExecutable = System.getenv("NODE_BIN") ?: "node"
 
 // React Native 0.86 起 hermesc 迁出 react-native/sdks，改由独立的 hermes-compiler 包提供。
 // pnpm 的 store 目录名带内容哈希，写死路径会在重装依赖后失效；从 react-native 包出发用 Node 解析。
@@ -138,47 +127,62 @@ def enableProguardInReleaseBuilds = false
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
-android {
-    ndkVersion rootProject.ext.ndkVersion
-    buildToolsVersion rootProject.ext.buildToolsVersion
-    compileSdk rootProject.ext.compileSdkVersion
+def mobilePackageFile = file("../../package.json")
+if (!mobilePackageFile.exists()) {
+    throw new GradleException("移动端 package.json 不存在: ${mobilePackageFile}")
+}
+def mobilePackage = new JsonSlurper().parse(mobilePackageFile)
+def mobileVersionName = mobilePackage.version?.toString()?.trim()
+def mobileVersionCodeValue = mobilePackage.androidVersionCode
+if (!mobileVersionName) {
+    throw new GradleException("apps/mobile/package.json 缺少有效 version")
+}
+if (!(mobileVersionCodeValue instanceof Number)
+        || mobileVersionCodeValue.intValue() <= 0
+        || mobileVersionCodeValue.doubleValue() != mobileVersionCodeValue.intValue()) {
+    throw new GradleException("apps/mobile/package.json 缺少有效正整数 androidVersionCode")
+}
+def mobileVersionCode = mobileVersionCodeValue.intValue()
 
-    namespace "cn.chenle.auralflow.mobile"
+android {
+    ndkVersion = rootProject.ext.ndkVersion
+    buildToolsVersion = rootProject.ext.buildToolsVersion
+    compileSdk = rootProject.ext.compileSdkVersion
+
+    namespace = "cn.chenle.auralflow.mobile"
     defaultConfig {
-        applicationId "cn.chenle.auralflow.mobile"
-        minSdkVersion rootProject.ext.minSdkVersion
-        targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
-        ndk {
-            abiFilters "arm64-v8a"
-        }
+        applicationId = "cn.chenle.auralflow.mobile"
+        minSdk = rootProject.ext.minSdkVersion
+        targetSdk = rootProject.ext.targetSdkVersion
+        versionCode = mobileVersionCode
+        versionName = mobileVersionName
     }
     signingConfigs {
         debug {
-            storeFile file('debug.keystore')
-            storePassword 'android'
-            keyAlias 'androiddebugkey'
-            keyPassword 'android'
+            storeFile = file('debug.keystore')
+            storePassword = 'android'
+            keyAlias = 'androiddebugkey'
+            keyPassword = 'android'
         }
         if (hasReleaseKeystore) {
             release {
-                storeFile file(keystoreProperties['AURALFLOW_RELEASE_STORE_FILE'])
-                storePassword keystoreProperties['AURALFLOW_RELEASE_STORE_PASSWORD']
-                keyAlias keystoreProperties['AURALFLOW_RELEASE_KEY_ALIAS']
-                keyPassword keystoreProperties['AURALFLOW_RELEASE_KEY_PASSWORD']
+                storeFile = file(keystoreProperties['AURALFLOW_RELEASE_STORE_FILE'])
+                storePassword = keystoreProperties['AURALFLOW_RELEASE_STORE_PASSWORD']
+                keyAlias = keystoreProperties['AURALFLOW_RELEASE_KEY_ALIAS']
+                keyPassword = keystoreProperties['AURALFLOW_RELEASE_KEY_PASSWORD']
             }
         }
     }
     buildTypes {
         debug {
-            signingConfig signingConfigs.debug
+            signingConfig = signingConfigs.debug
         }
         release {
-            // 有本机 release keystore 时用正式签名；否则回退 debug 签名（仅本地可装，不用于分发）。
-            signingConfig hasReleaseKeystore ? signingConfigs.release : signingConfigs.debug
-            minifyEnabled enableProguardInReleaseBuilds
-            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+            if (hasReleaseKeystore) {
+                signingConfig = signingConfigs.release
+            }
+            minifyEnabled = enableProguardInReleaseBuilds
+            proguardFiles(getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro")
         }
     }
 }
@@ -195,8 +199,6 @@ dependencies {
 
     // 本地音乐写回内嵌封面/歌词所需的 ID3/MP4 标签库（纯 Java，无需 NDK）。
     implementation("net.jthink:jaudiotagger:3.0.1")
-    // 从封面提取主色调（播放页氛围色），AndroidX 官方调色板库。
-    implementation("androidx.palette:palette:1.0.0")
 }
 
 // Keep AGP's standard APK output intact because its listing task consumes the

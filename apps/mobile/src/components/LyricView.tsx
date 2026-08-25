@@ -13,7 +13,6 @@ import {
   type TextStyle,
   type StyleProp,
 } from "react-native";
-import { Play } from "lucide-react-native";
 import type { LyricLine } from "@lx/core";
 import type { ThemePalette } from "@/stores/themeStore";
 import { useLyricSettingsStore, LYRIC_FONT_SIZE_MIN, LYRIC_FONT_SIZE_MAX } from "@/stores/lyricSettingsStore";
@@ -25,7 +24,6 @@ import {
   convertChineseText,
   type ChineseConversionMode,
 } from "@/services/chineseConversionService";
-import { formatTime } from "@/services/playerService";
 
 export interface LyricViewProps {
   lyrics: LyricLine[];
@@ -307,10 +305,17 @@ export function LyricView({
   }, [lyrics]);
 
   // 字号/行距变化（捏合缩放、设置页修改）时：行高缓存失效，等待 onLayout 重新测量，
-  // 避免用旧高度计算滚动偏移导致错位
+  // 避免用旧高度计算滚动偏移导致错位；行高重排完成后把当前行滚回 42% 锚点，
+  // 否则缩放后高亮行会漂移，直到下一次换行才归位。
   useEffect(() => {
     lineHeightsRef.current = [];
-  }, [localFontSize, lineGap]);
+    const timer = setTimeout(() => {
+      if (isPauseScrollRef.current) return;
+      const target = targetIndexRef.current;
+      if (target >= 0) handleScrollToActive(target, false);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [localFontSize, lineGap, handleScrollToActive]);
 
   useEffect(() => {
     if (targetIndex < 0 || data.length === 0) return;
@@ -353,52 +358,6 @@ export function LyricView({
       handleScrollToActive(info.index, false);
     }, 100);
   };
-
-  // ── PlayLine（对齐 lx）：用户滚动歌词时在 40% 处显示虚线播放线 + 时间标签 ──
-  const [playLineVisible, setPlayLineVisible] = useState(false);
-  const playLineVisibleRef = useRef(false);
-  const [playLineIndex, setPlayLineIndex] = useState(-1);
-  const playLineIndexRef = useRef(-1);
-  const viewportHeightRef = useRef(0);
-
-  // 按动态行高计算播放线指向的行号
-  const computePlayLineIndex = useCallback(
-    (scrollY: number): number => {
-      const heights = lineHeightsRef.current;
-      const y = scrollY + viewportHeightRef.current * 0.4;
-      let acc = 0;
-      for (let i = 0; i < heights.length; i += 1) {
-        acc += heights[i] ?? FALLBACK_ITEM_HEIGHT;
-        if (acc >= y) {
-          const raw = i - SPACING_ROWS;
-          return Math.max(0, Math.min(lyrics.length - 1, raw));
-        }
-      }
-      return Math.max(0, lyrics.length - 1);
-    },
-    [lyrics.length]
-  );
-
-  const handlePlayLineScroll = useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      if (!playLineVisibleRef.current) return;
-      const idx = computePlayLineIndex(event.nativeEvent.contentOffset.y);
-      if (idx !== playLineIndexRef.current) {
-        playLineIndexRef.current = idx;
-        setPlayLineIndex(idx);
-      }
-    },
-    [computePlayLineIndex]
-  );
-
-  const handlePlayLinePress = useCallback(() => {
-    const line = lyrics[playLineIndexRef.current];
-    if (line && onSeek) onSeek(line.time);
-    setPlayLineVisible(false);
-    playLineVisibleRef.current = false;
-    isPauseScrollRef.current = false;
-    if (scrollResumeTimeoutRef.current) clearTimeout(scrollResumeTimeoutRef.current);
-  }, [lyrics, onSeek]);
 
   const renderItem = useCallback(
     ({ item, index }: { item: LyricLine; index: number }) => {
@@ -463,13 +422,7 @@ export function LyricView({
   );
 
   return (
-    <View
-      style={[styles.container, style]}
-      {...panResponder.panHandlers}
-      onLayout={(event) => {
-        viewportHeightRef.current = event.nativeEvent.layout.height;
-      }}
-    >
+    <View style={[styles.container, style]} {...panResponder.panHandlers}>
       {data.length === 0 ? (
         <View style={styles.empty}>
           <Text style={[styles.emptyText, { color: palette.textMuted }]}>暂无歌词</Text>
@@ -484,7 +437,7 @@ export function LyricView({
           fadingEdgeLength={100}
           initialNumToRender={Math.max(targetIndex + 10, 10)}
           onScrollBeginDrag={() => {
-            // 对齐 lx：开始拖动 → 取消自动滚动动画与延迟，暂停自动跟唱，显示 PlayLine
+            // 对齐 lx：开始拖动 → 取消自动滚动动画与延迟，暂停自动跟唱
             isPauseScrollRef.current = true;
             if (delayScrollTimeoutRef.current) {
               clearTimeout(delayScrollTimeoutRef.current);
@@ -498,8 +451,6 @@ export function LyricView({
               scrollCancelRef.current();
               scrollCancelRef.current = null;
             }
-            setPlayLineVisible(true);
-            playLineVisibleRef.current = true;
           }}
           onScrollEndDrag={() => {
             // 对齐 lx：松手后 3s 恢复自动跟唱（滚动持续时不会提前恢复）
@@ -510,8 +461,6 @@ export function LyricView({
             scrollResumeTimeoutRef.current = setTimeout(() => {
               scrollResumeTimeoutRef.current = null;
               isPauseScrollRef.current = false;
-              setPlayLineVisible(false);
-              playLineVisibleRef.current = false;
               // 读取最新行号（ref），暂停期间行号已前进时恢复仍滚到当前行；
               // 恢复属于跨行跳转（暂停期间行号可能前进多行），用非动画立即定位
               const latest = targetIndexRef.current;
@@ -521,32 +470,12 @@ export function LyricView({
           }}
           onScroll={(event) => {
             scrollInfoRef.current = event.nativeEvent;
-            handlePlayLineScroll(event);
           }}
           showsVerticalScrollIndicator={false}
           scrollEventThrottle={16}
           contentContainerStyle={styles.listContent}
         />
       )}
-      {playLineVisible && playLineIndex >= 0 && lyrics.length > 0 ? (
-        <View pointerEvents="box-none" style={styles.playLineContainer}>
-          <View style={styles.playLineRow}>
-            <Text style={[styles.playLineTime, { color: palette.primary }]}>
-              {formatTime(lyrics[playLineIndex].time)}
-            </Text>
-            <View style={[styles.playLineDashed, { borderBottomColor: palette.primary }]} />
-            <Pressable
-              onPress={handlePlayLinePress}
-              hitSlop={10}
-              style={styles.playLineButton}
-              accessibilityRole="button"
-              accessibilityLabel="从播放线位置播放"
-            >
-              <Play size={16} color={palette.primary} />
-            </Pressable>
-          </View>
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -654,32 +583,5 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 15,
-  },
-  playLineContainer: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: "40%",
-  },
-  playLineRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 28,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderStyle: "dashed",
-  },
-  playLineTime: {
-    fontSize: 12,
-    fontWeight: "600",
-    paddingRight: 8,
-  },
-  playLineDashed: {
-    flex: 1,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderStyle: "dashed",
-  },
-  playLineButton: {
-    paddingLeft: 12,
-    paddingVertical: 6,
   },
 });

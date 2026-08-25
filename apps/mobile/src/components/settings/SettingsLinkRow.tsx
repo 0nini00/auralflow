@@ -1,37 +1,46 @@
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet } from "react-native";
+
 import { ChevronRight } from "lucide-react-native";
 
 import { SettingsCard } from "@/components/settings/SettingsCard";
+import { ListItemButton } from "@/components/ui/ListItemButton";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { radius, spacing, touch, typography } from "@/theme/tokens";
+import { radius, spacing } from "@/theme/tokens";
 
 interface SettingsLinkRowProps {
   title: string;
   subtitle: string;
   onPress: () => void;
+  /** 行尾内容：不传时默认渲染主色箭头；传 null 则完全不渲染尾部（纯文字行） */
+  trailing?: React.ReactNode;
+  /** 禁用态（如检查更新进行中） */
+  disabled?: boolean;
+  /** 副标题用主色渲染（如更新状态文案） */
+  subtitleAccent?: boolean;
 }
 
-export function SettingsLinkRow({ title, subtitle, onPress }: SettingsLinkRowProps) {
+export function SettingsLinkRow({ title, subtitle, onPress, trailing, disabled = false, subtitleAccent = false }: SettingsLinkRowProps) {
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
 
+  const trailingContent =
+    trailing !== undefined ? trailing : <ChevronRight size={18} color={palette.primary} />;
+
   return (
     <SettingsCard style={styles.rowCard}>
-      <Pressable
-        accessibilityRole="button"
+      <ListItemButton
+        title={title}
+        subtitle={subtitle}
+        subtitleColor={subtitleAccent ? palette.primary : undefined}
+        trailing={trailingContent}
+        disabled={disabled}
         accessibilityLabel={title}
-        style={styles.row}
         onPress={onPress}
-      >
-        <View style={styles.copy}>
-          <Text style={[styles.title, { color: palette.text }]}>{title}</Text>
-          <Text style={[styles.subtitle, { color: palette.textMuted }]}>{subtitle}</Text>
-        </View>
-        <ChevronRight size={18} color={palette.primary} />
-      </Pressable>
+        style={styles.row}
+      />
     </SettingsCard>
   );
 }
@@ -41,22 +50,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
   },
   row: {
-    minHeight: 56,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: spacing.xs,
-    gap: spacing.xs,
-  },
-  copy: {
-    flex: 1,
-    minWidth: 0,
-    gap: spacing.xxs,
-  },
-  title: {
-    fontSize: typography.body,
-    fontWeight: "600",
-  },
-  subtitle: {
-    fontSize: typography.caption,
+    marginHorizontal: -spacing.xs,
   },
 });

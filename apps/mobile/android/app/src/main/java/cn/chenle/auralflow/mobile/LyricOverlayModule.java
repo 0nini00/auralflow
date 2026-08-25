@@ -21,7 +21,7 @@ import com.facebook.react.bridge.ReactMethod;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class LyricOverlayModule extends ReactContextBaseJavaModule {
-    private static final int REQUEST_OVERLAY_PERMISSION = 43014;
+    private static final int REQUEST_OVERLAY_PERMISSION = 43017;
     private static final String ERROR_NO_ACTIVITY = "E_OVERLAY_NO_ACTIVITY";
     private static final String ERROR_REQUEST_PENDING = "E_OVERLAY_REQUEST_PENDING";
     private static final String ERROR_PERMISSION_LAUNCH = "E_OVERLAY_PERMISSION_LAUNCH";
@@ -66,6 +66,17 @@ public class LyricOverlayModule extends ReactContextBaseJavaModule {
     @ReactMethod
     public void isVisible(Promise promise) {
         promise.resolve(LyricOverlayPreferences.isVisible(context));
+    }
+
+    /** 读回当前外观，供设置页显示初值。Preferences 是唯一真相，JS 侧不另存一份。 */
+    @ReactMethod
+    public void getStyle(Promise promise) {
+        com.facebook.react.bridge.WritableMap style = com.facebook.react.bridge.Arguments.createMap();
+        style.putInt("fontSize", LyricOverlayPreferences.getFontSize(context));
+        style.putInt("textOpacity", LyricOverlayPreferences.getTextOpacity(context));
+        style.putBoolean("showNextLine", LyricOverlayPreferences.isShowNextLine(context));
+        style.putBoolean("shadowEnabled", LyricOverlayPreferences.isShadowEnabled(context));
+        promise.resolve(style);
     }
 
     @ReactMethod
@@ -131,11 +142,26 @@ public class LyricOverlayModule extends ReactContextBaseJavaModule {
             LyricOverlayService.EXTRA_NEXT,
             data.hasKey("next") && !data.isNull("next") ? data.getString("next") : ""
         );
-        double progress = data.hasKey("progress") && !data.isNull("progress")
-            ? data.getDouble("progress")
-            : 0.0;
-        intent.putExtra(LyricOverlayService.EXTRA_PROGRESS, (float) progress);
 
+        dispatchOperation(intent, promise, false);
+    }
+
+    /**
+     * 写入悬浮歌词外观并就地重刷窗口。
+     * 未传的字段保持原值，便于设置页逐项调整而不必每次带全量。
+     */
+    @ReactMethod
+    public void setStyle(ReadableMap style, Promise promise) {
+        LyricOverlayPreferences.setStyle(
+            context,
+            style.hasKey("fontSize") && !style.isNull("fontSize") ? style.getInt("fontSize") : null,
+            style.hasKey("textOpacity") && !style.isNull("textOpacity") ? style.getInt("textOpacity") : null,
+            style.hasKey("showNextLine") && !style.isNull("showNextLine") ? style.getBoolean("showNextLine") : null,
+            style.hasKey("shadowEnabled") && !style.isNull("shadowEnabled") ? style.getBoolean("shadowEnabled") : null
+        );
+
+        Intent intent = new Intent(context, LyricOverlayService.class);
+        intent.setAction(LyricOverlayService.ACTION_APPLY_STYLE);
         dispatchOperation(intent, promise, false);
     }
 

@@ -13,7 +13,7 @@ import { layout, radius, spacing, touch, typography } from "@/theme/tokens";
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
 import { SectionHeader } from "@/components/SectionHeader";
 import { SummaryCardGrid } from "@/components/SummaryCardGrid";
-import { SearchX } from "lucide-react-native";
+import { SearchX, X } from "lucide-react-native";
 
 import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
@@ -32,6 +32,7 @@ import {
   type SearchResults,
 } from "@/services/musicApi";
 import { hasCachedResult } from "@/services/searchResultCache";
+import { LatestRequestGate } from "@/services/latestRequestGate";
 import { playQueue } from "@/services/playerService";
 import { runPlaybackUiAction } from "@/services/playbackUiAction";
 import { getSearchSuggestions, type SearchSuggestion } from "@/services/searchSuggestionService";
@@ -120,21 +121,33 @@ export function SearchScreen({
   const [fromCache, setFromCache] = useState(false);
   // 竞态保护：快速连续搜索只保留最新一次结果
   const searchRequestSeqRef = React.useRef(0);
+  const suggestionRequestGateRef = React.useRef(new LatestRequestGate());
   const setLastSearchKeyword = useSearchQueryStore((s) => s.setLastKeyword);
 
-  useEffect(() => {
-    loadHistory();
+  const loadHistory = useCallback(async () => {
+    try {
+      const h = await getSearchHistory();
+      setHistory(h);
+    } catch (error) {
+      console.error("[搜索历史] 加载搜索历史失败", error);
+      setHistory([]);
+    }
   }, []);
 
-  const loadHistory = async () => {
-    const h = await getSearchHistory();
-    setHistory(h);
-  };
+  useEffect(() => {
+    void loadHistory();
+  }, [loadHistory]);
 
   useEffect(() => {
+    const requestGate = suggestionRequestGateRef.current;
+    const requestId = requestGate.begin();
     const timer = setTimeout(async () => {
-      if (keyword.trim().length > 0) {
-        const sugs = await getSearchSuggestions(keyword.trim());
+      const trimmed = keyword.trim();
+      // 已提交搜索的关键词不再弹出建议：点建议/历史会 setKeyword(新词) 触发本防抖，
+      // 若不比较 submittedQuery，建议面板会在结果上方“复活”
+      if (trimmed.length > 0 && trimmed !== submittedQuery) {
+        const sugs = await getSearchSuggestions(trimmed);
+        if (!requestGate.isCurrent(requestId)) return;
         setSuggestions(sugs);
         setShowSuggestions(true);
       } else {
@@ -143,8 +156,11 @@ export function SearchScreen({
       }
     }, 300);
 
-    return () => clearTimeout(timer);
-  }, [keyword]);
+    return () => {
+      clearTimeout(timer);
+      requestGate.invalidate();
+    };
+  }, [keyword, submittedQuery]);
 
 
   const runSearch = useCallback(
@@ -178,7 +194,7 @@ export function SearchScreen({
         }
       }
     },
-    [setLastSearchKeyword]
+    [loadHistory, setLastSearchKeyword]
   );
 
   useEffect(() => {
@@ -325,10 +341,10 @@ export function SearchScreen({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="搜索"
-          style={[styles.searchButton, { backgroundColor: palette.primary }]}
+          style={[styles.searchButton, { backgroundColor: palette.surface, borderColor: palette.border, borderWidth: 1 }]}
           onPress={handleSearch}
         >
-          <Text style={[styles.searchButtonText, { color: palette.primaryText }]}>搜索</Text>
+          <Text style={[styles.searchButtonText, { color: palette.primary }]}>搜索</Text>
         </Pressable>
         </View>
 
@@ -376,18 +392,18 @@ export function SearchScreen({
                 key={item}
                 accessibilityRole="button"
                 accessibilityLabel={`搜索 ${item}`}
-                style={[styles.historyItem, { backgroundColor: palette.surface }]}
+                style={[styles.historyItem, { backgroundColor: palette.surface, borderColor: palette.border }]}
                 onPress={() => handleHistoryPress(item)}
               >
                 <Text style={[styles.historyItemText, { color: palette.text }]}>{item}</Text>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={`删除搜索历史 ${item}`}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                   style={styles.historyItemDelete}
-                  onStartShouldSetResponder={() => true}
-                  onResponderRelease={() => handleRemoveHistory(item)}
+                  onPress={() => void handleRemoveHistory(item)}
                 >
-                  <Text style={[styles.historyItemDeleteText, { color: palette.textMuted }]}>删除</Text>
+                  <X size={14} color={palette.textMuted} strokeWidth={2.5} />
                 </Pressable>
               </Pressable>
             ))}
@@ -627,29 +643,31 @@ const styles = StyleSheet.create({
     fontSize: typography.meta,
   },
   historyList: {
+    // 对齐桌面端：多列换行的圆角标签布局，不再一条占一行
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.xs,
   },
   historyItem: {
+    // 桌面端样式移植：圆角胶囊（radius-full）+ 左词右 ×
     minHeight: touch.minTarget,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    padding: 12,
-    borderRadius: radius.sm,
+    gap: 4,
+    paddingHorizontal: 14,
+    paddingLeft: 12,
+    paddingVertical: 2,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   historyItemText: {
-    flex: 1,
     fontSize: typography.body,
+    maxWidth: 220,
   },
   historyItemDelete: {
-    minHeight: touch.minTarget,
-    minWidth: touch.minTarget,
+    // 紧凑 X 图标：胶囊内左词右×，命中区由 hitSlop 扩到 44px 触控标准
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 4,
-  },
-  historyItemDeleteText: {
-    fontSize: typography.meta,
   },
   suggestionsSection: {
     marginBottom: spacing.l,

@@ -1,10 +1,5 @@
 import React, { useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  Text,
-  View,
-} from "react-native";
+import { ActivityIndicator, Text, View } from "react-native";
 import {
   ArrowRight,
   Captions,
@@ -22,6 +17,8 @@ import {
 } from "lucide-react-native";
 import type { ThemePalette } from "@/stores/themeStore";
 import type { MobilePlayMode } from "@/services/mobilePlayModeModel";
+import { IconButton } from "@/components/IconButton";
+import { hapticLight } from "@/services/hapticService";
 import { ProgressBar } from "@/components/ProgressBar";
 import { formatTime } from "@/services/playerService";
 import { usePlayerStore } from "@/stores/playerStore";
@@ -80,11 +77,19 @@ function ImmersivePlayInfo({
   );
 }
 
-function PlayModeIcon({ mode, color }: { mode: MobilePlayMode; color: string }) {
-  if (mode === "shuffle") return <Shuffle size={22} color={color} />;
-  if (mode === "single") return <Repeat1 size={22} color={color} />;
-  if (mode === "sequence") return <ArrowRight size={22} color={color} />;
-  return <Repeat size={22} color={color} />;
+function PlayModeIcon({
+  mode,
+  color,
+  size,
+}: {
+  mode: MobilePlayMode;
+  color: string;
+  size: number;
+}) {
+  if (mode === "shuffle") return <Shuffle size={size} color={color} />;
+  if (mode === "single") return <Repeat1 size={size} color={color} />;
+  if (mode === "sequence") return <ArrowRight size={size} color={color} />;
+  return <Repeat size={size} color={color} />;
 }
 
 /**
@@ -130,104 +135,90 @@ export function ImmersiveTransport({
 
       {/* ── ControlBtn：上一首 / 播放暂停 / 下一首（大按钮，space-evenly） ── */}
       <View style={styles.mainControls}>
-        <Pressable
-          onPress={onPrevious}
-          style={styles.controlButton}
-          hitSlop={8}
-          accessibilityRole="button"
+        <IconButton
+          size="lg"
+          tone="strong"
+          onPress={() => {
+            hapticLight();
+            onPrevious();
+          }}
           accessibilityLabel="上一首"
-        >
-          <SkipBack size={28} color={palette.text} fill={palette.text} />
-        </Pressable>
+          render={({ size, color }) => <SkipBack size={size} color={color} fill={color} />}
+        />
 
-        <Pressable
+        <IconButton
+          size="xl"
+          tone="strong"
           onPress={onTogglePlay}
-          style={styles.playButton}
-          accessibilityRole="button"
           accessibilityLabel={isPlaying ? "暂停" : "播放"}
-        >
-          {loading ? (
-            <ActivityIndicator color={palette.text} size="large" />
-          ) : (
-            isPlaying
-              ? <Pause size={32} color={palette.text} fill={palette.text} />
-              : <Play size={32} color={palette.text} fill={palette.text} />
-          )}
-        </Pressable>
+          render={({ size, color }) =>
+            loading ? (
+              <ActivityIndicator color={color} size="large" />
+            ) : isPlaying ? (
+              <Pause size={size} color={color} fill={color} />
+            ) : (
+              <Play size={size} color={color} fill={color} />
+            )
+          }
+        />
 
-        <Pressable
-          onPress={onNext}
-          style={styles.controlButton}
-          hitSlop={8}
-          accessibilityRole="button"
+        <IconButton
+          size="lg"
+          tone="strong"
+          onPress={() => {
+            hapticLight();
+            onNext();
+          }}
           accessibilityLabel="下一首"
-        >
-          <SkipForward size={28} color={palette.text} fill={palette.text} />
-        </Pressable>
+          render={({ size, color }) => <SkipForward size={size} color={color} fill={color} />}
+        />
       </View>
 
       {/* ── MoreBtn：播放模式 / 喜欢 / 桌面歌词 / 评论 / 更多（对齐 lx 一排小按钮） ── */}
       <View style={styles.moreBtnRow}>
-        <Pressable
+        <IconButton
           onPress={onTogglePlayMode}
-          style={styles.modeControlButton}
-          hitSlop={8}
-          accessibilityRole="button"
+          tone={playModeControl.active ? "primary" : "strong"}
+          selected={playModeControl.active}
           accessibilityLabel={`播放模式：${playModeControl.label}`}
-          accessibilityState={{ selected: playModeControl.active }}
-        >
-          <PlayModeIcon
-            mode={playMode}
-            color={playModeControl.active ? palette.primary : palette.text}
-          />
-        </Pressable>
+          render={({ size, color }) => (
+            <PlayModeIcon mode={playMode} color={color} size={size} />
+          )}
+        />
 
-        <Pressable
+        <IconButton
           onPress={onToggleLike}
-          style={styles.modeControlButton}
-          hitSlop={8}
-          accessibilityRole="button"
+          tone={isLiked ? "primary" : "strong"}
+          selected={isLiked}
           accessibilityLabel={isLiked ? "取消喜欢" : "喜欢"}
-          accessibilityState={{ selected: isLiked }}
-        >
-          <Heart size={22} color={isLiked ? palette.primary : palette.text} fill={isLiked ? palette.primary : "transparent"} />
-        </Pressable>
+          render={({ size, color }) => (
+            <Heart size={size} color={color} fill={isLiked ? color : "transparent"} />
+          )}
+        />
 
-        <Pressable
+        <IconButton
           onPress={() => void onToggleFloatingLyric()}
-          style={styles.modeControlButton}
-          hitSlop={8}
-          accessibilityRole="button"
+          tone={floatingLyricActive ? "primary" : "strong"}
+          selected={floatingLyricActive}
           accessibilityLabel={floatingLyricActive ? "关闭桌面歌词" : "打开桌面歌词"}
-          accessibilityState={{ selected: floatingLyricActive }}
-        >
-          <Captions
-            size={22}
-            color={floatingLyricActive ? palette.primary : palette.text}
-          />
-        </Pressable>
+          render={({ size, color }) => <Captions size={size} color={color} />}
+        />
 
         {canShowComments ? (
-          <Pressable
+          <IconButton
             onPress={onOpenComments}
-            style={styles.modeControlButton}
-            hitSlop={8}
-            accessibilityRole="button"
+            tone="strong"
             accessibilityLabel="评论"
-          >
-            <MessageCircle size={22} color={palette.text} />
-          </Pressable>
+            render={({ size, color }) => <MessageCircle size={size} color={color} />}
+          />
         ) : null}
 
-        <Pressable
+        <IconButton
           onPress={() => setMoreMenuVisible(true)}
-          style={styles.modeControlButton}
-          hitSlop={8}
-          accessibilityRole="button"
+          tone="strong"
           accessibilityLabel="更多选项"
-        >
-          <MoreHorizontal size={22} color={palette.text} />
-        </Pressable>
+          render={({ size, color }) => <MoreHorizontal size={size} color={color} />}
+        />
       </View>
 
       <ImmersiveMoreMenu

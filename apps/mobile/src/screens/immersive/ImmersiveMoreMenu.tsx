@@ -8,6 +8,7 @@ import {
   Video,
 } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
+import { Touchable } from "@/components/Touchable";
 import type { ThemePalette } from "@/stores/themeStore";
 
 interface MenuItem {
@@ -93,7 +94,7 @@ export function ImmersiveMoreMenu({
           ]}
         >
           {menuItems.map((item, index) => (
-            <Pressable
+            <Touchable
               key={index}
               style={[
                 styles.menuItem,
@@ -103,6 +104,8 @@ export function ImmersiveMoreMenu({
                 onClose();
                 item.onPress?.();
               }}
+              accessibilityRole="button"
+              accessibilityLabel={item.label}
             >
               <item.icon size={20} color={item.active ? palette.primary : palette.text} />
               <Text
@@ -113,7 +116,7 @@ export function ImmersiveMoreMenu({
               >
                 {item.label}
               </Text>
-            </Pressable>
+            </Touchable>
           ))}
         </View>
       </Pressable>

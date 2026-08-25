@@ -2,8 +2,14 @@ import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { WyPlaylistInfo } from "../services/wyPlaylistService";
 import { getTxPlaylistDetail } from "../services/txPlaylistService";
-import type { MusicInfo } from "@lx/core";
+import {
+  mergeWebdavCloudPlaylists,
+  mergeWebdavLocalPlaylists,
+  mergeWebdavSongs,
+  type MusicInfo,
+} from "@lx/core";
 import { useAccountStore } from "./accountStore";
+import { LatestRequestGate } from "@/services/latestRequestGate";
 import type { CreateLocalPlaylistInput, CreateLocalPlaylistWithSongInput, CreateLocalPlaylistWithSongsInput, LocalPlaylist } from "../services/localPlaylistModel";
 import {
   addSongsToLocalPlaylist as addSongsToLocalPlaylistModel,
@@ -101,47 +107,6 @@ function songKey(song: Pick<MusicInfo, "source" | "id">): string {
   return `${song.source}:${song.id}`;
 }
 
-/** 收藏歌曲并集去重(按 source:id),保留本地顺序,远端追加不在本地的。 */
-function mergeFavorites(local: MusicInfo[], remote: MusicInfo[]): MusicInfo[] {
-  const seen = new Set<string>();
-  const result: MusicInfo[] = [];
-  for (const song of [...local, ...remote]) {
-    const key = songKey(song);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(song);
-  }
-  return result;
-}
-
-/** 本地歌单合并:同 id 取 updatedAt 新者为基础,歌曲保留并集。 */
-function mergeLocalPlaylists(local: LocalPlaylist[], remote: LocalPlaylist[]): LocalPlaylist[] {
-  const map = new Map<string, LocalPlaylist>();
-  for (const pl of local) map.set(pl.id, pl);
-  for (const pl of remote) {
-    const existing = map.get(pl.id);
-    if (!existing) {
-      map.set(pl.id, pl);
-    } else if (pl.updatedAt > existing.updatedAt) {
-      map.set(pl.id, { ...pl, songs: mergeFavorites(existing.songs, pl.songs) });
-    } else {
-      map.set(pl.id, { ...existing, songs: mergeFavorites(existing.songs, pl.songs) });
-    }
-  }
-  return Array.from(map.values());
-}
-
-/** 云端歌单(引用)合并:同 id 保留较新者。 */
-function mergeCloudPlaylists(local: WyPlaylistInfo[], remote: WyPlaylistInfo[]): WyPlaylistInfo[] {
-  const map = new Map<string, WyPlaylistInfo>();
-  for (const pl of local) map.set(pl.id, pl);
-  for (const pl of remote) {
-    const existing = map.get(pl.id);
-    if (!existing) map.set(pl.id, pl);
-  }
-  return Array.from(map.values());
-}
-
 async function persistLocalPlaylists(localPlaylists: LocalPlaylist[]): Promise<void> {
   await AsyncStorage.setItem(LOCAL_PLAYLISTS_KEY, JSON.stringify(localPlaylists));
 }
@@ -165,6 +130,8 @@ function parseLikedSongs(raw: string | null): MusicInfo[] {
 }
 
 type PlaylistStore = PlaylistState & PlaylistActions;
+
+const playlistDetailRequestGate = new LatestRequestGate();
 
 export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
   playlists: [],
@@ -257,14 +224,16 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
   },
 
   fetchPlaylistDetail: async (playlistId, source = "wy", inputPlaylist) => {
+    const requestId = playlistDetailRequestGate.begin();
     set({ loading: true, error: null });
     try {
-      const { playlists, likedPlaylist } = get();
+      const { playlists } = get();
       const playlist = inputPlaylist || playlists.find((p) => p.id === playlistId && p.source === source) || null;
       const songs = source === "tx" && playlist
         ? await getTxPlaylistDetail(playlist)
         : await getPlaylistDetail(playlistId);
-      const isLikedPlaylist = source === "wy" && likedPlaylist?.id === playlistId;
+      if (!playlistDetailRequestGate.isCurrent(requestId)) return;
+      const isLikedPlaylist = source === "wy" && get().likedPlaylist?.id === playlistId;
       set({
         currentPlaylist: playlist,
         currentPlaylistSongs: songs,
@@ -275,6 +244,7 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
         loading: false,
       });
     } catch (error) {
+      if (!playlistDetailRequestGate.isCurrent(requestId)) return;
       const message = error instanceof Error ? error.message : "获取歌单详情失败";
       set({ error: message, loading: false });
     }
@@ -296,7 +266,9 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
             }
           : null,
       });
-    } catch {}
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : "获取喜欢歌曲失败" });
+    }
   },
 
   likeSong: async (song) => {
@@ -653,9 +625,9 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
   },
   mergeFromSync: async ({ likedSongs, cloudPlaylists, localPlaylists }) => {
     const current = get();
-    const mergedFavorites = mergeFavorites(current.likedSongs, likedSongs);
-    const mergedLocal = mergeLocalPlaylists(current.localPlaylists, localPlaylists);
-    const mergedCloud = mergeCloudPlaylists(current.playlists, cloudPlaylists);
+    const mergedFavorites = mergeWebdavSongs(current.likedSongs, likedSongs);
+    const mergedLocal = mergeWebdavLocalPlaylists(current.localPlaylists, localPlaylists);
+    const mergedCloud = mergeWebdavCloudPlaylists(current.playlists, cloudPlaylists);
     await persistLikedSongs(mergedFavorites);
     await persistLocalPlaylists(mergedLocal);
     set({

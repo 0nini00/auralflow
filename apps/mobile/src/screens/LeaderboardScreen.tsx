@@ -15,16 +15,13 @@ import {
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, touch, typography } from "@/theme/tokens";
 
-interface LeaderboardScreenProps {
-  onBack: () => void;
-}
 
 /**
  * 网易云排行榜页（对齐 lx Leaderboard 视图）：
  * 官方榜 + 语种榜 + 流派榜 + 场景榜 三列网格。
  * 榜单详情复用 PlaylistDetailScreen，无需单独详情页。
  */
-export function LeaderboardScreen({ onBack }: LeaderboardScreenProps) {
+export function LeaderboardScreen() {
   const themeMode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
@@ -90,15 +87,6 @@ export function LeaderboardScreen({ onBack }: LeaderboardScreenProps) {
   return (
     <ScreenScaffold>
       <ScreenScrollView>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="返回"
-          style={styles.backButton}
-          onPress={onBack}
-        >
-          <Text style={[styles.backText, { color: palette.primary }]}>返回</Text>
-        </Pressable>
-
         <Text style={[styles.pageTitle, { color: palette.text }]}>排行榜</Text>
 
         {loading ? <LoadingState label="正在加载排行榜" /> : null}
@@ -129,17 +117,6 @@ export function LeaderboardScreen({ onBack }: LeaderboardScreenProps) {
 
 function createStyles(palette: ReturnType<typeof getThemePalette>) {
   return StyleSheet.create({
-    backButton: {
-      minHeight: touch.minTarget,
-      minWidth: touch.minTarget,
-      alignItems: "center",
-      justifyContent: "center",
-      alignSelf: "flex-start",
-    },
-    backText: {
-      fontSize: typography.title,
-      fontWeight: "600",
-    },
     pageTitle: {
       fontSize: typography.heading,
       fontWeight: "700",

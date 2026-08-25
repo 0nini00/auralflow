@@ -16,7 +16,8 @@ import type { PlaybackQuality } from "./playbackQualityModel";
  *
  * 当前播放策略为「纯网关」（用户选择），resolveWySongUrl 暂未接线，
  * 保留此实现供恢复「官方直连优先」时直接复用（桌面端 wyProvider 同款逻辑）。
- * eapiEncrypt 仍被 wySearchService（cloudsearch 搜索）使用。
+ * eapiEncrypt 仍被 wySearchService（cloudsearch 搜索）使用；
+ * postWyEapi 为通用 eapi POST，供本模块播放 URL 与 musicApi 歌词直连共用。
  */
 
 const WY_EAPI_KEY = "e82ckenh8dichen8";
@@ -73,6 +74,40 @@ function wyBrForQuality(quality: PlaybackQuality): number {
 }
 
 /**
+ * eapi 通用 POST（网易云免登录直连，播放 URL / 歌词等接口共用）。
+ * @param path 加密用接口路径（如 /api/song/lyric/v1），实际请求 /eapi/ 下同名路径
+ * @returns 已解析 JSON；HTTP 非 2xx 或业务 code 非 200（字段存在时）抛错
+ */
+export async function postWyEapi(
+  path: string,
+  params: Record<string, unknown>
+): Promise<unknown> {
+  const response = await fetchWithTimeout(
+    `https://interface3.music.163.com/eapi/${path.replace(/^\/api\//, "")}`,
+    {
+      method: "POST",
+      headers: {
+        "User-Agent": WY_UA,
+        Origin: "https://music.163.com",
+        Referer: "https://music.163.com",
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: `params=${encodeURIComponent(eapiEncrypt(path, params))}`,
+    },
+  );
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`eapi HTTP ${response.status}: ${text.slice(0, 160)}`);
+  }
+  const json = JSON.parse(text) as { code?: unknown };
+  const code = Number(json?.code);
+  if (Number.isFinite(code) && code !== 200) {
+    throw new Error(`eapi code ${code}`);
+  }
+  return json;
+}
+
+/**
  * 直连解析网易云歌曲播放 URL。
  * @throws 两级直连都失败时抛错（含原因），调用方负责回退网关。
  */
@@ -86,10 +121,13 @@ export async function resolveWySongUrl(
   }
 
   // 1. weapi + Cookie（已登录时最可靠）
+  // 失败原因必须带到最终错误里：无版权/需要 VIP 与网络错误的处置方式完全不同，
+  // 静默吞掉会让用户只看到 eapi 的报错，误以为是网络问题。
   const cookie = await getWyCookie();
+  let weapiFailure: string | null = null;
   if (cookie) {
     try {
-      const body = await postWyWeapi<{ data?: Array<{ url?: string }> }>(
+      const body = await postWyWeapi<{ data?: Array<{ url?: string; code?: unknown; fee?: unknown }> }>(
         "/song/enhance/player/url/v1",
         {
           ids: `[${idNum}]`,
@@ -98,40 +136,29 @@ export async function resolveWySongUrl(
         },
         cookie,
       );
-      const url = body?.data?.[0]?.url;
+      const entry = body?.data?.[0];
+      const url = entry?.url;
       if (url && url.length > 0) return url;
-    } catch {}
+      weapiFailure = `weapi 已登录但未返回 URL（code=${String(entry?.code ?? "?")}，通常是无版权或需要 VIP）`;
+    } catch (error) {
+      weapiFailure = `weapi 失败：${error instanceof Error ? error.message : String(error)}`;
+    }
+  } else {
+    weapiFailure = "未登录网易云";
   }
 
   // 2. eapi 免登录
   try {
-    const params = eapiEncrypt("/api/song/enhance/player/url", {
+    const json = (await postWyEapi("/api/song/enhance/player/url", {
       ids: [idNum],
       br: wyBrForQuality(quality),
-    });
-    const response = await fetchWithTimeout(
-      "https://interface3.music.163.com/eapi/song/enhance/player/url",
-      {
-        method: "POST",
-        headers: {
-          "User-Agent": WY_UA,
-          Origin: "https://music.163.com",
-          Referer: "https://music.163.com",
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: `params=${encodeURIComponent(params)}`,
-      },
-    );
-    const text = await response.text();
-    if (!response.ok) {
-      throw new Error(`eapi HTTP ${response.status}: ${text.slice(0, 160)}`);
-    }
-    const json = JSON.parse(text) as { data?: Array<{ url?: string }> };
+    })) as { data?: Array<{ url?: string }> };
     const url = json?.data?.[0]?.url;
     if (url && url.length > 0) return url;
     throw new Error("eapi 未返回可播放 URL");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`网易云直连解析失败：${message}`);
+    const prefix = weapiFailure ? `${weapiFailure}；` : "";
+    throw new Error(`网易云直连解析失败：${prefix}${message}`);
   }
 }

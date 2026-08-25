@@ -19,6 +19,7 @@ import {
 
 import { CachedImage } from "@/components/CachedImage";
 import { MiniProgressBar } from "@/components/MiniProgressBar";
+import { IconButton } from "@/components/IconButton";
 import { Touchable } from "@/components/Touchable";
 import {
   hideLyricOverlay,
@@ -26,7 +27,6 @@ import {
   updateLyricOverlay,
 } from "@/services/lyricOverlayService";
 import {
-  getCurrentLyricIndex,
   playFromQueue,
   playNext,
   playPrevious,
@@ -36,11 +36,11 @@ import { convertChineseText } from "@/services/chineseConversionService";
 import { QueueModal } from "@/components/QueueModal";
 import { useLyricOverlayStore } from "@/stores/lyricOverlayStore";
 import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
+import { useLyricLineIndex } from "@/hooks/useLyricLineIndex";
 import { usePlayerStore } from "@/stores/playerStore";
 import { PLAYER_BAR_HEIGHT } from "@/navigation/tabLayout";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, touch, typography } from "@/theme/tokens";
-import { calculateLyricLineProgress } from "@lx/core";
 
 export interface PlayerBarProps {
   onOpen: () => void;
@@ -128,6 +128,18 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
       },
     }),
   ).current;
+
+  // 长按定时器的卸载兜底清理：触摸被父级滑动 PanResponder 抢走时收到的是
+  // touchCancel 而非 touchEnd（已单独处理），组件卸载（如清空队列）时在此清理，
+  // 避免 500ms 后误开播放器。
+  useEffect(() => {
+    return () => {
+      if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current);
+        longPressTimer.current = null;
+      }
+    };
+  }, []);
 
   if (!currentSong || keyboardVisible) return null;
 
@@ -219,6 +231,7 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
           onPress={onOpen}
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
           style={styles.trackSummary}
           accessibilityRole="button"
           accessibilityLabel="打开沉浸式播放器"
@@ -255,59 +268,42 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
         </Touchable>
 
         <View style={styles.transportControls}>
-          <Touchable
+          <IconButton
+            size="sm"
+            tone="strong"
             onPress={handlePrevious}
-            style={styles.iconButton}
-            accessibilityRole="button"
             accessibilityLabel="上一首"
-          >
-            <SkipBack size={18} color={palette.text} />
-          </Touchable>
-          {isPlaying ? (
-            <Touchable
-              disabled={loading}
-              onPress={() => void handleTogglePlayback()}
-              style={[styles.playButton, { backgroundColor: palette.primary }]}
-              accessibilityRole="button"
-              accessibilityLabel="暂停"
-            >
-              {loading ? (
-                <ActivityIndicator color={palette.primaryText} size="small" />
+            render={({ size, color }) => <SkipBack size={size} color={color} />}
+          />
+          <IconButton
+            variant="accent"
+            disabled={loading}
+            onPress={() => void handleTogglePlayback()}
+            accessibilityLabel={isPlaying ? "暂停" : "播放"}
+            render={({ size, color }) =>
+              loading ? (
+                <ActivityIndicator color={color} size="small" />
+              ) : isPlaying ? (
+                <Pause size={size} color={color} fill={color} />
               ) : (
-                <Pause size={20} color={palette.primaryText} fill={palette.primaryText} />
-              )}
-            </Touchable>
-          ) : (
-            <Touchable
-              disabled={loading}
-              onPress={() => void handleTogglePlayback()}
-              style={[styles.playButton, { backgroundColor: palette.primary }]}
-              accessibilityRole="button"
-              accessibilityLabel="播放"
-            >
-              {loading ? (
-                <ActivityIndicator color={palette.primaryText} size="small" />
-              ) : (
-                <Play size={20} color={palette.primaryText} fill={palette.primaryText} />
-              )}
-            </Touchable>
-          )}
-          <Touchable
+                <Play size={size} color={color} fill={color} />
+              )
+            }
+          />
+          <IconButton
+            size="sm"
+            tone="strong"
             onPress={handleNext}
-            style={styles.iconButton}
-            accessibilityRole="button"
             accessibilityLabel="下一首"
-          >
-            <SkipForward size={18} color={palette.text} />
-          </Touchable>
-          <Touchable
+            render={({ size, color }) => <SkipForward size={size} color={color} />}
+          />
+          <IconButton
+            size="sm"
+            tone="strong"
             onPress={() => setQueueModalOpen(true)}
-            style={styles.iconButton}
-            accessibilityRole="button"
             accessibilityLabel="播放列表"
-          >
-            <ListMusic size={18} color={palette.text} />
-          </Touchable>
+            render={({ size, color }) => <ListMusic size={size} color={color} />}
+          />
         </View>
       </View>
 
@@ -334,8 +330,9 @@ interface MiniLyricStatusProps {
 /**
  * 迷你栏实时歌词行（对应 lx `Status`）。
  *
- * 播放进度（position）0.25s 更新一次，这里把它隔离到叶子组件：
- * - 只有这一行 Text 随进度重渲染，整个 PlayerBar（封面、按钮、弹窗）不再随进度重建；
+ * 行号统一走 useLyricLineIndex（与沉浸屏同源：锚点外推 + 行边界调度 + 单调钳制），
+ * 不再随 0.25s 进度事件重算。组件隔离到叶子：
+ * - 只有这一行 Text 随行切换重渲染，整个 PlayerBar（封面、按钮、弹窗）不再随进度重建；
  * - 悬浮歌词原生桥调用做节流：仅当行号切换或行内进度跨档（10%）且距上次 ≥250ms 时才发送。
  */
 function MiniLyricStatus({ overlayVisible, color }: MiniLyricStatusProps) {
@@ -348,7 +345,8 @@ function MiniLyricStatus({ overlayVisible, color }: MiniLyricStatusProps) {
   const chineseConversion = useLyricSettingsStore((s) => s.chineseConversion);
 
   const offsetSec = manualOffsetMs / 1000;
-  const currentIndex = getCurrentLyricIndex(lyrics, position + offsetSec);
+  // 统一行号源：与沉浸屏共用同一钩子，避免两套行号在行边界附近不同步
+  const currentIndex = useLyricLineIndex(lyrics, manualOffsetMs);
   const convertText = useCallback(
     (text: string) => convertChineseText(text, chineseConversion),
     [chineseConversion],
@@ -368,20 +366,16 @@ function MiniLyricStatus({ overlayVisible, color }: MiniLyricStatusProps) {
 
     const now = Date.now();
     const last = lastSentRef.current;
-    // 无逐字歌词时按 CJK 字符/拉丁词估算行内进度（与桌面 playbackSync 同一算法）
-    const lineProgress = calculateLyricLineProgress(lyrics, currentIndex, position + offsetSec);
-    const bucket = Math.floor(lineProgress * 10);
-    const indexChanged = currentIndex !== last.index;
-    const bucketChanged = bucket !== last.bucket;
-    if (!indexChanged && !(bucketChanged && now - last.ts >= 250)) return;
+    // 悬浮窗只显示整行文字（无行内进度条），因此只在换行时推送，
+    // 不再按行内进度做 250ms 节流——原来那样每行要多发十几次无效更新。
+    if (currentIndex === last.index) return;
 
-    lastSentRef.current = { index: currentIndex, bucket, ts: now };
+    lastSentRef.current = { index: currentIndex, bucket: 0, ts: now };
     const currentLine = lyrics[currentIndex];
     const nextLine = lyrics[currentIndex + 1];
     void updateLyricOverlay(
       currentLine ? convertText(currentLine.text) : "",
       nextLine ? convertText(nextLine.text) : "",
-      lineProgress,
     ).catch((error: unknown) => {
     });
   }, [currentIndex, lyrics, overlayVisible, position, offsetSec, convertText]);
@@ -441,19 +435,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: spacing.xxs,
-  },
-  iconButton: {
-    minWidth: 36,
-    minHeight: 40,
-    borderRadius: radius.sm,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  playButton: {
-    minWidth: 40,
-    minHeight: 40,
-    borderRadius: radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
   },
 });

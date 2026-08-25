@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useCallback } from "react";
 import { View, Animated, Easing, Pressable } from "react-native";
 import { Music2 } from "lucide-react-native";
+import { COVER_SIZE_LARGE } from "@lx/core";
 import type { ThemePalette } from "@/stores/themeStore";
 import { CachedImage } from "@/components/CachedImage";
 import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
@@ -97,6 +98,7 @@ export function ImmersiveCoverPage({
             {artwork ? (
               <CachedImage
                 uri={artwork}
+                size={COVER_SIZE_LARGE}
                 style={[
                   styles.coverImage,
                   { borderRadius: coverBorderRadius },

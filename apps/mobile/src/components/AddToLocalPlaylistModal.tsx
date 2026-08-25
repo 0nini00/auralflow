@@ -126,14 +126,14 @@ export function AddToLocalPlaylistModal({ visible, song, songs, onClose }: AddTo
             style={[styles.input, { borderColor: palette.border, color: palette.text }]}
           />
           <Pressable
-            style={[styles.createButton, { backgroundColor: palette.primary }]}
+            style={[styles.createButton, { backgroundColor: palette.surface, borderColor: palette.border, borderWidth: 1 }]}
             onPress={handleCreateWithSong}
             disabled={targetSongs.length === 0 || creating || addingPlaylistId !== null || addingWyPlaylistId !== null}
           >
             {creating ? (
-              <ActivityIndicator color={palette.primaryText} size="small" />
+              <ActivityIndicator color={palette.primary} size="small" />
             ) : (
-              <Text style={[styles.createButtonText, { color: palette.primaryText }]}>创建并添加</Text>
+              <Text style={[styles.createButtonText, { color: palette.primary }]}>创建并添加</Text>
             )}
           </Pressable>
         </View>

@@ -308,26 +308,6 @@ export const styles = StyleSheet.create({
     fontWeight: "700",
   },
   // 海报模式已随桌面端风格移除（对齐 lx 竖屏播放器）
-  soundEffectModalContent: {
-
-    maxHeight: "80%",
-
-    paddingBottom: 12,
-
-  },
-
-  soundEffectScroll: {
-
-    maxHeight: 480,
-
-  },
-
-  soundEffectScrollContent: {
-
-    paddingBottom: 24,
-
-  },
-
   sleepSectionTitle: {
 
     fontSize: typography.caption,

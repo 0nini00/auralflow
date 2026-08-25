@@ -4,7 +4,7 @@ import RNFS from "react-native-fs";
 import {
   checkCustomSourceUpdate,
   parseDesktopUserApiInfo,
-  testCustomSource,
+  testCustomSourceDeep,
   invalidateRuntimeCache,
   type DesktopUserApiHeaderInfo,
   type CustomSourceUpdateAlert,
@@ -54,6 +54,7 @@ interface CustomSourceStore {
   moveSource: (id: string, direction: "up" | "down") => void;
   testSource: (id: string) => Promise<void>;
   checkSourceUpdate: (id: string) => Promise<void>;
+  applyRuntimeUpdateAlert: (id: string, alert: CustomSourceUpdateAlert) => void;
   checkAllUpdates: () => Promise<void>;
   checkStartupUpdates: () => Promise<void>;
   toggleUpdateAlert: (id: string, enabled: boolean) => void;
@@ -66,6 +67,9 @@ interface PersistedCustomSourceState {
   sources?: CustomSourceItem[];
   customSourceAutoCheck?: boolean;
 }
+
+// 远端更新检查节流间隔：同一源距上次远端检查不足 24 小时不再重复拉取（对齐桌面端）
+const REMOTE_CHECK_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 function makeId(): string {
   return `user_api_${Math.random().toString().slice(2, 5)}_${Date.now()}`;
@@ -226,6 +230,7 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
   },
 
   toggleSource: (id, enabled) => {
+    if (!enabled) invalidateRuntimeCache(id);
     const next = patchSource(get().sources, id, { enabled });
     set({ sources: next });
     void persistState(next, get().customSourceAutoCheck);
@@ -263,11 +268,12 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
     }));
 
     try {
-      const result = await testCustomSource(source);
+      // init 通过后自动继续深度取链测试；未声明 musicUrl 能力的脚本仅验证初始化
+      const result = await testCustomSourceDeep(source);
       const next = patchSource(get().sources, id, {
         sources: result.sources,
-        testStatus: "ok",
-        testMessage: "初始化正常",
+        testStatus: result.ok ? "ok" : "failed",
+        testMessage: result.message,
         ...buildUpdatePatch(result.updateAlert),
       });
       set({ sources: next });
@@ -313,8 +319,34 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
     }
   },
 
+  // 运行时上报：正常播放/下载取链时脚本主动 send(updateAlert)，写入后由
+  // CustomSourceUpdateModal 按 updateStatus === "available" 自动弹出。
+  // 正在检测中的源忽略，避免与 checkSourceUpdate 的结果互相覆盖
+  applyRuntimeUpdateAlert: (id, alert) => {
+    const source = get().sources.find((item) => item.id === id);
+    if (!source || source.updateStatus === "checking") return;
+    const next = patchSource(get().sources, id, {
+      updateStatus: "available",
+      updateMessage: "音源运行时上报更新",
+      updateLog: alert.log,
+      updateUrl: alert.updateUrl,
+      updateCheckedAt: Date.now(),
+    });
+    set({ sources: next });
+    void persistState(next, get().customSourceAutoCheck);
+  },
+
   checkAllUpdates: async () => {
-    const ids = get().sources.map((source) => source.id);
+    const now = Date.now();
+    // 距上次远端检查不足 24 小时且上次未失败的源跳过检查，保留现有状态（不写盘）
+    const ids = get().sources
+      .filter(
+        (source) =>
+          !source.updateCheckedAt ||
+          source.updateStatus === "failed" ||
+          now - source.updateCheckedAt >= REMOTE_CHECK_MIN_INTERVAL_MS,
+      )
+      .map((source) => source.id);
     // 限制并发，避免一次拉起过多自定义音源更新请求（对齐桌面端 CONCURRENCY = 2）
     const CONCURRENCY = 2;
     for (let i = 0; i < ids.length; i += CONCURRENCY) {
@@ -332,6 +364,7 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
   },
 
   replaceAll: (sources) => {
+    for (const source of get().sources) invalidateRuntimeCache(source.id);
     const next = (sources ?? []).map(normalizeCustomSourceForStore);
     set({ sources: next });
     void persistState(next, get().customSourceAutoCheck);

@@ -1,6 +1,7 @@
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 
+import { ActionButton } from "@/components/ActionButton";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, touch, typography } from "@/theme/tokens";
 
@@ -29,14 +30,7 @@ export function PlaybackErrorState({
       ]}
     >
       <Text style={[styles.message, { color: palette.danger }]}>{message}</Text>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="关闭播放错误"
-        onPress={onDismiss}
-        style={styles.dismissButton}
-      >
-        <Text style={[styles.dismissText, { color: palette.danger }]}>关闭</Text>
-      </Pressable>
+      <ActionButton label="关闭" variant="danger" small onPress={onDismiss} accessibilityLabel="关闭播放错误" />
     </View>
   );
 }
@@ -54,16 +48,5 @@ const styles = StyleSheet.create({
   message: {
     flex: 1,
     fontSize: typography.meta,
-  },
-  dismissButton: {
-    minWidth: touch.minTarget,
-    minHeight: touch.minTarget,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: spacing.xs,
-  },
-  dismissText: {
-    fontSize: typography.meta,
-    fontWeight: "600",
   },
 });

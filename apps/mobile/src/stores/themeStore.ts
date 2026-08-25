@@ -99,6 +99,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   loaded: false,
 
   loadTheme: async () => {
+    if (get().loaded) return;
     const persisted = parseThemeState(await AsyncStorage.getItem(THEME_STORAGE_KEY));
     set({
       mode: persisted.mode ?? "system",
@@ -176,6 +177,25 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
 
 export function getResolvedTheme(mode: ThemeMode, systemTheme: ResolvedTheme): ResolvedTheme {
   return mode === "system" ? systemTheme : mode;
+}
+
+/**
+ * 夜间主题下自定义背景图的遮罩不透明度下限。
+ * 夜间文字是浅色（#f8fafc）：若遮罩低于 0.72，亮色背景图透出的亮度会把白字
+ * 对比度压到不可读（0.5 遮罩时等效底色约 43% 灰，对比度仅 ~2:1，
+ * 即“夜间根本看不了”）。日间文字是深色，亮图透出也不会失控，无需下限。
+ */
+const DARK_BACKGROUND_OPACITY_FLOOR = 0.72;
+
+/**
+ * 取生效遮罩不透明度：夜间模式下不低于下限（用户设置值仍可往上加大）。
+ */
+export function getEffectiveBackgroundOpacity(
+  theme: ResolvedTheme,
+  backgroundOpacity: number,
+): number {
+  if (theme !== "dark") return backgroundOpacity;
+  return Math.max(backgroundOpacity, DARK_BACKGROUND_OPACITY_FLOOR);
 }
 
 export function getThemePalette(theme: ResolvedTheme, accentColor = DEFAULT_ACCENT_COLOR): ThemePalette {

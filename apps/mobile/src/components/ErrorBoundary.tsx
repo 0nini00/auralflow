@@ -1,6 +1,7 @@
 import React from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 
+import { ActionButton } from "@/components/ActionButton";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 
 interface ErrorBoundaryProps {
@@ -52,14 +53,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
             {error.message || String(error)}
           </Text>
         </ScrollView>
-        <Pressable
-          style={[styles.retryButton, { backgroundColor: palette.primary }]}
-          onPress={this.handleReset}
-          accessibilityRole="button"
-          accessibilityLabel="重试"
-        >
-          <Text style={[styles.retryText, { color: palette.primaryText }]}>重试</Text>
-        </Pressable>
+        <ActionButton label="重试" variant="primary" onPress={this.handleReset} />
       </View>
     );
   }
@@ -93,15 +87,5 @@ const styles = StyleSheet.create({
   detailText: {
     fontSize: 12,
     fontFamily: "monospace",
-  },
-  retryButton: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 10,
-  },
-  retryText: {
-    fontSize: 14,
-    fontWeight: "700",
   },
 });

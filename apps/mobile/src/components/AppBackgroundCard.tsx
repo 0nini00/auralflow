@@ -102,11 +102,11 @@ export function AppBackgroundCard() {
       )}
 
       <Pressable
-        style={[styles.primaryButton, { backgroundColor: palette.primary }]}
+        style={[styles.primaryButton, { backgroundColor: palette.surface, borderColor: palette.border, borderWidth: 1 }]}
         onPress={handlePick}
         disabled={picking}
       >
-        <Text style={[styles.primaryButtonText, { color: palette.primaryText }]}>
+        <Text style={[styles.primaryButtonText, { color: palette.primary }]}>
           {picking ? "选择中…" : backgroundImageUri ? "更换图片" : "选择图片"}
         </Text>
       </Pressable>
@@ -123,14 +123,14 @@ export function AppBackgroundCard() {
                   style={[
                     styles.opacityOption,
                     { borderColor: palette.border, backgroundColor: palette.surfaceMuted },
-                    active && { borderColor: palette.primary, backgroundColor: palette.primary },
+                    active && { borderColor: palette.primary },
                   ]}
                   onPress={() => void setBackgroundOpacity(option.value)}
                 >
                   <Text
                     style={[
                       styles.opacityText,
-                      { color: active ? palette.primaryText : palette.text },
+                      { color: active ? palette.primary : palette.text },
                     ]}
                   >
                     {option.label}

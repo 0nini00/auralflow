@@ -1,7 +1,9 @@
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 
+import { ActionButton } from "@/components/ActionButton";
 import { CachedImage } from "@/components/CachedImage";
+import { Touchable } from "@/components/Touchable";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import type { ThemePalette } from "@/services/themePaletteModel";
 import type {
@@ -9,7 +11,7 @@ import type {
   SearchArtistResult,
   SearchPlaylistResult,
 } from "@/services/musicApi";
-import { layout, radius, spacing, touch, typography } from "@/theme/tokens";
+import { layout, radius, spacing, typography } from "@/theme/tokens";
 
 export type ArtistPressHandler = (artist: SearchArtistResult) => void;
 export type AlbumPressHandler = (album: SearchAlbumResult) => void;
@@ -123,7 +125,7 @@ function ArtistItem({
   palette: ThemePalette;
 }) {
   return (
-    <Pressable style={[styles.item, { backgroundColor: palette.surface }]} onPress={onPress ? () => onPress(artist) : undefined}>
+    <Touchable style={[styles.item, { backgroundColor: palette.surface }]} onPress={onPress ? () => onPress(artist) : undefined}>
       <Artwork uri={artist.avatarUrl} fallbackText="歌手" palette={palette} />
       <View style={styles.info}>
         <Text style={[styles.primaryText, { color: palette.text }]} numberOfLines={1}>
@@ -134,7 +136,7 @@ function ArtistItem({
         </Text>
       </View>
       <Text style={[styles.sourceText, { color: palette.textMuted, backgroundColor: palette.surfaceStrong }]}>歌手</Text>
-    </Pressable>
+    </Touchable>
   );
 }
 
@@ -148,7 +150,7 @@ function AlbumItem({
   palette: ThemePalette;
 }) {
   return (
-    <Pressable style={[styles.item, { backgroundColor: palette.surface }]} onPress={onPress ? () => onPress(album) : undefined}>
+    <Touchable style={[styles.item, { backgroundColor: palette.surface }]} onPress={onPress ? () => onPress(album) : undefined}>
       <Artwork uri={album.coverUrl} fallbackText="专辑" palette={palette} />
       <View style={styles.info}>
         <Text style={[styles.primaryText, { color: palette.text }]} numberOfLines={1}>
@@ -161,7 +163,7 @@ function AlbumItem({
         </Text>
       </View>
       <Text style={[styles.sourceText, { color: palette.textMuted, backgroundColor: palette.surfaceStrong }]}>专辑</Text>
-    </Pressable>
+    </Touchable>
   );
 }
 
@@ -177,7 +179,10 @@ function PlaylistItem({
   palette: ThemePalette;
 }) {
   return (
-    <Pressable style={[styles.item, { backgroundColor: palette.surface }]} onPress={onPress ? () => onPress(playlist) : undefined}>
+    <Touchable
+      style={[styles.item, { backgroundColor: palette.surface }]}
+      onPress={onPress ? () => onPress(playlist) : undefined}
+    >
       <Artwork uri={playlist.coverUrl} fallbackText="歌单" palette={palette} />
       <View style={styles.info}>
         <Text style={[styles.primaryText, { color: palette.text }]} numberOfLines={1}>
@@ -190,26 +195,17 @@ function PlaylistItem({
         </Text>
       </View>
       {importAction ? (
-        <Pressable
-          style={[
-            styles.importButton,
-            { backgroundColor: palette.surfaceMuted },
-            importAction.disabled && { backgroundColor: palette.surfaceStrong },
-          ]}
+        <ActionButton
+          label={importAction.loading ? "导入中" : importAction.label}
+          variant="secondary"
+          small
           disabled={importAction.disabled || importAction.loading}
-          onPress={(event) => {
-            event.stopPropagation();
-            importAction.onPress(playlist);
-          }}
-        >
-          <Text style={[styles.importButtonText, { color: importAction.disabled ? palette.textMuted : palette.primary }]}>
-            {importAction.loading ? "导入中" : importAction.label}
-          </Text>
-        </Pressable>
+          onPress={() => importAction.onPress(playlist)}
+        />
       ) : (
         <Text style={[styles.sourceText, { color: palette.textMuted, backgroundColor: palette.surfaceStrong }]}>歌单</Text>
       )}
-    </Pressable>
+    </Touchable>
   );
 }
 
@@ -288,17 +284,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: radius.sm,
-  },
-  importButton: {
-    minWidth: 52,
-    minHeight: touch.minTarget,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.sm,
-    paddingHorizontal: 10,
-  },
-  importButtonText: {
-    fontSize: typography.caption,
-    fontWeight: "600",
   },
 });

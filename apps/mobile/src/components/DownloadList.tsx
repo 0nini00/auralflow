@@ -1,13 +1,17 @@
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
+import { Play, RotateCcw, Trash2, X } from "lucide-react-native";
 import type { MusicInfo } from "@lx/core";
 
+import type { DownloadQuality } from "@/stores/downloadStore";
 import { useDownloadStore } from "@/stores/downloadStore";
 import { usePlayerStore } from "@/stores/playerStore";
+import { IconButton } from "@/components/IconButton";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
 import { CachedImage } from "@/components/CachedImage";
+import { Touchable } from "@/components/Touchable";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { radius, spacing, typography } from "@/theme/tokens";
+import { iconButton, radius, spacing, typography } from "@/theme/tokens";
 import {
   buildCompletedDownloadMetadata,
   buildDownloadingMetadata,
@@ -23,7 +27,15 @@ interface DownloadListProps {
   onNavigateToPlayer: () => void;
 }
 
+/**
+ * 下载管理列表（对齐 lx DownloadManager 的任务视图设计）：
+ * - 列表项不再提供「播放」按键，点击歌名行即播放（与全 app 列表交互一致）
+ * - 「移除」只删记录不动文件（lx removeTask 语义）；「删除文件」是独立动作
+ * - 进行中任务提供 暂停/继续/取消；失败任务提供 重试/移除
+ * - 所有按键统一走 IconButton / Touchable 原语
+ */
 export function DownloadList({ downloads, downloading, failedDownloads = [], onNavigateToPlayer }: DownloadListProps) {
+  const removeDownloadRecord = useDownloadStore((state) => state.removeDownloadRecord);
   const removeDownload = useDownloadStore((state) => state.removeDownload);
   const cancelDownload = useDownloadStore((state) => state.cancelDownload);
   const pauseDownload = useDownloadStore((state) => state.pauseDownload);
@@ -53,6 +65,7 @@ export function DownloadList({ downloads, downloading, failedDownloads = [], onN
       setPlaybackError(result.message);
       return;
     }
+    onNavigateToPlayer();
   };
 
   const coverFor = (song: MusicInfo) => song.picUrl || song.img;
@@ -115,26 +128,29 @@ export function DownloadList({ downloads, downloading, failedDownloads = [], onN
             </View>
             <View style={styles.downloadActions}>
               {isPaused ? (
-                <Pressable
-                  style={[styles.downloadActionButton, { backgroundColor: palette.background }]}
+                <IconButton
+                  size="sm"
+                  tone="default"
+                  accessibilityLabel="继续下载"
                   onPress={() => resumeDownload(item.song, item.quality)}
-                >
-                  <Text style={[styles.downloadActionText, { color: palette.primary }]}>继续</Text>
-                </Pressable>
+                  render={({ color, size }) => <Play color={color} size={size} />}
+                />
               ) : (
-                <Pressable
-                  style={[styles.downloadActionButton, { backgroundColor: palette.background }]}
+                <IconButton
+                  size="sm"
+                  tone="default"
+                  accessibilityLabel="暂停下载"
                   onPress={() => pauseDownload(item.song, item.quality)}
-                >
-                  <Text style={[styles.downloadActionText, { color: palette.text }]}>暂停</Text>
-                </Pressable>
+                  render={({ color, size }) => <X color={color} size={size} />}
+                />
               )}
-              <Pressable
-                style={[styles.downloadRemoveButton, { backgroundColor: palette.dangerSurface }]}
+              <IconButton
+                size="sm"
+                tone="danger"
+                accessibilityLabel="取消下载"
                 onPress={() => cancelDownload(item.song, item.quality)}
-              >
-                <Text style={[styles.downloadRemoveText, { color: palette.danger }]}>取消</Text>
-              </Pressable>
+                render={({ color, size }) => <Trash2 color={color} size={size} />}
+              />
             </View>
           </View>
         );
@@ -162,29 +178,37 @@ export function DownloadList({ downloads, downloading, failedDownloads = [], onN
               </Text>
             </View>
             <View style={styles.downloadActions}>
-              <Pressable
-                style={[styles.downloadActionButton, { backgroundColor: palette.background }]}
+              <IconButton
+                size="sm"
+                tone="default"
+                accessibilityLabel="重试下载"
                 onPress={() => void downloadSong(item.song, item.quality)}
-              >
-                <Text style={[styles.downloadActionText, { color: palette.primary }]}>重试</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.downloadRemoveButton, { backgroundColor: palette.dangerSurface }]}
+                render={({ color, size }) => <RotateCcw color={color} size={size} />}
+              />
+              <IconButton
+                size="sm"
+                tone="danger"
+                accessibilityLabel="移除失败记录"
                 onPress={() => removeFailedDownload(item.song, item.quality)}
-              >
-                <Text style={[styles.downloadRemoveText, { color: palette.danger }]}>移除</Text>
-              </Pressable>
+                render={({ color, size }) => <X color={color} size={size} />}
+              />
             </View>
           </View>
         );
       })}
 
       {downloads.map((item) => {
-        const quality = item.quality ?? item.song.quality ?? "320k";
+        const quality = (item.quality ?? item.song.quality ?? "320k") as DownloadQuality;
         const key = `${item.song.source}:${item.song.id}:${quality}`;
         const metadata = buildCompletedDownloadMetadata(item);
         return (
-          <View key={key} style={[styles.downloadItem, { backgroundColor: palette.surface }]}>
+          <Touchable
+            key={key}
+            style={[styles.downloadItem, { backgroundColor: palette.surface }]}
+            onPress={() => void handlePlay(item.song, item.localPath)}
+            accessibilityRole="button"
+            accessibilityLabel={`播放 ${item.song.name}`}
+          >
             <CachedImage
               uri={coverFor(item.song) || ""}
               style={styles.cover}
@@ -203,20 +227,22 @@ export function DownloadList({ downloads, downloading, failedDownloads = [], onN
               </Text>
             </View>
             <View style={styles.downloadActions}>
-              <Pressable
-                style={[styles.downloadActionButton, { backgroundColor: palette.background }]}
-                onPress={() => handlePlay(item.song, item.localPath)}
-              >
-                <Text style={[styles.downloadActionText, { color: palette.primary }]}>播放</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.downloadRemoveButton, { backgroundColor: palette.dangerSurface }]}
-                onPress={() => removeDownload(item.song, item.quality)}
-              >
-                <Text style={[styles.downloadRemoveText, { color: palette.danger }]}>删除</Text>
-              </Pressable>
+              <IconButton
+                size="sm"
+                tone="strong"
+                accessibilityLabel="移除下载记录（保留文件）"
+                onPress={() => void removeDownloadRecord(item.song, quality)}
+                render={({ color, size }) => <X color={color} size={size} />}
+              />
+              <IconButton
+                size="sm"
+                tone="danger"
+                accessibilityLabel="删除下载文件"
+                onPress={() => void removeDownload(item.song, quality)}
+                render={({ color, size }) => <Trash2 color={color} size={size} />}
+              />
             </View>
-          </View>
+          </Touchable>
         );
       })}
     </View>
@@ -242,8 +268,8 @@ const styles = StyleSheet.create({
     gap: spacing.s,
   },
   cover: {
-    width: 44,
-    height: 44,
+    width: iconButton.sm.size,
+    height: iconButton.sm.size,
     borderRadius: radius.sm,
   },
   coverFallback: {
@@ -293,25 +319,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   downloadActions: {
-    gap: spacing.xs,
+    gap: spacing.xxs,
     alignItems: "flex-end",
-  },
-  downloadActionButton: {
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.s,
-    paddingVertical: spacing.xs,
-  },
-  downloadActionText: {
-    fontSize: typography.caption,
-    fontWeight: "600",
-  },
-  downloadRemoveButton: {
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.s,
-    paddingVertical: spacing.xs,
-  },
-  downloadRemoveText: {
-    fontSize: typography.caption,
-    fontWeight: "600",
   },
 });

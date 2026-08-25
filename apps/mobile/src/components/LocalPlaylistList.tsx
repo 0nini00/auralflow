@@ -3,22 +3,17 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { ChevronRight, Music2 } from "lucide-react-native";
 import type { LocalPlaylist } from "@/services/localPlaylistModel";
 import { CachedImage } from "./CachedImage";
-import {
-  LOCAL_PLAYLIST_LIST_ACTIONS,
-  type LocalPlaylistListActionType,
-} from "@/services/localPlaylistListActions";
-import { buildLocalPlaylistListMeta } from "@/services/localPlaylistListMetaModel";
+import { getLocalPlaylistTrackCount } from "@/services/localPlaylistModel";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, typography } from "@/theme/tokens";
 
 interface LocalPlaylistListProps {
   playlists: LocalPlaylist[];
   onPress: (playlist: LocalPlaylist) => void;
-  onAction?: (playlist: LocalPlaylist, action: LocalPlaylistListActionType) => void;
   emptyText?: string;
 }
 
-export function LocalPlaylistList({ playlists, onPress, onAction, emptyText }: LocalPlaylistListProps) {
+export function LocalPlaylistList({ playlists, onPress, emptyText }: LocalPlaylistListProps) {
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
@@ -39,7 +34,6 @@ export function LocalPlaylistList({ playlists, onPress, onAction, emptyText }: L
           key={playlist.id}
           playlist={playlist}
           onPress={() => onPress(playlist)}
-          onAction={onAction}
         />
       ))}
     </View>
@@ -49,15 +43,13 @@ export function LocalPlaylistList({ playlists, onPress, onAction, emptyText }: L
 interface LocalPlaylistItemProps {
   playlist: LocalPlaylist;
   onPress: () => void;
-  onAction?: (playlist: LocalPlaylist, action: LocalPlaylistListActionType) => void;
 }
 
-function LocalPlaylistItem({ playlist, onPress, onAction }: LocalPlaylistItemProps) {
+function LocalPlaylistItem({ playlist, onPress }: LocalPlaylistItemProps) {
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
-  const metaText = buildLocalPlaylistListMeta(playlist);
   const coverUrl = playlist.cover;
 
   return (
@@ -86,33 +78,9 @@ function LocalPlaylistItem({ playlist, onPress, onAction }: LocalPlaylistItemPro
         <Text style={[styles.name, { color: palette.text }]} numberOfLines={1}>
           {playlist.name}
         </Text>
-        {playlist.description ? (
-          <Text style={[styles.description, { color: palette.textMuted }]} numberOfLines={1}>
-            {playlist.description}
-          </Text>
-        ) : null}
-        <Text style={[styles.meta, { color: palette.textMuted }]}>{metaText}</Text>
-        {onAction ? (
-          <View style={styles.actions}>
-            {LOCAL_PLAYLIST_LIST_ACTIONS.map((action) => (
-              <Pressable
-                key={action.type}
-                style={[
-                  styles.actionButton,
-                  { backgroundColor: action.destructive ? palette.dangerSurface : palette.surfaceStrong },
-                ]}
-                onPress={(event) => {
-                  event.stopPropagation();
-                  onAction(playlist, action.type);
-                }}
-              >
-                <Text style={[styles.actionText, { color: action.destructive ? palette.danger : palette.primary }]}>
-                  {action.label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        ) : null}
+        <Text style={[styles.meta, { color: palette.textMuted }]}>
+          {getLocalPlaylistTrackCount(playlist)} 首
+        </Text>
       </View>
       <ChevronRight size={20} color={palette.textMuted} />
     </Pressable>
@@ -152,25 +120,7 @@ const styles = StyleSheet.create({
     fontSize: typography.title,
     fontWeight: "600",
   },
-  description: {
-    fontSize: typography.caption,
-  },
   meta: {
     fontSize: typography.caption,
-  },
-  actions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.xs,
-    marginTop: spacing.xxs,
-  },
-  actionButton: {
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.xs,
-    paddingVertical: 5,
-  },
-  actionText: {
-    fontSize: typography.caption,
-    fontWeight: "700",
   },
 });

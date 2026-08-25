@@ -17,6 +17,7 @@ import {
   saveDownloads,
 } from "@/services/downloadService";
 import { usePlaybackSettingsStore } from "@/stores/playbackSettingsStore";
+import { hapticSuccess } from "@/services/hapticService";
 
 /** 重新导出音质类型，供组件使用 */
 export type { DownloadQuality };
@@ -76,7 +77,9 @@ interface DownloadActions {
   resumeDownload: (song: MusicInfo, quality?: DownloadQuality) => void;
   /** 新增一条已下载记录 */
   addDownload: (song: MusicInfo, localPath: string, quality?: DownloadQuality) => Promise<void>;
-  /** 删除某条已下载文件 */
+  /** 移除一条已下载记录（对齐 lx removeTask：只删记录不动文件，重新下载时按文件名约定秒完成） */
+  removeDownloadRecord: (song: MusicInfo, quality?: DownloadQuality) => Promise<void>;
+  /** 删除某条已下载记录并连同本地文件一起删除 */
   removeDownload: (song: MusicInfo, quality?: DownloadQuality) => Promise<void>;
   /** 移除失败下载记录（不触碰本地文件） */
   removeFailedDownload: (song: MusicInfo, quality?: DownloadQuality) => void;
@@ -185,6 +188,7 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
         failedDownloads: state.failedDownloads.filter((item) => failedDownloadKey(item) !== key),
       }));
       cancellationRequests.delete(key);
+      hapticSuccess();
       return { status: "completed" };
     } catch (error) {
       const cause = error instanceof Error ? error.message : fileDownloaded ? "未知错误" : "下载失败";
@@ -316,6 +320,23 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
     });
   },
 
+  removeDownloadRecord: async (song: MusicInfo, quality?: DownloadQuality) => {
+    const targetQuality = quality ?? normalizeDownloadQuality(song.quality) ?? "320k";
+    const key = downloadKey(song, targetQuality);
+    try {
+      await queueDownloadsMutation(async () => {
+        const nextDownloads = get().downloads.filter((item) => itemDownloadKey(item) !== key);
+        await saveDownloads(nextDownloads);
+        set((state) => ({
+          downloads: nextDownloads,
+          failedDownloads: state.failedDownloads.filter((item) => failedDownloadKey(item) !== key),
+        }));
+      });
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : "移除下载记录失败" });
+    }
+  },
+
   removeDownload: async (song: MusicInfo, quality?: DownloadQuality) => {
     const targetQuality = quality ?? normalizeDownloadQuality(song.quality) ?? "320k";
     const key = downloadKey(song, targetQuality);
@@ -327,7 +348,7 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
         if (target) {
           await removeDownloadedByPath(target.localPath);
         } else {
-          await removeDownloadedFile(song);
+          await removeDownloadedFile(song, targetQuality);
         }
         set((state) => ({
           downloads: nextDownloads,

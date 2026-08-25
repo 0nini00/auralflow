@@ -106,7 +106,7 @@ export function LikedSongsScreen({ onNavigateToPlayer }: LikedSongsScreenProps) 
             highlightedIndex={locatedSongIndex ?? currentSongIndex}
           />
         ) : (
-          <EmptyState icon={Heart} title="还没有喜欢的歌曲" description="在歌曲列表或播放页点击 ♥ 图标，喜欢的歌都会收在这里。" />
+          <EmptyState icon={Heart} title="还没有喜欢的歌曲" description="在歌曲列表或播放页点击喜欢按钮，喜欢的歌都会收在这里。" />
         )}
       </ScreenScrollView>
     </ScreenScaffold>

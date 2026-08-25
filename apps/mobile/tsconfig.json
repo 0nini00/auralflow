@@ -4,11 +4,26 @@
     "baseUrl": ".",
     "types": [],
     "paths": {
-      "@/*": ["src/*"],
-      "@lx/core": ["../../packages/core/src"],
-      "@lx/core/*": ["../../packages/core/src/*"]
+      "@/*": [
+        "src/*"
+      ],
+      "@lx/core": [
+        "../../packages/core/src"
+      ],
+      "@lx/core/*": [
+        "../../packages/core/src/*"
+      ]
     }
   },
-  "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["**/node_modules", "**/Pods", "**/_screen_backups"]
+  "include": [
+    "**/*.ts",
+    "**/*.tsx"
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/Pods",
+    "**/_screen_backups",
+    "**/*.test.ts",
+    "**/*.test.tsx"
+  ]
 }

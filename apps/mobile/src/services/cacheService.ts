@@ -1,7 +1,7 @@
 import RNFS from "react-native-fs";
 import CryptoJS from "crypto-js";
 import { Platform } from "react-native";
-import type { MusicInfo } from "@lx/core";
+import { COVER_SIZE_LARGE, resizeCoverUrl, type MusicInfo } from "@lx/core";
 import { clearPlaybackUrlCache } from "./playbackUrlCache";
 import { selectFilesToEvict, type CachedFileEntry } from "./cacheEvictionModel";
 
@@ -118,9 +118,13 @@ const coverDownloadsInFlight = new Map<string, Promise<string | null>>();
 export async function cacheCover(url: string): Promise<string | null> {
   if (!url) return null;
 
+  // 缓存大图规格而非原图（对齐桌面端 cacheMusicCover）：图床原图常有数 MB，
+  // resizeCoverUrl 只对已知图床域名改写（网易云 ?param=NxN / B站 @Nw_Nh.webp），其他原样。
+  const targetUrl = resizeCoverUrl(url, COVER_SIZE_LARGE);
+
   await initCacheDirectories();
 
-  const filePath = getCacheFilePath(url, "cover");
+  const filePath = getCacheFilePath(targetUrl, "cover");
 
   // 检查缓存（immutable：URL 不变永不过期，对齐 lx）
   if (await isCacheFileExists(filePath)) {
@@ -135,7 +139,7 @@ export async function cacheCover(url: string): Promise<string | null> {
     // 下载并缓存（带 UA 请求头，对齐 lx defaultHeaders，避免部分图床 403）
     try {
       const downloadResult = await RNFS.downloadFile({
-        fromUrl: url,
+        fromUrl: targetUrl,
         toFile: filePath,
         headers: {
           "User-Agent":
@@ -168,7 +172,8 @@ export async function cacheCover(url: string): Promise<string | null> {
 export async function getCachedCover(url: string): Promise<string | null> {
   if (!url) return null;
 
-  const filePath = getCacheFilePath(url, "cover");
+  // 与 cacheCover 同步：按大图规格查缓存，保证同一 URL 两边命中同一文件
+  const filePath = getCacheFilePath(resizeCoverUrl(url, COVER_SIZE_LARGE), "cover");
   if (await isCacheFileExists(filePath)) {
     return `file://${filePath}`;
   }

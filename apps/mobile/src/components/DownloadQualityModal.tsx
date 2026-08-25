@@ -127,7 +127,7 @@ export function DownloadQualityModal({
                     <ActivityIndicator color={palette.primary} size="small" />
                   ) : (
                     <Text style={[styles.optionAction, { color: isSelected(option.value) ? palette.primary : palette.textMuted }]}>
-                      {isSelected(option.value) ? "✓ 已选" : "下载"}
+                      {isSelected(option.value) ? "已选" : "下载"}
                     </Text>
                   )}
                 </Pressable>

@@ -1,8 +1,10 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { AppState } from "react-native";
 import type { MusicInfo } from "@lx/core";
 import { usePlayerStore, type PlayMode, type PlaybackContext } from "../stores/playerStore";
 import { clampPlaybackRate, DEFAULT_PLAYBACK_RATE } from "@/services/playerRateModel";
 import { normalizePersistedVolumeState } from "@/services/playerVolumeModel";
+import { getPlaybackSnapshotSaveTrigger, isPlaybackSnapshotEmpty } from "./playbackSnapshotModel";
 
 const SNAPSHOT_KEY = "auralflow:playback-snapshot:v1";
 const SAVE_DEBOUNCE_MS = 1500;
@@ -62,14 +64,24 @@ function buildSnapshot(): PersistedSnapshot {
   };
 }
 
+let snapshotWriteQueue: Promise<void> = Promise.resolve();
+
+function enqueueSnapshotWrite(operation: () => Promise<void>): Promise<void> {
+  const next = snapshotWriteQueue.then(operation, operation);
+  snapshotWriteQueue = next.catch(() => undefined);
+  return next;
+}
+
 /** 保存当前播放状态到 AsyncStorage。 */
 export async function savePlaybackSnapshot(): Promise<void> {
-  try {
-    const snapshot = buildSnapshot();
-    // 空状态不写盘，避免覆盖有效快照
-    if (!snapshot.currentSong && snapshot.queue.length === 0) return;
+  const snapshot = buildSnapshot();
+  await enqueueSnapshotWrite(async () => {
+    if (isPlaybackSnapshotEmpty(snapshot)) {
+      await AsyncStorage.removeItem(SNAPSHOT_KEY);
+      return;
+    }
     await AsyncStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshot));
-  } catch {}
+  });
 }
 
 /** 从 AsyncStorage 恢复播放状态（仅恢复队列/当前歌曲/模式，不自动播放）。 */
@@ -132,9 +144,7 @@ export async function loadPlaybackSnapshot(): Promise<PlaybackSnapshot | null> {
 }
 
 export async function clearPlaybackSnapshot(): Promise<void> {
-  try {
-    await AsyncStorage.removeItem(SNAPSHOT_KEY);
-  } catch {}
+  await enqueueSnapshotWrite(() => AsyncStorage.removeItem(SNAPSHOT_KEY));
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -143,44 +153,64 @@ export async function clearPlaybackSnapshot(): Promise<void> {
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let unsubscribed = false;
 let unsubscribeFn: (() => void) | null = null;
+let initializationPromise: Promise<void> | null = null;
+let appStateSubscription: ReturnType<typeof AppState.addEventListener> | null = null;
 
 function scheduleSave(): void {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     saveTimer = null;
-    void savePlaybackSnapshot();
+    void savePlaybackSnapshot().catch((error) => {
+      console.error("[播放快照] 保存失败", error);
+    });
   }, SAVE_DEBOUNCE_MS);
+}
+
+function saveImmediately(): void {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  void savePlaybackSnapshot().catch((error) => {
+    console.error("[播放快照] 保存失败", error);
+  });
 }
 
 /**
  * 初始化播放快照持久化：启动时恢复一次，并订阅 store 变化 debounce 保存。
  * 应在应用启动时调用一次。
+ * 恢复完成后再挂订阅：避免恢复期间其它启动写入（如音量恢复）触发 debounce 保存，
+ * 把尚未恢复的默认状态覆盖到磁盘快照上。
  */
 export function initPlaybackSnapshotPersistence(): void {
-  if (unsubscribeFn) return; // 防止重复初始化
+  if (unsubscribeFn || initializationPromise) return;
+  unsubscribed = false;
 
-  // 1. 启动恢复
-  void loadPlaybackSnapshot();
-
-  // 2. 订阅变化 debounce 保存
-  unsubscribeFn = usePlayerStore.subscribe((state, prevState) => {
+  initializationPromise = (async () => {
+    await loadPlaybackSnapshot();
     if (unsubscribed) return;
-    // 只在播放相关字段变化时触发保存
-    if (
-      state.currentSong !== prevState.currentSong ||
-      state.queue !== prevState.queue ||
-      state.currentIndex !== prevState.currentIndex ||
-      state.shuffleHistory !== prevState.shuffleHistory ||
-      state.playMode !== prevState.playMode ||
-      state.playbackRate !== prevState.playbackRate ||
-      state.volume !== prevState.volume ||
-      state.previousVolume !== prevState.previousVolume ||
-      state.isMuted !== prevState.isMuted ||
-      state.playbackContext !== prevState.playbackContext
-    ) {
-      scheduleSave();
-    }
-  });
+
+    unsubscribeFn = usePlayerStore.subscribe((state, prevState) => {
+      if (unsubscribed) return;
+      const trigger = getPlaybackSnapshotSaveTrigger(state, prevState);
+      if (isPlaybackSnapshotEmpty(state) || trigger === "pause") {
+        saveImmediately();
+      } else if (trigger !== "none") {
+        scheduleSave();
+      }
+    });
+
+    appStateSubscription = AppState.addEventListener("change", (state) => {
+      if (state === "inactive" || state === "background") saveImmediately();
+    });
+  })();
+  void initializationPromise
+    .catch((error) => {
+      console.error("[播放快照] 初始化失败", error);
+    })
+    .finally(() => {
+      initializationPromise = null;
+    });
 }
 
 /** 停止持久化订阅（主要用于测试或卸载）。 */
@@ -194,6 +224,6 @@ export function teardownPlaybackSnapshotPersistence(): void {
     unsubscribeFn();
     unsubscribeFn = null;
   }
+  appStateSubscription?.remove();
+  appStateSubscription = null;
 }
-
-

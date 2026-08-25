@@ -54,15 +54,10 @@ export function ThemeModeCard() {
   return (
     <SettingsCard style={styles.themeCard}>
       <View style={styles.themeHeader}>
-        <View>
-          <Text style={[styles.themeTitle, { color: palette.text }]}>主题</Text>
-          <Text style={[styles.themeSubtitle, { color: palette.textMuted }]}> 
-            当前：{getThemeModeLabel(themeMode, systemTheme)}
-          </Text>
-        </View>
-        <View style={[styles.themeBadge, { backgroundColor: palette.surfaceMuted }]}> 
-          <Text style={[styles.themeBadgeText, { color: palette.textMuted }]}>外观</Text>
-        </View>
+        <Text style={[styles.themeTitle, { color: palette.text }]}>主题</Text>
+        <Text style={[styles.themeSubtitle, { color: palette.textMuted }]}>
+          当前：{getThemeModeLabel(themeMode, systemTheme)}
+        </Text>
       </View>
       <Text style={[styles.sectionLabel, { color: palette.textMuted }]}>明暗模式</Text>
       <View style={styles.themeOptions}>
@@ -158,11 +153,9 @@ const styles = StyleSheet.create({
   themeCard: {
     gap: spacing.s,
   },
+  // 卡片自带 gap: spacing.s，子元素不再叠加 marginBottom，间距节奏统一
   themeHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
+    gap: spacing.xxs,
   },
   themeTitle: {
     fontSize: 16,
@@ -170,26 +163,14 @@ const styles = StyleSheet.create({
   },
   themeSubtitle: {
     fontSize: 13,
-    marginTop: 4,
-  },
-  themeBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  themeBadgeText: {
-    fontSize: 12,
-    fontWeight: "500",
   },
   sectionLabel: {
     fontSize: 12,
     fontWeight: "700",
-    marginBottom: 8,
   },
   themeOptions: {
     flexDirection: "row",
     gap: 8,
-    marginBottom: spacing.s,
   },
   themeOption: {
     flex: 1,
@@ -212,7 +193,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    marginBottom: 8,
   },
   customAccentSwatch: {
     width: 44,
@@ -232,7 +212,6 @@ const styles = StyleSheet.create({
   accentInputError: {
     fontSize: 12,
     fontWeight: "500",
-    marginBottom: 8,
   },
   accentOption: {
     minWidth: 68,

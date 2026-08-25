@@ -8,11 +8,11 @@ import {
   ScrollView,
   Text,
   TextInput,
+  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import type { ThemePalette } from "@/stores/themeStore";
 import type { MusicInfo } from "@lx/core";
-import { SoundEffectPanel } from "@/components/SoundEffectPanel";
 import { QueueModal } from "@/components/QueueModal";
 import { styles } from "./immersiveStyles";
 
@@ -42,7 +42,6 @@ export interface ImmersiveModalsProps {
   setQueueModalVisible: (...args: any[]) => void;
   setRateModalVisible: (...args: any[]) => void;
   setSleepModalVisible: (...args: any[]) => void;
-  setSoundEffectModalVisible: (...args: any[]) => void;
   setVolumeModalVisible: (...args: any[]) => void;
   sleepModalVisible: boolean;
   sleepTimerActive: boolean;
@@ -50,14 +49,24 @@ export interface ImmersiveModalsProps {
   sleepTimerMinutes: string | number;
   sleepTimerSongActive: boolean;
   sleepTimerSongCount: string | number;
-  soundEffectModalVisible: boolean;
   volumeModalVisible: boolean;
   volumeModel: any;
+  /** 队列菜单内发起路由跳转前回调（播放页场景传 onClose，先关闭覆盖导航栈的 Modal） */
+  onQueueNavigate?: () => void;
+}
+
+/** 自定义定时输入是否为有效的正数（"0"/非数字/空串均无效，禁用开始按钮） */
+function isPositiveNumericInput(value: string | number): boolean {
+  if (value === "" || value == null) return false;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0;
 }
 
 export function ImmersiveModals({
-  customMinutes, customSongCount, handleCancelSleepTimer, handleClearQueue, handlePlayQueueItem, handleRemoveQueueItem, handleSetPlaybackRate, handleSetVolume, handleStartCustomSleepTimer, handleStartCustomSongSleepTimer, handleStartSleepTimer, handleStartSongSleepTimer, handleToggleMute, management, palette, queueModalVisible, queueModel, rateModalVisible, rateModel, setCustomMinutes, setCustomSongCount, setQueueModalVisible, setRateModalVisible, setSleepModalVisible, setSoundEffectModalVisible, setVolumeModalVisible, sleepModalVisible, sleepTimerActive, sleepTimerControl, sleepTimerMinutes, sleepTimerSongActive, sleepTimerSongCount,  soundEffectModalVisible, volumeModalVisible, volumeModel, queue
+  customMinutes, customSongCount, handleCancelSleepTimer, handleClearQueue, handlePlayQueueItem, handleRemoveQueueItem, handleSetPlaybackRate, handleSetVolume, handleStartCustomSleepTimer, handleStartCustomSongSleepTimer, handleStartSleepTimer, handleStartSongSleepTimer, handleToggleMute, management, palette, queueModalVisible, queueModel, rateModalVisible, rateModel, setCustomMinutes, setCustomSongCount, setQueueModalVisible, setRateModalVisible, setSleepModalVisible, setVolumeModalVisible, sleepModalVisible, sleepTimerActive, sleepTimerControl, sleepTimerMinutes, sleepTimerSongActive, sleepTimerSongCount, volumeModalVisible, volumeModel, queue, onQueueNavigate
 }: ImmersiveModalsProps) {
+  const customSongCountValid = isPositiveNumericInput(customSongCount);
+  const customMinutesValid = isPositiveNumericInput(customMinutes);
   return (
     <>
 <Modal
@@ -76,11 +85,11 @@ export function ImmersiveModals({
             style={[
               styles.rateOption,
               { backgroundColor: palette.surface, borderColor: palette.border },
-              option.active && { backgroundColor: palette.primary, borderColor: palette.primary },
+              option.active && { borderColor: palette.primary },
             ]}
             onPress={() => void handleSetPlaybackRate(option.value)}
           >
-            <Text style={[styles.rateOptionText, { color: option.active ? palette.primaryText : palette.text }]}>
+            <Text style={[styles.rateOptionText, { color: option.active ? palette.primary : palette.text }]}>
               {option.label}
             </Text>
           </Pressable>
@@ -113,11 +122,11 @@ export function ImmersiveModals({
             style={[
               styles.volumeOption,
               { backgroundColor: palette.surface, borderColor: palette.border },
-              option.active && { backgroundColor: palette.primary, borderColor: palette.primary },
+              option.active && { borderColor: palette.primary },
             ]}
             onPress={() => void handleSetVolume(option.value)}
           >
-            <Text style={[styles.volumeOptionText, { color: option.active ? palette.primaryText : palette.text }]}>
+            <Text style={[styles.volumeOptionText, { color: option.active ? palette.primary : palette.text }]}>
               {option.label}
             </Text>
           </Pressable>
@@ -149,60 +158,6 @@ export function ImmersiveModals({
   </View>
 </Modal>
 
-{/* 音效弹窗 */}
-
-<Modal
-
-  visible={soundEffectModalVisible}
-
-  transparent
-
-  animationType="slide"
-
-  onRequestClose={() => setSoundEffectModalVisible(false)}
-
->
-
-  <View style={styles.volumeModalOverlay}>
-
-    <View style={[styles.volumeModalContent, styles.soundEffectModalContent, { backgroundColor: palette.background, borderColor: palette.border }]}>
-
-      <Text style={[styles.volumeModalTitle, { color: palette.text }]}>音效</Text>
-
-      <ScrollView
-
-        style={styles.soundEffectScroll}
-
-        contentContainerStyle={styles.soundEffectScrollContent}
-
-        showsVerticalScrollIndicator={false}
-
-      >
-
-        <SoundEffectPanel />
-
-      </ScrollView>
-
-      <Pressable
-
-        style={[styles.volumeCloseButton, { backgroundColor: palette.surface }]}
-
-        onPress={() => setSoundEffectModalVisible(false)}
-
-      >
-
-        <Text style={[styles.volumeCloseText, { color: palette.textMuted }]}>关闭</Text>
-
-      </Pressable>
-
-    </View>
-
-  </View>
-
-</Modal>
-
-
-
 {/* 睡眠定时器弹窗（与播放页能力对齐） */}
 
 <Modal
@@ -217,6 +172,8 @@ export function ImmersiveModals({
 
 >
 
+  <TouchableWithoutFeedback accessibilityRole="button" accessibilityLabel="关闭睡眠定时器" onPress={() => setSleepModalVisible(false)}>
+
   <KeyboardAvoidingView
 
     style={styles.volumeModalOverlay}
@@ -225,7 +182,7 @@ export function ImmersiveModals({
 
   >
 
-    <View style={[styles.volumeModalContent, { backgroundColor: palette.background, borderColor: palette.border }]}>
+    <Pressable onPress={() => undefined} style={[styles.volumeModalContent, { backgroundColor: palette.background, borderColor: palette.border }]}>
 
       <Text style={[styles.volumeModalTitle, { color: palette.text }]}>睡眠定时器</Text>
 
@@ -395,13 +352,13 @@ export function ImmersiveModals({
 
             styles.sleepCustomStart,
 
-            { backgroundColor: customSongCount ? palette.primary : palette.surface },
+            { backgroundColor: customSongCountValid ? palette.primary : palette.surface },
 
           ]}
 
           onPress={handleStartCustomSongSleepTimer}
 
-          disabled={!customSongCount}
+          disabled={!customSongCountValid}
 
         >
 
@@ -411,7 +368,7 @@ export function ImmersiveModals({
 
               styles.sleepCustomStartText,
 
-              { color: customSongCount ? palette.primaryText : palette.textMuted },
+              { color: customSongCountValid ? palette.primaryText : palette.textMuted },
 
             ]}
 
@@ -467,13 +424,13 @@ export function ImmersiveModals({
 
             styles.sleepCustomStart,
 
-            { backgroundColor: customMinutes ? palette.primary : palette.surface },
+            { backgroundColor: customMinutesValid ? palette.primary : palette.surface },
 
           ]}
 
           onPress={handleStartCustomSleepTimer}
 
-          disabled={!customMinutes}
+          disabled={!customMinutesValid}
 
         >
 
@@ -483,7 +440,7 @@ export function ImmersiveModals({
 
               styles.sleepCustomStartText,
 
-              { color: customMinutes ? palette.primaryText : palette.textMuted },
+              { color: customMinutesValid ? palette.primaryText : palette.textMuted },
 
             ]}
 
@@ -545,9 +502,11 @@ export function ImmersiveModals({
 
       </Pressable>
 
-    </View>
+    </Pressable>
 
   </KeyboardAvoidingView>
+
+  </TouchableWithoutFeedback>
 
 </Modal>
 
@@ -562,6 +521,7 @@ export function ImmersiveModals({
   onPlayItem={(index) => void handlePlayQueueItem(index)}
   onRemoveItem={handleRemoveQueueItem}
   onClear={() => void handleClearQueue()}
+  onRequestNavigate={onQueueNavigate}
 />
     </>
   );

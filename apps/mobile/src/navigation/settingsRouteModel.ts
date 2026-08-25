@@ -37,7 +37,7 @@ export interface SettingsCategory {
 
 export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   { name: "Account", label: "账号与服务", description: "网易云与 B站账号", icon: "account" },
-  { name: "Playback", label: "播放", description: "在线播放与新建下载的默认音质、打断策略与均衡器", icon: "playback" },
+  { name: "Playback", label: "播放", description: "在线播放与新建下载的默认音质与打断策略", icon: "playback" },
   { name: "Lyrics", label: "歌词", description: "沉浸歌词与悬浮歌词", icon: "lyrics" },
   { name: "Appearance", label: "外观", description: "主题、强调色与背景", icon: "appearance" },
   { name: "Sources", label: "音源", description: "自定义音源管理", icon: "sources" },
@@ -56,6 +56,14 @@ export const SETTINGS_CATEGORY_ICONS: Record<SettingsCategory["icon"], LucideIco
   data: Database,
   about: Info,
 };
+
+// 设置分类点击计数器：抽屉与设置首页共用，每次点击递增，
+// SettingsStack 以 (target, navId) 作为 key 重建内部栈（见 SettingsNavigator）。
+let settingsCategorySeq = 0;
+
+export function nextSettingsCategoryNavId(): number {
+  return ++settingsCategorySeq;
+}
 
 export const DEFAULT_SETTINGS_CATEGORY: SettingsCategoryName = "Account";
 

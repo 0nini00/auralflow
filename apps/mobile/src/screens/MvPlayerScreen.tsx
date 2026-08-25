@@ -4,6 +4,8 @@ import Video, { type OnProgressData } from "react-native-video";
 import KeepAwake from "react-native-keep-awake";
 import { ArrowLeft, Pause, Play, RotateCcw } from "lucide-react-native";
 
+import { IconButton } from "@/components/IconButton";
+import { ChoiceChip } from "@/components/ChoiceChip";
 import { fetchWyMvPlaybackSource, type MvPlaybackSource, type MvResolution } from "@/services/wyMvService";
 import { startMvAudioSession, type MvAudioSession } from "@/services/mvAudioSession";
 import { radius } from "@/theme/tokens";
@@ -113,9 +115,12 @@ export function MvPlayerScreen({ mvId, title, artist, posterUrl, onBack }: MvPla
     <View style={styles.root}>
       <KeepAwake />
       <View style={styles.header}>
-        <Pressable onPress={close} style={styles.iconButton} accessibilityLabel="返回">
-          <ArrowLeft color="#fff" size={24} />
-        </Pressable>
+        <IconButton
+          onPress={close}
+          tone="onImage"
+          accessibilityLabel="返回"
+          render={({ size, color }) => <ArrowLeft color={color} size={size} />}
+        />
         <View style={styles.heading}>
           <Text numberOfLines={1} style={styles.title}>{title}</Text>
           <Text numberOfLines={1} style={styles.artist}>{artist}</Text>
@@ -144,7 +149,7 @@ export function MvPlayerScreen({ mvId, title, artist, posterUrl, onBack }: MvPla
           onError={() => { setLoading(false); setError("视频播放失败，请重试或切换清晰度"); }}
         /> : null}
         {loading ? <View style={styles.overlay}><ActivityIndicator color="#fff" /><Text style={styles.message}>正在解析视频</Text></View> : null}
-        {error ? <View style={styles.overlay}><Text style={styles.message}>{error}</Text><Pressable onPress={() => void resolve(quality, position)} style={styles.retry}><RotateCcw color="#fff" size={16} /><Text style={styles.message}>重试</Text></Pressable></View> : null}
+        {error ? <View style={styles.overlay}><Text style={styles.message}>{error}</Text><IconButton onPress={() => void resolve(quality, position)} tone="onImage" accessibilityLabel="重试" render={({ size, color }) => <RotateCcw color={color} size={size} />} /></View> : null}
       </View>
       <View style={styles.controls}>
         <View style={styles.progressRow}>
@@ -161,10 +166,16 @@ export function MvPlayerScreen({ mvId, title, artist, posterUrl, onBack }: MvPla
           <Text style={styles.time}>{formatTime(duration)}</Text>
         </View>
         <View style={styles.actionRow}>
-          <Pressable onPress={() => setPaused((value) => !value)} style={styles.playButton} accessibilityLabel={paused ? "播放" : "暂停"}>
-            {paused ? <Play color="#000" size={20} /> : <Pause color="#000" size={20} />}
-          </Pressable>
-          <View style={styles.qualities}>{QUALITY_OPTIONS.map((item) => <Pressable key={item} onPress={() => void handleQuality(item)} style={[styles.quality, item === quality && styles.selected]}><Text style={styles.qualityText}>{item}p</Text></Pressable>)}</View>
+          {/* 常驻深色场景：白底黑图标，尺寸走统一 md 档 */}
+          <IconButton
+            onPress={() => setPaused((value) => !value)}
+            accessibilityLabel={paused ? "播放" : "暂停"}
+            style={styles.playButton}
+            render={({ size }) =>
+              paused ? <Play color="#000" size={size} /> : <Pause color="#000" size={size} />
+            }
+          />
+          <View style={styles.qualities}>{QUALITY_OPTIONS.map((item) => <ChoiceChip key={item} label={`${item}p`} selected={item === quality} onPress={() => void handleQuality(item)} onImage accessibilityLabel={`${item}P 清晰度`} />)}</View>
         </View>
       </View>
     </View>
@@ -176,21 +187,19 @@ export function MvPlayerScreen({ mvId, title, artist, posterUrl, onBack }: MvPla
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#000" },
   header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10 },
-  iconButton: { padding: 8 },
   heading: { flex: 1, marginLeft: 8 },
   title: { color: "#fff", fontSize: 17, fontWeight: "700" },
   artist: { color: "#a6a6a6", fontSize: 13, marginTop: 3 },
   videoFrame: { width: "100%", aspectRatio: 16 / 9, backgroundColor: "#090909" },
   overlay: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 },
   message: { color: "#fff", textAlign: "center" },
-  retry: { flexDirection: "row", alignItems: "center", gap: 8, padding: 10 },
   controls: { padding: 20 },
   progressRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   time: { color: "#aaa", fontSize: 12, width: 36 },
   track: { flex: 1, height: 4, backgroundColor: "#333", borderRadius: 2, overflow: "hidden" },
   fill: { height: "100%", backgroundColor: "#fff" },
   actionRow: { flexDirection: "row", alignItems: "center", marginTop: 24 },
-  playButton: { width: 44, height: 44, borderRadius: radius.pill, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" },
+  playButton: { backgroundColor: "#fff" },
   qualities: { flexDirection: "row", marginLeft: "auto", gap: 8 },
   quality: { paddingHorizontal: 10, paddingVertical: 7, borderWidth: 1, borderColor: "#444", borderRadius: radius.sm },
   selected: { backgroundColor: "#333", borderColor: "#fff" },

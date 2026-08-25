@@ -24,7 +24,7 @@ export interface LibrarySongActionsModel {
   deleteTarget: LibrarySongDeleteTarget | null;
 }
 
-const SONG_ACTION_SECTIONS = new Set<LibrarySection>(["history", "local"]);
+const SONG_ACTION_SECTIONS = new Set<LibrarySection>(["local"]);
 
 export type LibrarySongDeleteTarget = "history" | "local";
 

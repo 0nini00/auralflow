@@ -9,11 +9,10 @@ import {
   Pressable,
 } from "react-native";
 import type { MusicInfo } from "@lx/core";
-import { Download, ListEnd, ListPlus, ListStart, Music2, SquareCheckBig, X } from "lucide-react-native";
+import { Download, ListEnd, ListPlus, ListStart, Music2, SquareCheckBig } from "lucide-react-native";
 import type { WyPlaylistInfo } from "@/services/wyPlaylistService";
 
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { useAccountStore } from "@/stores/accountStore";
 import { usePlaylistStore } from "@/stores/playlistStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import {
@@ -26,7 +25,9 @@ import { runPlaybackUiAction } from "@/services/playbackUiAction";
 import {
   buildPlaylistDetailActions,
   canRemoveSongsFromPlaylistDetail,
+  findPlaylistCurrentSongIndex,
 } from "@/services/playlistDetailActions";
+import { getContentDetailLocateScrollOffset } from "@/services/contentDetailPlaybackActions";
 import { ActionButton } from "@/components/ActionButton";
 import { BatchActionBar, batchToolbarPositionStyle } from "@/components/BatchActionBar";
 import { SongList } from "@/components/SongList";
@@ -34,7 +35,8 @@ import { AddToLocalPlaylistModal } from "@/components/AddToLocalPlaylistModal";
 import { DownloadQualityModal } from "@/components/DownloadQualityModal";
 import { DetailHero } from "@/components/DetailHero";
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
-import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
+import { EmptyState, ErrorState } from "@/components/ScreenState";
+import { PlaylistDetailSkeleton } from "@/components/PlaylistDetailSkeleton";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
 import { SectionHeader } from "@/components/SectionHeader";
 
@@ -55,7 +57,6 @@ export function PlaylistDetailScreen({
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor);
-  const [subscribing, setSubscribing] = useState(false);
   const [removingSongKey, setRemovingSongKey] = useState<string | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
@@ -64,18 +65,16 @@ export function PlaylistDetailScreen({
   const [downloadModalVisible, setDownloadModalVisible] = useState(false);
   const [batchDownloadQuality, setBatchDownloadQuality] = useState<DownloadQuality | null>(null);
   const [batchDownloadProgress, setBatchDownloadProgress] = useState<{ processed: number; total: number } | null>(null);
-  const user = useAccountStore((state) => state.user);
-  const isLoggedIn = useAccountStore((state) => state.isLoggedIn);
   const currentPlaylistSongs = usePlaylistStore((state) => state.currentPlaylistSongs);
   const likedPlaylist = usePlaylistStore((state) => state.likedPlaylist);
   const likedSongs = usePlaylistStore((state) => state.likedSongs);
   const loading = usePlaylistStore((state) => state.loading);
   const error = usePlaylistStore((state) => state.error);
   const removeSongFromWyPlaylist = usePlaylistStore((state) => state.removeSongFromWyPlaylist);
-  const setWyPlaylistSubscribed = usePlaylistStore((state) => state.setWyPlaylistSubscribed);
   const fetchPlaylistDetail = usePlaylistStore(
     (state) => state.fetchPlaylistDetail
   );
+  const deleteWyPlaylist = usePlaylistStore((state) => state.deleteWyPlaylist);
   const addToQueue = usePlayerStore((state) => state.addToQueue);
   const playNextInQueue = usePlayerStore((state) => state.playNextInQueue);
   const downloadSong = useDownloadStore((state) => state.downloadSong);
@@ -133,37 +132,10 @@ export function PlaylistDetailScreen({
   const detailActions = buildPlaylistDetailActions(songs.length, {
     source: displayPlaylist.source,
   });
-  const canSubscribeWyPlaylist = displayPlaylist.source === "wy" && displayPlaylist.subscribed !== true;
-  const canUnsubscribeWyPlaylist = displayPlaylist.source === "wy" && displayPlaylist.subscribed === true;
   const canRemoveSongs = canRemoveSongsFromPlaylistDetail({
     source: displayPlaylist.source,
     subscribed: displayPlaylist.subscribed,
   });
-
-  const handleSetWyPlaylistSubscribed = async (subscribed: boolean) => {
-    if (subscribing) return;
-    if (!isLoggedIn || !user) {
-      Alert.alert("需要登录", "请在 设置 → 账号与服务 登录网易云账号");
-      return;
-    }
-
-    setSubscribing(true);
-    try {
-      await setWyPlaylistSubscribed(user.userId, displayPlaylist, subscribed);
-      Alert.alert(
-        subscribed ? "收藏成功" : "取消收藏成功",
-        `已${subscribed ? "收藏" : "取消收藏"}「${displayPlaylist.name}」`,
-      );
-      if (!subscribed) onBack();
-    } catch (err) {
-      Alert.alert(
-        subscribed ? "收藏失败" : "取消收藏失败",
-        err instanceof Error ? err.message : String(err),
-      );
-    } finally {
-      setSubscribing(false);
-    }
-  };
 
   const toggleSelection = (song: MusicInfo) => {
     const key = getSongKey(song);
@@ -275,6 +247,34 @@ export function PlaylistDetailScreen({
 
   const coverUrl = displayPlaylist.coverImgUrl || displayPlaylist.picUrl;
 
+  const currentSong = usePlayerStore((state) => state.currentSong);
+  const currentSongIndex = findPlaylistCurrentSongIndex(songs, currentSong);
+  const [locatedSongIndex, setLocatedSongIndex] = useState<number | null>(null);
+
+  const handleLocateCurrentSong = () => {
+    if (currentSongIndex < 0) return;
+    setLocatedSongIndex(currentSongIndex);
+    scrollRef.current?.scrollTo({
+      y: getContentDetailLocateScrollOffset(currentSongIndex),
+      animated: true,
+    });
+  };
+
+  const handleDeletePlaylist = () => {
+    Alert.alert("删除歌单", `确定删除「${displayPlaylist.name}」吗？此操作无法撤销。`, [
+      { text: "取消", style: "cancel" },
+      {
+        text: "删除",
+        style: "destructive",
+        onPress: () => {
+          deleteWyPlaylist(displayPlaylist.id)
+            .then(onBack)
+            .catch((error) => Alert.alert("删除失败", error instanceof Error ? error.message : String(error)));
+        },
+      },
+    ]);
+  };
+
   return (
     <ScreenScaffold>
       <ScreenScrollView
@@ -287,6 +287,7 @@ export function PlaylistDetailScreen({
         />
         <DetailHero
           compact
+          actionsFullBleed
           imageUrl={coverUrl}
           title={displayPlaylist.name}
           subtitle={displayPlaylist.desc}
@@ -297,54 +298,35 @@ export function PlaylistDetailScreen({
           }
           actions={!loading && !error && detailActions.show ? (
             <View style={styles.heroActions}>
-          <ActionButton
-            shrink
-            small
-            variant="primary"
-            label={detailActions.playAllLabel}
-            count={`(${songs.length})`}
-            onPress={() => void handlePlayAll()}
-          />
-          {canSubscribeWyPlaylist && (
-            <ActionButton
-              shrink
-              small
-              variant="primary"
-              label={subscribing ? "处理中…" : "收藏"}
-              loading={subscribing}
-              onPress={() => void handleSetWyPlaylistSubscribed(true)}
-            />
-          )}
-          {canUnsubscribeWyPlaylist && (
-            <ActionButton
-              shrink
-              small
-              variant="primary"
-              label={subscribing ? "处理中…" : "取消收藏"}
-              loading={subscribing}
-              onPress={() => void handleSetWyPlaylistSubscribed(false)}
-            />
-          )}
-          {songs.length > 0 && (
-            <ActionButton
-              shrink
-              small
-              variant="secondary"
-              label="下载全部"
-              disabled={batchBusy}
-              onPress={() => {
-                // 全选后走已有的批量下载流程（选择模式 → 选音质 → 逐首入队）
-                setSelectedKeys(new Set(songs.map(getSongKey)));
-                setDownloadModalVisible(true);
-              }}
-            />
-          )}
+              <ActionButton
+                shrink
+                small
+                variant="primary"
+                label={detailActions.playAllLabel}
+                count={`(${songs.length})`}
+                onPress={() => void handlePlayAll()}
+              />
+              <ActionButton
+                shrink
+                small
+                variant="primary"
+                label="定位歌曲"
+                disabled={currentSongIndex < 0}
+                onPress={handleLocateCurrentSong}
+              />
+              <ActionButton
+                shrink
+                small
+                variant="danger"
+                label="删除歌单"
+                onPress={handleDeletePlaylist}
+              />
             </View>
           ) : undefined}
         />
 
         {loading ? (
-          <LoadingState label="正在加载歌单" />
+          <PlaylistDetailSkeleton />
         ) : error ? (
           <ErrorState
             message={error}
@@ -370,6 +352,7 @@ export function PlaylistDetailScreen({
                 songs={songs}
                 onPlay={handlePlay}
                 emptyText="暂无歌曲"
+                highlightedIndex={locatedSongIndex}
                 onDelete={canRemoveSongs && !removingSongKey ? (song) => handleRemoveWySong(song) : undefined}
                 hideSourceTag
                 onLongPressSong={enterSelectionMode}
@@ -400,28 +383,28 @@ export function PlaylistDetailScreen({
             {
               key: "queue",
               label: "队列",
-              icon: <ListPlus size={19} />,
+              icon: <ListPlus />,
               disabled: selectedSongs.length === 0,
               onPress: handleBatchAddToQueue,
             },
             {
               key: "next",
               label: "下一首",
-              icon: <ListStart size={19} />,
+              icon: <ListStart />,
               disabled: selectedSongs.length === 0,
               onPress: handleBatchPlayNext,
             },
             {
               key: "collect",
               label: "收藏",
-              icon: <ListEnd size={19} />,
+              icon: <ListEnd />,
               disabled: selectedSongs.length === 0,
               onPress: () => setAddToLocalVisible(true),
             },
             {
               key: "download",
               label: "下载",
-              icon: <Download size={19} />,
+              icon: <Download />,
               disabled: selectedSongs.length === 0,
               onPress: () => setDownloadModalVisible(true),
             },
@@ -467,7 +450,6 @@ function formatPlayCount(count: number): string {
 
 const styles = StyleSheet.create({
   heroActions: {
-    width: "100%",
     flexDirection: "row",
     flexWrap: "nowrap",
     alignItems: "center",

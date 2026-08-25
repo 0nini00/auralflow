@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FlatList, Modal, Pressable, StyleSheet, Text, TouchableWithoutFeedback, View } from "react-native";
 import type { MusicInfo } from "@lx/core";
 import type { ThemePalette } from "@/stores/themeStore";
 import type { ImmersiveQueuePanelModel } from "@/services/playerQueueModel";
@@ -16,6 +16,7 @@ import { SongItem } from "@/components/SongList";
 import { ActionMenuSheet, type ActionMenuAnchor, type ActionMenuItem } from "@/components/ActionMenuSheet";
 import { AddToLocalPlaylistModal } from "@/components/AddToLocalPlaylistModal";
 import { DownloadQualityModal } from "@/components/DownloadQualityModal";
+import { Touchable } from "@/components/Touchable";
 
 const ROW_HEIGHT = 64;
 
@@ -29,6 +30,12 @@ export interface QueueModalProps {
   onPlayItem: (index: number) => void;
   onRemoveItem: (index: number) => void;
   onClear: () => void;
+  /**
+   * 队列菜单内发起路由跳转（如「播放 MV」）前的回调。
+   * 全屏播放页整体是 RN Modal（浮于导航栈之上），必须先关闭播放页再压路由，
+   * 否则新页面被盖住不可见；迷你播放栏场景无覆盖层，不传即可。
+   */
+  onRequestNavigate?: () => void;
 }
 
 /**
@@ -47,6 +54,7 @@ export function QueueModal({
   onPlayItem,
   onRemoveItem,
   onClear,
+  onRequestNavigate,
 }: QueueModalProps) {
   const listRef = useRef<FlatList<MusicInfo>>(null);
   const addToQueue = usePlayerStore((state) => state.addToQueue);
@@ -110,20 +118,29 @@ export function QueueModal({
     setDownloadVisible(true);
   };
 
-  const menuIndexRef = useRef(-1);
-
-  const openQueueMenu = (song: MusicInfo, index: number, anchor: ActionMenuAnchor) => {
+  const openQueueMenu = (song: MusicInfo, _index: number, anchor: ActionMenuAnchor) => {
     // 锚定菜单直接悬浮在队列面板上方（对齐 lx ListMenu），不收起面板、保留上下文；
     // 仅当继续打开「收藏到歌单/下载」等全屏底部弹层时才收起面板（避免嵌套 Modal 白屏）。
+    // 注意：不缓存打开菜单时的行下标——菜单打开期间队列可能变动（移除/插播），
+    // 移除等操作在触发时按歌曲身份重新解析下标，避免删错行。
     setActionSong(song);
-    menuIndexRef.current = index;
     setMenuAnchor(anchor);
     setMenuVisible(true);
   };
 
+  // SongItem 的稳定回调签名是 (song, anchor)；接回队列菜单（下标在触发时重解析）
+  const handleRowMenu = useCallback(
+    (song: MusicInfo, anchor: ActionMenuAnchor) => openQueueMenu(song, -1, anchor),
+    [],
+  );
+
   const menuItems: ActionMenuItem[] = useMemo(() => {
     if (!actionSong) return [];
     const song = actionSong;
+    // 按歌曲身份解析当前下标：菜单打开期间队列变动后仍指向正确的行
+    const songIndex = queue.findIndex(
+      (item) => item.source === song.source && String(item.id) === String(song.id),
+    );
     const items: ActionMenuItem[] = [
       { label: "下一首播放", icon: "playNext", onPress: () => playNextInQueue(song) },
       { label: "加入队列", icon: "addToQueue", onPress: () => addToQueue(song) },
@@ -149,24 +166,24 @@ export function QueueModal({
         label: "播放 MV",
         icon: "mv",
         onPress: () => {
+          onRequestNavigate?.();
           openMvPlayerScreen({ mvId, title: song.name, artist: song.singer, posterUrl: song.img || song.picUrl });
         },
       });
     }
     items.push({ label: "分享", icon: "share", onPress: () => void shareMusic(song).catch(() => undefined) });
-    if (menuIndexRef.current !== currentItemIndex) {
+    if (songIndex !== currentItemIndex) {
       items.push({
         label: "从队列移除",
         icon: "delete",
         danger: true,
         onPress: () => {
-          const index = menuIndexRef.current;
-          if (index >= 0) onRemoveItem(index);
+          if (songIndex >= 0) onRemoveItem(songIndex);
         },
       });
     }
     return items;
-  }, [actionSong, currentItemIndex, addToQueue, playNextInQueue, onRemoveItem]);
+  }, [actionSong, queue, currentItemIndex, addToQueue, playNextInQueue, onRemoveItem, onRequestNavigate]);
 
   return (
     <>
@@ -176,9 +193,10 @@ export function QueueModal({
         animationType="fade"
         onRequestClose={onClose}
       >
-        <View style={styles.overlay}>
-          <View style={[styles.content, { backgroundColor: palette.background, borderColor: palette.border }]}>
-            <View style={styles.header}>
+        <TouchableWithoutFeedback accessibilityRole="button" accessibilityLabel="关闭播放列表" onPress={onClose}>
+          <View style={styles.overlay}>
+            <Pressable onPress={() => undefined} style={[styles.content, { backgroundColor: palette.background, borderColor: palette.border }]}>
+              <View style={styles.header}>
               <View style={styles.titleWrap}>
                 <Text style={[styles.title, { color: palette.text }]}>{queueModel.title}</Text>
                 <Text style={[styles.meta, { color: palette.textMuted }]} numberOfLines={1}>
@@ -186,7 +204,7 @@ export function QueueModal({
                 </Text>
               </View>
               <View style={styles.actions}>
-                <Pressable
+                <Touchable
                   style={[
                     styles.clearButton,
                     { backgroundColor: palette.surface },
@@ -200,15 +218,15 @@ export function QueueModal({
                   <Text style={[styles.clearText, { color: palette.danger }]}>
                     {queueModel.management.clearLabel}
                   </Text>
-                </Pressable>
-                <Pressable
+                </Touchable>
+                <Touchable
                   style={[styles.closeButton, { backgroundColor: palette.surface }]}
                   onPress={onClose}
                   accessibilityRole="button"
                   accessibilityLabel={queueModel.closeLabel}
                 >
                   <Text style={[styles.closeText, { color: palette.textMuted }]}>{queueModel.closeLabel}</Text>
-                </Pressable>
+                </Touchable>
               </View>
             </View>
             <FlatList
@@ -222,19 +240,20 @@ export function QueueModal({
                 <SongItem
                   song={item}
                   index={index}
-                  onPress={() => onPlayItem(index)}
+                  onRowPress={(_song, index) => onPlayItem(index)}
                   isPlaying={queueModel.items[index]?.isCurrent ?? false}
                   showCover
                   showDuration
                   hideSourceTag
                   showLikeAction={shouldShowSongListLikeAction(item)}
                   showMoreAction
-                  onOpenMenu={(anchor) => openQueueMenu(item, index, anchor)}
+                  onOpenMenu={handleRowMenu}
                 />
               )}
             />
+          </Pressable>
           </View>
-        </View>
+        </TouchableWithoutFeedback>
       </Modal>
 
       <ActionMenuSheet

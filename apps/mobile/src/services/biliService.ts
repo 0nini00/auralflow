@@ -2,12 +2,15 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import CryptoJS from "crypto-js";
 import type { MusicInfo, PlaylistInfo } from "@lx/core";
 import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
+import { getSecureItem, removeSecureItem, setSecureItem } from "@/services/secureStorageService";
+import { migrateLegacySecret } from "@/services/secureStorageMigrationModel";
 
 /* ------------------------------------------------------------------ */
 /* 常量                                                                */
 /* ------------------------------------------------------------------ */
 
 const BILI_COOKIE_KEY = "auralflow.mobile.bili.cookie";
+const BILI_SECURE_COOKIE_KEY = "auralflow.mobile.bili.cookie.v1";
 const API_BASE = "https://api.bilibili.com";
 const BILI_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -155,24 +158,28 @@ export function normalizeBiliCookie(input: string): string {
 export async function saveBiliCookie(value: string): Promise<void> {
   cookieCache = normalizeBiliCookie(value);
   if (cookieCache) {
-    await AsyncStorage.setItem(BILI_COOKIE_KEY, cookieCache);
+    await setSecureItem(BILI_SECURE_COOKIE_KEY, cookieCache);
+    await AsyncStorage.removeItem(BILI_COOKIE_KEY);
   } else {
+    await removeSecureItem(BILI_SECURE_COOKIE_KEY);
     await AsyncStorage.removeItem(BILI_COOKIE_KEY);
   }
 }
 
 export async function getBiliCookie(): Promise<string> {
   if (cookieCache) return cookieCache;
-  try {
-    const stored = await AsyncStorage.getItem(BILI_COOKIE_KEY);
-    cookieCache = stored ? normalizeBiliCookie(stored) : "";
-  } catch {
-    // AsyncStorage 可能尚未初始化
-  }
+  const stored = await migrateLegacySecret({
+    readSecure: () => getSecureItem(BILI_SECURE_COOKIE_KEY),
+    readLegacy: () => AsyncStorage.getItem(BILI_COOKIE_KEY),
+    writeSecure: (value) => setSecureItem(BILI_SECURE_COOKIE_KEY, value),
+    removeLegacy: () => AsyncStorage.removeItem(BILI_COOKIE_KEY),
+  });
+  cookieCache = stored ? normalizeBiliCookie(stored) : "";
   return cookieCache;
 }
 
 export async function clearBiliCookie(): Promise<void> {
+  await removeSecureItem(BILI_SECURE_COOKIE_KEY);
   await AsyncStorage.removeItem(BILI_COOKIE_KEY);
   cookieCache = "";
 }

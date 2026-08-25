@@ -1,10 +1,15 @@
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
-import { SETTINGS_CATEGORIES, SETTINGS_CATEGORY_ICONS } from "@/navigation/settingsRouteModel";
+import { Touchable } from "@/components/Touchable";
+import {
+  SETTINGS_CATEGORIES,
+  SETTINGS_CATEGORY_ICONS,
+  type SettingsCategoryName,
+} from "@/navigation/settingsRouteModel";
 import type { SettingsStackParamList } from "@/navigation/types";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, typography } from "@/theme/tokens";
@@ -15,6 +20,16 @@ import { radius, spacing, typography } from "@/theme/tokens";
  */
 export function SettingsHomeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<SettingsStackParamList, "SettingsHome">>();
+  const openCategory = (name: SettingsCategoryName) => {
+    // 单次原子 reset 到 [设置首页, 目标分类]：原实现是 popToTop + navigate 两步，
+    // 返回动画进行中 popToTop 可能被 native-stack 吞掉而 navigate 照常入栈，
+    // 栈里残留旧分类页——表现为「打开 B 返回却先落到 A」。
+    // reset 一次 dispatch 替换整个栈，无两步竞态。
+    navigation.reset({
+      index: 1,
+      routes: [{ name: "SettingsHome" }, { name }],
+    });
+  };
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
@@ -27,17 +42,16 @@ export function SettingsHomeScreen() {
           {SETTINGS_CATEGORIES.map((category) => {
             const Icon = SETTINGS_CATEGORY_ICONS[category.icon];
             return (
-              <Pressable
+              <Touchable
                 key={category.name}
                 accessibilityRole="button"
                 accessibilityLabel={`${category.label}，${category.description}`}
-                onPress={() => navigation.navigate(category.name)}
-                style={({ pressed }) => [
+                onPress={() => openCategory(category.name)}
+                style={[
                   styles.card,
                   {
                     backgroundColor: palette.surface,
                     borderColor: palette.border,
-                    opacity: pressed ? 0.72 : 1,
                   },
                 ]}
               >
@@ -50,7 +64,7 @@ export function SettingsHomeScreen() {
                     {category.description}
                   </Text>
                 </View>
-              </Pressable>
+              </Touchable>
             );
           })}
         </View>

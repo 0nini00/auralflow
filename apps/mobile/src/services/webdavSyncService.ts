@@ -10,6 +10,9 @@ import { parseDesktopUserApiInfo } from "./customSourceRuntime";
 import { atobSafe, btoaSafe } from "../utils/base64";
 import { inflateBytes } from "../utils/compression";
 import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
+import { getSecureItem, removeSecureItem, setSecureItem } from "@/services/secureStorageService";
+import { migrateLegacySecret } from "@/services/secureStorageMigrationModel";
+import { assertHttpsWebdavUrl } from "@/services/webdavUrlModel";
 
 /**
  * 移动端 WebDAV 同步服务。
@@ -21,10 +24,14 @@ import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
  */
 
 const CONFIG_KEY = "auralflow.mobile.webdavConfig";
+const SECURE_PASSWORD_KEY = "auralflow.mobile.webdav.password.v1";
 const PROBE_FILE = "auralflow-probe.txt";
 const USER_APIS_FILE = "user_apis.json";
 const PLAYLISTS_FILE = "playlists.json";
-const REMOTE_ROOT_PATH = "/LX_Music/";
+const REMOTE_ROOT_PATH = "/AuralFlow/";
+/** 旧版远程根路径（lx-music 沿袭）。仅用于下载回读迁移：新路径 404 时
+ * 回退读旧路径，避免老用户升级后云端数据“消失”。上传一律写新路径。 */
+const LEGACY_REMOTE_ROOT_PATH = "/LX_Music/";
 
 // ---------------------------------------------------------------------------
 // 类型定义
@@ -129,22 +136,52 @@ async function withSyncLock<T>(label: string, fn: () => Promise<T>): Promise<T> 
 
 export async function loadWebdavConfig(): Promise<WebdavConfig> {
   const raw = await AsyncStorage.getItem(CONFIG_KEY);
-  if (!raw) return { url: "", username: "", password: "", autoSyncPlaylists: false };
-  try {
-    const parsed = JSON.parse(raw) as Partial<WebdavConfig>;
-    return {
-      url: parsed.url ?? "",
-      username: parsed.username ?? "",
-      password: parsed.password ?? "",
-      autoSyncPlaylists: parsed.autoSyncPlaylists ?? false,
-    };
-  } catch {
-    return { url: "", username: "", password: "", autoSyncPlaylists: false };
+  let parsed: Partial<WebdavConfig> = {};
+  if (raw) {
+    try {
+      parsed = JSON.parse(raw) as Partial<WebdavConfig>;
+    } catch {
+      parsed = {};
+    }
   }
+
+  const legacyPassword = typeof parsed.password === "string" ? parsed.password : "";
+  const password = await migrateLegacySecret({
+    readSecure: () => getSecureItem(SECURE_PASSWORD_KEY),
+    readLegacy: async () => legacyPassword || null,
+    writeSecure: (value) => setSecureItem(SECURE_PASSWORD_KEY, value),
+    removeLegacy: () => AsyncStorage.setItem(
+      CONFIG_KEY,
+      JSON.stringify({
+        url: parsed.url ?? "",
+        username: parsed.username ?? "",
+        autoSyncPlaylists: parsed.autoSyncPlaylists ?? false,
+      }),
+    ),
+  });
+
+  return {
+    url: parsed.url ?? "",
+    username: parsed.username ?? "",
+    password: password ?? "",
+    autoSyncPlaylists: parsed.autoSyncPlaylists ?? false,
+  };
 }
 
 export async function saveWebdavConfig(cfg: WebdavConfig): Promise<void> {
-  await AsyncStorage.setItem(CONFIG_KEY, JSON.stringify(cfg));
+  if (cfg.password) {
+    await setSecureItem(SECURE_PASSWORD_KEY, cfg.password);
+  } else {
+    await removeSecureItem(SECURE_PASSWORD_KEY);
+  }
+  await AsyncStorage.setItem(
+    CONFIG_KEY,
+    JSON.stringify({
+      url: cfg.url,
+      username: cfg.username,
+      autoSyncPlaylists: cfg.autoSyncPlaylists,
+    }),
+  );
 }
 
 async function getConfig(): Promise<WebdavConfig | null> {
@@ -193,12 +230,12 @@ function probePath(): string {
   return joinRemotePath(REMOTE_ROOT_PATH, PROBE_FILE);
 }
 
-function userApisPath(): string {
-  return joinRemotePath(REMOTE_ROOT_PATH, USER_APIS_FILE);
+function userApisPath(root: string = REMOTE_ROOT_PATH): string {
+  return joinRemotePath(root, USER_APIS_FILE);
 }
 
-function playlistsPath(): string {
-  return joinRemotePath(REMOTE_ROOT_PATH, PLAYLISTS_FILE);
+function playlistsPath(root: string = REMOTE_ROOT_PATH): string {
+  return joinRemotePath(root, PLAYLISTS_FILE);
 }
 
 // ---------------------------------------------------------------------------
@@ -244,8 +281,8 @@ async function readLocalMeta(kind: SyncKind): Promise<LocalSyncMeta | null> {
 async function writeLocalMeta(kind: SyncKind, meta: LocalSyncMeta): Promise<void> {
   try {
     await AsyncStorage.setItem(META_PREFIX + kind, JSON.stringify(meta));
-  } catch {
-    // 忽略存储失败，不影响同步主流程
+  } catch (error) {
+    console.warn(`保存 WebDAV ${kind} 元数据失败`, error);
   }
 }
 
@@ -255,7 +292,9 @@ async function writeLocalBackup(kind: SyncKind, payload: unknown): Promise<void>
       BACKUP_PREFIX + kind,
       JSON.stringify({ savedAt: Date.now(), payload }),
     );
-  } catch {}
+  } catch (error) {
+    console.warn(`保存 WebDAV ${kind} 本地备份失败`, error);
+  }
 }
 
 /** 阻止用较旧的云端数据静默覆盖较新的本地数据。 */
@@ -292,7 +331,10 @@ async function assertCloudNotStale(
 // ---------------------------------------------------------------------------
 
 async function webdavRequest(cfg: WebdavConfig, path: string, init: WebdavRequestInit): Promise<Response> {
-  return fetchWithTimeout(buildUrl(cfg, path), {
+  const url = buildUrl(cfg, path);
+  // Basic 认证包含用户凭据，WebDAV 仅允许 HTTPS，并继续执行公共出站地址校验。
+  assertHttpsWebdavUrl(url);
+  return fetchWithTimeout(url, {
     method: init.method,
     headers: {
       Authorization: authHeader(cfg),
@@ -508,7 +550,7 @@ async function buildPlaylistsSyncFile(): Promise<PlaylistsSyncFile> {
           // （如桌面端写入的），上传时重新挂载，避免用空列表覆盖云端数据。
           list: cachedCloudSongs(playlist.source, playlist.id),
           createdAt: Date.now(),
-          updatedAt: Date.now(),
+          updatedAt: playlist.updatedAt ?? Date.now(),
         })),
       ],
     },
@@ -580,7 +622,9 @@ async function rememberCloudSongs(songsByKey: Map<string, MusicInfo[]>): Promise
       payload[key] = songs;
     }
     await AsyncStorage.setItem(CLOUD_SONGS_CACHE_KEY, JSON.stringify(payload));
-  } catch {}
+  } catch (error) {
+    console.warn("保存 WebDAV 云端歌曲缓存失败", error);
+  }
 }
 
 function cachedCloudSongs(source: string, id: string): MusicInfo[] {
@@ -602,6 +646,7 @@ function remoteItemToWyPlaylist(remote: RemotePlaylistItem, index: number): WyPl
     trackCount: songs.length,
     source: source as WyPlaylistInfo["source"],
     coverImgUrl: cover || undefined,
+    updatedAt: getTimestamp(remote.updatedAt, 0),
   };
 }
 
@@ -793,12 +838,26 @@ export async function uploadSourcesSync(): Promise<void> {
 }
 
 /** 从 WebDAV 下载自定义音源（自动备份本地，阻止云端旧数据覆盖）。 */
+/** 读同步文件：优先新路径 /AuralFlow/，404/409 时回退旧 /LX_Music/（迁移）。 */
+async function readSyncFileWithLegacyFallback(
+  cfg: WebdavConfig,
+  fileName: (root?: string) => string,
+): Promise<string | null> {
+  const primary = await readWebdavText(cfg, fileName());
+  if (primary != null) return primary;
+  try {
+    return await readWebdavText(cfg, fileName(LEGACY_REMOTE_ROOT_PATH));
+  } catch {
+    return null;
+  }
+}
+
 export async function downloadSourcesSync(options?: { force?: boolean }): Promise<void> {
   return withSyncLock("下载音源", async () => {
     const cfg = await getConfig();
     if (!cfg) throw new Error("请先填写 WebDAV 地址");
 
-    const text = await readWebdavText(cfg, userApisPath());
+    const text = await readSyncFileWithLegacyFallback(cfg, userApisPath);
     if (!text) throw new Error("云端没有音源文件");
     const localSources = useCustomSourceStore.getState().sources;
     await assertCloudNotStale("sources", text, localSources.length, options?.force);
@@ -822,13 +881,6 @@ export async function uploadPlaylistsSync(): Promise<void> {
     await ensureRemoteDirectory(cfg, REMOTE_ROOT_PATH);
 
     const body = await buildPlaylistsSyncFile();
-    await writeLocalMeta("playlists", {
-      lastModified: body.lastModified,
-      itemCount:
-        (body.data.loveList?.length ?? 0) +
-        (body.data.userList?.length ?? 0) +
-        (body.playHistory?.length ?? 0),
-    });
 
     const resp = await webdavRequest(cfg, playlistsPath(), {
       method: "PUT",
@@ -838,6 +890,15 @@ export async function uploadPlaylistsSync(): Promise<void> {
     if (!resp.ok) {
       throw new Error(formatWriteFailure("上传歌单", resp.status, resp.statusText));
     }
+    // 本地标记必须在 PUT 成功后再写：若上传失败而 meta 已推进，
+    // 下次下载会被 assertCloudNotStale 误判为“云端较旧”而拦截（对齐 uploadSourcesSync）。
+    await writeLocalMeta("playlists", {
+      lastModified: body.lastModified,
+      itemCount:
+        (body.data.loveList?.length ?? 0) +
+        (body.data.userList?.length ?? 0) +
+        (body.playHistory?.length ?? 0),
+    });
   });
 }
 
@@ -856,7 +917,7 @@ export async function downloadPlaylistsSync(options?: {
     const cfg = await getConfig();
     if (!cfg) throw new Error("请先填写 WebDAV 地址");
 
-    const text = await readWebdavText(cfg, playlistsPath());
+    const text = await readSyncFileWithLegacyFallback(cfg, playlistsPath);
     if (!text) {
       if (options?.allowMissing) return;
       throw new Error("云端没有歌单文件");
@@ -941,7 +1002,9 @@ export async function testSync(): Promise<string> {
       if (!putResp.ok) {
         return formatWriteFailure("写入", putResp.status, putResp.statusText);
       }
-      await webdavRequest(cfg, probePath(), { method: "DELETE" }).catch(() => undefined);
+      await webdavRequest(cfg, probePath(), { method: "DELETE" }).catch((error) => {
+        console.warn("清理 WebDAV 探测文件失败", error);
+      });
       return "连接正常";
     });
   } catch (e) {

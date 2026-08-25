@@ -1,8 +1,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import RNFS from "react-native-fs";
 import type { LyricLine, MusicInfo } from "@lx/core";
+import { DEFAULT_QUALITY_UPGRADE_WINDOW_MS, raceForBestQuality } from "@lx/core";
 import { fetchSongLyrics, parseUrl, buildStreamHeaders } from "./musicApi";
 import { resolveBiliSongUrl } from "./biliService";
+import { resolveUrlWithCustomSource, probeStreamUrl } from "./playerService";
+import { STREAM_USER_AGENT } from "./musicApi";
+
 import { embedId3Tag, type Id3Cover } from "./id3TagWriter";
 import { base64ToBytes, bytesToBase64 } from "@/utils/base64";
 export { formatDownloadSize } from "./downloadSizeFormatter";
@@ -58,7 +62,6 @@ function normalizeQualityKeyForDownload(value: string): DownloadQuality | null {
 
 
 
-export { formatDownloadDirectoryLabel } from "./downloadDirectoryModel";
 
 /** 当前设备下载目录（绝对路径，供 UI 展示；系统限制下不可改）。 */
 export function getDownloadDirectoryPath(): string {
@@ -404,9 +407,23 @@ async function downloadSongInternal(task: QueueTask): Promise<string> {
     };
     resolvedExt = inferExtFromUrl(url) ?? "m4a";
   } else {
-    // 播放/下载统一由内置音乐 API 网关解析（官方直连仅用于搜索与元数据）；与播放链路一致
-    url = await parseUrl(song, quality);
-    headers = buildStreamHeaders(song.source);
+    // 同档音质内并发竞速（与播放链路一致，用户要求 2026-08）：网关与自定义音源同时
+    // 发起，谁先返回有效 URL 用谁；下载完成后 headers 用胜出方的防盗链配置。
+    try {
+      const raced = await raceDownloadUrl(song, quality);
+      url = raced.url;
+      // 防盗链 headers 统一按音源补齐：自定义源返回的也多为 wy/tx 官方 CDN 链接，
+      // 缺 Referer 会 403；其他源 CDN 无 Referer 要求，多带无害（与播放链路保持一致）。
+      headers = buildStreamHeaders(song.source);
+      // 死代理探活：与播放链路同策略，避免下载写入死链后无限等待。下载是用户显式
+      // 指定音质且不降档，探不通直接报错，让用户换源或换音质重试。
+      const probe = await probeStreamUrl(url, headers);
+      if (!probe.ok) {
+        throw new Error(`下载地址不可用（${probe.reason}），请重试或更换音源`);
+      }
+    } catch (error) {
+      throw error instanceof Error ? error : new Error(String(error));
+    }
     resolvedExt = inferExtFromUrl(url) ?? qualityExt(quality);
   }
   if (!url) {
@@ -463,8 +480,10 @@ async function downloadSongInternal(task: QueueTask): Promise<string> {
       await safeUnlink(finalFilePath);
       throw new Error(`下载失败，HTTP ${result.statusCode}`);
     }
-    await writeSidecarLyrics(song, finalFilePath);
-    await enhanceDownloadedFile(song, finalFilePath);
+    // 歌词只拉取一次：旁挂 .lrc 与嵌入 ID3 共用，避免两个函数各自请求一次网络
+    const lyrics = await fetchSongLyrics(song).catch(() => [] as LyricLine[]);
+    await writeSidecarLyrics(song, finalFilePath, lyrics);
+    await enhanceDownloadedFile(song, finalFilePath, lyrics);
     return finalUri;
   } catch (error) {
     // 取消/暂停或出错时清理半成品文件（暂停续传依赖服务端 Accept-Ranges，失败则整文件重下）
@@ -521,10 +540,13 @@ export function cancelDownload(song: MusicInfo, quality?: DownloadQuality): bool
   return cancelled;
 }
 
-async function writeSidecarLyrics(song: MusicInfo, audioFilePath: string): Promise<void> {
+async function writeSidecarLyrics(
+  song: MusicInfo,
+  audioFilePath: string,
+  lyrics?: LyricLine[],
+): Promise<void> {
   try {
-    const lyrics = await fetchSongLyrics(song);
-    const lrc = formatLyricsAsLrc(lyrics);
+    const lrc = formatLyricsAsLrc(lyrics ?? []);
     if (!lrc) return;
     await RNFS.writeFile(sidecarLrcPath(audioFilePath), `${lrc}\n`, "utf8");
   } catch {}
@@ -534,31 +556,40 @@ async function writeSidecarLyrics(song: MusicInfo, audioFilePath: string): Promi
 async function fetchCoverBytes(song: MusicInfo): Promise<Id3Cover | undefined> {
   const url = song.picUrl || song.img;
   if (!url) return undefined;
+  // 临时文件统一在 finally 里清理：非 200 / 下载异常 / 读盘异常也不能残留泄漏。
+  const tmpPath = `${RNFS.CachesDirectoryPath}/auralflow_cover_${Date.now()}.tmp`;
   try {
     const mime = url.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
-    const tmpPath = `${RNFS.CachesDirectoryPath}/auralflow_cover_${Date.now()}.tmp`;
     const result = await RNFS.downloadFile({ fromUrl: url, toFile: tmpPath }).promise;
     if (result.statusCode !== 200) return undefined;
     const b64 = await RNFS.readFile(tmpPath, "base64");
-    await RNFS.unlink(tmpPath).catch(() => undefined);
     return { mime, data: base64ToBytes(b64) };
-  } catch (error) {
+  } catch {
     return undefined;
+  } finally {
+    await RNFS.unlink(tmpPath).catch(() => undefined);
   }
 }
 
 /**
  * 对齐桌面端 enhanceDownloadedFile：把标题/歌手/专辑 + 封面 + 歌词写进下载音频。
- * 只处理非本地歌曲；任一步失败仅告警不中断（下载文件本身已完整）。
+ * 只处理非本地、MP3 类文件：
+ * - FLAC/M4A 用 ID3v2 头是非标准格式（播放器可能忽略甚至误读），跳过；
+ * - 读整文件进内存 + base64 双转换，超过体积上限（25MB）跳过，避免 Hermes OOM。
+ * 任一步失败仅告警不中断（下载文件本身已完整）。
  */
 async function enhanceDownloadedFile(
   song: MusicInfo,
   audioFilePath: string,
+  lyrics?: LyricLine[],
 ): Promise<void> {
   if (song.isLocal) return;
+  const ext = audioFilePath.split(".").pop()?.toLowerCase() ?? "";
+  if (ext !== "mp3") return;
   try {
-    const lyrics = await fetchSongLyrics(song);
-    const lrc = formatLyricsAsLrc(lyrics);
+    const stat = await RNFS.stat(audioFilePath);
+    if (Number(stat.size) > 25 * 1024 * 1024) return;
+    const lrc = formatLyricsAsLrc(lyrics ?? []);
     const cover = await fetchCoverBytes(song);
 
     const b64 = await RNFS.readFile(audioFilePath, "base64");
@@ -708,3 +739,40 @@ async function safeUnlink(filePath: string): Promise<void> {
   } catch {}
 }
 
+/**
+ * 下载取链的同档竞速：网关与自定义音源并发，先返回有效 URL 者胜。
+ * 与播放链路 raceQualityTier 同策略（用户要求 2026-08）；区别在于下载
+ * 不做音质降档（用户指定什么档就下什么档），失败直接报错。
+ * 单档场景下 ceiling 即该档，任一通道成功立即定稿，不进入升级等待窗口。
+ */
+async function raceDownloadUrl(
+  song: MusicInfo,
+  quality: string,
+): Promise<{ url: string; quality: string; fromCustomSource: boolean }> {
+  const gatewayAttempt = parseUrl(song, quality).then(
+    (result) => ({ url: result.url, quality: result.quality || quality, fromCustomSource: false }),
+    (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`网关解析失败：${message}`);
+    },
+  );
+  const customAttempt = resolveUrlWithCustomSource(song, [quality]).then(
+    (result) => ({ ...result, fromCustomSource: true }),
+    (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`自定义音源兜底失败：${message}`);
+    },
+  );
+
+  return raceForBestQuality([gatewayAttempt, customAttempt], {
+    getQuality: (value) => value.quality,
+    upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
+    ceiling: quality,
+    formatError: (errors) => {
+      const detail = errors
+        .map((error) => (error instanceof Error ? error.message : String(error)))
+        .join("；");
+      return new Error(detail || "下载地址解析失败");
+    },
+  });
+}

@@ -1,7 +1,7 @@
 import React from "react";
 import { ImageBackground, StyleSheet, View, type ViewStyle } from "react-native";
 
-import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
+import { getResolvedTheme, getEffectiveBackgroundOpacity, getThemePalette, useThemeStore } from "@/stores/themeStore";
 
 interface AppBackgroundProps {
   style?: ViewStyle;
@@ -20,6 +20,9 @@ export function AppBackground({ style, children }: AppBackgroundProps) {
   const backgroundImageUri = useThemeStore((state) => state.backgroundImageUri);
   const backgroundOpacity = useThemeStore((state) => state.backgroundOpacity);
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
+  // 夜间主题下遮罩不低于下限：亮色背景图透出过多会把浅色文字对比度压到不可读
+  const resolvedTheme = getResolvedTheme(mode, systemTheme);
+  const effectiveOpacity = getEffectiveBackgroundOpacity(resolvedTheme, backgroundOpacity);
 
   if (!backgroundImageUri) {
     return (
@@ -42,7 +45,7 @@ export function AppBackground({ style, children }: AppBackgroundProps) {
       <View
         style={[
           StyleSheet.absoluteFill,
-          { backgroundColor: palette.background, opacity: backgroundOpacity },
+          { backgroundColor: palette.background, opacity: effectiveOpacity },
         ]}
       />
       <View style={styles.content}>{children}</View>

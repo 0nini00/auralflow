@@ -2,6 +2,8 @@ import { create } from "zustand";
 import type { MusicInfo } from "@lx/core";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
+  getDownloadedLocalSongs,
+  isDownloadedLocalSong,
   pickLocalAudioFiles,
   scanLocalMusic,
   updateLocalMusicMetadata,
@@ -78,7 +80,13 @@ export const useLocalMusicStore = create<LocalMusicStore>((set) => ({
   scanMusic: async () => {
     set({ loading: true, error: null });
     try {
-      const songs = await scanLocalMusic();
+      // MediaStore 不索引应用私有下载目录：并行扫描系统媒体库与应用下载目录，
+      // 合并后再落盘——「扫描/刷新」后下载完成的歌曲才能出现在本地曲库
+      const [scanned, downloaded] = await Promise.all([
+        scanLocalMusic(),
+        getDownloadedLocalSongs(),
+      ]);
+      const songs = mergeLocalSongs(scanned, downloaded);
       await persistLocalSongs(songs);
       set({ localSongs: songs, loading: false });
     } catch (error) {
@@ -125,7 +133,10 @@ export const useLocalMusicStore = create<LocalMusicStore>((set) => ({
   updateLocalSongMetadata: async (song, input) => {
     const patch = buildLocalMusicMetadataUpdate(input);
     try {
-      await updateLocalMusicMetadata(String(song.id), patch);
+      // 下载目录入库的歌曲不在 MediaStore 里，没有可写回的媒体 id：仅更新本地列表
+      if (!isDownloadedLocalSong(song)) {
+        await updateLocalMusicMetadata(String(song.id), patch);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "写回文件标签失败";
       set({ error: message });

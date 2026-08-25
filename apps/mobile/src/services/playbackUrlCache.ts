@@ -9,13 +9,13 @@ import type { MusicInfo } from "@lx/core";
  * 冷启动 / 重启 app 后无需重新请求网关，节省流量与首播延迟。
  */
 
-const STORAGE_KEY = "auralflow:playback-url-cache:v1";
+const STORAGE_KEY = "auralflow:playback-url-cache:v2";
 
 export const PLAYBACK_URL_TTL_MS = 6 * 60 * 60 * 1000;
 export const BILI_PLAYBACK_URL_TTL_MS = 30 * 60 * 1000;
 export const LOCAL_PLAYBACK_CACHE_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 const MAX_PLAYBACK_URL_ENTRIES = 500;
 
 interface CachedPlaybackUrlEntry {

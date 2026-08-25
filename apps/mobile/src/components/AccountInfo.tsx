@@ -1,7 +1,9 @@
 import React from "react";
-import { View, Text, StyleSheet, Pressable, Alert } from "react-native";
+import { View, Text, StyleSheet } from "react-native";
 import { ChevronRight, UserRound } from "lucide-react-native";
 import { CachedImage } from "./CachedImage";
+import { ListItemButton } from "@/components/ui/ListItemButton";
+
 import { useAccountStore } from "@/stores/accountStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, touch, typography } from "@/theme/tokens";
@@ -9,47 +11,25 @@ import { radius, spacing, touch, typography } from "@/theme/tokens";
 interface AccountInfoProps {
   onLoginPress?: () => void;
   onAccountPress?: () => void;
-  showLogoutAction?: boolean;
 }
 
+/**
+ * 账号状态展示。
+ *
+ * 与登录入口一致地收敛：账号的登录/退出操作只保留在「设置 → 账号与服务」
+ * （NeteaseAccountCard），本组件只负责展示，不提供退出入口，避免同一操作有两个来源。
+ */
 export function AccountInfo({
   onLoginPress,
   onAccountPress,
-  showLogoutAction = true,
 }: AccountInfoProps) {
   const isLoggedIn = useAccountStore((state) => state.isLoggedIn);
   const user = useAccountStore((state) => state.user);
-  const logout = useAccountStore((state) => state.logout);
   const loading = useAccountStore((state) => state.loading);
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
-
-  const handleLogout = () => {
-    Alert.alert(
-      "退出登录",
-      "确定要退出当前账号吗？",
-      [
-        { text: "取消", style: "cancel" },
-        {
-          text: "退出账号",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await logout();
-              Alert.alert("已退出", "已退出当前账号");
-            } catch (logoutError) {
-              Alert.alert(
-                "退出账号失败",
-                logoutError instanceof Error ? logoutError.message : "无法清除本地账号信息",
-              );
-            }
-          },
-        },
-      ]
-    );
-  };
 
   if (!isLoggedIn || !user) {
     // 收敛方案：登录入口只保留在「设置 → 账号与服务」。
@@ -79,91 +59,30 @@ export function AccountInfo({
       );
     }
     return (
-      <Pressable
-        style={[styles.loginCard, { backgroundColor: palette.surface, borderColor: palette.primary }]}
+      <ListItemButton
+        title="登录网易云账号"
+        subtitle="登录后可同步歌单、收藏等数据"
+        leading={<View style={[styles.loginIcon, { backgroundColor: palette.surfaceStrong }]}><UserRound size={24} color={palette.primary} /></View>}
+        trailing={<ChevronRight size={24} color={palette.primary} />}
         onPress={onAccountPress ?? onLoginPress}
-        accessibilityRole="button"
         accessibilityLabel="登录网易云账号"
-        accessibilityHint={onAccountPress ? "打开账号设置" : "打开登录页面"}
-        accessibilityState={{ disabled: loading, busy: loading }}
         disabled={loading}
-      >
-        <View style={styles.loginContent}>
-          <View
-            style={[styles.loginIcon, { backgroundColor: palette.surfaceStrong }]}
-            accessible
-            accessibilityRole="image"
-            accessibilityLabel="网易云账号"
-          >
-            <UserRound size={24} color={palette.primary} />
-          </View>
-          <View style={styles.loginTextContainer}>
-            <Text style={[styles.loginTitle, { color: palette.text }]}>登录网易云账号</Text>
-            <Text style={[styles.loginSubtitle, { color: palette.textMuted }]}>
-              登录后可同步歌单、收藏等数据
-            </Text>
-          </View>
-          <ChevronRight size={24} color={palette.primary} />
-        </View>
-      </Pressable>
+        style={[styles.loginCard, { backgroundColor: palette.surface, borderColor: palette.primary }]}
+      />
     );
   }
 
   return (
-    <View style={[styles.accountCard, { backgroundColor: palette.surface }]}>
-      <Pressable
+        <View style={[styles.accountCard, { backgroundColor: palette.surface }]}>
+      <ListItemButton
+        title={user.nickname}
+        subtitle={`ID: ${user.userId}`}
+        leading={user.avatarUrl ? <CachedImage uri={user.avatarUrl} style={styles.avatar} /> : <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: palette.surfaceStrong }]}><Text style={[styles.avatarFallbackText, { color: palette.primary }]}>{user.nickname.charAt(0)}</Text></View>}
         onPress={onAccountPress}
-        accessibilityRole={onAccountPress ? "button" : "summary"}
         accessibilityLabel={`网易云账号，${user.nickname}，已登录`}
-        accessibilityHint={onAccountPress ? "打开账号设置" : undefined}
-        accessibilityState={{ disabled: loading, busy: loading }}
         disabled={loading}
-      >
-        <View style={styles.userInfo}>
-          {user.avatarUrl ? (
-            <CachedImage
-            uri={user.avatarUrl}
-            style={styles.avatar}
-            fallback={
-              <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: palette.surfaceStrong }]}>
-                <Text style={[styles.avatarFallbackText, { color: palette.primary }]}>
-                  {user.nickname.charAt(0)}
-                </Text>
-              </View>
-            }
-            />
-          ) : (
-            <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: palette.surfaceStrong }]}>
-            <Text style={[styles.avatarFallbackText, { color: palette.primary }]}>
-              {user.nickname.charAt(0)}
-            </Text>
-            </View>
-          )}
-
-          <View style={styles.userDetails}>
-          <Text style={[styles.nickname, { color: palette.text }]}>{user.nickname}</Text>
-          <Text style={[styles.userId, { color: palette.textMuted }]}>ID: {user.userId}</Text>
-          {user.vipType && user.vipType > 0 && (
-            <View style={styles.vipBadge}>
-              <Text style={styles.vipText}>VIP</Text>
-            </View>
-          )}
-          </View>
-        </View>
-      </Pressable>
-
-      {showLogoutAction && (
-        <Pressable
-          style={[styles.logoutButton, { backgroundColor: palette.dangerSurface }]}
-          onPress={handleLogout}
-          accessibilityRole="button"
-          accessibilityLabel="退出网易云账号"
-          accessibilityState={{ disabled: loading, busy: loading }}
-          disabled={loading}
-        >
-          <Text style={[styles.logoutButtonText, { color: palette.danger }]}>退出账号</Text>
-        </Pressable>
-      )}
+        style={styles.userButton}
+      />
     </View>
   );
 }
@@ -250,15 +169,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#ffffff",
   },
-  logoutButton: {
-    minHeight: touch.minTarget,
-    paddingHorizontal: spacing.s,
-    borderRadius: radius.sm,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  logoutButtonText: {
-    fontSize: typography.body,
-    fontWeight: "600",
+  userButton: {
+    marginHorizontal: -spacing.s,
   },
 });

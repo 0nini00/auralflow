@@ -15,7 +15,6 @@ import {
 import { AccountInfo } from "@/components/AccountInfo";
 import { LocalPlaylistList } from "@/components/LocalPlaylistList";
 import { PlaylistList } from "@/components/PlaylistList";
-import type { WyPlaylistInfo } from "@/services/wyPlaylistService";
 import { QuickActionCard } from "@/components/QuickActionCard";
 import { ActionButton } from "@/components/ActionButton";
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
@@ -31,14 +30,9 @@ import {
 import { buildLibraryQuickActions } from "@/services/libraryQuickActions";
 import { buildWyPlaylistGroups } from "@/services/libraryPlaylistGroups";
 import type { LibraryQuickActionType } from "@/services/libraryQuickActions";
-import {
-  buildLocalPlaylistListActionRequest,
-  type LocalPlaylistListActionType,
-} from "@/services/localPlaylistListActions";
 import type { LocalPlaylist } from "@/services/localPlaylistModel";
 import {
   importPlaylistsFromJsonInput,
-  shareExportedLocalPlaylists,
   shareExportedPlaylists,
 } from "@/services/playlistTransferService";
 import { radius, spacing, typography } from "@/theme/tokens";
@@ -72,10 +66,7 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
   const loadLocalPlaylists = usePlaylistStore((state) => state.loadLocalPlaylists);
   const createLocalPlaylist = usePlaylistStore((state) => state.createLocalPlaylist);
   const updateLocalPlaylistInfo = usePlaylistStore((state) => state.updateLocalPlaylistInfo);
-  const duplicateLocalPlaylist = usePlaylistStore((state) => state.duplicateLocalPlaylist);
-  const deleteLocalPlaylist = usePlaylistStore((state) => state.deleteLocalPlaylist);
   const updateWyPlaylistInfo = usePlaylistStore((state) => state.updateWyPlaylistInfo);
-  const deleteWyPlaylist = usePlaylistStore((state) => state.deleteWyPlaylist);
 
   const [showCreateLocalPlaylistModal, setShowCreateLocalPlaylistModal] = useState(false);
   const [showImportLocalPlaylistModal, setShowImportLocalPlaylistModal] = useState(false);
@@ -107,54 +98,6 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
     setWyPlaylistName("");
     setWyPlaylistDescription("");
     setShowCreateWyPlaylistModal(true);
-  };
-
-  const openEditWyPlaylist = (playlist: WyPlaylistInfo) => {
-    setEditingWyPlaylistId(playlist.id);
-    setWyPlaylistName(playlist.name);
-    setWyPlaylistDescription(playlist.desc ?? "");
-    setShowCreateWyPlaylistModal(true);
-  };
-
-  const canManageWyPlaylist = (playlist: WyPlaylistInfo) => {
-    if (!isLoggedIn || !user || playlist.id === likedPlaylist?.id || playlist.subscribed === true) return false;
-    return playlist.creator?.userId === user.userId;
-  };
-
-  const handleWyPlaylistAction = (playlist: WyPlaylistInfo) => {
-    Alert.alert(
-      playlist.name,
-      "选择操作",
-      [
-        { text: "取消", style: "cancel" },
-        {
-          text: "编辑",
-          onPress: () => openEditWyPlaylist(playlist),
-        },
-        {
-          text: "删除",
-          style: "destructive",
-          onPress: () => {
-            Alert.alert(
-              "确认删除",
-              `确定删除歌单「${playlist.name}」吗？此操作无法撤销。`,
-              [
-                { text: "取消", style: "cancel" },
-                {
-                  text: "删除",
-                  style: "destructive",
-                  onPress: () => {
-                    deleteWyPlaylist(playlist.id).catch((error) => {
-                      Alert.alert("删除失败", error instanceof Error ? error.message : String(error));
-                    });
-                  },
-                },
-              ],
-            );
-          },
-        },
-      ],
-    );
   };
 
   useEffect(() => {
@@ -271,48 +214,6 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
     }
   };
 
-  const handleLocalPlaylistAction = async (
-    playlist: LocalPlaylist,
-    action: LocalPlaylistListActionType,
-  ) => {
-    const request = buildLocalPlaylistListActionRequest(playlist, action);
-
-    switch (request.action) {
-      case "edit":
-        openLocalPlaylistEditor(request.playlist);
-        return;
-      case "duplicate":
-        try {
-          const duplicated = await duplicateLocalPlaylist(request.playlist.id);
-          openLocalPlaylistDetailScreen(duplicated.id);
-        } catch (error) {
-          Alert.alert("复制失败", error instanceof Error ? error.message : String(error));
-        }
-        return;
-      case "export":
-        try {
-          await shareExportedLocalPlaylists([request.playlist]);
-        } catch (error) {
-          Alert.alert("导出失败", error instanceof Error ? error.message : String(error));
-        }
-        return;
-      case "delete":
-        Alert.alert("删除本地歌单", `确定删除“${request.playlist.name}”吗？`, [
-          { text: "取消", style: "cancel" },
-          {
-            text: "删除",
-            style: "destructive",
-            onPress: () => {
-              void deleteLocalPlaylist(request.playlist.id).catch((error) => {
-                Alert.alert("删除失败", error instanceof Error ? error.message : String(error));
-              });
-            },
-          },
-        ]);
-        return;
-    }
-  };
-
   const handleCreateWyPlaylist = async () => {
     if (creatingWyPlaylist) return;
     const name = wyPlaylistName.trim();
@@ -396,7 +297,6 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
           <LocalPlaylistList
             playlists={localPlaylists}
             onPress={handleLocalPlaylistPress}
-            onAction={handleLocalPlaylistAction}
             emptyText="还没有本地歌单，点击新建开始整理"
           />
         </View>
@@ -420,8 +320,6 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
             <PlaylistList
               playlists={group.playlists}
               onPress={openPlaylistDetailScreen}
-              onAction={group.key === "owned" && isLoggedIn ? handleWyPlaylistAction : undefined}
-              canAction={canManageWyPlaylist}
               emptyText={group.emptyText}
             />
           </View>
@@ -465,14 +363,14 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
                   <Text style={[styles.createModalButtonText, { color: palette.textMuted }]}>取消</Text>
                 </Pressable>
                 <Pressable
-                  style={[styles.createModalButton, { backgroundColor: palette.primary }]}
+                  style={[styles.createModalButton, { backgroundColor: palette.surface, borderColor: palette.border, borderWidth: 1 }]}
                   onPress={handleCreateLocalPlaylist}
                   disabled={creatingLocalPlaylist}
                 >
                   {creatingLocalPlaylist ? (
-                    <ActivityIndicator color={palette.primaryText} size="small" />
+                    <ActivityIndicator color={palette.primary} size="small" />
                   ) : (
-                    <Text style={[styles.createModalButtonText, { color: palette.primaryText }]}>
+                    <Text style={[styles.createModalButtonText, { color: palette.primary }]}>
                       {editingLocalPlaylistId ? "保存" : "创建"}
                     </Text>
                   )}
@@ -520,14 +418,14 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
                   <Text style={[styles.createModalButtonText, { color: palette.textMuted }]}>取消</Text>
                 </Pressable>
                 <Pressable
-                  style={[styles.createModalButton, { backgroundColor: palette.primary }]}
+                  style={[styles.createModalButton, { backgroundColor: palette.surface, borderColor: palette.border, borderWidth: 1 }]}
                   onPress={handleCreateWyPlaylist}
                   disabled={creatingWyPlaylist}
                 >
                   {creatingWyPlaylist ? (
-                    <ActivityIndicator color={palette.primaryText} size="small" />
+                    <ActivityIndicator color={palette.primary} size="small" />
                   ) : (
-                    <Text style={[styles.createModalButtonText, { color: palette.primaryText }]}>
+                    <Text style={[styles.createModalButtonText, { color: palette.primary }]}>
                       {editingWyPlaylistId ? "保存" : "创建"}
                     </Text>
                   )}
@@ -566,14 +464,14 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
                   <Text style={[styles.createModalButtonText, { color: palette.textMuted }]}>取消</Text>
                 </Pressable>
                 <Pressable
-                  style={[styles.createModalButton, { backgroundColor: palette.primary }]}
+                  style={[styles.createModalButton, { backgroundColor: palette.surface, borderColor: palette.border, borderWidth: 1 }]}
                   onPress={handleImportLocalPlaylists}
                   disabled={importingLocalPlaylists}
                 >
                   {importingLocalPlaylists ? (
-                    <ActivityIndicator color={palette.primaryText} size="small" />
+                    <ActivityIndicator color={palette.primary} size="small" />
                   ) : (
-                    <Text style={[styles.createModalButtonText, { color: palette.primaryText }]}>导入</Text>
+                    <Text style={[styles.createModalButtonText, { color: palette.primary }]}>导入</Text>
                   )}
                 </Pressable>
               </View>

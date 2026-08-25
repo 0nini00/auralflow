@@ -1,8 +1,10 @@
 {
   "name": "@auralflow/mobile",
   "version": "0.1.0",
+  "androidVersionCode": 1,
   "private": true,
   "scripts": {
+    "test": "vitest run",
     "android": "react-native run-android",
     "android:assembleDebug": "cd android && gradlew.bat assembleDebug",
     "start": "react-native start",
@@ -38,6 +40,7 @@
     "react-native-tab-view": "^4.3.2",
     "react-native-track-player": "4.1.2",
     "react-native-video": "6.19.2",
+    "react-native-webview": "^14.0.1",
     "react-native-worklets": "^0.10.2",
     "zustand": "^5.0.14"
   },
@@ -62,7 +65,8 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "patch-package": "^8.0.1",
     "typescript": "^5.8.3",
-    "typescript-eslint": "^8.66.0"
+    "typescript-eslint": "^8.66.0",
+    "vitest": "^2.1.9"
   },
   "engines": {
     "node": ">= 22.11.0"

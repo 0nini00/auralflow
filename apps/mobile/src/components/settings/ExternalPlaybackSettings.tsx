@@ -1,10 +1,11 @@
 import React, { useEffect } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 
 import { SettingsCard } from "@/components/settings/SettingsCard";
+import { Chip } from "@/components/ui/Chip";
 import { usePlaybackSettingsStore } from "@/stores/playbackSettingsStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { radius, spacing, touch, typography } from "@/theme/tokens";
+import { radius, spacing, typography } from "@/theme/tokens";
 
 export function ExternalPlaybackSettings() {
   const loaded = usePlaybackSettingsStore((state) => state.loaded);
@@ -33,18 +34,13 @@ export function ExternalPlaybackSettings() {
         ].map((option) => {
           const selected = pause === option.value;
           return (
-            <Pressable
+            <Chip
               key={option.label}
-              accessibilityRole="button"
-              accessibilityLabel={option.label}
-              accessibilityState={{ selected }}
+              label={option.label}
+              selected={selected}
               onPress={() => void setPause(option.value)}
-              style={[styles.option, selected && { backgroundColor: palette.primary }]}
-            >
-              <Text style={[styles.optionText, { color: selected ? palette.primaryText : palette.textMuted }]}>
-                {option.label}
-              </Text>
-            </Pressable>
+              style={styles.option}
+            />
           );
         })}
       </View>
@@ -63,12 +59,6 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: typography.caption },
   options: { flexDirection: "row", borderRadius: radius.sm, padding: spacing.xxs },
   option: {
-    minHeight: touch.minTarget,
     minWidth: 64,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.xs,
-    alignItems: "center",
-    justifyContent: "center",
   },
-  optionText: { fontSize: typography.caption, fontWeight: "700" },
 });

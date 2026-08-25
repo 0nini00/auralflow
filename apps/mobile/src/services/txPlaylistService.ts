@@ -1,4 +1,5 @@
 import type { MusicInfo } from "@lx/core";
+import { extractTxTrackMeta } from "@lx/core";
 import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
 import type { SearchPlaylistResult } from "./musicApi";
 import type { WyPlaylistInfo } from "./wyPlaylistService";
@@ -159,6 +160,8 @@ export function mapTxPlaylistSong(item: any): MusicInfo | null {
     // 其 id 是 base64 格式，与 QQ 音乐 songmid 是两套完全不同的体系，
     // 挂 joox gateway 也无法解析 QQ 曲目（实测 URL/歌词均返回空）。
     // 因此 QQ 音乐歌曲在「纯网关」播放策略下不尝试解析，直接报清晰错误。
+    // lx 自定义音源取链依赖 strMediaMid，映射阶段丢掉会导致脚本解析失败
+    txMeta: extractTxTrackMeta(item),
   };
 }
 

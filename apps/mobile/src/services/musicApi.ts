@@ -1,14 +1,12 @@
 import {
   createBuiltinMusicApiClient,
-  createChkszMusicApiClient,
-  createRacingBuiltinMusicApiClient,
+  getBuiltinMusicApiGateway,
   mergeTranslation,
   parseLyricSource,
   type LyricLine,
   type MusicInfo,
   type SourceTag,
 } from "@lx/core";
-import { useApiKeyStore } from "@/stores/apiKeyStore";
 import { resolveBiliSongUrl, searchBiliVideos } from "./biliService";
 import {
   getCachedResult,
@@ -18,6 +16,7 @@ import { mergeDuplicateSongs } from "./songMetadataMerge";
 import { searchTxPlaylists, searchTxSongs } from "./txPlaylistService";
 import { searchWySongsViaCloudSearch } from "./wySearchService";
 import { mapWyTrackToMusicInfo } from "./wyMusicMapper";
+import { postWyEapi } from "./wyDirectProvider";
 import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
 
 const DEFAULT_PAGE = 1;
@@ -93,8 +92,15 @@ export async function fetchNeteaseComments(
   const url =
     `https://music.163.com/api/v1/resource/comments/${rid}` +
     `?rid=${rid}&offset=${offset}&total=${offset > 0}&limit=${limit}`;
-  const response = await fetchText(url);
-  const data = JSON.parse(response) as Record<string, any>;
+  let response: string;
+  let data: Record<string, any>;
+  try {
+    response = await fetchText(url);
+    data = JSON.parse(response) as Record<string, any>;
+  } catch (error) {
+    // 评论接口失败（风控/非 JSON）不应阻断，返回空列表（与搜索各分类的 allSettled 语义一致）
+    return { total: 0, comments: [] };
+  }
   const comments = Array.isArray(data.comments) ? data.comments : [];
   return {
     total: Number(data.total ?? comments.length),
@@ -103,7 +109,7 @@ export async function fetchNeteaseComments(
       content: item.content ?? "",
       userId: String(item.user?.userId ?? ""),
       nickname: item.user?.nickname ?? "未知用户",
-      avatarUrl: item.user?.avatarUrl ?? item.user?.avatarUrl,
+      avatarUrl: item.user?.avatarUrl ?? "",
       likedCount: Number(item.likedCount ?? 0),
       createdAt: Number(item.time ?? 0),
       beReplied: Array.isArray(item.beReplied)
@@ -151,17 +157,9 @@ async function fetchText(url: string): Promise<string> {
 
 /**
  * 内置音乐 API 网关（播放/下载/歌词）。
- *
- * 多网关并发竞速（对齐需求「哪个快用哪个」）：
- *   1. gdstudio 网关（免费，无需 key，netease 源可用）
- *   2. ChKSz 网关（需 apikey，支持 netease + QQ；key 未配置时惰性跳过）
- *
- * apikey 通过 apiKeyStore 惰性读取：设置页保存后下次请求立即生效，无需重启。
+ * 由 gdstudio 网关（music-api.gdstudio.xyz）统一解析，失败后由调用方走自定义音源兜底。
  */
-const builtinClient = createRacingBuiltinMusicApiClient([
-  createBuiltinMusicApiClient(fetchText),
-  createChkszMusicApiClient(fetchText, () => useApiKeyStore.getState().chkszApiKey),
-]);
+const builtinClient = createBuiltinMusicApiClient(fetchText);
 
 export function toApiSource(source: Extract<SourceTag, "wy" | "tx">): string {
   return source === "wy" ? "netease" : "joox";
@@ -360,12 +358,14 @@ export async function searchAll(source: SearchSource, keyword: string): Promise<
       playlists: playlistsResult.status === "fulfilled" ? playlistsResult.value : [],
     };
   } else {
-    const playlists = await searchTxPlaylists(keyword);
+    // 与 wy 分支一致用 allSettled：歌单接口返回风控页/非 JSON 时，
+    // 不应让整个 tx 综合搜索 reject（歌曲结果此时已拿到）。
+    const playlistsResult = await Promise.allSettled([searchTxPlaylists(keyword)]);
     finalResults = {
       songs: mergedSongs,
       artists: [],
       albums: [],
-      playlists,
+      playlists: playlistsResult[0]?.status === "fulfilled" ? playlistsResult[0].value : [],
     };
   }
 
@@ -435,7 +435,19 @@ export async function fetchNeteaseAlbumDetail(albumId: string): Promise<AlbumDet
   };
 }
 
+/**
+ * 网关解析：只用歌曲自身的网关元数据，不做跨源替代。
+ *
+ * 曾经在这里做过「同名搜索转译」——tx 曲目缺 gateway 时用「歌名 + 首位歌手」
+ * 去网易云搜同名曲顶上。已移除：gdstudio 搜索结果不带 interval，isSameSong 的
+ * 时长校验因此永远被跳过，只剩「歌名相同 + 歌手重合」，会匹配到 Live / 翻唱 /
+ * 重录 / 同名不同曲；且即便匹配准确，用户点的是 QQ 音乐的曲目却播网易云版本，
+ * 元数据与音质都对不上。tx 缺 gateway 时交给自定义音源用真实 songmid 解析。
+ */
 export async function resolveSongUrl(song: MusicInfo, quality = "320k"): Promise<{ url: string; quality: string }> {
+  if (!getBuiltinMusicApiGateway(song)) {
+    throw new Error("内置音乐 API 无该歌曲的解析元数据");
+  }
   return builtinClient.resolveUrl(song, quality);
 }
 
@@ -460,8 +472,78 @@ export function buildStreamHeaders(
   };
 }
 
+/** 官方歌词直连结果（原文 + 可选翻译） */
+interface OfficialLyricResult {
+  lyric: string;
+  tlyric?: string;
+}
+
+/**
+ * 网易云官方歌词直连（eapi /api/song/lyric/v1）。
+ * 空歌词/无权限返回 null，由调用方回退网关。
+ */
+async function fetchWyOfficialLyric(song: MusicInfo): Promise<OfficialLyricResult | null> {
+  const body = (await postWyEapi("/api/song/lyric/v1", {
+    id: Number(song.id),
+    cp: false,
+    tv: -1,
+    lv: -1,
+    rv: -1,
+    kv: -1,
+    yv: -1,
+    ytv: -1,
+    yrv: -1,
+  })) as { yrc?: { lyric?: string }; lrc?: { lyric?: string }; tlyric?: { lyric?: string } };
+  const lyric = body?.yrc?.lyric || body?.lrc?.lyric || "";
+  const tlyric = body?.tlyric?.lyric || "";
+  if (!lyric.trim()) return null;
+  return { lyric, tlyric: tlyric.trim() ? tlyric : undefined };
+}
+
+/**
+ * QQ 音乐官方歌词直连（fcg_query_lyric_new，nobase64 明文返回）。
+ * 空歌词/风控返回 null，由调用方回退网关。
+ */
+async function fetchTxOfficialLyric(song: MusicInfo): Promise<OfficialLyricResult | null> {
+  const url =
+    `https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg` +
+    `?songmid=${encodeURIComponent(song.id)}&format=json&nobase64=1`;
+  const response = await fetchWithTimeout(url, {
+    headers: {
+      Accept: "application/json,text/plain,*/*",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      Origin: "https://y.qq.com",
+      Referer: "https://y.qq.com/",
+    },
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`QQ 歌词直连 HTTP ${response.status}: ${text.slice(0, 160)}`);
+  }
+  const data = JSON.parse(text) as { lyric?: string; trans?: string };
+  const lyric = data?.lyric || "";
+  const tlyric = data?.trans || "";
+  if (!lyric.trim()) return null;
+  return { lyric, tlyric: tlyric.trim() ? tlyric : undefined };
+}
+
 export async function fetchSongLyrics(song: MusicInfo): Promise<LyricLine[]> {
-  const lyricResult = await builtinClient.getLyric(song);
+  // 官方直连优先（wy eapi / tx fcg），失败或无歌词再走内置音乐 API 网关；
+  // 其他源（bili 等）无官方歌词接口，直接走网关。local 由上层 getLyrics 处理。
+  let lyricResult: { lyric?: string; tlyric?: string } | null = null;
+  try {
+    lyricResult =
+      song.source === "wy"
+        ? await fetchWyOfficialLyric(song)
+        : song.source === "tx"
+          ? await fetchTxOfficialLyric(song)
+          : null;
+  } catch {
+    lyricResult = null;
+  }
+  if (!lyricResult) {
+    lyricResult = await builtinClient.getLyric(song);
+  }
   const rawLyric = lyricResult.lyric ?? "";
   if (!rawLyric.trim()) return [];
   const lines = parseLyricSource({ type: "auto", content: rawLyric });
@@ -488,19 +570,23 @@ function getPlaybackCandidates(song: MusicInfo): MusicInfo[] {
   return candidates;
 }
 
-async function parseSingleUrl(song: MusicInfo, quality: string): Promise<string> {
+async function parseSingleUrl(song: MusicInfo, quality: string): Promise<{ url: string; quality: string }> {
   // B站歌曲走专用解析流程
   if (song.source === "bili") {
     const result = await resolveBiliSongUrl(song);
-    return result.url;
+    // bili 无音质分层，按请求档位回填，避免竞速择优时被当成未知音质
+    return { url: result.url, quality };
   }
   // wy / tx 等在线源：统一由内置音乐 API 网关解析播放地址（对齐 lx 分工：
   // 官方直连只负责搜索与歌单/封面/歌词元数据，播放与下载走内置音乐 API）。
-  const result = await resolveSongUrl(song, quality);
-  return result.url;
+  return await resolveSongUrl(song, quality);
 }
 
-export async function parseUrl(song: MusicInfo, quality = "320k"): Promise<string> {
+/**
+ * 返回网关实际给出的音质而非请求档位：竞速择优要按真实音质排序，
+ * 请求 flac 但网关降级返回 320k 时不能记成 flac。
+ */
+export async function parseUrl(song: MusicInfo, quality = "320k"): Promise<{ url: string; quality: string }> {
   const errors: string[] = [];
 
   for (const candidate of getPlaybackCandidates(song)) {

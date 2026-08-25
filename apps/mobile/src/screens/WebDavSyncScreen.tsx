@@ -5,17 +5,12 @@ import {
   TextInput,
   StyleSheet,
   Alert,
-  ScrollView,
   Switch,
 } from "react-native";
 import { ActionButton } from "@/components/ActionButton";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SettingsCard } from "@/components/settings/SettingsCard";
 import { useWebdavStore } from "@/stores/webdavStore";
-import {
-  getResolvedTheme,
-  getThemePalette,
-  useThemeStore,
-} from "@/stores/themeStore";
+import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, touch, typography } from "@/theme/tokens";
 
 /**
@@ -26,7 +21,6 @@ import { radius, spacing, touch, typography } from "@/theme/tokens";
  * 颜色取自 themeStore，与桌面端 LX Music 同步格式兼容。
  */
 export function WebDavSyncScreen() {
-  const insets = useSafeAreaInsets();
   const themeMode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
@@ -198,264 +192,235 @@ export function WebDavSyncScreen() {
     webdavMessage.includes("成功") || webdavMessage.includes("正常");
 
   return (
-    <View
-      style={[styles.container, { backgroundColor: palette.background }]}
-    >
-      <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: 40 + insets.bottom }]}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* 配置区 */}
-        <View
+    <View style={styles.inlineContent}>
+      {/* 配置区 */}
+      <SettingsCard style={styles.card}>
+        <Text style={[styles.cardTitle, { color: palette.text }]}>
+          WebDAV 配置
+        </Text>
+        <Text style={[styles.cardCaption, { color: palette.textMuted }]}>
+          填写服务地址与账号信息，与 LX Music 桌面端兼容。
+        </Text>
+
+        <Text style={[styles.label, { color: palette.textMuted }]}>
+          WebDAV 地址
+        </Text>
+        <TextInput
           style={[
-            styles.card,
-            { backgroundColor: palette.surface, borderColor: palette.border },
+            styles.input,
+            {
+              backgroundColor: palette.surfaceMuted,
+              color: palette.text,
+              borderColor: palette.border,
+            },
           ]}
-        >
-          <Text style={[styles.cardTitle, { color: palette.text }]}>
-            WebDAV 配置
-          </Text>
-          <Text style={[styles.cardCaption, { color: palette.textMuted }]}>
-            填写服务地址与账号信息，与 LX Music 桌面端兼容。
-          </Text>
+          value={formUrl}
+          onChangeText={setFormUrl}
+          placeholder="https://dav.jianguoyun.com/dav/"
+          placeholderTextColor={palette.textSubtle}
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="url"
+          accessibilityLabel="WebDAV 地址"
+          accessibilityHint="输入 WebDAV 服务地址，例如 https://dav.jianguoyun.com/dav/"
+        />
 
-          <Text style={[styles.label, { color: palette.textMuted }]}>
-            WebDAV 地址
-          </Text>
-          <TextInput
-            style={[
-              styles.input,
-              {
-                backgroundColor: palette.surfaceMuted,
-                color: palette.text,
-                borderColor: palette.border,
-              },
-            ]}
-            value={formUrl}
-            onChangeText={setFormUrl}
-            placeholder="https://dav.jianguoyun.com/dav/"
-            placeholderTextColor={palette.textSubtle}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="url"
-            accessibilityLabel="WebDAV 地址"
-            accessibilityHint="输入 WebDAV 服务地址，例如 https://dav.jianguoyun.com/dav/"
+        <Text style={[styles.label, { color: palette.textMuted }]}>
+          用户名
+        </Text>
+        <TextInput
+          style={[
+            styles.input,
+            {
+              backgroundColor: palette.surfaceMuted,
+              color: palette.text,
+              borderColor: palette.border,
+            },
+          ]}
+          value={formUsername}
+          onChangeText={setFormUsername}
+          placeholder="用户名 / 邮箱"
+          placeholderTextColor={palette.textSubtle}
+          autoCapitalize="none"
+          autoCorrect={false}
+          accessibilityLabel="WebDAV 用户名"
+          accessibilityHint="输入 WebDAV 用户名或邮箱"
+        />
+
+        <Text style={[styles.label, { color: palette.textMuted }]}>
+          密码 / 应用密码
+        </Text>
+        <TextInput
+          style={[
+            styles.input,
+            {
+              backgroundColor: palette.surfaceMuted,
+              color: palette.text,
+              borderColor: palette.border,
+            },
+          ]}
+          value={formPassword}
+          onChangeText={setFormPassword}
+          placeholder="应用密码"
+          placeholderTextColor={palette.textSubtle}
+          autoCapitalize="none"
+          autoCorrect={false}
+          secureTextEntry
+          accessibilityLabel="WebDAV 密码或应用密码"
+          accessibilityHint="安全输入 WebDAV 密码或应用密码，输入内容将被隐藏"
+        />
+
+        <View style={styles.buttonRow}>
+          <ActionButton
+            shrink
+            small
+            label="保存配置"
+            disabled={actionInProgress}
+            loading={savingConfig}
+            onPress={() => void handleSaveConfig()}
+            accessibilityLabel="保存 WebDAV 配置"
           />
-
-          <Text style={[styles.label, { color: palette.textMuted }]}>
-            用户名
-          </Text>
-          <TextInput
-            style={[
-              styles.input,
-              {
-                backgroundColor: palette.surfaceMuted,
-                color: palette.text,
-                borderColor: palette.border,
-              },
-            ]}
-            value={formUsername}
-            onChangeText={setFormUsername}
-            placeholder="用户名 / 邮箱"
-            placeholderTextColor={palette.textSubtle}
-            autoCapitalize="none"
-            autoCorrect={false}
-            accessibilityLabel="WebDAV 用户名"
-            accessibilityHint="输入 WebDAV 用户名或邮箱"
+          <ActionButton
+            shrink
+            small
+            label="测试连接"
+            disabled={actionInProgress}
+            loading={webdavSyncing}
+            onPress={() => void handleTestSync()}
+            accessibilityLabel="测试 WebDAV 连接"
           />
+        </View>
+      </SettingsCard>
 
-          <Text style={[styles.label, { color: palette.textMuted }]}>
-            密码 / 应用密码
-          </Text>
-          <TextInput
-            style={[
-              styles.input,
-              {
-                backgroundColor: palette.surfaceMuted,
-                color: palette.text,
-                borderColor: palette.border,
-              },
-            ]}
-            value={formPassword}
-            onChangeText={setFormPassword}
-            placeholder="应用密码"
-            placeholderTextColor={palette.textSubtle}
-            autoCapitalize="none"
-            autoCorrect={false}
-            secureTextEntry
-            accessibilityLabel="WebDAV 密码或应用密码"
-            accessibilityHint="安全输入 WebDAV 密码或应用密码，输入内容将被隐藏"
-          />
+      {/* 歌单历史同步区 */}
+      <SettingsCard style={styles.card}>
+        <Text style={[styles.cardTitle, { color: palette.text }]}>
+          歌单历史同步
+        </Text>
+        <Text style={[styles.cardCaption, { color: palette.textMuted }]}>
+          上传将覆盖远端收藏、歌单与播放历史；下载将与本地合并，保留本地独有内容。
+        </Text>
 
-          <View style={styles.buttonRow}>
-            <ActionButton
-              shrink
-              small
-              label="保存配置"
-              disabled={actionInProgress}
-              loading={savingConfig}
-              onPress={() => void handleSaveConfig()}
-              accessibilityLabel="保存 WebDAV 配置"
-            />
-            <ActionButton
-              shrink
-              small
-              label="测试连接"
-              disabled={actionInProgress}
-              loading={webdavSyncing}
-              onPress={() => void handleTestSync()}
-              accessibilityLabel="测试 WebDAV 连接"
-            />
+        <View style={styles.switchRow}>
+          <View style={styles.switchCopy}>
+            <Text style={[styles.switchTitle, { color: palette.text }]}>自动同步歌单历史</Text>
+            <Text style={[styles.switchCaption, { color: palette.textMuted }]}>应用启动时先合并云端数据，再上传本地结果</Text>
           </View>
+          <Switch
+            value={autoSyncPlaylists}
+            onValueChange={(enabled) => void handleAutoSyncChange(enabled)}
+            disabled={actionInProgress}
+            accessibilityRole="switch"
+            accessibilityLabel="自动同步歌单历史"
+            accessibilityState={{
+              disabled: actionInProgress,
+              busy: savingConfig,
+              checked: autoSyncPlaylists,
+            }}
+            style={styles.switchControl}
+            trackColor={{ false: palette.border, true: palette.primary }}
+            thumbColor={palette.surface}
+          />
         </View>
 
-        {/* 歌单历史同步区 */}
+        <View style={styles.buttonRow}>
+          <ActionButton
+            shrink
+            small
+            label="上传歌单历史"
+            loading={webdavSyncing}
+            disabled={actionInProgress}
+            onPress={() => void handleUploadPlaylists()}
+            accessibilityLabel="上传歌单历史到 WebDAV"
+          />
+          <ActionButton
+            shrink
+            small
+            label="下载歌单历史"
+            disabled={actionInProgress}
+            onPress={handleDownloadPlaylists}
+            accessibilityLabel="从 WebDAV 下载歌单历史"
+          />
+        </View>
+      </SettingsCard>
+
+      {/* 音源同步区 */}
+      <SettingsCard style={styles.card}>
+        <Text style={[styles.cardTitle, { color: palette.text }]}>
+          音源同步
+        </Text>
+        <Text style={[styles.cardCaption, { color: palette.textMuted }]}>
+          上传或下载 LX Music 自定义音源，覆盖远端或本机的 user_apis.json。
+        </Text>
+
+        <View style={styles.buttonRow}>
+          <ActionButton
+            shrink
+            small
+            label="上传音源"
+            disabled={actionInProgress}
+            onPress={() => void handleUploadSources()}
+            accessibilityLabel="上传音源到 WebDAV"
+          />
+          <ActionButton
+            shrink
+            small
+            label="下载音源"
+            disabled={actionInProgress}
+            onPress={handleDownloadSources}
+            accessibilityLabel="从 WebDAV 下载音源"
+          />
+        </View>
+      </SettingsCard>
+
+      {/* 同步状态 / 错误提示 */}
+      {webdavMessage ? (
         <View
+          accessibilityRole="alert"
+          accessibilityLiveRegion="polite"
           style={[
-            styles.card,
-            { backgroundColor: palette.surface, borderColor: palette.border },
+            styles.messageBox,
+            {
+              backgroundColor: messageIsSuccess
+                ? palette.surfaceMuted
+                : palette.dangerSurface,
+            },
           ]}
         >
-          <Text style={[styles.cardTitle, { color: palette.text }]}>
-            歌单历史同步
-          </Text>
-          <Text style={[styles.cardCaption, { color: palette.textMuted }]}>
-            上传将覆盖远端收藏、歌单与播放历史；下载将与本地合并，保留本地独有内容。
-          </Text>
-
-          <View style={styles.switchRow}>
-            <View style={styles.switchCopy}>
-              <Text style={[styles.switchTitle, { color: palette.text }]}>自动同步歌单历史</Text>
-              <Text style={[styles.switchCaption, { color: palette.textMuted }]}>应用启动时先合并云端数据，再上传本地结果</Text>
-            </View>
-            <Switch
-              value={autoSyncPlaylists}
-              onValueChange={(enabled) => void handleAutoSyncChange(enabled)}
-              disabled={actionInProgress}
-              accessibilityRole="switch"
-              accessibilityLabel="自动同步歌单历史"
-              accessibilityState={{
-                disabled: actionInProgress,
-                busy: savingConfig,
-                checked: autoSyncPlaylists,
-              }}
-              style={styles.switchControl}
-              trackColor={{ false: palette.border, true: palette.primary }}
-              thumbColor={palette.surface}
-            />
-          </View>
-
-          <View style={styles.buttonRow}>
-            <ActionButton
-              shrink
-              small
-              variant="primary"
-              label="上传歌单历史"
-              loading={webdavSyncing}
-              disabled={actionInProgress}
-              onPress={() => void handleUploadPlaylists()}
-              accessibilityLabel="上传歌单历史到 WebDAV"
-            />
-            <ActionButton
-              shrink
-              small
-              label="下载歌单历史"
-              disabled={actionInProgress}
-              onPress={handleDownloadPlaylists}
-              accessibilityLabel="从 WebDAV 下载歌单历史"
-            />
-          </View>
-        </View>
-
-        {/* 音源同步区 */}
-        <View
-          style={[
-            styles.card,
-            { backgroundColor: palette.surface, borderColor: palette.border },
-          ]}
-        >
-          <Text style={[styles.cardTitle, { color: palette.text }]}>
-            音源同步
-          </Text>
-          <Text style={[styles.cardCaption, { color: palette.textMuted }]}>
-            上传或下载 LX Music 自定义音源，覆盖远端或本机的 user_apis.json。
-          </Text>
-
-          <View style={styles.buttonRow}>
-            <ActionButton
-              shrink
-              small
-              label="上传音源"
-              disabled={actionInProgress}
-              onPress={() => void handleUploadSources()}
-              accessibilityLabel="上传音源到 WebDAV"
-            />
-            <ActionButton
-              shrink
-              small
-              label="下载音源"
-              disabled={actionInProgress}
-              onPress={handleDownloadSources}
-              accessibilityLabel="从 WebDAV 下载音源"
-            />
-          </View>
-        </View>
-
-        {/* 同步状态 / 错误提示 */}
-        {webdavMessage ? (
-          <View
-            accessibilityRole="alert"
-            accessibilityLiveRegion="polite"
+          <Text
             style={[
-              styles.messageBox,
-              {
-                backgroundColor: messageIsSuccess
-                  ? palette.surfaceMuted
-                  : palette.dangerSurface,
-              },
+              styles.messageText,
+              { color: messageIsSuccess ? palette.text : palette.danger },
             ]}
           >
-            <Text
-              style={[
-                styles.messageText,
-                { color: messageIsSuccess ? palette.text : palette.danger },
-              ]}
-            >
-              {webdavMessage}
-            </Text>
-          </View>
-        ) : null}
-      </ScrollView>
+            {webdavMessage}
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: spacing.m,
-    gap: spacing.m,
+  // 作为 section 内嵌进二级设置页时的容器样式
+  inlineContent: {
+    gap: spacing.s,
   },
   card: {
-    borderWidth: 1,
-    borderRadius: radius.md,
-    padding: spacing.m,
+    gap: spacing.s,
   },
   cardTitle: {
-    fontSize: typography.title,
-    fontWeight: "700",
-    marginBottom: spacing.xxs,
+    fontSize: typography.body,
+    fontWeight: "600",
   },
   cardCaption: {
-    fontSize: typography.meta,
-    marginBottom: spacing.s,
+    fontSize: typography.caption,
+    lineHeight: 17,
   },
   label: {
     fontSize: typography.meta,
     fontWeight: "500",
-    marginTop: spacing.s,
+    marginTop: spacing.xs,
     marginBottom: spacing.xxs,
   },
   input: {
@@ -490,7 +455,6 @@ const styles = StyleSheet.create({
   buttonRow: {
     flexDirection: "row",
     gap: spacing.xs,
-    marginTop: spacing.m,
   },
   messageBox: {
     padding: spacing.s,

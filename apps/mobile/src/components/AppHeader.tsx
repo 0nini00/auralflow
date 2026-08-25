@@ -1,14 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { FlatList, Keyboard, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { ChevronLeft, Menu, Moon, Search as SearchIcon, Sun } from "lucide-react-native";
 
-import { Touchable } from "@/components/Touchable";
+import { IconButton } from "@/components/IconButton";
 import {
   getSearchSuggestions,
   type SearchSuggestion,
 } from "@/services/searchSuggestionService";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { layout, radius, spacing, touch, typography } from "@/theme/tokens";
+import { layout, radius, spacing, typography } from "@/theme/tokens";
 
 export interface AppHeaderProps {
   canGoBack: boolean;
@@ -39,6 +39,8 @@ export function AppHeader({
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 建议请求序号：慢网络下旧关键词的响应可能晚于新关键词到达，过期响应直接丢弃
+  const suggestionSeqRef = useRef(0);
 
   useEffect(() => {
     setQuery(seedQuery);
@@ -47,19 +49,23 @@ export function AppHeader({
   useEffect(() => {
     const trimmed = query.trim();
     if (trimmed.length < 1) {
+      suggestionSeqRef.current += 1;
       setSuggestions([]);
       setSuggestionError(null);
       return;
     }
 
     setSuggestionError(null);
+    const seq = ++suggestionSeqRef.current;
     const timer = setTimeout(() => {
       void getSearchSuggestions(trimmed)
         .then((nextSuggestions) => {
+          if (seq !== suggestionSeqRef.current) return;
           setSuggestions(nextSuggestions);
           setSuggestionError(null);
         })
         .catch((error: unknown) => {
+          if (seq !== suggestionSeqRef.current) return;
           setSuggestions([]);
           const detail = error instanceof Error ? `：${error.message}` : "";
           setSuggestionError(`搜索建议加载失败${detail}`);
@@ -80,6 +86,8 @@ export function AppHeader({
 
   const submit = (raw: string) => {
     setOpen(false);
+    // 提交后收起键盘：否则键盘遮住结果区（且迷你播放栏也处于键盘隐藏态）
+    Keyboard.dismiss();
     onSubmitSearch(raw.trim());
   };
 
@@ -99,27 +107,19 @@ export function AppHeader({
         ]}
       >
         <View style={styles.navigationActions}>
-          <Touchable
+          <IconButton
             onPress={onOpenDrawer}
-            style={styles.iconButton}
-            accessibilityRole="button"
+            tone="strong"
             accessibilityLabel="打开菜单"
-          >
-            <Menu size={20} strokeWidth={2} color={palette.text} />
-          </Touchable>
-          <Touchable
+            render={({ size, color }) => <Menu size={size} strokeWidth={2} color={color} />}
+          />
+          <IconButton
             disabled={!canGoBack}
             onPress={onGoBack}
-            style={styles.iconButton}
-            accessibilityRole="button"
+            tone="strong"
             accessibilityLabel="后退"
-          >
-            <ChevronLeft
-              size={20}
-              strokeWidth={2}
-              color={canGoBack ? palette.text : palette.textSubtle}
-            />
-          </Touchable>
+            render={({ size, color }) => <ChevronLeft size={size} strokeWidth={2} color={color} />}
+          />
         </View>
 
         <View
@@ -157,14 +157,12 @@ export function AppHeader({
           />
         </View>
 
-        <Touchable
+        <IconButton
           onPress={toggleTheme}
-          style={styles.iconButton}
-          accessibilityRole="button"
+          tone="strong"
           accessibilityLabel={themeLabel}
-        >
-          <ThemeIcon size={20} strokeWidth={2} color={palette.text} />
-        </Touchable>
+          render={({ size, color }) => <ThemeIcon size={size} strokeWidth={2} color={color} />}
+        />
       </View>
 
       {open && suggestionError ? (
@@ -241,13 +239,6 @@ const styles = StyleSheet.create({
   navigationActions: {
     flexDirection: "row",
     alignItems: "center",
-  },
-  iconButton: {
-    minWidth: touch.minTarget,
-    minHeight: touch.minTarget,
-    borderRadius: radius.sm,
-    alignItems: "center",
-    justifyContent: "center",
   },
   search: {
     flex: 1,

@@ -23,9 +23,18 @@ export async function fetchWithTimeout(
 ): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // credentials 默认 "omit"：RN Android 在 withCredentials 为真时保留 OkHttp 的
+  // ReactCookieJarContainer（NetworkingModule.kt: `if (!withCredentials) cookieJar(NO_COOKIES)`），
+  // 而 OkHttp BridgeInterceptor 一旦从 CookieJar 取到非空 cookie，就会用
+  // requestBuilder.header("Cookie", ...) 整体替换掉调用方手动设置的 Cookie 头。
+  // 于是访问过 music.163.com 后系统 CookieJar 里的匿名 cookie 会顶掉 MUSIC_U，
+  // 服务器按匿名会话响应（code=200 但 account 为空）。本项目所有需要 cookie 的请求
+  // （网易云 / B站 / QQ）都显式传 Cookie 头，不依赖 CookieJar，禁用它才是正确语义。
+  const { credentials, ...rest } = init ?? {};
   try {
     return await fetch(url, {
-      ...init,
+      ...rest,
+      credentials: credentials ?? "omit",
       // RN 的 AbortController polyfill 类型与 lib.dom 的 AbortSignal 存在全局声明冲突
       // （onabort 签名不同），这里显式桥接断言到 fetch 期望的类型；运行时无任何转换。
       signal: controller.signal as unknown as FetchSignal,

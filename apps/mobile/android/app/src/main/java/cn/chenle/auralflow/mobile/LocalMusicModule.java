@@ -30,11 +30,14 @@ import org.jaudiotagger.tag.Tag;
 import org.jaudiotagger.tag.images.Artwork;
 import org.jaudiotagger.tag.images.ArtworkFactory;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
 
@@ -286,11 +289,16 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
         song.putDouble("duration", (double) durationMs);
         song.putString("filePath", filePath);
         song.putString("contentUri", uri.toString());
-        if (albumId > 0) {
-          song.putString(
-              "albumArtUri",
-              ContentUris.withAppendedId(Uri.parse(ALBUM_ART_BASE_URI), albumId).toString()
-          );
+
+        // 内嵌歌词 → 同名 .lrc 旁挂；封面 albumart → sidecar 图片（仅当有真实文件路径时）。
+        File audioFile = filePath.startsWith("/") ? new File(filePath) : null;
+        String lyrics = resolveLyrics(audioFile);
+        if (lyrics != null) {
+          song.putString("lyrics", lyrics);
+        }
+        String coverUri = resolveCover(resolver, albumId, audioFile);
+        if (coverUri != null) {
+          song.putString("albumArtUri", coverUri);
         }
         return song;
       }
@@ -318,6 +326,128 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
     fallback.putString("filePath", uri.toString());
     fallback.putString("contentUri", uri.toString());
     return fallback;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 内嵌歌词 / 同名 .lrc 旁挂歌词 / sidecar 封面                        */
+  /* ------------------------------------------------------------------ */
+
+  private static final int MAX_LOCAL_LYRICS_BYTES = 512 * 1024;
+  private static final String[] SIDECAR_COVER_NAMES = {
+    "folder.jpg", "Folder.jpg", "cover.jpg", "Cover.jpg",
+    "folder.png", "Folder.png", "cover.png", "Cover.png",
+  };
+
+  /**
+   * 读取音频文件内嵌歌词（USLT/UNSYNCEDLYRICS 帧）。无内嵌歌词或读取失败返回 null。
+   * 对齐桌面端 Rust getAudioInfo 返回的 lyrics 字段。
+   */
+  private static String readEmbeddedLyrics(File audioFile) {
+    if (audioFile == null || !audioFile.exists() || !audioFile.isFile()) {
+      return null;
+    }
+    try {
+      AudioFile af = AudioFileIO.read(audioFile);
+      if (af == null) {
+        return null;
+      }
+      Tag tag = af.getTag();
+      if (tag == null) {
+        return null;
+      }
+      // jaudiotagger 的 FieldKey.LYRICS 统一映射 MP3 USLT / MP4 歌词帧。
+      String lyrics = tag.getFirst(FieldKey.LYRICS);
+      return (lyrics == null || lyrics.trim().isEmpty()) ? null : lyrics;
+    } catch (Exception ignored) {
+      return null;
+    }
+  }
+
+  /** 读取音频同目录的「同名.lrc」旁挂歌词文件（桌面端同款约定）。无或过大返回 null。 */
+  private static String readSidecarLrc(File audioFile) {
+    if (audioFile == null || !audioFile.exists()) {
+      return null;
+    }
+    String path = audioFile.getAbsolutePath();
+    int dot = path.lastIndexOf('.');
+    File lrc = new File(dot > 0 ? path.substring(0, dot) + ".lrc" : path + ".lrc");
+    if (!lrc.exists() || !lrc.isFile() || lrc.length() > MAX_LOCAL_LYRICS_BYTES) {
+      return null;
+    }
+    try {
+      StringBuilder sb = new StringBuilder((int) lrc.length() + 16);
+      try (BufferedReader reader = new BufferedReader(
+          new InputStreamReader(new FileInputStream(lrc), StandardCharsets.UTF_8))) {
+        String line;
+        while ((line = reader.readLine()) != null) {
+          sb.append(line).append('\n');
+        }
+      }
+      return sb.length() == 0 ? null : sb.toString();
+    } catch (Exception ignored) {
+      return null;
+    }
+  }
+
+  /** 歌词解析顺序：内嵌歌词优先，其次同名 .lrc 旁挂文件。 */
+  private static String resolveLyrics(File audioFile) {
+    String embedded = readEmbeddedLyrics(audioFile);
+    if (embedded != null) {
+      return embedded;
+    }
+    return readSidecarLrc(audioFile);
+  }
+
+  /** 查找同目录 sidecar 封面（folder.jpg / cover.jpg / 同名图片）。 */
+  private static String findSidecarCover(File audioFile) {
+    if (audioFile == null || !audioFile.exists()) {
+      return null;
+    }
+    File dir = audioFile.getParentFile();
+    if (dir == null || !dir.isDirectory()) {
+      return null;
+    }
+    for (String name : SIDECAR_COVER_NAMES) {
+      File cover = new File(dir, name);
+      if (cover.exists() && cover.isFile()) {
+        return "file://" + cover.getAbsolutePath();
+      }
+    }
+    String base = audioFile.getName();
+    int dot = base.lastIndexOf('.');
+    String stem = dot > 0 ? base.substring(0, dot) : base;
+    for (String ext : new String[] { ".jpg", ".jpeg", ".png" }) {
+      File cover = new File(dir, stem + ext);
+      if (cover.exists() && cover.isFile()) {
+        return "file://" + cover.getAbsolutePath();
+      }
+    }
+    return null;
+  }
+
+  /** MediaStore albumart URI 是否真的存在（无内嵌封面时该 URI 指向不存在的文件）。 */
+  private static boolean albumArtExists(ContentResolver resolver, Uri albumArtUri) {
+    try {
+      InputStream in = resolver.openInputStream(albumArtUri);
+      if (in == null) {
+        return false;
+      }
+      in.close();
+      return true;
+    } catch (Exception ignored) {
+      return false;
+    }
+  }
+
+  /** 封面解析顺序：MediaStore albumart 优先，其次同目录 sidecar 图片。 */
+  private static String resolveCover(ContentResolver resolver, long albumId, File audioFile) {
+    if (albumId > 0) {
+      Uri albumArtUri = ContentUris.withAppendedId(Uri.parse(ALBUM_ART_BASE_URI), albumId);
+      if (albumArtExists(resolver, albumArtUri)) {
+        return albumArtUri.toString();
+      }
+    }
+    return findSidecarCover(audioFile);
   }
 
   private static String stripExtension(String name) {
@@ -381,8 +511,6 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
             }
 
             String contentUri = ContentUris.withAppendedId(collection, id).toString();
-            String albumArtUri = ContentUris
-                .withAppendedId(Uri.parse(ALBUM_ART_BASE_URI), albumId).toString();
 
             WritableMap song = Arguments.createMap();
             song.putString("id", Long.toString(id));
@@ -392,7 +520,16 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
             song.putDouble("duration", (double) durationMs);
             song.putString("filePath", filePath);
             song.putString("contentUri", contentUri);
-            song.putString("albumArtUri", albumArtUri);
+
+            // 内嵌歌词（USLT）→ 同名 .lrc 旁挂文件；封面 albumart → folder.jpg/cover.jpg 兜底。
+            String lyrics = resolveLyrics(new File(filePath));
+            if (lyrics != null) {
+              song.putString("lyrics", lyrics);
+            }
+            String coverUri = resolveCover(resolver, albumId, new File(filePath));
+            if (coverUri != null) {
+              song.putString("albumArtUri", coverUri);
+            }
 
             songs.pushMap(song);
           }

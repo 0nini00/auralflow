@@ -1,13 +1,11 @@
 import React, { useEffect, useMemo } from "react";
-import { useRoute } from "@react-navigation/native";
+import { CommonActions, useRoute, useNavigation } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { ChevronLeft } from "lucide-react-native";
 import type { SettingsStackParamList } from "@/navigation/types";
 import type { SettingsCategoryName } from "@/navigation/settingsRouteModel";
-import { LoginScreen } from "@/screens/LoginScreen";
-import { WebDavSyncScreen } from "@/screens/WebDavSyncScreen";
-import { CustomSourceScreen } from "@/screens/CustomSourceScreen";
-import { LyricSettingsContent } from "@/screens/LyricSettingsScreen";
+import { navigationRef } from "@/navigation/navigationRef";
+import { IconButton } from "@/components/IconButton";
 import { AboutSettingsScreen } from "@/screens/settings/AboutSettingsScreen";
 import { AccountSettingsScreen } from "@/screens/settings/AccountSettingsScreen";
 import { AppearanceSettingsScreen } from "@/screens/settings/AppearanceSettingsScreen";
@@ -20,30 +18,6 @@ import { SyncSettingsScreen } from "@/screens/settings/SyncSettingsScreen";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 
 const Stack = createNativeStackNavigator<SettingsStackParamList>();
-
-/**
- * 设置首页入口：当抽屉导航携带目标分类时，在栈内跳转到该分类。
- * 由于 SettingsStack 外层拿不到栈导航（useNavigation 返回的是抽屉导航），
- * 必须放在 Stack.Screen 内部（栈上下文内）才能 navigate 到目标分类。
- */
-function SettingsHomeGate({
-  target,
-  navigation,
-}: {
-  target: SettingsCategoryName | "SettingsHome";
-  navigation: NativeStackNavigationProp<SettingsStackParamList, "SettingsHome">;
-}) {
-  useEffect(() => {
-    if (target === "SettingsHome") return;
-    // 栈重建后首帧定位到目标分类；延迟一帧避免初始渲染未就绪
-    const timer = setTimeout(() => {
-      navigation.navigate(target);
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [navigation, target]);
-
-  return <SettingsHomeScreen />;
-}
 
 export function SettingsNavigator() {
   const mode = useThemeStore((state) => state.mode);
@@ -62,12 +36,18 @@ export function SettingsNavigator() {
 }
 
 /**
- * 设置堆栈主体：响应抽屉导航传入的目标分类，重置内部堆栈。
+ * 设置堆栈主体：响应抽屉导航传入的目标分类，守卫内部堆栈形态。
  *
- * 背景：抽屉点击「账号与服务」等分类时，若 Settings 内部堆栈已有旧分类页
- * （先点账号、再点播放 → [SettingsHome, Account, Playback]），返回键会先回到
- * 旧分类页而非设置首页，表现为「返回总是回到账号设置」。
- * 这里在抽屉导航到新分类时重置为 [设置首页, 目标分类]，保证返回始终回设置首页。
+ * 两个已知问题都在这里兜住：
+ * 1. 首次从抽屉进入某分类时，嵌套 navigate 会把该分类作为内部栈的初始路由
+ *    （覆盖 initialRouteName）——栈底没有设置首页垫底，该页头部就没有返回键；
+ *    旧方案挂在设置首页里的 Gate 此时根本没渲染，无从纠正。
+ * 2. 推入/返回动画进行中的 dispatch 可能被 native-stack 吞掉，栈里残留旧分类页
+ *    （打开 B 返回却先落到 A）。
+ *
+ * 按 (target, navId) 校验栈形态，不符合则定向 reset 纠正；450ms 后再校验一次
+ * 兜底被吞的 dispatch。校验放行「目标页之上继续压入的更深页面」（如 账号 → 登录），
+ * 不会误杀三级页。
  */
 function SettingsStack({
   palette,
@@ -81,29 +61,85 @@ function SettingsStack({
     | undefined;
   const target: SettingsCategoryName | "SettingsHome" =
     params?.screen ?? "SettingsHome";
-  // navId 参与 key：抽屉重复点击同一分类时 params.screen 不变，但 navId 递增，
-  // 从而强制重建内部栈（否则 key 不变、gate 不重新跳转，用户会卡在设置首页）。
-  // 代价：每次从抽屉点分类都会闪一帧设置首页（native-stack 不支持动态 initialState）——
-  // 这是修复“返回总是回到旧分类页 / 同分类不跳转”所必需的取舍，勿优化掉。
-  const stackKey = `${target}-${params?.navId ?? 0}`;
+    // navId 参与 effect 依赖：抽屉重复点击同一分类时 params.screen 不变，但 navId
+    // 递增，从而重新触发栈形态校验（否则依赖不变、不再纠正，卡在错误栈形上）。
+  const navId = params?.navId ?? 0;
+
+  useEffect(() => {
+    // 冷启动首次挂载（抽屉未携带参数）：栈本身就是 [设置首页]，无需校验
+    if (navId === 0 && target === "SettingsHome") return;
+
+    const fixup = () => {
+      if (!navigationRef.isReady()) return;
+      const settingsRoute = navigationRef
+        .getRootState()
+        ?.routes.find((item) => item.name === "Settings");
+      const inner = settingsRoute?.state;
+      if (!inner || inner.routes.length === 0) return;
+      const innerIndex = inner.index ?? 0;
+
+      if (target === "SettingsHome") {
+        // 回到设置首页：清掉离开设置时遗留的旧分类页（抽屉切走不会清内部栈）
+        if (innerIndex === 0 && inner.routes.length === 1) return;
+        navigationRef.dispatch({
+          ...CommonActions.reset({
+            index: 0,
+            routes: [{ name: "SettingsHome" as never }],
+          }),
+          target: inner.key,
+        });
+        return;
+      }
+
+      const settled =
+        inner.routes.length === 1 &&
+        inner.routes[0].name === target;
+      if (settled) return;
+      // 一律重置为 [目标分类]：清掉残留的旧分类页。
+      // 返回键由 headerLeft 统一拦截回退到 Main
+      navigationRef.dispatch({
+        ...CommonActions.reset({
+          index: 0,
+          routes: [
+            { name: target as never },
+          ],
+        }),
+        target: inner.key,
+      });
+    };
+
+    const immediateTimer = setTimeout(fixup, 0);
+    const verifyTimer = setTimeout(fixup, 450);
+    return () => {
+      clearTimeout(immediateTimer);
+      clearTimeout(verifyTimer);
+    };
+  }, [navId, target]);
 
   return (
     <Stack.Navigator
-      key={stackKey}
       initialRouteName="SettingsHome"
-      screenOptions={{
+      screenOptions={({ navigation }) => ({
         animation: "slide_from_right",
         headerStyle: { backgroundColor: palette.surface },
         headerTintColor: palette.text,
         headerShadowVisible: false,
         contentStyle: { backgroundColor: "transparent" },
-      }}
+        headerLeft: ({ canGoBack }) => {
+          if (canGoBack) return undefined;
+          return (
+            <IconButton
+              render={({ size, color }) => <ChevronLeft size={size} color={color} />}
+              accessibilityLabel="返回"
+              tone="strong"
+              onPress={() => navigation.navigate("Main" as never)}
+              style={{ marginLeft: -12 }}
+            />
+          );
+        },
+      })}
     >
-      <Stack.Screen name="SettingsHome" options={{ title: "设置" }}>
-        {({ navigation }) => (
-          <SettingsHomeGate target={target} navigation={navigation} />
-        )}
-      </Stack.Screen>
+      <Stack.Screen name="SettingsHome" component={SettingsHomeScreen} options={{ title: "设置" }} />
       <Stack.Screen name="Account" component={AccountSettingsScreen} options={{ title: "账号与服务" }} />
       <Stack.Screen name="Playback" component={PlaybackSettingsScreen} options={{ title: "播放" }} />
       <Stack.Screen name="Lyrics" component={LyricsSettingsScreen} options={{ title: "歌词" }} />
@@ -112,16 +148,6 @@ function SettingsStack({
       <Stack.Screen name="Sync" component={SyncSettingsScreen} options={{ title: "同步与备份" }} />
       <Stack.Screen name="Data" component={DataSettingsScreen} options={{ title: "存储与数据" }} />
       <Stack.Screen name="About" component={AboutSettingsScreen} options={{ title: "关于" }} />
-      <Stack.Screen name="Login" options={{ title: "账号与服务" }}>
-        {({ navigation }) => <LoginScreen onSuccess={() => navigation.replace("Account")} />}
-      </Stack.Screen>
-      <Stack.Screen name="WebDav" component={WebDavSyncScreen} options={{ title: "同步与备份" }} />
-      <Stack.Screen name="CustomSources" component={CustomSourceScreen} options={{ title: "音源" }} />
-      <Stack.Screen name="LyricDetail" options={{ title: "歌词" }}>
-        {({ navigation }) => (
-          <LyricSettingsContent onBack={() => navigation.goBack()} showNavigation={false} />
-        )}
-      </Stack.Screen>
     </Stack.Navigator>
   );
 }

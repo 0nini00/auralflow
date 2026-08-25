@@ -1,17 +1,19 @@
-import React, { memo, useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, ActivityIndicator, Alert, useWindowDimensions } from "react-native";
+import React, { memo, useCallback, useEffect, useRef, useState } from "react";
+import { View, Text, StyleSheet, ActivityIndicator, Alert, InteractionManager, useWindowDimensions } from "react-native";
 import type { MusicInfo } from "@lx/core";
 import { AudioLines, CheckCircle2, Circle, Ellipsis, Heart, Music2 } from "lucide-react-native";
 import { CachedImage } from "./CachedImage";
 import { DownloadQualityModal } from "./DownloadQualityModal";
 import { AddToLocalPlaylistModal } from "./AddToLocalPlaylistModal";
 import { ActionMenuSheet, type ActionMenuAnchor, type ActionMenuItem } from "./ActionMenuSheet";
+import { IconButton } from "./IconButton";
 import { Touchable } from "./Touchable";
 import { usePlaylistStore } from "@/stores/playlistStore";
 import { useDownloadStore, type DownloadQuality } from "@/stores/downloadStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { shareMusic } from "@/services/shareMusicService";
+import { hapticLight } from "@/services/hapticService";
 import {
   selectDownloadProgress,
   selectDownloadStatus,
@@ -48,6 +50,16 @@ export interface SongListProps {
   onToggleSelection?: (song: MusicInfo, index: number) => void;
   onPlayMv?: (song: MusicInfo) => void;
 }
+
+/**
+ * 增量挂载参数：
+ * SongList 全部嵌在 ScrollView 里（14 个屏的既有结构），换 FlatList 会触发
+ * VirtualizedList 嵌套失效。因此用「首屏少量 + 交互空闲后分批挂载」的方式
+ * 消除长歌单冷打开的同步渲染卡顿；行组件 memo + 稳定回调保证挂载完成后的
+ * 切歌/选择等更新只重渲染受影响的行。
+ */
+const INITIAL_MOUNT_COUNT = 60;
+const MOUNT_BATCH_SIZE = 100;
 
 const SOURCE_LABELS: Record<string, string> = {
   wy: "网易云",
@@ -97,6 +109,59 @@ export function SongList({
   // 上次选择的下载音质（记住上次选择，对齐 lx）
   const [defaultQuality, setDefaultQuality] = useState<DownloadQuality | null>(null);
 
+  // ---- 增量挂载：首屏 60 行，交互空闲后每批 +100，直到挂满 ----
+  const [mountedCount, setMountedCount] = useState(INITIAL_MOUNT_COUNT);
+  useEffect(() => {
+    if (mountedCount >= songs.length) return;
+    const task = InteractionManager.runAfterInteractions(() => {
+      setMountedCount((count) => Math.min(count + MOUNT_BATCH_SIZE, songs.length));
+    });
+    return () => task.cancel();
+  }, [mountedCount, songs.length]);
+
+  // ---- 稳定回调：让 memo 行组件在父级重渲染（切歌/选择）时真正跳过 ----
+  const handleRowPress = useCallback(
+    (song: MusicInfo, index: number) => {
+      if (selectionMode) onToggleSelection?.(song, index);
+      else onPlay(song, index);
+    },
+    [selectionMode, onPlay, onToggleSelection],
+  );
+  const handleRowLongPress = useCallback(
+    (song: MusicInfo, index: number) => {
+      if (!selectionMode && onLongPressSong) onLongPressSong(song, index);
+    },
+    [selectionMode, onLongPressSong],
+  );
+  const handleRowEdit = useCallback(
+    (song: MusicInfo, index: number) => onEdit?.(song, index),
+    [onEdit],
+  );
+  const handleRowDelete = useCallback(
+    (song: MusicInfo, index: number) => onDelete?.(song, index),
+    [onDelete],
+  );
+  const handleOpenMenu = useCallback(
+    (song: MusicInfo, anchor: ActionMenuAnchor) => {
+      setActionSong(song);
+      setMenuAnchor(anchor);
+      setMenuVisible(true);
+    },
+    [],
+  );
+  const openAddToPlaylist = useCallback((song: MusicInfo) => {
+    setActionSong(song);
+    setAddToPlaylistVisible(true);
+  }, []);
+  const openDownload = useCallback((song: MusicInfo) => {
+    setActionSong(song);
+    // 记住上次选择的音质（对齐 lx），异步读取后回填为默认选中
+    void getLastSelectQuality().then((last) => {
+      if (last) setDefaultQuality(last);
+    });
+    setQualityModalVisible(true);
+  }, []);
+
   if (songs.length === 0) {
     return (
       <View style={styles.emptyContainer}>
@@ -104,24 +169,6 @@ export function SongList({
       </View>
     );
   }
-
-  const openMenu = (song: MusicInfo, anchor: ActionMenuAnchor) => {
-    setActionSong(song);
-    setMenuAnchor(anchor);
-    setMenuVisible(true);
-  };
-  const openAddToPlaylist = (song: MusicInfo) => {
-    setActionSong(song);
-    setAddToPlaylistVisible(true);
-  };
-  const openDownload = (song: MusicInfo) => {
-    setActionSong(song);
-    // 记住上次选择的音质（对齐 lx），异步读取后回填为默认选中
-    void getLastSelectQuality().then((last) => {
-      if (last) setDefaultQuality(last);
-    });
-    setQualityModalVisible(true);
-  };
 
   const handleDownloadSelected = async (quality: DownloadQuality) => {
     if (!actionSong || downloading) return;
@@ -200,23 +247,26 @@ export function SongList({
     return items;
   };
 
+  const visibleSongs = songs.slice(0, mountedCount);
+
   return (
     <View style={styles.listContent}>
-      {songs.map((song, index) => {
+      {visibleSongs.map((song, index) => {
         const key = `${song.source}:${song.id}`;
-        const pressable = selectionMode || (isSongPressable?.(song, index) ?? true);
         return (
           <SongItem
             key={`${song.source}-${song.id}-${index}`}
             index={index}
             song={song}
-            onPress={() => selectionMode ? onToggleSelection?.(song, index) : onPlay(song, index)}
-            pressable={pressable}
+            onRowPress={handleRowPress}
+            onRowLongPress={handleRowLongPress}
+            onRowEdit={onEdit ? handleRowEdit : undefined}
+            onRowDelete={onDelete ? handleRowDelete : undefined}
+            onOpenMenu={handleOpenMenu}
+            getExtraMetadata={getExtraMetadata}
+            pressable={selectionMode || (isSongPressable?.(song, index) ?? true)}
             isPlaying={currentSong?.source === song.source && currentSong?.id === song.id}
             showCover={showCover}
-            onEdit={onEdit ? () => onEdit(song, index) : undefined}
-            onDelete={onDelete ? () => onDelete(song, index) : undefined}
-            extraMetadata={getExtraMetadata?.(song, index)}
             highlighted={highlightedIndex === index}
             hideSourceTag={hideSourceTag}
             selectionMode={selectionMode}
@@ -224,15 +274,17 @@ export function SongList({
             showLikeAction={showLikeAction && shouldShowSongListLikeAction(song)}
             showMoreAction={showMoreAction}
             showDuration={showDuration}
-            onLongPress={
-              !selectionMode && onLongPressSong
-                ? () => onLongPressSong(song, index)
-                : undefined
-            }
-            onOpenMenu={(anchor) => openMenu(song, anchor)}
           />
         );
       })}
+      {mountedCount < songs.length ? (
+        <View style={styles.mountingFooter}>
+          <ActivityIndicator size="small" color={palette.primary} />
+          <Text style={[styles.mountingText, { color: palette.textSubtle }]}>
+            正在载入 {mountedCount}/{songs.length} 首
+          </Text>
+        </View>
+      ) : null}
 
       {/* 单例弹窗：菜单 */}
       <ActionMenuSheet
@@ -269,46 +321,48 @@ export function SongList({
 interface SongItemProps {
   song: MusicInfo;
   index: number;
-  onPress: () => void;
+  /** 稳定回调（useCallback），避免父级重渲染击穿行组件 memo */
+  onRowPress: (song: MusicInfo, index: number) => void;
+  onRowLongPress?: (song: MusicInfo, index: number) => void;
+  onRowEdit?: (song: MusicInfo, index: number) => void;
+  onRowDelete?: (song: MusicInfo, index: number) => void;
+  /** 点击“更多”时打开列表根部的单一菜单弹窗（参数为点击点坐标，用于锚定菜单）。 */
+  onOpenMenu: (song: MusicInfo, anchor: ActionMenuAnchor) => void;
+  /** 稳定的元数据取值函数，行内调用（保持 prop 引用稳定以配合 memo） */
+  getExtraMetadata?: (song: MusicInfo, index: number) => string | undefined;
   pressable?: boolean;
   /** 是否为当前正在播放的歌曲（lx：主色标题 + 浅色背景高亮） */
   isPlaying?: boolean;
   /** 对齐 lx：false 时左侧显示序号/播放图标（lx 我的列表风格） */
   showCover?: boolean;
-  onEdit?: () => void;
-  onDelete?: () => void;
-  extraMetadata?: string;
   highlighted?: boolean;
   hideSourceTag?: boolean;
-  /** 点击“更多”时打开列表根部的单一菜单弹窗（参数为点击点坐标，用于锚定菜单）。 */
-  onOpenMenu: (anchor: ActionMenuAnchor) => void;
   selectionMode?: boolean;
   selected?: boolean;
   showLikeAction?: boolean;
   showMoreAction?: boolean;
   showDuration?: boolean;
-  onLongPress?: () => void;
 }
 
 export const SongItem = memo(function SongItem({
   song,
   index,
-  onPress,
+  onRowPress,
+  onRowLongPress,
+  onRowEdit,
+  onRowDelete,
+  onOpenMenu,
+  getExtraMetadata,
   pressable = true,
   isPlaying = false,
   showCover = true,
-  onEdit,
-  onDelete,
-  extraMetadata,
   highlighted,
   hideSourceTag,
-  onOpenMenu,
   selectionMode = false,
   selected = false,
   showLikeAction = true,
   showMoreAction = true,
   showDuration = true,
-  onLongPress,
 }: SongItemProps) {
   const artwork = song.picUrl || song.img;
   const metadata = buildSongListMetadata(song);
@@ -322,6 +376,9 @@ export const SongItem = memo(function SongItem({
   const [liking, setLiking] = useState(false);
   const suppressNextPressRef = useRef(false);
   const clearSuppressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const onPress = () => onRowPress(song, index);
+  const onLongPress = onRowLongPress ? () => onRowLongPress(song, index) : undefined;
 
   useEffect(() => {
     return () => {
@@ -352,6 +409,7 @@ export const SongItem = memo(function SongItem({
   const handleLongPress = () => {
     if (!onLongPress) return;
     suppressNextPressRef.current = true;
+    hapticLight();
     onLongPress();
   };
 
@@ -388,6 +446,7 @@ export const SongItem = memo(function SongItem({
 
   const isActive = isPlaying || highlighted;
   const activeBackground = isActive ? withAlpha(palette.primary, 0.08) : "transparent";
+  const extraMetadata = getExtraMetadata?.(song, index);
 
   return (
     <Touchable
@@ -496,41 +555,38 @@ export const SongItem = memo(function SongItem({
             {metadata.durationLabel}
           </Text>
         ) : null}
-        {showLikeAction ? <Touchable
-          style={styles.iconButton}
-          activeScale={0.9}
-          onPress={handleLike}
-          disabled={liking}
-          accessibilityRole="button"
-          accessibilityLabel={isLiked ? "取消喜欢" : "喜欢歌曲"}
-          accessibilityState={{ disabled: liking, selected: isLiked }}
-        >
-          {liking ? (
-            <ActivityIndicator color={palette.danger} size="small" />
-          ) : (
-            <Heart
-              size={18}
-              color={isLiked ? palette.danger : palette.textMuted}
-              fill={isLiked ? palette.danger : "none"}
-            />
-          )}
-        </Touchable> : null}
+        {showLikeAction ? (
+          <IconButton
+            size="sm"
+            tone={isLiked ? "danger" : "default"}
+            selected={isLiked}
+            disabled={liking}
+            onPress={handleLike}
+            accessibilityLabel={isLiked ? "取消喜欢" : "喜欢歌曲"}
+            render={({ size, color }) =>
+              liking ? (
+                <ActivityIndicator color={palette.danger} size="small" />
+              ) : (
+                <Heart size={size} color={color} fill={isLiked ? color : "none"} />
+              )
+            }
+          />
+        ) : null}
 
-        {showMoreAction ? <Touchable
-          style={styles.iconButton}
-          activeScale={0.9}
-          onPress={(e) => {
-            e.stopPropagation();
-            onOpenMenu({
-              x: (e as any).nativeEvent?.pageX ?? 0,
-              y: (e as any).nativeEvent?.pageY ?? 0,
-            });
-          }}
-          accessibilityRole="button"
-          accessibilityLabel="更多操作"
-        >
-          <Ellipsis size={20} color={palette.textMuted} />
-        </Touchable> : null}
+        {showMoreAction ? (
+          <IconButton
+            size="sm"
+            onPress={(e) => {
+              e.stopPropagation();
+              onOpenMenu(song, {
+                x: e.nativeEvent?.pageX ?? 0,
+                y: e.nativeEvent?.pageY ?? 0,
+              });
+            }}
+            accessibilityLabel="更多操作"
+            render={({ size, color }) => <Ellipsis size={size} color={color} />}
+          />
+        ) : null}
       </View> : null}
     </Touchable>
   );
@@ -643,11 +699,14 @@ const styles = StyleSheet.create({
     textAlign: "right",
     marginLeft: 2,
   },
-  iconButton: {
-    width: 34,
-    height: 38,
+  mountingFooter: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    // 对齐 lx：无圆形底色，纯图标
+    gap: spacing.s,
+    paddingVertical: spacing.m,
+  },
+  mountingText: {
+    fontSize: typography.caption,
   },
 });

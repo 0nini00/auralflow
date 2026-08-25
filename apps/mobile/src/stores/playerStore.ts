@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import TrackPlayer, {
   State,
@@ -19,6 +20,9 @@ import {
   removeFromTempPlayList as removeFromTempPlayListPure,
 } from "@/services/songQueueActions";
 import { syncPlaybackParameters } from "@/services/androidPitchService";
+import { buildMobilePlayRequestKey } from "@/services/playerRequestModel";
+import { invalidateCachedPlaybackUrl } from "@/services/playbackUrlCache";
+import { invalidatePrefetchForSong } from "../services/playerService";
 
 
 
@@ -26,15 +30,12 @@ import { syncPlaybackParameters } from "@/services/androidPitchService";
 
 let playRequestId = 0;
 
-// ── 播放失败自动跳歌 ──
+// 同 key 播放进入去重（对齐桌面端 inflightPlayRequest）：同 key 的并发 play 复用同一 Promise，
+// 避免重复 reset/add 同一 track；不同 key 不去重，仍靠上面的令牌丢弃过期请求。
+// key 含音质：同一首歌切换音质后再切，需发起全新 play 而不是复用旧音质的在途请求。
+const inflightPlayRequests = new Map<string, Promise<void>>();
 
-const PLAYBACK_ERROR_SKIP_LIMIT = 3;
 
-const PLAYBACK_ERROR_SKIP_DELAY_MS = 1200;
-
-let consecutivePlaybackErrors = 0;
-
-let playbackErrorSkipTimer: ReturnType<typeof setTimeout> | null = null;
 
 
 
@@ -44,9 +45,30 @@ const FADE_OUT_MS = 80;
 
 const FADE_IN_MS = 120;
 
+/**
+ * 曲末静音占位轨。
+ *
+ * 每首歌入队时跟一条 2 秒静音，使曲末不会因队列见底而停止播放——播放不停，
+ * 前台服务就不会被回收，JS 线程有机会在这 2 秒内醒来解析并切下一首。
+ * 检测到当前活动轨是它，就等同于「上一首播完了」。
+ *
+ * 包名固定于 android/app/build.gradle 的 applicationId；若修改需同步此处。
+ * 音频文件：android/app/src/main/res/raw/silence_2s.wav
+ */
+export const SILENCE_GAP_TRACK_ID = "__auralflow_silence_gap__";
+const SILENCE_GAP_TRACK_URL = "android.resource://cn.chenle.auralflow.mobile/raw/silence_2s";
+
 
 
 async function fadeVolume(target: number, durationMs: number): Promise<void> {
+
+  // App 在后台/锁屏时 RN 的 setTimeout 被系统严重节流甚至冻结，步进淡入淡出会卡住：
+  // 淡出 await 不 resolve → reset/add/play 永远等不到（后台曲终不跳下一首的根因）；
+  // 淡入 void 不阻塞但音量停在 0 → 静音播放。后台时直接一步设目标音量，跳过步进。
+  if (AppState.currentState !== "active") {
+    try { await TrackPlayer.setVolume(Math.max(0, Math.min(1, target))); } catch {}
+    return;
+  }
 
   const steps = Math.max(1, Math.round(durationMs / 16));
 
@@ -204,8 +226,14 @@ function clearSleepTimerTimeout() {
 function scheduleSleepTimerTick() {
   clearSleepTimerTimeout();
   sleepTimerId = setTimeout(() => {
-    const { sleepTimerMinutes } = usePlayerStore.getState();
+    const { sleepTimerMinutes, isPlaying } = usePlayerStore.getState();
     if (sleepTimerMinutes == null) {
+      return;
+    }
+    // 暂停期间不倒数（对齐主流睡眠定时语义：只统计实际播放时长，
+    // 否则「设 30 分钟听 5 分钟后暂停离开」回来很快就会被停）
+    if (!isPlaying) {
+      scheduleSleepTimerTick();
       return;
     }
     const next = sleepTimerMinutes - 1;
@@ -237,6 +265,12 @@ export interface PlayerState {
   volume: number;
   previousVolume: number;
   isMuted: boolean;
+  /**
+   * 外部音频临时压低（duck）时被压到的音量，null 表示未处于 duck 态。
+   * duck 只改原生音量不动 store.volume；切歌淡入时以它为上限，
+   * 避免导航播报等外部音频期间自动切歌把音量淡回满格。
+   */
+  externalDuckVolume: number | null;
 
   // 播放进度
   position: number;
@@ -335,6 +369,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   volume: DEFAULT_VOLUME,
   previousVolume: DEFAULT_VOLUME,
   isMuted: false,
+  externalDuckVolume: null,
   position: 0,
   duration: 0,
   buffered: 0 as number,
@@ -355,10 +390,35 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   // 播放控制
 
   play: async (song: MusicInfo, url: string, headers?: Record<string, string>, startPosition?: number) => {
+    // 同 key 并发 play 去重：直接复用进行中的同一请求；完成后清除。不同 key 走下方令牌竞态丢弃。
+    const requestKey = buildMobilePlayRequestKey(song);
+    const inflight = inflightPlayRequests.get(requestKey);
+    if (inflight) return inflight;
+
+    // 新请求启动时清掉其它 key 的在途条目：单曲槽语义下它们必是被抢占的过期请求，
+    // 留着会让稍后的重试复用已判死的 promise（表现为「点了没反应」——
+    // 如切歌后回头重点上一首、或同曲二次切音质拿到旧音质的播放）。
+    inflightPlayRequests.clear();
+
+    const request = (async () => {
 
     const requestId = ++playRequestId;
 
     try {
+
+      // 按歌数睡眠定时到期边界（「听完歌曲后停止」）：不再加载下一首，
+      // 保持已播完的当前曲展示并停用定时器。旧实现先加载再暂停，
+      // 会短暂闪现下一首标题并漏出淡入声音。
+      const pre = get();
+      const sleepTimerNext = getNextSongSleepTimerState({
+        isActive: pre.sleepTimerSongActive,
+        remainingSongs: pre.sleepTimerSongCount,
+        lastTrackKey: pre.sleepTimerLastTrackKey,
+      }, song);
+      if (sleepTimerNext.shouldPause) {
+        set({ isPlaying: false, sleepTimerSongActive: false, sleepTimerSongCount: 0 });
+        return;
+      }
 
       set({ loading: true, error: null });
 
@@ -384,27 +444,50 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
 
       await TrackPlayer.reset();
 
-      await TrackPlayer.add({
+      // reset 与 add 之间存在 await 让出点：并发 play() 可能在本请求 reset 之后、add 之前
+      // 完成它自己的 reset，本请求若继续 add 会把旧曲残留在原生单曲槽（音画不一致）。
+      // 此处再查一次令牌；检查与 add 调用之间无让出点，可关死该交错窗口。
+      if (requestId !== playRequestId) return;
 
-        id: `${song.source}-${song.id}`,
+      // 双轨入队：真实曲目 + 2 秒静音占位。
+      //
+      // 曲末如果队列直接见底，原生播放会停止，Android 随即失去维持进程的理由，
+      // JS 线程被挂起 —— 后台切歌就卡住，直到用户回到 app（用户实测现象）。
+      // 补一个静音尾轨后，原生队列会自动推进到它，播放状态不中断、前台服务存活，
+      // 这 2 秒正是留给 JS 醒来解析下一首的窗口。真正的切歌仍由 JS 决定，
+      // 原生不参与队列编排（RepeatMode 依旧 Off）。
+      await TrackPlayer.add([
+        {
+          id: `${song.source}-${song.id}`,
 
-        url,
+          url,
 
-        title: song.name,
+          title: song.name,
 
-        artist: song.singer || "未知艺术家",
+          artist: song.singer || "未知艺术家",
 
-        album: song.albumName || "未知专辑",
+          album: song.albumName || "未知专辑",
 
-        artwork: song.picUrl || song.img || undefined,
+          artwork: song.picUrl || song.img || undefined,
 
-        duration: song.interval,
+          duration: song.interval,
 
-        // B站等需要 Referer 的音源通过 headers 传递请求头
+          // B站等需要 Referer 的音源通过 headers 传递请求头
 
-        headers: headers ?? undefined,
-
-      });
+          headers: headers ?? undefined,
+        },
+        {
+          id: SILENCE_GAP_TRACK_ID,
+          url: SILENCE_GAP_TRACK_URL,
+          // 元数据沿用当前曲：这 2 秒仍属于「刚播完的那首」，
+          // 通知栏不应闪成空白或下一首
+          title: song.name,
+          artist: song.singer || "未知艺术家",
+          album: song.albumName || "未知专辑",
+          artwork: song.picUrl || song.img || undefined,
+          duration: 0,
+        },
+      ]);
 
 
 
@@ -414,7 +497,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
 
 
 
-      const { playbackRate, volume } = get();
+      const { playbackRate, volume, externalDuckVolume } = get();
 
       const nextPlaybackRate = clampPlaybackRate(playbackRate);      await TrackPlayer.setRate(nextPlaybackRate);
       await TrackPlayer.setVolume(0);
@@ -429,15 +512,10 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
         } catch {}
       }
 
-      // 淡入到目标音量
-      void fadeVolume(volume, FADE_IN_MS);
-
-      const latest = get();
-      const nextSongSleepTimer = getNextSongSleepTimerState({
-        isActive: latest.sleepTimerSongActive,
-        remainingSongs: latest.sleepTimerSongCount,
-        lastTrackKey: latest.sleepTimerLastTrackKey,
-      }, song);
+      // 淡入到目标音量：外部音频压低（duck）期间以压低音量为上限，
+      // 避免 duck 中自动切歌把音量淡回满格、盖住导航播报等外部音频
+      const fadeInTarget = externalDuckVolume != null ? Math.min(volume, externalDuckVolume) : volume;
+      void fadeVolume(fadeInTarget, FADE_IN_MS);
 
       set({
         currentSong: song,
@@ -447,17 +525,11 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
         playbackRate: nextPlaybackRate,
         position: startPosition && startPosition > 0 ? startPosition : 0,
         duration: song.interval || 0,
-        sleepTimerSongActive: nextSongSleepTimer.isActive,
-        sleepTimerSongCount: nextSongSleepTimer.remainingSongs,
-        sleepTimerLastTrackKey: nextSongSleepTimer.lastTrackKey,
+        sleepTimerSongActive: sleepTimerNext.isActive,
+        sleepTimerSongCount: sleepTimerNext.remainingSongs,
+        sleepTimerLastTrackKey: sleepTimerNext.lastTrackKey,
       });
 
-      if (nextSongSleepTimer.shouldPause) {
-        await get().pause();
-      }
-
-      // 播放成功：清零连续错误计数（播放失败自动跳歌的上限依据）
-      consecutivePlaybackErrors = 0;
     } catch (error) {
       const message = error instanceof Error ? error.message : "播放失败";
       set({
@@ -465,6 +537,16 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
         error: message,
       });
       throw error;
+    }
+    })();
+
+    inflightPlayRequests.set(requestKey, request);
+    try {
+      await request;
+    } finally {
+      if (inflightPlayRequests.get(requestKey) === request) {
+        inflightPlayRequests.delete(requestKey);
+      }
     }
   },
 
@@ -631,12 +713,16 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     set((state) => ({
       tempPlayList: enqueueTempPlayList({ tempPlayList: state.tempPlayList, song }),
     }));
+    // 立即预取该曲播放 URL/歌词/封面：播到它时命中缓存秒开（避免插播时实时解析）。
+    // 懒加载避免 playerStore ↔ playerService 循环依赖。
+    void import("../services/playerService").then((m) => m.prefetchSong(song)).catch(() => undefined);
   },
 
   addToTempPlayList: (song: MusicInfo) => {
     set((state) => ({
       tempPlayList: enqueueTempPlayList({ tempPlayList: state.tempPlayList, song }),
     }));
+    void import("../services/playerService").then((m) => m.prefetchSong(song)).catch(() => undefined);
   },
 
   removeFromTempPlayListAt: (index: number) => {
@@ -839,7 +925,11 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
 }));
 
 // 监听播放器事件
+let playerListenersSetup = false;
+
 export function setupPlayerListeners() {
+  if (playerListenersSetup) return;
+  playerListenersSetup = true;
 
   const updateProgress = usePlayerStore.getState().updateProgress;
 
@@ -849,11 +939,13 @@ export function setupPlayerListeners() {
 
 
 
-  // 恢复上次保存的音量
-
+  // 恢复上次保存的音量（独立通道 af-player-volume，只存 volume 数值）。
+  // 播放快照恢复完成后 currentSong 非空：快照携带 volume+previousVolume+isMuted 完整状态，
+  // 此时跳过本通道，避免把静音/历史音量覆盖成单一数值造成状态矛盾。
+  // 两个 AsyncStorage 恢复无论谁先完成该约束都成立：先完成会被快照整体覆盖，后完成被跳过。
   loadPersistedVolume().then((saved) => {
 
-    if (saved != null) {
+    if (saved != null && !usePlayerStore.getState().currentSong) {
 
       usePlayerStore.setState({ volume: saved });
 
@@ -871,41 +963,20 @@ export function setupPlayerListeners() {
     syncPlayerState(state);
   });
 
-  // 播放错误：展示错误后短暂延迟自动跳下一首（对齐 lx 播放失败跳过机制）。
-  // 连续失败超过阈值则停止自动跳，避免坏歌单无限循环；用户手动切歌/播放成功会清零计数。
+  // 播放错误：仅展示错误，不再自动跳下一首（用户要求失败即停，手动切歌）。
+  // 解析成功但播放器拒收（典型：URL 实际已 403/失效），把该歌持久化 URL 缓存清掉，
+  // 避免坏链接被缓存 6h 反复命中「播放即停」；预读缓存同步失效，重播强制重新解析。
   TrackPlayer.addEventListener(Event.PlaybackError, ({ message }) => {
-    if (!usePlayerStore.getState().currentSong) return;
+    const currentSong = usePlayerStore.getState().currentSong;
+    if (!currentSong) return;
     setError(message);
-    consecutivePlaybackErrors += 1;
-    if (consecutivePlaybackErrors > PLAYBACK_ERROR_SKIP_LIMIT) return;
-    if (playbackErrorSkipTimer) clearTimeout(playbackErrorSkipTimer);
-    playbackErrorSkipTimer = setTimeout(() => {
-      playbackErrorSkipTimer = null;
-      void (async () => {
-        const state = usePlayerStore.getState();
-        // 期间用户已手动恢复播放或正在加载新曲，则不再自动跳
-        if (state.isPlaying || state.loading) return;
-        const { playNext } = await import("../services/playerService");
-        await playNext();
-      })();
-    }, PLAYBACK_ERROR_SKIP_DELAY_MS);
+    void invalidateCachedPlaybackUrl(currentSong).catch(() => undefined);
+    invalidatePrefetchForSong(currentSong);
   });
 
-  // 歌曲播放完毕，自动切换下一首
-  TrackPlayer.addEventListener(Event.PlaybackQueueEnded, async () => {
-    const { playMode, queue, playbackContext } = usePlayerStore.getState();
-
-    if (playbackContext.type !== "personalFm" && playMode === "single") {
-      await TrackPlayer.seekTo(0);
-      await TrackPlayer.play();
-      return;
-    }
-
-    if (queue.length > 0 || playbackContext.type === "personalFm") {
-      const { playNext } = await import("../services/playerService");
-      await playNext();
-    }
-  });
+  // 曲末自动切歌不在此注册：该逻辑必须运行在 TrackPlayer 的后台服务上下文
+  // （src/player/playbackService.ts），否则 app 退到后台后 JS 挂起，切歌要等
+  // 用户回到前台才发生。此处只保留与 UI 状态直接相关的监听。
 }
 
 

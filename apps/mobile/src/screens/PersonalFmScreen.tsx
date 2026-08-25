@@ -7,6 +7,7 @@ import {
   View,
 } from "react-native";
 import type { MusicInfo } from "@lx/core";
+import { COVER_SIZE_LARGE } from "@lx/core";
 
 import { ActionButton } from "@/components/ActionButton";
 import { CachedImage } from "@/components/CachedImage";
@@ -247,6 +248,7 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
           {artwork ? (
             <CachedImage
               uri={artwork}
+              size={COVER_SIZE_LARGE}
               style={styles.artwork}
               fallback={
                 <View style={[styles.artwork, styles.artworkFallback, { backgroundColor: palette.surfaceStrong }]}>
@@ -272,7 +274,7 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
                 <ActionButton
                   shrink
                   small
-                  variant={isLiked ? "primary" : "secondary"}
+                  variant="primary"
                   label={fmSongActions.likeLabel}
                   loading={liking}
                   onPress={() => void handleLike()}
@@ -282,7 +284,7 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
                 <ActionButton
                   shrink
                   small
-                  variant="secondary"
+                  variant="primary"
                   label={fmSongActions.addToPlaylistLabel}
                   onPress={() => setAddToPlaylistVisible(true)}
                   accessibilityLabel={fmSongActions.addToPlaylistLabel}
@@ -301,7 +303,7 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
 
             <ActionButton
               grow
-              variant="secondary"
+              variant="primary"
               label="下一首"
               loading={skipping}
               disabled={starting || disliking || (!isFmPlaying && previewSongs.length === 0)}

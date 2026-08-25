@@ -1,6 +1,8 @@
 import { NativeModules, Platform } from "react-native";
+import RNFS from "react-native-fs";
 import { check, request, PERMISSIONS, RESULTS } from "react-native-permissions";
 import type { MusicInfo } from "@lx/core";
+import { useDownloadStore } from "@/stores/downloadStore";
 
 /**
  * 原生模块返回的单首本地歌曲结构。
@@ -16,8 +18,10 @@ interface NativeLocalSong {
   filePath: string;
   /** MediaStore content URI，可用于播放/访问 */
   contentUri?: string;
-  /** 专辑封面 content URI */
+  /** 专辑封面 content URI 或 file:// sidecar 封面路径 */
   albumArtUri?: string;
+  /** 内嵌歌词（USLT 帧）或同名 .lrc 旁挂歌词内容；无则为空 */
+  lyrics?: string;
 }
 
 interface LocalMusicNativeModule {
@@ -63,6 +67,56 @@ export async function requestAudioPermission(): Promise<boolean> {
   } catch (error) {
     return false;
   }
+}
+
+/**
+ * 下载入库的本地歌曲 id 前缀：区分 MediaStore 扫描条目（这类歌曲没有原生媒体 id，
+ * 编辑元数据时不能走 MediaStore 写回）。
+ */
+const DOWNLOADED_LOCAL_ID_PREFIX = "dl-";
+
+/** 是否为「应用下载目录」入库的本地歌曲（而非 MediaStore 扫描条目）。 */
+export function isDownloadedLocalSong(song: Pick<MusicInfo, "id">): boolean {
+  return String(song.id).startsWith(DOWNLOADED_LOCAL_ID_PREFIX);
+}
+
+/**
+ * 把应用下载目录（DocumentDirectoryPath/auralflow/downloads）中已完成的下载
+ * 映射为本地歌曲。
+ *
+ * 该目录是应用私有外部目录，MediaStore 不会索引它——只靠 scanLocalMusic 的
+ * MediaStore 查询，下载的歌曲在本地曲库里永远刷不出来，必须在此显式合并。
+ * 文件已被删除（下载管理里移除过）的条目自动跳过。
+ */
+export async function getDownloadedLocalSongs(): Promise<MusicInfo[]> {
+  const downloads = useDownloadStore.getState().downloads;
+  if (downloads.length === 0) return [];
+  const resolved = await Promise.all(
+    downloads.map(async (item): Promise<MusicInfo | null> => {
+      if (!item.localPath) return null;
+      try {
+        if (!(await RNFS.exists(item.localPath))) return null;
+      } catch {
+        return null;
+      }
+      const cover = item.song.picUrl || item.song.img;
+      const localLyrics = await readSidecarLrc(item.localPath);
+      return {
+        id: `${DOWNLOADED_LOCAL_ID_PREFIX}${item.song.source}-${item.song.id}`,
+        name: item.song.name,
+        singer: item.song.singer || "未知艺术家",
+        albumName: item.song.albumName || "未知专辑",
+        source: "local",
+        interval: item.song.interval,
+        url: getLocalMusicUrl(item.localPath),
+        picUrl: cover,
+        img: cover,
+        localLyrics,
+        isLocal: true,
+      } satisfies MusicInfo;
+    }),
+  );
+  return resolved.filter((song): song is MusicInfo => song != null);
 }
 
 /**
@@ -126,9 +180,26 @@ function mapNativeLocalSongs(songs: NativeLocalSong[]): MusicInfo[] {
       url: getLocalMusicUrl(filePath),
       picUrl: cover,
       img: cover,
+      localLyrics: song.lyrics || undefined,
       isLocal: true,
     } satisfies MusicInfo;
   });
+}
+
+/**
+ * 读取下载音频的同名旁挂 .lrc 歌词（下载时由 downloadService 写入）。
+ * 文件不存在或读取失败返回 undefined，不影响歌曲入库。
+ */
+async function readSidecarLrc(audioPath: string): Promise<string | undefined> {
+  try {
+    const plain = audioPath.startsWith("file://") ? audioPath.slice(7) : audioPath;
+    const lrcPath = plain.replace(/\.[^/.]+$/, ".lrc");
+    if (!(await RNFS.exists(lrcPath))) return undefined;
+    const text = await RNFS.readFile(lrcPath, "utf8");
+    return text.trim() ? text : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

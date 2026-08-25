@@ -17,6 +17,8 @@ export interface DetailHeroProps {
   descLines?: number;
   /** 封面底部角标（对齐 lx CountText：半透明黑条 + 白色播放量），如 "16.2万次" */
   coverBadge?: string;
+  /** 按钮整行铺满：actions 脱离右侧文字列，独立成行且左缘对齐封面（歌单详情三键样式） */
+  actionsFullBleed?: boolean;
 }
 
 export function DetailHero({
@@ -28,6 +30,7 @@ export function DetailHero({
   compact = false,
   descLines = 4,
   coverBadge,
+  actionsFullBleed = false,
 }: DetailHeroProps) {
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
@@ -98,8 +101,14 @@ export function DetailHero({
             ))}
           </View>
         ) : null}
-        {actions ? <View style={[styles.actions, compact && styles.actionsCompact]}>{actions}</View> : null}
+        {actions && !actionsFullBleed ? (
+          <View style={[styles.actions, compact && styles.actionsCompact]}>{actions}</View>
+        ) : null}
       </View>
+
+      {actions && actionsFullBleed ? (
+        <View style={styles.actionsFullBleed}>{actions}</View>
+      ) : null}
     </View>
   );
 }
@@ -196,5 +205,13 @@ const styles = StyleSheet.create({
   },
   actionsCompact: {
     marginTop: 0,
+  },
+  actionsFullBleed: {
+    // 按钮整行铺满内容宽度（root 为 wrap 布局，此行自动换行到封面下方），
+    // 左缘与封面左缘对齐，三键 flexGrow 平分整行。
+    width: "100%",
+    flexDirection: "row",
+    flexWrap: "nowrap",
+    gap: spacing.xs,
   },
 });

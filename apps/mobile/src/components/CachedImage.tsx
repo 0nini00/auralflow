@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { View, StyleSheet, type StyleProp } from "react-native";
 import FastImage, { type ResizeMode, type ImageStyle } from "@d11/react-native-fast-image";
+import { COVER_SIZE_THUMB, resizeCoverUrl } from "@lx/core";
 import { getCachedCover, cacheCover } from "@/services/cacheService";
 import { isBiliImageUrl } from "@/services/biliService";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
@@ -11,6 +12,11 @@ interface CachedImageProps {
   resizeMode?: ResizeMode;
   fallback?: React.ReactNode;
   nativeID?: string;
+  /**
+   * 目标边长（px），用于向图床索取缩略图。列表默认 200；
+   * 播放器等大图位置显式传 COVER_SIZE_LARGE。
+   */
+  size?: number;
 }
 
 /** 网易云等图床统一浏览器 UA，避免部分图床 403（对齐 lx defaultHeaders）。 */
@@ -30,7 +36,7 @@ const DEFAULT_HEADERS = {
  * - cache: "immutable"：URL 不变则永不过期，URL 变化自然失效（对齐 lx，替代 30 天过期）
  * - transition="fade"：加载完成淡入，消除闪烁
  */
-export function CachedImage({ uri, style, resizeMode = "cover", fallback, nativeID }: CachedImageProps) {
+export function CachedImage({ uri, style, resizeMode = "cover", fallback, nativeID, size = COVER_SIZE_THUMB }: CachedImageProps) {
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
@@ -46,7 +52,8 @@ export function CachedImage({ uri, style, resizeMode = "cover", fallback, native
 
     // 网易云等图床常返回 http:// 链接，Android 9+ 默认禁止明文 HTTP（usesCleartextTraffic=false），
     // 导致所有封面加载失败只剩占位图。统一升级为 https://（网易云/B站/腾讯图床均支持 https）。
-    const safeUri = uri.replace(/^http:\/\//, "https://");
+    // 同时按显示尺寸向图床索取缩略图：原图常有数 MB，列表拉原图是首屏与滚动卡顿的主因。
+    const safeUri = resizeCoverUrl(uri.replace(/^http:\/\//, "https://"), size);
     if (!safeUri) {
       setLoading(false);
       setError(true);
@@ -115,7 +122,7 @@ export function CachedImage({ uri, style, resizeMode = "cover", fallback, native
     return () => {
       mounted = false;
     };
-  }, [uri]);
+  }, [uri, size]);
 
   if (loading) {
     return (

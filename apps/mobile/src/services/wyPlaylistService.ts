@@ -1,8 +1,7 @@
 import { getWyCookie } from "./wyAccountService";
 import type { PlaylistInfo, MusicInfo } from "@lx/core";
 import { mapWyTrackToMusicInfo } from "./wyMusicMapper";
-import CryptoJS from "crypto-js";
-import forge from "node-forge";
+import { weapi } from "@/services/weapi";
 import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
 import {
   buildNeteasePcCookie,
@@ -21,6 +20,8 @@ export interface WyPlaylistInfo extends PlaylistInfo {
     userId: string;
     nickname: string;
   };
+  /** WebDAV 引用的更新时间；在线接口返回的歌单可以不提供。 */
+  updatedAt?: number;
 }
 
 export interface DailyRecommendResult {
@@ -34,52 +35,11 @@ export interface PersonalFmResult {
 }
 
 const WY_REQUEST_HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36 Edg/108.0.1462.54",
 };
-const WY_IV = CryptoJS.enc.Utf8.parse("0102030405060708");
-const WY_PRESET_KEY = CryptoJS.enc.Utf8.parse("0CoJUm6Qyw8W8jud");
-const WY_PUBLIC_KEY =
-  "-----BEGIN PUBLIC KEY-----\n" +
-  "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDgtQn2JZ34ZC28NWYpAUd98iZ37BUrX/aKzmFbt7clFSs6sXqHauqKWqdtLkF2KexO40H1YTX8z2lSgBBOAxLsvaklV8k4cBFK9snQXE9/DDaFt6Rr7iVZMldczhC0JNgTz+SHXT6CBHuX3e9SdB1Ua44oncaTWz7OBGLbCiK45wIDAQAB\n" +
-  "-----END PUBLIC KEY-----";
-const BASE62 = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
 type JsonRecord = Record<string, any>;
-
-function randSecretKey(length = 16): string {
-  let key = "";
-  for (let i = 0; i < length; i += 1) {
-    key += BASE62[Math.floor(Math.random() * BASE62.length)];
-  }
-  return key;
-}
-
-function rsaNoPaddingEncrypt(input: string): string {
-  const publicKey = forge.pki.publicKeyFromPem(WY_PUBLIC_KEY);
-  const padded = "\0".repeat(128 - input.length) + input;
-  const msgHex = forge.util.bytesToHex(padded);
-  const message = new forge.jsbn.BigInteger(msgHex, 16);
-  const encrypted = message.modPow(publicKey.e, publicKey.n);
-  return encrypted.toString(16).padStart(256, "0");
-}
-
-function buildWeapiBody(data: Record<string, any>): string {
-  const text = JSON.stringify(data);
-  const secretKeyText = randSecretKey(16);
-  const secretKey = CryptoJS.enc.Utf8.parse(secretKeyText);
-  const encryptedOnce = CryptoJS.AES.encrypt(CryptoJS.enc.Utf8.parse(text), WY_PRESET_KEY, {
-    iv: WY_IV,
-    mode: CryptoJS.mode.CBC,
-    padding: CryptoJS.pad.Pkcs7,
-  }).toString();
-  const params = CryptoJS.AES.encrypt(CryptoJS.enc.Utf8.parse(encryptedOnce), secretKey, {
-    iv: WY_IV,
-    mode: CryptoJS.mode.CBC,
-    padding: CryptoJS.pad.Pkcs7,
-  }).toString();
-  const encSecKey = rsaNoPaddingEncrypt(secretKeyText.split("").reverse().join(""));
-  return new URLSearchParams({ params, encSecKey }).toString();
-}
 
 function csrfToken(cookie: string): string {
   const match = cookie.match(/(?:^|;\s*)__?csrf=([^;]+)/);
@@ -91,6 +51,10 @@ export async function postWyWeapi<TResponse = JsonRecord>(
   payload: Record<string, any>,
   cookie: string,
 ): Promise<TResponse> {
+  const { params, encSecKey } = await weapi({
+    ...payload,
+    csrf_token: csrfToken(cookie),
+  });
   const response = await fetchWithTimeout(`https://music.163.com/weapi${path}`, {
     method: "POST",
     headers: {
@@ -102,10 +66,7 @@ export async function postWyWeapi<TResponse = JsonRecord>(
       Cookie: buildNeteasePcCookie(cookie),
       ...WY_REQUEST_HEADERS,
     },
-    body: buildWeapiBody({
-      ...payload,
-      csrf_token: csrfToken(cookie),
-    }),
+    body: new URLSearchParams({ params, encSecKey }).toString(),
   });
 
   const data = (await response.json()) as JsonRecord;
@@ -240,7 +201,9 @@ export async function getPlaylistDetail(playlistId: string): Promise<MusicInfo[]
           if (fullTracks.length > 0) {
             return fullTracks.map(mapWyTrackToMusicInfo);
           }
-        } catch {}
+        } catch (error) {
+          console.warn("补齐网易云歌单歌曲失败，将使用接口返回的歌曲", error);
+        }
       }
 
       return previewTracks.map(mapWyTrackToMusicInfo);

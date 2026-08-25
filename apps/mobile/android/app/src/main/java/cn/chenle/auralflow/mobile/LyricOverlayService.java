@@ -4,7 +4,6 @@ import android.app.Service;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
-import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
@@ -17,7 +16,6 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.LinearLayout;
-import android.widget.ProgressBar;
 import android.widget.TextView;
 
 public class LyricOverlayService extends Service {
@@ -25,9 +23,9 @@ public class LyricOverlayService extends Service {
     public static final String ACTION_UPDATE = "cn.chenle.auralflow.mobile.lyrics.UPDATE";
     public static final String ACTION_SET_LOCKED = "cn.chenle.auralflow.mobile.lyrics.SET_LOCKED";
     public static final String ACTION_HIDE = "cn.chenle.auralflow.mobile.lyrics.HIDE";
+    public static final String ACTION_APPLY_STYLE = "cn.chenle.auralflow.mobile.lyrics.APPLY_STYLE";
     public static final String EXTRA_CURRENT = "current";
     public static final String EXTRA_NEXT = "next";
-    public static final String EXTRA_PROGRESS = "progress";
     public static final String EXTRA_LOCKED = "locked";
     public static final String EXTRA_FROM_NOTIFICATION = "fromNotification";
     public static final String EXTRA_RESULT_RECEIVER = "resultReceiver";
@@ -44,7 +42,6 @@ public class LyricOverlayService extends Service {
     private static final String ERROR_UNKNOWN_ACTION = "E_OVERLAY_UNKNOWN_ACTION";
     private static final String TAG = "LyricOverlayService";
 
-    private static final int PROGRESS_MAX = 1000;
     private static final int BASE_WINDOW_FLAGS =
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
             | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN;
@@ -54,12 +51,10 @@ public class LyricOverlayService extends Service {
     private LinearLayout overlayView;
     private TextView currentLyricView;
     private TextView nextLyricView;
-    private ProgressBar progressView;
     private boolean windowAttached;
 
     private String currentText = "";
     private String nextText = "";
-    private float progress;
     private boolean locked;
 
     private int dragStartX;
@@ -121,7 +116,6 @@ public class LyricOverlayService extends Service {
             if (ACTION_UPDATE.equals(action)) {
                 currentText = intent.getStringExtra(EXTRA_CURRENT);
                 nextText = intent.getStringExtra(EXTRA_NEXT);
-                progress = clampProgress(intent.getFloatExtra(EXTRA_PROGRESS, 0f));
                 ensureWindow();
                 renderState();
                 if (receiver != null) sendSuccess(receiver);
@@ -133,6 +127,13 @@ public class LyricOverlayService extends Service {
                 }
                 locked = intent.getBooleanExtra(EXTRA_LOCKED, false);
                 applyLockedState();
+                if (receiver != null) sendSuccess(receiver);
+                return;
+            }
+            if (ACTION_APPLY_STYLE.equals(action)) {
+                // 样式已由 Module 写入 Preferences，这里只负责就地重刷已挂载的窗口。
+                // 窗口未挂载时无需处理：下次 ensureWindow 会直接读到新值。
+                applyStyle();
                 if (receiver != null) sendSuccess(receiver);
                 return;
             }
@@ -174,6 +175,7 @@ public class LyricOverlayService extends Service {
         if (ACTION_UPDATE.equals(action)) return ERROR_WINDOW_UPDATE;
         if (ACTION_SET_LOCKED.equals(action)) return ERROR_WINDOW_LOCK;
         if (ACTION_HIDE.equals(action)) return ERROR_WINDOW_HIDE;
+        if (ACTION_APPLY_STYLE.equals(action)) return ERROR_WINDOW_UPDATE;
         return ERROR_UNKNOWN_ACTION;
     }
 
@@ -205,32 +207,21 @@ public class LyricOverlayService extends Service {
 
         overlayView = new LinearLayout(this);
         overlayView.setOrientation(LinearLayout.VERTICAL);
-        overlayView.setPadding(dp(16), dp(12), dp(16), dp(10));
+        overlayView.setPadding(dp(16), dp(10), dp(16), dp(10));
 
-        GradientDrawable background = new GradientDrawable();
-        background.setColor(0xD91A1A1A);
-        background.setCornerRadius(dp(12));
-        overlayView.setBackground(background);
-
-        currentLyricView = createLyricText(16f, Color.WHITE);
-        nextLyricView = createLyricText(13f, 0xB3FFFFFF);
+        // 不再画背景块与进度条：85% 不透明的深色底几乎盖住整片壁纸，
+        // 系统默认样式的进度条也与桌面观感格格不入。改为纯文字 + 投影，
+        // 靠投影保证在任意壁纸上的可读性（对齐 lx 桌面歌词的做法）。
+        currentLyricView = createLyricText(fontSizeSp(), 0xFFFFFFFF);
+        nextLyricView = createLyricText(nextFontSizeSp(), 0xB3FFFFFF);
         LinearLayout.LayoutParams nextTextParams = new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
         );
-        nextTextParams.topMargin = dp(4);
-
-        progressView = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-        progressView.setMax(PROGRESS_MAX);
-        LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            dp(3)
-        );
-        progressParams.topMargin = dp(8);
+        nextTextParams.topMargin = dp(2);
 
         overlayView.addView(currentLyricView);
         overlayView.addView(nextLyricView, nextTextParams);
-        overlayView.addView(progressView, progressParams);
         overlayView.setOnTouchListener(this::handleDrag);
 
         layoutParams = new WindowManager.LayoutParams(
@@ -248,6 +239,23 @@ public class LyricOverlayService extends Service {
         windowAttached = true;
     }
 
+    private float fontSizeSp() {
+        return LyricOverlayPreferences.getFontSize(this);
+    }
+
+    /** 下一行比当前行小一档，最低不小于 11sp，避免大字号时两行差距过小。 */
+    private float nextFontSizeSp() {
+        return Math.max(11f, fontSizeSp() - 4f);
+    }
+
+    /** 把配置的不透明度（10-100）折算进颜色的 alpha 通道。 */
+    private int applyOpacity(int color) {
+        int opacity = LyricOverlayPreferences.getTextOpacity(this);
+        int baseAlpha = (color >>> 24) & 0xFF;
+        int alpha = Math.round(baseAlpha * (opacity / 100f));
+        return (alpha << 24) | (color & 0x00FFFFFF);
+    }
+
     private int windowType() {
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
             ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -257,10 +265,41 @@ public class LyricOverlayService extends Service {
     private TextView createLyricText(float sizeSp, int color) {
         TextView view = new TextView(this);
         view.setTextSize(sizeSp);
-        view.setTextColor(color);
+        view.setTextColor(applyOpacity(color));
         view.setMaxLines(1);
+        view.setEllipsize(android.text.TextUtils.TruncateAt.END);
         view.setGravity(Gravity.CENTER);
+        applyShadow(view);
         return view;
+    }
+
+    /**
+     * 文字投影：去掉背景块后，这是浅色壁纸下唯一的可读性保障。
+     * 半径取字号的 1/5，向下偏移 1dp，接近系统桌面小组件的观感。
+     */
+    private void applyShadow(TextView view) {
+        if (LyricOverlayPreferences.isShadowEnabled(this)) {
+            view.setShadowLayer(Math.max(3f, view.getTextSize() / 5f), 0f, dp(1), 0xCC000000);
+        } else {
+            view.setShadowLayer(0f, 0f, 0f, Color.TRANSPARENT);
+        }
+    }
+
+    /** 样式变更后就地重刷：避免销毁重建窗口导致位置与锁定态丢失。 */
+    private void applyStyle() {
+        if (!windowAttached) {
+            return;
+        }
+        currentLyricView.setTextSize(fontSizeSp());
+        currentLyricView.setTextColor(applyOpacity(0xFFFFFFFF));
+        applyShadow(currentLyricView);
+
+        nextLyricView.setTextSize(nextFontSizeSp());
+        nextLyricView.setTextColor(applyOpacity(0xB3FFFFFF));
+        applyShadow(nextLyricView);
+        nextLyricView.setVisibility(
+            LyricOverlayPreferences.isShowNextLine(this) ? View.VISIBLE : View.GONE
+        );
     }
 
     private void renderState() {
@@ -269,7 +308,9 @@ public class LyricOverlayService extends Service {
         }
         currentLyricView.setText(currentText == null ? "" : currentText);
         nextLyricView.setText(nextText == null ? "" : nextText);
-        progressView.setProgress(Math.round(progress * PROGRESS_MAX));
+        nextLyricView.setVisibility(
+            LyricOverlayPreferences.isShowNextLine(this) ? View.VISIBLE : View.GONE
+        );
         applyLockedState();
     }
 
@@ -329,13 +370,6 @@ public class LyricOverlayService extends Service {
         layoutParams.y = Math.max(0, Math.min(maxY, layoutParams.y));
     }
 
-    private float clampProgress(float value) {
-        if (!Float.isFinite(value)) {
-            return 0f;
-        }
-        return Math.max(0f, Math.min(1f, value));
-    }
-
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
@@ -349,7 +383,6 @@ public class LyricOverlayService extends Service {
         overlayView = null;
         currentLyricView = null;
         nextLyricView = null;
-        progressView = null;
         layoutParams = null;
     }
 

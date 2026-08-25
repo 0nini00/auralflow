@@ -12,7 +12,9 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChevronLeft } from "lucide-react-native";
 
+import { IconButton } from "@/components/IconButton";
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
+import { SettingsCard } from "@/components/settings/SettingsCard";
 import { SectionHeader } from "@/components/SectionHeader";
 import {
   useLyricSettingsStore,
@@ -135,14 +137,12 @@ export function LyricSettingsContent({ onBack, showNavigation = true }: LyricSet
         <ScreenScaffold style={styles.scaffold}>
         {showNavigation ? (
           <View style={[styles.topBar, { borderBottomColor: palette.border }]}>
-          <Pressable
+          <IconButton
             onPress={onBack}
-            style={styles.backButton}
-            accessibilityRole="button"
+            tone="strong"
             accessibilityLabel="关闭歌词设置"
-          >
-            <ChevronLeft size={20} strokeWidth={2} color={palette.text} />
-          </Pressable>
+            render={({ size, color }) => <ChevronLeft size={size} strokeWidth={2} color={color} />}
+          />
           <Text style={[styles.title, { color: palette.text }]}>歌词样式</Text>
           <Pressable
             onPress={confirmResetSettings}
@@ -160,7 +160,7 @@ export function LyricSettingsContent({ onBack, showNavigation = true }: LyricSet
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
         >
           {/* 字号 */}
-          <Section title="字号" palette={palette}>
+          <Section title="字号">
             <Slider
               label="字号"
               width={sliderWidth}
@@ -175,7 +175,7 @@ export function LyricSettingsContent({ onBack, showNavigation = true }: LyricSet
           </Section>
 
           {/* 行间距 */}
-          <Section title="行间距" palette={palette}>
+          <Section title="行间距">
             <Slider
               label="行间距"
               width={sliderWidth}
@@ -189,7 +189,7 @@ export function LyricSettingsContent({ onBack, showNavigation = true }: LyricSet
             <Text style={[styles.valueLabel, { color: palette.textMuted }]}>{lineGap}px</Text>
           </Section>
 
-          <Section title="其他行透明度" palette={palette}>
+          <Section title="其他行透明度">
             <Slider
               label="其他行透明度"
               width={sliderWidth}
@@ -204,7 +204,7 @@ export function LyricSettingsContent({ onBack, showNavigation = true }: LyricSet
           </Section>
 
           {/* 歌词偏移校准 */}
-          <Section title="歌词偏移校准" palette={palette}>
+          <Section title="歌词偏移校准">
             <Slider
               label="歌词偏移校准"
               width={sliderWidth}
@@ -222,7 +222,7 @@ export function LyricSettingsContent({ onBack, showNavigation = true }: LyricSet
 
 
           {/* 译文开关 */}
-          <View style={[styles.row, { backgroundColor: palette.surface }]}>
+          <SettingsCard style={styles.row}>
             <Text style={[styles.rowLabel, { color: palette.text }]}>显示译文</Text>
             <Switch
               value={showTranslation}
@@ -230,9 +230,9 @@ export function LyricSettingsContent({ onBack, showNavigation = true }: LyricSet
               trackColor={{ false: palette.surfaceMuted, true: palette.primary }}
               thumbColor={showTranslation ? palette.primaryText : palette.textMuted}
             />
-          </View>
+          </SettingsCard>
 
-          <View style={[styles.row, { backgroundColor: palette.surface }]}>
+          <SettingsCard style={styles.row}>
             <Text style={[styles.rowLabel, { color: palette.text }]}>切换动画</Text>
             <Switch
               value={enableAnimation}
@@ -240,9 +240,9 @@ export function LyricSettingsContent({ onBack, showNavigation = true }: LyricSet
               trackColor={{ false: palette.surfaceMuted, true: palette.primary }}
               thumbColor={enableAnimation ? palette.primaryText : palette.textMuted}
             />
-          </View>
+          </SettingsCard>
 
-          <Section title="对齐" palette={palette}>
+          <Section title="对齐">
             <View style={styles.optionGrid}>
               {ALIGN_OPTIONS.map((option) => {
                 const selected = textAlign === option.value;
@@ -270,7 +270,7 @@ export function LyricSettingsContent({ onBack, showNavigation = true }: LyricSet
             </View>
           </Section>
 
-          <Section title="当前行字重" palette={palette}>
+          <Section title="当前行字重">
             <View style={styles.optionGrid}>
               {FONT_WEIGHT_OPTIONS.map((option) => {
                 const selected = fontWeight === option.value;
@@ -306,7 +306,7 @@ export function LyricSettingsContent({ onBack, showNavigation = true }: LyricSet
             </View>
           </Section>
 
-          <Section title="动效强度" palette={palette}>
+          <Section title="动效强度">
             <View style={styles.optionGrid}>
               {ANIMATION_INTENSITY_OPTIONS.map((option) => {
                 const selected = animationIntensity === option.value;
@@ -337,7 +337,7 @@ export function LyricSettingsContent({ onBack, showNavigation = true }: LyricSet
           </Section>
 
           {/* 当前行颜色 */}
-          <Section title="当前行颜色" palette={palette}>
+          <Section title="当前行颜色">
             <ColorPicker
               purpose="当前行歌词颜色"
               presets={ACTIVE_COLOR_PRESETS}
@@ -349,7 +349,7 @@ export function LyricSettingsContent({ onBack, showNavigation = true }: LyricSet
           </Section>
 
           {/* 其他行颜色 */}
-          <Section title="其他行颜色" palette={palette}>
+          <Section title="其他行颜色">
             <ColorPicker
               purpose="其他行歌词颜色"
               presets={INACTIVE_COLOR_PRESETS}
@@ -361,7 +361,7 @@ export function LyricSettingsContent({ onBack, showNavigation = true }: LyricSet
           </Section>
 
           {/* 字体 */}
-          <Section title="字体" palette={palette}>
+          <Section title="字体">
             <View style={styles.fontGrid}>
               {FONT_OPTIONS.map((opt) => {
                 const selected = fontFamily === opt.value;
@@ -398,7 +398,7 @@ export function LyricSettingsContent({ onBack, showNavigation = true }: LyricSet
           </Section>
 
           {/* 预览 */}
-          <Section title="预览" palette={palette}>
+          <Section title="预览">
             <View style={[styles.previewBox, { backgroundColor: palette.surface }]}>
               <Text
                 style={[
@@ -456,17 +456,16 @@ export function LyricSettingsContent({ onBack, showNavigation = true }: LyricSet
 
 interface SectionProps {
   title: string;
-  palette: ThemePalette;
   children: React.ReactNode;
 }
 
-function Section({ title, palette, children }: SectionProps) {
+function Section({ title, children }: SectionProps) {
   return (
     <View style={styles.section}>
       <SectionHeader title={title} style={styles.sectionHeader} />
-      <View style={[styles.sectionBody, { backgroundColor: palette.surface }]}>
+      <SettingsCard style={styles.sectionBody}>
         {children}
-      </View>
+      </SettingsCard>
     </View>
   );
 }
@@ -636,13 +635,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  backButton: {
-    minWidth: touch.minTarget,
-    minHeight: touch.minTarget,
-    borderRadius: radius.xl,
-    justifyContent: "center",
-    alignItems: "center",
-  },
   title: {
     flex: 1,
     textAlign: "left",
@@ -670,8 +662,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   sectionBody: {
-    borderRadius: radius.md,
-    padding: spacing.m,
+    gap: spacing.s,
   },
   valueLabel: {
     fontSize: typography.meta,
@@ -682,9 +673,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.m,
-    paddingVertical: spacing.s,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs,
     marginBottom: spacing.l,
   },
   rowLabel: {

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  允许明文 HTTP 流量。
+
+  原因：LX 自定义音源返回的播放地址普遍是 http://（自建代理多不配证书）。
+  targetSdk 28+ 起 Android 默认拒绝明文连接，release 构建下 React Native 的
+  gradle plugin 还会强制 usesCleartextTraffic="false"
+  （@react-native/gradle-plugin AgpConfiguratorUtils.kt），
+  导致 lx 音源解析出的 URL 连不出去，表现为「Network request failed」——
+  同一个音源脚本在桌面端（Tauri/Rust reqwest，不受此策略约束）却能正常播放。
+
+  为什么不用域名白名单：lx 音源由用户自行导入，代理域名不可预知。
+
+  安全影响：明文请求可被中间人窃听或篡改。本项目的账号类请求
+  （music.163.com / y.qq.com / bilibili / gdstudio）本身都是 https，
+  Cookie 只会发往这些 https 域名，不受此项影响；受影响的主要是音频流本身。
+
+  如需回滚：删除本文件，并移除 AndroidManifest.xml 中 application 标签上的
+  android:networkSecurityConfig 属性即可（届时 lx 音源的 http 地址会重新失效）。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

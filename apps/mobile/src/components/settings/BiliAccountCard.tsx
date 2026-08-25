@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, StyleSheet, Text, TextInput, View } from "react-native";
+import { Tv } from "lucide-react-native";
 
+import { CachedImage } from "@/components/CachedImage";
 import { SettingsCard } from "@/components/settings/SettingsCard";
+import { Button } from "@/components/ui/Button";
 import { saveBiliCookie } from "@/services/biliService";
 import { useBiliAccountStore } from "@/stores/biliAccountStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
@@ -68,36 +71,49 @@ export function BiliAccountCard() {
   return (
     <SettingsCard style={styles.card}>
       <View style={styles.header}>
+        {account?.avatarUrl ? (
+          <CachedImage
+            uri={account.avatarUrl}
+            style={styles.avatar}
+            fallback={
+              <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: palette.surfaceStrong }]}>
+                <Tv size={20} color={palette.primary} />
+              </View>
+            }
+          />
+        ) : (
+          <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: palette.surfaceStrong }]}>
+            <Tv size={20} color={palette.primary} />
+          </View>
+        )}
         <View style={styles.copy}>
           <Text style={[styles.title, { color: palette.text }]}>B站账号</Text>
-          <Text style={[styles.subtitle, { color: error ? palette.danger : palette.textMuted }]}>
+          <Text
+            numberOfLines={1}
+            style={[styles.subtitle, { color: error && !account ? palette.danger : palette.textMuted }]}
+          >
             {account?.nickname ?? error ?? "未登录"}
           </Text>
         </View>
         {loading ? (
           <ActivityIndicator color={palette.primary} />
         ) : account ? (
-          <Pressable
-            accessibilityRole="button"
+          <Button
+            label="退出"
+            variant="danger"
+            size="small"
             accessibilityLabel="退出 B站账号"
-            accessibilityState={{ disabled: loading, busy: loading }}
             disabled={loading}
             onPress={handleLogout}
-            style={[styles.button, { backgroundColor: palette.dangerSurface }]}
-          >
-            <Text style={[styles.buttonText, { color: palette.danger }]}>退出</Text>
-          </Pressable>
+          />
         ) : (
-          <Pressable
-            accessibilityRole="button"
+          <Button
+            label="登录"
+            size="small"
             accessibilityLabel={editing ? "收起 B站账号登录" : "登录 B站账号"}
-            accessibilityState={{ expanded: editing, disabled: loading, busy: loading }}
             disabled={loading}
             onPress={() => setEditing((value) => !value)}
-            style={[styles.button, { backgroundColor: palette.primary }]}
-          >
-            <Text style={[styles.buttonText, { color: palette.primaryText }]}>登录</Text>
-          </Pressable>
+          />
         )}
       </View>
       {editing && !account ? (
@@ -117,16 +133,13 @@ export function BiliAccountCard() {
               { color: palette.text, borderColor: palette.border, backgroundColor: palette.surfaceMuted },
             ]}
           />
-          <Pressable
-            accessibilityRole="button"
+          <Button
+            label="验证并登录"
+            loading={loading}
             accessibilityLabel="验证并登录 B站账号"
-            accessibilityState={{ disabled: loading, busy: loading }}
-            disabled={loading}
             onPress={() => void handleLogin()}
-            style={[styles.submit, { backgroundColor: palette.primary }]}
-          >
-            <Text style={[styles.buttonText, { color: palette.primaryText }]}>验证并登录</Text>
-          </Pressable>
+            style={styles.submit}
+          />
         </View>
       ) : null}
     </SettingsCard>
@@ -138,6 +151,15 @@ const styles = StyleSheet.create({
     gap: spacing.s,
   },
   header: { minHeight: touch.minTarget, flexDirection: "row", alignItems: "center", gap: spacing.s },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  avatarFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
   copy: { flex: 1, minWidth: 0, gap: spacing.xxs },
   title: { fontSize: typography.body, fontWeight: "600" },
   subtitle: { fontSize: typography.caption },
@@ -149,6 +171,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: spacing.s,
   },
+  buttonPressed: {
+    opacity: 0.8,
+  },
   buttonText: { fontSize: typography.meta, fontWeight: "700" },
   form: { gap: spacing.xs },
   input: {
@@ -158,10 +183,5 @@ const styles = StyleSheet.create({
     padding: spacing.s,
     fontSize: typography.body,
   },
-  submit: {
-    minHeight: touch.minTarget,
-    borderRadius: radius.sm,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  submit: { alignSelf: "stretch" },
 });

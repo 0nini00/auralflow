@@ -29,14 +29,14 @@ export function MobilePactModal({ visible, accepting = false, onAccept }: Mobile
             <Text style={[styles.confirm, { color: palette.text }]}>继续使用即视为你已阅读并同意以上条款。</Text>
           </ScrollView>
           <Pressable
-            style={[styles.acceptButton, { backgroundColor: palette.primary }]}
+            style={[styles.acceptButton, { backgroundColor: palette.surface, borderColor: palette.border, borderWidth: 1 }]}
             onPress={onAccept}
             disabled={accepting}
           >
             {accepting ? (
-              <ActivityIndicator color={palette.primaryText} size="small" />
+              <ActivityIndicator color={palette.primary} size="small" />
             ) : (
-              <Text style={[styles.acceptText, { color: palette.primaryText }]}>我已阅读并同意</Text>
+              <Text style={[styles.acceptText, { color: palette.primary }]}>我已阅读并同意</Text>
             )}
           </Pressable>
         </View>

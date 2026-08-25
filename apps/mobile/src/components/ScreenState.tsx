@@ -1,9 +1,10 @@
 import React from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { CircleAlert, type LucideIcon } from "lucide-react-native";
 
+import { ActionButton } from "@/components/ActionButton";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { radius, spacing, touch, typography } from "@/theme/tokens";
+import { radius, spacing, typography } from "@/theme/tokens";
 
 export interface ErrorStateProps {
   message: string;
@@ -56,14 +57,7 @@ export function ErrorState({ message, onRetry }: ErrorStateProps) {
       <Text style={[styles.title, { color: palette.danger }]}>加载失败</Text>
       <Text style={[styles.description, { color: palette.text }]}>{message}</Text>
       {onRetry ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="重试"
-          onPress={onRetry}
-          style={[styles.retryButton, { backgroundColor: palette.primary }]}
-        >
-          <Text style={[styles.retryText, { color: palette.primaryText }]}>重试</Text>
-        </Pressable>
+        <ActionButton label="重试" variant="primary" onPress={onRetry} style={styles.retry} />
       ) : null}
     </View>
   );
@@ -117,17 +111,7 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     textAlign: "center",
   },
-  retryButton: {
-    minHeight: touch.minTarget,
-    minWidth: touch.minTarget,
+  retry: {
     marginTop: spacing.xs,
-    paddingHorizontal: spacing.l,
-    borderRadius: radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  retryText: {
-    fontSize: typography.body,
-    fontWeight: "600",
   },
 });

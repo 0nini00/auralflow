@@ -26,13 +26,15 @@ export type LibraryTopTabParamList = {
   Bili: undefined;
 };
 
-/** 抽屉（保留但内容精简：账号 + 工具 + 设置） */
+/**
+ * 根抽屉：包住全部内容页（主页 Tab + 内容详情 + 全屏播放器 + 设置）。
+ * 抽屉在根层级渲染，推入页（歌单详情等）也能直接打开侧边栏。
+ */
 export type MainDrawerParamList = {
-  MainTabs: NavigatorScreenParams<MainTabParamList> | undefined;
+  Main: NavigatorScreenParams<RootStackParamList> | undefined;
   /**
-   * navId：抽屉每次点击分类时递增，SettingsStack 用它参与 key 重建内部栈。
-   * 否则 params.screen 不变（重复点同一分类）时 key 不变、栈不重建，
-   * gate 不再跳转，用户会卡在设置首页。
+   * navId：抽屉每次点击分类时递增，SettingsStack 用它重新触发定位跳转。
+   * 否则 params.screen 不变（重复点同一分类）时 gate 不再跳转。
    */
   Settings:
     | (NavigatorScreenParams<SettingsStackParamList> & { navId?: number })
@@ -49,15 +51,11 @@ export type SettingsStackParamList = {
   Sync: undefined;
   Data: undefined;
   About: undefined;
-  Login: undefined;
-  WebDav: undefined;
-  CustomSources: undefined;
-  LyricDetail: undefined;
 };
 
-/** 根 Stack */
+/** 根 Stack：主页 Tab + 内容详情 + 全屏播放器（作为抽屉 Main 分支） */
 export type RootStackParamList = {
-  Main: NavigatorScreenParams<MainDrawerParamList> | undefined;
+  MainTabs: NavigatorScreenParams<MainTabParamList> | undefined;
   Player: undefined;
   MvPlayer: { mvId: string; title: string; artist: string; posterUrl?: string };
   DailyRecommend: undefined;
@@ -75,6 +73,6 @@ export type RootStackParamList = {
 
 declare global {
   namespace ReactNavigation {
-    interface RootParamList extends RootStackParamList {}
+    interface RootParamList extends MainDrawerParamList {}
   }
 }

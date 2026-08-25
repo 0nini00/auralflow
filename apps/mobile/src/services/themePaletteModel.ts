@@ -43,7 +43,8 @@ const darkBasePalette: Omit<ThemePalette, "primary" | "primaryText"> = {
   surface: "#1a1a1a",
   surfaceMuted: "#1e1e1e",
   surfaceStrong: "#2a2a2a",
-  border: "#2a2a2a",
+  // 对齐桌面 --af-border-primary：深色下边框必须比 surface 亮一档，否则卡片/列表边界不可见
+  border: "#334155",
   text: "#f8fafc",
   textMuted: "#cbd5e1",
   textSubtle: "#64748b",

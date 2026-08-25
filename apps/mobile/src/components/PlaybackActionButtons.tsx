@@ -73,6 +73,7 @@ export function PlaybackActionButtons({
       />
       <ActionButton
         label={shuffleLabel}
+        variant="primary"
         shrink
         small
         loading={shuffleBusy}
@@ -81,6 +82,7 @@ export function PlaybackActionButtons({
       />
       <ActionButton
         label={locateLabel}
+        variant="primary"
         shrink
         small
         disabled={!canLocateCurrentSong}
@@ -93,7 +95,7 @@ export function PlaybackActionButtons({
           label={action.label}
           shrink
           small
-          variant="secondary"
+          variant="primary"
           loading={action.loading}
           disabled={action.disabled}
           onPress={action.onPress}

@@ -1,9 +1,10 @@
 import React from "react";
-import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
+import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import { X } from "lucide-react-native";
 
+import { Touchable } from "@/components/Touchable";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { layout, radius, spacing, typography } from "@/theme/tokens";
+import { iconButton, layout, radius, spacing, typography } from "@/theme/tokens";
 
 export interface BatchActionItem {
   key: string;
@@ -58,24 +59,24 @@ export function BatchActionBar({
           {headerText}
         </Text>
         {onToggleSelectAll && selectAllLabel ? (
-          <Pressable style={styles.headerButton} onPress={onToggleSelectAll} disabled={busy}>
+          <Touchable style={styles.headerButton} onPress={onToggleSelectAll} disabled={busy} activeScale={1}>
             <Text
               style={[styles.headerButtonText, { color: busy ? palette.textMuted : palette.primary }]}
             >
               {allSelected ? "取消全选" : selectAllLabel}
             </Text>
-          </Pressable>
+          </Touchable>
         ) : null}
-        <Pressable style={styles.exitButton} onPress={onExit} disabled={busy}>
-          <X size={18} color={busy ? palette.textMuted : palette.text} />
+        <Touchable style={styles.exitButton} onPress={onExit} disabled={busy} activeScale={1}>
+          <X size={iconButton.sm.icon} color={busy ? palette.textMuted : palette.text} />
           <Text style={[styles.headerButtonText, { color: busy ? palette.textMuted : palette.text }]}>退出</Text>
-        </Pressable>
+        </Touchable>
       </View>
       <View style={styles.grid}>
         {actions.map((action) => {
           const disabled = busy || action.disabled;
           return (
-            <Pressable
+            <Touchable
               key={action.key}
               style={[styles.action, { backgroundColor: palette.surfaceStrong }, disabled && styles.actionDisabled]}
               onPress={action.onPress}
@@ -83,13 +84,19 @@ export function BatchActionBar({
               accessibilityRole="button"
               accessibilityLabel={action.label}
               accessibilityState={{ disabled }}
+              activeScale={1}
             >
               {action.icon ? (
                 <View style={styles.actionIcon}>
+                  {/* 尺寸与颜色统一由本组件注入，调用方只提供图标类型 */}
                   {React.isValidElement(action.icon)
-                    ? React.cloneElement(action.icon as React.ReactElement<{ color?: string }>, {
-                        color: disabled ? palette.textMuted : palette.primary,
-                      })
+                    ? React.cloneElement(
+                        action.icon as React.ReactElement<{ color?: string; size?: number }>,
+                        {
+                          color: disabled ? palette.textMuted : palette.primary,
+                          size: iconButton.sm.icon,
+                        },
+                      )
                     : action.icon}
                 </View>
               ) : null}
@@ -99,7 +106,7 @@ export function BatchActionBar({
               >
                 {action.label}
               </Text>
-            </Pressable>
+            </Touchable>
           );
         })}
       </View>

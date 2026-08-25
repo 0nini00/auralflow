@@ -1,11 +1,12 @@
 import React, { useEffect } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 
 import { SettingsCard } from "@/components/settings/SettingsCard";
+import { Chip } from "@/components/ui/Chip";
 import { getPlaybackQualityLabel, PLAYBACK_QUALITY_OPTIONS } from "@/services/playbackQualityModel";
 import { usePlaybackSettingsStore } from "@/stores/playbackSettingsStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { radius, spacing, touch, typography } from "@/theme/tokens";
+import { spacing, typography } from "@/theme/tokens";
 
 export function PlaybackQualitySettings() {
   const loaded = usePlaybackSettingsStore((state) => state.loaded);
@@ -31,28 +32,15 @@ export function PlaybackQualitySettings() {
         {PLAYBACK_QUALITY_OPTIONS.map((option) => {
           const selected = quality === option.value;
           return (
-            <Pressable
+            <Chip
               key={option.value}
-              accessibilityRole="button"
+              label={option.label}
+              selected={selected}
               accessibilityLabel={`默认音质，${option.label}，${option.description}`}
               accessibilityHint="用于在线播放和新建下载任务"
-              accessibilityState={{ selected }}
               onPress={() => void setQuality(option.value)}
-              style={[
-                styles.option,
-                {
-                  backgroundColor: selected ? palette.primary : palette.surfaceMuted,
-                  borderColor: selected ? palette.primary : palette.border,
-                },
-              ]}
-            >
-              <Text style={[styles.optionTitle, { color: selected ? palette.primaryText : palette.text }]}>
-                {option.label}
-              </Text>
-              <Text style={[styles.optionDescription, { color: selected ? palette.primaryText : palette.textMuted }]}>
-                {option.description}
-              </Text>
-            </Pressable>
+              style={styles.option}
+            />
           );
         })}
       </View>
@@ -72,13 +60,5 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexBasis: "45%",
     minWidth: 120,
-    minHeight: touch.minTarget,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.sm,
-    padding: spacing.xs,
-    justifyContent: "center",
-    gap: spacing.xxs,
   },
-  optionTitle: { fontSize: typography.body, fontWeight: "700" },
-  optionDescription: { fontSize: typography.caption },
 });

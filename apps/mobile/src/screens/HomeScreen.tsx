@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, RefreshControl, StyleSheet, Text, View } from "react-native";
 import type { MusicInfo } from "@lx/core";
 import { CalendarDays, Clock3, LayoutGrid, Radio, Search, Trophy } from "lucide-react-native";
-import { HomeQuickActions, HomeSectionError, LeaderboardRail, PlaylistRail } from "@/components/HomeFeedSections";
+import { AlbumRail, HomeQuickActions, HomeSectionError, PlaylistRail } from "@/components/HomeFeedSections";
+import { ActionButton } from "@/components/ActionButton";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
 import { SectionHeader } from "@/components/SectionHeader";
@@ -10,17 +11,14 @@ import { SongList } from "@/components/SongList";
 import { openDailyRecommendScreen, openLeaderboardScreen, openPlaylistDetailScreen, openPlaylistSquareScreen } from "@/navigation/navigationRef";
 import { getHomeFeedScope } from "@/services/homeFeedModels";
 import type { HomeFeedSection, HomeFeedSectionId } from "@/services/homeFeedService";
-import {
-  boardToPlaylistInfo,
-  fetchWyLeaderboardBoards,
-  type WyLeaderboardBoard,
-} from "@/services/wyLeaderboardService";
+import { fetchWyLeaderboardBoards } from "@/services/wyLeaderboardService";
+import { getPlaylistDetail } from "@/services/wyPlaylistService";
 import { playQueue } from "@/services/playerService";
 import { runPlaybackUiAction } from "@/services/playbackUiAction";
 import { useAccountStore } from "@/stores/accountStore";
 import { useHomeFeedStore } from "@/stores/homeFeedStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { radius, spacing, touch, typography } from "@/theme/tokens";
+import { radius, spacing, typography } from "@/theme/tokens";
 
 interface HomeScreenProps {
   onNavigateToSearch: () => void;
@@ -52,13 +50,25 @@ export function HomeScreen({ onNavigateToSearch, onNavigateToFm, onNavigateToHis
   const recommendedPlaylists = sections.find((section) => section.kind === "recommendedPlaylists");
   const dailySongs = sections.find((section) => section.kind === "dailySongs");
   const styles = useMemo(() => createStyles(palette), [palette]);
-  const [leaderboards, setLeaderboards] = useState<WyLeaderboardBoard[]>([]);
+  const [leaderboardSongs, setLeaderboardSongs] = useState<MusicInfo[]>([]);
 
-  // 首页排行榜区块：仅取官方榜前 4 个；失败静默（区块隐藏，不影响其余内容）。
+  // 首页排行榜区块：展示首个官方榜的下方歌曲（横排 10 首），失败静默隐藏。
   const refreshLeaderboards = useCallback(() => {
-    void fetchWyLeaderboardBoards().then((list) => {
-      setLeaderboards(list.filter((board) => board.group === "official").slice(0, 4));
-    }).catch(() => setLeaderboards([]));
+    void fetchWyLeaderboardBoards()
+      .then(async (list) => {
+        const first = list.find((board) => board.group === "official");
+        if (!first) {
+          setLeaderboardSongs([]);
+          return;
+        }
+        try {
+          const songs = await getPlaylistDetail(first.id);
+          setLeaderboardSongs(songs.slice(0, 10));
+        } catch {
+          setLeaderboardSongs([]);
+        }
+      })
+      .catch(() => setLeaderboardSongs([]));
   }, []);
 
   useEffect(() => {
@@ -102,20 +112,20 @@ export function HomeScreen({ onNavigateToSearch, onNavigateToFm, onNavigateToHis
           <SectionHeader title="快捷入口" />
           <HomeQuickActions actions={quickActions} onPress={handleQuickAction} />
         </View>
-        <View style={styles.section}><SectionHeader title="推荐歌单" action={<SectionAction label="更多" onPress={openPlaylistSquareScreen} styles={styles} />} />{!recommendedPlaylists && (!loaded || refreshing) ? renderLoading("正在加载推荐歌单") : null}{recommendedPlaylists?.items?.length ? <PlaylistRail items={recommendedPlaylists.items.map((playlist) => ({ id: playlist.id, name: playlist.name, coverImgUrl: playlist.coverImgUrl }))} onPress={(id) => { const playlist = recommendedPlaylists.items.find((item) => item.id === id); if (playlist) openPlaylistDetailScreen(playlist); }} /> : null}{renderSectionError(recommendedPlaylists, "recommendedPlaylists")}</View>
-        <View style={styles.section}><SectionHeader title="排行榜" action={<SectionAction label="更多" onPress={openLeaderboardScreen} styles={styles} />} />{leaderboards.length > 0 ? <LeaderboardRail items={leaderboards} onPress={(id) => { const board = leaderboards.find((item) => item.id === id); if (board) openPlaylistDetailScreen(boardToPlaylistInfo(board)); }} /> : null}</View>
-        {isLoggedIn ? <View style={styles.section}><SectionHeader title="每日推荐" action={<SectionAction label="查看全部" onPress={openDailyRecommendScreen} styles={styles} />} />{!dailySongs && (!loaded || refreshing || sectionLoading.dailySongs) ? renderLoading("正在加载每日推荐") : null}{dailySongs?.items?.length ? <SongList songs={dailySongs.items.slice(0, SONG_PREVIEW_LIMIT)} hideSourceTag onPlay={(_song, index) => void runPlayback(dailySongs.items, index)} /> : null}{renderSectionError(dailySongs, "dailySongs")}</View> : null}
+        <View style={styles.section}><SectionHeader title="推荐歌单" action={<SectionAction label="更多" onPress={openPlaylistSquareScreen} />} />{!recommendedPlaylists && (!loaded || refreshing) ? renderLoading("正在加载推荐歌单") : null}{recommendedPlaylists?.items?.length ? <PlaylistRail items={recommendedPlaylists.items.map((playlist) => ({ id: playlist.id, name: playlist.name, coverImgUrl: playlist.coverImgUrl }))} onPress={(id) => { const playlist = recommendedPlaylists.items.find((item) => item.id === id); if (playlist) openPlaylistDetailScreen(playlist); }} /> : null}{renderSectionError(recommendedPlaylists, "recommendedPlaylists")}</View>
+        <View style={styles.section}><SectionHeader title="排行榜" action={<SectionAction label="更多" onPress={openLeaderboardScreen} />} />{leaderboardSongs.length > 0 ? <AlbumRail items={leaderboardSongs.map((song) => ({ id: song.id, name: song.name, artistName: song.singer, coverImgUrl: song.picUrl || song.img }))} onPress={(id) => { const index = leaderboardSongs.findIndex((song) => song.id === id); if (index >= 0) void runPlayback(leaderboardSongs, index); }} /> : null}</View>
+        {isLoggedIn ? <View style={styles.section}><SectionHeader title="每日推荐" action={<SectionAction label="查看全部" onPress={openDailyRecommendScreen} />} />{!dailySongs && (!loaded || refreshing || sectionLoading.dailySongs) ? renderLoading("正在加载每日推荐") : null}{dailySongs?.items?.length ? <SongList songs={dailySongs.items.slice(0, SONG_PREVIEW_LIMIT)} hideSourceTag onPlay={(_song, index) => void runPlayback(dailySongs.items, index)} /> : null}{renderSectionError(dailySongs, "dailySongs")}</View> : null}
       </ScreenScrollView>
     </ScreenScaffold>
   );
 }
 
-function SectionAction({ label, onPress, styles }: { label: string; onPress: () => void; styles: ReturnType<typeof createStyles> }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} style={styles.sectionAction} onPress={onPress}><Text style={styles.sectionActionText}>{label}</Text></Pressable>;
+function SectionAction({ label, onPress }: { label: string; onPress: () => void }) {
+  return <ActionButton label={label} variant="secondary" small onPress={onPress} accessibilityLabel={label} />;
 }
 
 function createStyles(palette: ReturnType<typeof getThemePalette>) {
   return StyleSheet.create({
-    container: { gap: spacing.l }, section: { minWidth: 0, gap: spacing.s }, loadingPlaceholder: { minHeight: 112, alignItems: "center", justifyContent: "center", gap: spacing.xs }, loadingText: { color: palette.textMuted, fontSize: typography.meta }, sectionAction: { minHeight: touch.minTarget, justifyContent: "center", paddingHorizontal: spacing.s, borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border, borderRadius: radius.sm, backgroundColor: palette.surface }, sectionActionText: { color: palette.textMuted, fontSize: typography.meta, fontWeight: "600" },
+    container: { gap: spacing.l }, section: { minWidth: 0, gap: spacing.s }, loadingPlaceholder: { minHeight: 112, alignItems: "center", justifyContent: "center", gap: spacing.xs }, loadingText: { color: palette.textMuted, fontSize: typography.meta },
   });
 }

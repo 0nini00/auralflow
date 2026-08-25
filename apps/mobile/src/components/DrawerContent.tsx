@@ -4,16 +4,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { DrawerContentComponentProps } from "@react-navigation/drawer";
 
 import { Touchable } from "@/components/Touchable";
-import { SETTINGS_CATEGORIES, SETTINGS_CATEGORY_ICONS } from "@/navigation/settingsRouteModel";
+import {
+  nextSettingsCategoryNavId,
+  SETTINGS_CATEGORIES,
+  SETTINGS_CATEGORY_ICONS,
+} from "@/navigation/settingsRouteModel";
 import { CURRENT_VERSION } from "@/services/updateService";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, typography } from "@/theme/tokens";
 
 const APP_VERSION = `v${CURRENT_VERSION}`;
-
-// 抽屉分类点击计数器：每次点击递增，SettingsStack 以 (target, navId) 作为 key。
-// 保证“重复点击同一分类”也会重建设置内部栈并重新跳转（见 SettingsNavigator）。
-let drawerCategorySeq = 0;
 
 export function DrawerContent({ navigation }: DrawerContentComponentProps) {
   const insets = useSafeAreaInsets();
@@ -71,7 +71,7 @@ export function DrawerContent({ navigation }: DrawerContentComponentProps) {
                     // 重复点击同一分类也会重建（否则 key 不变、不再跳转）。
                     navigation.navigate("Settings", {
                       screen: category.name,
-                      navId: ++drawerCategorySeq,
+                      navId: nextSettingsCategoryNavId(),
                     }),
                   )
                 }

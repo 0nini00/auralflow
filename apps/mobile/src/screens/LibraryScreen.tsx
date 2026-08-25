@@ -10,24 +10,19 @@ import { useBiliAccountStore } from "@/stores/biliAccountStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { playQueue } from "@/services/playerService";
 import { runPlaybackUiAction } from "@/services/playbackUiAction";
-import { buildLibrarySongActions, buildLibrarySongDeleteRequest, shuffleLibrarySongs } from "@/services/librarySongActions";
+import { buildLibrarySongActions, buildLibrarySongDeleteRequest } from "@/services/librarySongActions";
 import { SongList } from "@/components/SongList";
 import { DownloadList } from "@/components/DownloadList";
 import { HistorySection } from "@/components/HistorySection";
 import { BiliCollectionList } from "@/components/BiliCollectionList";
 import { ActionButton } from "@/components/ActionButton";
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
-import { SectionHeader } from "@/components/SectionHeader";
 import { ErrorState } from "@/components/ScreenState";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
 import { openBiliCollectionDetailScreen } from "@/navigation/navigationRef";
-import {
-  type LibrarySection,
-  getLibrarySectionHeader,
-} from "@/services/librarySectionModel";
-import { buildLibraryLocalMusicActions } from "@/services/libraryLocalMusicActions";
+import { type LibrarySection } from "@/services/librarySectionModel";
 import { pickImageFromGallery } from "@/services/imagePickerService";
-import { writeLocalMusicCover, writeLocalMusicLyrics } from "@/services/localMusicService";
+import { writeLocalMusicCover, writeLocalMusicLyrics, isDownloadedLocalSong } from "@/services/localMusicService";
 import {
   buildLibraryContentModelInput,
   getLibraryContentModel,
@@ -69,8 +64,6 @@ export function LibraryScreen({
   const loadDownloads = useDownloadStore((state) => state.loadDownloads);
 
   // B站合集
-  const biliAccount = useBiliAccountStore((state) => state.account);
-  const biliPlaylists = useBiliAccountStore((state) => state.playlists);
   const biliLoad = useBiliAccountStore((state) => state.load);
 
   const [playbackError, setPlaybackError] = useState<string | null>(null);
@@ -108,18 +101,6 @@ export function LibraryScreen({
 
   const handlePlay = async (_song: MusicInfo, index: number) => {
     await runPlayback(() => playQueue(getActiveSongs(), index));
-  };
-
-  const handlePlayAllSongs = async () => {
-    const songs = getActiveSongs();
-    if (songs.length === 0) return;
-    await runPlayback(() => playQueue(songs, 0));
-  };
-
-  const handleShuffleSongs = async () => {
-    const songs = getActiveSongs();
-    if (songs.length === 0) return;
-    await runPlayback(() => playQueue(shuffleLibrarySongs(songs), 0));
   };
 
   const handleEditLocalSong = (song: MusicInfo) => {
@@ -171,10 +152,13 @@ export function LibraryScreen({
         },
       );
       // 封面与歌词写入音频文件标签（对齐桌面端 set_audio_cover / set_audio_lyrics）。
-      if (localSongCoverUri) {
-        await writeLocalMusicCover(mediaId, localSongCoverUri);
+      // 下载目录入库的歌曲没有 MediaStore 媒体 id，原生写回必然失败：仅更新列表元数据。
+      if (!isDownloadedLocalSong(editingLocalSong)) {
+        if (localSongCoverUri) {
+          await writeLocalMusicCover(mediaId, localSongCoverUri);
+        }
+        await writeLocalMusicLyrics(mediaId, localSongLyrics);
       }
-      await writeLocalMusicLyrics(mediaId, localSongLyrics);
       closeLocalSongEditor();
     } catch (error) {
       Alert.alert("编辑失败", error instanceof Error ? error.message : String(error));
@@ -183,15 +167,6 @@ export function LibraryScreen({
     }
   };
 
-  const sectionHeader = getLibrarySectionHeader(
-    activeSection === "history"
-      ? { section: "history", historyCount: history.length }
-      : activeSection === "local"
-      ? { section: "local", localLoading, localSongCount: localSongs.length }
-      : activeSection === "downloads"
-      ? { section: "downloads", downloadsLoading, downloadCount: downloads.length }
-      : { section: "bili", hasBiliAccount: Boolean(biliAccount), biliCollectionCount: biliPlaylists.length }
-  );
   const handleClearHistory = () => {
     clearHistory();
   };
@@ -249,10 +224,6 @@ export function LibraryScreen({
   };
 
   const librarySongActions = buildLibrarySongActions(activeSection, getActiveSongs().length);
-  const localMusicActions = buildLibraryLocalMusicActions({
-    localSongCount: localSongs.length,
-    loading: localLoading,
-  });
 
   const contentModel = getLibraryContentModel(
     buildLibraryContentModelInput({
@@ -309,12 +280,6 @@ export function LibraryScreen({
           message={playbackError}
           onDismiss={() => setPlaybackError(null)}
         />
-        <SectionHeader
-          title="曲库"
-          description={biliAccount ? "本地音乐、播放历史、下载与 B站合集。" : "本地音乐、播放历史与下载。"}
-          style={styles.section}
-        />
-
         <Modal
           visible={Boolean(editingLocalSong)}
           animationType="slide"
@@ -387,14 +352,14 @@ export function LibraryScreen({
                   <Text style={[styles.createModalButtonText, { color: palette.textMuted }]}>取消</Text>
                 </Pressable>
                 <Pressable
-                  style={[styles.createModalButton, { backgroundColor: palette.primary }]}
+                  style={[styles.createModalButton, { backgroundColor: palette.surface, borderColor: palette.border, borderWidth: 1 }]}
                   onPress={handleSaveLocalSongMetadata}
                   disabled={savingLocalSongMetadata}
                 >
                   {savingLocalSongMetadata ? (
-                    <ActivityIndicator color={palette.primaryText} size="small" />
+                    <ActivityIndicator color={palette.primary} size="small" />
                   ) : (
-                    <Text style={[styles.createModalButtonText, { color: palette.primaryText }]}>保存</Text>
+                    <Text style={[styles.createModalButtonText, { color: palette.primary }]}>保存</Text>
                   )}
                 </Pressable>
               </View>
@@ -402,62 +367,43 @@ export function LibraryScreen({
           </KeyboardAvoidingView>
         </Modal>
 
-        <SectionHeader
-          title={sectionHeader.title}
-          description={sectionHeader.caption}
-          style={styles.section}
-          action={(
-            <>
-              {librarySongActions.show && (
-                <View style={styles.songActionButtons}>
+        {(contentModel.showClearHistory || contentModel.showLocalScan) && (
+          <View style={styles.sectionActions}>
+            {contentModel.showLocalScan && (
+              <>
+                <View style={styles.actionButtonItem}>
                   <ActionButton
                     small
-                    variant="primary"
-                    accessibilityLabel={librarySongActions.playAllLabel}
-                    onPress={handlePlayAllSongs}
-                    label={librarySongActions.playAllLabel}
-                  />
-                  <ActionButton
-                    small
-                    accessibilityLabel={librarySongActions.shuffleLabel}
-                    onPress={handleShuffleSongs}
-                    label={librarySongActions.shuffleLabel}
+                    grow
+                    accessibilityLabel="扫描本地音乐"
+                    onPress={handleScanLocal}
+                    label="扫描本地"
                   />
                 </View>
-              )}
-              {contentModel.showClearHistory && (
-                <ActionButton
-                  small
-                  variant="danger"
-                  accessibilityLabel="清空播放历史"
-                  onPress={handleClearHistory}
-                  label="清空"
-                />
-              )}
-              {contentModel.showLocalScan && (
-                <View style={styles.localActionRow}>
+                <View style={styles.actionButtonItem}>
                   <ActionButton
                     small
-                    accessibilityLabel={localMusicActions.scanAccessibilityLabel}
-                    loading={localLoading}
-                    onPress={handleScanLocal}
-                    disabled={localMusicActions.disabled}
-                    label={localMusicActions.scanLabel}
-                  />
-                  <ActionButton
-                    small
-                    accessibilityLabel={localMusicActions.importAccessibilityLabel}
+                    grow
+                    accessibilityLabel="添加本地音乐文件"
                     onPress={() => {
                       void handleImportLocalFiles();
                     }}
-                    disabled={localMusicActions.disabled}
-                    label={localMusicActions.importLabel}
+                    label="添加文件"
                   />
                 </View>
-              )}
-            </>
-          )}
-        />
+              </>
+            )}
+            {contentModel.showClearHistory && (
+              <ActionButton
+                small
+                variant="danger"
+                accessibilityLabel="清空播放历史"
+                onPress={handleClearHistory}
+                label="清空"
+              />
+            )}
+          </View>
+        )}
 
         {contentModel.error && (
           <ErrorState message={contentModel.error} />
@@ -470,18 +416,17 @@ export function LibraryScreen({
 }
 
 const styles = StyleSheet.create({
-  section: {
-    marginBottom: spacing.m,
-  },
-  songActionButtons: {
-    flexDirection: "row",
-    gap: spacing.xs,
-  },
-  localActionRow: {
+  // 操作按钮独立成行放在标题下方：不再挤在 SectionHeader 右侧
+  // （本地页最多 4 个按钮，塞标题旁边会换行错乱、对不齐）
+  sectionActions: {
     flexDirection: "row",
     alignItems: "center",
-    flexWrap: "wrap",
     gap: spacing.xs,
+    marginBottom: spacing.m,
+  },
+  // 四键一排平分宽度，不换行（播放全部/随机播放/扫描本地/添加文件）
+  actionButtonItem: {
+    flex: 1,
   },
   createModalOverlay: {
     flex: 1,

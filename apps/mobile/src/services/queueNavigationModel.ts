@@ -101,7 +101,10 @@ export function getNextQueueNavigationState({
     return { nextIndex: sequentialNext, shuffleHistory, playedIndices };
   }
 
-  if (playMode === "list") {
+  // 到达队尾：列表循环绕回首曲；单曲循环的「手动切歌」同样绕回首曲
+  // （自动循环由 QueueEnded 的 seekTo(0) 处理，手动下一首在末尾不应无响应）；
+  // 仅顺序播放到尾停止。
+  if (playMode === "list" || playMode === "single") {
     return { nextIndex: 0, shuffleHistory, playedIndices };
   }
 
@@ -120,7 +123,12 @@ export function getPreviousQueueNavigationState({
     return { previousIndex: null, shouldRestartCurrent: false, shuffleHistory };
   }
 
-  if (position > RESTART_PREVIOUS_THRESHOLD_SECONDS) {
+  // 进度过半回本曲开头（行业惯例）；顺序播放（不循环模式）在第一首时同样
+  // 重播当前曲——与前进方向「到尾即停」对称，避免绕到队尾造成两个方向语义不一致。
+  if (
+    position > RESTART_PREVIOUS_THRESHOLD_SECONDS ||
+    (playMode === "sequence" && safeCurrentIndex === 0)
+  ) {
     return {
       previousIndex: safeCurrentIndex,
       shouldRestartCurrent: true,
