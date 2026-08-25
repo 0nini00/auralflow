@@ -213,7 +213,7 @@
 
 .af-settings-error {
   font-size: var(--af-font-size-xs);
-  color: #ef4444;
+  color: var(--af-error);
   margin-top: 6px;
 }
 
@@ -373,7 +373,7 @@
 
 .af-immersive-lyric-style-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 0.92fr) minmax(260px, 1.08fr);
+  grid-template-columns: minmax(220px, 1fr);
   gap: 12px;
 }
 
@@ -393,21 +393,6 @@
 .af-immersive-lyric-style-control > span {
   color: var(--af-text-primary);
   font-weight: var(--af-font-weight-medium);
-}
-
-.af-immersive-lyric-size-row {
-  display: grid;
-  grid-template-columns: minmax(120px, 1fr) 46px;
-  align-items: center;
-  gap: 12px;
-  min-height: 40px;
-}
-
-.af-immersive-lyric-size-row strong {
-  color: var(--af-text-secondary);
-  font-size: var(--af-font-size-xs);
-  font-weight: var(--af-font-weight-semibold);
-  text-align: right;
 }
 
 .af-immersive-lyric-style-preview {
@@ -566,7 +551,7 @@
 }
 
 .af-settings-danger-button {
-  color: #ef4444;
+  color: var(--af-error);
 }
 
 .af-custom-source-list {
@@ -726,19 +711,19 @@
 }
 
 .af-custom-source-status-ok {
-  color: #22c55e;
+  color: var(--af-success);
 }
 
 .af-custom-source-status-failed {
-  color: #ef4444;
+  color: var(--af-error);
 }
 
 .af-custom-source-status-available {
-  color: #f59e0b;
+  color: var(--af-warning);
 }
 
 .af-custom-source-status-latest {
-  color: #22c55e;
+  color: var(--af-success);
 }
 
 .af-custom-source-status-testing,
@@ -791,7 +776,7 @@
 }
 
 .af-custom-source-icon-button.af-settings-danger-button:hover:not(:disabled) {
-  border-color: rgba(239, 68, 68, 0.28);
+  border-color: rgba(var(--af-error-rgb), 0.28);
   background: var(--af-error-bg);
   color: var(--af-error);
 }
@@ -808,6 +793,120 @@
   }
 }
 
+/* ── 设置行与开关（设置页统一交互模式）── */
+.af-settings-card {
+  padding: 6px 0;
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-lg);
+  background: var(--af-bg-elevated);
+}
+.af-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 16px;
+  min-height: 52px;
+}
+.af-setting-row + .af-setting-row {
+  border-top: 1px solid var(--af-border-secondary);
+}
+.af-setting-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.af-setting-row-label {
+  font-size: var(--af-font-size-base);
+  font-weight: var(--af-font-weight-medium);
+  color: var(--af-text-primary);
+}
+.af-setting-row-hint {
+  font-size: var(--af-font-size-xs);
+  color: var(--af-text-secondary);
+}
+.af-setting-row-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+/* iOS 风格开关：布尔设置不再用「开启/关闭」双按钮 */
+.af-switch {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  flex-shrink: 0;
+  cursor: pointer;
+  appearance: none;
+  border: none;
+  background: var(--af-border-primary);
+  border-radius: 999px;
+  transition: background var(--af-transition-base);
+  margin: 0;
+}
+.af-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #fff;
+  transition: transform var(--af-transition-base);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+.af-switch:checked {
+  background: var(--af-accent-primary);
+}
+.af-switch:checked::after {
+  transform: translateX(18px);
+}
+.af-switch:focus-visible {
+  outline: 2px solid var(--af-accent-primary);
+  outline-offset: 2px;
+}
+[data-theme="dark"] .af-switch::after {
+  background: #e2e8f0;
+}
+/* 分段选择器：多选一设置的紧凑形态（设置行右侧控件） */
+.af-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--af-border-secondary);
+  border-radius: 10px;
+  background: var(--af-bg-surface);
+}
+.af-segment-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--af-text-secondary);
+  font-size: var(--af-font-size-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--af-transition-fast), color var(--af-transition-fast);
+}
+.af-segment-btn:hover {
+  color: var(--af-text-primary);
+  background: var(--af-bg-hover);
+}
+.af-segment-btn.af-active {
+  background: var(--af-accent-primary);
+  color: var(--af-text-on-accent);
+}
+.af-segment-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .af-settings-checkbox-label {
   display: flex;
   align-items: center;
@@ -899,148 +998,6 @@
   margin-bottom: 20px;
 }
 
-/* ── 音效设置 ── */
-.af-sound-panel {
-  width: min(420px, calc(100vw - 32px));
-  max-width: 100%;
-  padding: 16px;
-  color: var(--af-text-primary);
-}
-
-.af-sound-panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
-.af-sound-panel-title {
-  color: var(--af-text-primary);
-  font-size: 16px;
-  font-weight: 800;
-  line-height: 1;
-}
-
-.af-sound-panel-section {
-  margin-bottom: 12px;
-  padding: 12px;
-  border: 1px solid var(--af-border-secondary);
-  border-radius: var(--af-radius-md);
-  background: var(--af-bg-elevated);
-}
-
-.af-sound-panel-section:last-child {
-  margin-bottom: 0;
-}
-
-.af-sound-panel-section-compact {
-  padding: 10px 12px;
-}
-
-.af-sound-panel-section-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.af-sound-panel-section-head span {
-  color: var(--af-text-primary);
-  font-size: var(--af-font-size-sm);
-  font-weight: 700;
-}
-
-.af-sound-panel-section-head small {
-  color: var(--af-text-tertiary);
-  font-size: 11px;
-  white-space: nowrap;
-}
-
-.af-sound-panel-group {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.af-sound-panel-group .af-settings-label {
-  margin-bottom: 0;
-}
-
-.af-sound-panel-fine-tune {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.af-sfx-toggle {
-  display: inline-flex;
-  gap: 0;
-  border: 1px solid var(--af-border-secondary);
-  border-radius: var(--af-radius-md);
-  overflow: hidden;
-  width: fit-content;
-}
-.af-sfx-toggle-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-width: 58px;
-  min-height: 32px;
-  padding: 0 14px;
-  background: var(--af-bg-surface);
-  border: none;
-  color: var(--af-text-secondary);
-  font-size: var(--af-font-size-sm);
-  font-weight: var(--af-font-weight-medium);
-  cursor: pointer;
-  transition: all var(--af-transition-base);
-}
-.af-sfx-toggle-btn + .af-sfx-toggle-btn {
-  border-left: 1px solid var(--af-border-secondary);
-}
-.af-sfx-toggle-btn:hover {
-  background: var(--af-button-secondary-hover-bg);
-}
-.af-sfx-toggle-btn.af-active {
-  background: var(--af-button-active-bg);
-  color: var(--af-accent-primary);
-  box-shadow: inset 0 -2px 0 var(--af-accent-primary);
-}
-
-.af-sfx-presets {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-.af-sfx-pill {
-  min-height: 32px;
-  padding: 0 10px;
-  background: var(--af-bg-surface);
-  border: 1px solid var(--af-border-secondary);
-  border-radius: 999px;
-  color: var(--af-text-secondary);
-  font-size: var(--af-font-size-sm);
-  cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: all var(--af-transition-base);
-}
-.af-sfx-pill:hover {
-  border-color: var(--af-button-secondary-hover-border);
-  background: var(--af-button-secondary-hover-bg);
-  color: var(--af-text-primary);
-}
-.af-sfx-pill.af-active {
-  background: var(--af-button-active-bg);
-  border-color: var(--af-button-active-border);
-  box-shadow: var(--af-button-active-shadow);
-  color: var(--af-accent-primary);
-}
 
 .af-sfx-eq {
   display: flex;

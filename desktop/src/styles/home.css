@@ -33,8 +33,43 @@
 }
 
 .af-music-card {
+  position: relative;
   min-width: 0;
   cursor: pointer;
+}
+
+/* Stretched button：按钮本身只占标题文字，伪元素铺满整卡承担点击区。
+   这样整卡可点的手感不变，但只有一个可聚焦、有 aria-label 的交互元素。 */
+.af-music-card-hit {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-music-card-hit::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: var(--af-radius-lg);
+}
+
+.af-music-card-hit:focus-visible {
+  outline: none;
+}
+
+.af-music-card-hit:focus-visible::after {
+  outline: 2px solid var(--af-accent-primary);
+  outline-offset: 2px;
 }
 
 .af-music-card-cover {
@@ -109,6 +144,9 @@
   justify-content: flex-end;
   opacity: 0;
   transition: opacity var(--af-transition-fast);
+  /* 浮在 stretched 点击层之上，否则会被 .af-music-card-hit::after 挡住 */
+  position: relative;
+  z-index: 2;
 }
 
 .af-music-card:hover .af-music-card-actions,
@@ -148,23 +186,26 @@
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  min-height: 180px;
-  padding: 32px;
+  /* 内容实际高度约 88px（eyebrow + 标题 + 描述），原先 min-height 180 + padding 32
+     是硬撑出来的空白，首屏被压掉近一行卡片。收到刚好包住内容的尺寸。 */
+  min-height: 148px;
+  padding: 24px 32px;
   border-radius: var(--af-radius-xl);
   border: 1px solid var(--af-border-secondary);
   background: linear-gradient(135deg, rgba(var(--af-accent-primary-rgb), 0.14), var(--af-bg-surface));
   box-shadow: var(--af-shadow-sm);
 }
 
+/* 第三层遮罩：叠在已经半透明的 content 上，透过率是相乘的，取值要更薄 */
 .af-app-has-background .af-home-hero {
   border-color: rgba(255, 255, 255, 0.32);
-  background: rgba(255, 255, 255, 0.30);
+  background: rgba(255, 255, 255, 0.18);
   box-shadow: none;
 }
 
 [data-theme="dark"] .af-app-has-background .af-home-hero {
   border-color: rgba(226, 232, 240, 0.12);
-  background: rgba(15, 23, 42, 0.26);
+  background: rgba(15, 23, 42, 0.16);
 }
 
 .af-app-has-background .af-section-action,

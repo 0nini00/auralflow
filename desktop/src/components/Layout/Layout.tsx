@@ -7,13 +7,17 @@ import { AppTitleBar } from "./AppTitleBar";
 import { loadSettings } from "@lx/tauri-bridge";
 import {
   APP_BACKGROUND_CHANGE_EVENT,
+  cacheAppBackgroundPath,
   type AppBackgroundChangeDetail,
   normalizeAppBackgroundPath,
+  readCachedAppBackgroundPath,
   toAppBackgroundImageUrl,
 } from "@/services/appBackground";
 
 export function Layout() {
-  const [appBackgroundImagePath, setAppBackgroundImagePath] = useState<string | null>(null);
+  const [appBackgroundImagePath, setAppBackgroundImagePath] = useState<string | null>(
+    () => readCachedAppBackgroundPath() ?? null,
+  );
   const appBackgroundImageUrl = useMemo(
     () => toAppBackgroundImageUrl(appBackgroundImagePath),
     [appBackgroundImagePath],
@@ -21,8 +25,14 @@ export function Layout() {
 
   useEffect(() => {
     loadSettings()
-      .then((settings) => setAppBackgroundImagePath(normalizeAppBackgroundPath(settings.appBackgroundImagePath)))
-      .catch(() => undefined);
+      .then((settings) => {
+        const path = normalizeAppBackgroundPath(settings.appBackgroundImagePath);
+        cacheAppBackgroundPath(path);
+        setAppBackgroundImagePath(path);
+      })
+      .catch((error) => {
+        console.error("读取应用背景设置失败", error);
+      });
 
     const handleBackgroundChange = (event: Event) => {
       const detail = (event as CustomEvent<AppBackgroundChangeDetail>).detail;

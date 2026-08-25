@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ExternalLink, LogOut, RefreshCw, X } from "lucide-react";
 import { open as openUrl } from "@tauri-apps/plugin-shell";
 import { patchSettings } from "@lx/tauri-bridge";
@@ -231,7 +232,7 @@ export function WyCookieLoginModal({ open, onClose }: WyCookieLoginModalProps) {
     setQrExpired(false);
   };
 
-  return (
+  return createPortal(
     <div className="af-dialog-overlay" onClick={onClose}>
       <div className="af-dialog af-cookie-login-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="af-cookie-login-header">
@@ -375,6 +376,7 @@ export function WyCookieLoginModal({ open, onClose }: WyCookieLoginModalProps) {
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

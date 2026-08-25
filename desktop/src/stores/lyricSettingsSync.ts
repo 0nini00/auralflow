@@ -23,7 +23,6 @@ export interface LyricSettingsPatch {
   lyricHoverHide?: boolean;
   lyricEnableAnimation?: boolean;
   lyricAnimationIntensity?: string;
-  immersiveLyricFontSize?: number;
   immersiveLyricFontFamily?: string;
 }
 

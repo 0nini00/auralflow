@@ -12,8 +12,9 @@ import { DownloadQualityButton } from '@/components/DownloadQualityButton';
 import { VirtualList } from '@/components/VirtualList';
 import { formatDuration } from '@/lib/utils';
 import { formatPlaylistSearchMeta } from '@/services/neteasePlaylistUtils';
-import { getImageReferrerPolicy, normalizeImageUrl } from '@/utils/imageReferrerPolicy';
+import { getImageReferrerPolicy, toCoverSrc } from '@/utils/imageReferrerPolicy';
 import type { MusicInfo, PlaylistInfo, SourceTag } from '@lx/core';
+import { COVER_SIZE_LARGE } from '@lx/core';
 import { ArrowLeft, Play, Shuffle, Trash2, Clock, Loader2, CornerDownRight, MoreHorizontal, Bookmark, BookmarkCheck, BookmarkX, RefreshCw, LocateFixed } from 'lucide-react';
 
 /** Fisher-Yates 均匀洗牌 */
@@ -272,7 +273,7 @@ export function PlaylistDetailView() {
   const isWyPlaylist = !!wyPlaylist;
   const isBiliPlaylist = !!biliPlaylist;
   const isRemotePlaylist = !!remotePlaylistInfo;
-  const playlistCoverUrl = normalizeImageUrl(playlist.cover);
+  const playlistCoverUrl = toCoverSrc(playlist.cover, COVER_SIZE_LARGE);
   const isWyOwned = isWyPlaylist && wyPlaylist!.subscribed === false;
   const isWySubscribed = isWyPlaylist && wyPlaylist!.subscribed === true;
   const remotePlaylistCollectionMarker = remotePlaylistInfo ? buildImportedPlaylistMarker(remotePlaylistInfo) : null;
@@ -464,7 +465,7 @@ export function PlaylistDetailView() {
             {playlistCoverUrl ? (
               <img src={playlistCoverUrl} alt={playlist.name} referrerPolicy={getImageReferrerPolicy(playlistCoverUrl)} />
             ) : (
-              <div className="af-cover-placeholder">♪</div>
+              <div className="af-cover-placeholder">暂无封面</div>
             )}
           </div>
 
@@ -635,10 +636,10 @@ export function PlaylistDetailView() {
 
                     <div className="af-col-title">
                       <div className="af-song-cover">
-                        {normalizeImageUrl(song.img) ? (
-                          <img src={normalizeImageUrl(song.img)} alt={song.name} referrerPolicy={getImageReferrerPolicy(song.img)} />
+                        {toCoverSrc(song.img) ? (
+                          <img src={toCoverSrc(song.img)} alt={song.name} referrerPolicy={getImageReferrerPolicy(song.img)} />
                         ) : (
-                          <div className="af-cover-placeholder">♪</div>
+                          <div className="af-cover-placeholder">暂无封面</div>
                         )}
                       </div>
                       <span>{song.name}</span>

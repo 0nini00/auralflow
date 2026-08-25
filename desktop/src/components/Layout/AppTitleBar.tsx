@@ -37,7 +37,7 @@ export function AppTitleBar() {
           className="af-window-control"
           onClick={() => runWindowCommand(() => appWindow.minimize())}
           aria-label="最小化窗口"
-          title="最小化"
+          data-tooltip="最小化" data-tooltip-placement="bottom-end"
         >
           <Minus size={14} strokeWidth={2.4} />
         </button>
@@ -46,7 +46,7 @@ export function AppTitleBar() {
           className="af-window-control"
           onClick={handleToggleMaximize}
           aria-label="最大化或还原窗口"
-          title="最大化或还原"
+          data-tooltip="最大化或还原" data-tooltip-placement="bottom-end"
         >
           <Square size={12} strokeWidth={2.2} />
         </button>
@@ -55,7 +55,7 @@ export function AppTitleBar() {
           className="af-window-control af-window-control-close"
           onClick={() => runWindowCommand(() => appWindow.close())}
           aria-label="关闭窗口"
-          title="关闭"
+          data-tooltip="关闭" data-tooltip-placement="bottom-end"
         >
           <X size={15} strokeWidth={2.3} />
         </button>

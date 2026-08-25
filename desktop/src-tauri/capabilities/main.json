@@ -25,7 +25,6 @@
     "fs:default",
     "fs:scope",
     "deep-link:default",
-    "http:default",
     {
       "identifier": "http:default",
       "allow": [

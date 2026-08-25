@@ -1,0 +1,79 @@
+/* ============================================================
+   Tooltip
+   ------------------------------------------------------------
+   属性驱动，不改 DOM 结构：把 title="播放" 换成 data-tooltip="播放" 即可。
+
+   为什么不用原生 title：延迟 1-2 秒才出现、样式与位置完全不可控、
+   触摸设备无效。这里用 ::after 渲染，零延迟、跟随主题、位置可指定。
+
+   注意事项：
+   - 只用在自身没有占用 ::after 的元素上（如 .af-music-card-hit 就不能用）；
+   - 顶部区域（标题栏等）用 data-tooltip-placement="bottom"，否则会被窗口边缘裁掉；
+   - 祖先若有 overflow: hidden 会裁剪浮层，这类位置仍应保留原生 title。
+   ============================================================ */
+
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  z-index: var(--af-z-tooltip);
+  padding: 6px 10px;
+  border-radius: var(--af-radius-md);
+  background: var(--af-tooltip-bg);
+  color: var(--af-tooltip-text);
+  font-size: var(--af-font-size-xs);
+  font-weight: var(--af-font-weight-medium);
+  line-height: 1.4;
+  white-space: nowrap;
+  box-shadow: var(--af-shadow-md);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity var(--af-transition-fast),
+    transform var(--af-transition-fast),
+    visibility var(--af-transition-fast);
+}
+
+[data-tooltip]:hover::after,
+[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* 顶部元素向下展开，避免被窗口上边缘裁掉 */
+[data-tooltip][data-tooltip-placement="bottom"]::after {
+  bottom: auto;
+  top: calc(100% + 8px);
+  transform: translateX(-50%) translateY(-4px);
+}
+
+[data-tooltip][data-tooltip-placement="bottom"]:hover::after,
+[data-tooltip][data-tooltip-placement="bottom"]:focus-visible::after {
+  transform: translateX(-50%) translateY(0);
+}
+
+/* 贴近右边缘的元素改为右对齐，避免浮层溢出窗口 */
+[data-tooltip][data-tooltip-placement="bottom-end"]::after {
+  bottom: auto;
+  top: calc(100% + 8px);
+  left: auto;
+  right: 0;
+  transform: translateY(-4px);
+}
+
+[data-tooltip][data-tooltip-placement="bottom-end"]:hover::after,
+[data-tooltip][data-tooltip-placement="bottom-end"]:focus-visible::after {
+  transform: translateY(0);
+}
+
+[data-tooltip]:disabled::after {
+  display: none;
+}

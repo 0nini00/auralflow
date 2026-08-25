@@ -23,6 +23,8 @@ const MIN_WIDTH: f64 = 400.0;
 const MIN_HEIGHT: f64 = 100.0;
 const UNLOCK_WINDOW_SIZE: f64 = 46.0;
 const ALWAYS_ON_TOP_LOOP_MS: u64 = 1500;
+// 锁定态下光标轮询间隔：在窗口内时临时解除穿透以支持 hover 工具栏
+const LOCK_CURSOR_POLL_MS: u64 = 150;
 const LOCK_TOKEN_SEQUENCE_MASK: u64 = 0xffff_ffff;
 
 static ALWAYS_ON_TOP_LOOP_RUNNING: AtomicBool = AtomicBool::new(false);
@@ -32,6 +34,9 @@ static LYRIC_CREATE_PENDING: AtomicBool = AtomicBool::new(false);
 static LYRIC_LOCK_EPOCH: AtomicU64 = AtomicU64::new(0);
 static LYRIC_WINDOW_EPOCH: AtomicU64 = AtomicU64::new(0);
 static LYRIC_PENDING_LOCK_TOKEN: AtomicU64 = AtomicU64::new(0);
+static LOCK_CURSOR_POLL_RUNNING: AtomicBool = AtomicBool::new(false);
+// 锁定态下当前是否“光标在窗口内”（false = 穿透中）
+static LYRIC_CURSOR_INSIDE: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -65,6 +70,7 @@ pub fn toggle(app: &AppHandle) -> Result<bool, String> {
         invalidate_lyric_window_epoch("toggle-close");
         close_unlock_window(app);
         clear_always_on_top_loop();
+        clear_lock_cursor_poll();
         existing
             .close()
             .map_err(|e| format!("关闭歌词窗口失败: {}", e))?;
@@ -233,6 +239,15 @@ fn apply_locked_window_state(app: &AppHandle, locked: bool) -> Result<(), String
     if !locked {
         close_unlock_window(app);
     }
+    if locked {
+        // 重新锁定时窗口已恢复穿透，重置光标状态后启动轮询
+        LYRIC_CURSOR_INSIDE.store(false, Ordering::SeqCst);
+        ensure_lock_cursor_poll(app);
+    } else {
+        clear_lock_cursor_poll();
+        LYRIC_CURSOR_INSIDE.store(false, Ordering::SeqCst);
+    }
+
     window.set_ignore_cursor_events(locked).map_err(|err| {
         if locked {
             format!("设置桌面歌词锁定失败: {}", err)
@@ -314,6 +329,7 @@ fn create(app: &AppHandle) -> Result<(), String> {
         .skip_taskbar(true)
         .transparent(true)
         .shadow(false)
+        .focusable(false)
         .focused(false)
         .build()
         .map_err(|e| format!("创建歌词窗口失败: {}", e))?;
@@ -375,6 +391,7 @@ fn create(app: &AppHandle) -> Result<(), String> {
             let _ = set_locked(&app_for_event, false, None, "window-destroyed");
             close_unlock_window(&app_for_event);
             clear_always_on_top_loop();
+            clear_lock_cursor_poll();
             let _ = app_for_event.emit("lyric-window-open-changed", json!({ "open": false }));
         }
         _ => {}
@@ -423,6 +440,7 @@ fn create_unlock_window(app: &AppHandle) -> Result<(), String> {
     .skip_taskbar(true)
     .transparent(true)
     .shadow(false)
+    .focusable(false)
     .focused(false)
     .build()
     .map_err(|e| format!("创建桌面歌词解锁按钮失败: {}", e))?;
@@ -530,6 +548,73 @@ fn clear_always_on_top_loop() {
     ALWAYS_ON_TOP_LOOP_RUNNING.store(false, Ordering::SeqCst);
 }
 
+/// 锁定态光标轮询：借鉴 LX Music 的穿透+hover 方案。
+/// Tauri 2 的 set_ignore_cursor_events 不支持 forward 参数，
+/// 改为轮询光标位置动态切换穿透：光标在窗口内时临时解除穿透
+/// （让渲染层能收到 hover 显示工具栏/解锁按钮），移出后恢复穿透。
+/// 仅在状态翻转时才调 set_ignore_cursor_events 并通知前端，避免频繁刷新。
+fn ensure_lock_cursor_poll(app: &AppHandle) {
+    if LOCK_CURSOR_POLL_RUNNING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    let app = app.clone();
+    spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_millis(LOCK_CURSOR_POLL_MS)).await;
+            if !LOCK_CURSOR_POLL_RUNNING.load(Ordering::SeqCst)
+                || !has_runtime_lock_target()
+            {
+                break;
+            }
+
+            let Some(window) = app.get_webview_window(LYRIC_LABEL) else {
+                break;
+            };
+
+            let inside = cursor_inside_window(&window);
+            let was_inside = LYRIC_CURSOR_INSIDE.swap(inside, Ordering::SeqCst);
+            if inside == was_inside {
+                continue;
+            }
+
+            // 进入窗口：临时解除穿透；移出窗口：恢复穿透
+            if window.set_ignore_cursor_events(!inside).is_ok() {
+                let _ = app.emit(
+                    if inside {
+                        "lyric-cursor-enter"
+                    } else {
+                        "lyric-cursor-leave"
+                    },
+                    json!({}),
+                );
+            }
+        }
+        LOCK_CURSOR_POLL_RUNNING.store(false, Ordering::SeqCst);
+    });
+}
+
+/// 光标是否落在歌词窗口矩形内（外框位置 + 内部尺寸，均为物理像素）
+fn cursor_inside_window(window: &tauri::WebviewWindow) -> bool {
+    let Ok(cursor) = window.cursor_position() else {
+        return false;
+    };
+    let Ok(position) = window.outer_position() else {
+        return false;
+    };
+    let Ok(size) = window.inner_size() else {
+        return false;
+    };
+    cursor.x >= position.x as f64
+        && cursor.x <= (position.x + size.width as i32) as f64
+        && cursor.y >= position.y as f64
+        && cursor.y <= (position.y + size.height as i32) as f64
+}
+
+fn clear_lock_cursor_poll() {
+    LOCK_CURSOR_POLL_RUNNING.store(false, Ordering::SeqCst);
+}
+
 fn lyric_webview_url(hash: &str) -> Result<WebviewUrl, String> {
     #[cfg(debug_assertions)]
     {
@@ -541,8 +626,8 @@ fn lyric_webview_url(hash: &str) -> Result<WebviewUrl, String> {
 
     #[cfg(not(debug_assertions))]
     {
-        let _ = hash;
-        Ok(WebviewUrl::App("index.html".into()))
+        let app_url = format!("index.html{}", hash);
+        Ok(WebviewUrl::App(app_url.into()))
     }
 }
 

@@ -204,9 +204,10 @@ export const wyProvider: MusicSource = {
 
   async search(keyword: string, type: SearchType, page = 1): Promise<SearchResult> {
     if (type === "song") {
+      // 官方 eapi cloudsearch 为主链，网关仅作为兜底与元数据补充
       const songs = await searchBuiltinMusicApiWithMetadata(
-        () => searchBuiltinMusicApiSongs("netease", keyword, page, 30, "wy"),
         async () => (await searchWyViaCloudSearch(keyword, type, page)).songs ?? [],
+        () => searchBuiltinMusicApiSongs("netease", keyword, page, 30, "wy"),
       );
       return { songs };
     }

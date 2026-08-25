@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { MusicInfo } from '@lx/core';
+import { mergeWebdavLocalPlaylists, type MusicInfo } from '@lx/core';
 import { attachLibraryPersistence } from './libraryPersistence';
 
 export interface Playlist {
@@ -10,18 +10,6 @@ export interface Playlist {
   songs: MusicInfo[];
   createdAt: number;
   updatedAt: number;
-}
-
-function dedupeSongs(songs: MusicInfo[]): MusicInfo[] {
-  const seen = new Set<string>();
-  const result: MusicInfo[] = [];
-  for (const song of songs) {
-    const key = `${song.source}:${song.id}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(song);
-  }
-  return result;
 }
 
 interface PlaylistStore {
@@ -201,22 +189,9 @@ export const usePlaylistStore = create<PlaylistStore>()((set, get) => ({
       },
 
       mergeAll: (remotePlaylists) => {
-        set((state) => {
-          const map = new Map<string, Playlist>();
-          for (const p of state.playlists) map.set(p.id, p);
-          for (const remote of remotePlaylists ?? []) {
-            const existing = map.get(remote.id);
-            if (!existing) {
-              map.set(remote.id, remote);
-              continue;
-            }
-            const mergedSongs = dedupeSongs([...existing.songs, ...(remote.songs ?? [])]);
-            map.set(remote.id, remote.updatedAt > existing.updatedAt
-              ? { ...remote, songs: mergedSongs }
-              : { ...existing, songs: mergedSongs });
-          }
-          return { playlists: Array.from(map.values()) };
-        });
+        set((state) => ({
+          playlists: mergeWebdavLocalPlaylists(state.playlists, remotePlaylists ?? []),
+        }));
       },
 }));
 

@@ -18,7 +18,6 @@ Zustand 全局状态。持久化用户数据通过 `libraryPersistence.ts` 写�
 | `wyAccountStore.ts` | 网易云账号、歌单、登录验证结果和歌单详情缓存 |
 | `themeStore.ts` | 主题 |
 | `sleepTimerStore.ts` | 睡眠定时 |
-| `soundEffectStore.ts` | 均衡器、声像、混响和变调 |
 | `lyricSettingsSync.ts` | 桌面歌词设置跨窗口同步 |
 
-持久化命名空间包括 `favorites`、`playlists`、`library`、`customSources`、`recent` 和 `soundEffect`。
+持久化命名空间包括 `favorites`、`playlists`、`library`、`customSources`、`recent` 和 `cache`。

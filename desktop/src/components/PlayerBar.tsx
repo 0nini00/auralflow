@@ -8,7 +8,7 @@ import { listen } from '@tauri-apps/api/event';
 import { subscribeLyricSettings } from '@/stores/lyricSettingsSync';
 import { toggleDesktopLyricFromPlayer } from '@/utils/desktopLyricToggle';
 import { getNextPlayMode, getPlayModeControl } from '@/services/playback/playModeControl';
-import { getImageReferrerPolicy, normalizeImageUrl } from '@/utils/imageReferrerPolicy';
+import { getImageReferrerPolicy, toCoverSrc } from '@/utils/imageReferrerPolicy';
 import { formatTime } from '@/utils/formatTime';
 import {
   Play,
@@ -23,12 +23,14 @@ import {
   Timer,
 } from 'lucide-react';
 import { getLyricWindowState, isLyricWindowOpen } from '@lx/tauri-bridge';
+import { useArtworkAmbience } from '@/hooks/useArtworkAmbience';
 
 export const PlayerBar: React.FC = () => {
   const {
     current: currentTrack,
     status,
     progress: storeProgress,
+    progressSampledAt,
     duration,
     volume,
     isMuted,
@@ -48,6 +50,7 @@ export const PlayerBar: React.FC = () => {
   const interpolatedProgress = useInterpolatedPlaybackProgress({
     status,
     progress: storeProgress,
+    progressSampledAt,
     duration,
     playbackRate,
   });
@@ -64,6 +67,10 @@ export const PlayerBar: React.FC = () => {
   const [lyricOpen, setLyricOpen] = useState(false);
   const [lyricLocked, setLyricLocked] = useState(false);
   const [immersiveLyricsOpen, setImmersiveLyricsOpen] = useState(false);
+  const [isScrubbing, setIsScrubbing] = useState(false);
+  const [scrubProgress, setScrubProgress] = useState(0);
+  // 拖动期间用本地值显示，避免 rAF 进度回写顶回去导致拖不动
+  const displayTime = isScrubbing ? scrubProgress : currentTime;
 
   useEffect(() => {
     void isLyricWindowOpen().then(setLyricOpen).catch(() => undefined);
@@ -100,9 +107,23 @@ export const PlayerBar: React.FC = () => {
     setPlayMode(getNextPlayMode(playModeControl.id));
   };
 
+  const handleScrubStart = () => {
+    setIsScrubbing(true);
+  };
+
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const time = parseFloat(e.target.value);
+    if (isScrubbing) {
+      setScrubProgress(time);
+      return;
+    }
     setProgress(time);
+  };
+
+  const handleScrubEnd = () => {
+    if (!isScrubbing) return;
+    setIsScrubbing(false);
+    setProgress(scrubProgress);
   };
 
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -126,9 +147,12 @@ export const PlayerBar: React.FC = () => {
     }
   };
 
+  // 必须在 early return 之前调用（hooks 规则）；无当前歌曲时它会清掉氛围变量。
+  useArtworkAmbience();
+
   if (!currentTrack) return null;
 
-  const coverUrl = normalizeImageUrl(currentTrack.img || currentTrack.picUrl || '');
+  const coverUrl = toCoverSrc(currentTrack.img || currentTrack.picUrl || '');
   const lyricButtonLabel = lyricOpen
     ? lyricLocked
       ? '解锁桌面歌词'
@@ -140,18 +164,21 @@ export const PlayerBar: React.FC = () => {
       <div className="af-player-bar">
         <div className="af-player-container">
           <div className="af-progress-bar">
-            <span className="af-time">{formatTime(currentTime)}</span>
+            <span className="af-time">{formatTime(displayTime)}</span>
             <div className="af-progress-track">
               <div
                 className="af-progress-fill"
-                style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
+                style={{ width: `${duration ? (displayTime / duration) * 100 : 0}%` }}
               />
               <input
                 type="range"
                 min="0"
                 max={duration || 0}
-                value={currentTime || 0}
+                value={displayTime || 0}
                 onChange={handleSeek}
+                onPointerDown={handleScrubStart}
+                onPointerUp={handleScrubEnd}
+                onPointerCancel={handleScrubEnd}
                 className="af-progress-input"
                 aria-label="进度"
               />
@@ -200,7 +227,7 @@ export const PlayerBar: React.FC = () => {
               onClick={() => { void handleLyricToggle(); }}
               className={`af-like-button ${lyricOpen ? 'af-active' : ''}`}
               aria-label={lyricButtonLabel}
-              title={lyricButtonLabel}
+              data-tooltip={lyricButtonLabel}
             >
               <span>词</span>
             </button>
@@ -209,7 +236,7 @@ export const PlayerBar: React.FC = () => {
                 onClick={() => setSleepMenuOpen((v) => !v)}
                 className={`af-like-button ${sleepMode !== 'off' ? 'af-active' : ''}`}
                 aria-label={sleepLabel}
-                title={sleepLabel}
+                data-tooltip={sleepLabel}
               >
                 <Timer size={18} />
               </button>
@@ -263,7 +290,7 @@ export const PlayerBar: React.FC = () => {
                 onClick={handlePlayModeToggle}
                 className={`af-control-btn ${playModeControl.id !== 'sequence' ? 'af-active' : ''}`}
                 aria-label={`播放模式：${playModeControl.label}`}
-                title={playModeControl.label}
+                data-tooltip={playModeControl.label}
               >
                 {playModeControl.id === 'shuffle' ? (
                   <Shuffle size={16} />
@@ -335,7 +362,6 @@ export const PlayerBar: React.FC = () => {
       <ImmersiveLyricsOverlay
         open={immersiveLyricsOpen}
         onClose={() => setImmersiveLyricsOpen(false)}
-        defaultControlsHidden={true}
       />
     </>
   );

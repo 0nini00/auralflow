@@ -1,7 +1,7 @@
 //! 用户数据持久化（B-mid 持久化层）
 //!
 //! 与 config.rs 平行：config.rs 管 AppSettings（应用偏好），
-//! 本模块管 favorites / playlists / library / customSources / recent / soundEffect / cache
+//! 本模块管 favorites / playlists / library / customSources / recent / cache
 //! "用户级数据"。每份独立 JSON 存盘，Rust 不复刻其 schema —— 仅做透明 IO。
 //!
 //! 文件位置：app_data_dir / library / <namespace>.json
@@ -22,8 +22,8 @@ const ALLOWED_NAMESPACES: &[&str] = &[
     "library",
     "customSources",
     "recent",
-    "soundEffect",
     "cache",
+    "dailyRecommend",
 ];
 
 fn validate(namespace: &str) -> Result<(), String> {

@@ -7,7 +7,7 @@ import { useWyAccountStore } from '@/stores/wyAccountStore';
 import { useBiliAccountStore } from '@/stores/biliAccountStore';
 import { getBiliCookie } from '@/services/biliAccountService';
 import { exportPlaylists, importPlaylists } from '@/services/playlistTransferService';
-import { getImageReferrerPolicy, normalizeImageUrl } from '@/utils/imageReferrerPolicy';
+import { getImageReferrerPolicy, toCoverSrc } from '@/utils/imageReferrerPolicy';
 import {
   Plus,
   Music,
@@ -22,6 +22,7 @@ import {
   Upload,
   SlidersHorizontal,
   EyeOff,
+  RefreshCw,
   X,
 } from 'lucide-react';
 
@@ -36,6 +37,7 @@ export function PlaylistsView() {
   const wyLoaded = useWyAccountStore((s) => s.isLoaded);
   const wyError = useWyAccountStore((s) => s.error);
   const wyPreloadSongs = useWyAccountStore((s) => s.preloadPlaylistSongs);
+  const wyRefreshPlaylists = useWyAccountStore((s) => s.refreshPlaylists);
   const biliAccount = useBiliAccountStore((s) => s.account);
   const biliPlaylists = useBiliAccountStore((s) => s.playlists);
   const hiddenBiliCollectionIds = useBiliAccountStore((s) => s.hiddenCollectionIds);
@@ -56,6 +58,7 @@ export function PlaylistsView() {
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [transferStatus, setTransferStatus] = useState('');
   const [showBiliManager, setShowBiliManager] = useState(false);
+  const [wyRefreshing, setWyRefreshing] = useState(false);
 
   const myWyPlaylists = wyPlaylists.filter((p) => !p.subscribed);
   const collectedWyPlaylists = wyPlaylists.filter((p) => p.subscribed);
@@ -175,6 +178,15 @@ export function PlaylistsView() {
     }
   };
 
+  const handleRefreshWyPlaylists = async () => {
+    if (!wyAccount || wyRefreshing) return;
+    setWyRefreshing(true);
+    try {
+      await wyRefreshPlaylists();
+    } finally {
+      setWyRefreshing(false);
+    }
+  };
   const closeBiliManager = () => {
     clearNewBiliCollectionState();
     setShowBiliManager(false);
@@ -378,7 +390,19 @@ export function PlaylistsView() {
       <section className="af-playlist-section">
         <div className="af-section-heading">
           <div>
-            <h2>网易云歌单</h2>
+            <h2>
+              网易云歌单
+              <button
+                type="button"
+                className="af-icon-btn"
+                onClick={() => void handleRefreshWyPlaylists()}
+                disabled={!wyAccount || wyLoading || wyRefreshing}
+                title="刷新网易云歌单"
+                aria-label="刷新网易云歌单"
+              >
+                <RefreshCw size={16} className={wyRefreshing ? 'af-spin' : ''} />
+              </button>
+            </h2>
             <p>{wyAccount ? `${wyAccount.nickname} 的云端歌单` : '登录后同步你的网易云歌单'}</p>
           </div>
           <span className="af-section-count">{wyPlaylists.length}</span>
@@ -649,7 +673,7 @@ export function PlaylistsView() {
 }
 
 function PlaylistCover({ src, name, cloud = false }: { src?: string; name: string; cloud?: boolean }) {
-  const imageSrc = normalizeImageUrl(src);
+  const imageSrc = toCoverSrc(src);
   return (
     <div className="af-playlist-cover">
       {imageSrc ? (

@@ -1,3 +1,4 @@
+import { DEFAULT_QUALITY_UPGRADE_WINDOW_MS, normalizePlaybackQuality, raceForBestQuality } from '@lx/core';
 import { useCustomSourceStore } from '@/stores/customSourceStore';
 import { requestCustomSourceMusicUrl } from '@/services/customSourceRuntime';
 import type { PlaybackAttempt, PlaybackBackend, PlaybackRequest, PlaybackResolvedUrl } from './types';
@@ -7,27 +8,24 @@ function compactError(error: unknown): string {
   return message.length > 180 ? `${message.slice(0, 180)}...` : message;
 }
 
-function getCustomSourceQualities(qualityPreference: string[]): string[] {
-  const result: string[] = [];
-  const append = (quality: string) => {
-    if (!result.includes(quality)) result.push(quality);
-  };
-
-  for (const quality of qualityPreference) {
-    if (quality === '192k') {
-      append('128k');
-      continue;
-    }
-    append(quality);
-  }
-  if (!result.includes('128k')) result.push('128k');
-  return result;
+interface CustomSourceHit {
+  apiName: string;
+  music: PlaybackRequest['primary'];
+  quality: string;
+  url: string;
 }
 
 export const customSourceBackend: PlaybackBackend = {
   id: 'customSource',
   name: '自定义音源',
 
+  /**
+   * 所有「已启用音源 × 本轮音质」组合并发竞速，取其中音质最高者。
+   *
+   * request.qualityPreference 由 playbackResolver 按轮次传入且从高到低排序：
+   * 首轮是「不低于用户选定音质」的全部档位，之后每轮单档。此处不再自行增删
+   * 档位——旧实现会给每一轮追加 128k，导致用户选无损时第一轮就可能拿到 128k。
+   */
   async resolve(request: PlaybackRequest): Promise<PlaybackResolvedUrl> {
     const customSources = useCustomSourceStore.getState().sources.filter((source) => source.enabled);
     if (!customSources.length) {
@@ -35,70 +33,68 @@ export const customSourceBackend: PlaybackBackend = {
     }
 
     const variants = request.variants?.length ? request.variants : [request.primary];
-    const qualities = getCustomSourceQualities(request.qualityPreference);
+    const qualities = request.qualityPreference;
     const trace: PlaybackAttempt[] = [];
     let lastError: unknown;
 
     for (const music of variants) {
-      for (const quality of qualities) {
-        const attempts = customSources.map(async (api) => {
-          try {
-            const result = await requestCustomSourceMusicUrl(api, music, quality);
-            return {
-              ok: true as const,
-              api,
-              music,
-              quality: result.quality,
-              url: result.url,
-            };
-          } catch (error) {
-            return {
-              ok: false as const,
-              api,
-              music,
-              quality,
-              error,
-            };
-          }
-        });
-
-        const pending = new Set(attempts);
-        while (pending.size > 0) {
-          const settled = await Promise.race(
-            Array.from(pending, (attempt) =>
-              attempt.then((value) => ({ attempt, value })),
+      const attempts: Array<Promise<CustomSourceHit>> = [];
+      for (const api of customSources) {
+        for (const quality of qualities) {
+          attempts.push(
+            // 运行时上浮：正常播放取链期间脚本 send updateAlert 且无 waiter 等待时回调，
+            // 写入 store 让全局更新弹窗（updateStatus === 'available'）能感知；
+            // 手动测试/检查更新路径走 waitForUpdateAlert 自行消费，不会重复上报
+            requestCustomSourceMusicUrl(api, music, quality, (alert) => {
+              useCustomSourceStore.getState().applyRuntimeUpdateAlert(api.id, alert);
+            }).then(
+              (result) => ({
+                apiName: api.name,
+                music,
+                // 与网关通道一致地归一化，保证缓存 key 和择优排序用同一套标签
+                quality: normalizePlaybackQuality(result.quality || quality),
+                url: result.url,
+              }),
+              (error: unknown) => {
+                trace.push({
+                  backend: 'customSource',
+                  resolverName: api.name,
+                  source: music.source,
+                  quality,
+                  status: 'failed',
+                  error: compactError(error),
+                });
+                throw error;
+              },
             ),
           );
-          pending.delete(settled.attempt);
-
-          if (settled.value.ok) {
-            trace.push({
-              backend: 'customSource',
-              resolverName: settled.value.api.name,
-              source: settled.value.music.source,
-              quality: settled.value.quality,
-              status: 'success',
-            });
-            return {
-              url: settled.value.url,
-              music: settled.value.music,
-              quality: settled.value.quality,
-              backend: 'customSource',
-              resolverName: settled.value.api.name,
-              trace,
-            };
-          }
-
-          lastError = settled.value.error;
-          trace.push({
-            backend: 'customSource',
-            resolverName: settled.value.api.name,
-            source: settled.value.music.source,
-            quality: settled.value.quality,
-            status: 'failed',
-            error: compactError(settled.value.error),
-          });
         }
+      }
+
+      try {
+        const hit = await raceForBestQuality(attempts, {
+          getQuality: (value) => value.quality,
+          upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
+          // 本轮最高档一旦命中就无需再等窗口
+          ceiling: qualities[0],
+        });
+        trace.push({
+          backend: 'customSource',
+          resolverName: hit.apiName,
+          source: hit.music.source,
+          quality: hit.quality,
+          status: 'success',
+        });
+        return {
+          url: hit.url,
+          music: hit.music,
+          quality: hit.quality,
+          backend: 'customSource',
+          resolverName: hit.apiName,
+          trace,
+        };
+      } catch (error) {
+        lastError = error;
       }
     }
 

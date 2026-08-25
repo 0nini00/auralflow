@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "cn.chenle.auralflow",
   "build": {
-    "beforeDevCommand": "cd .. && pnpm run dev",
-    "beforeBuildCommand": "cd .. && pnpm run build",
+    "beforeDevCommand": "pnpm run dev",
+    "beforeBuildCommand": "pnpm run build",
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420"
   },
@@ -19,21 +19,37 @@
         "minWidth": 900,
         "minHeight": 600,
         "center": true,
-        "decorations": false
+        "decorations": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --app-user-model-id=cn.chenle.auralflow",
+        "visible": false
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data: https: http:; connect-src 'self' https: http:; media-src 'self' https: http:; font-src 'self' data:",
-      "capabilities": ["main", "lyric", "lyric-unlock"],
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data: blob: https: http:; connect-src 'self' https: http:; media-src 'self' blob: https: http:; font-src 'self' data:",
+      "capabilities": [
+        "main",
+        "lyric",
+        "lyric-unlock"
+      ],
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/**", "$RESOURCE/**"]
+        "scope": [
+          "$APPDATA/**",
+          "$APPCACHE/**",
+          "$APPLOCALDATA/**",
+          "$RESOURCE/**",
+          "$AUDIO/**",
+          "$DOWNLOAD/**",
+          "$PICTURE/**"
+        ]
       }
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["msi"],
+    "targets": [
+      "msi"
+    ],
     "icon": [
       "icons/icon.png",
       "icons/icon.ico",

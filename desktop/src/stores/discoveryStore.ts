@@ -1,28 +1,39 @@
-import { create } from 'zustand';
-import type { MusicInfo } from '@lx/core';
+import { create } from "zustand";
+import type { MusicInfo } from "@lx/core";
 import {
   getDailyRecommend,
   getPersonalFm,
   fmTrash,
-} from '@/services/wyAccountService';
-import { createPersonalFmQueueController } from '@/services/personalFmQueue';
+} from "@/services/wyAccountService";
+import {
+  loadDailyRecommendHistory,
+  normalizeDailySongs,
+  saveDailyRecommendSnapshot,
+  type DailyRecommendSnapshot,
+} from "@/services/dailyRecommendCache";
+import { createPersonalFmQueueController } from "@/services/personalFmQueue";
 
 interface DiscoveryState {
-  // 每日推荐
   daily: MusicInfo[];
-  dailyDate: string; // YYYY-MM-DD
+  dailyDate: string;
   dailyLoading: boolean;
   dailyError: string;
+  dailyHistory: DailyRecommendSnapshot[];
+  dailySelectedDate: string;
+  dailyAccountUid: string;
+  dailyHydrated: boolean;
 
-  // 私人 FM
   fmQueue: MusicInfo[];
   fmIndex: number;
   fmLoading: boolean;
   fmPrefetching: boolean;
   fmError: string;
 
+  initializeDaily: (uid: string) => Promise<void>;
   loadDaily: (force?: boolean) => Promise<void>;
   refreshDaily: () => Promise<void>;
+  selectDailyDate: (date: string) => void;
+  selectToday: () => void;
 
   loadFm: (force?: boolean) => Promise<void>;
   fmNext: () => Promise<MusicInfo | null>;
@@ -32,7 +43,11 @@ interface DiscoveryState {
 
 function todayStr(): string {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function selectedSnapshot(history: DailyRecommendSnapshot[], date: string): DailyRecommendSnapshot | undefined {
+  return history.find((snapshot) => snapshot.date === date) ?? history[0];
 }
 
 export const useDiscoveryStore = create<DiscoveryState>((set, get) => {
@@ -42,7 +57,7 @@ export const useDiscoveryStore = create<DiscoveryState>((set, get) => {
       return { fmQueue, fmIndex, fmLoading, fmPrefetching, fmError };
     },
     setState: (patch) => {
-      if (typeof patch === 'function') {
+      if (typeof patch === "function") {
         set((state) => patch({
           fmQueue: state.fmQueue,
           fmIndex: state.fmIndex,
@@ -60,29 +75,114 @@ export const useDiscoveryStore = create<DiscoveryState>((set, get) => {
 
   return {
     daily: [],
-    dailyDate: '',
+    dailyDate: "",
     dailyLoading: false,
-    dailyError: '',
+    dailyError: "",
+    dailyHistory: [],
+    dailySelectedDate: "",
+    dailyAccountUid: "",
+    dailyHydrated: false,
 
     fmQueue: [],
     fmIndex: 0,
     fmLoading: false,
     fmPrefetching: false,
-    fmError: '',
+    fmError: "",
+
+    initializeDaily: async (uid) => {
+      const normalizedUid = uid.trim();
+      if (!normalizedUid) {
+        set({
+          daily: [],
+          dailyDate: "",
+          dailyLoading: false,
+          dailyError: "",
+          dailyHistory: [],
+          dailySelectedDate: "",
+          dailyAccountUid: "",
+          dailyHydrated: false,
+        });
+        return;
+      }
+      if (get().dailyAccountUid === normalizedUid && get().dailyHydrated) {
+        await get().loadDaily();
+        return;
+      }
+
+      set({
+        daily: [],
+        dailyDate: "",
+        dailyLoading: true,
+        dailyError: "",
+        dailyHistory: [],
+        dailySelectedDate: "",
+        dailyAccountUid: normalizedUid,
+        dailyHydrated: false,
+      });
+
+      try {
+        const history = await loadDailyRecommendHistory(normalizedUid);
+        if (get().dailyAccountUid !== normalizedUid) return;
+        const today = todayStr();
+        const initial = selectedSnapshot(history, today);
+        set({
+          daily: initial?.songs ?? [],
+          dailyDate: initial?.date ?? "",
+          dailyHistory: history,
+          dailySelectedDate: initial?.date ?? "",
+          dailyHydrated: true,
+          dailyLoading: false,
+        });
+        if (!history.some((snapshot) => snapshot.date === today)) {
+          await get().loadDaily();
+        }
+      } catch (error) {
+        if (get().dailyAccountUid !== normalizedUid) return;
+        set({
+          dailyHydrated: true,
+          dailyLoading: false,
+          dailyError: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
 
     loadDaily: async (force = false) => {
-      const { dailyDate, daily, dailyLoading } = get();
-      if (dailyLoading) return;
-      // 同一天已加载且不强制刷新，直接复用缓存
-      if (!force && dailyDate === todayStr() && daily.length > 0) return;
+      const { dailyAccountUid, dailyHistory, dailyLoading } = get();
+      if (!dailyAccountUid || dailyLoading) return;
+      const today = todayStr();
+      const cachedToday = dailyHistory.find((snapshot) => snapshot.date === today);
+      if (!force && cachedToday) {
+        set({ daily: cachedToday.songs, dailyDate: today, dailySelectedDate: today, dailyError: "" });
+        return;
+      }
 
-      set({ dailyLoading: true, dailyError: '' });
+      const requestUid = dailyAccountUid;
+      set({ dailyLoading: true, dailyError: "" });
       try {
-        const songs = (await getDailyRecommend()) as MusicInfo[];
-        set({ daily: songs, dailyDate: todayStr(), dailyLoading: false });
-      } catch (e) {
+        const songs = normalizeDailySongs(await getDailyRecommend());
+        if (songs.length === 0) throw new Error("每日推荐返回了空数据，已保留现有缓存");
+        const history = await saveDailyRecommendSnapshot(requestUid, {
+          date: today,
+          songs,
+          cachedAt: Date.now(),
+        });
+        if (get().dailyAccountUid !== requestUid) return;
         set({
-          dailyError: e instanceof Error ? e.message : String(e),
+          daily: songs,
+          dailyDate: today,
+          dailyHistory: history,
+          dailySelectedDate: today,
+          dailyLoading: false,
+          dailyError: "",
+        });
+      } catch (error) {
+        if (get().dailyAccountUid !== requestUid) return;
+        const fallback = selectedSnapshot(get().dailyHistory, get().dailySelectedDate);
+        set({
+          daily: fallback?.songs ?? [],
+          dailyDate: fallback?.date ?? "",
+          dailySelectedDate: fallback?.date ?? "",
+          dailyError: error instanceof Error ? error.message : String(error),
           dailyLoading: false,
         });
       }
@@ -90,14 +190,25 @@ export const useDiscoveryStore = create<DiscoveryState>((set, get) => {
 
     refreshDaily: () => get().loadDaily(true),
 
+    selectDailyDate: (date) => {
+      const snapshot = get().dailyHistory.find((item) => item.date === date);
+      if (!snapshot) return;
+      set({ daily: snapshot.songs, dailyDate: snapshot.date, dailySelectedDate: snapshot.date });
+    },
+
+    selectToday: () => {
+      const today = todayStr();
+      const snapshot = get().dailyHistory.find((item) => item.date === today);
+      if (snapshot) {
+        set({ daily: snapshot.songs, dailyDate: today, dailySelectedDate: today });
+        return;
+      }
+      void get().loadDaily();
+    },
+
     loadFm: fmController.load,
-
-    /** 取下一首；剩余较少时后台拉一批拼接 */
     fmNext: fmController.next,
-
-    /** 不感兴趣：调垃圾桶接口 + 跳过该首 */
     fmDislike: fmController.dislike,
-
     fmReset: fmController.reset,
   };
 });

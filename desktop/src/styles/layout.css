@@ -297,8 +297,8 @@
   color: var(--af-accent-primary);
 }
 .af-action-btn.af-delete-btn:hover {
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.12);
+  color: var(--af-error);
+  background: var(--af-error-bg);
 }
 .af-action-btn:disabled {
   opacity: 0.4;

@@ -14,6 +14,7 @@ export interface RustAppSettings {
   volume: number;
   defaultQuality: string;
   pauseOnExternalPlayback: boolean;
+  playbackFailedAutoNext: boolean;
   wyCookie?: string | null;
   biliCookie?: string | null;
   lyricPinned: boolean;
@@ -38,7 +39,6 @@ export interface RustAppSettings {
   lyricHoverHide: boolean;
   lyricEnableAnimation: boolean;
   lyricAnimationIntensity: string;
-  immersiveLyricFontSize: number;
   immersiveLyricFontFamily: string;
   appBackgroundImagePath?: string | null;
   lyricWindowX?: number | null;
@@ -145,6 +145,11 @@ export async function resetSettings(): Promise<RustAppSettings> {
   return invoke<RustAppSettings>("reset_settings");
 }
 
+/** 追加一行诊断日志到 app_data_dir/debug.log（失败静默忽略） */
+export function debugLog(message: string): void {
+  void invoke("debug_log", { message }).catch(() => undefined);
+}
+
 /** 扫描本地目录 */
 export async function scanDirectory(path: string): Promise<RustAudioFile[]> {
   return invoke<RustAudioFile[]>("scan_directory", { path });
@@ -237,6 +242,14 @@ export async function cacheRemoteImage(options: RemoteMediaCacheOptions): Promis
   });
 }
 
+/** 只查本地媒体缓存，不发起下载；未命中返回 null */
+export async function lookupCachedMedia(
+  kind: "audio" | "cover",
+  cacheKey: string,
+): Promise<string | null> {
+  return invoke<string | null>("lookup_cached_media", { kind, cacheKey });
+}
+
 /** 获取歌曲缓存占用大小 */
 export async function getSongCacheStats(): Promise<SongCacheStats> {
   return invoke<SongCacheStats>("get_song_cache_stats");
@@ -256,8 +269,8 @@ export type LibraryNamespace =
   | "library"
   | "customSources"
   | "recent"
-  | "soundEffect"
-  | "cache";
+  | "cache"
+  | "dailyRecommend";
 
 /** 读取某个 namespace；文件不存在或为空返回 null */
 export async function libraryLoad<T = unknown>(

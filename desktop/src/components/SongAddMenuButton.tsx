@@ -93,7 +93,7 @@ export function SongAddMenuButton({
         type="button"
         className={className}
         onClick={handleToggle}
-        title={title}
+        data-tooltip={title}
         aria-label={title}
         aria-haspopup="menu"
         aria-expanded={open}

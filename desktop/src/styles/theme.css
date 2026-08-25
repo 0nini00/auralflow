@@ -44,9 +44,14 @@
   --af-success: #10b981;
   --af-success-bg: rgba(16, 185, 129, 0.1);
   --af-error: #ef4444;
+  --af-error-rgb: 239, 68, 68;
+  --af-error-hover: #dc2626;
   --af-error-bg: rgba(239, 68, 68, 0.1);
   --af-warning: #f59e0b;
   --af-warning-bg: rgba(245, 158, 11, 0.1);
+  /* Tooltip 用反色，保证浮在任何面板上都有足够对比度 */
+  --af-tooltip-bg: #1e293b;
+  --af-tooltip-text: #f8fafc;
   --af-info: #3b82f6;
   --af-info-bg: rgba(59, 130, 246, 0.1);
 }
@@ -97,9 +102,13 @@
   --af-success: #34d399;
   --af-success-bg: rgba(52, 211, 153, 0.15);
   --af-error: #f87171;
+  --af-error-rgb: 248, 113, 113;
+  --af-error-hover: #fca5a5;
   --af-error-bg: rgba(248, 113, 113, 0.15);
   --af-warning: #fbbf24;
   --af-warning-bg: rgba(251, 191, 36, 0.15);
+  --af-tooltip-bg: #e2e8f0;
+  --af-tooltip-text: #0f172a;
   --af-info: #60a5fa;
   --af-info-bg: rgba(96, 165, 250, 0.15);
 }

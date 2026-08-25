@@ -28,14 +28,23 @@ export function DailyRecommendView() {
   const dailyLoading = useDiscoveryStore((s) => s.dailyLoading);
   const dailyError = useDiscoveryStore((s) => s.dailyError);
   const dailyDate = useDiscoveryStore((s) => s.dailyDate);
-  const loadDaily = useDiscoveryStore((s) => s.loadDaily);
+  const dailyHistory = useDiscoveryStore((s) => s.dailyHistory);
+  const dailySelectedDate = useDiscoveryStore((s) => s.dailySelectedDate);
+  const initializeDaily = useDiscoveryStore((s) => s.initializeDaily);
   const refreshDaily = useDiscoveryStore((s) => s.refreshDaily);
+  const selectDailyDate = useDiscoveryStore((s) => s.selectDailyDate);
+  const selectToday = useDiscoveryStore((s) => s.selectToday);
 
   const playQueue = usePlayerStore((s) => s.playQueue);
   const [pendingPlayAction, setPendingPlayAction] = useState<PendingPlayAction>(null);
   const isPlayAllPending = pendingPlayAction === 'play-all';
   const isShufflePending = pendingPlayAction === 'shuffle';
   const dailyCoverUrl = daily[0]?.img || daily[0]?.picUrl || "";
+  const today = (() => {
+    const date = new Date();
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  })();
+  const isViewingHistory = Boolean(dailySelectedDate && dailySelectedDate !== today);
 
   const runPlayQueueAction = async (action: Exclude<PendingPlayAction, null>, queueToPlay: typeof daily, startIndex = 0) => {
     if (pendingPlayAction) return;
@@ -48,8 +57,8 @@ export function DailyRecommendView() {
   };
 
   useEffect(() => {
-    if (account) loadDaily();
-  }, [account]);
+    void initializeDaily(account?.uid ?? '');
+  }, [account?.uid, initializeDaily]);
 
   if (!isWyLoaded) {
     return (
@@ -104,6 +113,27 @@ export function DailyRecommendView() {
               {daily.length} 首歌曲
             </p>
 
+            <div className="af-daily-history-controls">
+              <label htmlFor="af-daily-history-date">推荐日期</label>
+              <select
+                id="af-daily-history-date"
+                value={dailySelectedDate}
+                onChange={(event) => selectDailyDate(event.target.value)}
+                disabled={dailyHistory.length === 0 || dailyLoading}
+              >
+                {dailyHistory.map((snapshot) => (
+                  <option key={snapshot.date} value={snapshot.date}>
+                    {snapshot.date === today ? `今日 · ${snapshot.date}` : snapshot.date}
+                  </option>
+                ))}
+              </select>
+              {isViewingHistory && (
+                <button className="af-btn-secondary" type="button" onClick={selectToday}>
+                  返回今日
+                </button>
+              )}
+            </div>
+
             <div className="af-playlist-actions">
               <button
                 className="af-btn-primary"
@@ -123,12 +153,12 @@ export function DailyRecommendView() {
               </button>
               <button
                 className="af-btn-secondary"
-                onClick={() => refreshDaily()}
+                onClick={() => isViewingHistory ? selectToday() : refreshDaily()}
                 disabled={dailyLoading}
-                title="重新获取每日推荐"
+                title={isViewingHistory ? '返回今日推荐' : '重新获取每日推荐'}
               >
                 <RefreshCw size={16} className={dailyLoading ? 'af-spin' : ''} />
-                <span>{dailyLoading ? '刷新中' : '刷新'}</span>
+                <span>{dailyLoading ? '刷新中' : isViewingHistory ? '今日推荐' : '刷新'}</span>
               </button>
             </div>
           </div>
@@ -175,7 +205,7 @@ export function DailyRecommendView() {
                     {song.img ? (
                       <img src={song.img} alt={song.name} />
                     ) : (
-                      <div className="af-cover-placeholder">♪</div>
+                      <div className="af-cover-placeholder">暂无封面</div>
                     )}
                   </div>
                   <span>{song.name}</span>

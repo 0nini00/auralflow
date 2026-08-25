@@ -1,6 +1,5 @@
 import { Play } from "lucide-react";
 import type { ReactNode } from "react";
-import { IconButton } from "./IconButton";
 
 export interface MusicCardProps {
   title: string;
@@ -22,49 +21,48 @@ export function MusicCard({
   actions,
 }: MusicCardProps) {
   const coverClass = `af-music-card-cover af-music-card-cover-${size}`;
+  const activate = onPlay ?? onClick;
+  const actionVerb = onPlay ? "播放" : "打开";
+  const hitLabel = subtitle ? `${actionVerb} ${title} - ${subtitle}` : `${actionVerb} ${title}`;
 
   return (
-    <div
-      className={`af-music-card af-music-card-${size}`}
-      onClick={onPlay ?? onClick}
-      title={onPlay || onClick ? "单击播放" : undefined}
-    >
-      <div
-        className={coverClass}
-        role={onPlay || onClick ? "button" : undefined}
-        tabIndex={onPlay || onClick ? 0 : undefined}
-        onKeyDown={
-          onPlay || onClick
-            ? (event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  (onPlay ?? onClick)?.();
-                }
-              }
-            : undefined
-        }
-      >
+    <div className={`af-music-card af-music-card-${size}`}>
+      <div className={coverClass}>
         {coverUrl ? (
           <img src={coverUrl} alt="" loading="lazy" />
         ) : (
           <div className="af-cover-placeholder" />
         )}
+        {/* 悬停时浮现的播放图标是纯装饰，点击由下面覆盖整卡的按钮接管。
+            这里不能用 IconButton：它渲染真 button，放在 aria-hidden 容器里
+            依然可聚焦，会造成「焦点落在 aria-hidden 元素上」的可访问性错误。 */}
         {onPlay && (
-          <div className="af-music-card-play" onClick={(e) => { e.stopPropagation(); onPlay(); }}>
-            <IconButton icon={Play} ariaLabel="播放" size="md" />
-          </div>
+          <span className="af-music-card-play" aria-hidden="true">
+            <span className="af-icon-btn af-icon-btn-md">
+              <Play size={20} strokeWidth={1.5} />
+            </span>
+          </span>
         )}
       </div>
       <div className="af-music-card-info">
         <div className="af-music-card-title-row">
           <div className="af-music-card-title" title={title}>
-            {title}
+            {/* stretched button：伪元素铺满整卡，既保留整卡可点的手感，
+                又只暴露一个可聚焦、有名称的交互元素给键盘和读屏。 */}
+            {activate ? (
+              <button
+                type="button"
+                className="af-music-card-hit"
+                onClick={activate}
+                aria-label={hitLabel}
+              >
+                {title}
+              </button>
+            ) : (
+              title
+            )}
           </div>
-          {actions && (
-            <div className="af-music-card-actions" onClick={(event) => event.stopPropagation()}>
-              {actions}
-            </div>
-          )}
+          {actions && <div className="af-music-card-actions">{actions}</div>}
         </div>
         {subtitle && (
           <div className="af-music-card-subtitle" title={subtitle}>

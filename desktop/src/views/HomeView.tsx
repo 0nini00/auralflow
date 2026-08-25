@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { MusicCard } from "@/components/MusicCard";
 import { SectionHeader } from "@/components/SectionHeader";
 import { SongAddMenuButton } from "@/components/SongAddMenuButton";
+import { toCoverSrc } from "@/utils/imageReferrerPolicy";
 import { usePlayerStore } from "@/stores/playerStore";
 import { useHistoryStore } from "@/stores/historyStore";
 
@@ -58,7 +59,7 @@ export function HomeView() {
                 key={`${track.source}:${track.id}`}
                 title={track.name}
                 subtitle={`${track.singer}${track.albumName ? ` / ${track.albumName}` : ""}`}
-                coverUrl={track.img || track.picUrl}
+                coverUrl={toCoverSrc(track.img || track.picUrl)}
                 onPlay={() => { void playQueue(recent, index); }}
                 actions={
                   <SongAddMenuButton

@@ -11,5 +11,5 @@ export interface PlayerVisualizerProps {
   progressPercent: number;
   isPlaying: boolean;
   showTranslation: boolean;
-  controlsHidden: boolean;
+  layoutKey: string;
 }

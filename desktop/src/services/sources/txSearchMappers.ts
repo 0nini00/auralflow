@@ -1,4 +1,5 @@
 import type { MusicInfo, PlaylistInfo } from "@lx/core";
+import { extractTxTrackMeta } from "@lx/core";
 
 function joinSingers(singers: any): string {
   if (!Array.isArray(singers)) return "";
@@ -95,5 +96,7 @@ export function mapTxSong(item: any): MusicInfo | null {
     quality: getMaxQuality(item),
     picUrl: image,
     img: image,
+    // lx 自定义音源取链依赖 strMediaMid，映射阶段丢掉会导致脚本解析失败
+    txMeta: extractTxTrackMeta(item),
   };
 }

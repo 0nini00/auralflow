@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { MusicInfo } from "@lx/core";
+import { mergeWebdavSongs, type MusicInfo } from "@lx/core";
 import { attachLibraryPersistence } from "./libraryPersistence";
 
 interface FavoritesState {
@@ -64,18 +64,9 @@ export const useFavoritesStore = create<FavoritesState>()((set, get) => ({
   },
 
   mergeAll: (songs) => {
-    set((state) => {
-      const seen = new Set<string>(state.favorites.map(getMusicKey));
-      const merged = [...state.favorites];
-      for (const song of songs ?? []) {
-        if (!song?.source || !song?.id) continue;
-        const key = getMusicKey(song);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        merged.push(song);
-      }
-      return { favorites: merged };
-    });
+    set((state) => ({
+      favorites: mergeWebdavSongs(state.favorites, songs ?? []),
+    }));
   },
 }));
 

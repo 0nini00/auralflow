@@ -32,6 +32,7 @@ export interface PlaybackProgressClock {
   progress: number;
   duration: number;
   playbackRate: number;
+  /** wall-clock milliseconds, shared safely between Tauri webviews */
   updatedAt: number;
 }
 
@@ -206,6 +207,9 @@ export function calculateLyricLineProgress(
   return clamp01((currentTime - start) / duration);
 }
 
+/** 行切换滞后带：前进方向需越过下一行起始 +0.12s 才切换，吸收锚点锯齿造成的边界抖动；回退方向即时回退 */
+const LYRIC_LINE_ADVANCE_HYSTERESIS_SECONDS = 0.12;
+
 export function findCurrentLyricLine(
   lines: readonly TimedLyricLine[],
   progress: number,
@@ -228,6 +232,13 @@ export function findCurrentLyricLine(
     } else {
       high = mid - 1;
     }
+  }
+
+  // 滞后带：仅对“前进进入新行”生效——需越过当前行起点 0.12s 才确认切换，
+  // 避免进度插值在行边界附近微微回退时高亮在 n/n+1 间来回翻转；
+  // 回退（seek 往回落在行中部）不受影响，立即回退。
+  if (current > 0 && targetTime - lines[current].time < LYRIC_LINE_ADVANCE_HYSTERESIS_SECONDS) {
+    return current - 1;
   }
 
   return current;

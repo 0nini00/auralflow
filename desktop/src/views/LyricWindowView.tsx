@@ -16,19 +16,21 @@ import { dispatchLyricAction } from "@/stores/playerSync";
 import { subscribeLyricSettings, broadcastLyricSettings } from "@/stores/lyricSettingsSync";
 import { buildDesktopLyricLines, type DesktopLyricDisplayLine } from "@/utils/desktopLyric";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
 import { getLyricWindowState, loadSettings, patchSettings, prepareLyricWindowLock, setLyricWindowPinned, setLyricWindowLocked, toggleLyricWindow } from "@lx/tauri-bridge";
 import { Play, Pause, SkipBack, SkipForward, X, Pin, PinOff, Plus, Minus, Lock, Unlock } from "lucide-react";
 import type { CSSProperties, MouseEvent } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, memo } from "react";
 
 export function LyricWindowView() {
   const current = usePlayerStore((s) => s.current);
   const status = usePlayerStore((s) => s.status);
   const progress = usePlayerStore((s) => s.progress);
+  const progressSampledAt = usePlayerStore((s) => s.progressSampledAt);
   const duration = usePlayerStore((s) => s.duration);
   const playbackRate = usePlayerStore((s) => s.playbackRate);
 
-  const lyricProgress = useInterpolatedPlaybackProgress({ status, progress, duration, playbackRate });
+  const lyricProgress = useInterpolatedPlaybackProgress({ status, progress, progressSampledAt, duration, playbackRate });
   const [manualOffsetMs, setManualOffsetMs] = useState(0);
   const { lyrics, currentLine } = useLyrics(current, lyricProgress, manualOffsetMs / 1000);
   const isPlaying = status === "playing";
@@ -55,6 +57,7 @@ export function LyricWindowView() {
   const [hoverHide, setHoverHide] = useState(false);
   const [enableAnimation, setEnableAnimation] = useState(true);
   const [animationIntensity, setAnimationIntensity] = useState<LyricAnimationIntensity>("normal");
+  const [cursorHover, setCursorHover] = useState(false);
 
   useEffect(() => {
     let disposed = false;
@@ -146,6 +149,26 @@ export function LyricWindowView() {
     }
   }, [current, pauseHide, status]);
 
+  // 锁定态下 Rust 侧 emit 光标进出事件，用于悬浮解锁条的显隐
+  useEffect(() => {
+    let disposed = false;
+    const unlisteners: Array<() => void> = [];
+    void Promise.all([
+      listen("lyric-cursor-enter", () => setCursorHover(true)),
+      listen("lyric-cursor-leave", () => setCursorHover(false)),
+    ]).then((fns) => {
+      if (disposed) {
+        fns.forEach((fn) => fn());
+        return;
+      }
+      unlisteners.push(...fns);
+    });
+    return () => {
+      disposed = true;
+      unlisteners.forEach((fn) => fn());
+    };
+  }, []);
+
   const handleClose = () => {
     void toggleLyricWindow().catch(() => undefined);
   };
@@ -201,8 +224,9 @@ export function LyricWindowView() {
       } as CSSProperties}
       onMouseDown={startWindowDrag}
     >
-      {/* 拖拽手柄：整条横向背景，data-tauri-drag-region 让窗口跟随鼠标拖动 */}
-      <div className="af-lyric-drag" data-tauri-drag-region>
+      {/* 顶部工具栏：absolute 悬浮于 stage 上方，不占布局空间，锁定/解锁切换零位移 */}
+      <div className="af-lyric-drag-band">
+        <div className="af-lyric-drag" data-tauri-drag-region>
         <div className="af-lyric-tools">
           <button
             type="button"
@@ -282,6 +306,7 @@ export function LyricWindowView() {
             <X size={16} />
           </button>
         </div>
+        </div>
       </div>
 
       <div
@@ -292,20 +317,56 @@ export function LyricWindowView() {
           transform: `translate(${textPositionX}%, ${textPositionY}%)`,
         }}
       >
-        {displayLines.map((line) => (
-          <LyricLineText
-            key={line.key}
-            line={line}
-            align={align}
-            activeColor={activeColor}
-            nextColor={nextColor}
-            enableAnimation={enableAnimation}
-            fontSize={fontSize}
-            fontWeight={fontWeight}
-            shadowColor={shadowColor}
-          />
-        ))}
+        {displayLines.map((line) =>
+          line.role === "current" && line.words?.length ? (
+            <KaraokeLine
+              key={line.key}
+              line={line}
+              progress={lyricProgress + manualOffsetMs / 1000}
+              align={align}
+              activeColor={activeColor}
+              enableAnimation={enableAnimation}
+              fontSize={fontSize}
+              fontWeight={fontWeight}
+              shadowColor={shadowColor}
+            />
+          ) : (
+            <LyricLineText
+              key={line.key}
+              line={line}
+              align={align}
+              activeColor={activeColor}
+              nextColor={nextColor}
+              enableAnimation={enableAnimation}
+              fontSize={fontSize}
+              fontWeight={fontWeight}
+              shadowColor={shadowColor}
+            />
+          )
+        )}
       </div>
+
+      {/* 锁定态光标悬停时的悬浮解锁条 */}
+      {locked && (
+        <div className={`af-lyric-tools af-lyric-unlock-bar ${cursorHover ? "af-lyric-unlock-bar-visible" : ""}`}>
+          <button
+            type="button"
+            className="af-lyric-tool"
+            onClick={toggleLocked}
+            title="解锁窗口"
+          >
+            <Unlock size={16} />
+          </button>
+          <button
+            type="button"
+            className="af-lyric-tool af-lyric-tool-danger"
+            onClick={handleClose}
+            title="关闭桌面歌词"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
 
       <style>{`
         html, body, #root {
@@ -332,30 +393,39 @@ export function LyricWindowView() {
         .af-lyric-shell.af-lyric-locked:active {
           cursor: default;
         }
-        .af-lyric-shell:hover .af-lyric-drag {
+        .af-lyric-shell:hover .af-lyric-drag-band {
           opacity: 1;
         }
         .af-lyric-shell.af-lyric-hover-hide:hover {
           opacity: 0.08;
         }
-        .af-lyric-locked .af-lyric-drag {
+        .af-lyric-locked .af-lyric-drag-band {
           display: none;
         }
-        .af-lyric-drag {
+        /* 全宽渐变遮罩条：脱离文档流，锁定/解锁切换不影响 stage 内容位置 */
+        .af-lyric-drag-band {
           position: absolute;
-          top: 6px;
-          left: 50%;
+          top: 0;
+          left: 0;
+          right: 0;
+          z-index: 2;
+          display: flex;
+          justify-content: center;
+          padding: 6px 14px 18px;
+          opacity: 0;
+          transition: opacity 0.2s;
+          pointer-events: none;
+          background: linear-gradient(180deg, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0));
+        }
+        .af-lyric-drag {
+          pointer-events: auto;
           width: fit-content;
           max-width: min(560px, calc(100% - 28px));
-          z-index: 2;
           display: grid;
           grid-template-columns: auto minmax(0, auto) auto;
           align-items: center;
           gap: 8px;
           padding: 5px 10px;
-          opacity: 0;
-          transform: translateX(-50%);
-          transition: opacity 0.2s;
           background: rgba(10, 12, 16, var(--af-lyric-panel-opacity, 0.24));
           border: 1px solid rgba(255, 255, 255, 0.12);
           border-radius: 8px;
@@ -439,15 +509,11 @@ export function LyricWindowView() {
           display: flex;
           flex-direction: column;
           align-items: center;
-          justify-content: flex-start;
+          justify-content: center;
           gap: 8px;
           min-height: 0;
-          padding: 52px 28px 10px;
-          pointer-events: none;
-        }
-        .af-lyric-locked .af-lyric-stage {
-          justify-content: center;
           padding: 14px 28px;
+          pointer-events: none;
         }
         .af-lyric-line {
           width: 100%;
@@ -479,6 +545,34 @@ export function LyricWindowView() {
           background-clip: text;
           -webkit-background-clip: text;
         }
+        /* 逐字卡拉OK：当前词用自身渐变，行级渐变关闭以免叠加串色 */
+        .af-lyric-line-now .af-lyric-line-main.af-lyric-karaoke {
+          background-image: none;
+        }
+        .af-lyric-karaoke-word {
+          color: rgba(255, 255, 255, 0.48);
+          /* 覆盖行级 -webkit-text-fill-color: transparent 的继承，否则未唱词不可见 */
+          -webkit-text-fill-color: rgba(255, 255, 255, 0.48);
+        }
+        .af-lyric-karaoke-word-sung {
+          color: var(--af-lyric-active-color);
+          background: none;
+          -webkit-text-fill-color: var(--af-lyric-active-color);
+        }
+        .af-lyric-karaoke-word-active {
+          color: transparent;
+          -webkit-text-fill-color: transparent;
+          background-color: transparent;
+          background-image: linear-gradient(
+            90deg,
+            var(--af-lyric-active-color) 0%,
+            var(--af-lyric-active-color) var(--af-lyric-word-progress),
+            rgba(255, 255, 255, 0.48) var(--af-lyric-word-progress),
+            rgba(255, 255, 255, 0.48) 100%
+          );
+          background-clip: text;
+          -webkit-background-clip: text;
+        }
         .af-lyric-line-now.af-lyric-line-animated {
           animation: af-lyric-fade 0.35s ease-out;
         }
@@ -494,6 +588,27 @@ export function LyricWindowView() {
           font-size: 0.52em;
           font-weight: 500;
           opacity: 0.72;
+        }
+        .af-lyric-unlock-bar {
+          position: absolute;
+          top: 6px;
+          left: 50%;
+          transform: translateX(-50%);
+          z-index: 3;
+          padding: 5px 10px;
+          opacity: 0;
+          pointer-events: none;
+          transition: opacity 0.2s;
+          background: rgba(10, 12, 16, 0.55);
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          border-radius: 8px;
+          backdrop-filter: blur(16px) saturate(120%);
+          -webkit-backdrop-filter: blur(16px) saturate(120%);
+          box-shadow: 0 14px 32px rgba(0, 0, 0, 0.16);
+        }
+        .af-lyric-unlock-bar-visible {
+          opacity: 1;
+          pointer-events: auto;
         }
         @keyframes af-lyric-fade {
           from { opacity: 0; transform: translateY(var(--af-lyric-fade-offset, 6px)); }
@@ -564,3 +679,96 @@ function LyricLineText({
     </div>
   );
 }
+
+interface KaraokeLineProps {
+  line: DesktopLyricDisplayLine;
+  /** 当前行播放进度（秒，已含手动偏移） */
+  progress: number;
+  align: string;
+  activeColor: string;
+  enableAnimation: boolean;
+  fontSize: number;
+  fontWeight: number;
+  shadowColor: string;
+}
+
+/** word.start 可能是绝对时间，也可能相对行首，按行起始时间归一（与 playbackSync 判定一致） */
+function getWordAbsoluteStart(lineStart: number, wordStart: number) {
+  return wordStart >= lineStart ? wordStart : lineStart + wordStart;
+}
+
+/** 当前行的逐字卡拉OK 渲染：外层结构复用 LyricLineText 的当前行样式 */
+const KaraokeLine = memo(function KaraokeLine({
+  line,
+  progress,
+  align,
+  activeColor,
+  enableAnimation,
+  fontSize,
+  fontWeight,
+  shadowColor,
+}: KaraokeLineProps) {
+  const karaokeWords = (line.words ?? []).filter((word) => word.text.trim().length > 0);
+  const lineStart = line.time ?? 0;
+  const lineProgress = `${Math.round((line.progress ?? 0) * 1000) / 10}%`;
+
+  return (
+    <div
+      className={[
+        "af-lyric-line",
+        "af-lyric-line-now",
+        enableAnimation ? "af-lyric-line-animated" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      style={{
+        "--af-lyric-active-color": activeColor,
+        "--af-lyric-line-progress": lineProgress,
+        color: activeColor,
+        fontSize: `${fontSize}px`,
+        fontWeight,
+        textAlign: align as "left" | "center" | "right",
+        textShadow: `0 1px 8px ${shadowColor}`,
+      } as CSSProperties}
+    >
+      {karaokeWords.length > 0 ? (
+        <span className="af-lyric-line-main af-lyric-karaoke">
+          {karaokeWords.map((word, index) => {
+            const start = getWordAbsoluteStart(lineStart, word.start);
+            const end = start + Math.max(0, word.dur);
+            if (progress >= end) {
+              return (
+                <span key={index} className="af-lyric-karaoke-word af-lyric-karaoke-word-sung">
+                  {word.text}
+                </span>
+              );
+            }
+            if (progress < start) {
+              return (
+                <span key={index} className="af-lyric-karaoke-word">
+                  {word.text}
+                </span>
+              );
+            }
+            const wordProgress = word.dur > 0 ? (progress - start) / word.dur : 1;
+            const wordPercent = `${Math.min(100, Math.max(0, Math.round(wordProgress * 1000) / 10))}%`;
+            return (
+              <span
+                key={index}
+                className="af-lyric-karaoke-word af-lyric-karaoke-word-active"
+                style={{ "--af-lyric-word-progress": wordPercent } as CSSProperties}
+              >
+                {word.text}
+              </span>
+            );
+          })}
+        </span>
+      ) : (
+        <span className="af-lyric-line-main">{line.text}</span>
+      )}
+      {line.translation && (
+        <span className="af-lyric-line-translation">{line.translation}</span>
+      )}
+    </div>
+  );
+});

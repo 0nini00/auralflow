@@ -118,6 +118,49 @@
   font-size: 13px;
 }
 
+.af-section-heading > div:first-child {
+  min-width: 0;
+}
+
+.af-section-heading > div:first-child h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.af-section-heading .af-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-left: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--af-text-secondary);
+  cursor: pointer;
+}
+
+.af-section-heading .af-icon-btn:hover:not(:disabled) {
+  background: var(--af-bg-tertiary);
+  color: var(--af-text-primary);
+}
+
+.af-section-heading .af-icon-btn:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.af-spin {
+  animation: af-spin 0.9s linear infinite;
+}
+
+@keyframes af-spin {
+  to { transform: rotate(360deg); }
+}
+
 .af-section-count {
   min-width: 30px;
   padding: 4px 10px;
@@ -420,8 +463,8 @@ button.af-playlist-card {
 }
 
 .af-inline-error {
-  border-color: rgba(239, 68, 68, 0.35);
-  color: #ef4444;
+  border-color: rgba(var(--af-error-rgb), 0.35);
+  color: var(--af-error);
 }
 
 .af-local-empty {
@@ -495,7 +538,7 @@ button.af-playlist-card {
 }
 
 .af-menu-danger {
-  color: #ef4444 !important;
+  color: var(--af-error) !important;
 }
 
 .af-dialog-overlay.af-bili-manager-overlay {
@@ -898,6 +941,25 @@ button.af-playlist-card {
   font-size: 14px;
   color: var(--af-text-secondary);
   margin-bottom: 24px;
+}
+
+.af-daily-history-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: var(--af-text-secondary);
+  font-size: 13px;
+}
+
+.af-daily-history-controls select {
+  min-width: 148px;
+  padding: 7px 28px 7px 10px;
+  border: 1px solid var(--af-border-primary);
+  border-radius: var(--af-radius-sm);
+  background: var(--af-bg-secondary);
+  color: var(--af-text-primary);
 }
 
 .af-playlist-actions {

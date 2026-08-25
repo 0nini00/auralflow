@@ -1,5 +1,6 @@
 /* Player Bar */
 .af-player-bar {
+  position: relative;
   min-height: 80px;
   flex-shrink: 0;
   background: var(--af-bg-elevated);
@@ -10,14 +11,30 @@
   z-index: 1000;
 }
 
+/* 封面主色氛围：--af-artwork-rgb 由 useArtworkAmbience 注入，
+   取色失败时变量不存在，fallback 回主题强调色，观感退化而不是失效。 */
+.af-player-bar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    120deg,
+    rgba(var(--af-artwork-rgb, var(--af-accent-primary-rgb)), 0.16),
+    transparent 42%
+  );
+  transition: background var(--af-transition-base);
+}
+
 .af-player-container {
   position: relative;
   display: grid;
   grid-template-rows: 18px auto;
-  row-gap: 2px;
+  row-gap: 5px;
   max-width: 100%;
   margin: 0 auto;
-  padding: 8px 24px 12px;
+  padding: 13px 24px 12px;
 }
 
 .af-player-grid {
@@ -117,11 +134,11 @@
 }
 
 .af-like-button.af-liked {
-  color: #ef4444;
+  color: var(--af-error);
 }
 
 .af-like-button.af-liked:hover {
-  color: #dc2626;
+  color: var(--af-error-hover);
 }
 
 .af-player-controls {
@@ -190,11 +207,10 @@
 }
 
 .af-progress-bar {
-  width: min(560px, 58vw);
-  min-width: 280px;
+  width: 100%; /* 与下方控制栅格同宽，避免窄条悬浮错位 */
+  min-width: 0;
   display: flex;
   align-items: center;
-  justify-self: center;
   gap: 12px;
 }
 
@@ -220,18 +236,21 @@
   height: 100%;
   background: var(--af-accent-primary);
   border-radius: 2px;
-  transition: width 0.1s linear;
   pointer-events: none;
 }
 
 .af-progress-input {
   position: absolute;
-  inset: 0;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 16px;
   width: 100%;
-  height: 100%;
+  transform: translateY(-50%);
   opacity: 0;
   cursor: pointer;
   margin: 0;
+  appearance: none;
 }
 
 .af-player-volume {
@@ -302,7 +321,7 @@
     var(--af-immersive-bg);
 }
 
-.af-immersive-visualizer-poster {
+.af-immersive-visualizer-scrolling {
   --af-text-primary: #f8fafc;
   --af-text-secondary: rgba(226, 232, 240, 0.78);
   --af-text-tertiary: rgba(203, 213, 225, 0.6);
@@ -315,25 +334,56 @@
   color: #f8fafc;
 }
 
-.af-immersive-visualizer-poster {
+.af-immersive-visualizer-scrolling {
   --af-immersive-bg: #151719;
   background:
     radial-gradient(circle at 24% 48%, rgba(255, 255, 255, 0.08), transparent 34%),
+    /* 封面取色驱动的环境色：随换歌变化，--af-immersive-artwork-rgb 已在根容器注入并带回退 */
+    radial-gradient(ellipse at 70% 20%, rgba(var(--af-immersive-artwork-rgb), 0.22), transparent 52%),
+    radial-gradient(ellipse at 18% 82%, rgba(var(--af-immersive-artwork-rgb), 0.16), transparent 58%),
     linear-gradient(110deg, rgba(12, 18, 20, 0.82), rgba(43, 32, 38, 0.62) 48%, rgba(14, 24, 28, 0.8)),
     #151719;
 }
 
-.af-immersive-visualizer-poster .af-immersive-noise {
+.af-immersive-visualizer-scrolling .af-immersive-noise {
   background:
-    linear-gradient(90deg, rgba(var(--af-accent-primary-rgb), 0.12), transparent 26%, transparent 72%, rgba(var(--af-accent-primary-rgb), 0.08)),
+    linear-gradient(90deg, rgba(var(--af-immersive-artwork-rgb), 0.14), transparent 26%, transparent 72%, rgba(var(--af-immersive-artwork-rgb), 0.1)),
     linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 34%, rgba(0, 0, 0, 0.12));
 }
 
-.af-immersive-visualizer-poster .af-immersive-cover-glow {
+/* 真噪点纹理：内联 SVG feTurbulence 生成随机颗粒，soft-light 叠加在渐变伪装层之上。
+   data URI 中 SVG 已做 %3C/%3E/%23 编码，160px 平铺控制颗粒密度 */
+.af-immersive-visualizer-scrolling .af-immersive-noise::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='af-noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23af-noise)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  opacity: 0.04;
+  mix-blend-mode: soft-light;
+  pointer-events: none;
+}
+
+.af-immersive-visualizer-scrolling .af-immersive-cover-glow {
   inset: -20%;
   opacity: 0.5;
   filter: blur(78px) saturate(1.45) contrast(1.04);
   transform: scale(1.14);
+}
+
+/* 换歌取色过渡：取色变量变化后，新增的环境色层通过 opacity 过渡淡入（避免渐变本体无法 transition） */
+.af-immersive-lyrics::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 72% 18%, rgba(var(--af-immersive-artwork-rgb), 0.16), transparent 55%),
+    radial-gradient(ellipse at 20% 84%, rgba(var(--af-immersive-artwork-rgb), 0.12), transparent 60%);
+  opacity: 1;
+  /* 环境色层过渡时长随动画强度缩放（增强更快、柔和更慢） */
+  transition: opacity calc(0.8s / var(--af-immersive-anim-scale, 1)) ease;
 }
 
 .af-immersive-cover-glow {
@@ -353,54 +403,57 @@
   z-index: -2;
   pointer-events: none;
   background:
-    linear-gradient(90deg, rgba(var(--af-accent-primary-rgb), 0.08), transparent 24%, transparent 76%, rgba(59, 130, 246, 0.06)),
+    linear-gradient(90deg, rgba(var(--af-immersive-artwork-rgb), 0.1), transparent 24%, transparent 76%, rgba(59, 130, 246, 0.06)),
     linear-gradient(180deg, rgba(255, 255, 255, 0.24), transparent 38%, rgba(148, 163, 184, 0.1));
 }
 
 [data-theme="dark"] .af-immersive-noise {
   background:
-    linear-gradient(90deg, rgba(var(--af-accent-primary-rgb), 0.1), transparent 24%, transparent 76%, rgba(59, 130, 246, 0.1)),
+    linear-gradient(90deg, rgba(var(--af-immersive-artwork-rgb), 0.12), transparent 24%, transparent 76%, rgba(59, 130, 246, 0.1)),
     linear-gradient(180deg, rgba(148, 163, 184, 0.08), transparent 38%, rgba(15, 23, 42, 0.2));
 }
 
-[data-theme="dark"] .af-immersive-visualizer-poster .af-immersive-noise {
+[data-theme="dark"] .af-immersive-visualizer-scrolling .af-immersive-noise {
   background:
-    linear-gradient(90deg, rgba(var(--af-accent-primary-rgb), 0.12), transparent 26%, transparent 72%, rgba(var(--af-accent-primary-rgb), 0.08)),
+    linear-gradient(90deg, rgba(var(--af-immersive-artwork-rgb), 0.14), transparent 26%, transparent 72%, rgba(var(--af-immersive-artwork-rgb), 0.1)),
     linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 34%, rgba(0, 0, 0, 0.12));
 }
 
-.af-immersive-close {
-  position: absolute;
-  top: calc(var(--af-window-titlebar-height) + 18px);
-  right: 24px;
-  z-index: 2;
-  width: 48px;
-  height: 48px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: rgba(248, 250, 252, 0.78);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  backdrop-filter: none;
-  transition: background var(--af-transition-fast), color var(--af-transition-fast), transform var(--af-transition-fast);
+
+
+
+
+.af-immersive-heading {
+  flex: 0 0 auto;
+  width: min(900px, calc(100vw - 48px));
+  margin: 0 auto;
+  padding: calc(var(--af-window-titlebar-height, 34px) + 8px) 0 0;
+  text-align: center;
+  animation: afImmersiveMetaFadeIn 0.35s ease both;
 }
 
-[data-theme="dark"] .af-immersive-close {
-  background: transparent;
+.af-immersive-heading-title,
+.af-immersive-heading-artist {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.af-immersive-native-fullscreen .af-immersive-close {
-  top: 24px;
+.af-immersive-heading-title {
+  color: rgba(248, 250, 252, 0.96);
+  font-size: clamp(22px, 2vw, 30px);
+  font-weight: 820;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
 }
 
-.af-immersive-close:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #f8fafc;
-  transform: translateY(-1px);
+.af-immersive-heading-artist {
+  margin-top: 6px;
+  color: rgba(226, 232, 240, 0.72);
+  font-size: clamp(15px, 1.25vw, 19px);
+  font-weight: 620;
+  line-height: 1.25;
 }
 
 .af-immersive-stage {
@@ -412,34 +465,15 @@
   align-items: center;
   width: min(1120px, calc(100vw - 96px));
   margin: 0 auto;
-  padding: 18px 0 28px;
+  padding: 10px 0 24px;
 }
 
-.af-immersive-native-fullscreen .af-immersive-cover {
-  width: min(30vw, 430px);
+.af-immersive-native-fullscreen .af-immersive-heading {
+  padding-top: 18px;
 }
 
-.af-immersive-native-fullscreen .af-immersive-meta {
-  width: min(30vw, 430px);
-}
 
-.af-immersive-native-fullscreen .af-immersive-lyric-section {
-  height: min(56vh, 580px);
-  min-height: 400px;
-}
 
-.af-immersive-controls-hidden .af-immersive-cover {
-  width: min(34vw, 520px);
-}
-
-.af-immersive-controls-hidden .af-immersive-meta {
-  width: min(34vw, 520px);
-}
-
-.af-immersive-controls-hidden .af-immersive-lyric-section {
-  height: min(68vh, 720px);
-  min-height: 460px;
-}
 
 .af-immersive-cover-section {
   min-width: 0;
@@ -447,6 +481,7 @@
   flex-direction: column;
   align-items: center;
   gap: 18px;
+  transform: translateY(clamp(14px, 4vh, 42px));
 }
 
 .af-immersive-cover {
@@ -456,7 +491,32 @@
   border-radius: 8px;
   overflow: hidden;
   background: var(--af-bg-surface);
-  box-shadow: 0 28px 70px rgba(15, 23, 42, 0.18);
+  box-shadow:
+    0 28px 70px rgba(15, 23, 42, 0.18),
+    /* 取色驱动的外辉光：随封面主色变化 */
+    0 0 90px rgba(var(--af-immersive-artwork-rgb), 0.22);
+  transition: box-shadow 0.8s ease;
+}
+
+/* 播放态封面呼吸律动：缓慢缩放+辉光强弱，暂停时静止 */
+@keyframes afImmersiveCoverBreath {
+  0%, 100% { transform: scale(1); filter: brightness(1); }
+  50% { transform: scale(1.02); filter: brightness(1.06); }
+}
+
+/* 呼吸时长随动画强度系数调制：增强(1.25)≈3.2s、标准(1)4s、柔和(0.55)≈7.3s */
+.af-playing .af-immersive-cover,
+.af-immersive-playing .af-immersive-cover {
+  animation: afImmersiveCoverBreath calc(4s / var(--af-immersive-anim-scale, 1)) ease-in-out infinite;
+}
+
+/* 柔和档：直接禁用呼吸动画（与 prefers-reduced-motion 同等处理） */
+.af-immersive-lyrics[data-anim-intensity='reduced'] .af-immersive-cover {
+  animation: none;
+}
+
+.af-immersive-cover {
+  will-change: transform;
 }
 
 [data-theme="dark"] .af-immersive-cover {
@@ -483,31 +543,12 @@
   letter-spacing: 0;
 }
 
-.af-immersive-meta {
-  width: min(36vw, 420px);
-  min-width: 240px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  text-align: center;
+/* 换歌时 meta 容器随 key 重挂载，重播淡入（不引起布局抖动，仅 opacity+轻微上移） */
+@keyframes afImmersiveMetaFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-.af-immersive-meta strong,
-.af-immersive-meta span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.af-immersive-meta strong {
-  color: var(--af-text-primary);
-  font-size: 17px;
-}
-
-.af-immersive-meta span {
-  color: var(--af-text-secondary);
-  font-size: 14px;
-}
 
 .af-immersive-lyric-section {
   height: min(52vh, 520px);
@@ -516,50 +557,35 @@
   display: flex;
 }
 
-.af-immersive-visualizer-poster .af-showcase-layout {
+.af-immersive-visualizer-scrolling .af-showcase-layout {
+  --af-immersive-showcase-size: min(37.5vw, 450px);
   width: min(1090px, calc(100vw - 96px));
   grid-template-columns: minmax(300px, 450px) minmax(420px, 550px);
   justify-content: center;
+  align-items: start;
   gap: clamp(48px, 7vw, 92px);
-  padding: 28px 0 36px;
+  padding: 10px 0 24px;
 }
 
-.af-immersive-visualizer-poster .af-showcase-layout {
-  margin: -24px auto 0;
+.af-immersive-native-fullscreen.af-immersive-visualizer-scrolling .af-showcase-layout {
+  --af-immersive-showcase-size: min(30vw, 430px);
 }
 
-.af-immersive-visualizer-poster .af-immersive-cover {
-  width: min(37.5vw, 450px);
+.af-immersive-visualizer-scrolling .af-immersive-cover {
+  width: var(--af-immersive-showcase-size);
   box-shadow: 0 30px 90px rgba(0, 0, 0, 0.34);
 }
 
-.af-immersive-visualizer-poster .af-immersive-meta {
-  display: none;
-}
-
-.af-immersive-visualizer-poster .af-immersive-lyric-section {
-  height: auto;
-  min-height: min(62vh, 532px);
+.af-immersive-visualizer-scrolling .af-immersive-lyric-section {
+  height: var(--af-immersive-showcase-size);
+  min-height: 0;
   align-items: stretch;
+  transform: translateY(clamp(14px, 4vh, 42px));
 }
 
-.af-immersive-controls-hidden .af-showcase-layout {
-  width: min(1090px, calc(100vw - 96px));
-  padding: 40px 0;
-}
 
-.af-immersive-controls-hidden.af-immersive-visualizer-poster .af-showcase-layout {
-  margin: -36px auto 0;
-}
 
-.af-immersive-controls-hidden.af-immersive-visualizer-poster .af-immersive-lyric-section {
-  min-height: min(68vh, 560px);
-}
 
-.af-immersive-controls-hidden.af-immersive-visualizer-poster .af-poster-reference-panel {
-  min-height: min(66vh, 560px);
-  gap: clamp(54px, 6.2vw, 86px);
-}
 
 .af-poster-lyrics-visualizer {
   position: relative;
@@ -619,88 +645,10 @@
   user-select: none;
 }
 
-.af-poster-bottom-wave {
-  position: fixed;
-  left: 50%;
-  bottom: clamp(52px, 7vh, 86px);
-  z-index: 1;
-  width: min(560px, calc(100vw - 96px));
-  height: 54px;
-  transform: translateX(-50%);
-  pointer-events: none;
-}
 
-.af-poster-wave {
-  position: relative;
-  display: block;
-  width: 100%;
-  height: 54px;
-  margin: 0 auto;
-  overflow: hidden;
-}
 
-.af-poster-wave-svg,
-.af-poster-wave-progress {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
 
-.af-poster-wave-svg {
-  overflow: visible;
-}
 
-.af-poster-wave-baseline,
-.af-poster-wave-line {
-  fill: none;
-  vector-effect: non-scaling-stroke;
-}
-
-.af-poster-wave-baseline {
-  stroke: rgba(248, 250, 252, 0.48);
-  stroke-width: 1;
-}
-
-.af-poster-wave-line {
-  stroke: rgba(248, 250, 252, 0.58);
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  transform-box: fill-box;
-  transform-origin: center;
-}
-
-.af-poster-wave-line-echo {
-  stroke-width: 1.3;
-  opacity: 0.48;
-}
-
-.af-poster-wave-line-active {
-  stroke: rgba(248, 250, 252, 0.98);
-  stroke-width: 2.2;
-  opacity: 1;
-}
-
-.af-poster-wave-progress {
-  z-index: 2;
-  display: block;
-  overflow: hidden;
-  clip-path: inset(0 calc(100% - var(--af-poster-wave-progress, 0%)) 0 0);
-}
-
-.af-poster-lyrics-visualizer.af-playing .af-poster-wave-line {
-  animation: afPosterWaveFlow 1800ms ease-in-out infinite;
-}
-
-.af-poster-lyrics-visualizer.af-playing .af-poster-wave-line-echo {
-  animation-duration: 2300ms;
-  animation-delay: -420ms;
-}
-
-.af-poster-lyrics-visualizer.af-playing .af-poster-wave-line-active {
-  animation-duration: 1500ms;
-}
 
 .af-poster-primary-lyric {
   display: block;
@@ -730,6 +678,26 @@
   /* 不用 text-shadow：透明填色 + 全宽块时容易看成一圈框/底 */
   text-shadow: none;
   filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.22));
+}
+
+/* 逐字卡拉OK：两层同文 span 叠加，fill 层用 clip-path 按字进度裁剪出高亮色 */
+.af-poster-karaoke-word {
+  position: relative;
+  display: inline-block;
+}
+
+.af-poster-karaoke-word-base {
+  color: rgba(248, 250, 252, 0.42);
+}
+
+.af-poster-karaoke-word-fill {
+  position: absolute;
+  inset: 0;
+  color: rgba(248, 250, 252, 0.98);
+  pointer-events: none;
+}
+
+.af-poster-primary-lyric {
   transition: opacity 180ms ease;
   user-select: none;
 }
@@ -796,37 +764,9 @@
     );
 }
 
-.af-immersive-restore-controls {
-  position: absolute;
-  right: 26px;
-  bottom: 24px;
-  z-index: 3;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: rgba(248, 250, 252, 0.72);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  box-shadow: none;
-  backdrop-filter: none;
-  transition: background var(--af-transition-fast), color var(--af-transition-fast), transform var(--af-transition-fast);
-}
+/* 控制栏隐藏时的恢复按钮必须有可见表面，避免浅色背景下不可见 */
 
-[data-theme="dark"] .af-immersive-restore-controls {
-  background: transparent;
-  box-shadow: none;
-}
 
-.af-immersive-restore-controls:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #f8fafc;
-  transform: translateY(-1px);
-}
 
 .af-immersive-status {
   margin: 0 auto 10px;
@@ -849,39 +789,37 @@
 }
 
 .af-immersive-menu,
-.af-immersive-sound-popover,
 .af-immersive-queue-panel {
   --af-immersive-popover-text-primary: #0f172a;
   --af-immersive-popover-text-secondary: #475569;
   --af-immersive-popover-text-tertiary: #64748b;
+  --af-immersive-artwork-rgb: var(--af-artwork-rgb, var(--af-accent-primary-rgb));
   position: absolute;
   z-index: 3;
   border: 1px solid rgba(148, 163, 184, 0.22);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.94);
+  background: rgba(var(--af-immersive-artwork-rgb), 0.34);
   color: var(--af-immersive-popover-text-primary);
   box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
   backdrop-filter: blur(22px);
 }
 
 [data-theme="dark"] .af-immersive-menu,
-[data-theme="dark"] .af-immersive-sound-popover,
 [data-theme="dark"] .af-immersive-queue-panel {
   --af-immersive-popover-text-primary: #f8fafc;
   --af-immersive-popover-text-secondary: rgba(226, 232, 240, 0.78);
   --af-immersive-popover-text-tertiary: rgba(203, 213, 225, 0.62);
-  background: rgba(15, 23, 42, 0.94);
+  background: rgba(var(--af-immersive-artwork-rgb), 0.42);
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.36);
 }
 
-.af-immersive-visualizer-poster .af-immersive-menu,
-.af-immersive-visualizer-poster .af-immersive-sound-popover,
-.af-immersive-visualizer-poster .af-immersive-queue-panel {
+.af-immersive-visualizer-scrolling .af-immersive-menu,
+.af-immersive-visualizer-scrolling .af-immersive-queue-panel {
   --af-immersive-popover-text-primary: #f8fafc;
   --af-immersive-popover-text-secondary: rgba(226, 232, 240, 0.8);
   --af-immersive-popover-text-tertiary: rgba(203, 213, 225, 0.64);
   border-color: rgba(248, 250, 252, 0.16);
-  background: rgba(11, 18, 28, 0.94);
+  background: rgba(var(--af-immersive-artwork-rgb), 0.46);
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.38);
 }
 
@@ -918,23 +856,6 @@
   color: var(--af-accent-primary);
 }
 
-.af-immersive-sound-popover {
-  left: 0;
-  bottom: calc(100% + 12px);
-  z-index: 80;
-  width: min(452px, calc(100vw - 32px));
-  max-height: min(62vh, 560px);
-  overflow: auto;
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.24);
-  scrollbar-width: thin;
-}
-
-[data-theme="dark"] .af-immersive-sound-popover {
-  background: rgba(15, 23, 42, 0.98);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
-}
-
 .af-immersive-queue-panel {
   right: clamp(24px, 5vw, 64px);
   bottom: calc(100% - 4px);
@@ -967,8 +888,15 @@
   max-height: calc(min(56vh, 520px) - 58px);
   flex-direction: column;
   gap: 2px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   padding-top: 8px;
+}
+
+.af-immersive-queue-list::-webkit-scrollbar {
+  display: none;
 }
 
 .af-immersive-queue-item {
@@ -987,6 +915,38 @@
 }
 
 .af-immersive-queue-item:hover,
+.af-immersive-queue-item.af-playing {
+  border-color: rgba(var(--af-accent-primary-rgb), 0.24);
+  background: rgba(var(--af-accent-primary-rgb), 0.1);
+}
+
+.af-immersive-queue-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--af-immersive-popover-text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--af-transition-fast), background var(--af-transition-fast), color var(--af-transition-fast);
+}
+
+
+.af-immersive-queue-item:hover .af-immersive-queue-remove,
+.af-immersive-queue-remove:focus-visible {
+  opacity: 1;
+}
+
+.af-immersive-queue-remove:hover {
+  background: rgba(239, 68, 68, 0.14);
+  color: #ef4444;
+}
 .af-immersive-queue-item.af-playing {
   border-color: rgba(var(--af-accent-primary-rgb), 0.24);
   background: rgba(var(--af-accent-primary-rgb), 0.1);
@@ -1063,17 +1023,19 @@
 .af-immersive-volume-fill {
   height: 100%;
   border-radius: inherit;
-  background: var(--af-accent-primary);
   pointer-events: none;
 }
 
 .af-immersive-progress-fill {
   width: var(--af-immersive-progress, 0%);
+  /* 封面取色驱动，与背景环境色同源；加同色辉光增强层次 */
+  background: rgb(var(--af-immersive-artwork-rgb));
+  box-shadow: 0 0 10px rgba(var(--af-immersive-artwork-rgb), 0.45);
 }
 
 .af-immersive-volume-fill {
   width: var(--af-immersive-volume, 0%);
-  background: var(--af-text-secondary);
+  background: rgb(var(--af-immersive-artwork-rgb));
 }
 
 .af-immersive-progress-track input,
@@ -1127,6 +1089,17 @@
   width: max-content;
 }
 
+/* 传输主按钮（上一首/下一首/播放模式）改用封面取色，与背景环境色呼应 */
+.af-immersive-transport-group .af-immersive-icon-btn {
+  color: rgb(var(--af-immersive-artwork-rgb));
+}
+
+/* 暗色主题下取色偏暗时补偿亮度与饱和度，保证可读性 */
+[data-theme="dark"] .af-immersive-transport-group .af-immersive-icon-btn {
+  color: rgb(var(--af-immersive-artwork-rgb));
+  filter: brightness(1.35) saturate(1.15);
+}
+
 .af-immersive-control-left,
 .af-immersive-control-center,
 .af-immersive-control-right {
@@ -1178,12 +1151,12 @@
 .af-immersive-icon-btn.af-active {
   border-color: transparent;
   background: transparent;
-  color: var(--af-accent-primary);
+  color: rgb(var(--af-immersive-artwork-rgb));
 }
 
 .af-immersive-icon-btn.af-active:hover {
   background: var(--af-bg-hover);
-  color: var(--af-accent-primary);
+  color: rgb(var(--af-immersive-artwork-rgb));
 }
 
 .af-immersive-icon-btn span {
@@ -1208,25 +1181,23 @@
   width: 58px;
   height: 58px;
   border-radius: 999px;
-  border-color: rgba(var(--af-accent-primary-rgb), 0.18);
+  border-color: rgba(var(--af-immersive-artwork-rgb), 0.18);
   background:
     radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.18), transparent 38%),
-    rgba(var(--af-accent-primary-rgb), 0.82);
+    rgba(var(--af-immersive-artwork-rgb), 0.82);
   color: var(--af-text-on-accent);
-  box-shadow: 0 14px 34px rgba(var(--af-accent-primary-rgb), 0.2);
+  box-shadow: 0 14px 34px rgba(var(--af-immersive-artwork-rgb), 0.28);
 }
 
 .af-immersive-play-btn:hover {
-  border-color: rgba(var(--af-accent-primary-rgb), 0.28);
+  border-color: rgba(var(--af-immersive-artwork-rgb), 0.28);
   background:
     radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.22), transparent 38%),
-    rgba(var(--af-accent-primary-rgb), 0.9);
+    rgba(var(--af-immersive-artwork-rgb), 0.9);
   transform: translateY(-1px);
-  box-shadow: 0 18px 38px rgba(var(--af-accent-primary-rgb), 0.24);
+  box-shadow: 0 18px 38px rgba(var(--af-immersive-artwork-rgb), 0.32);
 }
 
-.af-immersive-close:focus-visible,
-.af-immersive-restore-controls:focus-visible,
 .af-immersive-icon-btn:focus-visible,
 .af-immersive-play-btn:focus-visible {
   outline: 2px solid var(--af-immersive-control-focus, rgba(var(--af-accent-primary-rgb), 0.58));
@@ -1247,7 +1218,7 @@
     padding-top: 8px;
   }
 
-  .af-immersive-visualizer-poster .af-showcase-layout {
+  .af-immersive-visualizer-scrolling .af-showcase-layout {
     width: min(100vw - 40px, 760px);
     grid-template-columns: 1fr;
     gap: 24px;
@@ -1264,15 +1235,9 @@
     min-width: 128px;
   }
 
-  .af-immersive-visualizer-poster .af-immersive-cover {
+  .af-immersive-visualizer-scrolling .af-immersive-cover {
     width: min(44vw, 260px);
     min-width: 172px;
-  }
-
-  .af-immersive-meta {
-    min-width: 0;
-    width: min(420px, calc(100vw - 200px));
-    text-align: left;
   }
 
   .af-immersive-lyric-section {
@@ -1280,7 +1245,8 @@
     min-height: 300px;
   }
 
-  .af-immersive-visualizer-poster .af-immersive-lyric-section {
+  .af-immersive-visualizer-scrolling .af-immersive-lyric-section {
+    height: 46vh;
     min-height: 330px;
   }
 
@@ -1311,18 +1277,11 @@
 }
 
 @media (max-width: 560px) {
-  .af-immersive-close {
-    top: 14px;
-    right: 14px;
-    width: 42px;
-    height: 42px;
-  }
-
   .af-immersive-stage {
     width: calc(100vw - 28px);
   }
 
-  .af-immersive-visualizer-poster .af-showcase-layout {
+  .af-immersive-visualizer-scrolling .af-showcase-layout {
     width: calc(100vw - 28px);
     padding-top: 58px;
     gap: 16px;
@@ -1341,11 +1300,6 @@
     justify-content: flex-start;
   }
 
-  .af-poster-bottom-wave {
-    width: min(360px, calc(100vw - 56px));
-    height: 48px;
-  }
-
   .af-immersive-controls {
     padding: 14px;
   }
@@ -1361,15 +1315,20 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .af-immersive-close,
   .af-immersive-icon-btn,
   .af-immersive-play-btn,
-  .af-poster-wave-line,
   .af-immersive-menu button {
     transition: none;
     animation: none;
     transform: none;
     filter: none;
+  }
+
+  /* 封面呼吸律动同样让位于减少动效偏好 */
+  .af-playing .af-immersive-cover,
+  .af-immersive-playing .af-immersive-cover,
+  .af-immersive-lyrics[data-anim-intensity='reduced'] .af-immersive-cover {
+    animation: none;
   }
 
 }
@@ -1381,7 +1340,8 @@
 
   .af-player-container {
     grid-template-rows: 18px auto;
-    padding: 8px 14px 10px;
+    row-gap: 5px;
+    padding: 13px 14px 10px;
   }
 
   .af-player-grid {
@@ -1461,4 +1421,141 @@
 /* 睡眠定时器激活时按钮使用主题强调色，与其他激活状态保持一致 */
 .af-like-button.af-active {
   color: var(--af-accent-primary);
+}
+
+/* ── 沉浸式完整歌词滚动 ── */
+.af-scrolling-lyrics {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  cursor: grab;
+  touch-action: none;
+  -webkit-mask-image: linear-gradient(transparent 0%, #000 14%, #000 88%, transparent 100%);
+}
+
+.af-scrolling-lyrics::-webkit-scrollbar {
+  display: none;
+}
+
+.af-scrolling-lyrics.af-user-scrolling {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.af-scrolling-lyrics-spacer {
+  width: 100%;
+  pointer-events: none;
+}
+
+.af-scrolling-lyrics-spacer-top {
+  height: 38%;
+}
+
+.af-scrolling-lyrics-spacer-bottom {
+  height: 62%;
+}
+
+.af-scrolling-lyric-line {
+  width: 100%;
+  padding: clamp(10px, 1.6vh, 18px) 12px;
+  color: rgba(248, 250, 252, 0.3);
+  font-family: var(--af-immersive-lyric-font-family, "Inter", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif);
+  text-align: center;
+  transform: scale(0.92);
+  transform-origin: center;
+  opacity: 0.48;
+  transition:
+    color calc(220ms / var(--af-immersive-anim-scale, 1)) ease,
+    opacity calc(220ms / var(--af-immersive-anim-scale, 1)) ease,
+    transform calc(220ms / var(--af-immersive-anim-scale, 1)) ease;
+}
+
+.af-scrolling-lyric-line.af-active {
+  opacity: 1;
+  transform: scale(1.04);
+}
+
+.af-scrolling-lyric-primary {
+  display: inline;
+  font-size: clamp(18px, 1.85vw, 26px);
+  font-weight: 580;
+  line-height: 1.36;
+  overflow-wrap: anywhere;
+}
+
+.af-scrolling-lyric-line.af-active .af-scrolling-lyric-primary {
+  color: transparent;
+  background-image: linear-gradient(
+    90deg,
+    rgba(248, 250, 252, 0.98) 0%,
+    rgba(248, 250, 252, 0.98) var(--af-scrolling-lyric-progress, 0%),
+    rgba(248, 250, 252, 0.46) var(--af-scrolling-lyric-progress, 0%),
+    rgba(248, 250, 252, 0.46) 100%
+  );
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-size: clamp(25px, 2.65vw, 36px);
+  font-weight: 800;
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.24));
+}
+
+.af-scrolling-lyric-translation {
+  margin-top: 5px;
+  color: rgba(226, 232, 240, 0.48);
+  font-size: clamp(12px, 1.05vw, 16px);
+  font-weight: 520;
+  line-height: 1.32;
+}
+
+.af-scrolling-lyric-line.af-active .af-scrolling-lyric-translation {
+  color: rgba(226, 232, 240, 0.78);
+}
+
+.af-scrolling-karaoke-word {
+  position: relative;
+  display: inline-block;
+  -webkit-text-fill-color: initial;
+}
+
+.af-scrolling-karaoke-word-base {
+  color: rgba(248, 250, 252, 0.46);
+  -webkit-text-fill-color: rgba(248, 250, 252, 0.46);
+}
+
+.af-scrolling-karaoke-word-fill {
+  position: absolute;
+  inset: 0;
+  color: rgba(248, 250, 252, 0.98);
+  -webkit-text-fill-color: rgba(248, 250, 252, 0.98);
+  pointer-events: none;
+}
+
+.af-scrolling-lyrics-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(248, 250, 252, 0.56);
+  font-family: var(--af-immersive-lyric-font-family, "Inter", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif);
+  font-size: 18px;
+}
+
+@media (max-width: 900px) {
+  .af-scrolling-lyric-line {
+    padding-inline: 6px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .af-scrolling-lyric-line {
+    transition: none;
+  }
 }

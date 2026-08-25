@@ -90,7 +90,7 @@ export function MetadataEditModal({ song, onClose }: Props) {
               {coverData ?? song.cover ? (
                 <img src={coverData ?? song.cover} alt="cover" />
               ) : (
-                <div className="af-cover-placeholder">♪</div>
+                <div className="af-cover-placeholder">暂无封面</div>
               )}
             </div>
             <div className="af-metadata-cover-actions">

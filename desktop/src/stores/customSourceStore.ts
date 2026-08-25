@@ -4,7 +4,7 @@ import { readTextFile } from '@tauri-apps/plugin-fs';
 import {
   checkCustomSourceUpdate,
   parseDesktopUserApiInfo,
-  testCustomSource,
+  testCustomSourceDeep,
   invalidateRuntimeCache,
   type DesktopUserApiHeaderInfo,
   type CustomSourceUpdateAlert,
@@ -53,8 +53,13 @@ interface CustomSourceStore {
   checkSourceUpdate: (id: string) => Promise<void>;
   checkAllUpdates: () => Promise<void>;
   toggleUpdateAlert: (id: string, enabled: boolean) => void;
+  /** 运行时上浮：播放/取链期间脚本上报 updateAlert 时写入，让全局更新弹窗能弹出 */
+  applyRuntimeUpdateAlert: (id: string, alert: CustomSourceUpdateAlert) => void;
   replaceAll: (sources: CustomSourceItem[]) => void;
 }
+
+// 远端更新检查节流间隔：同一源距上次远端检查不足 24 小时不再重复拉取
+const REMOTE_CHECK_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 function makeId(): string {
   return `user_api_${Math.random().toString(36).slice(2, 10)}_${Date.now()}`;
@@ -178,6 +183,25 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
         set((state) => ({ sources: patchSource(state.sources, id, { allowShowUpdateAlert: enabled }) }));
       },
 
+      // 对齐 LX Music mobile 行为：脚本在任意时刻 send updateAlert 都写入 store。
+      // 手动检测（checkSourceUpdate）已在 checking 状态下自行消费同一事件并写入，
+      // 这里若也覆盖会把「检测中...」的中问状态提前抹掉，因此 checking 时直接跳过；
+      // 复用 buildUpdatePatch 的字段结构，仅换提示语来源区分上报渠道。
+      applyRuntimeUpdateAlert: (id, alert) => {
+        const source = get().sources.find((item) => item.id === id);
+        if (!source) return;
+        if (source.updateStatus === 'checking') return;
+        set((state) => ({
+          sources: patchSource(state.sources, id, {
+            updateStatus: 'available',
+            updateMessage: '音源运行时上报更新',
+            updateLog: alert.log,
+            updateUrl: alert.updateUrl,
+            updateCheckedAt: Date.now(),
+          }),
+        }));
+      },
+
       moveSource: (id, direction) => {
         set((state) => {
           const sources = [...state.sources];
@@ -199,12 +223,13 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
         }));
 
         try {
-          const result = await testCustomSource(source);
+          // init 通过后自动继续深度取链测试；未声明 musicUrl 能力的脚本仅验证初始化
+          const result = await testCustomSourceDeep(source);
           set((state) => ({
             sources: patchSource(state.sources, id, {
               sources: result.sources,
-              testStatus: 'ok',
-              testMessage: '初始化正常',
+              testStatus: result.ok ? 'ok' : 'failed',
+              testMessage: result.message,
               ...buildUpdatePatch(result.updateAlert),
             }),
           }));
@@ -250,7 +275,15 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
       },
 
       checkAllUpdates: async () => {
-        const ids = get().sources.map((source) => source.id);
+        const now = Date.now();
+        // 距上次远端检查不足 24 小时且上次未失败的源跳过检查，保留现有状态（不写盘）
+        const ids = get().sources
+          .filter((source) => (
+            !source.updateCheckedAt
+            || source.updateStatus === 'failed'
+            || now - source.updateCheckedAt >= REMOTE_CHECK_MIN_INTERVAL_MS
+          ))
+          .map((source) => source.id);
         // 限制并发，避免一次拉起过多自定义音源更新请求
         const CONCURRENCY = 2;
         for (let i = 0; i < ids.length; i += CONCURRENCY) {

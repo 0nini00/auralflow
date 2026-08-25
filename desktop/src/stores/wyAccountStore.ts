@@ -26,6 +26,8 @@ interface WyAccountState {
   logout: () => Promise<void>;
   getPlaylistSongs: (id: string) => Promise<MusicInfo[]>;
   preloadPlaylistSongs: (id: string) => void;
+  /** 刷新网易云歌单列表 */
+  refreshPlaylists: () => Promise<void>;
   /** 强制刷新某个网易云歌单：清缓存并重新拉取详情 */
   refreshPlaylistSongs: (id: string) => Promise<MusicInfo[]>;
 
@@ -140,6 +142,24 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
         error: msg,
         isLoading: false,
         isLoaded: true,
+      });
+    }
+  },
+
+  refreshPlaylists: async () => {
+    const account = get().account;
+    if (!account || get().isLoading) return;
+
+    set({ isLoading: true, error: "" });
+    try {
+      const playlists = await getUserPlaylists(account.uid);
+      clearPlaylistCaches();
+      set({ playlists, isLoaded: true, isLoading: false, error: "" });
+    } catch (error) {
+      set({
+        isLoading: false,
+        isLoaded: true,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   },

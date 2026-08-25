@@ -1,8 +1,15 @@
-import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import CryptoJS from 'crypto-js';
 import forge from 'node-forge';
-import type { MusicInfo } from '@lx/core';
+import {
+  compareCustomSourceVersions,
+  isLikelyCustomSourceRemoteUrl,
+  normalizeCustomSourceRemoteUrl,
+  normalizeCustomSourceScript,
+  normalizeCustomSourceVersion,
+  type MusicInfo,
+} from '@lx/core';
 import type { CustomSourceItem, CustomSourceSourceInfo } from '@/stores/customSourceStore';
+import { outboundRequest } from '@/services/outboundHttp';
 import { deflateBytes, inflateBytes, zlibFormatFromOptions } from '@/utils/compression';
 
 export interface DesktopUserApiHeaderInfo {
@@ -37,12 +44,21 @@ interface RuntimeInstance {
   request: (data: RuntimeRequestPayload) => Promise<RuntimeRequestResult>;
   getUpdateAlert: () => CustomSourceUpdateAlert | undefined;
   waitForUpdateAlert: (timeoutMs: number) => Promise<CustomSourceUpdateAlert | undefined>;
+  /** 消费方随时可更新监听器，命中缓存的旧 Runtime 也能接上运行时上浮 */
+  setUpdateAlertListener: (listener?: UpdateAlertListener) => void;
 }
 
 interface RuntimeRequestPayload {
   source: string;
   action: 'musicUrl' | 'lyric' | 'pic';
   info: Record<string, unknown>;
+}
+
+/** 运行时收到合法 updateAlert 且无 waiter 等待时回调（由消费方注入，用于写 store 上浮全局更新弹窗） */
+type UpdateAlertListener = (alert: CustomSourceUpdateAlert) => void;
+
+interface CreateRuntimeOptions {
+  onUpdateAlert?: UpdateAlertListener;
 }
 
 const INFO_LIMITS: Record<keyof DesktopUserApiHeaderInfo, number> = {
@@ -140,73 +156,19 @@ function normalizeUpdateAlert(data: unknown): CustomSourceUpdateAlert | undefine
   };
 }
 
-function normalizeScriptForCompare(script: string): string {
-  return script.replace(/\r\n?/g, '\n').trim();
-}
-
-function normalizeVersion(value?: string): string {
-  return (value ?? '').trim().replace(/^v/i, '');
-}
-
-function compareVersions(left?: string, right?: string): number {
-  const leftParts = normalizeVersion(left).split('.').map((part) => Number.parseInt(part, 10));
-  const rightParts = normalizeVersion(right).split('.').map((part) => Number.parseInt(part, 10));
-  const size = Math.max(leftParts.length, rightParts.length);
-  for (let index = 0; index < size; index += 1) {
-    const a = Number.isFinite(leftParts[index]) ? leftParts[index] : 0;
-    const b = Number.isFinite(rightParts[index]) ? rightParts[index] : 0;
-    if (a > b) return 1;
-    if (a < b) return -1;
-  }
-  return 0;
-}
-
-function normalizeRemoteScriptUrl(url: string): string {
-  const parsed = new URL(url);
-  if (parsed.hostname === 'github.com') {
-    const parts = parsed.pathname.split('/').filter(Boolean);
-    const markerIndex = parts.findIndex((part) => part === 'blob' || part === 'raw');
-    if (parts.length >= 5 && markerIndex === 2) {
-      const [owner, repo, , branch, ...filePath] = parts;
-      return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filePath.join('/')}${parsed.search}`;
-    }
-  }
-  if (parsed.hostname === 'gitee.com') {
-    const parts = parsed.pathname.split('/').filter(Boolean);
-    const markerIndex = parts.findIndex((part) => part === 'blob');
-    if (parts.length >= 5 && markerIndex === 2) {
-      const [owner, repo, , branch, ...filePath] = parts;
-      parsed.pathname = `/${owner}/${repo}/raw/${branch}/${filePath.join('/')}`;
-      return parsed.toString();
-    }
-  }
-  return parsed.toString();
-}
-
-function isLikelyRemoteScriptUrl(url: string): boolean {
-  const parsed = new URL(url);
-  const pathname = parsed.pathname.toLowerCase();
-  if (/\.(?:js|txt)(?:$|[?#])/.test(`${pathname}${parsed.search}${parsed.hash}`)) return true;
-  if (parsed.hostname === 'raw.githubusercontent.com') return true;
-  if (parsed.hostname === 'github.com' || parsed.hostname === 'gitee.com') {
-    return pathname.includes('/raw/') || pathname.includes('/blob/');
-  }
-  return false;
-}
-
 function getRemoteScriptUrl(api: CustomSourceItem): string | null {
   const candidate = api.homepage?.trim();
   if (!candidate || !/^https?:\/\//.test(candidate)) return null;
   try {
-    const normalized = normalizeRemoteScriptUrl(candidate);
-    return isLikelyRemoteScriptUrl(normalized) ? normalized : null;
+    const normalized = normalizeCustomSourceRemoteUrl(candidate);
+    return isLikelyCustomSourceRemoteUrl(normalized) ? normalized : null;
   } catch {
     return null;
   }
 }
 
 async function fetchRemoteScript(url: string): Promise<string> {
-  const response = await tauriFetch(url, {
+  const response = await outboundRequest(url, {
     method: 'GET',
     headers: {
       Accept: 'text/plain,application/javascript,*/*',
@@ -227,12 +189,12 @@ export async function checkCustomSourceRemoteUpdate(api: CustomSourceItem): Prom
   const remoteScript = await fetchRemoteScript(updateUrl);
   const localInfo = parseDesktopUserApiInfo(api.script);
   const remoteInfo = parseDesktopUserApiInfo(remoteScript);
-  const localVersion = normalizeVersion(api.version || localInfo.version);
-  const remoteVersion = normalizeVersion(remoteInfo.version);
-  const hasScriptChanged = normalizeScriptForCompare(remoteScript) !== normalizeScriptForCompare(api.script);
+  const localVersion = normalizeCustomSourceVersion(api.version || localInfo.version);
+  const remoteVersion = normalizeCustomSourceVersion(remoteInfo.version);
+  const hasScriptChanged = normalizeCustomSourceScript(remoteScript) !== normalizeCustomSourceScript(api.script);
 
   if (remoteVersion && localVersion) {
-    if (compareVersions(remoteVersion, localVersion) <= 0) return undefined;
+    if (compareCustomSourceVersions(remoteVersion, localVersion) <= 0) return undefined;
     return {
       log: `发现新版本：v${localVersion} -> v${remoteVersion}`,
       updateUrl,
@@ -250,16 +212,26 @@ export async function checkCustomSourceRemoteUpdate(api: CustomSourceItem): Prom
   return undefined;
 }
 
+/**
+ * 转换为 lx-music 协议的 musicInfo。
+ *
+ * tx 取链依赖 strMediaMid（脚本用它拼 M500{mid}.mp3 / F000{mid}.flac），
+ * albumId 在 lx 的 tx musicInfo 里存的也是专辑 mid 而非数字 id；
+ * songmid 与 songId 对 tx 是两个不同的值，不能都填 music.id。
+ */
 function toOldMusicInfo(music: MusicInfo): Record<string, unknown> {
+  const tx = music.txMeta;
   return {
     name: music.name,
     singer: music.singer,
     source: music.source,
     songmid: music.id,
-    songId: music.id,
+    songId: tx?.songId || music.id,
     interval: music.interval,
     albumName: music.albumName,
-    albumId: '',
+    albumId: tx?.albumMid ?? '',
+    albumMid: tx?.albumMid ?? '',
+    strMediaMid: tx?.strMediaMid ?? '',
     img: music.picUrl ?? music.img ?? '',
     types: [],
     _types: {},
@@ -267,15 +239,11 @@ function toOldMusicInfo(music: MusicInfo): Record<string, unknown> {
   };
 }
 
-function createRequestResponse(rawBody: unknown, status: number, statusText: string, headers: Headers) {
-  const headerObject: Record<string, string> = {};
-  headers.forEach((value, key) => {
-    headerObject[key] = value;
-  });
+function createRequestResponse(rawBody: unknown, status: number, statusText: string, headers: Record<string, string>) {
   return {
     statusCode: status,
     statusMessage: statusText,
-    headers: headerObject,
+    headers: { ...headers },
     bytes: 0,
     raw: typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody),
     body: rawBody,
@@ -387,57 +355,34 @@ function createUtils() {
   };
 }
 
-function assertSafeRequestUrl(url: string): void {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new Error(`自定义音源请求 URL 无效：${url}`);
-  }
-  const host = parsed.hostname.toLowerCase();
-  if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '::1') {
-    throw new Error(`自定义音源不允许请求本地地址：${host}`);
-  }
-  if (host.endsWith('.local')) {
-    throw new Error(`自定义音源不允许请求 .local 本地域名：${host}`);
-  }
-  const m = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (m) {
-    const a = Number(m[1]);
-    const b = Number(m[2]);
-    if (a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) {
-      throw new Error(`自定义音源不允许请求内网地址：${host}`);
-    }
-  }
-}
-
 function runHttpRequest(
   url: string,
-  options: { method?: string; timeout?: number; headers?: Record<string, string>; body?: unknown; form?: Record<string, string>; formData?: BodyInit },
+  options: { method?: string; timeout?: number; headers?: Record<string, string>; body?: unknown; form?: Record<string, string>; formData?: Record<string, string> },
   callback: (error: Error | null, response: unknown, body: unknown) => void,
 ): () => void {
-  const controller = new AbortController();
+  // 出站校验（含 SSRF 与重定向逐跳）在 Rust 侧 outbound.rs 统一完成，这里不再重复判定。
+  // 代价：请求发出后无法真正中止，cancel 只丢弃回调。
+  let cancelled = false;
   const timeoutMs = typeof options.timeout === 'number' && options.timeout > 0 ? Math.min(options.timeout, 60_000) : 60_000;
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
 
   void (async () => {
     try {
-      assertSafeRequestUrl(url);
-      let body: BodyInit | undefined;
+      let body: string | undefined;
       if (options.body != null) {
         body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
       } else if (options.form) {
-        body = new URLSearchParams(options.form);
+        body = new URLSearchParams(options.form).toString();
       } else if (options.formData) {
-        body = options.formData;
+        body = new URLSearchParams(options.formData).toString();
       }
 
-      const response = await tauriFetch(url, {
+      const response = await outboundRequest(url, {
         method: options.method ?? 'GET',
         headers: options.headers,
         body,
-        signal: controller.signal,
+        timeoutMs,
       });
+      if (cancelled) return;
       const text = await response.text();
       let parsed: unknown = text;
       try {
@@ -447,21 +392,23 @@ function runHttpRequest(
       }
       callback(null, createRequestResponse(parsed, response.status, response.statusText, response.headers), parsed);
     } catch (error) {
+      if (cancelled) return;
       callback(error instanceof Error ? error : new Error(String(error)), null, null);
-    } finally {
-      window.clearTimeout(timer);
     }
   })();
 
-  return () => controller.abort();
+  return () => {
+    cancelled = true;
+  };
 }
 
-function createRuntime(api: CustomSourceItem): RuntimeInstance {
+function createRuntime(api: CustomSourceItem, options?: CreateRuntimeOptions): RuntimeInstance {
   let requestHandler: ((payload: RuntimeRequestPayload) => Promise<unknown>) | null = null;
   let finishInit: (value: RuntimeInitResult) => void = () => undefined;
   let failInit: (error: Error) => void = () => undefined;
   let initSettled = false;
   let updateAlert: CustomSourceUpdateAlert | undefined;
+  let updateAlertListener: UpdateAlertListener | undefined = options?.onUpdateAlert;
   const updateAlertWaiters = new Set<(alert: CustomSourceUpdateAlert | undefined) => void>();
   const init = new Promise<RuntimeInitResult>((resolve, reject) => {
     finishInit = resolve;
@@ -490,9 +437,13 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
           return;
         }
         if (eventName === EVENT_NAMES.updateAlert) {
-          updateAlert = normalizeUpdateAlert(data) ?? updateAlert;
-          if (updateAlert) {
-            for (const waiter of updateAlertWaiters) waiter(updateAlert);
+          const normalized = normalizeUpdateAlert(data);
+          if (normalized) {
+            updateAlert = normalized;
+            // 运行时上浮：仅当没有 waiter 在等时才回调消费方。test/check 流程通过
+            // waitForUpdateAlert 消费同一事件并自行写 store，这里再回调会造成同一 alert 双份写入
+            if (updateAlertWaiters.size === 0) updateAlertListener?.(normalized);
+            for (const waiter of updateAlertWaiters) waiter(normalized);
             updateAlertWaiters.clear();
           }
           resolve();
@@ -519,16 +470,32 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
     env: 'desktop',
   };
 
+  // WebView 里没有 DOM 隔离，注入无原型对象承载 window / globalThis：
+  // window.constructor 为 undefined，切断经属性链拿到 Function 构造器的逃逸路径。
+  const fakeWindow = Object.create(null) as { lx: typeof lx };
+  fakeWindow.lx = lx;
+  const fakeGlobalThis = Object.create(null) as { lx: typeof lx };
+  fakeGlobalThis.lx = lx;
+
   try {
-    // L1 沙箱:静态扫描拒绝逃逸手法(间接调用 constructor / eval)。
-    if (/constructor\s*\.\s*constructor|\beval\s*\(|\bFunction\s*\(/.test(api.script)) {
+    // L1 沙箱（尽力而为，非强隔离）：自定义音源脚本与用户主动安装的浏览器扩展同权，
+    // 请勿放入不受信任的第三方脚本。以下为多层缓解：
+    // 1. 静态扫描拒绝明显的动态代码执行手法（constructor 链 / eval / Function）；
+    // 2. 以严格模式执行，函数体内 this 为 undefined，`this.__TAURI_INTERNALS__` 这类
+    //    经全局对象直达 IPC 的逃逸直接抛错；
+    // 3. 注入的 window / globalThis 为无原型对象，constructor 属性链不可达；
+    // 4. 遮蔽 self / top / parent 等同样指向真实全局对象的别名。
+    if (/constructor\s*\.\s*constructor|\.constructor\s*\(|\beval\s*\(|\bFunction\s*\(/.test(api.script)) {
       throw new Error('自定义音源脚本包含不允许的动态代码执行');
     }
-    // L1 沙箱:遮蔽全局对象,脚本引用即 TypeError,提前拦截逃逸。
     const runner = new Function(
       'lx',
       'window',
       'globalThis',
+      'self',
+      'top',
+      'parent',
+      'frames',
       'fetch',
       'WebSocket',
       'XMLHttpRequest',
@@ -538,9 +505,27 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
       'require',
       'process',
       'Buffer',
-      api.script,
+      // 严格模式：this 不再指向真实全局对象
+      `"use strict";\n${api.script}`,
     );
-    runner(lx, { lx }, { lx }, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined);
+    runner(
+      lx,
+      fakeWindow,
+      fakeGlobalThis,
+      fakeGlobalThis,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    );
   } catch (error) {
     initSettled = true;
     failInit(error instanceof Error ? error : new Error(String(error)));
@@ -572,6 +557,9 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
         const timer = window.setTimeout(() => finish(undefined), Math.max(0, timeoutMs));
         updateAlertWaiters.add(finish);
       });
+    },
+    setUpdateAlertListener(listener) {
+      updateAlertListener = listener;
     },
     async request(data) {
       await init;
@@ -619,15 +607,20 @@ function getCacheKey(api: CustomSourceItem): string {
   return `${api.id}::${hashScript(api.script)}`;
 }
 
-function getCachedRuntime(api: CustomSourceItem): RuntimeInstance {
+function getCachedRuntime(api: CustomSourceItem, onUpdateAlert?: UpdateAlertListener): RuntimeInstance {
   const key = getCacheKey(api);
   const cached = runtimeCache.get(key);
-  if (cached) return cached;
+  if (cached) {
+    // 命中缓存也接上本次传入的监听器：深度测试 prime 进来的 Runtime 没有监听器，
+    // 后续取链期间的运行时 updateAlert 才不会继续被丢弃
+    if (onUpdateAlert) cached.setUpdateAlertListener(onUpdateAlert);
+    return cached;
+  }
   if (runtimeCache.size >= RUNTIME_CACHE_MAX) {
     const oldest = runtimeCache.keys().next().value;
     if (oldest !== undefined) runtimeCache.delete(oldest);
   }
-  const runtime = createRuntime(api);
+  const runtime = createRuntime(api, { onUpdateAlert });
   runtimeCache.set(key, runtime);
   // 初始化失败时从缓存中移除，下次重试
   runtime.init.catch(() => runtimeCache.delete(key));
@@ -643,6 +636,16 @@ export function invalidateRuntimeCache(apiId: string): void {
   }
 }
 
+/** 把已初始化的 Runtime 放回缓存（深度测试复用，避免重复执行脚本） */
+function primeRuntimeCache(api: CustomSourceItem, runtime: RuntimeInstance): void {
+  const key = getCacheKey(api);
+  if (runtimeCache.size >= RUNTIME_CACHE_MAX) {
+    const oldest = runtimeCache.keys().next().value;
+    if (oldest !== undefined) runtimeCache.delete(oldest);
+  }
+  runtimeCache.set(key, runtime);
+}
+
 export async function testCustomSource(api: CustomSourceItem, updateAlertWaitMs = TEST_UPDATE_ALERT_WAIT_MS): Promise<RuntimeInitResult> {
   // 测试时强制重建，不走缓存
   invalidateRuntimeCache(api.id);
@@ -650,6 +653,94 @@ export async function testCustomSource(api: CustomSourceItem, updateAlertWaitMs 
   const result = await runtime.init;
   const updateAlert = result.updateAlert ?? await runtime.waitForUpdateAlert(updateAlertWaitMs);
   return { ...result, updateAlert };
+}
+
+// ─── 深度测试：真实取链 ────────────────────────────────────────
+// 初始化通过不代表脚本真的能取到播放地址（假阳性），这里用内置固定测试曲走一次真实
+// musicUrl 请求验证端到端可用性。超时 20s，与现有播放解析预期对齐。
+
+const DEEP_TEST_TIMEOUT_MS = 20_000;
+const DEEP_TEST_QUALITY = '128k';
+
+/** 内置固定测试曲（id 均为公开常驻曲目，可按需替换）：
+ *  - wy：2034742057 林俊杰-江南（备选 1492167768）
+ *  - tx：songmid 0039MnYb0qxYhV
+ */
+const DEEP_TEST_TRACKS: Record<'wy' | 'tx', { id: string; name: string; singer: string; albumName: string }> = {
+  wy: { id: '2034742057', name: '江南', singer: '林俊杰', albumName: '第二天堂' },
+  tx: { id: '0039MnYb0qxYhV', name: '江南', singer: '林俊杰', albumName: '第二天堂' },
+};
+
+/** 取链测试结果，结构兼容现有 testCustomSource 返回，ok 表示两阶段全部通过 */
+export interface DeepTestResult {
+  ok: boolean;
+  message: string;
+  sources?: Record<string, CustomSourceSourceInfo>;
+  updateAlert?: CustomSourceUpdateAlert;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+export async function testCustomSourceDeep(api: CustomSourceItem, updateAlertWaitMs = TEST_UPDATE_ALERT_WAIT_MS): Promise<DeepTestResult> {
+  // 阶段一：复用现有 init 流程
+  invalidateRuntimeCache(api.id);
+  const runtime = createRuntime(api);
+  let initResult: RuntimeInitResult;
+  try {
+    initResult = await runtime.init;
+    initResult = { ...initResult, updateAlert: initResult.updateAlert ?? await runtime.waitForUpdateAlert(updateAlertWaitMs) };
+  } catch (error) {
+    return { ok: false, message: `初始化失败：${error instanceof Error ? error.message : String(error)}`, sources: undefined, updateAlert: undefined };
+  }
+
+  // 阶段二：选平台与测试曲（声明 musicUrl 能力的平台中优先 wy），走真实取链
+  const sources = initResult.sources ?? {};
+  const pickSource = (['wy', 'tx'] as const).find((name) => sources[name]?.actions.includes('musicUrl'));
+  if (!pickSource) {
+    return { ok: true, message: '初始化正常；未声明 musicUrl，仅验证初始化', sources, updateAlert: initResult.updateAlert };
+  }
+
+  const track = DEEP_TEST_TRACKS[pickSource];
+  const music: MusicInfo = {
+    id: track.id,
+    name: track.name,
+    singer: track.singer,
+    albumName: track.albumName,
+    source: pickSource,
+  };
+
+  // quality 兼容：128k 不在脚本声明白名单时退回声明的最低音质
+  const declared = sources[pickSource]?.qualitys ?? [];
+  const quality = declared.includes(DEEP_TEST_QUALITY) ? DEEP_TEST_QUALITY : declared[0] ?? DEEP_TEST_QUALITY;
+
+  // 深度测试重建的 Runtime 复用缓存，取链走现有 requestCustomSourceMusicUrl
+  primeRuntimeCache(api, runtime);
+  try {
+    const result = await withTimeout(
+      requestCustomSourceMusicUrl(api, music, quality),
+      DEEP_TEST_TIMEOUT_MS,
+      `取链测试超时（超过 ${DEEP_TEST_TIMEOUT_MS / 1000}s 未返回播放地址）`,
+    );
+    if (!/^https?:\/\//.test(result.url)) throw new Error(`未返回可播放 URL：${result.url.slice(0, 128)}`);
+    return { ok: true, message: `初始化正常；取链测试通过（${pickSource} ${result.quality || quality}）`, sources: result.sources ?? sources, updateAlert: initResult.updateAlert };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { ok: false, message: `初始化正常；取链测试失败：${reason}`, sources, updateAlert: initResult.updateAlert };
+  }
 }
 
 export async function checkCustomSourceUpdate(api: CustomSourceItem): Promise<RuntimeInitResult> {
@@ -663,8 +754,9 @@ export async function requestCustomSourceMusicUrl(
   api: CustomSourceItem,
   music: MusicInfo,
   quality: string,
+  onUpdateAlert?: UpdateAlertListener,
 ): Promise<{ url: string; quality: string; sources?: Record<string, CustomSourceSourceInfo> }> {
-  const runtime = getCachedRuntime(api);
+  const runtime = getCachedRuntime(api, onUpdateAlert);
   const initResult = await runtime.init;
   const sourceInfo = initResult.sources?.[music.source];
   if (!sourceInfo?.actions.includes('musicUrl')) throw new Error(`音源不支持 ${music.source} 的播放链接解析`);

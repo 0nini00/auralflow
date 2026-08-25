@@ -7,7 +7,7 @@ import {
   setAudioMetadata,
   writeDownloadTextFile,
 } from '@lx/tauri-bridge';
-import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import { outboundRequest } from '@/services/outboundHttp';
 import { resolvePlaybackUrl } from '@/services/playback/playbackResolver';
 import { resolver } from '@/services/sources/sourceService';
 
@@ -56,15 +56,6 @@ function buildLrcFileName(audioFileName: string): string {
   return audioFileName.replace(/\.[^.]+$/, '') + '.lrc';
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
-  const chunkSize = 0x8000;
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
-}
-
 function mimeFromUrl(url: string): string {
   try {
     const ext = new URL(url).pathname.split('.').pop()?.toLowerCase();
@@ -81,15 +72,15 @@ async function fetchCoverDataUrl(music: MusicInfo): Promise<string | null> {
   const coverUrl = music.picUrl || music.img;
   if (!coverUrl || !/^https?:\/\//i.test(coverUrl)) return null;
 
-  const response = await tauriFetch(coverUrl, { method: 'GET' });
+  // 封面 CDN 域名由音源决定，属于运行时可变目标，走 Rust 出站代理而非静态白名单。
+  const response = await outboundRequest(coverUrl, { method: 'GET', responseType: 'base64' });
   if (!response.ok) return null;
 
-  const contentType = (response.headers.get('content-type')?.split(';')[0]?.trim() || mimeFromUrl(coverUrl))
+  const contentType = ((response.headers['content-type'] ?? '').split(';')[0]?.trim() || mimeFromUrl(coverUrl))
     .replace('image/jpg', 'image/jpeg');
   if (!/^image\/(jpeg|png|gif|bmp)$/i.test(contentType)) return null;
 
-  const buffer = await response.arrayBuffer();
-  return `data:${contentType};base64,${bytesToBase64(new Uint8Array(buffer))}`;
+  return `data:${contentType};base64,${response.base64()}`;
 }
 
 async function fetchRawLyric(music: MusicInfo): Promise<string | null> {

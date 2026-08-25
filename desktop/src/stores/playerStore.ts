@@ -2,11 +2,11 @@ import { create } from "zustand";
 import type { MusicInfo } from "@lx/core";
 import { playerEngine } from "@/services/playerEngine";
 import { resolvePlaybackUrl } from "@/services/playback/playbackResolver";
-import { prefetchNearbyTracks, getPrefetchedTrack, invalidatePrefetchedTrack } from "@/services/playback/prefetchService";
+import { prefetchNearbyTracks, prefetchTracks, getPrefetchedTrack, invalidatePrefetchedTrack } from "@/services/playback/prefetchService";
 import { selectCachedPlaybackTarget } from "@/services/playback/prefetchModel";
 import { getPlayModeState, type PlayModeId } from "@/services/playback/playModeControl";
 import { invalidateCachedPlaybackUrl } from "@/services/persistentCache";
-import { patchSettings } from "@lx/tauri-bridge";
+import { debugLog, patchSettings } from "@lx/tauri-bridge";
 import { useHistoryStore } from "./historyStore";
 import { useSleepTimerStore } from "./sleepTimerStore";
 import { useDiscoveryStore } from "./discoveryStore";
@@ -19,6 +19,10 @@ interface PlayerStore {
   currentIndex: number;
   status: "idle" | "loading" | "playing" | "paused" | "error";
   progress: number;
+
+  /** progress 的 engine 采样时刻（performance.now() 基准）；主窗口构造跨 WebView 快照时转换为 wall clock */
+
+  progressSampledAt: number;
   duration: number;
   volume: number;
   isMuted: boolean;
@@ -33,6 +37,10 @@ interface PlayerStore {
   /** 随机模式下记录播放历史索引，用于 prev() 回退到真正上一首 */
 
   playHistory: number[];
+
+  /** FM 模式下已播过的曲目栈（不在 queue 里，prev() 需要它回退） */
+
+  fmHistory: MusicInfo[];
 
   play: (music: MusicInfo) => Promise<void>;
   playQueue: (queue: MusicInfo[], startIndex?: number) => Promise<void>;
@@ -113,22 +121,48 @@ function scheduleVolumePersist(volume: number) {
 /** 调用 discoveryStore.fmNext 后播放下一首 FM 曲目；失败返回 false */
 /** FM 下一首：解析/播放失败时最多再试几首，避免卡在死链上 */
 async function playNextFmTrack(get: any, maxAttempts = 5): Promise<boolean> {
+  let lastError = '';
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       const next = await useDiscoveryStore.getState().fmNext();
-      if (!next) return false;
+      if (!next) {
+        // 队列耗尽/拉取失败：不再静默，写入用户可见的错误，避免“点了没反应”
+        const fmState = useDiscoveryStore.getState();
+        lastError = fmState.fmError || '私人 FM 暂无更多推荐（可能需要重新登录）';
+        break;
+      }
       const failed = await playAndDidFail(get, next);
       if (!failed) return true;
+      lastError = 'FM 曲目解析失败，已自动跳过';
     } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
     }
   }
+  usePlayerStore.setState({ error: `私人 FM 切歌失败：${lastError}` });
   return false;
 }
 
 /** 预热当前曲目附近的 URL、歌词和封面，切歌与看歌词时更快可用。 */
 async function preloadNext(get: any): Promise<void> {
   const { queue, currentIndex, repeatMode, isShuffle, fmMode } = get();
+  if (fmMode) {
+    // FM 模式：预取 discoveryStore 队列中接下来的 1-2 首（URL/歌词/封面），
+    // 否则每次「下一首」都实时走完整解析链，正是 FM 切歌慢的根因。
+    const { fmQueue, fmIndex } = useDiscoveryStore.getState();
+    const upcoming = [fmQueue[fmIndex], fmQueue[fmIndex + 1]].filter(
+      (track): track is MusicInfo => !!track,
+    );
+    if (upcoming.length > 0) await prefetchTracks(upcoming);
+    return;
+  }
   await prefetchNearbyTracks({ queue, currentIndex, repeatMode, isShuffle, fmMode });
+}
+
+/** 播放失败自动下一首（设置项，默认关闭）；FM 模式连播不受此开关影响 */
+let playbackFailedAutoNext = false;
+
+export function setPlaybackFailedAutoNext(value: unknown) {
+  playbackFailedAutoNext = value === true;
 }
 
 const syncEngineToStore = (set: any, get: any) => {
@@ -144,6 +178,8 @@ const syncEngineToStore = (set: any, get: any) => {
     set({
       status: engineState.status,
       progress: engineState.currentTime,
+      // 锚点用 engine 采样时刻（同帧），UI 外推不再重复计入 React 渲染延迟
+      progressSampledAt: engineState.currentTimeSampledAt,
       duration: engineState.duration,
       // While muted, engine volume is 0; keep store logical volume for unmute/slider
       volume: isMuted ? storeVolume : engineState.volume,
@@ -152,12 +188,28 @@ const syncEngineToStore = (set: any, get: any) => {
       error: engineState.error,
     });
 
-    // 普通队列：仅 playing→error 自动跳（loading→error 由 playAndDidFail 处理）
-    // FM 模式：loading→error 也要跳，否则推荐死链会卡死
+    // 普通队列：仅 playing→error 自动跳（loading→error 由 playAndDidFail 处理），由设置开关控制
+    // FM 模式：始终自动跳，loading→error 也要跳，否则推荐死链会卡死
+    // 仅在真正跨入 error 时记一次：error 停留期间引擎仍可能推状态，
+    // 无条件记录会把同一次失败放大成每帧一条日志（每条还是一次 Tauri IPC）。
+    if (engineState.status === "error" && prevStatus !== "error") {
+      const currentName = (get() as PlayerStore).current?.name ?? "?";
+      const errMsg = engineState.error ? String(engineState.error) : "unknown";
+      debugLog(`[engine] 播放错误 status=${prevStatus}->error 歌曲=${currentName} 错误=${errMsg} url=${(engineState.currentUrl ?? "").slice(0, 80)}`);
+      // 解析成功但播放器拒收（典型：lx 代理返回的地址实际不可播），把该曲的
+      // 持久化 URL 与预读缓存一并作废，否则坏链会被缓存 6h 反复命中「一播就错」。
+      // 对齐移动端 Event.PlaybackError 的处置。
+      const failed = (get() as PlayerStore).current;
+      if (failed) {
+        void invalidateCachedPlaybackUrl(failed).catch(() => undefined);
+        invalidatePrefetchedTrack(failed);
+      }
+    }
+    const fmMode = (get() as PlayerStore).fmMode;
     const shouldAutoSkip =
       engineState.status === "error" &&
-      (prevStatus === "playing" ||
-        (prevStatus === "loading" && (get() as PlayerStore).fmMode));
+      ((prevStatus === "playing" && (fmMode || playbackFailedAutoNext)) ||
+        (prevStatus === "loading" && fmMode));
     if (shouldAutoSkip) {
       if (autoSkipTimer) clearTimeout(autoSkipTimer);
       autoSkipTimer = setTimeout(() => {
@@ -204,6 +256,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
     currentIndex: -1,
     status: "idle",
     progress: 0,
+    progressSampledAt: Date.now(),
     duration: 0,
     volume: 0.8,
     isMuted: false,
@@ -215,6 +268,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
     fmMode: false,
 
     playHistory: [],
+    fmHistory: [],
 
 
 
@@ -390,6 +444,9 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
       });
 
+      // 立即预取该曲播放 URL/歌词/封面：播到它时命中预取缓存秒开（对齐移动端）。
+      void prefetchTracks([music]).catch(() => undefined);
+
     },
 
     removeFromQueue: (index) => {
@@ -495,11 +552,9 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
         status: "idle",
 
         progress: 0,
-
+        progressSampledAt: Date.now(),
         duration: 0,
-
         error: null,
-
         playHistory: [],
 
       });
@@ -513,13 +568,13 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
 
       // FM 模式：放弃 queue 逻辑，拉下一首推荐
-
       if (fmMode) {
-
+        // 把当前曲压入 FM 历史栈，供 prev() 回退（FM 无 queue，prev 原先是无反应的）
+        if (get().current) {
+          set((state) => ({ fmHistory: [...state.fmHistory.slice(-49), state.current!] }));
+        }
         await playNextFmTrack(get);
-
         return;
-
       }
 
 
@@ -631,8 +686,22 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
 
     prev: async () => {
+      const { queue, currentIndex, isShuffle, playHistory, fmMode, fmHistory, current } = get();
 
-      const { queue, currentIndex, isShuffle, playHistory } = get();
+      // FM 模式：从 FM 历史栈回退；无历史时回到当前曲开头（对齐移动端语义）
+      if (fmMode) {
+        const lastTrack = fmHistory.length > 0 ? fmHistory[fmHistory.length - 1] : null;
+        if (lastTrack) {
+          set({ fmHistory: fmHistory.slice(0, -1) });
+          await get().play(lastTrack);
+          return;
+        }
+        if (current) {
+          playerEngine.seek(0);
+          return;
+        }
+        return;
+      }
 
       if (queue.length === 0) return;
 
@@ -769,6 +838,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
         queue: [],
         currentIndex: -1,
         playHistory: [],
+        fmHistory: [],
         current: null,
         status: "idle",
       });

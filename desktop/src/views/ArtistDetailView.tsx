@@ -245,7 +245,7 @@ export function ArtistDetailView() {
                     <div className="af-col-index">{index + 1}</div>
                     <div className="af-col-title">
                       <div className="af-song-cover">
-                        {song.img ? <img src={song.img} alt={song.name} /> : <div className="af-cover-placeholder">♪</div>}
+                        {song.img ? <img src={song.img} alt={song.name} /> : <div className="af-cover-placeholder">暂无封面</div>}
                       </div>
                       <span>{song.name}</span>
                     </div>
@@ -288,7 +288,7 @@ export function ArtistDetailView() {
                 onClick={() => navigate(`/album/${album.id}`)}
               >
                 <div className="af-album-cover">
-                  {album.picUrl ? <img src={album.picUrl} alt={album.name} /> : <div className="af-cover-placeholder">♪</div>}
+                  {album.picUrl ? <img src={album.picUrl} alt={album.name} /> : <div className="af-cover-placeholder">暂无封面</div>}
                 </div>
                 <div className="af-album-meta">
                   <h3 className="af-album-name">{album.name}</h3>

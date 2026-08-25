@@ -179,6 +179,24 @@ export async function prefetchNearbyTracks({
   await Promise.all(tracks.map((music) => prefetchTrack(music, dependencies)));
 }
 
+/**
+ * 按曲目列表直接预取（供私人 FM 等非队列上下文使用）：
+ * 解析播放 URL + 预取歌词/封面并写入缓存，切歌时 URL 命中预取缓存秒开。
+ */
+export async function prefetchTracks(musicList: MusicInfo[]): Promise<void> {
+  if (musicList.length === 0) return;
+
+  const dependencies = {
+    resolvePlaybackUrl,
+    getLyrics,
+    preloadUrl: (url: string) => playerEngine.preload(url),
+    preloadCoverUrl: defaultPreloadCover,
+    now: () => Date.now(),
+  };
+
+  await Promise.all(musicList.map((music) => prefetchTrack(music, dependencies)));
+}
+
 export function getPrefetchedTrack(music: MusicInfo): PlaybackPrefetchEntry | undefined {
   return prefetchCache.get(getTrackKey(music));
 }

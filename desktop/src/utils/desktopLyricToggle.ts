@@ -1,7 +1,6 @@
 import {
   getLyricWindowState,
   setLyricWindowLocked,
-  toggleLyricWindow,
   toggleLyricWindowFromPlayer,
   unlockLyricWindowFromPlayer,
   type RustLyricWindowPlayerToggleResult,
@@ -97,38 +96,9 @@ export async function toggleDesktopLyricFromPlayer(
     };
   }
 
-  if (!backendState && context.knownOpen) {
-    await setLocked(false);
-    broadcastSettings({ lyricLocked: false });
-    return {
-      action: "unlocked",
-      open: true,
-      locked: false,
-      message: "桌面歌词已解锁",
-    };
-  }
-
-  try {
-    return await toggleCommand();
-  } catch (error) {
-  }
-
-  if (Boolean(backendState?.open || context.knownOpen)) {
-    await setLocked(false);
-    broadcastSettings({ lyricLocked: false });
-    return {
-      action: "unlocked",
-      open: true,
-      locked: false,
-      message: "桌面歌词已解锁",
-    };
-  }
-
-  const nextOpen = await toggleLyricWindow();
-  return {
-    action: nextOpen ? "opened" : "closed",
-    open: nextOpen,
-    locked: false,
-    message: nextOpen ? "桌面歌词已打开" : "桌面歌词已关闭",
-  };
+  // 状态查询失败时不能把前端旧状态当成后端事实，否则窗口已关闭时会被误判为“已打开”。
+  // 只有后端明确报告锁定，或明确的 knownLocked，才执行解锁。
+  const result = await toggleCommand();
+  broadcastSettings({ lyricLocked: result.locked });
+  return result;
 }

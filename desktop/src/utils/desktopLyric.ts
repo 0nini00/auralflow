@@ -1,4 +1,4 @@
-import type { LyricLine } from "@/services/lyricsService";
+import type { LyricLine, LyricWord } from "@/services/lyricsService";
 import { calculateLyricLineProgress } from "@/services/lyrics/playbackSync";
 
 export type DesktopLyricLineRole = "current" | "next" | "empty";
@@ -9,6 +9,10 @@ export interface DesktopLyricDisplayLine {
   text: string;
   translation?: string;
   progress?: number;
+  /** 逐字时间轴（仅当前行透传，存在时启用卡拉OK 渲染） */
+  words?: LyricWord[];
+  /** 行起始时间（秒）；部分格式的 word.start 相对行首，需用它换算绝对时间 */
+  time?: number;
 }
 
 export interface DesktopLyricLineOptions {
@@ -34,7 +38,7 @@ function clampCurrentIndex(currentLine: number, lineCount: number) {
 
 function normalizeLineText(text: string | undefined) {
   const normalized = text?.trim();
-  return normalized || "♪";
+  return normalized || "...";
 }
 
 export function buildDesktopLyricLines({
@@ -64,6 +68,7 @@ export function buildDesktopLyricLines({
       ? calculateLyricLineProgress(lines, currentIndex, currentTime)
       : 0,
     ...(showTranslation && current.tr ? { translation: current.tr } : {}),
+    ...(current.words?.length ? { words: current.words, time: current.time } : {}),
   }];
 
   if (singleLine || !showNextLine) return result;

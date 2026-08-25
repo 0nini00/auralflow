@@ -12,7 +12,6 @@
 | `MusicCard.tsx` | 歌曲、歌单等卡片 |
 | `SongAddMenuButton.tsx` | 添加到喜欢、本地歌单或网易云歌单 |
 | `MetadataEditModal.tsx` | 本地音频元数据编辑 |
-| `SoundEffectPanel.tsx` | 均衡器、声像、混响和变调控制 |
 | `WyCookieLoginModal.tsx` | 网易云 Cookie 登录、二维码登录、登录失败回滚 |
 | `CustomSourceUpdateModal.tsx` | 自定义音源更新提示 |
 | `UpdateModal.tsx` | 应用更新提示 |

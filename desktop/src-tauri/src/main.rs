@@ -6,17 +6,73 @@ mod config;
 mod library;
 mod lyric_window;
 mod models;
+mod outbound;
 mod tray;
+
+/// 设置窗口 AppUserModelID：音量混音器/任务栏据此匹配快捷方式（应用名+图标），
+/// 否则 WebView2 进程显示为 "Microsoft Edge WebView2" 默认图标。
+#[cfg(target_os = "windows")]
+unsafe fn set_app_user_model_id(hwnd: isize, app_id: &str) {
+    use std::os::windows::ffi::OsStrExt;
+    let wide: Vec<u16> = std::ffi::OsStr::new(app_id)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    #[link(name = "shell32")]
+    extern "system" {
+        fn SetCurrentProcessExplicitAppUserModelID(appid: *const u16) -> i32;
+    }
+    // 进程级设置即可：所有窗口（含歌词窗）统一归属
+    let _ = SetCurrentProcessExplicitAppUserModelID(wide.as_ptr());
+    let _ = hwnd;
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let result = tauri::Builder::default()
+        // 单实例锁：重复启动时聚焦已有主窗口，而不是开一个新进程新窗口。
+        // argv 透传给深链处理（与正常启动一致）。
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            use tauri::{Emitter, Manager};
+            if let Some(main) = app.get_webview_window("main") {
+                let _ = main.show();
+                let _ = main.unminimize();
+                let _ = main.set_focus();
+            }
+            // 二次启动携带的深链转发给前端处理链（app 克隆成 'static 后再发射）
+            if let Some(url) = argv.iter().find_map(|arg| {
+                arg.strip_prefix("auralflow://")
+                    .map(|_| arg.clone())
+            }) {
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    let _ = app.emit("deep-link-url", url);
+                });
+            }
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
+            // 音量混音器/任务栏显示正确的应用名与图标：
+            // WebView2 进程默认显示 "Microsoft Edge WebView2"，显式设置 AUMID 后
+            // 系统会按安装包的快捷方式（含图标）归属音量条目。
+            #[cfg(target_os = "windows")]
+            {
+                use tauri::Manager;
+                let hwnd = app
+                    .get_webview_window("main")
+                    .and_then(|w| w.hwnd().ok())
+                    .map(|h| h.0 as isize)
+                    .unwrap_or(0);
+                if hwnd != 0 {
+                    unsafe {
+                        set_app_user_model_id(hwnd, "cn.chenle.auralflow");
+                    }
+                }
+            }
             // 系统托盘
             let _ = tray::setup(app.handle());
             // 注册深链 scheme（Windows 运行时写入注册表）
@@ -43,14 +99,18 @@ pub fn run() {
             commands::save_settings,
             commands::patch_settings,
             commands::reset_settings,
+            commands::debug_log,
             // 压缩/解压 fallback
             commands::zlib_inflate,
             commands::zlib_deflate,
+            // 运行时可配置目标的出站代理（WebDAV / 自定义音源）
+            outbound::proxy_http_request,
             // B站 API
             commands::bili_get_json,
             commands::bili_cache_audio,
             commands::cache_remote_audio,
             commands::cache_remote_image,
+            commands::lookup_cached_media,
             commands::get_song_cache_stats,
             commands::clear_song_cache,
             // 下载

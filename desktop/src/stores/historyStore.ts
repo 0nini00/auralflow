@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { MusicInfo } from "@lx/core";
+import { mergeWebdavHistory, type MusicInfo } from "@lx/core";
 import { attachLibraryPersistence } from "./libraryPersistence";
 
 interface HistoryState {
@@ -38,18 +38,9 @@ export const useHistoryStore = create<HistoryState>()((set) => ({
   replaceAll: (songs) => set({ history: songs ?? [] }),
 
   mergeAll: (songs) => {
-    set((state) => {
-      const seen = new Set<string>(state.history.map(musicKey));
-      const merged = [...state.history];
-      for (const song of songs ?? []) {
-        if (!song?.source || !song?.id) continue;
-        const key = musicKey(song);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        merged.push(song);
-      }
-      return { history: merged.slice(0, MAX_HISTORY) };
-    });
+    set((state) => ({
+      history: mergeWebdavHistory(state.history, songs ?? [], MAX_HISTORY),
+    }));
   },
 }));
 

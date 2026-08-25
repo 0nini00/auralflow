@@ -61,10 +61,9 @@ button {
   pointer-events: none;
 }
 
-.af-app-has-background {
-  background: #0f172a;
-}
-
+/* 背景图用 background-size: cover 铺满，兜底色只在图加载失败或加载中可见。
+   这里不再硬编码深蓝：让它继承 .af-app 的 --af-bg-base，降级时回到正常的
+   亮色/深色主题，而不是「白色半透明面板叠深蓝底」混出的中性灰。 */
 .af-window-titlebar {
   position: relative;
   z-index: 2200;
@@ -584,25 +583,42 @@ button {
   }
 }
 
+/* 有背景图时面板是半透明的，必须配 backdrop-filter 才成立：
+   只做半透明会让背景图直接透上来干扰文字，模糊 + 提饱和才是毛玻璃。
+
+   不透明度是「看得见背景」和「文字可读」的直接权衡，遮罩还会逐层相乘
+   （content 之上还有 hero / card）。这里把遮罩压到很薄，可读性交给
+   brightness 调整背景明度 + 文字描边来兜，而不是靠加厚遮罩把背景盖掉。 */
 .af-app-has-background .af-sidebar,
 .af-app-has-background .af-header,
 .af-app-has-background .af-content,
 .af-app-has-background .af-player-bar {
-  border-color: rgba(255, 255, 255, 0.38);
-  background: rgba(255, 255, 255, 0.58);
-  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.12);
+  border-color: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.1);
+  backdrop-filter: blur(16px) saturate(150%) brightness(1.2);
 }
 
 .af-app-has-background .af-content {
-  background: rgba(255, 255, 255, 0.46);
+  background: rgba(255, 255, 255, 0.16);
 }
 
+/* 面板内的二级元素叠在已模糊的面板上，只做极轻的一层，
+   避免和 content 的遮罩相乘后把背景吃光 */
 .af-app-has-background .af-header-search,
 .af-app-has-background .af-user-button,
 .af-app-has-background .af-sidebar-count,
 .af-app-has-background .af-card {
-  border-color: rgba(255, 255, 255, 0.32);
-  background: rgba(255, 255, 255, 0.42);
+  border-color: rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(8px);
+}
+
+/* 遮罩薄到这个程度后，文字会直接压在背景图的明暗变化上。
+   用同色系描边把字撑起来，代价远小于把遮罩加厚。 */
+.af-app-has-background .af-sidebar,
+.af-app-has-background .af-content {
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.55);
 }
 
 .af-app-has-background .af-sidebar-link:hover {
@@ -623,12 +639,15 @@ button {
 [data-theme="dark"] .af-app-has-background .af-content,
 [data-theme="dark"] .af-app-has-background .af-player-bar {
   border-color: rgba(226, 232, 240, 0.14);
-  background: rgba(15, 23, 42, 0.48);
+  background: rgba(15, 23, 42, 0.26);
   box-shadow: 0 18px 42px rgba(0, 0, 0, 0.2);
+  /* 暗色下压暗背景保证浅色文字可读，但压太狠会把背景一起吃掉，
+     0.72 就是上一版「背景看不出来」的主因，这里放松到 0.88。 */
+  backdrop-filter: blur(16px) saturate(140%) brightness(0.88);
 }
 
 [data-theme="dark"] .af-app-has-background .af-content {
-  background: rgba(15, 23, 42, 0.42);
+  background: rgba(15, 23, 42, 0.16);
 }
 
 [data-theme="dark"] .af-app-has-background .af-header-search,
@@ -636,15 +655,16 @@ button {
 [data-theme="dark"] .af-app-has-background .af-sidebar-count,
 [data-theme="dark"] .af-app-has-background .af-card {
   border-color: rgba(226, 232, 240, 0.12);
-  background: rgba(15, 23, 42, 0.30);
+  background: rgba(15, 23, 42, 0.16);
+}
+
+[data-theme="dark"] .af-app-has-background .af-sidebar,
+[data-theme="dark"] .af-app-has-background .af-content {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.65);
 }
 
 [data-theme="dark"] .af-app-has-background .af-sidebar-link:hover {
   background: rgba(255, 255, 255, 0.08);
-}
-
-.af-app-has-background .af-player-bar {
-  backdrop-filter: none;
 }
 
 /* ============================================================

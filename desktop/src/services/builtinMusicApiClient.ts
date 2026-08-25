@@ -7,7 +7,10 @@ import {
   toBuiltinMusicApiBr,
 } from "@/services/builtinMusicApiModel";
 
-const BROWSER_FETCH_TIMEOUT_MS = 1200;
+// 网关冷请求常需 1.8-2.6s，超时过短会把可用结果也掐掉、白白走一轮 Tauri 兜底。
+const BROWSER_FETCH_TIMEOUT_MS = 6_000;
+/** Tauri fetch fallback 的超时。比浏览器路径宽松（它专治 CORS/被拦场景），但必须有上限。 */
+const TAURI_FETCH_TIMEOUT_MS = 10_000;
 
 function pickAudioUrl(data: unknown): string | null {
   if (typeof data === "string" && /^https?:\/\//.test(data)) return data;
@@ -58,22 +61,39 @@ export async function fetchBuiltinMusicApiText(url: string): Promise<string> {
         : browserError.message
       : String(browserError);
     try {
-      const resp = await tauriFetch(url, {
-        headers: {
-          Accept: "application/json,text/plain,*/*",
-        },
-      });
-      const text = await resp.text();
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${text.slice(0, 240)}`);
-      return text;
+      // Tauri 的 http 插件底层是 reqwest，默认不设超时；不显式中断会让弱网下的
+      // 切歌请求长期挂起。这里给 fallback 路径同样加上超时。
+      const fallbackController =
+        typeof AbortController !== "undefined" ? new AbortController() : null;
+      const fallbackTimer = setTimeout(
+        () => fallbackController?.abort(),
+        TAURI_FETCH_TIMEOUT_MS,
+      );
+      try {
+        const resp = await tauriFetch(url, {
+          headers: {
+            Accept: "application/json,text/plain,*/*",
+          },
+          signal: fallbackController?.signal,
+        });
+        const text = await resp.text();
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${text.slice(0, 240)}`);
+        return text;
+      } finally {
+        clearTimeout(fallbackTimer);
+      }
     } catch (tauriError) {
-      const secondError = tauriError instanceof Error ? tauriError.message : String(tauriError);
+      const secondError = tauriError instanceof Error
+        ? tauriError.name === "AbortError"
+          ? `请求超时（>${TAURI_FETCH_TIMEOUT_MS}ms）`
+          : tauriError.message
+        : String(tauriError);
       throw new Error(`浏览器 fetch 失败：${firstError}\nTauri fetch 抛出异常：${secondError}`);
     }
   }
 }
 
-export async function searchBuiltinMusicApiSongs(
+async function searchBuiltinMusicApiSongsGdstudio(
   source: string,
   keyword: string,
   page: number,
@@ -95,7 +115,7 @@ export async function searchBuiltinMusicApiSongs(
     .filter((item): item is MusicInfo => item != null);
 }
 
-export async function resolveBuiltinMusicApiUrl(music: MusicInfo, quality?: string): Promise<{
+async function resolveBuiltinMusicApiUrlGdstudio(music: MusicInfo, quality?: string): Promise<{
   url: string;
   quality: string;
 }> {
@@ -119,7 +139,7 @@ export async function resolveBuiltinMusicApiUrl(music: MusicInfo, quality?: stri
   };
 }
 
-export async function getBuiltinMusicApiLyric(music: MusicInfo): Promise<{ lyric?: string; tlyric?: string }> {
+async function getBuiltinMusicApiLyricGdstudio(music: MusicInfo): Promise<{ lyric?: string; tlyric?: string }> {
   const gateway = getBuiltinMusicApiGateway(music);
   if (!gateway?.lyricId) return {};
 
@@ -134,4 +154,34 @@ export async function getBuiltinMusicApiLyric(music: MusicInfo): Promise<{ lyric
     lyric: typeof json?.lyric === "string" ? json.lyric : undefined,
     tlyric: typeof json?.tlyric === "string" ? json.tlyric : undefined,
   };
+}
+
+/**
+ * 内置音乐 API 搜索（gdstudio 网关直通）。
+ * 空数组/异常响应按失败处理，由上层（searchBuiltinMusicApiWithMetadata）回退官方直连。
+ */
+export function searchBuiltinMusicApiSongs(
+  source: string,
+  keyword: string,
+  page: number,
+  limit: number,
+  displaySource: Extract<SourceTag, "wy" | "tx">,
+): Promise<MusicInfo[]> {
+  return searchBuiltinMusicApiSongsGdstudio(source, keyword, page, limit, displaySource);
+}
+
+/**
+ * 内置音乐 API 解析播放 URL（gdstudio 网关直通）。
+ * 入参兼容 br 数值（128/320/740/999）与音质标签。
+ */
+export function resolveBuiltinMusicApiUrl(music: MusicInfo, quality?: string): Promise<{
+  url: string;
+  quality: string;
+}> {
+  return resolveBuiltinMusicApiUrlGdstudio(music, quality);
+}
+
+/** 内置音乐 API 拉取歌词（gdstudio 网关直通）。 */
+export function getBuiltinMusicApiLyric(music: MusicInfo): Promise<{ lyric?: string; tlyric?: string }> {
+  return getBuiltinMusicApiLyricGdstudio(music);
 }

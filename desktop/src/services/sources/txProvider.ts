@@ -188,9 +188,10 @@ async function searchSongs(
   page: number,
   limit: number
 ): Promise<MusicInfo[]> {
+  // 官方 musicu 搜索为主链，网关 joox 作为兜底与元数据补充
   return searchBuiltinMusicApiWithMetadata(
-    () => searchBuiltinMusicApiSongs("joox", keyword, page, Math.min(limit, 30), "tx"),
     () => searchQqSongs(keyword, page, limit),
+    () => searchBuiltinMusicApiSongs("joox", keyword, page, Math.min(limit, 30), "tx"),
   );
 }
 
@@ -373,10 +374,15 @@ export const txProvider: MusicSource = {
   },
 
   async getLyric(music: MusicInfo): Promise<{ lyric?: string; tlyric?: string }> {
-    if (canResolveWithBuiltinMusicApi(music)) {
-      return getBuiltinMusicApiLyric(music);
+    // 官方歌词优先；失败或为空时才回退网关解析
+    try {
+      const result = await getLyric(music.id);
+      if (result.lyric) return result;
+      if (!canResolveWithBuiltinMusicApi(music)) return result;
+    } catch (error) {
+      if (!canResolveWithBuiltinMusicApi(music)) throw error;
     }
-    return getLyric(music.id);
+    return getBuiltinMusicApiLyric(music);
   },
 
   async getPlaylistDetail(playlist: PlaylistInfo): Promise<MusicInfo[]> {

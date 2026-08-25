@@ -16,6 +16,9 @@ export function useKeyboardShortcuts() {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (isEditableKeyboardTarget(e.target)) return;
+      // 沉浸式播放页打开时放弃全局快捷键：空格/方向键在沉浸页内
+      // 误触会暂停/拖动进度，导致退出后迷你栏进度看起来“不同步”。
+      if (document.querySelector(".af-immersive-lyrics")) return;
       // 带 Ctrl/Meta/Alt 的组合键交给系统或其它绑定
       if (e.ctrlKey || e.metaKey || e.altKey) return;
 

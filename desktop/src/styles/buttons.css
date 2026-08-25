@@ -122,7 +122,6 @@ button:focus-visible {
 .af-bili-manage-button,
 .af-music-card-action-btn,
 .af-custom-source-icon-button,
-.af-sfx-pill,
 .af-fm-action-primary,
 .af-fm-action-secondary {
   border: 1px solid var(--af-button-secondary-border);
@@ -189,7 +188,6 @@ button:focus-visible {
 .af-bili-manage-button:hover:not(:disabled),
 .af-music-card-action-btn:hover:not(:disabled),
 .af-custom-source-icon-button:hover:not(:disabled),
-.af-sfx-pill:hover:not(:disabled),
 .af-fm-action-primary:hover:not(:disabled),
 .af-fm-action-secondary:hover:not(:disabled),
 .af-sfx-toggle-btn:hover:not(:disabled) {
@@ -324,7 +322,6 @@ button:focus-visible {
 
 .af-custom-source-icon-button.af-active,
 .af-sfx-toggle-btn.af-active,
-.af-sfx-pill.af-active,
 .af-fm-action-secondary.af-liked {
   border-color: var(--af-button-active-border);
   background: var(--af-button-active-bg);
@@ -361,13 +358,13 @@ button:focus-visible {
 
 .af-action-btn.af-delete-btn:hover:not(:disabled),
 .af-settings-danger-button:hover:not(:disabled) {
-  border-color: rgba(239, 68, 68, 0.28);
+  border-color: rgba(var(--af-error-rgb), 0.28);
   background: var(--af-error-bg);
   color: var(--af-error);
 }
 
 .af-library-button-danger:hover:not(:disabled) {
-  border-color: rgba(239, 68, 68, 0.28);
+  border-color: rgba(var(--af-error-rgb), 0.28);
   background: var(--af-error-bg);
   color: var(--af-error);
 }

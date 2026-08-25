@@ -25,6 +25,8 @@ pub struct AppSettings {
     pub default_quality: String,
     /// 其他媒体开始播放时，是否接受系统/浏览器触发的自动暂停
     pub pause_on_external_playback: bool,
+    /// 播放失败时是否自动跳到下一首（FM 模式不受影响，始终连播）
+    pub playback_failed_auto_next: bool,
     /// 网易云 Cookie
     pub wy_cookie: Option<String>,
     /// B站 Cookie
@@ -74,8 +76,6 @@ pub struct AppSettings {
     /// 歌词动画强度: "reduced" / "normal" / "enhanced"
     #[serde(default = "default_lyric_animation_intensity")]
     pub lyric_animation_intensity: String,
-    /// 沉浸式歌词：主歌词字号（px）
-    pub immersive_lyric_font_size: u32,
     /// 沉浸式歌词：字体族 CSS 值
     pub immersive_lyric_font_family: String,
     /// 主界面背景图片路径。None=使用主题背景
@@ -110,6 +110,7 @@ impl Default for AppSettings {
             volume: 80,
             default_quality: "320k".to_string(),
             pause_on_external_playback: true,
+            playback_failed_auto_next: false,
             wy_cookie: None,
             bili_cookie: None,
             lyric_pinned: true,
@@ -134,7 +135,6 @@ impl Default for AppSettings {
             lyric_hover_hide: false,
             lyric_enable_animation: true,
             lyric_animation_intensity: default_lyric_animation_intensity(),
-            immersive_lyric_font_size: 36,
             immersive_lyric_font_family:
                 "\"Inter\", \"Noto Sans CJK SC\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif"
                     .to_string(),
