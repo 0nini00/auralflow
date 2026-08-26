@@ -234,7 +234,7 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
           <View style={styles.stateWithAction}>
             <EmptyState
               title="未登录网易云账号"
-              description="请在 设置 → 账号与服务 登录网易云账号后使用私人 FM。"
+              description="请在「设置 → 账号与服务」中登录网易云账号后使用私人 FM。"
             />
           </View>
         )}
@@ -264,7 +264,7 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
 
           <View style={styles.songInfo}>
             <Text style={[styles.songName, { color: palette.text }]} numberOfLines={1}>{activeSong.name}</Text>
-            <Text style={[styles.artistName, { color: palette.textMuted }]} numberOfLines={1}>{activeSong.singer || "未知艺术家"}</Text>
+            <Text style={[styles.artistName, { color: palette.textMuted }]} numberOfLines={1}>{activeSong.singer || "未知歌手"}</Text>
             <Text style={[styles.albumName, { color: palette.textSubtle }]} numberOfLines={1}>{activeSong.albumName || "未知专辑"}</Text>
           </View>
 
@@ -333,7 +333,7 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
         )}
 
         {!loading && isLoggedIn && !error && fmSongs.length === 0 && (
-          <EmptyState icon={Radio} title="暂无可用 FM" description="暂时没有可播放的歌曲，稍后刷新再试。" />
+          <EmptyState icon={Radio} title="暂无推荐歌曲" description="暂时没有可播放的歌曲，稍后刷新再试。" />
         )}
 
         {!loading && isLoggedIn && fmSongs.length > 0 && (

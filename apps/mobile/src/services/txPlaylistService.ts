@@ -70,7 +70,7 @@ async function defaultFetchJson(url: string, init?: RequestInit): Promise<any> {
   const response = await fetchWithTimeout(url, init);
   const text = await response.text();
   if (!response.ok) {
-    throw new Error(`QQ 音乐请求失败 HTTP ${response.status}: ${text.slice(0, 160)}`);
+    throw new Error(`QQ 音乐请求失败，请稍后重试`);
   }
 
   const trimmed = text.trim();

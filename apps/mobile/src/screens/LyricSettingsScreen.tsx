@@ -167,7 +167,7 @@ export function LyricSettingsContent({ onBack, showNavigation = true }: LyricSet
               min={LYRIC_FONT_SIZE_MIN}
               max={LYRIC_FONT_SIZE_MAX}
               value={fontSize}
-              valueText={`${fontSize} 像素`}
+              valueText={`${fontSize}px`}
               palette={palette}
               onChange={setFontSize}
             />
@@ -182,7 +182,7 @@ export function LyricSettingsContent({ onBack, showNavigation = true }: LyricSet
               min={LINE_GAP_MIN}
               max={LINE_GAP_MAX}
               value={lineGap}
-              valueText={`${lineGap} 像素`}
+              valueText={`${lineGap}px`}
               palette={palette}
               onChange={setLineGap}
             />
@@ -233,7 +233,7 @@ export function LyricSettingsContent({ onBack, showNavigation = true }: LyricSet
           </SettingsCard>
 
           <SettingsCard style={styles.row}>
-            <Text style={[styles.rowLabel, { color: palette.text }]}>切换动画</Text>
+            <Text style={[styles.rowLabel, { color: palette.text }]}>切换动效</Text>
             <Switch
               value={enableAnimation}
               onValueChange={setEnableAnimation}

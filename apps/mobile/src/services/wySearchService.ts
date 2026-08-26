@@ -50,12 +50,12 @@ export async function searchWySongsViaCloudSearch(
   });
   const text = await response.text();
   if (!response.ok) {
-    throw new Error(`cloudsearch HTTP ${response.status}: ${text.slice(0, 160)}`);
+    throw new Error(`搜索失败，请稍后重试`);
   }
 
   const json = JSON.parse(text) as { code?: number; result?: { songs?: unknown[] } };
   if (json.code !== 200) {
-    throw new Error(`cloudsearch code=${json.code}`);
+    throw new Error(`搜索失败，请稍后重试`);
   }
   return (json.result?.songs ?? []).map(mapWyTrackToMusicInfo);
 }

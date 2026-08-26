@@ -104,7 +104,7 @@ export async function getDownloadedLocalSongs(): Promise<MusicInfo[]> {
       return {
         id: `${DOWNLOADED_LOCAL_ID_PREFIX}${item.song.source}-${item.song.id}`,
         name: item.song.name,
-        singer: item.song.singer || "未知艺术家",
+        singer: item.song.singer || "未知歌手",
         albumName: item.song.albumName || "未知专辑",
         source: "local",
         interval: item.song.interval,
@@ -173,7 +173,7 @@ function mapNativeLocalSongs(songs: NativeLocalSong[]): MusicInfo[] {
     return {
       id: song.id,
       name: song.title,
-      singer: song.artist || "未知艺术家",
+      singer: song.artist || "未知歌手",
       albumName: song.album || "未知专辑",
       source: "local",
       interval: Math.max(0, Math.round(song.duration / 1000)),

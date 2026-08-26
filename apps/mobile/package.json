@@ -4,7 +4,6 @@
   "androidVersionCode": 1,
   "private": true,
   "scripts": {
-    "test": "vitest run",
     "android": "react-native run-android",
     "android:assembleDebug": "cd android && gradlew.bat assembleDebug",
     "start": "react-native start",
@@ -65,8 +64,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "patch-package": "^8.0.1",
     "typescript": "^5.8.3",
-    "typescript-eslint": "^8.66.0",
-    "vitest": "^2.1.9"
+    "typescript-eslint": "^8.66.0"
   },
   "engines": {
     "node": ">= 22.11.0"

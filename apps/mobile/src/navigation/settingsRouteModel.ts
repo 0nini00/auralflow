@@ -42,7 +42,7 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   { name: "Appearance", label: "外观", description: "主题、强调色与背景", icon: "appearance" },
   { name: "Sources", label: "音源", description: "自定义音源管理", icon: "sources" },
   { name: "Sync", label: "同步与备份", description: "WebDAV 数据同步", icon: "sync" },
-  { name: "Data", label: "存储与数据", description: "缓存与历史清理", icon: "data" },
+  { name: "Data", label: "存储与数据", description: "缓存、下载与播放历史", icon: "data" },
   { name: "About", label: "关于", description: "版本与软件更新", icon: "about" },
 ] as const;
 

@@ -66,10 +66,10 @@ export function getNextSongSleepTimerState(
 
 export function buildSleepTimerLabel(input: SleepTimerLabelInput): string {
   if (input.minuteActive && input.minuteRemaining != null) {
-    return `睡眠 剩余${input.minuteRemaining}分钟`;
+    return `剩余${input.minuteRemaining}分钟`;
   }
   if (input.songActive) {
-    return `睡眠 剩余${input.songRemaining}首`;
+    return `剩余${input.songRemaining}首`;
   }
   return "睡眠";
 }

@@ -159,14 +159,14 @@ export async function validateWyCookie(rawCookie: string): Promise<WyUserInfo | 
 
   const text = await response.text();
   if (!text.trim()) {
-    throw new Error(`网易返回空响应 HTTP ${response.status}`);
+    throw new Error(`网易服务器返回空响应，请稍后重试`);
   }
 
   let data: JsonRecord;
   try {
     data = JSON.parse(text) as JsonRecord;
   } catch {
-    throw new Error(`网易返回异常响应 HTTP ${response.status}`);
+    throw new Error(`网易服务器返回异常响应，请稍后重试`);
   }
 
   if (data.code === 301 || data.code === 401 || data.code === 403) {

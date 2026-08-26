@@ -197,7 +197,7 @@ export function SongList({
     const progress = selectDownloadProgress(downloadStatus, song);
     const downloadLabel =
       status === "completed"
-        ? "已下"
+        ? "已下载"
         : status === "downloading"
         ? `${Math.round(progress * 100)}%`
         : status === "failed"
@@ -435,7 +435,7 @@ export const SongItem = memo(function SongItem({
     } catch (error) {
       const message = error instanceof Error ? error.message : "操作失败";
       if (message.includes("未登录")) {
-        Alert.alert("需要登录", "请在 设置 → 账号与服务 登录网易云账号后再收藏");
+        Alert.alert("需要登录", "请在「设置 → 账号与服务」中登录网易云账号后再收藏");
       } else {
         Alert.alert("操作失败", message);
       }
@@ -562,7 +562,7 @@ export const SongItem = memo(function SongItem({
             selected={isLiked}
             disabled={liking}
             onPress={handleLike}
-            accessibilityLabel={isLiked ? "取消喜欢" : "喜欢歌曲"}
+            accessibilityLabel={isLiked ? "取消喜欢" : "喜欢"}
             render={({ size, color }) =>
               liking ? (
                 <ActivityIndicator color={palette.danger} size="small" />

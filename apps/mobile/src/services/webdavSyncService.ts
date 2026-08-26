@@ -249,7 +249,7 @@ function formatWriteFailure(action: string, status: number, statusText: string):
   if (status === 404 || status === 409) {
     return `${action}失败：WebDAV 服务地址不可用或远端目录无法创建。请确认服务地址正确，例如坚果云 https://dav.jianguoyun.com/dav/。`;
   }
-  return `${action}失败: HTTP ${status} ${statusText}`;
+  return `${action}失败：HTTP ${status} ${statusText}`;
 }
 
 // ---------------------------------------------------------------------------

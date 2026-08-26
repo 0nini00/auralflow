@@ -192,7 +192,7 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
   importScript: async (script) => {
     const info = parseDesktopUserApiInfo(script);
     const existing = get().sources.find((source) => source.script === script);
-    if (existing) throw new Error(`导入失败，脚本内容与已有的源「${existing.name}」相同`);
+    if (existing) throw new Error(`导入失败，脚本内容与已有的音源「${existing.name}」相同`);
 
     const now = Date.now();
     const item: CustomSourceItem = {
@@ -327,7 +327,7 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
     if (!source || source.updateStatus === "checking") return;
     const next = patchSource(get().sources, id, {
       updateStatus: "available",
-      updateMessage: "音源运行时上报更新",
+      updateMessage: "音源检测到新版本",
       updateLog: alert.log,
       updateUrl: alert.updateUrl,
       updateCheckedAt: Date.now(),

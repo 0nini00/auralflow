@@ -16,7 +16,7 @@ interface DownloadingMetadataInput extends DownloadProgressInfo {
 }
 
 function getArtistName(song: MusicInfo): string {
-  return song.singer?.trim() || "未知艺术家";
+  return song.singer?.trim() || "未知歌手";
 }
 
 function normalizeProgress(progress: number): number {

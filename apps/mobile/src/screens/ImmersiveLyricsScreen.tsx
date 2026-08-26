@@ -174,7 +174,7 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
         <ImmersiveTopBar
           insetsTop={insets.top}
           songName={currentSong.name}
-          artist={currentSong.singer || "未知艺术家"}
+          artist={currentSong.singer || "未知歌手"}
           palette={palette}
           onClose={onClose}
           onOpenPlaySetting={() => setPlaySettingVisible(true)}

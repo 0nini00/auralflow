@@ -1,4 +1,5 @@
 import type { MusicInfo } from "@lx/core";
+import { isPreviewDuration } from "@lx/core";
 import {
   normalizePauseOnExternalPlayback,
   shouldResumeAfterExternalPause,
@@ -26,6 +27,7 @@ export interface PlayerEngineState {
 type Unsubscribe = () => void;
 type StateListener = (state: PlayerEngineState) => void;
 type EndedListener = () => void;
+type PreviewListener = (duration: number) => void;
 
 class PlayerEngine {
   private audio = new Audio();
@@ -44,6 +46,7 @@ class PlayerEngine {
   };
   private stateListeners = new Set<StateListener>();
   private endedListeners = new Set<EndedListener>();
+  private previewListeners = new Set<PreviewListener>();
   private progressRaf: number | null = null;
   /** rAF 被窗口遮挡 / 全屏 / 合成器繁忙而节流时，用低频 interval 兜底推送真实 currentTime，避免 store 进度与歌词冻结。 */
   private progressInterval: ReturnType<typeof setInterval> | null = null;
@@ -58,7 +61,16 @@ class PlayerEngine {
     this.audio.playbackRate = this.state.playbackRate;
 
     this.audio.addEventListener("loadedmetadata", () => {
-      this.patchState({ duration: this.audio.duration || 0 });
+      const duration = this.audio.duration || 0;
+      this.patchState({ duration });
+      // 试听兜底：解析期拿不到长度头的流式响应靠播放器实际时长判定（见 @lx/core stream-integrity）
+      const music = this.state.currentMusic;
+      if (
+        music &&
+        isPreviewDuration({ actualDurationSeconds: duration, expectedDurationSeconds: music.interval })
+      ) {
+        this.previewListeners.forEach((listener) => listener(duration));
+      }
     });
 
     this.audio.addEventListener("timeupdate", () => {
@@ -124,6 +136,12 @@ class PlayerEngine {
   onEnded(listener: EndedListener): Unsubscribe {
     this.endedListeners.add(listener);
     return () => this.endedListeners.delete(listener);
+  }
+
+  /** 播放器解析出试听片段时通知（duration 为实际流时长）。 */
+  onPreviewDetected(listener: PreviewListener): Unsubscribe {
+    this.previewListeners.add(listener);
+    return () => this.previewListeners.delete(listener);
   }
 
   setPauseOnExternalPlayback(value: unknown): void {

@@ -167,7 +167,7 @@ export function CustomSourceScreen() {
         <EmptyState
           icon={Code2}
           title="还没有导入自定义音源"
-          description="使用上方按钮粘贴脚本文本，或选择本机 JS 文件导入。"
+          description="点击上方按钮粘贴脚本文本，或从本机选择 JS 文件导入。"
         />
       ) : (
         <View style={styles.list}>

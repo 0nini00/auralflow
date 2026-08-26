@@ -108,7 +108,7 @@ export const useLyricOverlayStore = create<LyricOverlayState>((set, get) => ({
 
   setNotificationButtonEnabled: async (notificationButtonEnabled) => {
     if (!isLyricOverlaySupported()) {
-      const error = new Error("当前设备不支持播放通知歌词按钮");
+      const error = new Error("当前设备不支持播放通知显示歌词按钮");
       set({ error: error.message });
       throw error;
     }

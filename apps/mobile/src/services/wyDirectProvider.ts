@@ -139,7 +139,7 @@ export async function resolveWySongUrl(
       const entry = body?.data?.[0];
       const url = entry?.url;
       if (url && url.length > 0) return url;
-      weapiFailure = `weapi 已登录但未返回 URL（code=${String(entry?.code ?? "?")}，通常是无版权或需要 VIP）`;
+      weapiFailure = `未返回播放地址，歌曲可能无版权或需要 VIP`;
     } catch (error) {
       weapiFailure = `weapi 失败：${error instanceof Error ? error.message : String(error)}`;
     }

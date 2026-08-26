@@ -158,7 +158,7 @@ export function ImmersiveModals({
   </View>
 </Modal>
 
-{/* 睡眠定时器弹窗（与播放页能力对齐） */}
+{/* 睡眠定时弹窗（与播放页能力对齐） */}
 
 <Modal
 
@@ -172,7 +172,7 @@ export function ImmersiveModals({
 
 >
 
-  <TouchableWithoutFeedback accessibilityRole="button" accessibilityLabel="关闭睡眠定时器" onPress={() => setSleepModalVisible(false)}>
+  <TouchableWithoutFeedback accessibilityRole="button" accessibilityLabel="关闭睡眠定时" onPress={() => setSleepModalVisible(false)}>
 
   <KeyboardAvoidingView
 
@@ -184,7 +184,7 @@ export function ImmersiveModals({
 
     <Pressable onPress={() => undefined} style={[styles.volumeModalContent, { backgroundColor: palette.background, borderColor: palette.border }]}>
 
-      <Text style={[styles.volumeModalTitle, { color: palette.text }]}>睡眠定时器</Text>
+      <Text style={[styles.volumeModalTitle, { color: palette.text }]}>睡眠定时</Text>
 
       {sleepTimerActive && sleepTimerMinutes != null ? (
 

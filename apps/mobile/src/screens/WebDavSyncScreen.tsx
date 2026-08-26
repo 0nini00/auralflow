@@ -125,7 +125,7 @@ export function WebDavSyncScreen() {
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       if (!force && (detail.includes("较旧") || detail.includes("强制下载"))) {
-        Alert.alert("云端数据较旧", `${detail}\n\n是否强制用云端合并本地？`, [
+        Alert.alert("云端数据较旧", `${detail}\n\n是否强制用云端数据合并本地？`, [
           { text: "取消", style: "cancel" },
           {
             text: "强制下载",

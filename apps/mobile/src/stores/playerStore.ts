@@ -9,6 +9,7 @@ import TrackPlayer, {
   Capability
 } from "react-native-track-player";
 import type { MusicInfo } from "@lx/core";
+import { isPreviewDuration } from "@lx/core";
 import { getNextSongSleepTimerState, getSongSleepTimerTrackKey, normalizeSongSleepTimerCount } from "@/services/songSleepTimerModel";
 import { getNextMobilePlayMode, type MobilePlayMode } from "@/services/mobilePlayModeModel";
 import { clampPlaybackRate, DEFAULT_PLAYBACK_RATE } from "@/services/playerRateModel";
@@ -29,6 +30,9 @@ import { invalidatePrefetchForSong } from "../services/playerService";
 // ── 播放竞态保护 ──
 
 let playRequestId = 0;
+
+// 已判定为试听片段的歌曲 key：进度事件 0.25s 触发一次，防同一首歌重复告警。
+const previewRejectedKeys = new Set<string>();
 
 // 同 key 播放进入去重（对齐桌面端 inflightPlayRequest）：同 key 的并发 play 复用同一 Promise，
 // 避免重复 reset/add 同一 track；不同 key 不去重，仍靠上面的令牌丢弃过期请求。
@@ -464,7 +468,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
 
           title: song.name,
 
-          artist: song.singer || "未知艺术家",
+          artist: song.singer || "未知歌手",
 
           album: song.albumName || "未知专辑",
 
@@ -482,7 +486,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
           // 元数据沿用当前曲：这 2 秒仍属于「刚播完的那首」，
           // 通知栏不应闪成空白或下一首
           title: song.name,
-          artist: song.singer || "未知艺术家",
+          artist: song.singer || "未知歌手",
           album: song.albumName || "未知专辑",
           artwork: song.picUrl || song.img || undefined,
           duration: 0,
@@ -529,6 +533,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
         sleepTimerSongCount: sleepTimerNext.remainingSongs,
         sleepTimerLastTrackKey: sleepTimerNext.lastTrackKey,
       });
+      // 新播放会话重新允许试听检测（用户手动重试时再次拦截，防缓存命中后漏网）
+      previewRejectedKeys.clear();
 
     } catch (error) {
       const message = error instanceof Error ? error.message : "播放失败";
@@ -956,6 +962,19 @@ export function setupPlayerListeners() {
   // 播放进度更新
   TrackPlayer.addEventListener(Event.PlaybackProgressUpdated, ({ position, duration, buffered }) => {
     updateProgress(position, duration, buffered);
+    // 试听兜底：解析期拿不到 Content-Length / Content-Range 的流式响应靠播放器实际时长判定。
+    // 明显短于期望时长（song.interval）即视为试听：停播 + 清缓存，下次重播强制重新解析（对齐失败即停）。
+    const song = usePlayerStore.getState().currentSong;
+    if (!song) return;
+    const key = `${song.source}:${song.id}`;
+    if (previewRejectedKeys.has(key)) return;
+    if (isPreviewDuration({ actualDurationSeconds: duration, expectedDurationSeconds: song.interval })) {
+      previewRejectedKeys.add(key);
+      setError(`检测到试听片段（约 ${Math.round(duration)}s），已清除缓存，请重新播放或切换音源`);
+      void TrackPlayer.pause().catch(() => {});
+      void invalidateCachedPlaybackUrl(song).catch(() => undefined);
+      invalidatePrefetchForSong(song);
+    }
   });
 
   // 播放状态变化

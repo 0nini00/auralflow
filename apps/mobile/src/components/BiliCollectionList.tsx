@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ChevronRight, Music2 } from "lucide-react-native";
 
 import { CachedImage } from "@/components/CachedImage";
@@ -59,7 +59,7 @@ export function BiliCollectionList({ onCollectionPress }: BiliCollectionListProp
           {biliIsLoaded ? "未登录 B站" : "加载中…"}
         </Text>
         <Text style={[styles.emptyHint, { color: palette.textMuted }]}>
-          请在 设置 → 账号与服务 登录 B站账号
+          请在「设置 → 账号与服务」中登录 B站账号
         </Text>
       </View>
     );
@@ -157,9 +157,23 @@ export function BiliCollectionList({ onCollectionPress }: BiliCollectionListProp
           <ChevronRight size={20} color={palette.textMuted} />
         </Pressable>
       ))}
-      <Modal visible={showManager} animationType="slide" onRequestClose={closeManager}>
-        <ScrollView contentContainerStyle={[styles.managerModal, { backgroundColor: palette.background }]}>
-          <View style={styles.managerModalHeader}>
+      <Modal
+        visible={showManager}
+        transparent
+        animationType="slide"
+        onRequestClose={closeManager}
+        statusBarTranslucent={Platform.OS === "android"}
+        accessibilityViewIsModal
+      >
+        <Pressable style={styles.managerOverlay} accessible={false} onPress={closeManager}>
+          <Pressable
+            style={[styles.managerSheet, { backgroundColor: palette.surface }]}
+            accessible={false}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={[styles.managerSheetHandle, { backgroundColor: palette.border }]} />
+            <ScrollView contentContainerStyle={styles.managerSheetContent}>
+              <View style={styles.managerSheetHeader}>
             <View>
               <Text style={[styles.managerTitle, { color: palette.text }]}>B站合集管理</Text>
               <Text style={[styles.collectionMeta, { color: palette.textMuted }]}>选择哪些收藏合集显示在列表里</Text>
@@ -217,7 +231,9 @@ export function BiliCollectionList({ onCollectionPress }: BiliCollectionListProp
               </Pressable>
             );
           })}
-        </ScrollView>
+            </ScrollView>
+          </Pressable>
+        </Pressable>
       </Modal>
     </View>
   );
@@ -318,12 +334,30 @@ const styles = StyleSheet.create({
   collectionMeta: {
     fontSize: typography.caption,
   },
-  managerModal: {
-    padding: spacing.m,
-    paddingBottom: 100,
+  managerOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0,0,0,0.45)",
+  },
+  managerSheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 10,
+    maxHeight: "80%",
+  },
+  managerSheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: 12,
+  },
+  managerSheetContent: {
+    paddingHorizontal: spacing.m,
+    paddingBottom: 40,
     gap: spacing.xxs,
   },
-  managerModalHeader: {
+  managerSheetHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",

@@ -25,7 +25,7 @@ export function buildLocalMusicMetadataUpdate(input: LocalMusicMetadataInput): L
 
   const update: LocalMusicMetadataUpdate = {
     name,
-    singer: input.singer.trim() || "未知艺术家",
+    singer: input.singer.trim() || "未知歌手",
     albumName: input.albumName.trim() || "未知专辑",
   };
 

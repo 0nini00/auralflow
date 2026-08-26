@@ -45,7 +45,7 @@ export function AboutSettingsScreen() {
         </View>
         <SettingsLinkRow
           title="软件更新"
-          subtitle={status || "检查 GitHub Releases 最新版本"}
+          subtitle={status || "检查最新版本"}
           subtitleAccent={!!status}
           onPress={() => void handleCheck()}
           disabled={checking}

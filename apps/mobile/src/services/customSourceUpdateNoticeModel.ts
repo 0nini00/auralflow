@@ -10,7 +10,7 @@ export function buildCustomSourceUpdateDismissKey(source: CustomSourceItem): str
 }
 
 export function getCustomSourceUpdateLog(source: CustomSourceItem): string {
-  return source.updateLog || source.updateMessage || "自定义音源提示有新版本";
+  return source.updateLog || source.updateMessage || "检测到自定义音源有新版本";
 }
 
 export function selectCustomSourceUpdateNotice(

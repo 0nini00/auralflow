@@ -125,14 +125,14 @@ export function LocalPlaylistDetailScreen({ playlistId, onBack, onNavigateToPlay
               songs={playlist.songs}
               onPlay={handlePlay}
               onDelete={(song) => handleRemoveSong(song)}
-              emptyText="还没有歌曲，点击添加歌曲导入本地音乐"
+              emptyText="还没有歌曲，点击添加歌曲，导入本地音乐"
               highlightedIndex={locatedSongIndex}
               hideSourceTag
             />
           ) : (
             <EmptyState
               title="还没有歌曲"
-              description="点击添加歌曲导入本地音乐。"
+              description="点击添加歌曲，导入本地音乐。"
             />
           )}
         </View>

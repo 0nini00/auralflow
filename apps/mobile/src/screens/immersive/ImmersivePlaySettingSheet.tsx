@@ -22,9 +22,9 @@ import { usePlayerStore } from "@/stores/playerStore";
 const SLIDER_STEPS = 40;
 
 const ALIGN_OPTIONS = [
-  { label: "左", value: "left" as const },
+  { label: "左对齐", value: "left" as const },
   { label: "居中", value: "center" as const },
-  { label: "右", value: "right" as const },
+  { label: "右对齐", value: "right" as const },
 ];
 
 export interface ImmersivePlaySettingSheetProps {

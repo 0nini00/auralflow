@@ -192,6 +192,7 @@ export function BiliCollectionDetailScreen({
           onDismiss={() => setPlaybackError(null)}
         />
         <DetailHero
+          compact
           imageUrl={coverUrl}
           title={collection.name}
           subtitle={collection.desc}
@@ -215,7 +216,7 @@ export function BiliCollectionDetailScreen({
                 hideSourceTag
               />
             ) : (
-              <EmptyState icon={ListMusic} title="该合集暂无歌曲" description="该合集可能为空，或内容尚未同步完成。" />
+              <EmptyState icon={ListMusic} title="该合集暂无歌曲" description="合集为空或尚未同步完成。" />
             )}
           </View>
         )}

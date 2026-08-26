@@ -36,13 +36,13 @@ export function buildPlayerQueueItems(queue: MusicInfo[], currentIndex: number):
     key: `${song.source}:${song.id}:${index}`,
     index,
     title: song.name,
-    subtitle: song.singer || "未知艺术家",
+    subtitle: song.singer || "未知歌手",
     isCurrent: index === currentIndex,
   }));
 }
 
 export function getPlayerQueueSummary(queue: MusicInfo[], currentIndex: number): string {
-  if (queue.length === 0) return "播放队列为空";
+  if (queue.length === 0) return "播放列表为空";
   if (currentIndex >= 0 && currentIndex < queue.length) {
     return `正在播放第 ${currentIndex + 1} / ${queue.length} 首`;
   }

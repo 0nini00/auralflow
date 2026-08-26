@@ -1,10 +1,11 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import RNFS from "react-native-fs";
 import type { LyricLine, MusicInfo } from "@lx/core";
-import { DEFAULT_QUALITY_UPGRADE_WINDOW_MS, raceForBestQuality } from "@lx/core";
+import { DEFAULT_QUALITY_UPGRADE_WINDOW_MS, estimateStreamDurationSeconds, isPreviewStream, raceForBestQuality } from "@lx/core";
 import { fetchSongLyrics, parseUrl, buildStreamHeaders } from "./musicApi";
 import { resolveBiliSongUrl } from "./biliService";
-import { resolveUrlWithCustomSource, probeStreamUrl } from "./playerService";
+import { resolveUrlWithCustomSource } from "./playerService";
+import { probeStreamUrl } from "./streamProbe";
 import { STREAM_USER_AGENT } from "./musicApi";
 
 import { embedId3Tag, type Id3Cover } from "./id3TagWriter";
@@ -421,6 +422,20 @@ async function downloadSongInternal(task: QueueTask): Promise<string> {
       if (!probe.ok) {
         throw new Error(`下载地址不可用（${probe.reason}），请重试或更换音源`);
       }
+      if (
+        probe.ok &&
+        probe.totalBytes != null &&
+        isPreviewStream({
+          totalBytes: probe.totalBytes,
+          quality: raced.quality,
+          expectedDurationSeconds: song.interval,
+        })
+      ) {
+        const previewSeconds = estimateStreamDurationSeconds(probe.totalBytes, raced.quality);
+        throw new Error(
+          `下载地址为试听片段（约 ${Math.round(previewSeconds ?? 0)}s），请更换音源或音质`,
+        );
+      }
     } catch (error) {
       throw error instanceof Error ? error : new Error(String(error));
     }
@@ -478,7 +493,7 @@ async function downloadSongInternal(task: QueueTask): Promise<string> {
     if (result.statusCode !== 200 && result.statusCode !== 206) {
       // 清理失败文件
       await safeUnlink(finalFilePath);
-      throw new Error(`下载失败，HTTP ${result.statusCode}`);
+      throw new Error(`下载失败，请重试或更换音源`);
     }
     // 歌词只拉取一次：旁挂 .lrc 与嵌入 ID3 共用，避免两个函数各自请求一次网络
     const lyrics = await fetchSongLyrics(song).catch(() => [] as LyricLine[]);
@@ -753,14 +768,14 @@ async function raceDownloadUrl(
     (result) => ({ url: result.url, quality: result.quality || quality, fromCustomSource: false }),
     (error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`网关解析失败：${message}`);
+      throw new Error(`播放地址解析失败：${message}`);
     },
   );
   const customAttempt = resolveUrlWithCustomSource(song, [quality]).then(
     (result) => ({ ...result, fromCustomSource: true }),
     (error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`自定义音源兜底失败：${message}`);
+      throw new Error(`自定义音源解析失败：${message}`);
     },
   );
 

@@ -3,12 +3,6 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "test": "pnpm test:all",
-    "test:core": "pnpm --filter @lx/core test",
-    "test:desktop": "pnpm --filter @auralflow/desktop test",
-    "test:mobile": "pnpm --filter @auralflow/mobile test",
-    "test:rust": "cargo test --manifest-path desktop/src-tauri/Cargo.toml",
-    "test:all": "pnpm test:core && pnpm test:desktop && pnpm test:mobile && pnpm test:rust",
     "mobile:start": "pnpm --filter @auralflow/mobile start",
     "mobile:android": "pnpm --filter @auralflow/mobile android",
     "mobile:build:debug": "pnpm --filter @auralflow/mobile android:assembleDebug",

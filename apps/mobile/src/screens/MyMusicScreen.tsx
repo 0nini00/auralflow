@@ -201,7 +201,7 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
     try {
       const result = await importPlaylistsFromJsonInput(localPlaylistImportJson);
       if (!result.imported) {
-        Alert.alert("导入完成", "没有新增歌曲");
+        Alert.alert("导入成功", "没有新增歌曲");
         return;
       }
       setLocalPlaylistImportJson("");
@@ -250,7 +250,7 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
           <AccountInfo />
         </View>
 
-        <SectionHeader title="我的" description="喜欢、本地与网易云歌单。" style={styles.section} />
+        <SectionHeader title="我的" description="我喜欢的、本地与网易云歌单。" style={styles.section} />
 
         <View style={styles.quickActions}>
           {quickActions.map((action) => (
@@ -349,7 +349,7 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
               <TextInput
                 value={localPlaylistDescription}
                 onChangeText={setLocalPlaylistDescription}
-                placeholder="描述（可选）"
+                placeholder="简介（可选）"
                 placeholderTextColor={palette.textMuted}
                 multiline
                 style={[styles.createInput, styles.createTextArea, { borderColor: palette.border, color: palette.text }]}

@@ -13,10 +13,20 @@ import { getPersonalFmSongs, trashPersonalFmSong } from "./wyPlaylistService";
 import { getNextQueueNavigationState, getPreviousQueueNavigationState } from "@/services/queueNavigationModel";
 import { dequeueTempPlayList, insertSongToPlayNext } from "@/services/songQueueActions";
 import { buildPlaybackQualityTiers, getPlaybackQualityFallbacks, normalizePlaybackQuality, resolveEffectivePlaybackQuality, type PlaybackQuality } from "@/services/playbackQualityModel";
-import { DEFAULT_QUALITY_UPGRADE_WINDOW_MS, raceForBestQuality } from "@lx/core";
+import { DEFAULT_QUALITY_UPGRADE_WINDOW_MS, estimateStreamDurationSeconds, isPreviewStream, raceForBestQuality } from "@lx/core";
+import { applySwitchStepRequest, createSwitchStepQueueState, finishSwitchStep } from "@lx/core";
 import { usePlaybackSettingsStore } from "@/stores/playbackSettingsStore";
 import { buildPlaybackPrefetchKey, isPlaybackPrefetchKeyForSong } from "@/services/playbackPrefetchModel";
-import { fetchWithTimeout, isTimeoutError } from "@/utils/fetchWithTimeout";
+import { probeStreamUrl } from "./streamProbe";
+
+/**
+ * 提取 URL 的协议与主机用于错误提示，丢弃路径与查询串（可能含鉴权 token）。
+ * 明文 http 在 release 构建会被 Android 直接拒绝，错误文案里带上协议才能一眼区分。
+ */
+function describeUrlOrigin(url: string): string {
+  const match = /^([a-z][a-z0-9+.-]*):\/\/([^/?#]+)/i.exec(url);
+  return match ? `${match[1]}://${match[2]}` : "地址格式异常";
+}
 // ─────────────────────────────────────────────────────────────
 // 预读下一首：模块级缓存，解析后只缓存 URL（不播放）
 // ─────────────────────────────────────────────────────────────
@@ -32,7 +42,7 @@ const PREFETCH_TTL_MS = 10 * 60 * 1000;
  * 每档内网关与自定义源并发，单次请求超时 15s；多档串行最坏仍会叠加，
  * 给整条链一个总 deadline，超时停止降档直接报错，切歌在可预期时间内出结果。
  */
-const RESOLVE_RACE_BUDGET_MS = 20_000;
+const RESOLVE_RACE_BUDGET_MS = 10_000;
 /**
  * 整条解析链的总预算帽（对齐桌面端 withResolveDeadline）。
  *
@@ -40,7 +50,7 @@ const RESOLVE_RACE_BUDGET_MS = 20_000;
  * 这里在 playSongCore 调用 resolveSongUrl 处再套一层 25s 总 race，先到先出：
  * 内层预算先触发就先退出，总帽只兜底，超时统一报「解析超时」。
  */
-const RESOLVE_TOTAL_BUDGET_MS = 25_000;
+const RESOLVE_TOTAL_BUDGET_MS = 12_000;
 /** FM 当前批次（播放历史）上限：只保留最新 50 条，对齐桌面端 fmHistory 上限。 */
 const FM_HISTORY_MAX = 50;
 const prefetchCache = new Map<string, PrefetchedUrl>();
@@ -63,58 +73,6 @@ function getCachedPrefetch(
 
 export function clearPrefetchCache(): void {
   prefetchCache.clear();
-}
-
-/** 探活超时：死代理 TCP 连上后永不返数据，1 字节 Range 也拉不同，5s 内无响应即判死。 */
-const PROBE_TIMEOUT_MS = 5_000;
-
-/**
- * 提取 URL 的协议与主机用于错误提示，丢弃路径与查询串（可能含鉴权 token）。
- * 明文 http 在 release 构建会被 Android 直接拒绝，错误文案里带上协议才能一眼区分。
- */
-function describeUrlOrigin(url: string): string {
-  const match = /^([a-z][a-z0-9+.-]*):\/\/([^/?#]+)/i.exec(url);
-  return match ? `${match[1]}://${match[2]}` : "地址格式异常";
-}
-
-/** 探活结果：ok=true 可用；否则 reason 说明死因（供降档重试或错误提示）。 */
-type StreamProbeResult = { ok: true } | { ok: false; reason: string };
-
-/**
- * 竞速胜出 URL 探活：发 1 字节 Range 请求验证服务器真的能出数据。
- *
- * 针对的场景：LX 音源代理等黑盒服务器 TCP 握手成功后不返回任何字节，
- * ExoPlayer 会无限缓冲且无任何错误回调，用户侧表现为「正在播放但进度永远 00:00」。
- * 探活通过才把 URL 交给播放器；探不通则该档作废继续降档，避免死链进入播放器。
- */
-export async function probeStreamUrl(
-  url: string,
-  headers: Record<string, string> | undefined,
-): Promise<StreamProbeResult> {
-  // 本地文件与非 HTTP(S) 协议无需探活
-  if (!/^https?:\/\//i.test(url)) return { ok: true };
-  try {
-    const response = await fetchWithTimeout(
-      url,
-      {
-        method: "GET",
-        headers: { ...headers, Range: "bytes=0-0" },
-        // 探活请求无需携带 Cookie，避免干扰服务端会话判定
-        credentials: "omit",
-      },
-      PROBE_TIMEOUT_MS,
-    );
-    // 2xx/206 均视为可用；3xx 重定向 fetch 已自动跟随；403/404/5xx 判死
-    if (response.status >= 200 && response.status < 300) {
-      return { ok: true };
-    }
-    return { ok: false, reason: `HTTP ${response.status}` };
-  } catch (error) {
-    if (isTimeoutError(error)) {
-      return { ok: false, reason: `无响应（>${PROBE_TIMEOUT_MS / 1000}s）` };
-    }
-    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
-  }
 }
 
 /** 清掉某首歌的预读缓存（切换音质时必须失效旧 URL）。 */
@@ -320,7 +278,7 @@ async function resolveSongUrl(
     let raced: { url: string; quality: string; fromCustomSource: boolean } | null = null;
     for (const tier of qualityTiers) {
       if (Date.now() >= resolveDeadline) {
-        lastTierError = lastTierError ?? new Error(`解析播放地址超时（>${RESOLVE_RACE_BUDGET_MS}ms）`);
+        lastTierError = lastTierError ?? new Error(`解析播放地址超时，请重试`);
         break;
       }
       try {
@@ -338,6 +296,23 @@ async function resolveSongUrl(
           // 没有来源信息只能靠猜。
           lastTierError = new Error(
             `解析的播放地址不可用（${probe.reason}）[${describeUrlOrigin(racedResult.url)}]`,
+          );
+          continue;
+        }
+        // 试听判定：30s 试听与完整版同样返回 206，靠 Content-Range / Content-Length
+        // 估算流时长后与期望时长（song.interval）比对，是试听则本档作废继续降档。
+        if (
+          probe.ok &&
+          probe.totalBytes != null &&
+          isPreviewStream({
+            totalBytes: probe.totalBytes,
+            quality: racedResult.quality,
+            expectedDurationSeconds: song.interval,
+          })
+        ) {
+          const previewSeconds = estimateStreamDurationSeconds(probe.totalBytes, racedResult.quality);
+          lastTierError = new Error(
+            `解析到试听片段（约 ${Math.round(previewSeconds ?? 0)}s），已跳过并降档重试`,
           );
           continue;
         }
@@ -535,9 +510,21 @@ export function prefetchSong(song: MusicInfo): void {
 // 拿到的是新令牌，检查全过——必须在「解析返回 → 调 play」之间用本序号拦截。
 let playIntentSeq = 0;
 
+// 切歌连点合并：切换进行中（解析/播放器加载）时重复点击只补跳一次，不重复解析。
+let switchStepQueue = createSwitchStepQueueState();
+
 /**
  * 播放歌曲（完整流程）
  */
+/** 当前切歌完成后消费连点补跳（只补一次，防止循环）。 */
+async function completeQueuedSwitchStep(): Promise<void> {
+  const finished = finishSwitchStep(switchStepQueue);
+  switchStepQueue = finished.nextState;
+  if (finished.shouldStep) {
+    void (finished.direction === "prev" ? playPrevious() : playNext()).catch(() => undefined);
+  }
+}
+
 async function playSongCore(song: MusicInfo, startPosition?: number): Promise<void> {
   const { play, setLoading, setError } = usePlayerStore.getState();
   const { addToHistory } = useHistoryStore.getState();
@@ -702,6 +689,10 @@ export async function playShuffledQueue(songs: MusicInfo[]): Promise<void> {
  * 播放下一首
  */
 export async function playNext(): Promise<void> {
+  const step = applySwitchStepRequest(switchStepQueue, "next");
+  switchStepQueue = step.nextState;
+  if (!step.startNow) return;
+  try {
   const store = usePlayerStore.getState();
   const { playbackContext, queue, currentIndex, playMode, shuffleHistory, playedIndices, tempPlayList } = store;
 
@@ -740,12 +731,19 @@ export async function playNext(): Promise<void> {
   usePlayerStore.setState({ shuffleHistory: next.shuffleHistory, playedIndices: next.playedIndices });
   if (next.nextIndex == null) return;
   await playFromQueue(next.nextIndex);
+  } finally {
+    await completeQueuedSwitchStep();
+  }
 }
 
 /**
  * 播放上一首
  */
 export async function playPrevious(): Promise<void> {
+  const step = applySwitchStepRequest(switchStepQueue, "prev");
+  switchStepQueue = step.nextState;
+  if (!step.startNow) return;
+  try {
   const { playbackContext, queue, currentIndex, position, playMode, shuffleHistory } = usePlayerStore.getState();
   if (queue.length === 0) return;
   if (playbackContext.type === "personalFm") {
@@ -776,6 +774,9 @@ export async function playPrevious(): Promise<void> {
   }
   if (previous.previousIndex == null) return;
   await playFromQueue(previous.previousIndex);
+  } finally {
+    await completeQueuedSwitchStep();
+  }
 }
 
 /**

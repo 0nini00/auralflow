@@ -51,7 +51,7 @@ export function AccountInfo({
             <View style={styles.loginTextContainer}>
               <Text style={[styles.loginTitle, { color: palette.text }]}>未登录网易云账号</Text>
               <Text style={[styles.loginSubtitle, { color: palette.textMuted }]}>
-                请在 设置 → 账号与服务 登录
+                请在「设置 → 账号与服务」中登录
               </Text>
             </View>
           </View>

@@ -86,7 +86,7 @@ export function buildPlaylistExportEnvelope({
 
 export function collectSongsFromTransferEnvelope(data: Partial<PlaylistTransferEnvelope>): MusicInfo[] {
   if (!data || !Array.isArray(data.playlists)) {
-    throw new Error("无效的歌单数据格式");
+    throw new Error("歌单数据格式错误");
   }
 
   const songs: MusicInfo[] = [];
@@ -123,7 +123,7 @@ export function buildImportedLocalPlaylists(
   options: BuildImportedLocalPlaylistsOptions = {},
 ): BuildImportedLocalPlaylistsResult {
   if (!data || !Array.isArray(data.playlists)) {
-    throw new Error("无效的歌单数据格式");
+    throw new Error("歌单数据格式错误");
   }
 
   const now = options.now ?? Date.now();

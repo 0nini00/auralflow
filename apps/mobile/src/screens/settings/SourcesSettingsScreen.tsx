@@ -13,7 +13,7 @@ export function SourcesSettingsScreen() {
   }, [load, loaded]);
 
   return (
-    <SettingsPage title="音源" description="内置网关解析播放地址；自定义音源作为播放兜底">
+    <SettingsPage title="音源" description="自定义音源管理；内置音源作为备用解析">
       <CustomSourceScreen />
     </SettingsPage>
   );

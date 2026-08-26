@@ -159,7 +159,7 @@ function AlbumItem({
         <Text style={[styles.secondaryText, { color: palette.textMuted }]} numberOfLines={1}>
           {[album.artistName, album.trackCount ? `${album.trackCount} 首` : undefined, album.publishTime]
             .filter(Boolean)
-            .join(" • ")}
+            .join(" · ")}
         </Text>
       </View>
       <Text style={[styles.sourceText, { color: palette.textMuted, backgroundColor: palette.surfaceStrong }]}>专辑</Text>
@@ -191,7 +191,7 @@ function PlaylistItem({
         <Text style={[styles.secondaryText, { color: palette.textMuted }]} numberOfLines={1}>
           {[playlist.creatorName, playlist.trackCount ? `${playlist.trackCount} 首` : undefined, formatPlayCount(playlist.playCount)]
             .filter(Boolean)
-            .join(" • ")}
+            .join(" · ")}
         </Text>
       </View>
       {importAction ? (

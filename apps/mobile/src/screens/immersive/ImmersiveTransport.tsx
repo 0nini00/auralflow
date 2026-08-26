@@ -200,7 +200,7 @@ export function ImmersiveTransport({
           onPress={() => void onToggleFloatingLyric()}
           tone={floatingLyricActive ? "primary" : "strong"}
           selected={floatingLyricActive}
-          accessibilityLabel={floatingLyricActive ? "关闭桌面歌词" : "打开桌面歌词"}
+          accessibilityLabel={floatingLyricActive ? "关闭悬浮歌词" : "打开悬浮歌词"}
           render={({ size, color }) => <Captions size={size} color={color} />}
         />
 

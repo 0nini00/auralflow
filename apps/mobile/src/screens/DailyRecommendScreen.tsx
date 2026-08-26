@@ -172,7 +172,7 @@ export function DailyRecommendScreen({ onNavigateToPlayer }: DailyRecommendScree
         )}
         <View style={styles.headerText}>
           <Text style={[styles.title, { color: palette.text }]}>{dailyMeta.title}</Text>
-          <Text style={[styles.subtitle, { color: palette.textMuted }]}>{isLoggedIn ? dailyMeta.subtitle : "登录网易云后查看今日推荐。"}</Text>
+          <Text style={[styles.subtitle, { color: palette.textMuted }]}>{isLoggedIn ? dailyMeta.subtitle : "登录网易云后查看每日推荐。"}</Text>
         </View>
         </View>
 
@@ -218,7 +218,7 @@ export function DailyRecommendScreen({ onNavigateToPlayer }: DailyRecommendScree
           <View style={styles.stateWithAction}>
             <EmptyState
               title="未登录网易云账号"
-              description="请在 设置 → 账号与服务 登录网易云账号后查看每日推荐。"
+              description="请在「设置 → 账号与服务」中登录网易云账号后查看每日推荐。"
             />
           </View>
         )}

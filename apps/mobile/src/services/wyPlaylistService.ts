@@ -71,7 +71,7 @@ export async function postWyWeapi<TResponse = JsonRecord>(
 
   const data = (await response.json()) as JsonRecord;
   if (!response.ok) {
-    throw new Error(data?.message || `请求失败 HTTP ${response.status}`);
+    throw new Error(data?.message || `请求失败，请检查网络后重试`);
   }
   return data as TResponse;
 }

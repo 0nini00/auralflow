@@ -419,7 +419,7 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
       // 不再静默失败：未登录时引导去账号页，其他错误展示具体原因
       const message = error instanceof Error ? error.message : "操作失败";
       if (message.includes("未登录")) {
-        Alert.alert("需要登录", "请在 设置 → 账号与服务 登录网易云账号后再收藏");
+        Alert.alert("需要登录", "请在「设置 → 账号与服务」中登录网易云账号后再收藏");
       } else {
         Alert.alert("操作失败", message);
       }

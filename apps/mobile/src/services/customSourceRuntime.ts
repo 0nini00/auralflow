@@ -307,7 +307,7 @@ async function fetchRemoteScript(url: string): Promise<string> {
     },
   });
   if (!response.ok) {
-    throw new Error(`远端音源请求失败: HTTP ${response.status} ${response.statusText}`);
+    throw new Error(`远端音源请求失败：HTTP ${response.status} ${response.statusText}`);
   }
   const text = await response.text();
   if (!text.trim()) throw new Error("远端音源脚本为空");

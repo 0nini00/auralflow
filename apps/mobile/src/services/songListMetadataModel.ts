@@ -16,7 +16,7 @@ function formatDuration(seconds?: number): string {
 }
 
 export function buildSongListMetadata(song: MusicInfo): SongListMetadata {
-  const artistName = song.singer?.trim() || "未知艺术家";
+  const artistName = song.singer?.trim() || "未知歌手";
   const albumName = song.albumName?.trim() || "";
   const durationLabel = formatDuration(song.interval);
 

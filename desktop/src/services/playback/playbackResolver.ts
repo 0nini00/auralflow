@@ -1,9 +1,11 @@
 import type { MusicInfo } from '@lx/core';
 import { buildPlaybackQualityTiers, DEFAULT_QUALITY_UPGRADE_WINDOW_MS, getPlaybackQualityFallbacks, raceForBestQuality } from '@lx/core';
 import { debugLog, loadSettings } from '@lx/tauri-bridge';
+import { estimateStreamDurationSeconds, isPreviewStream } from '@lx/core';
 import { builtinNeteaseBackend } from './builtinNeteaseBackend';
 import { builtinProviderBackend } from './builtinProviderBackend';
 import { customSourceBackend } from './customSourceBackend';
+import { probeStreamUrl } from './streamProbe';
 import type { PlaybackBackendId, PlaybackResolvedUrl } from './types';
 import { resolver } from '@/services/sources/sourceService';
 import { getCachedPlaybackUrl, saveCachedPlaybackUrl } from '@/services/persistentCache';
@@ -16,11 +18,11 @@ export async function resolvePlaybackUrl(
   options: { bypassCache?: boolean; cacheMedia?: boolean } = {},
 ): Promise<PlaybackResolvedUrl> {
   // 解析链总预算：并发竞速已大幅压缩最坏等待，但个别网关/音源脚本卡死时
-  // 仍需兜底；25s 内未出结果直接抛错走错误分支，不再无限等。
+  // 仍需兜底；12s 内未出结果直接抛错走错误分支，不再无限等。
   return withResolveDeadline(resolvePlaybackUrlUncapped(music, variants, preferredQuality, options));
 }
 
-const PLAYBACK_RESOLVE_TOTAL_BUDGET_MS = 25_000;
+const PLAYBACK_RESOLVE_TOTAL_BUDGET_MS = 12_000;
 
 function withResolveDeadline(task: Promise<PlaybackResolvedUrl>): Promise<PlaybackResolvedUrl> {
   return new Promise<PlaybackResolvedUrl>((resolve, reject) => {
@@ -139,6 +141,27 @@ async function resolvePlaybackUrlUncapped(
     try {
       const resolved = await raceQualityTier(backends, request);
       debugLog(`[resolve] 竞速成功 ${music.name} 轮=${tier.join('+')} 命中=${resolved.quality} backend=${resolved.backend} url=${resolved.url.slice(0, 60)}`);
+      // 试听片段判定（与移动端同语义，见 @lx/core stream-integrity）：
+      // 30s 试听与完整版同样返回 206，靠 Content-Range / Content-Length 估算流时长，
+      // 明显短于期望时长（music.interval）则视为试听：不写缓存、不进播放器，降档重试。
+      const probe = await probeStreamUrl(resolved.url, undefined);
+      if (!probe.ok) {
+        tierErrors.push(`探活失败（${probe.reason}）`);
+        continue;
+      }
+      if (
+        probe.ok &&
+        probe.totalBytes != null &&
+        isPreviewStream({
+          totalBytes: probe.totalBytes,
+          quality: resolved.quality,
+          expectedDurationSeconds: music.interval,
+        })
+      ) {
+        const previewSeconds = estimateStreamDurationSeconds(probe.totalBytes, resolved.quality);
+        tierErrors.push(`解析到试听片段（约 ${Math.round(previewSeconds ?? 0)}s）`);
+        continue;
+      }
       const playable = await prepareResolvedPlaybackMedia(music, resolved, options.cacheMedia !== false);
       void saveCachedPlaybackUrl(music, playable).catch(() => undefined);
       return playable;

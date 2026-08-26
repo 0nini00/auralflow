@@ -302,7 +302,7 @@ export function LibraryScreen({
               <TextInput
                 value={localSongSinger}
                 onChangeText={setLocalSongSinger}
-                placeholder="艺术家"
+                placeholder="歌手"
                 placeholderTextColor={palette.textMuted}
                 style={[styles.createInput, { borderColor: palette.border, color: palette.text }]}
               />
@@ -342,7 +342,7 @@ export function LibraryScreen({
                 multiline
                 style={[styles.createInput, styles.editLocalSongLyricsInput, { borderColor: palette.border, color: palette.text }]}
               />
-              <Text style={[styles.editLocalSongHint, { color: palette.textMuted }]}>标题、歌手、专辑会更新到系统媒体库；从相册选择的封面与歌词会写入音频文件（可能需授权修改媒体文件），留空歌词可清除内嵌歌词。</Text>
+              <Text style={[styles.editLocalSongHint, { color: palette.textMuted }]}>标题、歌手、专辑会更新到系统媒体库；从相册选择的封面与歌词会写入音频文件（可能需授权修改媒体文件），留空可清除内嵌歌词。</Text>
               <View style={styles.createModalActions}>
                 <Pressable
                   style={styles.createModalButton}

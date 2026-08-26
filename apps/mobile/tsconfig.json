@@ -22,8 +22,6 @@
   "exclude": [
     "**/node_modules",
     "**/Pods",
-    "**/_screen_backups",
-    "**/*.test.ts",
-    "**/*.test.tsx"
+    "**/_screen_backups"
   ]
 }

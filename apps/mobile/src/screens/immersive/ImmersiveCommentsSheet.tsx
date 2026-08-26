@@ -65,7 +65,7 @@ function CommentRow({ comment, palette }: { comment: SongComment; palette: Theme
         </View>
         {comment.beReplied && comment.beReplied.length > 0 ? (
           <Text style={[styles.replied, { color: palette.textMuted }]} numberOfLines={2}>
-            回复 {comment.beReplied[0].nickname}: {comment.beReplied[0].content}
+            回复 {comment.beReplied[0].nickname}：{comment.beReplied[0].content}
           </Text>
         ) : null}
         <Text style={[styles.content, { color: palette.text }]}>{comment.content}</Text>
@@ -170,7 +170,7 @@ export function ImmersiveCommentsSheet({
     const content = inputText.trim();
     if (!content || !songId || sending) return;
     if (!isLoggedIn) {
-      Alert.alert("未登录", "请在 设置 → 账号与服务 登录网易云账号后再评论");
+      Alert.alert("未登录", "请在「设置 → 账号与服务」中登录网易云账号后再评论");
       return;
     }
     const submittedSongId = songId;

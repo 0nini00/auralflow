@@ -230,16 +230,16 @@ async function biliFetchJson<T>(
   try {
     response = await fetchWithTimeout(url, { headers });
   } catch (error) {
-    throw new Error(`B站请求失败: ${getErrorMessage(error)}`);
+    throw new Error(`B站请求失败：${getErrorMessage(error)}`);
   }
 
   if (!response.ok) {
-    throw new Error(`B站请求失败 HTTP ${response.status}`);
+    throw new Error(`B站请求失败，请稍后重试`);
   }
 
   const body = (await response.json()) as BiliApiResponse<T>;
   if (body.code !== 0) {
-    throw new Error(body.message || `B站接口返回 code=${body.code}`);
+    throw new Error(body.message || "B站接口返回错误，请稍后重试");
   }
   return body.data as T;
 }
@@ -408,7 +408,7 @@ export async function getBiliCollectionSongs(collection: BiliCollectionInfo): Pr
     const songs = await getBiliFavoriteResourceSongs(collection.id);
     if (songs.length > 0 || collection.mediaCount === 0) return songs;
   } catch (error) {
-    errors.push(`收藏夹: ${getErrorMessage(error)}`);
+    errors.push(`收藏夹：${getErrorMessage(error)}`);
   }
 
   if (collection.creatorMid) {
@@ -416,14 +416,14 @@ export async function getBiliCollectionSongs(collection: BiliCollectionInfo): Pr
       const songs = await getBiliSeasonArchiveSongs(collection.creatorMid, collection.id);
       if (songs.length > 0 || collection.mediaCount === 0) return songs;
     } catch (error) {
-      errors.push(`合集: ${getErrorMessage(error)}`);
+      errors.push(`合集：${getErrorMessage(error)}`);
     }
 
     try {
       const songs = await getBiliSeriesArchiveSongs(collection.creatorMid, collection.id);
       if (songs.length > 0 || collection.mediaCount === 0) return songs;
     } catch (error) {
-      errors.push(`系列: ${getErrorMessage(error)}`);
+      errors.push(`系列：${getErrorMessage(error)}`);
     }
   }
 

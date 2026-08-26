@@ -7,6 +7,7 @@ import { selectCachedPlaybackTarget } from "@/services/playback/prefetchModel";
 import { getPlayModeState, type PlayModeId } from "@/services/playback/playModeControl";
 import { invalidateCachedPlaybackUrl } from "@/services/persistentCache";
 import { debugLog, patchSettings } from "@lx/tauri-bridge";
+import { applySwitchStepRequest, createSwitchStepQueueState, finishSwitchStep } from "@lx/core";
 import { useHistoryStore } from "./historyStore";
 import { useSleepTimerStore } from "./sleepTimerStore";
 import { useDiscoveryStore } from "./discoveryStore";
@@ -68,6 +69,9 @@ interface PlayerStore {
 
 let volumePersistTimer: ReturnType<typeof setTimeout> | null = null;
 let activePlayRequestId = 0;
+
+// 切歌连点合并：切换进行中（解析/播放器加载）时重复点击只补跳一次，不重复解析。
+let switchStepQueue = createSwitchStepQueueState();
 let inflightPlayRequest: { id: number; key: string; promise: Promise<void> } | null = null;
 
 function buildPlayRequestKey(music: MusicInfo): string {
@@ -120,6 +124,15 @@ function scheduleVolumePersist(volume: number) {
 
 /** 调用 discoveryStore.fmNext 后播放下一首 FM 曲目；失败返回 false */
 /** FM 下一首：解析/播放失败时最多再试几首，避免卡在死链上 */
+/** 当前切歌完成后消费连点补跳（只补一次，防止循环）。 */
+function completeQueuedSwitchStep(get: any): void {
+  const finished = finishSwitchStep(switchStepQueue);
+  switchStepQueue = finished.nextState;
+  if (finished.shouldStep) {
+    void (finished.direction === 'prev' ? get().prev() : get().next()).catch(() => undefined);
+  }
+}
+
 async function playNextFmTrack(get: any, maxAttempts = 5): Promise<boolean> {
   let lastError = '';
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -249,6 +262,20 @@ const syncEngineToStore = (set: any, get: any) => {
 
 export const usePlayerStore = create<PlayerStore>((set, get) => {
   syncEngineToStore(set, get);
+
+  // 试听兜底（与移动端一致）：解析期拿不到长度头的流式响应靠播放器实际时长判定。
+  // 判定即停播并失效持久化/预读缓存，下次重播强制重新解析（对齐失败即停哲学）。
+  playerEngine.onPreviewDetected((duration) => {
+    const current = get().current;
+    if (!current) return;
+    void invalidatePersistentPlaybackCache(current, current);
+    invalidatePrefetchedTrack(current);
+    playerEngine.pause();
+    set({
+      status: "error",
+      error: `检测到试听片段（约 ${Math.round(duration)}s），已清除缓存，请重新播放或切换音源`,
+    });
+  });
 
   return {
     current: null,
@@ -589,6 +616,12 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
 
 
+      // 连点合并：切换进行中（解析/播放器加载）时重复点击只补跳一次，不重复解析。
+      const step = applySwitchStepRequest(switchStepQueue, "next");
+      switchStepQueue = step.nextState;
+      if (!step.startNow) return;
+      try {
+
       let nextIndex: number;
 
 
@@ -678,7 +711,12 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
         // play 失败时回滚 index，避免 UI 指向未成功播放的曲目
 
         set({ currentIndex: prevIndex, playHistory: previousPlayHistory });
+        debugLog(`[player] next 失败，已回滚到 index=${prevIndex}`);
 
+      }
+
+      } finally {
+        completeQueuedSwitchStep(get);
       }
 
     },
@@ -706,6 +744,12 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
       if (queue.length === 0) return;
 
 
+
+      // 连点合并：切换进行中（解析/播放器加载）时重复点击只补跳一次，不重复解析。
+      const step = applySwitchStepRequest(switchStepQueue, "prev");
+      switchStepQueue = step.nextState;
+      if (!step.startNow) return;
+      try {
 
       let prevIndex: number;
 
@@ -746,7 +790,12 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
       } catch {
 
         set({ currentIndex: savedIndex, playHistory: savedPlayHistory });
+        debugLog(`[player] prev 失败，已回滚到 index=${savedIndex}`);
 
+      }
+
+      } finally {
+        completeQueuedSwitchStep(get);
       }
 
     },

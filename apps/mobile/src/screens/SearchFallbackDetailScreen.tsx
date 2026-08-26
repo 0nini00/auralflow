@@ -61,7 +61,7 @@ export function SearchFallbackDetailScreen({
         <View style={styles.header}>
           <SectionHeader title={detail.title} description={detail.subtitle} />
           <Text style={[styles.hint, { color: palette.textMuted }]}>
-            该音源暂无完整详情页，已根据当前搜索结果汇总可播放歌曲。
+            该音源暂无完整详情页，已根据当前搜索结果整理出可播放歌曲。
           </Text>
         </View>
 

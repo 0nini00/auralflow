@@ -122,7 +122,7 @@ export function LyricOverlaySettings() {
   };
 
   const notificationSubtitle = !supported
-    ? "当前设备不支持播放通知歌词按钮"
+    ? "当前设备不支持播放通知显示歌词按钮"
     : !loaded
       ? "正在加载设置"
       : overlayError ?? "在 Android 播放通知中切换悬浮歌词";

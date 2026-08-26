@@ -38,7 +38,7 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
       "User-Agent": "AuralFlowMobile/0.1",
     },
   });
-  if (!resp.ok) throw new Error(`检查更新失败: HTTP ${resp.status}`);
+  if (!resp.ok) throw new Error(`检查更新失败，请稍后重试`);
   const data = await resp.json() as Record<string, unknown>;
   const tagName = String(data.tag_name ?? "");
   const htmlUrl = String(data.html_url ?? `https://github.com/0nini00/auralflow/releases/latest`);

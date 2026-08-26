@@ -150,7 +150,7 @@ async function fetchText(url: string): Promise<string> {
   });
   const text = await response.text();
   if (!response.ok) {
-    throw new Error(`请求失败 HTTP ${response.status}: ${text.slice(0, 160)}`);
+    throw new Error(`请求失败，请稍后重试`);
   }
   return text;
 }

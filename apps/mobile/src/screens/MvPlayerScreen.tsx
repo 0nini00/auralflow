@@ -57,7 +57,7 @@ export function MvPlayerScreen({ mvId, title, artist, posterUrl, onBack }: MvPla
     } catch (value) {
       if (requestId !== requestIdRef.current) return;
       setLoading(false);
-      setError(value instanceof Error ? value.message : "MV 播放地址解析失败");
+      setError(value instanceof Error ? value.message : "MV 播放地址获取失败");
     }
   }, [mvId]);
 

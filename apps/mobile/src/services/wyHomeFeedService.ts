@@ -41,7 +41,7 @@ export async function getJson(path: string, cookie?: string | null): Promise<Jso
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new WyHomeFeedError("WY_HTTP_ERROR", `网易云请求失败: ${message}`);
+    throw new WyHomeFeedError("WY_HTTP_ERROR", `网易云请求失败：${message}`);
   }
 
   let data: JsonRecord;
@@ -52,7 +52,7 @@ export async function getJson(path: string, cookie?: string | null): Promise<Jso
   }
 
   if (!response.ok) {
-    throw new WyHomeFeedError("WY_HTTP_ERROR", `网易云请求失败 HTTP ${response.status}`);
+    throw new WyHomeFeedError("WY_HTTP_ERROR", `网易云请求失败，请稍后重试`);
   }
   if (data.code != null && data.code !== 200) {
     const message = typeof data.message === "string" ? data.message : `网易云接口错误 code=${String(data.code)}`;

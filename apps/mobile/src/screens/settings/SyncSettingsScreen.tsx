@@ -13,7 +13,7 @@ export function SyncSettingsScreen() {
   }, [load, loaded]);
 
   return (
-    <SettingsPage title="同步" description="通过 WebDAV 同步歌单和音源">
+    <SettingsPage title="同步与备份" description="通过 WebDAV 同步歌单和音源">
       <WebDavSyncScreen />
     </SettingsPage>
   );

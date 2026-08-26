@@ -298,7 +298,7 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
           : likedPlaylist,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "喜欢失败";
+      const message = error instanceof Error ? error.message : "喜欢歌曲失败";
       set({ error: message });
       throw error;
     }
@@ -325,7 +325,7 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
           : likedPlaylist,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "取消喜欢失败";
+      const message = error instanceof Error ? error.message : "取消喜欢歌曲失败";
       set({ error: message });
       throw error;
     }
