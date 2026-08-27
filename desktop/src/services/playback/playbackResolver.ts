@@ -24,6 +24,14 @@ export async function resolvePlaybackUrl(
 
 const PLAYBACK_RESOLVE_TOTAL_BUDGET_MS = 12_000;
 
+/** 与移动端 buildStreamHeaders 同语义：wy/tx CDN 防盗链头。 */
+function buildStreamHeaders(source: string | undefined): Record<string, string> | undefined {
+  const referer =
+    source === 'wy' ? 'https://music.163.com' : source === 'tx' ? 'https://y.qq.com' : undefined;
+  if (!referer) return undefined;
+  return { Referer: referer };
+}
+
 function withResolveDeadline(task: Promise<PlaybackResolvedUrl>): Promise<PlaybackResolvedUrl> {
   return new Promise<PlaybackResolvedUrl>((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -144,7 +152,8 @@ async function resolvePlaybackUrlUncapped(
       // 试听片段判定（与移动端同语义，见 @lx/core stream-integrity）：
       // 30s 试听与完整版同样返回 206，靠 Content-Range / Content-Length 估算流时长，
       // 明显短于期望时长（music.interval）则视为试听：不写缓存、不进播放器，降档重试。
-      const probe = await probeStreamUrl(resolved.url, undefined);
+      const probeHeaders = buildStreamHeaders(music.source);
+      const probe = await probeStreamUrl(resolved.url, probeHeaders);
       if (!probe.ok) {
         tierErrors.push(`探活失败（${probe.reason}）`);
         continue;

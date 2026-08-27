@@ -18,12 +18,23 @@ export type StreamProbeResult =
   | { ok: true; totalBytes?: number }
   | { ok: false; reason: string };
 
-function readTotalBytes(headers: Headers): number | undefined {
+/**
+ * 从响应头读取完整资源字节数。
+ *
+ * 优先读 Content-Range（bytes 0-0/TOTAL）拿到完整大小；Content-Range 缺失时
+ * 回退 Content-Length——但探活发的是 Range: bytes=0-0，分片响应的
+ * Content-Length 只代表分片大小（1 字节），不是完整文件大小，直接用它估算
+ * 时长会把所有歌曲误判为试听片段。因此仅当请求不是分片请求时才回退
+ * Content-Length。
+ */
+function readTotalBytes(headers: Headers, rangeRequested: boolean): number | undefined {
   const contentRange = headers.get("content-range");
   if (contentRange) {
     const fromRange = parseContentRangeTotal(contentRange);
     if (fromRange != null) return fromRange;
   }
+  // 仅在非分片请求时回退 Content-Length：分片请求的 Content-Length 是分片大小而非完整大小
+  if (rangeRequested) return undefined;
   const contentLength = headers.get("content-length");
   if (contentLength != null && /^\d+$/.test(contentLength.trim())) {
     return Number(contentLength);
@@ -50,7 +61,7 @@ export async function probeStreamUrl(
     );
     // 2xx/206 均视为可用；3xx 重定向 fetch 已自动跟随；403/404/5xx 判死
     if (response.status >= 200 && response.status < 300) {
-      return { ok: true, totalBytes: readTotalBytes(response.headers) };
+      return { ok: true, totalBytes: readTotalBytes(response.headers, true) };
     }
     return { ok: false, reason: `HTTP ${response.status}` };
   } catch (error) {
