@@ -1,23 +1,51 @@
-# components
+# components/
 
-当前目录保存可复用 React 组件和播放器相关组件。
+UI 组件层：负责桌面端全部可见界面与交互，自身不持业务逻辑，数据从 Zustand store 订阅、规则下沉到 services。
 
-## 主要组件
+## 目录结构
 
-| 文件 | 用途 |
-|---|---|
-| `Layout/` | 主窗口布局、侧边栏和顶部栏 |
-| `PlayerBar.tsx` | 底部播放器、播放队列入口、沉浸式歌词入口 |
-| `ImmersiveLyricsOverlay.tsx` | 沉浸式歌词覆盖层，底栏按歌词工具、播放控制和辅助工具分组 |
-| `MusicCard.tsx` | 歌曲、歌单等卡片 |
-| `SongAddMenuButton.tsx` | 添加到喜欢、本地歌单或网易云歌单 |
-| `MetadataEditModal.tsx` | 本地音频元数据编辑 |
-| `WyCookieLoginModal.tsx` | 网易云 Cookie 登录、二维码登录、登录失败回滚 |
-| `CustomSourceUpdateModal.tsx` | 自定义音源更新提示 |
-| `UpdateModal.tsx` | 应用更新提示 |
-| `PactModal.tsx` | 用户协议弹窗 |
-| `CursorEffect.tsx` | 可选鼠标拖尾效果 |
-| `DeepLinkHandler.tsx` | `auralflow://` 深链处理 |
-| `VirtualList.tsx` | 大列表虚拟滚动 |
+```
+components/
+├── Layout/            # 路由布局 shell（4 文件）
+└── playerVisualizers/ # 歌词可视化渲染（5 文件）
+```
 
-组件应只组合 UI 和调用 hooks/stores/services，跨模块业务规则放到 `src/services` 或 `src/stores`。
+## Layout/（4 文件）
+
+| 组件 | 文件 | 职责 |
+| --- | --- | --- |
+| Layout | `Layout.tsx` | 路由布局 shell：背景图 + 标题栏 + 侧边栏 + 内容区 + PlayerBar |
+| Sidebar | `Sidebar.tsx` | 240px 导航 rail + 网易账号按钮 |
+| Header | `Header.tsx` | 搜索框（220ms 防抖建议）+ 主题切换 |
+| AppTitleBar | `AppTitleBar.tsx` | 无边框拖拽 `data-tauri-drag-region` + 最小化/最大化/关闭 |
+
+## playerVisualizers/（5 文件）
+
+| 组件 | 文件 | 职责 |
+| --- | --- | --- |
+| PlayerVisualizerRenderer | `PlayerVisualizerRenderer.tsx` | 6 行分派器 → ScrollingLyricsVisualizer |
+| ScrollingLyricsVisualizer | `ScrollingLyricsVisualizer.tsx` | 纯 CSS 背景渐变填充 `background-clip:text` + `--af-scrolling-lyric-progress` + 逐词 `clip-path:inset()` |
+| PosterLyricsVisualizer | `PosterLyricsVisualizer.tsx` | 备用海报式可视化 |
+
+## 顶层主要组件（24 个 .tsx）
+
+| 组件 | 文件 | 职责 |
+| --- | --- | --- |
+| PlayerBar | `PlayerBar.tsx` | 3 列网格（曲目\|传输\|音量）+ 全宽进度；`useInterpolatedPlaybackProgress` rAF 平滑；拖动状态机 `isScrubbing` 覆盖；`useArtworkAmbience` 在 early return 前调 hooks 规则；封面点击开 ImmersiveLyricsOverlay；桌面歌词按钮 `toggleDesktopLyricFromPlayer` |
+| ImmersiveLyricsOverlay | `ImmersiveLyricsOverlay.tsx` | 24.5KB；`position:fixed` 全屏 + 大封面呼吸 + 滚动卡啦 OK + 3 组控件 + CSS 变量 `--af-immersive-progress/volume/artwork-rgb/anim-scale/lyric-font-family` + 队列 `scrollIntoView` + `useNativeFullscreen` + 分享剪贴板 + 键盘 `resolveImmersiveKeyboardAction` |
+| MusicCard / SongList / PlaylistCard | — | 通用曲目/歌单卡片与列表 |
+| WyCookieLoginModal | — | 网易登录弹窗 |
+| PactModal | — | 用户协议确认 |
+| CursorEffect | — | 唯一 canvas 光标特效 |
+| DeepLinkHandler | — | 深链处理 |
+| UpdateModal / CustomSourceUpdateModal | — | 应用更新 / 自定义源更新弹窗 |
+
+其余顶层组件见目录内文件。
+
+## 设计约定
+
+- **类名前缀**：所有 CSS 类名使用 `af-` 前缀（`--af-*` 设计令牌见 `index.css`）。
+- **零 DOM tooltip**：用 `data-tooltip` 属性实现，不额外插入 DOM 节点。
+- **hooks 规则**：`useArtworkAmbience` 等副作用 hook 必须在组件 early return 之前无条件调用。
+- **可访问性**：图标/装饰用 `aria-hidden`，导航用 `role=tablist` 等语义角色。
+- **数据来源**：组件从 Zustand store 订阅数据，不持有业务逻辑；业务规则下沉到 services。

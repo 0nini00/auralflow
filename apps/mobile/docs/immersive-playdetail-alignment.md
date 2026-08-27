@@ -1,84 +1,119 @@
-# 沉浸全屏播放器 对齐 lx 改造清单
+# 沉浸式播放详情对齐
 
-> 调研对象：`F:\auralflow\.alma\lx-mobile-ref`（LX-Mobile）的 `screens/PlayDetail`
-> 对照对象：本项目 `apps/mobile/src/screens/immersive/*`（`ImmersiveLyricsScreen` + 组件族）
-> 说明：lx 深度耦合其 store/event/plugin/主题/多语言系统，不可直接照搬，本清单按「交互/能力对齐」落地到本项目自建的沉浸屏。
+沉浸式播放详情（全屏歌词 / 播放控制）是两端体验最重的页面之一。两端共享歌词同步、歌词设置、播放概念与调色，但落地形态按平台分化：桌面用 CSS Overlay 全屏，移动用 Modal 路由 + PagerView 分页。
 
----
+## 设计目标
 
-## 0. 结论先行
-
-本项目沉浸屏在「信息密度」上**已部分反超 lx**（更多菜单含喜欢/歌单/分享/倍速/音效/简繁转换等，lx 的更多里也没有全部）；lx 的真正差距集中在 **PlayInfo 进度区 / 顶部标题区 / 封面交互 / 两种布局模式**。
-
-**优先级建议**：P0（快赢、低风险）→ P1（中等改动）→ P2（横屏第二套布局，重）。
+- **全屏沉浸**：覆盖普通界面，封面与歌词为主角，控件收束到边缘。
+- **歌词为主**：滚动歌词跟随播放，支持卡拉 OK 逐字、译文、简繁转换、字号 / 行距调节。
+- **体验一致**：两端歌词同步算法、歌词设置、播放模式 / 倍速 / 音量 / 睡眠定时器 / 队列概念保持一致，调色 palette 统一。
+- **平台适配**：交互模式按平台原生能力落地——桌面键盘 + 鼠标，移动手势 + 触觉反馈。
 
 ---
 
-## 1. 差异对比表
+## 桌面端实现
 
-| 能力 | lx (PlayDetail) | 本项目沉浸屏 | 差距 | 优先级 |
-|------|----------------|--------------|------|--------|
-| **PagerView：封面页 ⇄ 歌词页** | [完成] 竖屏两页滑动 | [完成] 手机 PagerView | 对齐 | — |
-| **旋转封面** | [完成] 封面页圆形旋转、`isCoverSpin` 开关 | [完成] `ImmersiveCoverPage` 圆形旋转 | 对齐 | — |
-| **封面长按菜单** | [完成] 下载歌曲/封面 | [完成] `onLongPress→openCoverMenu(下载封面/歌曲)` | 对齐 | — |
-| **底部进度条(带拖拽)** | [完成] `ProgressBar` 无缓冲拖动 | [完成] `ProgressBar` 拖动 seek | 对齐 | — |
-| **缓冲进度显示** | [完成] `BufferedBar` 灰条 | [缺失] 无 | **缺** | **P0** |
-| **时间显示 当前/总长** | [完成] 当前时间 + 中央状态 + 总长 | [完成] `ImmersiveTransport` | 对齐 | — |
-| **中央信息区（当前歌词/播放状态）** | [完成] 进度条下行中央 | [注意]️ 有但位置在顶部/进度条 | 微调 | P2 |
-| **上一首按钮** | [完成] 竖屏也显示 | [注意]️ 手机竖屏隐藏（`isTablet` 才显示） | 差异 | P1 |
-| **顶部歌名 Marquee 跑马灯** | [完成] 超长滚动 | [缺失] `ImmersiveTopBar` 静态 `numberOfLines` | **缺** | **P0** |
-| **顶部队列/设置按钮** | [完成] 竖屏右上 slider 面板 | [完成] 右上「设置」，More 里有队列 | 对齐 | — |
-| **更多按钮直排** | [完成] 桌面歌词/收藏/播放模式/评论/更多 直排 | [完成] 播放模式+更多(收起) | 差异 | P1 |
-| **点击歌词行 seek** | [完成] 打开开关后可点行跳转 | [完成] `LyricView` 点击 `onSeek(item.time)` | 对齐 | — |
-| **竖屏/横屏两套布局** | [完成] 双布局自动切换 | [缺失] 仅竖屏(+平板分支) | **缺** | **P2** |
-| **歌词资源多源择优** | [完成] 优先级链 逐字→词(逐字降级)→翻译 | [注意]️ 需核对 | 待查 | P1 |
-| **离开歌词页自动保持亮屏** | [完成] 歌词页 `screenkeepAwake` | [完成] `isLyricsPage && </*KeepAwake*/` | 对齐 | — |
+`ImmersiveLyricsOverlay`：`position: fixed` 全屏覆盖层，挂在普通界面之上，不走路由。
+
+- **大封面呼吸**：封面居中，呼吸动画随播放节拍缩放。
+- **滚动卡啦 OK 歌词**：单页歌词滚动，逐字进度由 `background-clip: text` + `clip-path: inset()` 纯 CSS / DOM 可视化填充（无 JS 动画驱动逐字）。
+- **3 组控件栏**：顶部 / 中部 / 底部三组控件区。
+- **CSS 变量数据驱动**：用 CSS 自定义属性承接运行时状态，避免重渲染整屏：
+  - `--af-immersive-progress`（播放进度）
+  - `--af-immersive-volume`（音量）
+  - `--af-immersive-artwork-rgb`（封面主色，驱动整体配色）
+  - `--af-immersive-anim-scale`（动画缩放）
+- **纯 CSS / DOM 可视化**：卡拉 OK 逐字、进度条等均由 CSS（`background-clip: text` + `clip-path: inset()`）驱动，JS 只更新变量值。
+- **全屏**：`useNativeFullscreen` 调用浏览器原生全屏 API。
+- **队列面板**：`scrollIntoView` 把当前曲目滚到可视区。
+- **分享**：`buildMusicShareText` 生成分享文本写入剪贴板。
+- **键盘**：`resolveImmersiveKeyboardAction` 处理空格 / 方向键 / ↑↓ / M / ESC。
 
 ---
 
-## 2. P0 —— 快赢、低风险（各约半天）
+## 移动端实现
 
-### P0-1 缓冲进度显示（BufferedBar）
-- **现状**：`ProgressBar` 仅 `position/duration/onSeek`，无缓冲。
-- **对齐**：参考 lx `ProgressBar.tsx`，新增可选 `buffered?: number`（0..1），在已播条下层画一条更淡的缓冲条（`c-primary-light-300-alpha-800`），拖拽时仅预览不跟随缓冲。
-- **数据源**：需从播放器暴露 `bufferedSeconds`（本项目 track-player 若已有 buffered 事件则取用，否则先置 `undefined` 隐藏，避免造 API）。
+`ImmersiveLyricsScreen`（`Modal` + `fullScreenModal`）作为路由级全屏 Modal 弹出，内部结构：
 
-### P0-2 顶部标题 Marquee 跑马灯
-- **现状**：`ImmersiveTopBar` 歌名/歌手静态单行省略。
-- **对齐**：参考 lx `Marquee.tsx`（`Animated.loop` + `translateX` + 复制文本），抽一个 `Marquee` 组件，歌名过长时滚动，短则不滚。
-- **改造**：新建 `components/Marquee.tsx`；`ImmersiveTopBar` 歌名用 `Marquee` 包裹（歌手保持静态）。
+```text
+Modal (fullScreenModal)
+  └─ PagerView 2 页
+       ├─ 第 0 页：ImmersiveCoverPage（封面）
+       └─ 第 1 页：LyricView（歌词）
+  └─ ImmersiveTransport（进度 + 控件，叶子组件）
+  └─ ImmersiveTopBar / ImmersiveModals
+  └─ isLyricsPage && <KeepAwake />
+```
+
+### useImmersiveController（558 行）
+
+`src/screens/immersive/useImmersiveController.ts` 承担**所有状态与操作**，UI 组件只做渲染：
+
+- **状态隔离**：0.25s 进度 tick 只重渲染进度叶子组件（`ImmersiveTransport` 内部订阅），不触发全屏重渲染。
+- **下拉关闭**：`dismissResponder`（`PanResponder.create`），仅在**封面页**生效——`!isLyricsPageRef.current && g.dy > 80 && g.dy > Math.abs(g.dx) * 1.5` 响应，`g.dy > 120` 释放即 `onClose`。
+- **浮窗歌词切换**：`canDrawOverlays` / `requestOverlayPermission` 检查并请求 Android 悬浮窗权限。
+- **封面长按下载**：长按封面弹出菜单（下载封面 / 下载歌曲）。
+
+### 旋转封面（ImmersiveCoverPage）
+
+- `Animated.timing(spinValue, { duration: 25000 * (1 - value), useNativeDriver: true })`——25s 一圈，`useNativeDriver` 走原生动画线程。
+- **暂停从当前角度恢复**：暂停时停止动画，恢复时从当前角度继续，不跳回 0°。
+
+### Marquee 跑马灯（ImmersiveTopBar）
+
+`Marquee` 组件包裹歌名，过长时 `Animated.timing(translateX)` 滚动，短则不滚；对齐 lx Marquee。
+
+### LyricView（587 行）
+
+`src/components/LyricView.tsx`，歌词滚动核心：
+
+- **动态行高累积偏移**：`onLayout` 记录每行真实高度，目标行居中偏移 = `累计行高(0..index-1) + 当前行一半 - viewportHeight × 0.42`（对齐 lx `handleScrollToActive`）。
+- **相邻行平滑**：相邻行（diff == 1）用 `easeInOutQuad` 缓动 **600ms** 平滑滚动。
+- **跨行 / seek 即时**：跨行 / seek / 首次用 `scrollToIndex({ animated: false, viewPosition: 0.42 })` 立即定位。
+- **3s 用户滚动暂停**：`onScrollEndDrag` 后 3s 恢复自动跟唱，滚动持续时不提前恢复。
+- **捏合缩放**：双指 `Pinch` 手势即时改字号，松手写回 store；行高缓存失效后等 `onLayout` 重测，再把当前行滚回 42% 锚点。
+- **点击行跳转**：`onSeek(item.time)` 跳转到该行时间。
+- **简繁转换**：`opencc-js`（`chineseConversionService`）按需转换。
+- **活跃行缩放**：当前行放大强调。
+
+### KeepAwake / 触觉反馈
+
+- **KeepAwake 仅歌词页**：`isLyricsPage && <KeepAwake />`，只在歌词页保持亮屏。
+- **触觉反馈**：`hapticLight()` 在切歌 / 按键触发轻触觉。
 
 ---
 
-## 3. P1 —— 中等改动
+## 一致性点
 
-### P1-1 手机竖屏显示「上一首」
-- **现状**：`ImmersiveTransport` 仅平板显示 `SkipBack`（注释自称参考 lx 竖屏极简，但与 lx 实际不符——lx 竖屏也显示 prev/next/play 三键）。
-- **对齐**：手机竖屏也渲染上一首，`mainControls` 改为 `⏮ ⏯ ⏭ ⏹ 更多`。注意单曲模式下一首的边界（`playPrevious`/`playNext` 已处理 FM/随机/历史）。
+两端共享以下逻辑，确保核心体验一致：
 
-### P1-2 更多按钮能力核对（lx 直排项 vs 本项目 More 菜单）
-- lx 直排：桌面歌词(平台特有,跳过)、**收藏**、**播放模式**、评论(MV)、更多。
-- 本项目 PlayInfo：播放模式 + 更多(内含喜欢/歌单/分享/音量/睡眠/队列/翻译/简繁/海报/音效/倍速)。
-- **建议**：把「喜欢」提升为底部常驻主键（与播放模式并列），对齐 lx 把核心操作放主屏而非收进 More，评论/更多保持收起。
-
-### P1-3 歌词资源多源择优核对
-- **待查**：`useImmersiveController` 中 `lyrics` 的来源链（逐字→词→翻译→空），确认与 lx 的 `plugins/lyric` 择优一致；不一致则补对齐。
-
----
-
-## 4. P2 —— 横屏第二套布局（重，独立里程碑）
-
-- lx `Horizontal/index.tsx`：`flexDirection:row`，左 45% = 封面+迷你歌词+播放控制，右 55% = 完整歌词。
-- 本项目有 `isTablet` 分支（`ImmersiveStage` 单屏），但**没有横屏手机双栏布局**。
-- **建议**：作为独立阶段，复用现有 `ImmersiveCoverPage`/`LyricView`/`ImmersiveTransport` 拼装 `HorizontalLayout`，监听窗口 `width>height` 切换。改动大、需充分回归，故单列不并入本轮。
+| 维度 | 共享实现 |
+| --- | --- |
+| **歌词同步** | `useLyricLineIndex` 共享——锚点外推 + 0.12s 迟滞，两端用同一行号推进算法 |
+| **歌词设置** | `lyricSettingsStore` 共享（字号 / 颜色 / 字体 / 对齐 / 字重 / 行距 / 译文 / 动效强度） |
+| **播放模式 / 倍速 / 音量** | 概念一致，参数互通 |
+| **睡眠定时器** | `sleepTimerStore` 一致 |
+| **队列** | 队列概念一致 |
+| **封面调色** | palette 一致（移动 `--af-immersive-artwork-rgb` 对应桌面同源） |
 
 ---
 
-## 5. 建议的执行顺序
+## 平台差异点
 
-1. **P0-2 Marquee**（纯前端、零风险）→ **P0-1 缓冲条**（需确认 buffered 数据源）
-2. **P1-1 手机上一首**、**P1-3 歌词择优核对**
-3. **P1-2 喜欢上提主屏**
-4. **P2 横屏布局**（单独迭代）
+| 维度 | 桌面端 | 移动端 |
+| --- | --- | --- |
+| **全屏形态** | CSS `position: fixed` Overlay 全屏 | Modal 路由 `fullScreenModal` |
+| **页面结构** | 单页歌词 | PagerView 封面 + 歌词分页 |
+| **卡拉 OK 可视化** | CSS `background-clip: text` + `clip-path: inset()` | `Animated` + `scrollToIndex` |
+| **交互** | 键盘（空格 / 方向键 / ↑↓ / M / ESC） | 手势（PanResponder 下拉关闭 / 捏合缩放 / 点击行跳转） |
+| **旋转封面** | 无 | 25s `Animated.timing` 旋转，暂停从当前角度恢复 |
+| **分享** | `buildMusicShareText` 写剪贴板 | `Share.share` 系统分享面板 |
+| **亮屏** | 常驻应用，无需 KeepAwake | KeepAwake 仅歌词页 |
+| **触觉** | 无 | `hapticLight` 触觉反馈 |
+| **浮窗歌词** | 独立桌面歌词窗口（透明置顶 webview） | Android 浮窗（`WindowManager` + `canDrawOverlays` 授权） |
 
-> 覆盖范围：全部 `apps/mobile`，桌面端不变。
+---
+
+## 对齐结论
+
+**核心体验一致，交互模式按平台适配。** 两端共享歌词同步（`useLyricLineIndex`）、歌词设置（`lyricSettingsStore`）、播放概念（模式 / 倍速 / 音量 / 睡眠 / 队列）与封面调色（palette），差异只在落地形态：桌面用 CSS Overlay 单页 + 纯 CSS 卡拉 OK + 键盘交互，移动用 Modal + PagerView 分页 + Animated 卡拉 OK + 手势交互 + 旋转封面。这些差异是平台原生设计的自然结果，而非功能缺口。

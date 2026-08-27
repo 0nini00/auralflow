@@ -1,8 +1,24 @@
-# lib
+# lib/
 
-与 Tauri / 环境相关的薄封装，业务层不直接调用 Tauri API。
+纯函数工具与加密原语：无 React、无副作用、无 IO，供 services/components 复用。
 
-- `tauri.ts`：封装 `invoke`、`listen`、`emit`
-- `storage.ts`：调用 Rust SQLite/Preferences API
-- `native.ts`：系统托盘、窗口控制、自动更新、全局快捷键
-- `utils.ts`：通用工具函数
+## 文件清单
+
+| 文件 | 导出 | 说明 |
+| --- | --- | --- |
+| `utils.ts` | `formatDuration(seconds → m:ss)` | 时间格式化 |
+| `utils.ts` | `clamp(value, min, max)` | 数值区间约束 |
+| `crypto/weapi.ts` | `weapi(data) → { params, encSecKey }` | 网易云 weapi 加密：双 AES-CBC + RSA-no-padding 反转密钥 |
+| `crypto/weapi.ts` | `eapi(path, data) → { params }` | 网易云 eapi 加密：MD5 摘要 + AES-ECB |
+| `crypto/weapi.ts` | `WY_IV` / `WY_PRESET_KEY` / `WY_EAPI_KEY` | 硬编码 AES 密钥与 IV |
+| `crypto/weapi.ts` | 网易 RSA 公钥 | weapi `encSecKey` 所用 |
+
+## 依赖
+
+- `crypto-js`：AES-CBC / AES-ECB 加密。
+- `node-forge`：RSA-no-padding 签名。
+
+## 使用场景
+
+- `weapi` / `eapi`：被 `services/wyAccountService.ts` 及网易相关请求链调用，构造请求体密文。
+- `formatDuration` / `clamp`：被 `components/PlayerBar`、`services/playerEngine.ts` 等用于播放进度与时间显示。
