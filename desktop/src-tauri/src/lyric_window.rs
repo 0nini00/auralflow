@@ -16,11 +16,19 @@ use tauri::{
 
 const LYRIC_LABEL: &str = "lyric";
 const LYRIC_UNLOCK_LABEL: &str = "lyric-unlock";
+/// 与 tauri.conf.json 主窗口 additionalBrowserArgs 逐字一致。
+/// WebView2 要求同一用户数据目录的所有实例使用相同的浏览器附加参数，
+/// 否则第二个 WebView2 环境（歌词窗/解锁按钮窗）会静默创建失败，
+/// 表现为"点击桌面歌词无反应"。
+const ADDITIONAL_BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --app-user-model-id=cn.chenle.auralflow";
 const PERSIST_DEBOUNCE_MS: u64 = 300;
-const DEFAULT_WIDTH: f64 = 900.0;
-const DEFAULT_HEIGHT: f64 = 150.0;
-const MIN_WIDTH: f64 = 400.0;
-const MIN_HEIGHT: f64 = 100.0;
+const DEFAULT_WIDTH: f64 = 380.0;
+const DEFAULT_HEIGHT: f64 = 76.0;
+const MIN_WIDTH: f64 = 280.0;
+const MIN_HEIGHT: f64 = 44.0;
+/// 恢复窗口尺寸时的上限——旧版本保存的 900×150 等超大值会被 clamp 到此范围。
+const MAX_RESTORE_WIDTH: f64 = 720.0;
+const MAX_RESTORE_HEIGHT: f64 = 120.0;
 const UNLOCK_WINDOW_SIZE: f64 = 46.0;
 const ALWAYS_ON_TOP_LOOP_MS: u64 = 1500;
 // 锁定态下光标轮询间隔：在窗口内时临时解除穿透以支持 hover 工具栏
@@ -314,13 +322,14 @@ fn create(app: &AppHandle) -> Result<(), String> {
     let settings = crate::config::load_settings(app)?;
 
     let url = lyric_webview_url("#/lyric")?;
-    let width = sanitize_window_length(settings.lyric_window_width, DEFAULT_WIDTH, MIN_WIDTH);
-    let height = sanitize_window_length(settings.lyric_window_height, DEFAULT_HEIGHT, MIN_HEIGHT);
+    let width = restore_window_length(settings.lyric_window_width, DEFAULT_WIDTH, MIN_WIDTH, MAX_RESTORE_WIDTH);
+    let height = restore_window_length(settings.lyric_window_height, DEFAULT_HEIGHT, MIN_HEIGHT, MAX_RESTORE_HEIGHT);
     let pinned = settings.lyric_pinned;
     invalidate_lyric_window_epoch("create");
 
     let window = WebviewWindowBuilder::new(app, LYRIC_LABEL, url)
         .title("AuralFlow 桌面歌词")
+        .additional_browser_args(ADDITIONAL_BROWSER_ARGS)
         .inner_size(width, height)
         .min_inner_size(MIN_WIDTH, MIN_HEIGHT)
         .always_on_top(pinned)
@@ -433,6 +442,7 @@ fn create_unlock_window(app: &AppHandle) -> Result<(), String> {
         lyric_webview_url("#/lyric-unlock")?,
     )
     .title("解锁桌面歌词")
+    .additional_browser_args(ADDITIONAL_BROWSER_ARGS)
     .inner_size(UNLOCK_WINDOW_SIZE, UNLOCK_WINDOW_SIZE)
     .always_on_top(pinned)
     .decorations(false)
@@ -646,6 +656,12 @@ fn sanitize_window_length(value: Option<f64>, fallback: f64, min: f64) -> f64 {
     }
 }
 
+/// 恢复持久化尺寸时 clamp 到 [min, max]，防止旧版本保存的超大值恢复后窗口过大。
+fn restore_window_length(value: Option<f64>, fallback: f64, min: f64, max: f64) -> f64 {
+    let raw = sanitize_window_length(value, fallback, min);
+    raw.clamp(min, max)
+}
+
 fn clamp_to_range(value: f64, min: f64, max: f64) -> f64 {
     if max <= min {
         min
@@ -664,16 +680,8 @@ fn resolve_window_geometry(
 ) -> LyricWindowGeometry {
     let screen_width = screen_width.max(MIN_WIDTH);
     let screen_height = screen_height.max(MIN_HEIGHT);
-    let width = clamp_to_range(
-        sanitize_window_length(saved_width, DEFAULT_WIDTH, MIN_WIDTH),
-        MIN_WIDTH,
-        screen_width,
-    );
-    let height = clamp_to_range(
-        sanitize_window_length(saved_height, DEFAULT_HEIGHT, MIN_HEIGHT),
-        MIN_HEIGHT,
-        screen_height,
-    );
+    let width = restore_window_length(saved_width, DEFAULT_WIDTH, MIN_WIDTH, MAX_RESTORE_WIDTH);
+    let height = restore_window_length(saved_height, DEFAULT_HEIGHT, MIN_HEIGHT, MAX_RESTORE_HEIGHT);
 
     let default_x = ((screen_width - width) / 2.0).max(0.0);
     let default_y = (screen_height - height - 60.0).max(0.0);

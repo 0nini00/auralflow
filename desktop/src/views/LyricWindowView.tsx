@@ -224,91 +224,7 @@ export function LyricWindowView() {
       } as CSSProperties}
       onMouseDown={startWindowDrag}
     >
-      {/* 顶部工具栏：absolute 悬浮于 stage 上方，不占布局空间，锁定/解锁切换零位移 */}
-      <div className="af-lyric-drag-band">
-        <div className="af-lyric-drag" data-tauri-drag-region>
-        <div className="af-lyric-tools">
-          <button
-            type="button"
-            className="af-lyric-tool"
-            onClick={() => dispatchLyricAction("prev")}
-            title="上一首"
-          >
-            <SkipBack size={16} />
-          </button>
-          <button
-            type="button"
-            className="af-lyric-tool af-lyric-tool-primary"
-            onClick={() => dispatchLyricAction("play-pause")}
-            title={isPlaying ? "暂停" : "播放"}
-          >
-            {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
-          </button>
-          <button
-            type="button"
-            className="af-lyric-tool"
-            onClick={() => dispatchLyricAction("next")}
-            title="下一首"
-          >
-            <SkipForward size={16} />
-          </button>
-        </div>
-
-        <div className="af-lyric-meta">
-          {current ? (
-            <span className="af-lyric-track">{current.name}</span>
-          ) : (
-            <span className="af-lyric-track">未在播放</span>
-          )}
-        </div>
-
-        <div className="af-lyric-tools">
-          <button
-            type="button"
-            className="af-lyric-tool"
-            onClick={() => adjustFontSize(-2)}
-            title="减小字号"
-            disabled={fontSize <= 16}
-          >
-            <Minus size={14} />
-          </button>
-          <button
-            type="button"
-            className="af-lyric-tool"
-            onClick={() => adjustFontSize(2)}
-            title="增大字号"
-            disabled={fontSize >= 52}
-          >
-            <Plus size={14} />
-          </button>
-          <button
-            type="button"
-            className={`af-lyric-tool ${pinned ? "af-lyric-tool-active" : ""}`}
-            onClick={togglePinned}
-            title={pinned ? "取消始终显示在其他窗口上方" : "始终显示在其他窗口上方"}
-          >
-            {pinned ? <Pin size={14} /> : <PinOff size={14} />}
-          </button>
-          <button
-            type="button"
-            className={`af-lyric-tool ${locked ? "af-lyric-tool-active" : ""}`}
-            onClick={toggleLocked}
-            title={locked ? "解锁窗口" : "锁定窗口"}
-          >
-            {locked ? <Lock size={14} /> : <Unlock size={14} />}
-          </button>
-          <button
-            type="button"
-            className="af-lyric-tool af-lyric-tool-danger"
-            onClick={handleClose}
-            title="关闭桌面歌词"
-          >
-            <X size={16} />
-          </button>
-        </div>
-        </div>
-      </div>
-
+      {/* 歌词区 + 工具栏：歌词在前，工具栏紧跟其后 */}
       <div
         className="af-lyric-stage"
         style={{
@@ -344,6 +260,82 @@ export function LyricWindowView() {
             />
           )
         )}
+        {/* 工具栏：紧跟歌词下方，流式排列 */}
+        <div className="af-lyric-drag-band">
+          <div className="af-lyric-drag" data-tauri-drag-region>
+            <div className="af-lyric-tools">
+              <button
+                type="button"
+                className="af-lyric-tool"
+                onClick={() => dispatchLyricAction("prev")}
+                title="上一首"
+              >
+                <SkipBack size={14} />
+              </button>
+              <button
+                type="button"
+                className="af-lyric-tool af-lyric-tool-primary"
+                onClick={() => dispatchLyricAction("play-pause")}
+                title={isPlaying ? "暂停" : "播放"}
+              >
+                {isPlaying ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
+              </button>
+              <button
+                type="button"
+                className="af-lyric-tool"
+                onClick={() => dispatchLyricAction("next")}
+                title="下一首"
+              >
+                <SkipForward size={14} />
+              </button>
+            </div>
+
+            <div className="af-lyric-tools">
+              <button
+                type="button"
+                className="af-lyric-tool"
+                onClick={() => adjustFontSize(-2)}
+                title="减小字号"
+                disabled={fontSize <= 16}
+              >
+                <Minus size={12} />
+              </button>
+              <button
+                type="button"
+                className="af-lyric-tool"
+                onClick={() => adjustFontSize(2)}
+                title="增大字号"
+                disabled={fontSize >= 52}
+              >
+                <Plus size={12} />
+              </button>
+              <button
+                type="button"
+                className={`af-lyric-tool ${pinned ? "af-lyric-tool-active" : ""}`}
+                onClick={togglePinned}
+                title={pinned ? "取消始终显示在其他窗口上方" : "始终显示在其他窗口上方"}
+              >
+                {pinned ? <Pin size={12} /> : <PinOff size={12} />}
+              </button>
+              <button
+                type="button"
+                className={`af-lyric-tool ${locked ? "af-lyric-tool-active" : ""}`}
+                onClick={toggleLocked}
+                title={locked ? "解锁窗口" : "锁定窗口"}
+              >
+                {locked ? <Lock size={12} /> : <Unlock size={12} />}
+              </button>
+              <button
+                type="button"
+                className="af-lyric-tool af-lyric-tool-danger"
+                onClick={handleClose}
+                title="关闭桌面歌词"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* 锁定态光标悬停时的悬浮解锁条 */}
@@ -402,30 +394,25 @@ export function LyricWindowView() {
         .af-lyric-locked .af-lyric-drag-band {
           display: none;
         }
-        /* 全宽渐变遮罩条：脱离文档流，锁定/解锁切换不影响 stage 内容位置 */
+        /* 工具栏：紧跟歌词下方，流式排列不脱离文档流 */
         .af-lyric-drag-band {
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
           z-index: 2;
-          display: flex;
-          justify-content: center;
-          padding: 6px 14px 18px;
           opacity: 0;
           transition: opacity 0.2s;
           pointer-events: none;
-          background: linear-gradient(180deg, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0));
+          align-self: center;
+          margin-top: 0;
+        }
+        .af-lyric-shell:hover .af-lyric-drag-band {
+          opacity: 1;
         }
         .af-lyric-drag {
           pointer-events: auto;
           width: fit-content;
-          max-width: min(560px, calc(100% - 28px));
-          display: grid;
-          grid-template-columns: auto minmax(0, auto) auto;
+          display: flex;
           align-items: center;
-          gap: 8px;
-          padding: 5px 10px;
+          gap: 3px;
+          padding: 3px 6px;
           background: rgba(10, 12, 16, var(--af-lyric-panel-opacity, 0.24));
           border: 1px solid rgba(255, 255, 255, 0.12);
           border-radius: 8px;
@@ -440,17 +427,11 @@ export function LyricWindowView() {
         .af-lyric-tools {
           display: flex;
           align-items: center;
-          gap: 4px;
-        }
-        .af-lyric-tools:first-child {
-          justify-content: flex-start;
-        }
-        .af-lyric-tools:last-child {
-          justify-content: flex-end;
+          gap: 3px;
         }
         .af-lyric-tool {
-          width: 26px;
-          height: 26px;
+          width: 22px;
+          height: 22px;
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -477,8 +458,8 @@ export function LyricWindowView() {
           background: rgba(var(--af-accent-primary-rgb), 0.85);
         }
         .af-lyric-tool-primary {
-          width: 30px;
-          height: 30px;
+          width: 26px;
+          height: 26px;
           background: rgba(var(--af-accent-primary-rgb), 0.85);
           color: #fff;
         }
@@ -490,29 +471,17 @@ export function LyricWindowView() {
           color: #fff;
         }
         .af-lyric-meta {
-          flex: 1;
-          min-width: 0;
-          font-size: 12px;
-          color: rgba(255,255,255,0.7);
-          max-width: min(220px, 34vw);
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          text-align: center;
-        }
-        .af-lyric-track {
-          color: #fff;
-          font-weight: 600;
+          display: none;
         }
         .af-lyric-stage {
           flex: 1;
           display: flex;
           flex-direction: column;
           align-items: center;
-          justify-content: center;
-          gap: 8px;
+          justify-content: flex-start;
+          gap: 2px;
           min-height: 0;
-          padding: 14px 28px;
+          padding: 2px 8px;
           pointer-events: none;
         }
         .af-lyric-line {
