@@ -84,6 +84,17 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
   const [wyPlaylistName, setWyPlaylistName] = useState("");
   const [wyPlaylistDescription, setWyPlaylistDescription] = useState("");
   const [creatingWyPlaylist, setCreatingWyPlaylist] = useState(false);
+  const [wyRefreshing, setWyRefreshing] = useState(false);
+
+  const handleRefreshWyPlaylists = async () => {
+    if (!isLoggedIn || !user || wyRefreshing) return;
+    setWyRefreshing(true);
+    try {
+      await fetchPlaylists(user.userId);
+    } finally {
+      setWyRefreshing(false);
+    }
+  };
 
   const closeWyPlaylistEditor = () => {
     setEditingWyPlaylistId(null);
@@ -308,6 +319,13 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
               description={`${group.count} 个`}
               action={group.key === "owned" && isLoggedIn ? (
                 <View style={styles.playlistHeaderActions}>
+                  <ActionButton
+                    small
+                    accessibilityLabel="刷新网易云歌单"
+                    onPress={handleRefreshWyPlaylists}
+                    loading={wyRefreshing}
+                    label="刷新"
+                  />
                   <ActionButton
                     small
                     accessibilityLabel="新建网易云歌单"

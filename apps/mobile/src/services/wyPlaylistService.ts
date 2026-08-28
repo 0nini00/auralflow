@@ -79,6 +79,9 @@ export async function postWyWeapi<TResponse = JsonRecord>(
 
 /**
  * 获取用户歌单
+ *
+ * 必须走 weapi（对齐桌面端 weapiPost("/user/playlist")，desktop/src/services/wyAccountService.ts:381）：
+ * 普通 GET /api/user/playlist 返回的 subscribed 字段恒为 null，收藏的歌单无法被识别。
  */
 export async function getUserPlaylists(userId: string): Promise<WyPlaylistInfo[]> {
   const cookie = await getWyCookie();
@@ -86,51 +89,52 @@ export async function getUserPlaylists(userId: string): Promise<WyPlaylistInfo[]
     throw new Error("未登录");
   }
 
-  try {
-    const response = await fetchWithTimeout(
-      `https://music.163.com/api/user/playlist?uid=${userId}&limit=1000&offset=0`,
-      {
-        method: "GET",
-        headers: {
-          "Cookie": cookie,
-          ...WY_REQUEST_HEADERS,
-        },
-      }
-    );
+  const data = await postWyWeapi<JsonRecord>(
+    "/user/playlist",
+    {
+      uid: userId,
+      limit: 1000,
+      offset: 0,
+      includeVideo: true,
+    },
+    cookie,
+  );
 
-    const data = (await response.json()) as JsonRecord;
-
-    if (data.code === 200 && data.playlist) {
-      return data.playlist.map((item: any) => {
-        const creatorUserId = item.creator?.userId;
-        const creator =
-          creatorUserId != null && String(creatorUserId).trim()
-            ? {
-                userId: String(creatorUserId),
-                nickname: String(item.creator?.nickname ?? ""),
-              }
-            : undefined;
-
-        return {
-          id: String(item.id),
-          name: item.name,
-          author: item.creator?.nickname || "未知",
-          picUrl: item.coverImgUrl,
-          coverImgUrl: item.coverImgUrl,
-          desc: item.description,
-          playCount: item.playCount,
-          trackCount: item.trackCount || 0,
-          source: "wy" as const,
-          subscribed: item.subscribed,
-          creator,
-        };
-      });
-    }
-
-    throw new Error("获取歌单失败");
-  } catch (error) {
-    throw error;
+  if (data.code !== 200) {
+    throw new Error(String(data.message || `获取歌单失败 (code=${data.code})`));
   }
+
+  const raw = Array.isArray(data.playlist) ? (data.playlist as any[]) : [];
+  return raw.map((item: any) => {
+    const creatorUserId = item.creator?.userId;
+    const creator =
+      creatorUserId != null && String(creatorUserId).trim()
+        ? {
+            userId: String(creatorUserId),
+            nickname: String(item.creator?.nickname ?? ""),
+          }
+        : undefined;
+
+    // weapi 未返回布尔 subscribed 时，退化为“创建者不是本人 = 收藏的歌单”
+    const subscribed =
+      typeof item.subscribed === "boolean"
+        ? item.subscribed
+        : creatorUserId != null && String(creatorUserId) !== String(userId);
+
+    return {
+      id: String(item.id),
+      name: item.name,
+      author: item.creator?.nickname || "未知",
+      picUrl: item.coverImgUrl,
+      coverImgUrl: item.coverImgUrl,
+      desc: item.description ?? item.desc,
+      playCount: item.playCount,
+      trackCount: item.trackCount || 0,
+      source: "wy" as const,
+      subscribed,
+      creator,
+    };
+  });
 }
 
 /**
