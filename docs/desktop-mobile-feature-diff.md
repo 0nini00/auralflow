@@ -168,7 +168,7 @@
 
 | 功能模块 | 桌面端 | 移动端 | 差异性质 |
 |---|---|---|---|
-| 网易云登录 | `wyAccountService.ts` 601 行 weapi/eapi 双通道+QR 登录 type=3+SVG 二维码 | `wyQrLoginService` getQrCodeKey/createWyQrCode/pollWyQrLoginStatus | 🟢 共享 |
+| 网易云登录 | `wyAccountService.ts` 601 行 weapi/eapi 双通道+QR 登录 type=3+SVG 二维码 | `wyAccountService` Cookie 粘贴登录+`validateWyCookie` weapi 校验（无扫码登录；`wyQrLoginService` 为文档误记） | 🟢 共享（登录方式不同：桌面扫码/移动贴 Cookie） |
 | 网易云 Cookie | Cookie | NetEase cookie | 🟢 共享 |
 | B 站登录 | `biliAccountService` 用 settings.biliCookie | `biliService` Cookie | 🟢 共享 |
 | B 站收藏合集 | `getBiliCollectionSongs` favorite/season/series 三种 | `biliService.getBiliCollectionSongs` | 🟢 共享 |

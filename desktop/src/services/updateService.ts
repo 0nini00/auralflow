@@ -1,7 +1,8 @@
 import { fetch } from "@tauri-apps/plugin-http";
 import { getVersion } from "@tauri-apps/api/app";
 
-const UPDATE_CHECK_REPO = "chenle/auralflow";
+// 更新发布仓库（与移动端 updateService 一致；chenle/auralflow 不存在）
+const UPDATE_CHECK_REPO = "0nini00/auralflow";
 
 export interface UpdateInfo {
   currentVersion: string;

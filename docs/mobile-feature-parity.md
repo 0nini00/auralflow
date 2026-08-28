@@ -144,7 +144,7 @@
 
 | 功能 | 桌面实现 | 移动实现 | 对齐状态 |
 |---|---|---|---|
-| 网易云 QR 登录 | `wyAccountService.ts` 601 行 weapi/eapi 双通道+QR type=3+SVG 二维码+`loginStatus` 轮询 | `wyQrLoginService` getQrCodeKey/createWyQrCode/pollWyQrLoginStatus | ✅ |
+| 网易云 QR 登录 | `wyAccountService.ts` 601 行 weapi/eapi 双通道+QR type=3+SVG 二维码+`loginStatus` 轮询 | 无扫码登录，`wyAccountService` Cookie 粘贴登录+`validateWyCookie` weapi 校验 | ❌（桌面多扫码登录；`wyQrLoginService` 为早期文档误记，代码中不存在） |
 | 网易云 Cookie | 网易云 Cookie | NetEase cookie | ✅ |
 | B 站登录 | `biliAccountService` settings.biliCookie | `biliService` Cookie | ✅ |
 | 我的歌单 | `wyAccountStore` setSubscribed | `playlistStore.setWyPlaylistSubscribed` | ✅ |

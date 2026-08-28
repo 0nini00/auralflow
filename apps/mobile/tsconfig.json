@@ -21,7 +21,6 @@
   ],
   "exclude": [
     "**/node_modules",
-    "**/Pods",
-    "**/_screen_backups"
+    "**/Pods"
   ]
 }
