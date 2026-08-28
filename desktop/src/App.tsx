@@ -7,6 +7,7 @@ import { SearchView } from "./views/SearchView";
 import { SettingsView } from "./views/SettingsView";
 import { LocalMusicView } from "./views/LocalMusicView";
 import { PlaylistsView } from "./views/PlaylistsView";
+import { BiliCollectionsView } from "./views/BiliCollectionsView";
 import { DownloadsView } from "./views/DownloadsView";
 import { HistoryView } from "./views/HistoryView";
 import { PlaylistDetailView } from "./views/PlaylistDetailView";
@@ -92,6 +93,7 @@ function MainApp() {
             <Route path="library" element={<Navigate to="/playlist/favorites" replace />} />
             <Route path="local" element={<LocalMusicView />} />
             <Route path="playlists" element={<PlaylistsView />} />
+            <Route path="bili-collections" element={<BiliCollectionsView />} />
             <Route path="downloads" element={<DownloadsView />} />
             <Route path="history" element={<HistoryView />} />
             <Route path="playlist/:id" element={<PlaylistDetailView />} />

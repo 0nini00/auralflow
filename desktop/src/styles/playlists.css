@@ -541,37 +541,22 @@ button.af-playlist-card {
   color: var(--af-error) !important;
 }
 
-.af-dialog-overlay.af-bili-manager-overlay {
-  align-items: center;
-  padding: 24px;
-}
-
-.af-dialog.af-bili-manager-dialog {
-  width: min(760px, 92vw);
-  max-height: min(760px, calc(100vh - 72px));
+.af-bili-collections-view {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 26px;
-  overflow: hidden;
+  gap: 20px;
+  min-height: 0;
 }
 
-.af-bili-manager-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+.af-bili-collections-header {
+  flex: 0 0 auto;
 }
 
-.af-bili-manager-header h2 {
+.af-bili-collections-header h1 {
   margin: 0;
 }
 
-.af-dialog.af-bili-manager-dialog .af-bili-manager-header h2 {
-  margin: 0;
-}
-
-.af-bili-manager-header p {
+.af-bili-collections-header p {
   margin: 6px 0 0;
   color: var(--af-text-secondary);
   font-size: 13px;
@@ -587,6 +572,7 @@ button.af-playlist-card {
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.025);
   cursor: pointer;
+  flex: 0 0 auto;
 }
 
 .af-bili-auto-row > input,
@@ -655,12 +641,13 @@ button.af-playlist-card {
 }
 
 .af-bili-collection-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
   min-height: 0;
-  overflow: auto;
+  flex: 1;
   padding-right: 4px;
+}
+
+.af-bili-collection-list.af-virtual-list {
+  overflow: auto;
 }
 
 .af-bili-collection-row {
@@ -668,7 +655,9 @@ button.af-playlist-card {
   grid-template-columns: 58px minmax(0, 1fr) auto;
   align-items: center;
   gap: 14px;
+  height: 78px;
   padding: 10px;
+  margin-bottom: 10px;
   border: 1px solid transparent;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.025);
@@ -773,13 +762,11 @@ button.af-playlist-card {
   }
 
   .af-bili-collection-row {
-    grid-template-columns: 54px minmax(0, 1fr);
+    grid-template-columns: 54px minmax(0, 1fr) auto;
   }
 
   .af-bili-row-toggle {
-    grid-column: 1 / -1;
-    justify-content: space-between;
-    padding-top: 4px;
+    padding-top: 0;
   }
 }
 

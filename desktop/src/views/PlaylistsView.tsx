@@ -23,7 +23,6 @@ import {
   SlidersHorizontal,
   EyeOff,
   RefreshCw,
-  X,
 } from 'lucide-react';
 
 export function PlaylistsView() {
@@ -40,13 +39,9 @@ export function PlaylistsView() {
   const wyRefreshPlaylists = useWyAccountStore((s) => s.refreshPlaylists);
   const biliAccount = useBiliAccountStore((s) => s.account);
   const biliPlaylists = useBiliAccountStore((s) => s.playlists);
-  const hiddenBiliCollectionIds = useBiliAccountStore((s) => s.hiddenCollectionIds);
   const newBiliCollectionIds = useBiliAccountStore((s) => s.newCollectionIds);
-  const autoShowNewBiliCollections = useBiliAccountStore((s) => s.autoShowNewCollections);
   const getVisibleBiliCollections = useBiliAccountStore((s) => s.getVisibleCollections);
   const setBiliCollectionVisible = useBiliAccountStore((s) => s.setCollectionVisible);
-  const setAutoShowNewBiliCollections = useBiliAccountStore((s) => s.setAutoShowNewCollections);
-  const clearNewBiliCollectionState = useBiliAccountStore((s) => s.clearNewCollectionState);
   const biliLoading = useBiliAccountStore((s) => s.isLoading);
   const biliLoaded = useBiliAccountStore((s) => s.isLoaded);
   const biliError = useBiliAccountStore((s) => s.error);
@@ -57,13 +52,11 @@ export function PlaylistsView() {
   const [editingPlaylist, setEditingPlaylist] = useState<string | null>(null);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [transferStatus, setTransferStatus] = useState('');
-  const [showBiliManager, setShowBiliManager] = useState(false);
   const [wyRefreshing, setWyRefreshing] = useState(false);
 
   const myWyPlaylists = wyPlaylists.filter((p) => !p.subscribed);
   const collectedWyPlaylists = wyPlaylists.filter((p) => p.subscribed);
   const visibleBiliPlaylists = getVisibleBiliCollections();
-  const hiddenBiliIdSet = new Set(hiddenBiliCollectionIds);
   const newBiliIdSet = new Set(newBiliCollectionIds);
   const totalPlaylistCount = 2 + wyPlaylists.length + visibleBiliPlaylists.length + playlists.length;
   const newBiliCollectionCount = biliPlaylists.filter((playlist) => newBiliIdSet.has(playlist.id)).length;
@@ -78,12 +71,12 @@ export function PlaylistsView() {
   }, [biliLoad, biliLoaded, biliLoading]);
 
   useEffect(() => {
-    if (!showCreateDialog && !showBiliManager) return;
+    if (!showCreateDialog) return;
     document.documentElement.classList.add('af-page-scroll-locked');
     return () => {
       document.documentElement.classList.remove('af-page-scroll-locked');
     };
-  }, [showCreateDialog, showBiliManager]);
+  }, [showCreateDialog]);
 
   const handleCreate = () => {
     const name = newPlaylistName.trim();
@@ -187,11 +180,6 @@ export function PlaylistsView() {
       setWyRefreshing(false);
     }
   };
-  const closeBiliManager = () => {
-    clearNewBiliCollectionState();
-    setShowBiliManager(false);
-  };
-
   const handleHideBiliCollection = (id: string) => {
     setBiliCollectionVisible(id, false);
     setActiveMenu(null);
@@ -291,7 +279,7 @@ export function PlaylistsView() {
               <button
                 type="button"
                 className="af-bili-new-pill"
-                onClick={() => setShowBiliManager(true)}
+                onClick={() => navigate('/bili-collections')}
               >
                 新发现 {newBiliCollectionCount}
               </button>
@@ -300,7 +288,7 @@ export function PlaylistsView() {
               <button
                 type="button"
                 className="af-section-action af-bili-manage-button"
-                onClick={() => setShowBiliManager(true)}
+                onClick={() => navigate('/bili-collections')}
               >
                 <SlidersHorizontal size={16} />
                 <span>管理</span>
@@ -327,7 +315,7 @@ export function PlaylistsView() {
         {!biliLoading && !biliError && biliPlaylists.length > 0 && visibleBiliPlaylists.length === 0 && (
           <div className="af-inline-state af-bili-hidden-empty">
             <span>已隐藏全部 B站合集，可以在管理里重新显示。</span>
-            <button type="button" className="af-section-action" onClick={() => setShowBiliManager(true)}>
+            <button type="button" className="af-section-action" onClick={() => navigate('/bili-collections')}>
               <SlidersHorizontal size={16} />
               <span>管理合集</span>
             </button>
@@ -601,69 +589,6 @@ export function PlaylistsView() {
               >
                 {editingPlaylist ? '保存' : '创建'}
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showBiliManager && (
-        <div className="af-dialog-overlay af-bili-manager-overlay" onClick={closeBiliManager}>
-          <div className="af-dialog af-bili-manager-dialog" onClick={(e) => e.stopPropagation()}>
-            <div className="af-bili-manager-header">
-              <div>
-                <h2>B站合集管理</h2>
-                <p>选择哪些收藏合集显示在歌单页。</p>
-              </div>
-              <button
-                type="button"
-                className="af-menu-trigger"
-                onClick={closeBiliManager}
-                aria-label="关闭 B站合集管理"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <label className="af-bili-auto-row">
-              <input
-                type="checkbox"
-                checked={autoShowNewBiliCollections}
-                onChange={(event) => setAutoShowNewBiliCollections(event.target.checked)}
-              />
-              <span className="af-bili-visibility-switch" aria-hidden="true" />
-              <span>
-                <strong>新合集自动显示</strong>
-                <small>关闭后，新收藏的合集会先进入管理列表，确认后再显示。</small>
-              </span>
-            </label>
-
-            <div className="af-bili-collection-list">
-              {biliPlaylists.map((playlist) => {
-                const visible = !hiddenBiliIdSet.has(playlist.id);
-                const isNew = newBiliIdSet.has(playlist.id);
-                return (
-                  <div key={playlist.id} className="af-bili-collection-row">
-                    <PlaylistCover src={playlist.picUrl} name={playlist.name} cloud />
-                    <div className="af-bili-collection-info">
-                      <div className="af-bili-collection-title-row">
-                        <h3>{playlist.name}</h3>
-                        {isNew && <span className="af-bili-new-badge">新发现</span>}
-                      </div>
-                      <p>{playlist.trackCount ?? 0} 个视频 · {playlist.author || '哔哩哔哩'}</p>
-                    </div>
-                    <label className="af-bili-row-toggle">
-                      <input
-                        type="checkbox"
-                        checked={visible}
-                        onChange={(event) => setBiliCollectionVisible(playlist.id, event.target.checked)}
-                        aria-label={`${visible ? '隐藏' : '显示'} ${playlist.name}`}
-                      />
-                      <span className="af-bili-visibility-switch" aria-hidden="true" />
-                      <span>{visible ? '显示' : '隐藏'}</span>
-                    </label>
-                  </div>
-                );
-              })}
             </div>
           </div>
         </div>
