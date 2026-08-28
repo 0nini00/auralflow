@@ -164,10 +164,20 @@ pub async fn proxy_http_request(options: ProxyRequestOptions) -> Result<ProxyRes
 
     let status = response.status();
     let mut headers = HashMap::new();
+    // 多个同名头（特别是 Set-Cookie）会被 reqwest 合并成逗号分隔的单个值；
+    // 这里用 \n 拼接保留各条独立，便于前端按行解析提取 cookie。
+    let mut set_cookie_values: Vec<String> = Vec::new();
     for (name, value) in response.headers() {
         if let Ok(text) = value.to_str() {
-            headers.insert(name.as_str().to_string(), text.to_string());
+            if name == "set-cookie" {
+                set_cookie_values.push(text.to_string());
+            } else {
+                headers.insert(name.as_str().to_string(), text.to_string());
+            }
         }
+    }
+    if !set_cookie_values.is_empty() {
+        headers.insert("set-cookie".to_string(), set_cookie_values.join("\n"));
     }
 
     let bytes = response

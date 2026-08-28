@@ -17,6 +17,7 @@ export interface RustAppSettings {
   playbackFailedAutoNext: boolean;
   wyCookie?: string | null;
   biliCookie?: string | null;
+  biliRefreshToken?: string | null;
   lyricPinned: boolean;
   lyricLocked: boolean;
   lyricPauseHide: boolean;

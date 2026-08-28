@@ -31,6 +31,8 @@ pub struct AppSettings {
     pub wy_cookie: Option<String>,
     /// B站 Cookie
     pub bili_cookie: Option<String>,
+    /// B站 Cookie 刷新用的 refresh_token（即浏览器 localStorage 的 ac_time_value）
+    pub bili_refresh_token: Option<String>,
     /// 桌面歌词窗口：是否始终置顶
     pub lyric_pinned: bool,
     /// 桌面歌词窗口：锁定后鼠标穿透，防止误拖动/误点击
@@ -113,6 +115,7 @@ impl Default for AppSettings {
             playback_failed_auto_next: false,
             wy_cookie: None,
             bili_cookie: None,
+            bili_refresh_token: None,
             lyric_pinned: true,
             lyric_locked: false,
             lyric_pause_hide: false,

@@ -16,9 +16,11 @@ import { useBiliAccountStore } from "@/stores/biliAccountStore";
 import { broadcastLyricSettings } from "@/stores/lyricSettingsSync";
 import {
   assertBiliCookieShape,
+  checkBiliAccount,
   getBiliCookie,
   setBiliCookie,
 } from "@/services/biliAccountService";
+import { saveBiliRefreshToken } from "@/services/biliCookieRefreshService";
 import { playerEngine } from "@/services/playerEngine";
 import { normalizePauseOnExternalPlayback } from "@/services/mediaInterruptionPolicy";
 import { clearPersistentCache } from "@/services/persistentCache";
@@ -97,6 +99,8 @@ const [customSourceAutoCheck, setCustomSourceAutoCheck] = useState(true);
 const [biliCookieText, setBiliCookieText] = useState("");
 const [biliCookieStatus, setBiliCookieStatus] = useState("");
 const [biliCookiePending, setBiliCookiePending] = useState(false);
+const [biliRefreshTokenText, setBiliRefreshTokenText] = useState("");
+const [biliRefreshTokenStatus, setBiliRefreshTokenStatus] = useState("");
 const [immersiveLyricFontFamily, setImmersiveLyricFontFamily] = useState(DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
 const [songCacheStats, setSongCacheStats] = useState<SongCacheStats | null>(null);
 const [dataPending, setDataPending] = useState(false);
@@ -133,6 +137,7 @@ useEffect(() => {
     setCustomSourceAutoCheck(settings.customSourceAutoCheck !== false);
     setAppBackgroundImagePath(settings.appBackgroundImagePath ?? "");
     setBiliCookieText(settings.biliCookie ?? "");
+    setBiliRefreshTokenText(settings.biliRefreshToken ?? "");
     setImmersiveLyricFontFamily(settings.immersiveLyricFontFamily || DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
   }).catch((error) => {
     setDataStatus(`读取设置失败：${error instanceof Error ? error.message : String(error)}`);
@@ -246,27 +251,53 @@ const handleSaveBiliCookie = async () => {
     isLoaded: useBiliAccountStore.getState().isLoaded,
     error: useBiliAccountStore.getState().error,
   };
+  const newCookie = setBiliCookie(raw);
   setBiliCookiePending(true);
   setBiliCookieStatus("验证中...");
   try {
-    const normalized = setBiliCookie(raw);
-    await patchSettings({ biliCookie: normalized });
-    await biliLoad(normalized);
+    await patchSettings({ biliCookie: newCookie });
+    await biliLoad(newCookie);
     const latest = useBiliAccountStore.getState();
     if (!latest.account) throw new Error(latest.error || "B站 Cookie 验证失败");
-    setBiliCookieText(normalized);
+    setBiliCookieText(newCookie);
     setBiliCookieStatus(`已同步：${latest.account.nickname}`);
   } catch (error) {
-    setBiliCookie(previousCookie);
-    useBiliAccountStore.setState(previousState);
-    await patchSettings({ biliCookie: previousCookie || null });
-    setBiliCookieStatus(error instanceof Error ? error.message : String(error));
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    let rolledBack = false;
+    if (previousCookie) {
+      try {
+        setBiliCookie(previousCookie);
+        await checkBiliAccount();
+        useBiliAccountStore.setState(previousState);
+        await patchSettings({ biliCookie: previousCookie || null });
+        rolledBack = true;
+      } catch {
+        setBiliCookie(newCookie);
+      }
+    }
+    if (rolledBack) {
+      setBiliCookieStatus(errorMsg);
+    } else if (previousCookie) {
+      setBiliCookieStatus(`新 Cookie 验证失败：${errorMsg}。旧 Cookie 也已失效，请检查后重新填写。`);
+    } else {
+      setBiliCookieStatus(`新 Cookie 验证失败：${errorMsg}`);
+    }
   } finally {
     setBiliCookiePending(false);
   }
 };
 
-const handleClearBiliCookie = async () => {
+  const handleSaveBiliRefreshToken = async () => {
+    const trimmed = biliRefreshTokenText.trim();
+    try {
+      await saveBiliRefreshToken(trimmed);
+      setBiliRefreshTokenStatus(trimmed ? "已保存 refresh_token" : "已清除 refresh_token");
+    } catch (error) {
+      setBiliRefreshTokenStatus(`保存失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  const handleClearBiliCookie = async () => {
   setBiliCookiePending(true);
   setBiliCookieStatus("");
   try {
@@ -388,6 +419,10 @@ const getCapabilityTitle = (source: typeof customSources[number]) => {
     setBiliCookieStatus,
     biliCookiePending,
     setBiliCookiePending,
+    biliRefreshTokenText,
+    setBiliRefreshTokenText,
+    biliRefreshTokenStatus,
+    handleSaveBiliRefreshToken,
     immersiveLyricFontFamily,
     setImmersiveLyricFontFamily,
     songCacheStats,
@@ -468,6 +503,10 @@ export type SourcesSettingsModel = Pick<SettingsViewModel,
   | "setBiliCookieText"
   | "biliCookieStatus"
   | "biliCookiePending"
+  | "biliRefreshTokenText"
+  | "setBiliRefreshTokenText"
+  | "biliRefreshTokenStatus"
+  | "handleSaveBiliRefreshToken"
   | "customSources"
   | "removeSource"
   | "toggleSource"

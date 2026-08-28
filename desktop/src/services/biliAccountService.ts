@@ -124,37 +124,55 @@ async function biliJson<T>(path: string, params?: URLSearchParams, referer = "ht
     throw new Error(`B站请求失败: ${path}; ${error instanceof Error ? error.message : String(error)}`);
   }
   if (body.code !== 0) {
-    if (isBiliAuthExpiredCode(body.code)) {
+    if (body.code === -101) {
       throw new Error("B站登录已过期，请重新填写 Cookie");
+    }
+    if (body.code === -111) {
+      throw new Error("B站登录状态异常(CSRF)，请稍后重试或重新填写 Cookie");
+    }
+    if (body.code === 401 || body.code === 403) {
+      throw new Error("B站请求被拒绝(401/403)，可能是风控，请稍后重试");
     }
     throw new Error(body.message || `B站接口返回 code=${body.code}`);
   }
   return body.data as T;
 }
 
-/** B站常见未登录/鉴权失败码 */
-function isBiliAuthExpiredCode(code: unknown): boolean {
-  // -101 账号未登录；-111 csrf 失败；-400 请求错误里也可能夹登录态问题
-  // 401/403 部分网关会映射 HTTP 语义到 body.code
-  return code === -101 || code === -111 || code === 401 || code === 403;
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** nav 校验：对 isLogin=false / -101 等间歇性失败重试 3 次再判死，过滤 CDN 抖动与风控闪断 */
 export async function checkBiliAccount(): Promise<BiliAccountInfo> {
-  const data = await biliJson<Record<string, unknown>>("/x/web-interface/nav");
-  if (!data?.isLogin) throw new Error("B站登录已过期或未登录，请重新填写 Cookie");
+  const NAV_MAX_RETRIES = 3;
+  const NAV_RETRY_DELAYS_MS = [500, 1000, 1500];
+  let lastError: Error | null = null;
 
-  const uid = asString(data.mid);
-  if (!uid) throw new Error("B站未返回用户 UID");
-  const vipType = asNumber(data.vipType) ?? asNumber((data.vip as Record<string, unknown> | undefined)?.type) ?? 0;
-  const vipStatus = asNumber(data.vipStatus) ?? asNumber((data.vip as Record<string, unknown> | undefined)?.status) ?? 0;
-
-  return {
-    uid,
-    nickname: asString(data.uname),
-    avatarUrl: asString(data.face),
-    vipType,
-    isVip: vipStatus > 0 || vipType > 0,
-  };
+  for (let attempt = 0; attempt <= NAV_MAX_RETRIES; attempt += 1) {
+    try {
+      const data = await biliJson<Record<string, unknown>>("/x/web-interface/nav");
+      if (data?.isLogin) {
+        const uid = asString(data.mid);
+        if (!uid) throw new Error("B站未返回用户 UID");
+        const vipType = asNumber(data.vipType) ?? asNumber((data.vip as Record<string, unknown> | undefined)?.type) ?? 0;
+        const vipStatus = asNumber(data.vipStatus) ?? asNumber((data.vip as Record<string, unknown> | undefined)?.status) ?? 0;
+        return {
+          uid,
+          nickname: asString(data.uname),
+          avatarUrl: asString(data.face),
+          vipType,
+          isVip: vipStatus > 0 || vipType > 0,
+        };
+      }
+      lastError = new Error("B站登录已过期或未登录，请重新填写 Cookie");
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+    if (attempt < NAV_MAX_RETRIES) {
+      await sleep(NAV_RETRY_DELAYS_MS[attempt] ?? 1500);
+    }
+  }
+  throw lastError ?? new Error("B站登录已过期或未登录，请重新填写 Cookie");
 }
 
 export async function getBiliSubscribedCollections(uid: string): Promise<BiliCollectionInfo[]> {

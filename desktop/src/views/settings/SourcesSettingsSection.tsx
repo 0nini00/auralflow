@@ -12,6 +12,10 @@ export function SourcesSettingsSection({ model }: { model: SourcesSettingsModel 
     setBiliCookieText,
     biliCookieStatus,
     biliCookiePending,
+    biliRefreshTokenText,
+    setBiliRefreshTokenText,
+    biliRefreshTokenStatus,
+    handleSaveBiliRefreshToken,
     customSources,
     removeSource,
     toggleSource,
@@ -82,6 +86,34 @@ export function SourcesSettingsSection({ model }: { model: SourcesSettingsModel 
       <p className="af-settings-hint">当前 B站账号：{biliAccount.nickname}</p>
     )}
     {biliCookieStatus && <p className="af-settings-hint">{biliCookieStatus}</p>}
+    <details style={{ marginTop: 10 }}>
+      <summary className="af-settings-hint" style={{ cursor: "pointer", userSelect: "none" }}>
+        Cookie 自动续期（可选，减少过期频率）
+      </summary>
+      <p className="af-settings-hint" style={{ marginTop: 8 }}>
+        填入浏览器 localStorage 里的 <code>ac_time_value</code>（即 refresh_token），
+        应用会在 Cookie 临近过期时自动续期，有效期可延长至约 6 个月。
+        获取方式：在 bilibili.com 页面打开控制台执行 <code>localStorage.getItem("ac_time_value")</code>。
+      </p>
+      <textarea
+        className="af-settings-textarea af-custom-source-textarea"
+        value={biliRefreshTokenText}
+        onChange={(event) => setBiliRefreshTokenText(event.target.value)}
+        placeholder="粘贴 ac_time_value / refresh_token..."
+        spellCheck={false}
+        style={{ marginTop: 6 }}
+      />
+      <div className="af-custom-source-toolbar">
+        <button
+          type="button"
+          className="af-settings-small-button"
+          onClick={() => { void handleSaveBiliRefreshToken(); }}
+        >
+          保存 refresh_token
+        </button>
+      </div>
+      {biliRefreshTokenStatus && <p className="af-settings-hint">{biliRefreshTokenStatus}</p>}
+    </details>
   </div>
 
   <div className="af-settings-group">

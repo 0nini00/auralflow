@@ -11,6 +11,7 @@ import {
   type BiliAccountInfo,
   type BiliCollectionInfo,
 } from "@/services/biliAccountService";
+import { checkAndRefreshBiliCookie } from "@/services/biliCookieRefreshService";
 
 interface BiliAccountState {
   account: BiliAccountInfo | null;
@@ -139,6 +140,14 @@ export const useBiliAccountStore = create<BiliAccountState>((set, get) => ({
       const account = await checkBiliAccount();
       set({ account });
 
+      // 校验成功后，异步尝试续期 Cookie（非阻塞，失败不影响正常使用）
+      void checkAndRefreshBiliCookie(cookie).then((result) => {
+        if (result.refreshed && result.newCookie) {
+          setBiliCookie(result.newCookie);
+          patchSettings({ biliCookie: result.newCookie }).catch(() => undefined);
+        }
+      }).catch(() => undefined);
+
       try {
         const playlists = await getBiliSubscribedCollections(account.uid);
         const visibility = applyCollectionVisibilityUpdate(playlists, {
@@ -171,11 +180,12 @@ export const useBiliAccountStore = create<BiliAccountState>((set, get) => ({
         /过期|未登录|无效|缺少 SESSDATA|请重新填写 Cookie|账号未登录/i.test(msg);
 
       collectionCache.clear();
+      // 仅清内存与 UI 状态，不清持久化 cookie：B站 SESSDATA 有效期很长，
+      // nav 接口偶发波动（CDN 抽风 / 5xx / isLogin 间歇返回 false）不应导致
+      // 持久化 cookie 被永久删除。用户下次手动重新填 cookie 才真正清除旧值。
+      // 仅在用户主动 logout 时才 patchSettings({ biliCookie: null })。
       if (authBroken) {
         setBiliCookie("");
-        void patchSettings({ biliCookie: null }).catch(() => {
-          // settings 写失败不阻断登出语义
-        });
       }
       set({
         account: null,
