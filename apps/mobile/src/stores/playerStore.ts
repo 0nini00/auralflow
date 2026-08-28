@@ -353,6 +353,12 @@ interface PlayerActions {
 
   // 状态更新
   buffered: number;
+  /**
+   * 原生活动轨是否为曲末 2s 静音占位轨。
+   * 间隙期间进度/时长事件属于占位轨：写入会污染真实进度（进度条跳成 2s），
+   * seek 也会被按占位轨时长理解（表现"点了没反应"），消费方据此忽略/映射。
+   */
+  onSilenceGap: boolean;
   updateProgress: (position: number, duration: number, buffered?: number) => void;
   setLyrics: (lyrics: Array<{ time: number; text: string; tr?: string }>) => void;
   setLoading: (loading: boolean) => void;
@@ -377,6 +383,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   position: 0,
   duration: 0,
   buffered: 0 as number,
+  onSilenceGap: false,
   queue: [],
   currentIndex: -1,
   shuffleHistory: [],
@@ -596,6 +603,13 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       return;
     }
     try {
+      if (get().onSilenceGap) {
+        // 曲末 2s 静音间隙内的 seek：原生活动轨是占位轨，直接 seekTo 会被按
+        // 占位轨时长按比例理解，表现"点了没反应"。映射回真实曲目（index 0）再 seek。
+        try {
+          await TrackPlayer.skip(0);
+        } catch {}
+      }
       await TrackPlayer.seekTo(position);
     } catch {}
     set({ position });
@@ -961,6 +975,10 @@ export function setupPlayerListeners() {
 
   // 播放进度更新
   TrackPlayer.addEventListener(Event.PlaybackProgressUpdated, ({ position, duration, buffered }) => {
+    // 静音占位轨期间（曲末 2s 窗口）：position/duration 是占位轨的，
+    // 写入会把真实进度污染成 2s 长度；且「明显短于期望时长」恰好命中
+    // 试听兜底判定，会造成曲末误报"检测到试听片段"。整段忽略。
+    if (usePlayerStore.getState().onSilenceGap) return;
     updateProgress(position, duration, buffered);
     // 试听兜底：解析期拿不到 Content-Length / Content-Range 的流式响应靠播放器实际时长判定。
     // 明显短于期望时长（song.interval）即视为试听：停播 + 清缓存，下次重播强制重新解析（对齐失败即停）。
@@ -980,6 +998,15 @@ export function setupPlayerListeners() {
   // 播放状态变化
   TrackPlayer.addEventListener(Event.PlaybackState, ({ state }) => {
     syncPlayerState(state);
+  });
+
+  // 原生活动轨切换：进入/离开曲末静音占位轨时打标，供进度忽略与 seek 映射使用。
+  // （切歌主逻辑在 playbackService 的同名监听里，这里只维护 UI 状态标记。）
+  TrackPlayer.addEventListener(Event.PlaybackActiveTrackChanged, ({ track }) => {
+    const onSilenceGap = track?.id === SILENCE_GAP_TRACK_ID;
+    if (usePlayerStore.getState().onSilenceGap !== onSilenceGap) {
+      usePlayerStore.setState({ onSilenceGap });
+    }
   });
 
   // 播放错误：仅展示错误，不再自动跳下一首（用户要求失败即停，手动切歌）。

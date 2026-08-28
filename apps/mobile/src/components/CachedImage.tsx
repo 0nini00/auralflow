@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { View, StyleSheet, type StyleProp } from "react-native";
 import FastImage, { type ResizeMode, type ImageStyle } from "@d11/react-native-fast-image";
 import { COVER_SIZE_THUMB, resizeCoverUrl } from "@lx/core";
-import { getCachedCover, cacheCover } from "@/services/cacheService";
+import { cacheCover } from "@/services/cacheService";
 import { isBiliImageUrl } from "@/services/biliService";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 
@@ -28,7 +28,8 @@ const DEFAULT_HEADERS = {
 /**
  * 带缓存的图片组件（对齐 lx：FastImage/Glide 原生内存+磁盘双层缓存 + UA 请求头 + 失败重试）。
  *
- * 优先使用本地缓存；未命中时先用远端 URL 即时展示，同时后台下载到本地缓存；
+ * 远端 URL 即时展示（首帧零磁盘往返），同时后台下载到本地缓存；
+ * B站图床因防盗链限制必须先下载到本地再显示；
  * 远端加载失败时自动重试，重试后仍失败则回退到已下载的本地文件。
  *
  * 渲染内核为 @d11/react-native-fast-image：
@@ -62,8 +63,9 @@ export function CachedImage({ uri, style, resizeMode = "cover", fallback, native
     }
 
     let retries = 0;
-    // 后台启动下载缓存（带 UA header，对齐 lx defaultHeaders），远端显示失败时回退到本地文件
-    const downloadPromise = cacheCover(safeUri).catch(() => null);
+    // 后台下载/命中本地缓存（cacheCover 自带先查盘再下载，带 UA header）：
+    // 非 B站不阻塞显示，仅用于离线回退与下次的本地命中
+    const localFilePromise = cacheCover(safeUri).catch(() => null);
 
     const applyLocal = (localPath: string | null) => {
       if (!mounted) return;
@@ -85,39 +87,27 @@ export function CachedImage({ uri, style, resizeMode = "cover", fallback, native
         setImageUri(`${safeUri}${safeUri.includes("?") ? "&" : "?"}r=${retries}`);
         setError(false);
       } else {
-        // 重试失败 → 等本地下载完成后改用缓存文件
-        void downloadPromise.then(applyLocal);
+        // 重试失败 → 回退到本地缓存文件（离线时这是唯一可用的图）
+        void localFilePromise.then(applyLocal);
       }
     };
 
-    void (async () => {
-      try {
-        setLoading(true);
-        setError(false);
-        // 1. 尝试从缓存加载
-        const cached = await getCachedCover(safeUri);
+    // B站图床有防盗链：FastImage 直接加载远程 URL 会携带 Referer 导致 403，
+    // 必须等 RNFS 下载到本地（不带 Referer）后显示 file:// 路径。
+    // 其他图床立即显示远端 URL（Glide 内存缓存让重复进入零异步开销），
+    // 首帧不再等待任何磁盘 stat 往返。
+    if (isBiliImageUrl(safeUri)) {
+      setLoading(true);
+      setError(false);
+      void localFilePromise.then((localPath) => {
         if (!mounted) return;
-        if (cached) {
-          setImageUri(cached);
-          setLoading(false);
-          return;
-        }
-
-        // 2. B站图片有防盗链限制：FastImage 直接加载远程 URL 会携带 Referer 导致 403，
-        //    必须先用 RNFS 下载到本地（不带 Referer）再显示。
-        if (isBiliImageUrl(safeUri)) {
-          const localPath = await cacheCover(safeUri);
-          applyLocal(localPath);
-          return;
-        }
-
-        // 3. 其他图床：先直接显示远端 URL（即时展示），后台下载到缓存用于下次与失败回退
-        setImageUri(safeUri);
-        setLoading(false);
-      } catch {
-        applyLocal(null);
-      }
-    })();
+        applyLocal(localPath);
+      });
+    } else {
+      setImageUri(safeUri);
+      setLoading(false);
+      setError(false);
+    }
 
     return () => {
       mounted = false;

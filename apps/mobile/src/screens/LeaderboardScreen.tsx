@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { Music2 } from "lucide-react-native";
 
 import { CachedImage } from "@/components/CachedImage";
@@ -30,6 +30,7 @@ export function LeaderboardScreen() {
 
   const [boards, setBoards] = useState<WyLeaderboardBoard[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
 
@@ -47,6 +48,23 @@ export function LeaderboardScreen() {
       if (mountedRef.current) setLoading(false);
     }
   }, []);
+
+  // 下拉刷新：保留已加载的榜单网格，不整页切回 LoadingState
+  const handleRefresh = useCallback(async () => {
+    if (loading || refreshing) return;
+    setRefreshing(true);
+    setError(null);
+    try {
+      const list = await fetchWyLeaderboardBoards();
+      if (mountedRef.current) setBoards(list);
+    } catch (loadError) {
+      if (mountedRef.current) {
+        setError(loadError instanceof Error ? loadError.message : "排行榜加载失败");
+      }
+    } finally {
+      if (mountedRef.current) setRefreshing(false);
+    }
+  }, [loading, refreshing]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -86,7 +104,17 @@ export function LeaderboardScreen() {
 
   return (
     <ScreenScaffold>
-      <ScreenScrollView>
+      <ScreenScrollView
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => void handleRefresh()}
+            tintColor={palette.primary}
+            colors={[palette.primary]}
+            progressBackgroundColor={palette.surface}
+          />
+        }
+      >
         <Text style={[styles.pageTitle, { color: palette.text }]}>排行榜</Text>
 
         {loading ? <LoadingState label="正在加载排行榜" /> : null}

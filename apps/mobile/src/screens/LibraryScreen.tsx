@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useCallback, useMemo, useState, useEffect } from "react";
 import { KeyboardAvoidingView, Platform, StyleSheet, Text, View, Pressable, Alert, ActivityIndicator, Modal, TextInput, Image } from "react-native";
 import { radius, spacing, touch, typography } from "@/theme/tokens";
 import type { MusicInfo } from "@lx/core";
@@ -56,12 +56,12 @@ export function LibraryScreen({
   const localLoading = useLocalMusicStore((state) => state.loading);
   const localError = useLocalMusicStore((state) => state.error);
 
-  const downloads = useDownloadStore((state) => state.downloads);
-  const downloading = useDownloadStore((state) => state.downloading);
-  const failedDownloads = useDownloadStore((state) => state.failedDownloads);
   const downloadsLoading = useDownloadStore((state) => state.loading);
   const downloadError = useDownloadStore((state) => state.error);
   const loadDownloads = useDownloadStore((state) => state.loadDownloads);
+  // downloads/downloading 数组的进度订阅下沉到 LibraryDownloadsSection：
+  // 下载期间每个进度 tick（约每 5%）都会 set 一次数组，
+  // 在此整屏订阅会让曲库列表跟着反复 reconcile
 
   // B站合集
   const biliLoad = useBiliAccountStore((state) => state.load);
@@ -84,26 +84,29 @@ export function LibraryScreen({
     biliLoad();
   }, [biliLoad]);
 
-  const getActiveSongs = (): MusicInfo[] => activeSection === "history"
-    ? history
-    : activeSection === "local"
-    ? localSongs
-    : [];
+  const activeSongs = useMemo<MusicInfo[]>(
+    () => (activeSection === "history" ? history : activeSection === "local" ? localSongs : []),
+    [activeSection, history, localSongs],
+  );
 
-  const runPlayback = async (action: () => Promise<void>) => {
+  const runPlayback = useCallback(async (action: () => Promise<void>) => {
     setPlaybackError(null);
     const result = await runPlaybackUiAction(action);
     if (!result.ok) {
       setPlaybackError(result.message);
       return;
     }
-  };
+  }, []);
 
-  const handlePlay = async (_song: MusicInfo, index: number) => {
-    await runPlayback(() => playQueue(getActiveSongs(), index));
-  };
+  // useCallback：SongList 的 memo 行依赖 onPlay，引用不稳定会让全部行失去 memo 意义
+  const handlePlay = useCallback(
+    async (_song: MusicInfo, index: number) => {
+      await runPlayback(() => playQueue(activeSongs, index));
+    },
+    [activeSongs, runPlayback],
+  );
 
-  const handleEditLocalSong = (song: MusicInfo) => {
+  const handleEditLocalSong = useCallback((song: MusicInfo) => {
     setEditingLocalSong(song);
     setLocalSongName(song.name);
     setLocalSongSinger(song.singer || "");
@@ -111,7 +114,7 @@ export function LibraryScreen({
     setLocalSongCoverUrl(song.picUrl || song.img || "");
     setLocalSongCoverUri("");
     setLocalSongLyrics(song.localLyrics || "");
-  };
+  }, []);
 
   const closeLocalSongEditor = () => {
     setEditingLocalSong(null);
@@ -171,7 +174,7 @@ export function LibraryScreen({
     clearHistory();
   };
 
-  const handleDeleteLibrarySong = (song: MusicInfo) => {
+  const handleDeleteLibrarySong = useCallback((song: MusicInfo) => {
     const request = buildLibrarySongDeleteRequest(activeSection, song);
     if (request.type === "history") {
       void removeFromHistory(request.songId, request.source);
@@ -191,7 +194,7 @@ export function LibraryScreen({
         },
       ]);
     }
-  };
+  }, [activeSection, removeFromHistory, removeLocalSong]);
 
   const handleScanLocal = async () => {
     try {
@@ -223,7 +226,7 @@ export function LibraryScreen({
     }
   };
 
-  const librarySongActions = buildLibrarySongActions(activeSection, getActiveSongs().length);
+  const librarySongActions = buildLibrarySongActions(activeSection, activeSongs.length);
 
   const contentModel = getLibraryContentModel(
     buildLibraryContentModelInput({
@@ -240,14 +243,7 @@ export function LibraryScreen({
       case "biliCollections":
         return <BiliCollectionList onCollectionPress={openBiliCollectionDetailScreen} />;
       case "downloads":
-        return (
-          <DownloadList
-            downloads={downloads}
-            downloading={downloading}
-            failedDownloads={failedDownloads}
-            onNavigateToPlayer={onNavigateToPlayer}
-          />
-        );
+        return <LibraryDownloadsSection onNavigateToPlayer={onNavigateToPlayer} />;
       case "songList":
         if (contentModel.songSource === "history") {
           return (
@@ -412,6 +408,21 @@ export function LibraryScreen({
         {renderContent()}
       </ScreenScrollView>
     </ScreenScaffold>
+  );
+}
+
+/** 下载区叶子组件：进度数组的订阅隔离在此，进度 tick 不再波及整屏 */
+function LibraryDownloadsSection({ onNavigateToPlayer }: { onNavigateToPlayer: () => void }) {
+  const downloads = useDownloadStore((state) => state.downloads);
+  const downloading = useDownloadStore((state) => state.downloading);
+  const failedDownloads = useDownloadStore((state) => state.failedDownloads);
+  return (
+    <DownloadList
+      downloads={downloads}
+      downloading={downloading}
+      failedDownloads={failedDownloads}
+      onNavigateToPlayer={onNavigateToPlayer}
+    />
   );
 }
 

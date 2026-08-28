@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useRef, useState } from "react";
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { spacing } from "@/theme/tokens";
 import {
   type ScrollView as ScrollViewType,
@@ -75,7 +75,8 @@ export function BiliCollectionDetailScreen({
     ? remoteState
     : { id: collection.id, kind: "loading" };
   const successfulSongs = currentState.kind === "success" ? currentState.songs : null;
-  const songs = successfulSongs ?? [];
+  // useMemo 稳定引用：loading 态每次渲染不再新建空数组，下游 handlePlay 的 useCallback 依赖才稳定
+  const songs = useMemo(() => successfulSongs ?? [], [successfulSongs]);
   const currentSongIndex = findPlaylistCurrentSongIndex(songs, currentSong);
   const playbackActions = buildContentDetailPlaybackActions(songs.length, { currentSongIndex });
 
@@ -121,18 +122,22 @@ export function BiliCollectionDetailScreen({
     };
   }, [getCollectionSongs, runCollectionRequest]);
 
-  const runPlayback = async (action: () => Promise<void>) => {
+  const runPlayback = useCallback(async (action: () => Promise<void>) => {
     setPlaybackError(null);
     const result = await runPlaybackUiAction(action);
     if (!result.ok) {
       setPlaybackError(result.message);
       return;
     }
-  };
+  }, []);
 
-  const handlePlay = async (_song: MusicInfo, index: number) => {
-    await runPlayback(() => playQueue(songs, index));
-  };
+  // useCallback：SongList 的 memo 行依赖 onPlay，引用不稳定会让全部行失去 memo 意义
+  const handlePlay = useCallback(
+    async (_song: MusicInfo, index: number) => {
+      await runPlayback(() => playQueue(songs, index));
+    },
+    [songs, runPlayback],
+  );
 
   const handlePlayAll = async () => {
     if (songs.length === 0) return;
@@ -153,8 +158,16 @@ export function BiliCollectionDetailScreen({
     });
   };
 
+  const refreshBusyRef = useRef(false);
   const handleRefresh = async () => {
-    await runCollectionRequest(refreshCollectionSongs);
+    // 防重：刷新是全量分页串行拉取（最多几十页），双击会翻倍请求并可能触发风控
+    if (refreshBusyRef.current) return;
+    refreshBusyRef.current = true;
+    try {
+      await runCollectionRequest(refreshCollectionSongs);
+    } finally {
+      refreshBusyRef.current = false;
+    }
   };
 
   const coverUrl = collection.picUrl;

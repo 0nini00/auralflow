@@ -85,14 +85,29 @@ export function migrateAccentColor(color: string | null | undefined): string {
     : normalized;
 }
 
+// 调色板缓存：同一 (theme, accentColor) 恒返回同一引用。
+// 调色板作为 prop 传入 memo 子组件（SongItem 等）时靠引用相等跳过重渲染，
+// 每次调用都新建对象会让全局行级 memo 系统性失效。
+const themePaletteCache = new Map<string, ThemePalette>();
+const THEME_PALETTE_CACHE_LIMIT = 64;
+
 export function buildThemePalette(theme: ResolvedTheme, accentColor = DEFAULT_ACCENT_COLOR): ThemePalette {
   const primary = normalizeAccentColor(accentColor);
+  const cacheKey = `${theme}|${primary}`;
+  const cached = themePaletteCache.get(cacheKey);
+  if (cached) return cached;
+
   const base = theme === "light" ? lightBasePalette : darkBasePalette;
-  return {
+  const palette: ThemePalette = {
     ...base,
     primary,
     primaryText: getReadableTextColor(primary),
   };
+  if (themePaletteCache.size >= THEME_PALETTE_CACHE_LIMIT) {
+    themePaletteCache.clear();
+  }
+  themePaletteCache.set(cacheKey, palette);
+  return palette;
 }
 
 /**

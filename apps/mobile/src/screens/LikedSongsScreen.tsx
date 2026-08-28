@@ -38,18 +38,22 @@ export function LikedSongsScreen({ onNavigateToPlayer }: LikedSongsScreenProps) 
   const detailActions = buildPlaylistDetailActions(likedSongs.length);
   const currentSongIndex = findPlaylistCurrentSongIndex(likedSongs, currentSong);
 
-  const runPlayback = async (action: () => Promise<void>) => {
+  const runPlayback = React.useCallback(async (action: () => Promise<void>) => {
     setPlaybackError(null);
     const result = await runPlaybackUiAction(action);
     if (!result.ok) {
       setPlaybackError(result.message);
       return;
     }
-  };
+  }, []);
 
-  const handlePlay = async (_song: MusicInfo, index: number) => {
-    await runPlayback(() => playQueue(likedSongs, index));
-  };
+  // useCallback：SongList 的 memo 行依赖 onPlay，引用不稳定会让全部行失去 memo 意义
+  const handlePlay = React.useCallback(
+    async (_song: MusicInfo, index: number) => {
+      await runPlayback(() => playQueue(likedSongs, index));
+    },
+    [likedSongs, runPlayback],
+  );
 
   const handlePlayAll = async () => {
     if (likedSongs.length === 0) return;

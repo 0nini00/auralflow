@@ -162,6 +162,11 @@ readVisibilityPreferences().then((prefs) => {
   });
 });
 
+// load 串行化链：并发 load（页面挂载 + 设置页保存 Cookie）会重复请求 nav + 全量收藏
+// 列表（易触发风控），且两次 writeVisibilityPreferences 竞态可能丢一次新合集发现；
+// 后到的 load（如重新登录后的新 Cookie）排队执行，保证最终状态正确
+let loadChain: Promise<void> = Promise.resolve();
+
 export const useBiliAccountStore = create<BiliAccountState>((set, get) => ({
   account: null,
   playlists: [],
@@ -173,39 +178,43 @@ export const useBiliAccountStore = create<BiliAccountState>((set, get) => ({
   isLoaded: false,
   error: "",
 
-  load: async (cookieStr) => {
-    try {
-      const cookie = cookieStr ?? (await getBiliCookie());
-      if (!cookie) {
+  load: (cookieStr) => {
+    const execute = async () => {
+      try {
+        const cookie = cookieStr ?? (await getBiliCookie());
+        if (!cookie) {
+          collectionCache.clear();
+          set({ isLoaded: true, playlists: [], account: null, error: "" });
+          return;
+        }
+
+        await saveBiliCookie(cookie);
+        set({ isLoading: true, error: "" });
+
+        const account = await checkBiliAccount();
+        const playlists = await getBiliSubscribedCollections(account.uid);
+        const visibility = applyCollectionVisibilityUpdate(playlists, {
+          hiddenCollectionIds: get().hiddenCollectionIds,
+          knownCollectionIds: get().knownCollectionIds,
+          newCollectionIds: get().newCollectionIds,
+          autoShowNewCollections: get().autoShowNewCollections,
+        });
+        await writeVisibilityPreferences(visibility);
         collectionCache.clear();
-        set({ isLoaded: true, playlists: [], account: null, error: "" });
-        return;
+        set({ account, playlists, ...visibility, isLoaded: true, isLoading: false, error: "" });
+      } catch (error) {
+        collectionCache.clear();
+        set({
+          account: null,
+          playlists: [],
+          error: error instanceof Error ? error.message : String(error),
+          isLoading: false,
+          isLoaded: true,
+        });
       }
-
-      await saveBiliCookie(cookie);
-      set({ isLoading: true, error: "" });
-
-      const account = await checkBiliAccount();
-      const playlists = await getBiliSubscribedCollections(account.uid);
-      const visibility = applyCollectionVisibilityUpdate(playlists, {
-        hiddenCollectionIds: get().hiddenCollectionIds,
-        knownCollectionIds: get().knownCollectionIds,
-        newCollectionIds: get().newCollectionIds,
-        autoShowNewCollections: get().autoShowNewCollections,
-      });
-      await writeVisibilityPreferences(visibility);
-      collectionCache.clear();
-      set({ account, playlists, ...visibility, isLoaded: true, isLoading: false, error: "" });
-    } catch (error) {
-      collectionCache.clear();
-      set({
-        account: null,
-        playlists: [],
-        error: error instanceof Error ? error.message : String(error),
-        isLoading: false,
-        isLoaded: true,
-      });
-    }
+    };
+    loadChain = loadChain.then(execute);
+    return loadChain;
   },
 
   logout: async () => {

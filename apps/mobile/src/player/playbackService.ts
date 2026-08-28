@@ -38,7 +38,10 @@ export default async function playbackService() {
   });
 
   TrackPlayer.addEventListener(Event.RemoteSeek, async ({ position }) => {
-    await TrackPlayer.seekTo(position);
+    // 走 store.seekTo：曲末 2s 静音占位轨期间的 seek 需要映射回真实曲目，
+    // 直接 seekTo 原生会被按占位轨时长理解（"点了没反应"）
+    const { seekTo } = usePlayerStore.getState();
+    await seekTo(position);
   });
 
   TrackPlayer.addEventListener(Event.RemoteDuck, async ({ paused, permanent }) => {

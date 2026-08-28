@@ -1,7 +1,8 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { layout, radius, spacing, typography } from "@/theme/tokens";
 import {
   Alert,
+  RefreshControl,
   type ScrollView as ScrollViewType,
   StyleSheet,
   Text,
@@ -14,6 +15,7 @@ import type { WyPlaylistInfo } from "@/services/wyPlaylistService";
 
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { usePlaylistStore } from "@/stores/playlistStore";
+import { useAccountStore } from "@/stores/accountStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import {
   useDownloadStore,
@@ -59,6 +61,7 @@ export function PlaylistDetailScreen({
   const palette = getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor);
   const [removingSongKey, setRemovingSongKey] = useState<string | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [addToLocalVisible, setAddToLocalVisible] = useState(false);
@@ -111,18 +114,34 @@ export function PlaylistDetailScreen({
     });
   }, [songs]);
 
-  const runPlayback = async (action: () => Promise<void>) => {
+  const runPlayback = useCallback(async (action: () => Promise<void>) => {
     setPlaybackError(null);
     const result = await runPlaybackUiAction(action);
     if (!result.ok) {
       setPlaybackError(result.message);
       return;
     }
-  };
+  }, []);
 
-  const handlePlay = async (_song: MusicInfo, index: number) => {
-    await runPlayback(() => playQueue(songs, index));
-  };
+  // useCallback：SongList 的 memo 行依赖 onPlay，引用不稳定会让全部行失去 memo 意义
+  const handlePlay = useCallback(
+    async (_song: MusicInfo, index: number) => {
+      await runPlayback(() => playQueue(songs, index));
+    },
+    [songs, runPlayback],
+  );
+
+  // 下拉刷新：重新拉取歌单详情（对齐桌面端刷新按钮）。
+  // 刷新期间保留列表不闪骨架屏（skeleton 仅首载显示），失败时展示错误态
+  const handleRefreshPlaylist = useCallback(async () => {
+    if (refreshing || loading) return;
+    setRefreshing(true);
+    try {
+      await fetchPlaylistDetail(playlist.id, playlist.source, playlist);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchPlaylistDetail, playlist, refreshing, loading]);
 
   const handlePlayAll = async () => {
     if (songs.length === 0) return;
@@ -275,11 +294,47 @@ export function PlaylistDetailScreen({
     ]);
   };
 
+  // 收藏/取消收藏网易云歌单（此前 store action 已实现但无 UI 入口）。
+  // 仅对"非本人创建"的 wy 歌单开放；收藏状态以本地覆写为准（服务端成功后才切换）。
+  const wyUser = useAccountStore((state) => state.user);
+  const setWyPlaylistSubscribed = usePlaylistStore((state) => state.setWyPlaylistSubscribed);
+  const [wySubscribeOverride, setWySubscribeOverride] = useState<boolean | null>(null);
+  const [subscribingWyPlaylist, setSubscribingWyPlaylist] = useState(false);
+  const isOwnWyPlaylist =
+    displayPlaylist.source === "wy" &&
+    displayPlaylist.creator?.userId != null &&
+    displayPlaylist.creator.userId === wyUser?.userId;
+  const canSubscribeWyPlaylist =
+    displayPlaylist.source === "wy" && wyUser != null && !isOwnWyPlaylist;
+  const isWyPlaylistSubscribed =
+    wySubscribeOverride ?? displayPlaylist.subscribed === true;
+
+  const handleToggleWySubscribe = () => {
+    if (!wyUser || subscribingWyPlaylist) return;
+    setSubscribingWyPlaylist(true);
+    const nextSubscribed = !isWyPlaylistSubscribed;
+    setWyPlaylistSubscribed(wyUser.userId, displayPlaylist, nextSubscribed)
+      .then(() => setWySubscribeOverride(nextSubscribed))
+      .catch((error) =>
+        Alert.alert("操作失败", error instanceof Error ? error.message : String(error)),
+      )
+      .finally(() => setSubscribingWyPlaylist(false));
+  };
+
   return (
     <ScreenScaffold>
       <ScreenScrollView
         innerRef={scrollRef}
         contentContainerStyle={selectionMode ? styles.selectionScrollContent : undefined}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => void handleRefreshPlaylist()}
+            tintColor={palette.primary}
+            colors={[palette.primary]}
+            progressBackgroundColor={palette.surface}
+          />
+        }
       >
         <PlaybackErrorState
           message={playbackError}
@@ -296,7 +351,7 @@ export function PlaylistDetailScreen({
               ? formatPlayCount(displayPlaylist.playCount)
               : undefined
           }
-          actions={!loading && !error && detailActions.show ? (
+          actions={(!loading || refreshing) && !error && detailActions.show ? (
             <View style={styles.heroActions}>
               <ActionButton
                 shrink
@@ -314,18 +369,30 @@ export function PlaylistDetailScreen({
                 disabled={currentSongIndex < 0}
                 onPress={handleLocateCurrentSong}
               />
-              <ActionButton
-                shrink
-                small
-                variant="danger"
-                label="删除歌单"
-                onPress={handleDeletePlaylist}
-              />
+              {canSubscribeWyPlaylist ? (
+                <ActionButton
+                  shrink
+                  small
+                  disabled={subscribingWyPlaylist}
+                  label={isWyPlaylistSubscribed ? "取消收藏" : "收藏歌单"}
+                  onPress={handleToggleWySubscribe}
+                />
+              ) : null}
+              {/* 收藏歌单属于他人创建，"删除歌单"只对自建歌单有意义 */}
+              {!canSubscribeWyPlaylist ? (
+                <ActionButton
+                  shrink
+                  small
+                  variant="danger"
+                  label="删除歌单"
+                  onPress={handleDeletePlaylist}
+                />
+              ) : null}
             </View>
           ) : undefined}
         />
 
-        {loading ? (
+        {loading && !refreshing ? (
           <PlaylistDetailSkeleton />
         ) : error ? (
           <ErrorState
