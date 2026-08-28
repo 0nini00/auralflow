@@ -36,6 +36,8 @@ interface PrefetchedUrl {
   fetchedAt: number;
 }
 const PREFETCH_TTL_MS = 10 * 60 * 1000;
+/** 预读条目超过该龄后命中需补探活：过期 CDN 链接直接进播放器会触发 PlaybackError（失败即停）。 */
+const PREFETCH_PROBE_AFTER_MS = 60 * 1000;
 /**
  * 并发竞速整条降级链的总时间预算。
  *
@@ -206,7 +208,18 @@ async function resolveSongUrl(
   if (!qualityOverride) {
     const prefetched = getCachedPrefetch(song, qualityCandidates);
     if (prefetched) {
-      return { url: prefetched.url, headers: prefetched.headers };
+      // 本地文件与新鲜条目直接用；超龄条目补一次轻量探活——
+      // 预读时距实际播放可能隔着整首歌（甚至达到 TTL 边界），CDN 链接可能已失效，
+      // 探不通就地作废走重新解析，避免把死链交给播放器触发「播放即停」
+      if (prefetched.url.startsWith("file://") || Date.now() - prefetched.fetchedAt < PREFETCH_PROBE_AFTER_MS) {
+        return { url: prefetched.url, headers: prefetched.headers };
+      }
+      const prefetchHeaders = prefetched.headers ?? buildStreamHeaders(song.source);
+      const prefetchProbe = await probeStreamUrl(prefetched.url, prefetchHeaders);
+      if (prefetchProbe.ok) {
+        return { url: prefetched.url, headers: prefetchHeaders };
+      }
+      invalidatePrefetchForSong(song);
     }
     // 1.2 直接命中本地音频缓存文件（lx isCached 等价）：优先整曲落盘的 wy/tx 等可缓存音源，
     // 离线可播、省流量，不必依赖持久化 URL 缓存中的 file:// 条目（该条目可能被清理/过期）。
@@ -552,8 +565,8 @@ async function playSongCore(song: MusicInfo, startPosition?: number): Promise<vo
     if (usePlayerStore.getState().currentSong === song) {
       await addToHistory(song);
       // 歌词同样以「本曲仍是在播曲」为前提加载，避免过期请求把别首歌的歌词
-      // 写进 store 造成音词错位
-      loadLyrics(song);
+      // 写进 store 造成音词错位；intent 序号贯穿 loadLyrics 的每个 await 之后
+      loadLyrics(song, intent);
     }
     // 4. 异步缓存封面
     if (song.picUrl || song.img) {
@@ -877,23 +890,32 @@ export async function dislikeCurrentPersonalFmSong(): Promise<void> {
   await playNextPersonalFmSong();
 }
 
-async function loadLyrics(song: MusicInfo): Promise<void> {
+/**
+ * 加载当前曲歌词。
+ * intent 为发起时的 playIntentSeq 快照：歌词链路（缓存/网络）可达数秒，
+ * 快速连切时旧请求的响应必须整体丢弃（含失败分支的 setLyrics([])），
+ * 否则慢响应会覆盖新曲歌词造成音词错位。
+ */
+async function loadLyrics(song: MusicInfo, intent: number): Promise<void> {
   try {
     const { setLyrics } = usePlayerStore.getState();
     // 1. 尝试从缓存加载
     const cachedLyrics = await getCachedLyrics(song);
     if (cachedLyrics && cachedLyrics.length > 0) {
+      if (intent !== playIntentSeq) return;
       setLyrics(cachedLyrics);
       return;
     }
     // 2. 从网络获取
     const lyrics = await getLyrics(song);
+    if (intent !== playIntentSeq) return;
     setLyrics(lyrics);
     // 3. 缓存歌词
     if (lyrics.length > 0) {
       await cacheLyrics(song, lyrics);
     }
   } catch (error) {
+    if (intent !== playIntentSeq) return;
     usePlayerStore.getState().setLyrics([]);
   }
 }

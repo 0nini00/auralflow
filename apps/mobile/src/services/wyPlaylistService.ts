@@ -3,6 +3,7 @@ import type { PlaylistInfo, MusicInfo } from "@lx/core";
 import { mapWyTrackToMusicInfo } from "./wyMusicMapper";
 import { weapi } from "@/services/weapi";
 import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
+import { WyAuthExpiredError } from "./wyAuthError";
 import {
   buildNeteasePcCookie,
   buildWyPlaylistSubscribeRequest,
@@ -69,9 +70,26 @@ export async function postWyWeapi<TResponse = JsonRecord>(
     body: new URLSearchParams({ params, encSecKey }).toString(),
   });
 
-  const data = (await response.json()) as JsonRecord;
+  return parseWyJsonResponse<TResponse>(response);
+}
+
+/**
+ * 解析网易云响应：先 text 再 try-parse（风控/重定向返回非 JSON 时给出可读错误），
+ * code=301 视为登录过期（WyAuthExpiredError），上层可统一引导重新登录。
+ */
+async function parseWyJsonResponse<TResponse>(response: Response): Promise<TResponse> {
+  const text = await response.text();
+  let data: JsonRecord;
+  try {
+    data = JSON.parse(text) as JsonRecord;
+  } catch {
+    throw new Error("网易云返回异常响应，请稍后重试（可能触发了风控）");
+  }
+  if (data.code === 301) {
+    throw new WyAuthExpiredError();
+  }
   if (!response.ok) {
-    throw new Error(data?.message || `请求失败，请检查网络后重试`);
+    throw new Error(data?.message || "请求失败，请检查网络后重试");
   }
   return data as TResponse;
 }
@@ -194,6 +212,10 @@ export async function getPlaylistDetail(playlistId: string): Promise<MusicInfo[]
 
     const data = (await response.json()) as JsonRecord;
 
+    if (data.code === 301) {
+      throw new WyAuthExpiredError();
+    }
+
     if (data.code === 200 && data.playlist) {
       const previewTracks = Array.isArray(data.playlist.tracks) ? data.playlist.tracks : [];
       const trackIds = extractWyTrackIds(data.playlist);
@@ -242,6 +264,9 @@ export async function likeSong(songId: string): Promise<void> {
 
     const data = (await response.json()) as JsonRecord;
 
+    if (data.code === 301) {
+      throw new WyAuthExpiredError("网易云登录已过期，喜欢歌曲失败");
+    }
     if (data.code !== 200) {
       throw new Error("喜欢歌曲失败");
     }
@@ -273,6 +298,9 @@ export async function unlikeSong(songId: string): Promise<void> {
 
     const data = (await response.json()) as JsonRecord;
 
+    if (data.code === 301) {
+      throw new WyAuthExpiredError("网易云登录已过期，取消喜欢失败");
+    }
     if (data.code !== 200) {
       throw new Error("取消喜欢失败");
     }
@@ -334,7 +362,9 @@ export async function removePlaylistTracks(playlistId: string, trackIds: string[
 }
 
 /**
- * 获取喜欢的音乐列表
+ * 获取喜欢的音乐列表。
+ * 失败必须抛错而不是返回 []：静默空列表会把已收藏歌曲的红心全部“洗白”，
+ * 用户再次点击红心会向服务端误发 like。
  */
 export async function getLikedSongs(userId: string): Promise<string[]> {
   const cookie = await getWyCookie();
@@ -342,28 +372,27 @@ export async function getLikedSongs(userId: string): Promise<string[]> {
     throw new Error("未登录");
   }
 
-  try {
-    const response = await fetchWithTimeout(
-      `https://music.163.com/api/song/like/get?uid=${userId}`,
-      {
-        method: "GET",
-        headers: {
-          "Cookie": cookie,
-          ...WY_REQUEST_HEADERS,
-        },
-      }
-    );
-
-    const data = (await response.json()) as JsonRecord;
-
-    if (data.code === 200 && data.ids) {
-      return data.ids.map((id: number) => String(id));
+  const response = await fetchWithTimeout(
+    `https://music.163.com/api/song/like/get?uid=${userId}`,
+    {
+      method: "GET",
+      headers: {
+        "Cookie": cookie,
+        ...WY_REQUEST_HEADERS,
+      },
     }
+  );
 
-    return [];
-  } catch (error) {
-    return [];
+  const data = (await response.json()) as JsonRecord;
+
+  if (data.code === 301) {
+    throw new WyAuthExpiredError();
   }
+  if (data.code === 200 && data.ids) {
+    return data.ids.map((id: number) => String(id));
+  }
+
+  throw new Error(data.message || "获取喜欢歌曲失败");
 }
 
 /**
@@ -389,6 +418,9 @@ export async function getDailyRecommendSongs(): Promise<DailyRecommendResult> {
 
     const data = (await response.json()) as JsonRecord;
 
+    if (data.code === 301) {
+      throw new WyAuthExpiredError();
+    }
     if (data.code !== 200) {
       throw new Error(data.message || "获取每日推荐失败");
     }
@@ -432,6 +464,9 @@ export async function getPersonalFmSongs(): Promise<PersonalFmResult> {
 
     const data = (await response.json()) as JsonRecord;
 
+    if (data.code === 301) {
+      throw new WyAuthExpiredError();
+    }
     if (data.code !== 200) {
       throw new Error(data.message || "获取私人 FM 失败");
     }

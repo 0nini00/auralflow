@@ -4,6 +4,7 @@ import { weapi } from "@/services/weapi";
 import { getSecureItem, removeSecureItem, setSecureItem } from "@/services/secureStorageService";
 import { migrateLegacySecret } from "@/services/secureStorageMigrationModel";
 import { normalizeWyCookie } from "@/services/wyCookieModel";
+import { WyAuthExpiredError } from "@/services/wyAuthError";
 
 const WY_COOKIE_KEY = "auralflow.mobile.wy.cookie";
 const WY_SECURE_COOKIE_KEY = "auralflow.mobile.wy.cookie.v1";
@@ -21,23 +22,6 @@ export interface WyUserInfo {
   nickname: string;
   avatarUrl?: string;
   vipType?: number;
-}
-
-export interface WyQrKeyResult {
-  unikey: string;
-}
-
-export interface WyQrCodeResult {
-  qrUrl: string;
-  qrImageUrl: string;
-}
-
-export interface WyQrStatusResult {
-  code: number;
-  message: string;
-  cookie?: string;
-  user?: WyUserInfo;
-  rawCookie?: string;
 }
 
 /**
@@ -170,7 +154,7 @@ export async function validateWyCookie(rawCookie: string): Promise<WyUserInfo | 
   }
 
   if (data.code === 301 || data.code === 401 || data.code === 403) {
-    throw new Error("Cookie 无效或已过期");
+    throw new WyAuthExpiredError("Cookie 无效或已过期");
   }
   if (data.code !== 200) {
     throw new Error(String(data.message || `网易接口返回 code=${data.code}`));
@@ -180,7 +164,7 @@ export async function validateWyCookie(rawCookie: string): Promise<WyUserInfo | 
   if (!user) {
     // code=200 但 account/profile 全空：服务器未认出这份 cookie（视为匿名请求）。
     // 常见原因：复制时漏了 MUSIC_U 之外的必备字段（如 __csrf），或 Cookie 头未随请求送达。
-    throw new Error(
+    throw new WyAuthExpiredError(
       "Cookie 未生效：服务器返回了匿名会话。请重新复制完整的 Cookie（包含 MUSIC_U 与 __csrf）后重试",
     );
   }
@@ -204,7 +188,10 @@ export async function loginWithCookie(rawCookie: string): Promise<WyUserInfo> {
 }
 
 /**
- * 检查登录状态
+ * 检查登录状态。
+ * 运行期校验 Cookie 是否仍有效（此前校验被注释，过期后永远显示已登录）。
+ * 仅在服务端明确拒绝（WyAuthExpiredError：301/401/403/匿名会话）时判定过期
+ * 并清理登录态；网络异常/超时保持现有登录态，避免弱网下误清。
  */
 export async function checkLoginStatus(): Promise<{
   isLoggedIn: boolean;
@@ -217,12 +204,25 @@ export async function checkLoginStatus(): Promise<{
     return { isLoggedIn: false, user: null };
   }
 
-  // 可选：验证 Cookie 是否仍然有效
-  // const validUser = await validateWyCookie(cookie);
-  // if (!validUser) {
-  //   await clearWyAccount();
-  //   return { isLoggedIn: false, user: null };
-  // }
-
-  return { isLoggedIn: true, user };
+  try {
+    const validUser = await validateWyCookie(cookie);
+    if (!validUser) {
+      // validateWyCookie 失败时抛错，正常不会返回 null；防御性视为过期
+      await clearWyAccount();
+      return { isLoggedIn: false, user: null };
+    }
+    // 以服务端返回的最新资料为准（昵称/头像可能已变更）
+    if (validUser.userId !== user.userId || validUser.nickname !== user.nickname) {
+      await saveWyUser(validUser);
+      return { isLoggedIn: true, user: validUser };
+    }
+    return { isLoggedIn: true, user };
+  } catch (error) {
+    if (error instanceof WyAuthExpiredError) {
+      await clearWyAccount();
+      return { isLoggedIn: false, user: null };
+    }
+    // 网络异常：无法确认过期，维持本地登录态
+    return { isLoggedIn: true, user };
+  }
 }

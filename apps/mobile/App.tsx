@@ -16,6 +16,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { AppShell } from "@/components/AppShell";
 import { CustomSourceUpdateModal } from "@/components/CustomSourceUpdateModal";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { LxBridgeHost } from "@/services/customSourceWebViewBridge";
 import { MobilePactModal } from "@/components/MobilePactModal";
 import { UpdateModal } from "@/components/UpdateModal";
@@ -305,61 +306,63 @@ export default function App() {
   return (
     <GestureHandlerRootView style={styles.flex}>
       <SafeAreaProvider>
-        {/* 自定义音源 WebView 桥：Hermes 不支持 new Function，用户脚本在此隐藏 WebView 内执行；
-            常驻单树避免启动屏→主 UI 切换时 WebView 卸载重建丢失已初始化的音源 runtime */}
-        <LxBridgeHost />
-        {showBoot ? (
-          <View style={[styles.boot, { backgroundColor: palette.background }]}>
-            {bootError ? (
-              <>
-                <Text style={[styles.bootText, { color: palette.text }]}>{bootError}</Text>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="重试启动"
-                  onPress={() => {
-                    setBootError(null);
-                    setPactAccepted(null);
-                    setLocalDataReady(false);
-                    setBooting(true);
-                    setBootstrapAttempt((value) => value + 1);
-                  }}
-                  style={[styles.retryButton, { backgroundColor: palette.primary }]}
-                >
-                  <Text style={[styles.retryButtonText, { color: palette.primaryText }]}>重试</Text>
-                </Pressable>
-              </>
-            ) : (
-              <>
-                <ActivityIndicator color={palette.primary} size="large" />
-                <Text style={[styles.bootText, { color: palette.textMuted }]}>启动中…</Text>
-              </>
-            )}
-          </View>
-        ) : (
-          <>
-            <NavigationContainer ref={navigationRef}>
-              <AppShell>
-                <MainDrawerNavigator />
-              </AppShell>
-            </NavigationContainer>
+        <ErrorBoundary>
+          {/* 自定义音源 WebView 桥：Hermes 不支持 new Function，用户脚本在此隐藏 WebView 内执行；
+              常驻单树避免启动屏→主 UI 切换时 WebView 卸载重建丢失已初始化的音源 runtime */}
+          <LxBridgeHost />
+          {showBoot ? (
+            <View style={[styles.boot, { backgroundColor: palette.background }]}>
+              {bootError ? (
+                <>
+                  <Text style={[styles.bootText, { color: palette.text }]}>{bootError}</Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="重试启动"
+                    onPress={() => {
+                      setBootError(null);
+                      setPactAccepted(null);
+                      setLocalDataReady(false);
+                      setBooting(true);
+                      setBootstrapAttempt((value) => value + 1);
+                    }}
+                    style={[styles.retryButton, { backgroundColor: palette.primary }]}
+                  >
+                    <Text style={[styles.retryButtonText, { color: palette.primaryText }]}>重试</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <ActivityIndicator color={palette.primary} size="large" />
+                  <Text style={[styles.bootText, { color: palette.textMuted }]}>启动中…</Text>
+                </>
+              )}
+            </View>
+          ) : (
+            <>
+              <NavigationContainer ref={navigationRef}>
+                <AppShell>
+                  <MainDrawerNavigator />
+                </AppShell>
+              </NavigationContainer>
 
-            {updateInfo ? (
-              <UpdateModal
-                visible={!!updateInfo}
-                info={updateInfo}
-                onClose={() => setUpdateInfo(null)}
+              {updateInfo ? (
+                <UpdateModal
+                  visible={!!updateInfo}
+                  info={updateInfo}
+                  onClose={() => setUpdateInfo(null)}
+                />
+              ) : null}
+              <CustomSourceUpdateModal />
+              <MobilePactModal
+                visible={pactAccepted === false}
+                accepting={acceptingPact}
+                onAccept={() => {
+                  void handleAcceptPact();
+                }}
               />
-            ) : null}
-            <CustomSourceUpdateModal />
-            <MobilePactModal
-              visible={pactAccepted === false}
-              accepting={acceptingPact}
-              onAccept={() => {
-                void handleAcceptPact();
-              }}
-            />
-          </>
-        )}
+            </>
+          )}
+        </ErrorBoundary>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

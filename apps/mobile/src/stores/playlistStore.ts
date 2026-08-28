@@ -10,6 +10,7 @@ import {
 } from "@lx/core";
 import { useAccountStore } from "./accountStore";
 import { LatestRequestGate } from "@/services/latestRequestGate";
+import { healCorruptStorage } from "@/utils/storageSelfHeal";
 import type { CreateLocalPlaylistInput, CreateLocalPlaylistWithSongInput, CreateLocalPlaylistWithSongsInput, LocalPlaylist } from "../services/localPlaylistModel";
 import {
   addSongsToLocalPlaylist as addSongsToLocalPlaylistModel,
@@ -127,6 +128,22 @@ function parseLikedSongs(raw: string | null): MusicInfo[] {
   const parsed = JSON.parse(raw) as unknown;
   if (!Array.isArray(parsed)) throw new Error("喜欢歌曲数据格式错误");
   return parsed as MusicInfo[];
+}
+
+/**
+ * 读取并解析持久化数组；解析失败时备份坏串、重建空结构（损坏自愈）。
+ * 直接抛错会让每次启动都失败，歌单/收藏在 UI 上"永久消失"且无法恢复。
+ */
+async function loadPersistedArray<T>(key: string, parse: (raw: string | null) => T[]): Promise<T[]> {
+  let raw: string | null = null;
+  try {
+    raw = await AsyncStorage.getItem(key);
+    return parse(raw);
+  } catch (error) {
+    console.error(`[storage] ${key} 数据损坏，已备份并重建空列表`, error);
+    await healCorruptStorage(key, raw);
+    return [];
+  }
 }
 
 type PlaylistStore = PlaylistState & PlaylistActions;
@@ -380,8 +397,8 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
 
   loadLocalPlaylists: async () => {
     try {
-      const raw = await AsyncStorage.getItem(LOCAL_PLAYLISTS_KEY);
-      set({ localPlaylists: parseLocalPlaylists(raw), error: null });
+      const localPlaylists = await loadPersistedArray(LOCAL_PLAYLISTS_KEY, parseLocalPlaylists);
+      set({ localPlaylists, error: null });
     } catch (error) {
       const message = error instanceof Error ? error.message : "加载本地歌单失败";
       set({ error: message });
@@ -392,8 +409,7 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
 
   loadLikedSongsFromStorage: async () => {
     try {
-      const raw = await AsyncStorage.getItem(LIKED_SONGS_KEY);
-      const likedSongs = parseLikedSongs(raw);
+      const likedSongs = await loadPersistedArray(LIKED_SONGS_KEY, parseLikedSongs);
       set({
         likedSongs,
         likedSongIds: new Set(likedSongs.map(songKey)),
