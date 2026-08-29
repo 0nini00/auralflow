@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Alert, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
-import { ChevronRight } from "lucide-react-native";
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
+import { ChevronDown, ChevronRight, Trash2 } from "lucide-react-native";
 
 import { SectionHeader } from "@/components/SectionHeader";
 import { ListItemButton } from "@/components/ui/ListItemButton";
@@ -8,10 +8,13 @@ import { SettingsCard } from "@/components/settings/SettingsCard";
 import { openDownloadsScreen, openHistoryScreen } from "@/navigation";
 import {
   cleanExpiredCache,
+  deleteCachedAudio,
   formatCacheSize,
   getCacheStats,
+  listCachedAudio,
   type CacheStats,
 } from "@/services/cacheService";
+import type { CachedAudioEntry } from "@/services/audioCacheListModel";
 import { clearMediaCache } from "@/services/dataCleanupService";
 import { useDownloadStore } from "@/stores/downloadStore";
 import { useHistoryStore } from "@/stores/historyStore";
@@ -196,6 +199,17 @@ export function CacheSettings() {
       </View>
 
       <View style={styles.section}>
+        <SectionHeader title="播放缓存" description="播放过的歌曲自动缓存，可逐条删除" />
+        <CachedAudioSection
+          palette={palette}
+          disabled={busy}
+          onCacheChanged={() => {
+            void loadCacheSize().catch(() => undefined);
+          }}
+        />
+      </View>
+
+      <View style={styles.section}>
         <SectionHeader title="数据入口" description="查看下载任务和播放记录" />
         <NavigationRow
           title="下载管理"
@@ -299,6 +313,147 @@ function NavigationRow({ title, subtitle, onPress, palette }: { title: string; s
   );
 }
 
+/** 已缓存歌曲：默认折叠显示统计，展开后逐条列出并支持单条删除。 */
+function CachedAudioSection({
+  palette,
+  disabled,
+  onCacheChanged,
+}: PaletteProps & { disabled: boolean; onCacheChanged: () => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const [entries, setEntries] = useState<CachedAudioEntry[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [deletingKey, setDeletingKey] = useState<string | null>(null);
+
+  const loadEntries = useCallback(async () => {
+    setLoading(true);
+    try {
+      setEntries(await listCachedAudio());
+    } catch {
+      setEntries([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const handleToggle = () => {
+    const next = !expanded;
+    setExpanded(next);
+    if (next && entries === null) {
+      void loadEntries();
+    }
+  };
+
+  const handleDelete = (entry: CachedAudioEntry) => {
+    if (deletingKey) return;
+    setDeletingKey(entry.key);
+    void (async () => {
+      try {
+        await deleteCachedAudio(entry);
+        setEntries((prev) => prev?.filter((item) => item.key !== entry.key) ?? null);
+        onCacheChanged();
+      } catch (error) {
+        Alert.alert("删除失败", getErrorMessage(error));
+      } finally {
+        setDeletingKey(null);
+      }
+    })();
+  };
+
+  const totalSize = (entries ?? []).reduce((sum, entry) => sum + entry.size, 0);
+  const summary = entries === null
+    ? "播放过的歌曲自动缓存"
+    : entries.length === 0
+      ? "暂无缓存歌曲"
+      : `${entries.length} 首 · ${formatCacheSize(totalSize)}`;
+
+  return (
+    <View style={styles.section}>
+      <ListItemButton
+        title="已缓存歌曲"
+        subtitle={summary}
+        accessibilityLabel={`已缓存歌曲，${summary}，点击${expanded ? "收起" : "展开"}`}
+        disabled={disabled}
+        onPress={handleToggle}
+        trailing={
+          loading ? (
+            <ActivityIndicator accessibilityLabel="正在读取缓存列表" size="small" color={palette.primary} />
+          ) : expanded ? (
+            <ChevronDown size={20} color={palette.primary} />
+          ) : (
+            <ChevronRight size={20} color={palette.primary} />
+          )
+        }
+        style={[styles.actionRow, { backgroundColor: palette.surface, borderColor: palette.border }]}
+      />
+      {expanded && entries !== null ? (
+        entries.length === 0 ? (
+          <Text style={[styles.audioEmpty, { color: palette.textMuted }]}>
+            暂无缓存歌曲，播放过的歌曲（网易云/QQ 音源）会自动缓存到这里
+          </Text>
+        ) : (
+          <View style={[styles.audioList, { borderColor: palette.border }]}>
+            {entries.map((entry) => (
+              <CachedSongRow
+                key={entry.key}
+                entry={entry}
+                palette={palette}
+                deleting={deletingKey === entry.key}
+                disabled={deletingKey !== null}
+                onDelete={() => handleDelete(entry)}
+              />
+            ))}
+          </View>
+        )
+      ) : null}
+    </View>
+  );
+}
+
+function CachedSongRow({
+  entry,
+  palette,
+  deleting,
+  disabled,
+  onDelete,
+}: {
+  entry: CachedAudioEntry;
+  palette: ReturnType<typeof getThemePalette>;
+  deleting: boolean;
+  disabled: boolean;
+  onDelete: () => void;
+}) {
+  const title = entry.name || `未知歌曲（${entry.source}-${entry.key.split("-").slice(1, -1).join("-")}）`;
+  const singer = entry.singer || "未知歌手";
+  const qualityLabel = entry.quality && entry.quality !== "unknown" ? ` · ${entry.quality}` : "";
+  return (
+    <View style={[styles.audioRow, { borderBottomColor: palette.border }]}>
+      <View style={styles.audioRowCopy}>
+        <Text numberOfLines={1} style={[styles.audioRowTitle, { color: palette.text }]}>
+          {title}
+        </Text>
+        <Text numberOfLines={1} style={[styles.audioRowMeta, { color: palette.textMuted }]}>
+          {singer}
+          {qualityLabel} · {formatCacheSize(entry.size)}
+        </Text>
+      </View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`删除缓存：${title}`}
+        disabled={disabled || deleting}
+        onPress={onDelete}
+        hitSlop={8}
+        style={({ pressed }) => [styles.audioRowDelete, { opacity: disabled && !deleting ? 0.4 : pressed ? 0.6 : 1 }]}
+      >
+        {deleting ? (
+          <ActivityIndicator size="small" color={palette.danger} />
+        ) : (
+          <Trash2 size={18} color={palette.danger} />
+        )}
+      </Pressable>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { gap: spacing.xl },
   section: { gap: spacing.xs },
@@ -331,4 +486,32 @@ const styles = StyleSheet.create({
   copy: { flex: 1, minWidth: 0, gap: spacing.xxs },
   rowTitle: { fontSize: typography.body, fontWeight: "600" },
   rowSubtitle: { fontSize: typography.caption, lineHeight: 18 },
+  audioList: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.md,
+    overflow: "hidden",
+  },
+  audioEmpty: {
+    fontSize: typography.caption,
+    lineHeight: 18,
+    paddingHorizontal: spacing.s,
+    paddingVertical: spacing.xs,
+  },
+  audioRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.s,
+    paddingHorizontal: spacing.s,
+    paddingVertical: spacing.s,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  audioRowCopy: { flex: 1, minWidth: 0, gap: spacing.xxs },
+  audioRowTitle: { fontSize: typography.body, fontWeight: "600" },
+  audioRowMeta: { fontSize: typography.caption, lineHeight: 16 },
+  audioRowDelete: {
+    minHeight: touch.minTarget,
+    minWidth: touch.minTarget,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });

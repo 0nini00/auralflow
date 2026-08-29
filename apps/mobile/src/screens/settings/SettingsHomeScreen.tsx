@@ -1,7 +1,5 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { useNavigation } from "@react-navigation/native";
-import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
 import { Touchable } from "@/components/Touchable";
@@ -10,7 +8,7 @@ import {
   SETTINGS_CATEGORY_ICONS,
   type SettingsCategoryName,
 } from "@/navigation/settingsRouteModel";
-import type { SettingsStackParamList } from "@/navigation/types";
+import { useSettingsCategoryStore } from "@/stores/settingsCategoryStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, typography } from "@/theme/tokens";
 
@@ -19,16 +17,10 @@ import { radius, spacing, typography } from "@/theme/tokens";
  * 每项卡片：主色图标 + 名称 + 一行描述。
  */
 export function SettingsHomeScreen() {
-  const navigation = useNavigation<NativeStackNavigationProp<SettingsStackParamList, "SettingsHome">>();
+  const requestCategory = useSettingsCategoryStore((state) => state.requestCategory);
   const openCategory = (name: SettingsCategoryName) => {
-    // 单次原子 reset 到 [设置首页, 目标分类]：原实现是 popToTop + navigate 两步，
-    // 返回动画进行中 popToTop 可能被 native-stack 吞掉而 navigate 照常入栈，
-    // 栈里残留旧分类页——表现为「打开 B 返回却先落到 A」。
-    // reset 一次 dispatch 替换整个栈，无两步竞态。
-    navigation.reset({
-      index: 1,
-      routes: [{ name: "SettingsHome" }, { name }],
-    });
+    // 写入分类请求即切换页面（设置区无导航栈，纯组件渲染）
+    requestCategory(name);
   };
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
@@ -82,7 +74,6 @@ const styles = StyleSheet.create({
   },
   card: {
     width: "48.5%",
-    flexGrow: 1,
     minHeight: 108,
     borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,

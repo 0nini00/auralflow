@@ -208,6 +208,9 @@ dependencies {
 
     // 本地音乐写回内嵌封面/歌词所需的 ID3/MP4 标签库（纯 Java，无需 NDK）。
     implementation("net.jthink:jaudiotagger:3.0.1")
+
+    // 沉浸页封面取色（氛围色背景）：androidx 官方调色板提取
+    implementation("androidx.palette:palette:1.0.0")
 }
 
 // 按 ABI 拆分的 APK 全部复制到稳定外部路径（apk-alt），保留各架构文件名。

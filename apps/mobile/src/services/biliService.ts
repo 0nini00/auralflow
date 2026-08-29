@@ -241,7 +241,7 @@ async function biliFetchJson<T>(
   if (body.code !== 0) {
     // -101 = 未登录/Cookie 失效：给出可操作的提示，而不是笼统的"接口错误"
     if (body.code === -101) {
-      throw new Error("B站登录已过期，请到 设置 → B站账号 重新保存 Cookie");
+      throw new Error("B站登录已过期，请重新登录");
     }
     throw new Error(body.message || "B站接口返回错误，请稍后重试");
   }

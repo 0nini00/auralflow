@@ -7,6 +7,7 @@ import type { SearchAlbumResult, SearchArtistResult } from "@/services/musicApi"
 import type { SearchFallbackDetailModel } from "@/services/searchFallbackDetailModel";
 import type { WyPlaylistInfo } from "@/services/wyPlaylistService";
 import type { SettingsCategoryName } from "./settingsRouteModel";
+import { useSettingsCategoryStore } from "@/stores/settingsCategoryStore";
 import { nextSettingsCategoryNavId } from "./settingsRouteModel";
 import type {
   LibraryTopTabParamList,
@@ -92,10 +93,11 @@ export function openDownloadsScreen() {
 }
 
 export function openSettingsScreen(category?: SettingsCategoryName) {
-  navigateRoot("Settings", {
-    screen: category ?? "SettingsHome",
-    navId: nextSettingsCategoryNavId(),
-  });
+  // 分类请求写入 store，设置堆栈据此重挂载（不再依赖嵌套 navigate 的 params）
+  if (category) {
+    useSettingsCategoryStore.getState().requestCategory(category);
+  }
+  navigateRoot("Settings");
 }
 
 export function openMvPlayerScreen(params: RootStackParamList["MvPlayer"]) {

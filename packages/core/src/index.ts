@@ -9,3 +9,4 @@ export * from "./switch-step-queue";
 export * from "./outbound-host";
 export * from "./webdav-merge";
 export * from "./custom-source";
+export * from "./playlist-link";

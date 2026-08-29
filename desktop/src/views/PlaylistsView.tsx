@@ -7,6 +7,8 @@ import { useWyAccountStore } from '@/stores/wyAccountStore';
 import { useBiliAccountStore } from '@/stores/biliAccountStore';
 import { getBiliCookie } from '@/services/biliAccountService';
 import { exportPlaylists, importPlaylists } from '@/services/playlistTransferService';
+import { fetchPlaylistSongsFromLink } from '@/services/playlistLinkImportService';
+import { parsePlaylistLink } from '@lx/core';
 import { getImageReferrerPolicy, toCoverSrc } from '@/utils/imageReferrerPolicy';
 import {
   Plus,
@@ -19,6 +21,7 @@ import {
   History,
   Download,
   Layers,
+  Link2,
   Upload,
   SlidersHorizontal,
   EyeOff,
@@ -27,7 +30,7 @@ import {
 
 export function PlaylistsView() {
   const navigate = useNavigate();
-  const { playlists, createPlaylist, deletePlaylist, duplicatePlaylist, renamePlaylist, updatePlaylistDescription } = usePlaylistStore();
+  const { playlists, createPlaylist, deletePlaylist, duplicatePlaylist, renamePlaylist, updatePlaylistDescription, importPlaylist } = usePlaylistStore();
   const favorites = useFavoritesStore((s) => s.favorites);
   const history = useHistoryStore((s) => s.history);
   const wyAccount = useWyAccountStore((s) => s.account);
@@ -53,6 +56,11 @@ export function PlaylistsView() {
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [transferStatus, setTransferStatus] = useState('');
   const [wyRefreshing, setWyRefreshing] = useState(false);
+  // 链接导入歌单
+  const [showImportLinkDialog, setShowImportLinkDialog] = useState(false);
+  const [importLink, setImportLink] = useState('');
+  const [importLinkName, setImportLinkName] = useState('');
+  const [importLinkBusy, setImportLinkBusy] = useState(false);
 
   const myWyPlaylists = wyPlaylists.filter((p) => !p.subscribed);
   const collectedWyPlaylists = wyPlaylists.filter((p) => p.subscribed);
@@ -71,12 +79,12 @@ export function PlaylistsView() {
   }, [biliLoad, biliLoaded, biliLoading]);
 
   useEffect(() => {
-    if (!showCreateDialog) return;
+    if (!showCreateDialog && !showImportLinkDialog) return;
     document.documentElement.classList.add('af-page-scroll-locked');
     return () => {
       document.documentElement.classList.remove('af-page-scroll-locked');
     };
-  }, [showCreateDialog]);
+  }, [showCreateDialog, showImportLinkDialog]);
 
   const handleCreate = () => {
     const name = newPlaylistName.trim();
@@ -133,6 +141,25 @@ export function PlaylistsView() {
     setNewPlaylistName('');
     setNewPlaylistDesc('');
     setShowCreateDialog(true);
+  };
+
+  const handleImportLink = async () => {
+    if (importLinkBusy) return;
+    setImportLinkBusy(true);
+    try {
+      const { songs } = await fetchPlaylistSongsFromLink(importLink);
+      const name = importLinkName.trim() || '导入的歌单';
+      const playlist = importPlaylist(name, undefined, songs);
+      setTransferStatus(`已从链接导入「${name}」（${songs.length} 首）`);
+      setShowImportLinkDialog(false);
+      setImportLink('');
+      setImportLinkName('');
+      void navigate(`/playlist/${playlist.id}`);
+    } catch (error) {
+      setTransferStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setImportLinkBusy(false);
+    }
   };
 
   const handleExportAll = async () => {
@@ -201,6 +228,14 @@ export function PlaylistsView() {
           >
             <Upload size={18} />
             <span>导入</span>
+          </button>
+          <button
+            className="af-create-playlist-btn af-btn-secondary"
+            onClick={() => { setTransferStatus(''); setShowImportLinkDialog(true); }}
+            title="从网易云 / QQ 音乐歌单链接导入"
+          >
+            <Link2 size={18} />
+            <span>链接</span>
           </button>
           <button
             className="af-create-playlist-btn af-btn-secondary"
@@ -593,6 +628,61 @@ export function PlaylistsView() {
           </div>
         </div>
       )}
+      {(showImportLinkDialog) && (() => {
+        const parsed = importLink.trim() ? parsePlaylistLink(importLink) : null;
+        return (
+          <div className="af-dialog-overlay" onClick={() => setShowImportLinkDialog(false)}>
+            <div className="af-dialog" onClick={(e) => e.stopPropagation()}>
+              <h2>从链接导入歌单</h2>
+              <div className="af-dialog-body">
+                <div className="af-form-group">
+                  <label htmlFor="playlist-link">歌单链接 / ID</label>
+                  <input
+                    id="playlist-link"
+                    type="text"
+                    value={importLink}
+                    onChange={(e) => setImportLink(e.target.value)}
+                    placeholder="粘贴网易云 / QQ 音乐歌单链接或纯数字 ID"
+                    autoFocus
+                  />
+                  {importLink.trim() ? (
+                    <p className="af-link-hint" style={{ color: parsed ? 'var(--af-primary, #1db954)' : 'var(--af-danger, #e74c3c)' }}>
+                      {parsed
+                        ? parsed.source === 'wy' ? '已识别：网易云歌单' : '已识别：QQ 音乐歌单'
+                        : '无法识别链接，请检查后重试'}
+                    </p>
+                  ) : (
+                    <p className="af-link-hint">支持网易云与 QQ 音乐歌单分享链接，导入后创建为本地歌单</p>
+                  )}
+                </div>
+                <div className="af-form-group">
+                  <label htmlFor="playlist-link-name">歌单名称（可选）</label>
+                  <input
+                    id="playlist-link-name"
+                    type="text"
+                    value={importLinkName}
+                    onChange={(e) => setImportLinkName(e.target.value)}
+                    placeholder="留空使用「导入的歌单」"
+                    maxLength={50}
+                  />
+                </div>
+              </div>
+              <div className="af-dialog-actions">
+                <button className="af-btn-secondary" onClick={() => setShowImportLinkDialog(false)}>
+                  取消
+                </button>
+                <button
+                  className="af-btn-primary"
+                  onClick={() => void handleImportLink()}
+                  disabled={!parsed || importLinkBusy}
+                >
+                  {importLinkBusy ? '导入中…' : '导入'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -13,6 +13,7 @@ import {
 } from "react-native";
 
 import { AccountInfo } from "@/components/AccountInfo";
+import { ImportPlaylistLinkModal } from "@/components/ImportPlaylistLinkModal";
 import { LocalPlaylistList } from "@/components/LocalPlaylistList";
 import { PlaylistList } from "@/components/PlaylistList";
 import { QuickActionCard } from "@/components/QuickActionCard";
@@ -70,6 +71,7 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
 
   const [showCreateLocalPlaylistModal, setShowCreateLocalPlaylistModal] = useState(false);
   const [showImportLocalPlaylistModal, setShowImportLocalPlaylistModal] = useState(false);
+  const [showImportLinkModal, setShowImportLinkModal] = useState(false);
   const [localPlaylistName, setLocalPlaylistName] = useState("");
   const [localPlaylistDescription, setLocalPlaylistDescription] = useState("");
   const [localPlaylistImportJson, setLocalPlaylistImportJson] = useState("");
@@ -279,6 +281,12 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
             description={`${localPlaylists.length} 个`}
             action={(
               <View style={styles.playlistHeaderActions}>
+                <ActionButton
+                  small
+                  accessibilityLabel="从链接导入歌单"
+                  onPress={() => setShowImportLinkModal(true)}
+                  label="链接"
+                />
                 <ActionButton
                   small
                   accessibilityLabel="导入本地歌单"
@@ -492,6 +500,14 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
             </View>
           </KeyboardAvoidingView>
         </Modal>
+        <ImportPlaylistLinkModal
+          visible={showImportLinkModal}
+          onClose={() => setShowImportLinkModal(false)}
+          palette={palette}
+          onImported={(songCount, name) => {
+            Alert.alert("导入成功", `已创建本地歌单「${name}」（${songCount} 首）`);
+          }}
+        />
       </ScreenScrollView>
     </ScreenScaffold>
   );

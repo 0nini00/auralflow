@@ -1,6 +1,7 @@
 import React from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import PagerView from "react-native-pager-view";
+import LinearGradient from "react-native-linear-gradient";
 import KeepAwake from "react-native-keep-awake";
 
 import { LyricView } from "@/components/LyricView";
@@ -15,6 +16,9 @@ import { ImmersivePlaySettingSheet } from "@/screens/immersive/ImmersivePlaySett
 import { ImmersiveCoverPage } from "@/screens/immersive/ImmersiveCoverPage";
 import { styles } from "@/screens/immersive/immersiveStyles";
 import { useImmersiveController } from "@/screens/immersive/useImmersiveController";
+import { fetchCoverColors, type CoverColors } from "@/services/coverColorService";
+import { withAlpha } from "@/services/themePaletteModel";
+import { getResolvedTheme, useThemeStore } from "@/stores/themeStore";
 import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
 import { openMvPlayerScreen } from "@/navigation";
 
@@ -31,7 +35,12 @@ export interface ImmersiveLyricsScreenProps {
  */
 export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScreenProps) {
   const showLyricProgress = useLyricSettingsStore((s) => s.showLyricProgress);
+  const ambientCoverTint = useLyricSettingsStore((s) => s.ambientCoverTint);
+  const themeMode = useThemeStore((s) => s.mode);
+  const systemTheme = useThemeStore((s) => s.systemTheme);
+  const isDark = getResolvedTheme(themeMode, systemTheme) === "dark";
   const pagerViewRef = React.useRef<PagerView>(null);
+
   const {
     insets,
     layoutWidth,
@@ -113,6 +122,22 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     isLiked,
   } = useImmersiveController({ visible, onClose });
 
+  // 氛围色背景：从封面提取主色，仅在开关打开且取色成功时叠加渐变
+  const [ambient, setAmbient] = React.useState<CoverColors>({ base: "", accent: "" });
+  React.useEffect(() => {
+    if (!visible || !ambientCoverTint || !artwork) {
+      setAmbient({ base: "", accent: "" });
+      return;
+    }
+    let cancelled = false;
+    void fetchCoverColors(artwork, isDark).then((colors) => {
+      if (!cancelled) setAmbient(colors);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, ambientCoverTint, artwork, isDark]);
+
   if (!currentSong) {
     return null;
   }
@@ -132,7 +157,20 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
         style={[styles.root, { backgroundColor: palette.background }]}
         onLayout={onLayout}
       >
-        {/* 对齐 lx 竖屏：纯主题色背景（去模糊封面/氛围色） */}
+        {/* 氛围色背景（可选开关）：封面主色自上而下淡出的渐变，压在内容层之下 */}
+        {ambientCoverTint && ambient.base ? (
+          <LinearGradient
+            pointerEvents="none"
+            style={StyleSheet.absoluteFill}
+            colors={[
+              withAlpha(ambient.base, isDark ? 0.42 : 0.3),
+              withAlpha(ambient.base, isDark ? 0.14 : 0.1),
+              withAlpha(ambient.base, 0),
+            ]}
+            locations={[0, 0.55, 1]}
+          />
+        ) : null}
+        {/* 默认对齐 lx 竖屏：纯主题色背景（氛围色在播放设置里可选开启） */}
         <PagerView
           ref={pagerViewRef}
           style={styles.pagerView}

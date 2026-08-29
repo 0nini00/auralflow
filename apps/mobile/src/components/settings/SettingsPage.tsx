@@ -35,10 +35,10 @@ export function SettingsPage({ title, description, children }: SettingsPageProps
 }
 
 const styles = StyleSheet.create({
-  container: { gap: spacing.m },
+  container: { gap: spacing.m, paddingBottom: spacing.s },
   description: {
-    fontSize: typography.meta,
-    lineHeight: 18,
+    fontSize: typography.body,
+    lineHeight: 20,
   },
   content: { gap: spacing.s },
 });

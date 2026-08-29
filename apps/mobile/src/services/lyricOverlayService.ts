@@ -29,6 +29,12 @@ export interface LyricOverlayStyle {
   showNextLine?: boolean;
   /** 文字投影。关掉后浅色壁纸上会难以辨认 */
   shadowEnabled?: boolean;
+  /** 当前行文字颜色（#RRGGBB；空串=默认白），随歌词样式「当前行颜色」同步 */
+  activeColor?: string;
+  /** 其他行文字颜色（#RRGGBB；空串=默认白），随歌词样式「其他行颜色」同步 */
+  inactiveColor?: string;
+  /** 字体 family（空串=系统默认），随歌词样式「字体」同步 */
+  fontFamily?: string;
 }
 
 const nativeModule = (NativeModules as Record<string, unknown>).LyricOverlayModule as

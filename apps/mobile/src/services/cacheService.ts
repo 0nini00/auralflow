@@ -1,9 +1,15 @@
 import RNFS from "react-native-fs";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import CryptoJS from "crypto-js";
 import { Platform } from "react-native";
 import { COVER_SIZE_LARGE, resizeCoverUrl, type MusicInfo } from "@lx/core";
 import { clearPlaybackUrlCache } from "./playbackUrlCache";
 import { selectFilesToEvict, type CachedFileEntry } from "./cacheEvictionModel";
+import {
+  reconcileAudioCacheEntries,
+  type AudioCacheIndexEntry,
+  type CachedAudioEntry,
+} from "./audioCacheListModel";
 
 // 缓存目录
 const CACHE_DIR = `${RNFS.CachesDirectoryPath}/auralflow`;
@@ -274,6 +280,7 @@ export async function cacheAudioFile(
     try {
       const result = await RNFS.downloadFile({ fromUrl: url, toFile: filePath }).promise;
       if (result.statusCode >= 200 && result.statusCode < 300) {
+        await recordAudioCacheIndex(music, quality, filePath);
         scheduleEnforceCacheSizeLimit();
         return `file://${filePath}`;
       }
@@ -299,6 +306,87 @@ export async function isLocalFilePlayable(fileUrl: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// ============ 已缓存歌曲索引（歌名/歌手元数据，供缓存列表展示） ============
+// 磁盘文件名只有 {source}-{id}-{quality}，不含歌曲名；索引存 AsyncStorage，
+// 与磁盘的对齐（LRU 淘汰/清缓存导致的漂移）在 listCachedAudio 里完成。
+
+const AUDIO_CACHE_INDEX_KEY = "auralflow.mobile.audioCacheIndex.v1";
+
+async function loadAudioCacheIndex(): Promise<Record<string, AudioCacheIndexEntry>> {
+  try {
+    const raw = await AsyncStorage.getItem(AUDIO_CACHE_INDEX_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, AudioCacheIndexEntry>) : {};
+  } catch {
+    return {};
+  }
+}
+
+async function saveAudioCacheIndex(index: Record<string, AudioCacheIndexEntry>): Promise<void> {
+  try {
+    await AsyncStorage.setItem(AUDIO_CACHE_INDEX_KEY, JSON.stringify(index));
+  } catch {}
+}
+
+function getAudioCacheFileBase(music: MusicInfo, quality: string): string {
+  return getAudioCacheFilePath(music, quality).split("/").pop()!.replace(/\.audio$/, "");
+}
+
+/** 缓存成功后记录歌曲元数据，供「已缓存歌曲」列表展示。 */
+async function recordAudioCacheIndex(
+  music: MusicInfo,
+  quality: string,
+  filePath: string,
+): Promise<void> {
+  const index = await loadAudioCacheIndex();
+  index[getAudioCacheFileBase(music, quality)] = {
+    name: music.name,
+    singer: music.singer,
+    source: music.source,
+    quality,
+    path: filePath,
+    cachedAt: Date.now(),
+  };
+  await saveAudioCacheIndex(index);
+}
+
+/** 列出磁盘上仍存在的音频缓存，附歌曲元数据（索引缺失时降级为文件名解析）。 */
+export async function listCachedAudio(): Promise<CachedAudioEntry[]> {
+  await initCacheDirectories();
+  let files: { base: string; path: string; size: number }[] = [];
+  try {
+    if (await RNFS.exists(AUDIO_CACHE_DIR)) {
+      const dirEntries = await RNFS.readDir(AUDIO_CACHE_DIR);
+      files = dirEntries
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".audio"))
+        .map((entry) => ({
+          base: entry.name.replace(/\.audio$/, ""),
+          path: entry.path,
+          size: entry.size || 0,
+        }));
+    }
+  } catch {
+    return [];
+  }
+  const index = await loadAudioCacheIndex();
+  const { entries, staleKeys } = reconcileAudioCacheEntries(index, files);
+  if (staleKeys.length > 0) {
+    const pruned = { ...index };
+    for (const key of staleKeys) delete pruned[key];
+    await saveAudioCacheIndex(pruned);
+  }
+  return entries;
+}
+
+/** 删除单条音频缓存文件及其索引记录。 */
+export async function deleteCachedAudio(entry: CachedAudioEntry): Promise<void> {
+  await RNFS.unlink(entry.path).catch(() => undefined);
+  const index = await loadAudioCacheIndex();
+  delete index[entry.key];
+  await saveAudioCacheIndex(index);
 }
 
 /**
@@ -497,6 +585,7 @@ export async function clearAllCache(): Promise<void> {
     if (exists) {
       await RNFS.unlink(CACHE_DIR);
     }
+    await AsyncStorage.removeItem(AUDIO_CACHE_INDEX_KEY);
     await clearPlaybackUrlCache();
     await initCacheDirectories();
   } catch (error) {

@@ -131,19 +131,15 @@ export function CustomSourceScreen() {
           onPress={() => setImportModalVisible(true)}
           accessibilityLabel="粘贴导入自定义音源"
         />
-      </View>
-
-      {/* 操作栏 */}
-      {sources.length > 0 && (
-        <View style={styles.actionBar}>
+        {sources.length > 0 ? (
           <ActionButton
             small
             label="检测全部更新"
             onPress={handleCheckAll}
             accessibilityLabel="检测全部音源更新"
           />
-        </View>
-      )}
+        ) : null}
+      </View>
 
       <SettingsCard style={styles.autoCheckCard}>
         <View style={styles.autoCheckRow}>
@@ -437,10 +433,6 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: spacing.xs,
     alignItems: "center",
-  },
-  actionBar: {
-    flexDirection: "row",
-    gap: spacing.xs,
   },
   autoCheckCard: {
     gap: spacing.xs,

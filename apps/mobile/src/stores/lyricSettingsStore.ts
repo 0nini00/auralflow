@@ -57,6 +57,9 @@ export interface LyricSettingsState {
   /** 歌词滚动进度条显示开关（对齐 lx playDetail.isShowLyricProgressSetting） */
   showLyricProgress: boolean;
 
+  /** 沉浸页氛围色背景：从封面提取主色给背景染色（借鉴自聚合播放器，默认关保持 lx 纯色） */
+  ambientCoverTint: boolean;
+
 
 
   setFontSize: (size: number) => void;
@@ -76,6 +79,7 @@ export interface LyricSettingsState {
   setChineseConversion: (mode: ChineseConversionMode) => void;
   setCoverSpin: (enabled: boolean) => void;
   setShowLyricProgress: (enabled: boolean) => void;
+  setAmbientCoverTint: (enabled: boolean) => void;
   resetSettings: () => void;
 }
 
@@ -134,6 +138,8 @@ chineseConversion: "off",
 
   showLyricProgress: true,
 
+  ambientCoverTint: false,
+
 } as const;
 
 export const useLyricSettingsStore = create<LyricSettingsState>()(
@@ -159,6 +165,8 @@ setChineseConversion: (chineseConversion) => set({ chineseConversion }),
       setCoverSpin: (coverSpin) => set({ coverSpin }),
 
       setShowLyricProgress: (showLyricProgress) => set({ showLyricProgress }),
+
+      setAmbientCoverTint: (ambientCoverTint) => set({ ambientCoverTint }),
 
       resetSettings: () => set({ ...DEFAULT_LYRIC_SETTINGS }),
     }),

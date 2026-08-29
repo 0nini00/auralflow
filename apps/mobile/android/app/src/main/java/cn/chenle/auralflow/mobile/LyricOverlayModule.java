@@ -76,6 +76,9 @@ public class LyricOverlayModule extends ReactContextBaseJavaModule {
         style.putInt("textOpacity", LyricOverlayPreferences.getTextOpacity(context));
         style.putBoolean("showNextLine", LyricOverlayPreferences.isShowNextLine(context));
         style.putBoolean("shadowEnabled", LyricOverlayPreferences.isShadowEnabled(context));
+        style.putString("activeColor", LyricOverlayPreferences.getActiveColor(context));
+        style.putString("inactiveColor", LyricOverlayPreferences.getInactiveColor(context));
+        style.putString("fontFamily", LyricOverlayPreferences.getFontFamily(context));
         promise.resolve(style);
     }
 
@@ -152,12 +155,15 @@ public class LyricOverlayModule extends ReactContextBaseJavaModule {
      */
     @ReactMethod
     public void setStyle(ReadableMap style, Promise promise) {
-        LyricOverlayPreferences.setStyle(
+        LyricOverlayPreferences.setStyleWithColors(
             context,
             style.hasKey("fontSize") && !style.isNull("fontSize") ? style.getInt("fontSize") : null,
             style.hasKey("textOpacity") && !style.isNull("textOpacity") ? style.getInt("textOpacity") : null,
             style.hasKey("showNextLine") && !style.isNull("showNextLine") ? style.getBoolean("showNextLine") : null,
-            style.hasKey("shadowEnabled") && !style.isNull("shadowEnabled") ? style.getBoolean("shadowEnabled") : null
+            style.hasKey("shadowEnabled") && !style.isNull("shadowEnabled") ? style.getBoolean("shadowEnabled") : null,
+            style.hasKey("activeColor") && !style.isNull("activeColor") ? style.getString("activeColor") : null,
+            style.hasKey("inactiveColor") && !style.isNull("inactiveColor") ? style.getString("inactiveColor") : null,
+            style.hasKey("fontFamily") && !style.isNull("fontFamily") ? style.getString("fontFamily") : null
         );
 
         Intent intent = new Intent(context, LyricOverlayService.class);

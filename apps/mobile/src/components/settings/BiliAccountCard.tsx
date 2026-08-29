@@ -89,7 +89,7 @@ export function BiliAccountCard() {
         <View style={styles.copy}>
           <Text style={[styles.title, { color: palette.text }]}>B站账号</Text>
           <Text
-            numberOfLines={1}
+            numberOfLines={2}
             style={[styles.subtitle, { color: error && !account ? palette.danger : palette.textMuted }]}
           >
             {account?.nickname ?? error ?? "未登录"}

@@ -37,6 +37,9 @@ const DEFAULT_STYLE: Required<LyricOverlayStyle> = {
   textOpacity: 100,
   showNextLine: true,
   shadowEnabled: true,
+  activeColor: "",
+  inactiveColor: "",
+  fontFamily: "",
 };
 
 export function LyricOverlaySettings() {
@@ -121,6 +124,7 @@ export function LyricOverlaySettings() {
     }
   };
 
+
   const notificationSubtitle = !supported
     ? "当前设备不支持播放通知显示歌词按钮"
     : !loaded
@@ -171,6 +175,7 @@ export function LyricOverlaySettings() {
         trackColor={{ false: palette.surfaceMuted, true: palette.primary }}
       />
     </SettingsCard>
+
 
     <SettingsCard style={styles.stackCard}>
       <View style={styles.copy}>

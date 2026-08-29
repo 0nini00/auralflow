@@ -795,6 +795,13 @@ button.af-playlist-card {
   animation: af-slide-up 0.3s;
 }
 
+.af-link-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--af-text-secondary);
+}
+
 .af-dialog h2 {
   font-size: 24px;
   font-weight: 700;

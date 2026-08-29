@@ -62,3 +62,6 @@ apps/mobile/android/build/
 apps/mobile/android/node-bin/
 apps/mobile/android/local.properties
 mobile_ui_scan.json
+
+# 真机截图验收产物
+.shots/

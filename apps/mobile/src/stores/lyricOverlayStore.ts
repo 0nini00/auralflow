@@ -5,6 +5,7 @@ import {
   isLyricOverlayVisible,
   setLyricNotificationButtonEnabled,
 } from "@/services/lyricOverlayService";
+import { syncLyricOverlayTextAppearance } from "@/services/lyricOverlayAppearance";
 
 /**
  * 桌面歌词悬浮窗的可见/锁定状态（对应桌面端 lyric window state）。
@@ -76,6 +77,12 @@ export const useLyricOverlayStore = create<LyricOverlayState>((set, get) => ({
             await setLyricNotificationButtonEnabled(get().notificationButtonEnabled);
           } catch (error) {
             set({ error: getErrorMessage(error) });
+          }
+          try {
+            // 歌词颜色/字体 → 悬浮歌词（随歌词样式设置）
+            await syncLyricOverlayTextAppearance();
+          } catch {
+            // 外观同步失败不阻断启动
           }
           try {
             await get().syncVisibleFromNative();

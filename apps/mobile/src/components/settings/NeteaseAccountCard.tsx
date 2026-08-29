@@ -132,6 +132,11 @@ export function NeteaseAccountCard() {
           >
             {subtitle}
           </Text>
+          {user ? (
+            <Text numberOfLines={1} style={[styles.metaText, { color: palette.textSubtle }]}>
+              {`网易云 · ID ${user.userId}`}
+            </Text>
+          ) : null}
         </View>
         {loading ? (
           <ActivityIndicator color={palette.primary} />
@@ -264,6 +269,9 @@ const styles = StyleSheet.create({
     color: "#ffffff",
   },
   subtitle: {
+    fontSize: typography.caption,
+  },
+  metaText: {
     fontSize: typography.caption,
   },
   form: {

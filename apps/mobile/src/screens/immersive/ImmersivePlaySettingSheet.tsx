@@ -56,6 +56,8 @@ export function ImmersivePlaySettingSheet({
   const setTextAlign = useLyricSettingsStore((s) => s.setTextAlign);
   const coverSpin = useLyricSettingsStore((s) => s.coverSpin);
   const setCoverSpin = useLyricSettingsStore((s) => s.setCoverSpin);
+  const ambientCoverTint = useLyricSettingsStore((s) => s.ambientCoverTint);
+  const setAmbientCoverTint = useLyricSettingsStore((s) => s.setAmbientCoverTint);
 
   const volumeToPct = Math.round(volume * 100);
   const ratePct = Math.round(playbackRate * 100);
@@ -156,6 +158,16 @@ export function ImmersivePlaySettingSheet({
                 onValueChange={setCoverSpin}
                 trackColor={{ false: palette.surfaceMuted, true: palette.primary }}
                 thumbColor={coverSpin ? palette.primaryText : palette.textMuted}
+              />
+            </Row>
+
+            {/* 氛围色背景：封面主色给沉浸页染色（默认关，保持 lx 纯色背景） */}
+            <Row label="氛围色背景" palette={palette}>
+              <Switch
+                value={ambientCoverTint}
+                onValueChange={setAmbientCoverTint}
+                trackColor={{ false: palette.surfaceMuted, true: palette.primary }}
+                thumbColor={ambientCoverTint ? palette.primaryText : palette.textMuted}
               />
             </Row>
           </ScrollView>

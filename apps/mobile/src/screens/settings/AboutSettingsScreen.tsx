@@ -37,23 +37,23 @@ export function AboutSettingsScreen() {
   return (
     <SettingsPage title="关于" description="应用版本与软件更新">
       <SettingsCard style={styles.card}>
-        <View style={[styles.row, styles.rowDivider, { borderBottomColor: palette.border }]}>
+        <View style={styles.row}>
           <View style={styles.copy}>
             <Text style={[styles.title, { color: palette.text }]}>当前版本</Text>
             <Text style={[styles.subtitle, { color: palette.textMuted }]}>AuralFlow Mobile {CURRENT_VERSION}</Text>
           </View>
         </View>
-        <SettingsLinkRow
-          title="软件更新"
-          subtitle={status || "检查最新版本"}
-          subtitleAccent={!!status}
-          onPress={() => void handleCheck()}
-          disabled={checking}
-          trailing={
-            checking ? <ActivityIndicator color={palette.primary} /> : undefined
-          }
-        />
       </SettingsCard>
+      <SettingsLinkRow
+        title="软件更新"
+        subtitle={status || "检查最新版本"}
+        subtitleAccent={!!status}
+        onPress={() => void handleCheck()}
+        disabled={checking}
+        trailing={
+          checking ? <ActivityIndicator color={palette.primary} /> : undefined
+        }
+      />
       {updateInfo ? <UpdateModal visible info={updateInfo} onClose={() => setUpdateInfo(null)} /> : null}
     </SettingsPage>
   );

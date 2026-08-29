@@ -1,8 +1,20 @@
-import React from "react";
-import { Modal, ScrollView, StyleSheet, Text, View, Linking } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { Alert, Linking, Modal, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ChevronRight } from "lucide-react-native";
+
 import { ActionButton } from "@/components/ActionButton";
-import type { UpdateInfo } from "@/services/updateService";
+import {
+  cancelApkDownload,
+  downloadApk,
+  getApkDownloadPath,
+  getSupportedAbis,
+  hasInstallPermission,
+  installApk,
+  isApkDownloaded,
+  isApkInstallSupported,
+  openInstallPermissionSettings,
+} from "@/services/apkInstallService";
+import { pickApkAssetForDevice, type ApkAsset, type UpdateInfo } from "@/services/updateService";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 
 interface UpdateModalProps {
@@ -11,19 +23,112 @@ interface UpdateModalProps {
   onClose: () => void;
 }
 
+type InstallPhase = "idle" | "downloading" | "installing";
+
+function formatSize(bytes: number): string {
+  if (bytes <= 0) return "";
+  const mb = bytes / 1024 / 1024;
+  return `${mb >= 1024 ? (mb / 1024).toFixed(2) : mb.toFixed(1)} MB`;
+}
+
 export function UpdateModal({ visible, info, onClose }: UpdateModalProps) {
   const mode = useThemeStore((s) => s.mode);
   const systemTheme = useThemeStore((s) => s.systemTheme);
   const accentColor = useThemeStore((s) => s.accentColor);
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
 
-  const handleDownload = () => {
-    if (info.releaseUrl) void Linking.openURL(info.releaseUrl);
+  const [asset, setAsset] = useState<ApkAsset | null>(null);
+  const [phase, setPhase] = useState<InstallPhase>("idle");
+  const [progress, setProgress] = useState(0);
+  const jobIdRef = useRef<number | null>(null);
+
+  const inAppInstallAvailable = isApkInstallSupported();
+
+  useEffect(() => {
+    if (!visible || !inAppInstallAvailable) return;
+    let cancelled = false;
+    setPhase("idle");
+    setProgress(0);
+    void (async () => {
+      const picked = pickApkAssetForDevice(info.apkAssets, await getSupportedAbis());
+      if (!cancelled) setAsset(picked);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, info, inAppInstallAvailable]);
+
+  const handleCancelDownload = () => {
+    cancelApkDownload(jobIdRef);
+    setPhase("idle");
+    setProgress(0);
+  };
+
+  const startInAppInstall = async () => {
+    if (!asset) return;
+    const path = getApkDownloadPath(asset.name);
+
+    try {
+      const permitted = await hasInstallPermission();
+      if (!permitted) {
+        await openInstallPermissionSettings();
+        Alert.alert(
+          "需要安装权限",
+          "请在系统设置中允许 AuralFlow 安装应用，返回后再次点击「下载并安装」。",
+        );
+        return;
+      }
+
+      if (!(await isApkDownloaded(path))) {
+        setPhase("downloading");
+        setProgress(0);
+        await downloadApk(asset.url, path, jobIdRef, (p) => {
+          const total = p.contentLength > 0 ? p.contentLength : asset.size;
+          setProgress(total > 0 ? Math.min(1, p.bytesWritten / total) : 0);
+        });
+      }
+
+      setPhase("installing");
+      await installApk(path);
+      // 已交给系统安装器，用户可能留在安装页；弹窗保持打开由用户关闭
+      setPhase("idle");
+    } catch (error) {
+      setPhase("idle");
+      const message = error instanceof Error ? error.message : String(error);
+      Alert.alert("更新失败", message, [
+        { text: "取消", style: "cancel" },
+        {
+          text: "打开发布页",
+          onPress: () => {
+            if (info.releaseUrl) void Linking.openURL(info.releaseUrl);
+          },
+        },
+      ]);
+    }
+  };
+
+  const handleClose = () => {
+    if (phase === "downloading") cancelApkDownload(jobIdRef);
     onClose();
   };
 
+  const primaryLabel =
+    phase === "downloading"
+      ? `${Math.round(progress * 100)}%`
+      : phase === "installing"
+        ? "正在安装…"
+        : asset
+          ? `下载并安装${asset.size > 0 ? `（${formatSize(asset.size)}）` : ""}`
+          : "打开发布页";
+
+  const handlePrimary = () => {
+    if (phase === "downloading") return;
+    if (asset && inAppInstallAvailable) void startInAppInstall();
+    else if (info.releaseUrl) void Linking.openURL(info.releaseUrl);
+  };
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
       <View style={styles.overlay}>
         <View style={[styles.card, { backgroundColor: palette.surface }]}>
           <Text style={[styles.title, { color: palette.text }]}>发现新版本</Text>
@@ -42,19 +147,40 @@ export function UpdateModal({ visible, info, onClose }: UpdateModalProps) {
               {info.changelog || "暂无更新日志"}
             </Text>
           </ScrollView>
+          {phase === "downloading" ? (
+            <View style={styles.progressRow}>
+              <View style={[styles.progressTrack, { backgroundColor: palette.border }]}>
+                <View
+                  style={[
+                    styles.progressFill,
+                    { backgroundColor: palette.primary, width: `${Math.max(3, Math.round(progress * 100))}%` },
+                  ]}
+                />
+              </View>
+              <Text style={[styles.progressCancel, { color: palette.textMuted }]} onPress={handleCancelDownload}>
+                取消
+              </Text>
+            </View>
+          ) : null}
           <View style={styles.actions}>
-            <ActionButton
-              small
-              label="稍后"
-              onPress={onClose}
-            />
+            <ActionButton small label="稍后" onPress={handleClose} />
             <ActionButton
               small
               variant="primary"
-              label="打开发布页"
-              onPress={handleDownload}
+              label={primaryLabel}
+              disabled={phase === "downloading"}
+              loading={phase === "installing"}
+              onPress={handlePrimary}
             />
           </View>
+          {asset && info.releaseUrl ? (
+            <Text
+              style={[styles.releaseLink, { color: palette.textMuted }]}
+              onPress={() => void Linking.openURL(info.releaseUrl)}
+            >
+              或在浏览器中打开发布页
+            </Text>
+          ) : null}
         </View>
       </View>
     </Modal>
@@ -103,9 +229,35 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 20,
   },
+  progressRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 14,
+  },
+  progressTrack: {
+    flex: 1,
+    height: 6,
+    borderRadius: 3,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    borderRadius: 3,
+  },
+  progressCancel: {
+    fontSize: 13,
+    paddingVertical: 4,
+  },
   actions: {
     flexDirection: "row",
     gap: 12,
     justifyContent: "flex-end",
+  },
+  releaseLink: {
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: 12,
+    textDecorationLine: "underline",
   },
 });

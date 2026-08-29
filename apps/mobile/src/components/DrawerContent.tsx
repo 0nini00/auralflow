@@ -5,17 +5,18 @@ import type { DrawerContentComponentProps } from "@react-navigation/drawer";
 
 import { Touchable } from "@/components/Touchable";
 import {
-  nextSettingsCategoryNavId,
   SETTINGS_CATEGORIES,
   SETTINGS_CATEGORY_ICONS,
 } from "@/navigation/settingsRouteModel";
 import { CURRENT_VERSION } from "@/services/updateService";
+import { useSettingsCategoryStore } from "@/stores/settingsCategoryStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, typography } from "@/theme/tokens";
 
 const APP_VERSION = `v${CURRENT_VERSION}`;
 
 export function DrawerContent({ navigation }: DrawerContentComponentProps) {
+  const requestSettingsCategory = useSettingsCategoryStore((state) => state.requestCategory);
   const insets = useSafeAreaInsets();
   const mode = useThemeStore((store) => store.mode);
   const systemTheme = useThemeStore((store) => store.systemTheme);
@@ -64,16 +65,14 @@ export function DrawerContent({ navigation }: DrawerContentComponentProps) {
                 activeScale={0.98}
                 activeOpacity={0.78}
                 onPress={() =>
-                  navigateAfterDrawerClose(() =>
-                    // 传入目标分类 + 递增 navId：SettingsStack 以 (target, navId)
-                    // 作为 key 重建内部堆栈（重置为 [设置首页]），再在栈内跳转到
-                    // 目标分类，修复返回键总是回到旧分类页的问题；navId 保证
-                    // 重复点击同一分类也会重建（否则 key 不变、不再跳转）。
-                    navigation.navigate("Settings", {
-                      screen: category.name,
-                      navId: nextSettingsCategoryNavId(),
-                    }),
-                  )
+                  navigateAfterDrawerClose(() => {
+                    // 分类请求写入 store（(分类, navId) 递增），设置堆栈据此整体
+                    // 重挂载。不走路由 params：嵌套 navigate 的 {screen} 会被
+                    // react-navigation 解释为进入内部堆栈，参数合并导致外部读不到
+                    // 最新目标，表现为「退出后点另一个分类仍显示上一个页面」。
+                    requestSettingsCategory(category.name);
+                    navigation.navigate("Settings");
+                  })
                 }
                 accessibilityRole="button"
                 accessibilityLabel={`${category.label}，${category.description}`}

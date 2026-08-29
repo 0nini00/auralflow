@@ -4,6 +4,7 @@ import android.app.Service;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
+import android.graphics.Typeface;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
@@ -205,15 +206,15 @@ public class LyricOverlayService extends Service {
             return;
         }
 
+        // 不再画背景块与进度条：85% 不透明的深色底几乎盖住整片壁纸，
+        // 系统默认样式的进度条也与桌面观感格格不入。改为纯文字 + 投影，
+        // 靠投影保证在任意壁纸上的可读性（对齐 lx 桌面歌词的做法）。
         overlayView = new LinearLayout(this);
         overlayView.setOrientation(LinearLayout.VERTICAL);
         overlayView.setPadding(dp(16), dp(10), dp(16), dp(10));
 
-        // 不再画背景块与进度条：85% 不透明的深色底几乎盖住整片壁纸，
-        // 系统默认样式的进度条也与桌面观感格格不入。改为纯文字 + 投影，
-        // 靠投影保证在任意壁纸上的可读性（对齐 lx 桌面歌词的做法）。
-        currentLyricView = createLyricText(fontSizeSp(), 0xFFFFFFFF);
-        nextLyricView = createLyricText(nextFontSizeSp(), 0xB3FFFFFF);
+        currentLyricView = createLyricText(fontSizeSp(), activeTextColor());
+        nextLyricView = createLyricText(nextFontSizeSp(), inactiveTextColor());
         LinearLayout.LayoutParams nextTextParams = new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
@@ -265,12 +266,41 @@ public class LyricOverlayService extends Service {
     private TextView createLyricText(float sizeSp, int color) {
         TextView view = new TextView(this);
         view.setTextSize(sizeSp);
-        view.setTextColor(applyOpacity(color));
+        view.setTextColor(color);
+        applyFont(view);
         view.setMaxLines(1);
         view.setEllipsize(android.text.TextUtils.TruncateAt.END);
         view.setGravity(Gravity.CENTER);
         applyShadow(view);
         return view;
+    }
+
+    /** 当前行/其他行颜色：随歌词样式设置的「颜色」同步；未设置时保持默认白。 */
+    private int activeTextColor() {
+        return applyOpacity(parseColorPref(LyricOverlayPreferences.getActiveColor(this), 0xFFFFFFFF));
+    }
+
+    private int inactiveTextColor() {
+        return applyOpacity(parseColorPref(LyricOverlayPreferences.getInactiveColor(this), 0xB3FFFFFF));
+    }
+
+    private static int parseColorPref(String value, int fallback) {
+        if (value == null || value.isEmpty()) return fallback;
+        try {
+            return Color.parseColor(value);
+        } catch (IllegalArgumentException error) {
+            return fallback;
+        }
+    }
+
+    /** 字体随歌词样式设置的「字体」同步；未设置或系统无此字体时回退默认。 */
+    private void applyFont(TextView view) {
+        String family = LyricOverlayPreferences.getFontFamily(this);
+        if (family == null || family.isEmpty()) {
+            view.setTypeface(Typeface.create((String) null, Typeface.NORMAL));
+        } else {
+            view.setTypeface(Typeface.create(family, Typeface.NORMAL));
+        }
     }
 
     /**
@@ -291,11 +321,13 @@ public class LyricOverlayService extends Service {
             return;
         }
         currentLyricView.setTextSize(fontSizeSp());
-        currentLyricView.setTextColor(applyOpacity(0xFFFFFFFF));
+        currentLyricView.setTextColor(activeTextColor());
+        applyFont(currentLyricView);
         applyShadow(currentLyricView);
 
         nextLyricView.setTextSize(nextFontSizeSp());
-        nextLyricView.setTextColor(applyOpacity(0xB3FFFFFF));
+        nextLyricView.setTextColor(inactiveTextColor());
+        applyFont(nextLyricView);
         applyShadow(nextLyricView);
         nextLyricView.setVisibility(
             LyricOverlayPreferences.isShowNextLine(this) ? View.VISIBLE : View.GONE
