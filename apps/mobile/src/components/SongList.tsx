@@ -22,7 +22,6 @@ import { getLastSelectQuality, saveLastSelectQuality } from "@/services/download
 import {
   buildSongListMetadata,
   shouldShowSongListDownloadAction,
-  shouldShowSongListLikeAction,
 } from "@/services/songListMetadataModel";
 import { buildSongQueueActionLabels } from "@/services/songQueueActions";
 import { spacing, radius, typography, layout } from "@/theme/tokens";
@@ -271,7 +270,7 @@ export function SongList({
             hideSourceTag={hideSourceTag}
             selectionMode={selectionMode}
             selected={selectedKeys?.has(key) ?? false}
-            showLikeAction={showLikeAction && shouldShowSongListLikeAction(song)}
+            showLikeAction={showLikeAction}
             showMoreAction={showMoreAction}
             showDuration={showDuration}
           />

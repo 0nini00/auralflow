@@ -5,7 +5,6 @@ import type { ThemePalette } from "@/stores/themeStore";
 import type { ImmersiveQueuePanelModel } from "@/services/playerQueueModel";
 import {
   shouldShowSongListDownloadAction,
-  shouldShowSongListLikeAction,
 } from "@/services/songListMetadataModel";
 import { usePlayerStore } from "@/stores/playerStore";
 import { useDownloadStore, type DownloadQuality } from "@/stores/downloadStore";
@@ -245,7 +244,7 @@ export function QueueModal({
                   showCover
                   showDuration
                   hideSourceTag
-                  showLikeAction={shouldShowSongListLikeAction(item)}
+                  showLikeAction
                   showMoreAction
                   onOpenMenu={handleRowMenu}
                 />

@@ -100,7 +100,7 @@ export function LikedSongsScreen({ onNavigateToPlayer }: LikedSongsScreenProps) 
         onPlayAll={handlePlayAll}
         onShuffle={handleShufflePlay}
         onLocate={handleLocateCurrentSong}
-        style={styles.actions}
+        style={[styles.actions, styles.actionsRowOverride]}
       />
 
         {favorites.length > 0 ? (
@@ -121,5 +121,10 @@ export function LikedSongsScreen({ onNavigateToPlayer }: LikedSongsScreenProps) 
 const styles = StyleSheet.create({
   actions: {
     marginBottom: spacing.m,
+  },
+  // PB 行的 flexGrow: 1 在 DetailHero 横排容器里表示"主按钮撑满剩余宽度"，
+  // 直接放进纵向滚动容器会变成纵向撑满整屏（按钮悬在半空、列表被推走），此处关掉
+  actionsRowOverride: {
+    flexGrow: 0,
   },
 });
