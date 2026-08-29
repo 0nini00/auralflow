@@ -36,6 +36,9 @@ const TONE_MAP: Record<IconButtonTone, "default" | "muted" | "inverse" | "danger
 };
 
 /** 旧 IconButton 接口兼容层；所有几何和按压状态由 ui/IconButton 统一提供。 */
-export function IconButton({ size = "md", tone = "default", ...props }: IconButtonProps) {
-  return <SharedIconButton {...props} size={SIZE_MAP[size]} tone={TONE_MAP[tone]} />;
+export function IconButton({ size = "md", tone = "default", variant, ...props }: IconButtonProps) {
+  // variant="accent" 映射为强调色 tone：此前该 prop 被静默丢弃，
+  // 导致迷你播放器播放键回落到 muted 灰而不是设置的强调色
+  const effectiveTone = variant === "accent" ? "accent" : TONE_MAP[tone];
+  return <SharedIconButton {...props} size={SIZE_MAP[size]} tone={effectiveTone} />;
 }

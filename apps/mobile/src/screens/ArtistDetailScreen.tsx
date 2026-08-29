@@ -221,7 +221,6 @@ export function ArtistDetailScreen({
               <PlaybackActionButtons
                 show={playbackActions.show}
                 playAllLabel={playbackActions.playAllLabel}
-                playAllCount={songs.length > 0 ? `(${songs.length})` : undefined}
                 shuffleLabel={playbackActions.shuffleLabel}
                 locateLabel={playbackActions.locateLabel}
                 canLocateCurrentSong={playbackActions.canLocateCurrentSong}

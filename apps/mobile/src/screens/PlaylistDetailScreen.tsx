@@ -358,7 +358,6 @@ export function PlaylistDetailScreen({
                 small
                 variant="primary"
                 label={detailActions.playAllLabel}
-                count={`(${songs.length})`}
                 onPress={() => void handlePlayAll()}
               />
               <ActionButton

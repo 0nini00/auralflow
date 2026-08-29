@@ -268,13 +268,22 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
   },
 
   fetchLikedSongs: async (userId: string) => {
+    const { playlists, likedPlaylist } = get();
+    const resolvedLikedPlaylist = likedPlaylist || getLikedPlaylist(playlists);
     try {
-      const likedIds = await getLikedSongs(userId);
-      const { playlists, likedPlaylist } = get();
-      const resolvedLikedPlaylist = likedPlaylist || getLikedPlaylist(playlists);
-      const likedSongs = resolvedLikedPlaylist ? await getPlaylistDetail(resolvedLikedPlaylist.id) : [];
+      // ids 与歌单详情独立拉取：ids 接口失败不应阻断“我喜欢的音乐”详情加载；
+      // 但两者都拿不到视为失败，保留旧收藏态不清空（防止红心被“洗白”）
+      const [likedIds, likedSongs] = await Promise.all([
+        getLikedSongs(userId).catch(() => null),
+        resolvedLikedPlaylist ? getPlaylistDetail(resolvedLikedPlaylist.id) : Promise.resolve([]),
+      ]);
+      if (likedIds == null && (!resolvedLikedPlaylist || likedSongs.length === 0)) {
+        throw new Error("获取喜欢歌曲失败");
+      }
       set({
-        likedSongIds: likedSongs.length > 0 ? new Set(likedSongs.map(songKey)) : new Set(likedIds.map((id) => `wy:${id}`)),
+        likedSongIds: likedSongs.length > 0
+          ? new Set(likedSongs.map(songKey))
+          : new Set((likedIds ?? []).map((id) => `wy:${id}`)),
         likedSongs,
         likedPlaylist: resolvedLikedPlaylist
           ? {

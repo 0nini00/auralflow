@@ -242,7 +242,9 @@ export async function getPlaylistDetail(playlistId: string): Promise<MusicInfo[]
 }
 
 /**
- * 喜欢歌曲
+ * 喜欢歌曲（红心）。
+ * 走 weapi /song/like（对齐网易云网页版 & NeteaseCloudMusicApi like 模块，需 os=pc cookie）。
+ * 此前用的 GET /api/radio/like 是私人 FM 的老接口，普通歌曲上恒失败报“喜欢歌曲失败”。
  */
 export async function likeSong(songId: string): Promise<void> {
   const cookie = await getWyCookie();
@@ -250,28 +252,13 @@ export async function likeSong(songId: string): Promise<void> {
     throw new Error("未登录");
   }
 
-  try {
-    const response = await fetchWithTimeout(
-      `https://music.163.com/api/radio/like?alg=itembased&trackId=${songId}&like=true&time=3`,
-      {
-        method: "GET",
-        headers: {
-          "Cookie": cookie,
-          ...WY_REQUEST_HEADERS,
-        },
-      }
-    );
-
-    const data = (await response.json()) as JsonRecord;
-
-    if (data.code === 301) {
-      throw new WyAuthExpiredError("网易云登录已过期，喜欢歌曲失败");
-    }
-    if (data.code !== 200) {
-      throw new Error("喜欢歌曲失败");
-    }
-  } catch (error) {
-    throw error;
+  const data = await postWyWeapi<JsonRecord>(
+    "/song/like",
+    { trackId: Number(songId), like: "true" },
+    cookie,
+  );
+  if (data.code !== 200) {
+    throw new Error(data.message || "喜欢歌曲失败");
   }
 }
 
@@ -284,28 +271,13 @@ export async function unlikeSong(songId: string): Promise<void> {
     throw new Error("未登录");
   }
 
-  try {
-    const response = await fetchWithTimeout(
-      `https://music.163.com/api/radio/like?alg=itembased&trackId=${songId}&like=false&time=3`,
-      {
-        method: "GET",
-        headers: {
-          "Cookie": cookie,
-          ...WY_REQUEST_HEADERS,
-        },
-      }
-    );
-
-    const data = (await response.json()) as JsonRecord;
-
-    if (data.code === 301) {
-      throw new WyAuthExpiredError("网易云登录已过期，取消喜欢失败");
-    }
-    if (data.code !== 200) {
-      throw new Error("取消喜欢失败");
-    }
-  } catch (error) {
-    throw error;
+  const data = await postWyWeapi<JsonRecord>(
+    "/song/like",
+    { trackId: Number(songId), like: "false" },
+    cookie,
+  );
+  if (data.code !== 200) {
+    throw new Error(data.message || "取消喜欢失败");
   }
 }
 
@@ -362,9 +334,9 @@ export async function removePlaylistTracks(playlistId: string, trackIds: string[
 }
 
 /**
- * 获取喜欢的音乐列表。
- * 失败必须抛错而不是返回 []：静默空列表会把已收藏歌曲的红心全部“洗白”，
- * 用户再次点击红心会向服务端误发 like。
+ * 获取喜欢的音乐 ID 列表。
+ * 走 weapi /song/like/get（对齐网易云网页版）；失败必须抛错而不是返回 []：
+ * 静默空列表会把已收藏歌曲的红心全部“洗白”，用户再次点击红心会向服务端误发 like。
  */
 export async function getLikedSongs(userId: string): Promise<string[]> {
   const cookie = await getWyCookie();
@@ -372,22 +344,8 @@ export async function getLikedSongs(userId: string): Promise<string[]> {
     throw new Error("未登录");
   }
 
-  const response = await fetchWithTimeout(
-    `https://music.163.com/api/song/like/get?uid=${userId}`,
-    {
-      method: "GET",
-      headers: {
-        "Cookie": cookie,
-        ...WY_REQUEST_HEADERS,
-      },
-    }
-  );
+  const data = await postWyWeapi<JsonRecord>("/song/like/get", { uid: userId }, cookie);
 
-  const data = (await response.json()) as JsonRecord;
-
-  if (data.code === 301) {
-    throw new WyAuthExpiredError();
-  }
   if (data.code === 200 && data.ids) {
     return data.ids.map((id: number) => String(id));
   }

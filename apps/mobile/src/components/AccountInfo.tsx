@@ -1,11 +1,12 @@
 import React from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { Pressable, View, Text, StyleSheet } from "react-native";
 import { ChevronRight, UserRound } from "lucide-react-native";
 import { CachedImage } from "./CachedImage";
 import { ListItemButton } from "@/components/ui/ListItemButton";
 
 import { useAccountStore } from "@/stores/accountStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
+import { withAlpha } from "@/services/themePaletteModel";
 import { radius, spacing, touch, typography } from "@/theme/tokens";
 
 interface AccountInfoProps {
@@ -72,17 +73,60 @@ export function AccountInfo({
     );
   }
 
-  return (
-        <View style={[styles.accountCard, { backgroundColor: palette.surface }]}>
-      <ListItemButton
-        title={user.nickname}
-        subtitle={`ID: ${user.userId}`}
-        leading={user.avatarUrl ? <CachedImage uri={user.avatarUrl} style={styles.avatar} /> : <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: palette.surfaceStrong }]}><Text style={[styles.avatarFallbackText, { color: palette.primary }]}>{user.nickname.charAt(0)}</Text></View>}
+  const showVipBadge = (user.vipType ?? 0) > 0;
+  const avatar = user.avatarUrl ? (
+    <CachedImage uri={user.avatarUrl} style={styles.avatarImage} />
+  ) : (
+    <View style={[styles.avatarImage, styles.avatarFallback, { backgroundColor: palette.surfaceStrong }]}>
+      <Text style={[styles.avatarFallbackText, { color: palette.primary }]}>{user.nickname.charAt(0)}</Text>
+    </View>
+  );
+
+  const cardBody = (
+    <>
+      <View style={[styles.avatarRing, { borderColor: withAlpha(palette.primary, 0.45) }]}>{avatar}</View>
+      <View style={styles.accountTextContainer}>
+        <View style={styles.accountNameRow}>
+          <Text numberOfLines={1} style={[styles.nickname, { color: palette.text }]}>
+            {user.nickname}
+          </Text>
+          {showVipBadge ? (
+            <View style={[styles.vipBadge, { backgroundColor: withAlpha("#ff9800", 0.16) }]}>
+              <Text style={[styles.vipText, { color: "#f57c00" }]}>VIP</Text>
+            </View>
+          ) : null}
+        </View>
+        <Text numberOfLines={1} style={[styles.accountMeta, { color: palette.textMuted }]}>
+          {`网易云 · ID ${user.userId}`}
+        </Text>
+      </View>
+      {onAccountPress ? <ChevronRight size={20} color={palette.textSubtle} /> : null}
+    </>
+  );
+
+  if (onAccountPress) {
+    return (
+      <Pressable
         onPress={onAccountPress}
-        accessibilityLabel={`网易云账号，${user.nickname}，已登录`}
         disabled={loading}
-        style={styles.userButton}
-      />
+        accessibilityRole="button"
+        accessibilityLabel={`网易云账号，${user.nickname}，已登录`}
+        style={({ pressed }) => [
+          styles.accountCard,
+          { backgroundColor: palette.surface, opacity: pressed ? 0.82 : 1 },
+        ]}
+      >
+        {cardBody}
+      </Pressable>
+    );
+  }
+
+  return (
+    <View
+      style={[styles.accountCard, { backgroundColor: palette.surface }]}
+      accessibilityLabel={`网易云账号，${user.nickname}，已登录`}
+    >
+      {cardBody}
     </View>
   );
 }
@@ -125,17 +169,22 @@ const styles = StyleSheet.create({
   accountCard: {
     borderRadius: radius.md,
     padding: spacing.m,
-  },
-  userInfo: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: spacing.m,
+    gap: spacing.m,
   },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    marginRight: spacing.s,
+  // 头像外圈：强调色描边 + 内衬留白，替代"光秃秃一张圆图"
+  avatarRing: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 2,
+    padding: 2,
+  },
+  avatarImage: {
+    width: 52,
+    height: 52,
+    borderRadius: 24,
   },
   avatarFallback: {
     justifyContent: "center",
@@ -145,29 +194,33 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "600",
   },
-  userDetails: {
+  accountTextContainer: {
     flex: 1,
+    minWidth: 0,
+    gap: spacing.xxs,
+  },
+  accountNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
   },
   nickname: {
-    fontSize: typography.heading,
-    fontWeight: "600",
-    marginBottom: spacing.xxs,
+    fontSize: typography.title,
+    fontWeight: "700",
+    flexShrink: 1,
   },
-  userId: {
+  accountMeta: {
     fontSize: typography.meta,
   },
   vipBadge: {
-    backgroundColor: "#ff9800",
     paddingHorizontal: spacing.xs,
     paddingVertical: 2,
     borderRadius: radius.sm,
-    alignSelf: "flex-start",
-    marginTop: spacing.xxs,
   },
   vipText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.5,
   },
   userButton: {
     marginHorizontal: -spacing.s,

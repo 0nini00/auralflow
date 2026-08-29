@@ -185,7 +185,6 @@ export function BiliCollectionDetailScreen({
       <PlaybackActionButtons
         show={playbackActions.show}
         playAllLabel={playbackActions.playAllLabel}
-        playAllCount={`(${songs.length})`}
         shuffleLabel={playbackActions.shuffleLabel}
         locateLabel={playbackActions.locateLabel}
         canLocateCurrentSong={playbackActions.canLocateCurrentSong}
