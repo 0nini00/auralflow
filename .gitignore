@@ -61,3 +61,4 @@ apps/mobile/android/app/build/
 apps/mobile/android/build/
 apps/mobile/android/node-bin/
 apps/mobile/android/local.properties
+mobile_ui_scan.json
