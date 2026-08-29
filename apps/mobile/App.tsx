@@ -11,7 +11,7 @@ import {
   View,
 } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { NavigationContainer } from "@react-navigation/native";
+import { DarkTheme, DefaultTheme, NavigationContainer } from "@react-navigation/native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { AppShell } from "@/components/AppShell";
@@ -28,6 +28,7 @@ import { checkForUpdates, type UpdateInfo } from "@/services/updateService";
 import { setupPlayerListeners } from "@/stores/playerStore";
 import { canRunStartupNetworkTasks } from "@/services/startupPolicy";
 import { useAccountStore } from "@/stores/accountStore";
+import { useFavoritesStore } from "@/stores/favoritesStore";
 import { useDownloadStore } from "@/stores/downloadStore";
 import { usePlaybackSettingsStore } from "@/stores/playbackSettingsStore";
 import { useCustomSourceStore } from "@/stores/customSourceStore";
@@ -52,10 +53,28 @@ export default function App() {
   const systemTheme = useThemeStore((s) => s.systemTheme);
   const setSystemTheme = useThemeStore((s) => s.setSystemTheme);
   const accentColor = useThemeStore((s) => s.accentColor);
+  const resolvedTheme = getResolvedTheme(themeMode, systemTheme);
   const palette = useMemo(
-    () => getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor),
-    [themeMode, systemTheme, accentColor],
+    () => getThemePalette(resolvedTheme, accentColor),
+    [resolvedTheme, accentColor],
   );
+  // React Navigation 自带主题默认固定浅色（背景 rgb(242,242,242)）：不接入自有调色板时，
+  // 每个屏幕都会铺导航器白底，深色主题下出现"内容白底、文字看不清"
+  const navigationTheme = useMemo(() => {
+    const base = resolvedTheme === "dark" ? DarkTheme : DefaultTheme;
+    return {
+      ...base,
+      colors: {
+        ...base.colors,
+        background: palette.background,
+        card: palette.surface,
+        primary: palette.primary,
+        text: palette.text,
+        border: palette.border,
+        notification: palette.danger,
+      },
+    };
+  }, [resolvedTheme, palette]);
 
   // 系统深色模式切换同步到 store：mode="system" 时跟随系统，
   // 否则 store 里 systemTheme 永远停在启动时的值，切系统主题界面不变。
@@ -72,7 +91,7 @@ export default function App() {
   const loadDownloads = useDownloadStore((s) => s.loadDownloads);
   const loadCustomSources = useCustomSourceStore((s) => s.loadFromStorage);
   const loadLocalPlaylists = usePlaylistStore((s) => s.loadLocalPlaylists);
-  const loadLikedSongs = usePlaylistStore((s) => s.loadLikedSongsFromStorage);
+  const loadFavorites = useFavoritesStore((s) => s.loadFromStorage);
   const loadHistory = useHistoryStore((s) => s.loadHistory);
   // 本地歌曲扫描结果在 scanMusic 时已持久化：启动时必须读回，
   // 否则每次冷启动本地曲库都是空的、都要重新扫描
@@ -114,14 +133,14 @@ export default function App() {
         setLocalDataReady(false);
         const backgroundLabels = [
           "本地歌单",
-          "喜欢歌曲",
+          "本地收藏",
           "播放历史",
           "本地音乐",
           "下载记录",
         ];
         void Promise.allSettled([
           loadLocalPlaylists(),
-          loadLikedSongs(),
+          loadFavorites(),
           loadHistory(),
           loadLocalSongs(),
           loadDownloads(),
@@ -151,8 +170,8 @@ export default function App() {
     checkAccountStatus,
     loadCustomSources,
     loadDownloads,
+    loadFavorites,
     loadHistory,
-    loadLikedSongs,
     loadLocalPlaylists,
     loadLocalSongs,
     loadLyricOverlaySettings,
@@ -339,7 +358,7 @@ export default function App() {
             </View>
           ) : (
             <>
-              <NavigationContainer ref={navigationRef}>
+              <NavigationContainer ref={navigationRef} theme={navigationTheme}>
                 <AppShell>
                   <MainDrawerNavigator />
                 </AppShell>

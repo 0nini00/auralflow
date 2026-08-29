@@ -241,46 +241,6 @@ export async function getPlaylistDetail(playlistId: string): Promise<MusicInfo[]
   }
 }
 
-/**
- * 喜欢歌曲（红心）。
- * 走 weapi /song/like（对齐网易云网页版 & NeteaseCloudMusicApi like 模块，需 os=pc cookie）。
- * 此前用的 GET /api/radio/like 是私人 FM 的老接口，普通歌曲上恒失败报“喜欢歌曲失败”。
- */
-export async function likeSong(songId: string): Promise<void> {
-  const cookie = await getWyCookie();
-  if (!cookie) {
-    throw new Error("未登录");
-  }
-
-  const data = await postWyWeapi<JsonRecord>(
-    "/song/like",
-    { trackId: Number(songId), like: "true" },
-    cookie,
-  );
-  if (data.code !== 200) {
-    throw new Error(data.message || "喜欢歌曲失败");
-  }
-}
-
-/**
- * 取消喜欢歌曲
- */
-export async function unlikeSong(songId: string): Promise<void> {
-  const cookie = await getWyCookie();
-  if (!cookie) {
-    throw new Error("未登录");
-  }
-
-  const data = await postWyWeapi<JsonRecord>(
-    "/song/like",
-    { trackId: Number(songId), like: "false" },
-    cookie,
-  );
-  if (data.code !== 200) {
-    throw new Error(data.message || "取消喜欢失败");
-  }
-}
-
 export async function subscribePlaylist(playlistId: string, subscribe: boolean): Promise<void> {
   const cookie = await getWyCookie();
   if (!cookie) {
@@ -331,26 +291,6 @@ export async function addPlaylistTracks(playlistId: string, trackIds: string[]):
 
 export async function removePlaylistTracks(playlistId: string, trackIds: string[]): Promise<void> {
   await manipulatePlaylistTracks("del", playlistId, trackIds);
-}
-
-/**
- * 获取喜欢的音乐 ID 列表。
- * 走 weapi /song/like/get（对齐网易云网页版）；失败必须抛错而不是返回 []：
- * 静默空列表会把已收藏歌曲的红心全部“洗白”，用户再次点击红心会向服务端误发 like。
- */
-export async function getLikedSongs(userId: string): Promise<string[]> {
-  const cookie = await getWyCookie();
-  if (!cookie) {
-    throw new Error("未登录");
-  }
-
-  const data = await postWyWeapi<JsonRecord>("/song/like/get", { uid: userId }, cookie);
-
-  if (data.code === 200 && data.ids) {
-    return data.ids.map((id: number) => String(id));
-  }
-
-  throw new Error(data.message || "获取喜欢歌曲失败");
 }
 
 /**

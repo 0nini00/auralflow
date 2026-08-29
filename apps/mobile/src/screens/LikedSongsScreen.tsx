@@ -1,5 +1,5 @@
 ﻿import React from "react";
-import { Alert, type ScrollView as ScrollViewType, StyleSheet } from "react-native";
+import { type ScrollView as ScrollViewType, StyleSheet } from "react-native";
 import type { MusicInfo } from "@lx/core";
 
 import { PlaybackActionButtons } from "@/components/PlaybackActionButtons";
@@ -17,26 +17,30 @@ import { buildPlaylistDetailActions, findPlaylistCurrentSongIndex, shufflePlayli
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import { spacing } from "@/theme/tokens";
-import { usePlaylistStore } from "@/stores/playlistStore";
+import { useFavoritesStore } from "@/stores/favoritesStore";
 
 interface LikedSongsScreenProps {
   onBack: () => void;
   onNavigateToPlayer: () => void;
 }
 
+/**
+ * 我喜欢的音乐（本地收藏，对齐桌面端 /playlist/favorites）：
+ * 歌曲列表心形加入/移出本地收藏，与网易云红心无关。
+ */
 export function LikedSongsScreen({ onNavigateToPlayer }: LikedSongsScreenProps) {
   const scrollRef = React.useRef<ScrollViewType>(null);
   const themeMode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor);
-  const likedSongs = usePlaylistStore((state) => state.likedSongs);
-  const unlikeSong = usePlaylistStore((state) => state.unlikeSong);
+  const favorites = useFavoritesStore((state) => state.favorites);
+  const removeFavorite = useFavoritesStore((state) => state.removeFavorite);
   const currentSong = usePlayerStore((state) => state.currentSong);
   const [locatedSongIndex, setLocatedSongIndex] = React.useState<number | null>(null);
   const [playbackError, setPlaybackError] = React.useState<string | null>(null);
-  const detailActions = buildPlaylistDetailActions(likedSongs.length);
-  const currentSongIndex = findPlaylistCurrentSongIndex(likedSongs, currentSong);
+  const detailActions = buildPlaylistDetailActions(favorites.length);
+  const currentSongIndex = findPlaylistCurrentSongIndex(favorites, currentSong);
 
   const runPlayback = React.useCallback(async (action: () => Promise<void>) => {
     setPlaybackError(null);
@@ -50,19 +54,19 @@ export function LikedSongsScreen({ onNavigateToPlayer }: LikedSongsScreenProps) 
   // useCallback：SongList 的 memo 行依赖 onPlay，引用不稳定会让全部行失去 memo 意义
   const handlePlay = React.useCallback(
     async (_song: MusicInfo, index: number) => {
-      await runPlayback(() => playQueue(likedSongs, index));
+      await runPlayback(() => playQueue(favorites, index));
     },
-    [likedSongs, runPlayback],
+    [favorites, runPlayback],
   );
 
-  const handlePlayAll = async () => {
-    if (likedSongs.length === 0) return;
-    await runPlayback(() => playQueue(likedSongs, 0));
+  const handlePlayAll = () => {
+    if (favorites.length === 0) return;
+    void runPlayback(() => playQueue(favorites, 0));
   };
 
-  const handleShufflePlay = async () => {
-    if (likedSongs.length === 0) return;
-    await runPlayback(() => playQueue(shufflePlaylistSongs(likedSongs), 0));
+  const handleShufflePlay = () => {
+    if (favorites.length === 0) return;
+    void runPlayback(() => playQueue(shufflePlaylistSongs(favorites), 0));
   };
 
   const handleLocateCurrentSong = () => {
@@ -74,10 +78,8 @@ export function LikedSongsScreen({ onNavigateToPlayer }: LikedSongsScreenProps) 
     });
   };
 
-  const handleRemoveLikedSong = (song: MusicInfo) => {
-    void unlikeSong(song).catch((error) => {
-      Alert.alert("移除失败", error instanceof Error ? error.message : String(error));
-    });
+  const handleRemoveFavorite = (song: MusicInfo) => {
+    removeFavorite(song);
   };
 
   return (
@@ -87,7 +89,7 @@ export function LikedSongsScreen({ onNavigateToPlayer }: LikedSongsScreenProps) 
           message={playbackError}
           onDismiss={() => setPlaybackError(null)}
         />
-        <SectionHeader title="我喜欢的音乐" description={`${likedSongs.length} 首歌曲`} />
+        <SectionHeader title="我喜欢的音乐" description={`${favorites.length} 首歌曲`} />
 
       <PlaybackActionButtons
         show={detailActions.show}
@@ -95,17 +97,16 @@ export function LikedSongsScreen({ onNavigateToPlayer }: LikedSongsScreenProps) 
         shuffleLabel={detailActions.shuffleLabel}
         locateLabel="定位歌曲"
         canLocateCurrentSong={currentSongIndex >= 0}
-        onPlayAll={() => void handlePlayAll()}
-        onShuffle={() => void handleShufflePlay()}
+        onPlayAll={handlePlayAll}
+        onShuffle={handleShufflePlay}
         onLocate={handleLocateCurrentSong}
         style={styles.actions}
       />
 
-        {likedSongs.length > 0 ? (
+        {favorites.length > 0 ? (
           <SongList
-            songs={likedSongs}
+            songs={favorites}
             onPlay={handlePlay}
-            onDelete={handleRemoveLikedSong}
             emptyText="还没有喜欢的歌曲"
             highlightedIndex={locatedSongIndex ?? currentSongIndex}
           />
@@ -119,6 +120,6 @@ export function LikedSongsScreen({ onNavigateToPlayer }: LikedSongsScreenProps) 
 
 const styles = StyleSheet.create({
   actions: {
-    marginBottom: spacing.l,
+    marginBottom: spacing.m,
   },
 });

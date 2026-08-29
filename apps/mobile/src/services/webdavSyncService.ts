@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { MusicInfo } from "@lx/core";
 import { usePlaylistStore } from "../stores/playlistStore";
+import { useFavoritesStore } from "../stores/favoritesStore";
 import type { WyPlaylistInfo } from "./wyPlaylistService";
 import type { LocalPlaylist } from "./localPlaylistModel";
 import { useHistoryStore } from "../stores/historyStore";
@@ -519,14 +520,16 @@ function buildPlayHistorySync(entries: HistoryEntry[]): PlayHistorySyncItem[] {
 
 async function buildPlaylistsSyncFile(): Promise<PlaylistsSyncFile> {
   await loadCloudSongsCache();
-  const { likedSongs, playlists, localPlaylists } = usePlaylistStore.getState();
+  const { playlists, localPlaylists } = usePlaylistStore.getState();
+  // loveList = 本地收藏（对齐桌面端 favoritesStore），双端同一数据槽互通
+  const favorites = useFavoritesStore.getState().favorites;
 
   return {
     version: "3",
     lastModified: Date.now(),
     data: {
       defaultList: [],
-      loveList: likedSongs,
+      loveList: favorites,
       userList: [
         ...localPlaylists.map((playlist) => ({
           id: playlist.id,
@@ -927,7 +930,7 @@ export async function downloadPlaylistsSync(options?: {
     const localStore = usePlaylistStore.getState();
     const historyStore = useHistoryStore.getState();
     const totalLocal =
-      localStore.likedSongs.length +
+      useFavoritesStore.getState().favorites.length +
       localStore.playlists.length +
       localStore.localPlaylists.length +
       historyStore.entries.length;
@@ -944,10 +947,11 @@ export async function downloadPlaylistsSync(options?: {
     await rememberCloudSongs(cloudSongs);
 
     const playlistStore = usePlaylistStore.getState();
+    const favoritesStore = useFavoritesStore.getState();
     const shouldMerge = options?.merge ?? true;
     if (shouldMerge) {
+      await favoritesStore.mergeAll(favorites);
       await playlistStore.mergeFromSync({
-        likedSongs: favorites,
         cloudPlaylists: playlists,
         localPlaylists,
       });
@@ -957,7 +961,8 @@ export async function downloadPlaylistsSync(options?: {
       return;
     }
 
-    playlistStore.replaceAllFromSync(favorites, playlists);
+    favoritesStore.replaceAll(favorites);
+    playlistStore.replaceAllFromSync(playlists);
     await playlistStore.replaceLocalPlaylists(localPlaylists);
     await useHistoryStore.getState().replaceAllHistory(history, historyTimestamps);
   });

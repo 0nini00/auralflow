@@ -23,7 +23,7 @@ import {
   requestOverlayPermission,
   showLyricOverlay,
 } from "@/services/lyricOverlayService";
-import { usePlaylistStore } from "@/stores/playlistStore";
+import { useFavoritesStore } from "@/stores/favoritesStore";
 import { useDownloadStore, type DownloadQuality } from "@/stores/downloadStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { openArtistDetailScreen } from "@/navigation/navigationRef";
@@ -98,9 +98,9 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
 
   const setChineseConversion = useLyricSettingsStore((s) => s.setChineseConversion);
 
-  const isLiked = usePlaylistStore((s) => s.isLiked(currentSong));
-  const likeSong = usePlaylistStore((s) => s.likeSong);
-  const unlikeSong = usePlaylistStore((s) => s.unlikeSong);
+  // 心形 = 本地收藏（对齐桌面端 favoritesStore），不再调用网易云红心接口
+  const isLiked = useFavoritesStore((s) => s.isFavorite(currentSong));
+  const toggleFavorite = useFavoritesStore((s) => s.toggleFavorite);
 
   // PagerView 页面索引：0=封面, 1=歌词（手机端使用）
   const [currentPage, setCurrentPage] = useState(0);
@@ -126,7 +126,6 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
 
   const [commentsVisible, setCommentsVisible] = useState(false);
 
-  const [liking, setLiking] = useState(false);
 
   // PagerView 的歌词页标记（0=封面,1=歌词）
   const isLyricsPage = currentPage === 1;
@@ -405,27 +404,9 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
     }
   };
 
-  const handleLike = async () => {
-    if (!currentSong || liking) return;
-
-    setLiking(true);
-    try {
-      if (isLiked) {
-        await unlikeSong(currentSong);
-      } else {
-        await likeSong(currentSong);
-      }
-    } catch (error) {
-      // 不再静默失败：未登录时引导去账号页，其他错误展示具体原因
-      const message = error instanceof Error ? error.message : "操作失败";
-      if (message.includes("未登录")) {
-        Alert.alert("需要登录", "请在「设置 → 账号与服务」中登录网易云账号后再收藏");
-      } else {
-        Alert.alert("操作失败", message);
-      }
-    } finally {
-      setLiking(false);
-    }
+  const handleLike = () => {
+    if (!currentSong) return;
+    toggleFavorite(currentSong);
   };
 
   const openCoverMenu = () => {

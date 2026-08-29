@@ -5,7 +5,6 @@ import { getTxPlaylistDetail } from "../services/txPlaylistService";
 import {
   mergeWebdavCloudPlaylists,
   mergeWebdavLocalPlaylists,
-  mergeWebdavSongs,
   type MusicInfo,
 } from "@lx/core";
 import { useAccountStore } from "./accountStore";
@@ -30,11 +29,8 @@ import {
   addPlaylistTracks,
   getUserPlaylists,
   getPlaylistDetail,
-  getLikedSongs,
-  likeSong as likeSongApi,
   removePlaylistTracks,
   subscribePlaylist,
-  unlikeSong as unlikeSongApi,
   createWyPlaylist as createWyPlaylistApi,
   updateWyPlaylistInfo as updateWyPlaylistInfoApi,
   deleteWyPlaylist as deleteWyPlaylistApi,
@@ -44,9 +40,6 @@ export interface PlaylistState {
   playlists: WyPlaylistInfo[];
   currentPlaylist: WyPlaylistInfo | null;
   currentPlaylistSongs: MusicInfo[];
-  likedPlaylist: WyPlaylistInfo | null;
-  likedSongs: MusicInfo[];
-  likedSongIds: Set<string>;
   localPlaylists: LocalPlaylist[];
   loading: boolean;
   error: string | null;
@@ -61,18 +54,13 @@ interface PlaylistActions {
   /** 删除网易云自建歌单。 */
   deleteWyPlaylist: (playlistId: string) => Promise<void>;
   fetchPlaylistDetail: (playlistId: string, source?: WyPlaylistInfo["source"], playlist?: WyPlaylistInfo) => Promise<void>;
-  fetchLikedSongs: (userId: string) => Promise<void>;
-  likeSong: (song: MusicInfo) => Promise<void>;
-  unlikeSong: (song: MusicInfo) => Promise<void>;
   setWyPlaylistSubscribed: (
     userId: string,
     playlist: Pick<WyPlaylistInfo, "id">,
     subscribed: boolean,
   ) => Promise<void>;
-  isLiked: (song: MusicInfo | null | undefined) => boolean;
   clearPlaylists: () => void;
   loadLocalPlaylists: () => Promise<void>;
-  loadLikedSongsFromStorage: () => Promise<void>;
   createLocalPlaylist: (input: CreateLocalPlaylistInput) => Promise<void>;
   createLocalPlaylistWithSong: (input: CreateLocalPlaylistWithSongInput) => Promise<void>;
   createLocalPlaylistWithSongs: (input: CreateLocalPlaylistWithSongsInput) => Promise<void>;
@@ -86,34 +74,19 @@ interface PlaylistActions {
   addSongToWyPlaylist: (playlistId: string, song: MusicInfo) => Promise<void>;
   removeSongFromWyPlaylist: (playlistId: string, song: MusicInfo) => Promise<void>;
   removeSongFromLocalPlaylist: (playlistId: string, song: Pick<MusicInfo, "source" | "id">, now?: number) => Promise<void>;
-  /** WebDAV 同步覆盖：同时替换收藏歌曲和歌单列表。 */
-  replaceAllFromSync: (likedSongs: MusicInfo[], playlists: WyPlaylistInfo[]) => void;
-  /** WebDAV 同步合并：收藏/云端歌单/本地歌单均与远端合并（不丢本地独有项）。 */
+  /** WebDAV 同步覆盖：替换云端歌单列表（收藏在 favoritesStore、本地歌单单独替换）。 */
+  replaceAllFromSync: (playlists: WyPlaylistInfo[]) => void;
+  /** WebDAV 同步合并：云端歌单/本地歌单与远端合并（不丢本地独有项）。 */
   mergeFromSync: (input: {
-    likedSongs: MusicInfo[];
     cloudPlaylists: WyPlaylistInfo[];
     localPlaylists: LocalPlaylist[];
   }) => Promise<void>;
 }
 
-const LIKED_PLAYLIST_NAME = "我喜欢的音乐";
 const LOCAL_PLAYLISTS_KEY = "auralflow.mobile.localPlaylists";
-const LIKED_SONGS_KEY = "auralflow.mobile.likedSongs";
-
-function getLikedPlaylist(playlists: WyPlaylistInfo[]) {
-  return playlists.find((playlist) => playlist.name === LIKED_PLAYLIST_NAME) || null;
-}
-
-function songKey(song: Pick<MusicInfo, "source" | "id">): string {
-  return `${song.source}:${song.id}`;
-}
 
 async function persistLocalPlaylists(localPlaylists: LocalPlaylist[]): Promise<void> {
   await AsyncStorage.setItem(LOCAL_PLAYLISTS_KEY, JSON.stringify(localPlaylists));
-}
-
-async function persistLikedSongs(likedSongs: MusicInfo[]): Promise<void> {
-  await AsyncStorage.setItem(LIKED_SONGS_KEY, JSON.stringify(likedSongs));
 }
 
 function parseLocalPlaylists(raw: string | null): LocalPlaylist[] {
@@ -123,11 +96,8 @@ function parseLocalPlaylists(raw: string | null): LocalPlaylist[] {
   return parsed as LocalPlaylist[];
 }
 
-function parseLikedSongs(raw: string | null): MusicInfo[] {
-  if (!raw) return [];
-  const parsed = JSON.parse(raw) as unknown;
-  if (!Array.isArray(parsed)) throw new Error("喜欢歌曲数据格式错误");
-  return parsed as MusicInfo[];
+function songKey(song: Pick<MusicInfo, "source" | "id">): string {
+  return `${song.source}:${song.id}`;
 }
 
 /**
@@ -154,9 +124,6 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
   playlists: [],
   currentPlaylist: null,
   currentPlaylistSongs: [],
-  likedPlaylist: null,
-  likedSongs: [],
-  likedSongIds: new Set(),
   localPlaylists: [],
   loading: false,
   error: null,
@@ -165,11 +132,7 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const playlists = await getUserPlaylists(userId);
-      set({
-        playlists,
-        likedPlaylist: getLikedPlaylist(playlists),
-        loading: false,
-      });
+      set({ playlists, loading: false });
     } catch (error) {
       const message = error instanceof Error ? error.message : "获取歌单失败";
       set({ error: message, loading: false });
@@ -183,11 +146,7 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
       const { user } = useAccountStore.getState();
       if (user) {
         const playlists = await getUserPlaylists(user.userId);
-        set({
-          playlists,
-          likedPlaylist: getLikedPlaylist(playlists),
-          loading: false,
-        });
+        set({ playlists, loading: false });
       } else {
         set({ loading: false });
       }
@@ -250,110 +209,15 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
         ? await getTxPlaylistDetail(playlist)
         : await getPlaylistDetail(playlistId);
       if (!playlistDetailRequestGate.isCurrent(requestId)) return;
-      const isLikedPlaylist = source === "wy" && get().likedPlaylist?.id === playlistId;
       set({
         currentPlaylist: playlist,
         currentPlaylistSongs: songs,
-        likedSongs: isLikedPlaylist ? songs : get().likedSongs,
-        likedSongIds: isLikedPlaylist
-          ? new Set(songs.map(songKey))
-          : get().likedSongIds,
         loading: false,
       });
     } catch (error) {
       if (!playlistDetailRequestGate.isCurrent(requestId)) return;
       const message = error instanceof Error ? error.message : "获取歌单详情失败";
       set({ error: message, loading: false });
-    }
-  },
-
-  fetchLikedSongs: async (userId: string) => {
-    const { playlists, likedPlaylist } = get();
-    const resolvedLikedPlaylist = likedPlaylist || getLikedPlaylist(playlists);
-    try {
-      // ids 与歌单详情独立拉取：ids 接口失败不应阻断“我喜欢的音乐”详情加载；
-      // 但两者都拿不到视为失败，保留旧收藏态不清空（防止红心被“洗白”）
-      const [likedIds, likedSongs] = await Promise.all([
-        getLikedSongs(userId).catch(() => null),
-        resolvedLikedPlaylist ? getPlaylistDetail(resolvedLikedPlaylist.id) : Promise.resolve([]),
-      ]);
-      if (likedIds == null && (!resolvedLikedPlaylist || likedSongs.length === 0)) {
-        throw new Error("获取喜欢歌曲失败");
-      }
-      set({
-        likedSongIds: likedSongs.length > 0
-          ? new Set(likedSongs.map(songKey))
-          : new Set((likedIds ?? []).map((id) => `wy:${id}`)),
-        likedSongs,
-        likedPlaylist: resolvedLikedPlaylist
-          ? {
-              ...resolvedLikedPlaylist,
-              trackCount: likedSongs.length || resolvedLikedPlaylist.trackCount,
-            }
-          : null,
-      });
-    } catch (error) {
-      set({ error: error instanceof Error ? error.message : "获取喜欢歌曲失败" });
-    }
-  },
-
-  likeSong: async (song) => {
-    try {
-      const { likedSongIds, likedSongs, currentPlaylistSongs, likedPlaylist, currentPlaylist } = get();
-      const key = songKey(song);
-      if (song.source === "wy") await likeSongApi(song.id);
-      const nextLikedSongIds = new Set(likedSongIds);
-      nextLikedSongIds.add(key);
-      const songToAdd = [...currentPlaylistSongs, ...likedSongs, song].find((item) => songKey(item) === key);
-      const nextLikedSongs = songToAdd && !likedSongs.some((item) => songKey(item) === key)
-        ? [songToAdd, ...likedSongs]
-        : likedSongs;
-      await persistLikedSongs(nextLikedSongs);
-      set({
-        likedSongIds: nextLikedSongIds,
-        likedSongs: nextLikedSongs,
-        currentPlaylistSongs:
-          currentPlaylist && likedPlaylist && currentPlaylist.id === likedPlaylist.id
-            ? nextLikedSongs
-            : currentPlaylistSongs,
-        likedPlaylist: likedPlaylist
-          ? {
-              ...likedPlaylist,
-              trackCount: nextLikedSongs.length,
-            }
-          : likedPlaylist,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "喜欢歌曲失败";
-      set({ error: message });
-      throw error;
-    }
-  },
-
-  unlikeSong: async (song) => {
-    try {
-      const { likedSongIds, likedSongs, currentPlaylistSongs, likedPlaylist, currentPlaylist } = get();
-      const key = songKey(song);
-      if (song.source === "wy") await unlikeSongApi(song.id);
-      const nextLikedSongIds = new Set(likedSongIds);
-      nextLikedSongIds.delete(key);
-      const nextLikedSongs = likedSongs.filter((item) => songKey(item) !== key);
-      await persistLikedSongs(nextLikedSongs);
-      set({
-        likedSongIds: nextLikedSongIds,
-        likedSongs: nextLikedSongs,
-        currentPlaylistSongs:
-          currentPlaylist && likedPlaylist && currentPlaylist.id === likedPlaylist.id
-            ? nextLikedSongs
-            : currentPlaylistSongs,
-        likedPlaylist: likedPlaylist
-          ? { ...likedPlaylist, trackCount: nextLikedSongs.length }
-          : likedPlaylist,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "取消喜欢歌曲失败";
-      set({ error: message });
-      throw error;
     }
   },
 
@@ -376,11 +240,7 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
       }
 
       const playlists = await getUserPlaylists(userId);
-      set({
-        playlists,
-        likedPlaylist: getLikedPlaylist(playlists),
-        error: null,
-      });
+      set({ playlists, error: null });
     } catch (error) {
       const message = error instanceof Error ? error.message : "网易云歌单收藏失败";
       set({ error: message });
@@ -388,18 +248,11 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
     }
   },
 
-  isLiked: (song) => {
-    return song ? get().likedSongIds.has(songKey(song)) : false;
-  },
-
   clearPlaylists: () => {
     set({
       playlists: [],
       currentPlaylist: null,
       currentPlaylistSongs: [],
-      likedPlaylist: null,
-      likedSongs: [],
-      likedSongIds: new Set(),
     });
   },
 
@@ -415,21 +268,6 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
     }
   },
 
-
-  loadLikedSongsFromStorage: async () => {
-    try {
-      const likedSongs = await loadPersistedArray(LIKED_SONGS_KEY, parseLikedSongs);
-      set({
-        likedSongs,
-        likedSongIds: new Set(likedSongs.map(songKey)),
-        error: null,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "加载喜欢歌曲失败";
-      set({ error: message });
-      throw error;
-    }
-  },
 
   createLocalPlaylist: async (input) => {
     try {
@@ -648,30 +486,20 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
       throw error;
     }
   },
-  mergeFromSync: async ({ likedSongs, cloudPlaylists, localPlaylists }) => {
+  mergeFromSync: async ({ cloudPlaylists, localPlaylists }) => {
     const current = get();
-    const mergedFavorites = mergeWebdavSongs(current.likedSongs, likedSongs);
     const mergedLocal = mergeWebdavLocalPlaylists(current.localPlaylists, localPlaylists);
     const mergedCloud = mergeWebdavCloudPlaylists(current.playlists, cloudPlaylists);
-    await persistLikedSongs(mergedFavorites);
     await persistLocalPlaylists(mergedLocal);
     set({
-      likedSongs: mergedFavorites,
-      likedSongIds: new Set(mergedFavorites.map(songKey)),
-      likedPlaylist: getLikedPlaylist(mergedCloud) || current.likedPlaylist,
       playlists: mergedCloud,
       localPlaylists: mergedLocal,
       error: null,
     });
   },
-  replaceAllFromSync: (likedSongs, playlists) => {
-    const likedPlaylist = getLikedPlaylist(playlists);
-    void persistLikedSongs(likedSongs);
+  replaceAllFromSync: (playlists) => {
     set({
       playlists,
-      likedPlaylist,
-      likedSongs,
-      likedSongIds: new Set(likedSongs.map(songKey)),
       currentPlaylist: null,
       currentPlaylistSongs: [],
     });

@@ -20,7 +20,7 @@ import { Radio } from "lucide-react-native";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
 import { useAccountStore } from "@/stores/accountStore";
 import { usePlayerStore } from "@/stores/playerStore";
-import { usePlaylistStore } from "@/stores/playlistStore";
+import { useFavoritesStore } from "@/stores/favoritesStore";
 import { buildPersonalFmSongActions } from "@/services/currentSongActions";
 import { buildPersonalFmMeta } from "@/services/personalFmMetaModel";
 import { shouldShowNestedBackButton } from "@/services/appNavigation";
@@ -54,9 +54,9 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
   const playerLoading = usePlayerStore((state) => state.loading);
   const pause = usePlayerStore((state) => state.pause);
   const resume = usePlayerStore((state) => state.resume);
-  const isLiked = usePlaylistStore((state) => state.isLiked(currentSong));
-  const likeSong = usePlaylistStore((state) => state.likeSong);
-  const unlikeSong = usePlaylistStore((state) => state.unlikeSong);
+  // 心形 = 本地收藏（对齐桌面端），不再调用网易云红心接口
+  const isLiked = useFavoritesStore((state) => state.isFavorite(currentSong));
+  const toggleFavorite = useFavoritesStore((state) => state.toggleFavorite);
 
   const [previewSongs, setPreviewSongs] = useState<MusicInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,7 +64,6 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
   const [starting, setStarting] = useState(false);
   const [skipping, setSkipping] = useState(false);
   const [disliking, setDisliking] = useState(false);
-  const [liking, setLiking] = useState(false);
   const [addToPlaylistVisible, setAddToPlaylistVisible] = useState(false);
 
   const isFmPlaying = playbackContext.type === "personalFm" && !!currentSong;
@@ -196,22 +195,9 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
     }
   };
 
-  const handleLike = async () => {
-    if (!currentSong || liking) return;
-
-    setLiking(true);
-    setError(null);
-    try {
-      if (isLiked) {
-        await unlikeSong(currentSong);
-      } else {
-        await likeSong(currentSong);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLiking(false);
-    }
+  const handleLike = () => {
+    if (!currentSong) return;
+    toggleFavorite(currentSong);
   };
 
   return (
@@ -276,8 +262,7 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
                   small
                   variant="primary"
                   label={fmSongActions.likeLabel}
-                  loading={liking}
-                  onPress={() => void handleLike()}
+                  onPress={handleLike}
                   accessibilityLabel={fmSongActions.likeLabel}
                 />
 

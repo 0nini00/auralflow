@@ -1,3 +1,4 @@
+import { useFavoritesStore } from "../stores/favoritesStore";
 import { usePlaylistStore } from "../stores/playlistStore";
 import {
   buildImportedLocalPlaylists,
@@ -17,7 +18,9 @@ export interface PlaylistImportResult {
  * 导出喜欢歌曲、移动端本地歌单，以及当前已加载的远端歌单。
  */
 export async function exportPlaylists(): Promise<string> {
-  const { likedSongs, localPlaylists, currentPlaylist, currentPlaylistSongs } = usePlaylistStore.getState();
+  // "我喜欢的音乐"导出来源 = 本地收藏（对齐桌面端）
+  const likedSongs = useFavoritesStore.getState().favorites;
+  const { localPlaylists, currentPlaylist, currentPlaylistSongs } = usePlaylistStore.getState();
 
   const envelope = buildPlaylistExportEnvelope({
     likedSongs,

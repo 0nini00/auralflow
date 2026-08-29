@@ -21,6 +21,7 @@ import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
 import { SectionHeader } from "@/components/SectionHeader";
 import { useThemeStore, getResolvedTheme, getThemePalette } from "@/stores/themeStore";
 import { useAccountStore } from "@/stores/accountStore";
+import { useFavoritesStore } from "@/stores/favoritesStore";
 import { usePlaylistStore } from "@/stores/playlistStore";
 import {
   openLikedSongsScreen,
@@ -57,13 +58,12 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
   const checkStatus = useAccountStore((state) => state.checkStatus);
 
   const playlists = usePlaylistStore((state) => state.playlists);
-  const likedPlaylist = usePlaylistStore((state) => state.likedPlaylist);
-  const likedSongs = usePlaylistStore((state) => state.likedSongs);
   const localPlaylists = usePlaylistStore((state) => state.localPlaylists);
   const fetchPlaylists = usePlaylistStore((state) => state.fetchPlaylists);
-  const fetchLikedSongs = usePlaylistStore((state) => state.fetchLikedSongs);
-  const loadLikedSongsFromStorage = usePlaylistStore((state) => state.loadLikedSongsFromStorage);
   const loadLocalPlaylists = usePlaylistStore((state) => state.loadLocalPlaylists);
+  // "我喜欢" = 本地收藏（对齐桌面端），与网易云登录态无关
+  const favorites = useFavoritesStore((state) => state.favorites);
+  const loadFavorites = useFavoritesStore((state) => state.loadFromStorage);
   const createLocalPlaylist = usePlaylistStore((state) => state.createLocalPlaylist);
   const updateLocalPlaylistInfo = usePlaylistStore((state) => state.updateLocalPlaylistInfo);
   const updateWyPlaylistInfo = usePlaylistStore((state) => state.updateWyPlaylistInfo);
@@ -116,38 +116,34 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
   }, [checkStatus]);
 
   useEffect(() => {
-    void loadLikedSongsFromStorage();
+    void loadFavorites();
     void loadLocalPlaylists();
-  }, [loadLikedSongsFromStorage, loadLocalPlaylists]);
+  }, [loadFavorites, loadLocalPlaylists]);
 
   useEffect(() => {
     if (isLoggedIn && user) {
       fetchPlaylists(user.userId);
-      fetchLikedSongs(user.userId);
     }
-  }, [isLoggedIn, user, fetchPlaylists, fetchLikedSongs]);
+  }, [isLoggedIn, user, fetchPlaylists]);
 
+  // "我喜欢的音乐"（网易云自建的首个歌单）不进"创建的歌单"分组，按名称识别
+  const wyLikedPlaylistId = useMemo(
+    () => playlists.find((playlist) => playlist.source === "wy" && playlist.name === "我喜欢的音乐")?.id,
+    [playlists],
+  );
   const wyPlaylistGroups = useMemo(
-    () => buildWyPlaylistGroups(playlists, user?.userId, likedPlaylist?.id),
-    [playlists, user?.userId, likedPlaylist?.id],
+    () => buildWyPlaylistGroups(playlists, user?.userId, wyLikedPlaylistId),
+    [playlists, user?.userId, wyLikedPlaylistId],
   );
   const quickActions = buildLibraryQuickActions({
-    isLoggedIn,
-    likedPlaylistTrackCount: likedPlaylist?.trackCount ?? null,
-    likedSongsCount: likedSongs.length,
-    likedCoverUri: likedSongs[0]?.img || likedSongs[0]?.picUrl || null,
+    favoritesCount: favorites.length,
+    likedCoverUri: favorites[0]?.img || favorites[0]?.picUrl || null,
   });
 
   const handleQuickAction = (action: LibraryQuickActionType) => {
     switch (action) {
       case "openLikedPlaylist":
-        if (likedPlaylist) {
-          openPlaylistDetailScreen(likedPlaylist);
-          return;
-        }
-        if (likedSongs.length > 0) {
-          openLikedSongsScreen();
-        }
+        openLikedSongsScreen();
         return;
     }
   };

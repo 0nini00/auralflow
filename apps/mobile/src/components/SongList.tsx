@@ -8,7 +8,7 @@ import { AddToLocalPlaylistModal } from "./AddToLocalPlaylistModal";
 import { ActionMenuSheet, type ActionMenuAnchor, type ActionMenuItem } from "./ActionMenuSheet";
 import { IconButton } from "./IconButton";
 import { Touchable } from "./Touchable";
-import { usePlaylistStore } from "@/stores/playlistStore";
+import { useFavoritesStore } from "@/stores/favoritesStore";
 import { useDownloadStore, type DownloadQuality } from "@/stores/downloadStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
@@ -366,14 +366,13 @@ export const SongItem = memo(function SongItem({
 }: SongItemProps) {
   const artwork = song.picUrl || song.img;
   const metadata = buildSongListMetadata(song);
-  const isLiked = usePlaylistStore((state) => state.isLiked(song));
-  const likeSong = usePlaylistStore((state) => state.likeSong);
-  const unlikeSong = usePlaylistStore((state) => state.unlikeSong);
+  // 心形 = 本地收藏（对齐桌面端 favoritesStore）：不调用网易云接口，任意音源可收藏
+  const isLiked = useFavoritesStore((state) => state.isFavorite(song));
+  const toggleFavorite = useFavoritesStore((state) => state.toggleFavorite);
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
-  const [liking, setLiking] = useState(false);
   const suppressNextPressRef = useRef(false);
   const clearSuppressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -422,26 +421,9 @@ export const SongItem = memo(function SongItem({
     }, 0);
   };
 
-  const handleLike = async (e: any) => {
+  const handleLike = (e: any) => {
     e.stopPropagation();
-    if (liking) return;
-    setLiking(true);
-    try {
-      if (isLiked) {
-        await unlikeSong(song);
-      } else {
-        await likeSong(song);
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "操作失败";
-      if (message.includes("未登录")) {
-        Alert.alert("需要登录", "请在「设置 → 账号与服务」中登录网易云账号后再收藏");
-      } else {
-        Alert.alert("操作失败", message);
-      }
-    } finally {
-      setLiking(false);
-    }
+    toggleFavorite(song);
   };
 
   const isActive = isPlaying || highlighted;
@@ -560,16 +542,11 @@ export const SongItem = memo(function SongItem({
             size="sm"
             tone={isLiked ? "danger" : "default"}
             selected={isLiked}
-            disabled={liking}
             onPress={handleLike}
             accessibilityLabel={isLiked ? "取消喜欢" : "喜欢"}
-            render={({ size, color }) =>
-              liking ? (
-                <ActivityIndicator color={palette.danger} size="small" />
-              ) : (
-                <Heart size={size} color={color} fill={isLiked ? color : "none"} />
-              )
-            }
+            render={({ size, color }) => (
+              <Heart size={size} color={color} fill={isLiked ? color : "none"} />
+            )}
           />
         ) : null}
 

@@ -69,8 +69,6 @@ export function PlaylistDetailScreen({
   const [batchDownloadQuality, setBatchDownloadQuality] = useState<DownloadQuality | null>(null);
   const [batchDownloadProgress, setBatchDownloadProgress] = useState<{ processed: number; total: number } | null>(null);
   const currentPlaylistSongs = usePlaylistStore((state) => state.currentPlaylistSongs);
-  const likedPlaylist = usePlaylistStore((state) => state.likedPlaylist);
-  const likedSongs = usePlaylistStore((state) => state.likedSongs);
   const loading = usePlaylistStore((state) => state.loading);
   const error = usePlaylistStore((state) => state.error);
   const removeSongFromWyPlaylist = usePlaylistStore((state) => state.removeSongFromWyPlaylist);
@@ -82,9 +80,9 @@ export function PlaylistDetailScreen({
   const playNextInQueue = usePlayerStore((state) => state.playNextInQueue);
   const downloadSong = useDownloadStore((state) => state.downloadSong);
 
-  const isLikedPlaylist = likedPlaylist?.id === playlist.id;
-  const songs = isLikedPlaylist ? likedSongs : currentPlaylistSongs;
-  const displayPlaylist = isLikedPlaylist && likedPlaylist ? likedPlaylist : playlist;
+  // "我喜欢"已改为本地收藏独立页（LikedSongsScreen），本页只服务真实歌单
+  const songs = currentPlaylistSongs;
+  const displayPlaylist = playlist;
   const selectedSongs = useMemo(
     () => songs.filter((song) => selectedKeys.has(getSongKey(song))),
     [selectedKeys, songs],
