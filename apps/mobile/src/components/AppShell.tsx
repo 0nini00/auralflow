@@ -22,6 +22,8 @@ interface AppShellController {
   showPlayerBar: boolean;
   applyTopSafeArea: boolean;
   statusBar: "default" | "light-content" | "dark-content";
+  /** 安全区/窗口底色：深色主题下状态栏背衬必须为深色，否则白色窗口底透出、白色状态图标不可见 */
+  chromeBackground: string;
   headerProps: AppHeaderProps;
   /** 当前激活路由（含祖先链），用于判断是否位于底部 Tab 导航器内。 */
   activeRoute: ActiveRoute;
@@ -138,6 +140,7 @@ function useAppShellController(): AppShellController {
     showPlayerBar: !isSettingsActive,
     applyTopSafeArea: !isSettingsActive,
     statusBar: showChrome ? palette.statusBar : "light-content",
+    chromeBackground: showChrome ? palette.background : "#000",
     headerProps: {
       canGoBack,
       onOpenDrawer: openDrawer,
@@ -164,7 +167,7 @@ export function AppShell({ children }: AppShellProps) {
 
   return (
     <SafeAreaView
-      style={[styles.safe, !shellState.showChrome && styles.dark]}
+      style={[styles.safe, { backgroundColor: shellState.chromeBackground }]}
       edges={shellState.applyTopSafeArea ? ["top", "left", "right"] : ["left", "right"]}
     >
       <StatusBar barStyle={shellState.statusBar} />
@@ -185,6 +188,5 @@ export function AppShell({ children }: AppShellProps) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  dark: { backgroundColor: "#000" },
   content: { flex: 1 },
 });
