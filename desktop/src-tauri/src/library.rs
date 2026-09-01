@@ -8,6 +8,7 @@
 //!
 //! 命名空间白名单见 ALLOWED_NAMESPACES，避免前端写入任意路径。
 
+use crate::atomic_file::{lock_persistence, write_atomic};
 use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
@@ -61,15 +62,16 @@ pub fn load(app: &AppHandle, namespace: &str) -> Result<Value, String> {
     serde_json::from_str::<Value>(&content).map_err(|e| format!("解析 {} 失败: {}", namespace, e))
 }
 
-/// 写入某个 namespace 的数据。整体覆盖。
+/// 写入某个 namespace 的数据。整体覆盖，原子写。
+///
+/// 收藏与歌单丢失后无法重新获取，因此这里比 config.rs 更依赖原子性：
+/// 裸 `fs::write` 在写入过程中崩溃会留下截断的 JSON，下次 load 直接解析失败。
 pub fn save(app: &AppHandle, namespace: &str, value: &Value) -> Result<(), String> {
     let path = namespace_path(app, namespace)?;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("创建 library 目录失败: {}", e))?;
-    }
     let content = serde_json::to_string_pretty(value)
         .map_err(|e| format!("序列化 {} 失败: {}", namespace, e))?;
-    fs::write(&path, content).map_err(|e| format!("写入 {} 失败: {}", namespace, e))
+    let _guard = lock_persistence();
+    write_atomic(&path, &content)
 }
 
 /// 清空指定 namespace（删文件）。

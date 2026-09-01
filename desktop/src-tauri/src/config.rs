@@ -1,6 +1,7 @@
 //! 配置持久化模块
 //! 使用 JSON 文件存储用户设置，路径由 Tauri app_data_dir 提供
 
+use crate::atomic_file::{lock_persistence, write_atomic};
 use crate::models::AppSettings;
 use std::fs;
 use std::path::PathBuf;
@@ -19,11 +20,17 @@ fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
 
 /// 读取配置 — 若文件不存在则创建默认值并保存
 pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
+    let _guard = lock_persistence();
+    load_settings_locked(app)
+}
+
+/// 读取配置本体。调用方须已持有 `lock_persistence()`。
+fn load_settings_locked(app: &AppHandle) -> Result<AppSettings, String> {
     let path = config_path(app)?;
 
     if !path.exists() {
         let default = AppSettings::default();
-        save_settings(app, &default)?;
+        save_settings_locked(app, &default)?;
         return Ok(default);
     }
 
@@ -35,38 +42,62 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
     Ok(settings)
 }
 
-/// 保存配置
+/// 保存配置（原子写）
 pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
-    let path = config_path(app)?;
-
-    // 确保目录存在
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("创建配置目录失败: {}", e))?;
-    }
-
-    let content =
-        serde_json::to_string_pretty(settings).map_err(|e| format!("序列化配置失败: {}", e))?;
-
-    fs::write(&path, content).map_err(|e| format!("写入配置文件失败: {}", e))?;
-
-    Ok(())
+    let _guard = lock_persistence();
+    save_settings_locked(app, settings)
 }
 
-/// 更新部分配置字段 — 合合传入的 JSON patch 到现有配置
+/// 保存配置本体。调用方须已持有 `lock_persistence()`。
+fn save_settings_locked(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
+    let path = config_path(app)?;
+    let content =
+        serde_json::to_string_pretty(settings).map_err(|e| format!("序列化配置失败: {}", e))?;
+    write_atomic(&path, &content)
+}
+
+/// 更新部分配置字段 — 合并传入的 JSON patch 到现有配置
+///
+/// 全程持有持久化写锁：load / merge / save 是一次 read-modify-write，
+/// 拆开会让并发调用方（多个 WebView、歌词窗位置持久化任务）互相覆盖。
 pub fn patch_settings(app: &AppHandle, patch: serde_json::Value) -> Result<AppSettings, String> {
-    let current = load_settings(app)?;
+    let _guard = lock_persistence();
+
+    let current = load_settings_locked(app)?;
 
     // 将 current 序列化为 Value，再 merge patch
     let mut current_val =
         serde_json::to_value(&current).map_err(|e| format!("序列化当前配置失败: {}", e))?;
 
+    reject_unknown_keys(&current_val, &patch)?;
     merge_json(&mut current_val, patch);
 
     let updated: AppSettings = serde_json::from_value(current_val)
         .map_err(|e| format!("合并配置后反序列化失败: {}", e))?;
 
-    save_settings(app, &updated)?;
+    save_settings_locked(app, &updated)?;
     Ok(updated)
+}
+
+/// 校验 patch 顶层字段都存在于 AppSettings。
+///
+/// AppSettings 带 `#[serde(default)]`，未知字段会被 serde 静默丢弃：
+/// 前端把 `lyricFontSize` 拼成 `lyricFontSizee` 时调用会「成功」返回但什么都没改，
+/// 重启后设置回退且无任何报错。这里显式失败，让拼写错误在开发期即暴露。
+fn reject_unknown_keys(base: &serde_json::Value, patch: &serde_json::Value) -> Result<(), String> {
+    let (Some(base_map), Some(patch_map)) = (base.as_object(), patch.as_object()) else {
+        return Ok(());
+    };
+    let unknown: Vec<&str> = patch_map
+        .keys()
+        .filter(|key| !base_map.contains_key(*key))
+        .map(String::as_str)
+        .collect();
+    if unknown.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("未知的配置字段: {}", unknown.join(", ")))
+    }
 }
 
 /// 递归合并 JSON — patch 中的字段覆盖 base 中同名字段
@@ -89,7 +120,8 @@ fn merge_json(base: &mut serde_json::Value, patch: serde_json::Value) {
 
 /// 重置配置为默认值
 pub fn reset_settings(app: &AppHandle) -> Result<AppSettings, String> {
+    let _guard = lock_persistence();
     let default = AppSettings::default();
-    save_settings(app, &default)?;
+    save_settings_locked(app, &default)?;
     Ok(default)
 }
