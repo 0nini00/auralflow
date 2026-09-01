@@ -261,6 +261,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tokio",
  "walkdir",
+ "windows",
 ]
 
 [[package]]

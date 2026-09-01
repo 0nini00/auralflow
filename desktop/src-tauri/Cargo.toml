@@ -28,3 +28,11 @@ flate2 = "1"
 
 # ── 下载 ──
 reqwest = { version = "0.12", features = ["gzip"] }
+
+# ── 凭证加密（DPAPI）──
+# 版本跟随 Tauri 已引入的传递依赖，避免多份 windows crate 同时编译。
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Security_Cryptography",
+] }

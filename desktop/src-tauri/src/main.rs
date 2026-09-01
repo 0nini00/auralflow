@@ -8,6 +8,7 @@ mod library;
 mod lyric_window;
 mod models;
 mod outbound;
+mod secret_store;
 mod tray;
 
 /// 设置窗口 AppUserModelID：音量混音器/任务栏据此匹配快捷方式（应用名+图标），
