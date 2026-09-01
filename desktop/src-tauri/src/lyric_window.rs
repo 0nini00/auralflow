@@ -6,7 +6,7 @@
 
 use serde_json::json;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 use tauri::{
     async_runtime::{spawn, JoinHandle},
@@ -36,6 +36,8 @@ const LOCK_CURSOR_POLL_MS: u64 = 150;
 const LOCK_TOKEN_SEQUENCE_MASK: u64 = 0xffff_ffff;
 
 static ALWAYS_ON_TOP_LOOP_RUNNING: AtomicBool = AtomicBool::new(false);
+/// 循环实例代号：clear 时递增，使旧任务醒来后能识别自己已被取代。
+static ALWAYS_ON_TOP_LOOP_GENERATION: AtomicU64 = AtomicU64::new(0);
 static LYRIC_LOCKED: AtomicBool = AtomicBool::new(false);
 static LYRIC_LOCK_RUNTIME_KNOWN: AtomicBool = AtomicBool::new(false);
 static LYRIC_CREATE_PENDING: AtomicBool = AtomicBool::new(false);
@@ -43,6 +45,8 @@ static LYRIC_LOCK_EPOCH: AtomicU64 = AtomicU64::new(0);
 static LYRIC_WINDOW_EPOCH: AtomicU64 = AtomicU64::new(0);
 static LYRIC_PENDING_LOCK_TOKEN: AtomicU64 = AtomicU64::new(0);
 static LOCK_CURSOR_POLL_RUNNING: AtomicBool = AtomicBool::new(false);
+/// 同 ALWAYS_ON_TOP_LOOP_GENERATION。
+static LOCK_CURSOR_POLL_GENERATION: AtomicU64 = AtomicU64::new(0);
 // 锁定态下当前是否“光标在窗口内”（false = 穿透中）
 static LYRIC_CURSOR_INSIDE: AtomicBool = AtomicBool::new(false);
 
@@ -139,14 +143,12 @@ fn invalidate_lyric_window_epoch(_reason: &str) -> u64 {
 }
 
 pub fn state(app: &AppHandle) -> LyricWindowState {
-    let runtime_locked = LYRIC_LOCKED.load(Ordering::SeqCst);
-    let create_pending = LYRIC_CREATE_PENDING.load(Ordering::SeqCst);
-    let runtime_known = LYRIC_LOCK_RUNTIME_KNOWN.load(Ordering::SeqCst);
-    let runtime_target = runtime_locked;
-    let unlock_window = app.get_webview_window(LYRIC_UNLOCK_LABEL).is_some();
+    // is_open 已经包含 create_pending、LYRIC_LOCKED 和 unlock 窗口三项，
+    // 这里不再重复析取：locked 为真时 is_open 必然为真。
     LyricWindowState {
-        open: is_open(app) || create_pending || runtime_target || (!runtime_known && unlock_window),
-        locked: runtime_target || unlock_window,
+        open: is_open(app),
+        locked: LYRIC_LOCKED.load(Ordering::SeqCst)
+            || app.get_webview_window(LYRIC_UNLOCK_LABEL).is_some(),
     }
 }
 
@@ -279,7 +281,14 @@ fn schedule_apply_locked_window_state(app: &AppHandle, locked: bool) {
         if has_runtime_lock_target() != locked {
             return;
         }
-        let _ = apply_locked_window_state(&app, locked);
+        // 解锁失败时窗口仍处于鼠标穿透、unlock 按钮已关闭、光标轮询已停止的状态，
+        // 用户没有任何解锁入口。必须把错误暴露到前端而不是静默丢弃。
+        if let Err(message) = apply_locked_window_state(&app, locked) {
+            let _ = app.emit(
+                "lyric-window-lock-failed",
+                json!({ "locked": locked, "message": message }),
+            );
+        }
     });
 }
 
@@ -290,7 +299,8 @@ pub fn toggle_from_player(app: &AppHandle) -> Result<LyricWindowPlayerToggleResu
     let locked = current.locked;
     let pending_lock = has_pending_lock_request();
 
-    if open && (locked || pending_lock) {
+    // locked 为真时 open 必然为真（见 state），故无需再用 open 做门控。
+    if locked || (open && pending_lock) {
         set_locked(app, false, None, "player-toggle-unlock")?;
         return Ok(LyricWindowPlayerToggleResult {
             action: "unlocked".to_string(),
@@ -300,7 +310,8 @@ pub fn toggle_from_player(app: &AppHandle) -> Result<LyricWindowPlayerToggleResu
         });
     }
 
-    if !open && (locked || pending_lock) {
+    // 窗口没开却留有待用加锁 token：清掉，避免下次开窗直接以穿透态启动。
+    if !open && pending_lock {
         set_locked(app, false, None, "player-toggle-clear-stale")?;
     }
 
@@ -382,16 +393,15 @@ fn create(app: &AppHandle) -> Result<(), String> {
 
     // 监听 move/resize → 写回 settings（debounce 300ms 限频，避免拖动期间频繁写盘）
     let app_for_event = app.clone();
-    let scale = window.scale_factor().unwrap_or(1.0);
     let position_pending: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
     let size_pending: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
     window.on_window_event(move |event| match event {
         WindowEvent::Moved(pos) => {
-            schedule_persist_position(&app_for_event, *pos, scale, &position_pending);
+            schedule_persist_position(&app_for_event, *pos, &position_pending);
             sync_unlock_window_position(&app_for_event);
         }
         WindowEvent::Resized(size) => {
-            schedule_persist_size(&app_for_event, *size, scale, &size_pending);
+            schedule_persist_size(&app_for_event, *size, &size_pending);
             sync_unlock_window_position(&app_for_event);
         }
         WindowEvent::Destroyed => {
@@ -521,16 +531,21 @@ fn schedule_unlock_window_sync(app: &AppHandle) {
     });
 }
 
+/// 置顶巡检循环。用 generation 而非单个 bool 做互斥：
+/// sleep 不可取消，旧任务醒来时可能已经有新任务在跑，单个 bool 无法区分
+/// "该停下" 和 "别人在跑"，旧任务退出时会清掉新任务的守卫。
+/// 每次 clear 递增 generation，任务只在自己那一代仍是当前代时继续。
 fn ensure_always_on_top_loop(app: &AppHandle) {
     if ALWAYS_ON_TOP_LOOP_RUNNING.swap(true, Ordering::SeqCst) {
         return;
     }
+    let generation = ALWAYS_ON_TOP_LOOP_GENERATION.load(Ordering::SeqCst);
 
     let app = app.clone();
     spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_millis(ALWAYS_ON_TOP_LOOP_MS)).await;
-            if !ALWAYS_ON_TOP_LOOP_RUNNING.load(Ordering::SeqCst) {
+            if ALWAYS_ON_TOP_LOOP_GENERATION.load(Ordering::SeqCst) != generation {
                 break;
             }
 
@@ -555,6 +570,7 @@ fn ensure_always_on_top_loop(app: &AppHandle) {
 }
 
 fn clear_always_on_top_loop() {
+    ALWAYS_ON_TOP_LOOP_GENERATION.fetch_add(1, Ordering::SeqCst);
     ALWAYS_ON_TOP_LOOP_RUNNING.store(false, Ordering::SeqCst);
 }
 
@@ -567,12 +583,15 @@ fn ensure_lock_cursor_poll(app: &AppHandle) {
     if LOCK_CURSOR_POLL_RUNNING.swap(true, Ordering::SeqCst) {
         return;
     }
+    // 同 ensure_always_on_top_loop：用 generation 区分任务实例，
+    // 避免 "解锁后立即重新加锁" 时旧任务与新任务并存互相清守卫。
+    let generation = LOCK_CURSOR_POLL_GENERATION.load(Ordering::SeqCst);
 
     let app = app.clone();
     spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_millis(LOCK_CURSOR_POLL_MS)).await;
-            if !LOCK_CURSOR_POLL_RUNNING.load(Ordering::SeqCst)
+            if LOCK_CURSOR_POLL_GENERATION.load(Ordering::SeqCst) != generation
                 || !has_runtime_lock_target()
             {
                 break;
@@ -600,7 +619,10 @@ fn ensure_lock_cursor_poll(app: &AppHandle) {
                 );
             }
         }
-        LOCK_CURSOR_POLL_RUNNING.store(false, Ordering::SeqCst);
+        // 只在自己仍是当前代时释放守卫，否则会把后继任务的守卫误清。
+        if LOCK_CURSOR_POLL_GENERATION.load(Ordering::SeqCst) == generation {
+            LOCK_CURSOR_POLL_RUNNING.store(false, Ordering::SeqCst);
+        }
     });
 }
 
@@ -622,6 +644,7 @@ fn cursor_inside_window(window: &tauri::WebviewWindow) -> bool {
 }
 
 fn clear_lock_cursor_poll() {
+    LOCK_CURSOR_POLL_GENERATION.fetch_add(1, Ordering::SeqCst);
     LOCK_CURSOR_POLL_RUNNING.store(false, Ordering::SeqCst);
 }
 
@@ -705,53 +728,61 @@ fn resolve_window_geometry(
     }
 }
 
+/// 取 debounce 句柄锁。锁只保护一个 JoinHandle，中毒不会让数据本身失去意义，
+/// 所以沿用内部值继续工作；静默 return 会让位置/尺寸持久化永久失效且无任何迹象。
+fn lock_pending(pending: &Mutex<Option<JoinHandle<()>>>) -> MutexGuard<'_, Option<JoinHandle<()>>> {
+    pending.lock().unwrap_or_else(|err| err.into_inner())
+}
+
 fn schedule_persist_position(
     app: &AppHandle,
     pos: PhysicalPosition<i32>,
-    scale: f64,
     pending: &Mutex<Option<JoinHandle<()>>>,
 ) {
     let app = app.clone();
-    let mut guard = match pending.lock() {
-        Ok(g) => g,
-        Err(_) => return,
-    };
+    let mut guard = lock_pending(pending);
     if let Some(handle) = guard.take() {
         handle.abort();
     }
     *guard = Some(spawn(async move {
         tokio::time::sleep(Duration::from_millis(PERSIST_DEBOUNCE_MS)).await;
-        persist_position(&app, pos, scale);
+        persist_position(&app, pos);
     }));
 }
 
 fn schedule_persist_size(
     app: &AppHandle,
     size: PhysicalSize<u32>,
-    scale: f64,
     pending: &Mutex<Option<JoinHandle<()>>>,
 ) {
     let app = app.clone();
-    let mut guard = match pending.lock() {
-        Ok(g) => g,
-        Err(_) => return,
-    };
+    let mut guard = lock_pending(pending);
     if let Some(handle) = guard.take() {
         handle.abort();
     }
     *guard = Some(spawn(async move {
         tokio::time::sleep(Duration::from_millis(PERSIST_DEBOUNCE_MS)).await;
-        persist_size(&app, size, scale);
+        persist_size(&app, size);
     }));
 }
 
-fn persist_position(app: &AppHandle, pos: PhysicalPosition<i32>, scale: f64) {
+/// 当前歌词窗的缩放系数。必须每次实时读取：窗口被拖到不同 DPI 的显示器后
+/// 缩放会变，用创建时的旧值换算会把逻辑坐标算错，下次开窗位置偏移。
+fn current_scale(app: &AppHandle) -> f64 {
+    app.get_webview_window(LYRIC_LABEL)
+        .and_then(|w| w.scale_factor().ok())
+        .unwrap_or(1.0)
+}
+
+fn persist_position(app: &AppHandle, pos: PhysicalPosition<i32>) {
+    let scale = current_scale(app);
     let x = pos.x as f64 / scale;
     let y = pos.y as f64 / scale;
     let _ = crate::config::patch_settings(app, json!({ "lyricWindowX": x, "lyricWindowY": y }));
 }
 
-fn persist_size(app: &AppHandle, size: PhysicalSize<u32>, scale: f64) {
+fn persist_size(app: &AppHandle, size: PhysicalSize<u32>) {
+    let scale = current_scale(app);
     let w = size.width as f64 / scale;
     let h = size.height as f64 / scale;
     let _ = crate::config::patch_settings(
