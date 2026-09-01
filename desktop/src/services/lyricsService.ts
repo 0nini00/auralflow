@@ -1,6 +1,3 @@
-import type { MusicInfo } from '@lx/core';
-import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
-import { resolver } from '@/services/sources/sourceService';
 import {
   detectLyricSourceType,
   mergeMissingLines,
@@ -10,7 +7,10 @@ import {
   type LyricResponse,
   type LyricSourceType,
   type LyricWord,
-} from '@/services/lyrics/parserCore';
+  type MusicInfo,
+} from '@lx/core';
+import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import { getSource } from '@/services/sources/sourceService';
 import {
   MIN_LYRIC_MATCH_SCORE,
   rankLyricMatches,
@@ -136,7 +136,7 @@ async function getLyricsForSingle(music: MusicInfo): Promise<LyricResponse> {
         result = await searchAndMatchLyrics(music);
       }
     } else {
-      const provider = resolver.getSource(music.source);
+      const provider = getSource(music.source);
       if (!provider) {
         result = { lines: [], error: '不支持的音源' };
       } else {

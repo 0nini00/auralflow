@@ -1,10 +1,4 @@
-import {
-  SourceRegistry,
-  SourceResolver,
-  DEFAULT_SOURCE_POLICY,
-  type MusicSource,
-  type SourceTag,
-} from "@lx/core";
+import { SourceRegistry, type MusicSource, type SourceTag } from "@lx/core";
 import { wyProvider } from "./wyProvider";
 import { txProvider } from "./txProvider";
 import { biliProvider } from "./biliProvider";
@@ -25,13 +19,12 @@ registerSource(txProvider);
 registerSource(biliProvider);
 
 /**
- * SourceResolver 目前仅被 lyricsService 通过 getSource() 用于取 Provider 歌词。
- * wy/tx 在启动时静态注册，快照方式足够。
+ * 按 id 取内置音源。歌词、下载与播放的 builtin 通道都走这里。
+ * 直接查 registry，不再另存一份快照，避免注册表出现第二真相源。
  */
-const resolver = new SourceResolver(
-  new Map(registry.list().map((s) => [s.id, s])),
-  DEFAULT_SOURCE_POLICY,
-);
+export function getSource(id: string): MusicSource | undefined {
+  return registry.get(id);
+}
 
-export { registry, resolver };
+export { registry };
 export type { SourceTag };

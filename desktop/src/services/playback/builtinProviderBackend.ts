@@ -1,4 +1,4 @@
-import { resolver } from "@/services/sources/sourceService";
+import { getSource } from "@/services/sources/sourceService";
 import type { PlaybackAttempt, PlaybackBackend, PlaybackRequest, PlaybackResolvedUrl } from "./types";
 
 export const builtinProviderBackend: PlaybackBackend = {
@@ -11,7 +11,7 @@ export const builtinProviderBackend: PlaybackBackend = {
 
     for (const music of variants) {
       if (music.source === "local") continue;
-      const provider = resolver.getSource(music.source);
+      const provider = getSource(music.source);
       if (!provider) continue;
 
       for (const quality of request.qualityPreference) {

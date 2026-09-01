@@ -7,7 +7,7 @@ import { builtinProviderBackend } from './builtinProviderBackend';
 import { customSourceBackend } from './customSourceBackend';
 import { probeStreamUrl } from './streamProbe';
 import type { PlaybackBackendId, PlaybackResolvedUrl } from './types';
-import { resolver } from '@/services/sources/sourceService';
+import { getSource } from '@/services/sources/sourceService';
 import { getCachedPlaybackUrl, saveCachedPlaybackUrl } from '@/services/persistentCache';
 import { cacheResolvedPlaybackMedia } from '@/services/mediaCache';
 
@@ -124,7 +124,7 @@ async function resolvePlaybackUrlUncapped(
   }
 
   // B 站解析无音质分层且接口链路较慢，提前单独解析，不进音质竞速。
-  if (music.source === 'bili' && resolver.getSource(music.source)) {
+  if (music.source === 'bili' && getSource(music.source)) {
     const resolved = await builtinProviderBackend.resolve({
       primary: music,
       variants: allVariants,
@@ -181,7 +181,7 @@ async function resolvePlaybackUrlUncapped(
 
   // 竞速全败后的最后保险：wy/tx 官方直连 provider。不参与竞速（对齐移动端），
   // 但网关整条挂掉时不至于整首失败
-  if (resolver.getSource(music.source)) {
+  if (getSource(music.source)) {
     try {
       const resolved = await builtinProviderBackend.resolve({
         primary: music,

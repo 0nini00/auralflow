@@ -6,7 +6,7 @@ import { useFavoritesStore } from '@/stores/favoritesStore';
 import { usePlayerStore } from '@/stores/playerStore';
 import { useWyAccountStore } from '@/stores/wyAccountStore';
 import { useBiliAccountStore } from '@/stores/biliAccountStore';
-import { resolver } from '@/services/sources/sourceService';
+import { getSource } from '@/services/sources/sourceService';
 import { SongAddMenuButton } from '@/components/SongAddMenuButton';
 import { DownloadQualityButton } from '@/components/DownloadQualityButton';
 import { VirtualList } from '@/components/VirtualList';
@@ -164,7 +164,7 @@ export function PlaylistDetailView() {
   }, [biliGetSongs, biliPlaylist?.id]);
 
   const loadRemotePlaylistSongs = (playlist: PlaylistInfo, refreshing = false) => {
-    const provider = resolver.getSource(playlist.source);
+    const provider = getSource(playlist.source);
     if (!provider) {
       setRemoteSongsError("未找到对应音源");
       return Promise.resolve();
@@ -193,7 +193,7 @@ export function PlaylistDetailView() {
   useEffect(() => {
     if (!remotePlaylistInfo) return;
     let cancelled = false;
-    const provider = resolver.getSource(remotePlaylistInfo.source);
+    const provider = getSource(remotePlaylistInfo.source);
     if (!provider) {
       setRemoteSongsError("未找到对应音源");
       setRemoteSongs([]);
@@ -436,7 +436,7 @@ export function PlaylistDetailView() {
           return;
         }
 
-        const provider = resolver.getSource("tx");
+        const provider = getSource("tx");
         if (!provider) throw new Error("未找到 QQ 音乐源");
         const detailSongs = remoteSongs ?? await provider.getPlaylistDetail(remotePlaylistInfo);
         const description = [remotePlaylistInfo.desc, marker].filter(Boolean).join('\n');

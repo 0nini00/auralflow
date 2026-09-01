@@ -9,7 +9,7 @@ import {
 } from '@lx/tauri-bridge';
 import { outboundRequest } from '@/services/outboundHttp';
 import { resolvePlaybackUrl } from '@/services/playback/playbackResolver';
-import { resolver } from '@/services/sources/sourceService';
+import { getSource } from '@/services/sources/sourceService';
 
 export interface PreparedDownload {
   url: string;
@@ -84,7 +84,7 @@ async function fetchCoverDataUrl(music: MusicInfo): Promise<string | null> {
 }
 
 async function fetchRawLyric(music: MusicInfo): Promise<string | null> {
-  const source = resolver.getSource(music.source);
+  const source = getSource(music.source);
   if (!source) return null;
 
   const lyric = await source.getLyric(music);

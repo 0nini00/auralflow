@@ -1,6 +1,5 @@
-import type { MusicInfo } from '@lx/core';
+import type { LyricResponse, MusicInfo } from '@lx/core';
 import { libraryLoad, libraryReset, librarySave } from '@lx/tauri-bridge';
-import type { LyricResponse } from '@/services/lyrics/parserCore';
 import type { PlaybackBackendId, PlaybackResolvedUrl } from '@/services/playback/types';
 
 const CACHE_NAMESPACE = 'cache';
