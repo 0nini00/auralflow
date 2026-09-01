@@ -81,7 +81,7 @@ export interface RustAudioFile {
   duration: number;
   format: string;
   size: number;
-  cover_data?: string | null;
+  coverData?: string | null;
   lyrics?: string | null;
 }
 

@@ -29,10 +29,10 @@ function rustToLocalSong(file: RustAudioFile): LocalSong {
     duration: file.duration,
     format: file.format,
     size: file.size,
-    cover_data: file.cover_data,
+    cover_data: file.coverData,
     lyrics: file.lyrics,
     url: convertFileSrc(file.path),
-    cover: file.cover_data ?? undefined,
+    cover: file.coverData ?? undefined,
     isLocal: true,
   };
 }

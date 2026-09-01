@@ -478,16 +478,16 @@ function createRuntime(api: CustomSourceItem, options?: CreateRuntimeOptions): R
   fakeGlobalThis.lx = lx;
 
   try {
-    // L1 沙箱（尽力而为，非强隔离）：自定义音源脚本与用户主动安装的浏览器扩展同权，
-    // 请勿放入不受信任的第三方脚本。以下为多层缓解：
-    // 1. 静态扫描拒绝明显的动态代码执行手法（constructor 链 / eval / Function）；
-    // 2. 以严格模式执行，函数体内 this 为 undefined，`this.__TAURI_INTERNALS__` 这类
-    //    经全局对象直达 IPC 的逃逸直接抛错；
-    // 3. 注入的 window / globalThis 为无原型对象，constructor 属性链不可达；
-    // 4. 遮蔽 self / top / parent 等同样指向真实全局对象的别名。
-    if (/constructor\s*\.\s*constructor|\.constructor\s*\(|\beval\s*\(|\bFunction\s*\(/.test(api.script)) {
-      throw new Error('自定义音源脚本包含不允许的动态代码执行');
-    }
+    // 非沙箱：自定义音源脚本在本 WebView 内以完全权限执行，与用户主动安装的浏览器扩展
+    // 同权。请勿放入不受信任的第三方脚本。
+    //
+    // 下方的参数遮蔽只为「脚本按预期通过注入的 lx 对象工作」提供便利，不构成安全边界：
+    // 任意脚本都可用 ({})['cons'+'tructor']['cons'+'tructor']('return this')() 取回真实
+    // globalThis，进而经 __TAURI_INTERNALS__ 直达 IPC，读取 load_settings 中的明文凭证。
+    // 字符串拼接、Unicode 转义、async 函数的 constructor 等写法都无法用静态扫描穷尽，
+    // 因此这里不做正则黑名单——它只能挡住朴素写法，却让人误以为存在隔离。
+    //
+    // 真正的隔离需要独立 WebView 或 Worker 且不暴露 IPC，属于架构变更，尚未实施。
     const runner = new Function(
       'lx',
       'window',

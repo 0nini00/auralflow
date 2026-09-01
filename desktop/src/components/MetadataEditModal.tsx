@@ -64,7 +64,7 @@ export function MetadataEditModal({ song, onClose }: Props) {
         title: refreshed.title,
         artist: refreshed.artist,
         album: refreshed.album,
-        cover: refreshed.cover_data ?? undefined,
+        cover: refreshed.coverData ?? undefined,
       });
       onClose();
     } catch (e) {

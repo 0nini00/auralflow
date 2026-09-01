@@ -162,6 +162,7 @@ impl Default for AppSettings {
 
 /// 本地音频文件 — 包含完整元数据、封面 Base64、内嵌歌词
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AudioFile {
     /// 文件路径的 MD5 值作为 ID
     pub id: String,

@@ -101,7 +101,7 @@ React Native 0.86 + React 19.2.3，面向 Android（minSdk 24）。
 
 ### 3. SSRF 双实现契约
 
-`outbound-host.ts` 是出站主机判定的书面定义（JS 侧），`desktop/src-tauri/src/outbound.rs` 是 Rust 侧的同一套规则。桌面端请求由 Rust 发出，移动端请求在 JS 侧发出，两份实现各自带测试，**规则变更时必须同步**。显式边界：只允许 http/https；拒绝 localhost / `.local` / 回环 / 私有 / 链路本地 / CGNAT / 未指定 / 多播 / 广播 / 文档示例地址；**不做** DNS 解析后校验（DNS rebinding 不在拦截范围）。
+`outbound-host.ts` 是出站主机判定的书面定义（JS 侧），`desktop/src-tauri/src/outbound.rs` 是 Rust 侧的同一套规则。桌面端请求由 Rust 发出，移动端请求在 JS 侧发出，两份实现必须手工同步，无自动化校验，**规则变更时需人工逐条比对**。显式边界：只允许 http/https；拒绝 localhost / `.local` / 回环 / 私有 / 链路本地 / CGNAT / 未指定 / 多播 / 广播 / 文档示例地址；**不做** DNS 解析后校验（DNS rebinding 不在拦截范围）。
 
 ### 4. 静音间隙技巧
 
