@@ -10,7 +10,7 @@ import { radius, spacing, touch, typography } from "@/theme/tokens";
  * 应用背景图选择卡片。
  *
  * 与桌面端 SettingsView 的 appBackgroundImagePath 对齐：选择后立即生效，
- * 支持切换、清除、以及调整覆盖遮罩强度（对应桌面的沉浸背景明度）。
+ * 图片直接显示在最底层，不做模糊处理或遮罩调节。
  */
 export function AppBackgroundCard() {
   const mode = useThemeStore((s) => s.mode);
@@ -19,9 +19,7 @@ export function AppBackgroundCard() {
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
 
   const backgroundImageUri = useThemeStore((s) => s.backgroundImageUri);
-  const backgroundOpacity = useThemeStore((s) => s.backgroundOpacity);
   const setBackgroundImageUri = useThemeStore((s) => s.setBackgroundImageUri);
-  const setBackgroundOpacity = useThemeStore((s) => s.setBackgroundOpacity);
 
   const [picking, setPicking] = useState(false);
 
@@ -55,14 +53,6 @@ export function AppBackgroundCard() {
     ]);
   };
 
-  const opacityOptions: Array<{ label: string; value: number }> = [
-    { label: "透明", value: 0.2 },
-    { label: "淡", value: 0.4 },
-    { label: "标准", value: 0.55 },
-    { label: "浓", value: 0.75 },
-    { label: "遮罩", value: 0.9 },
-  ];
-
   return (
     <SettingsCard style={styles.card}>
       <View style={styles.header}>
@@ -72,75 +62,56 @@ export function AppBackgroundCard() {
             {backgroundImageUri ? "已使用自定义背景" : "使用主题默认背景"}
           </Text>
         </View>
-        {backgroundImageUri ? (
-          <Pressable
-            style={[styles.smallButton, { backgroundColor: palette.dangerSurface }]}
-            onPress={handleClear}
-          >
-            <Text style={[styles.smallButtonText, { color: palette.danger }]}>移除</Text>
-          </Pressable>
-        ) : null}
       </View>
+
+      <Text style={[styles.hint, { color: palette.textMuted }]}>
+        图片会直接显示在整个应用最底层，不做模糊处理
+      </Text>
 
       {backgroundImageUri ? (
         <View style={[styles.previewWrap, { borderColor: palette.border }]}>
           <Image source={{ uri: backgroundImageUri }} style={styles.preview} resizeMode="cover" />
-          <View
-            style={[
-              StyleSheet.absoluteFill,
-              { backgroundColor: palette.background, opacity: backgroundOpacity },
-            ]}
-          />
-          <View style={styles.previewOverlay}>
-            <Text style={[styles.previewText, { color: palette.text }]}>预览遮罩效果</Text>
-          </View>
         </View>
       ) : (
         <View style={[styles.emptyPreview, { borderColor: palette.border, backgroundColor: palette.surfaceMuted }]}>
-          <Text style={[styles.emptyText, { color: palette.textMuted }]}>未设置</Text>
+          <Text style={[styles.emptyText, { color: palette.textMuted }]}>未设置背景图</Text>
         </View>
       )}
 
-      <Pressable
-        style={[styles.primaryButton, { backgroundColor: palette.surface, borderColor: palette.border, borderWidth: 1 }]}
-        onPress={handlePick}
-        disabled={picking}
-      >
-        <Text style={[styles.primaryButtonText, { color: palette.primary }]}>
-          {picking ? "选择中…" : backgroundImageUri ? "更换图片" : "选择图片"}
-        </Text>
-      </Pressable>
-
-      {backgroundImageUri ? (
-        <View style={styles.opacitySection}>
-          <Text style={[styles.opacityLabel, { color: palette.textMuted }]}>遮罩强度</Text>
-          <View style={styles.opacityGrid}>
-            {opacityOptions.map((option) => {
-              const active = Math.abs(backgroundOpacity - option.value) < 0.05;
-              return (
-                <Pressable
-                  key={option.label}
-                  style={[
-                    styles.opacityOption,
-                    { borderColor: palette.border, backgroundColor: palette.surfaceMuted },
-                    active && { borderColor: palette.primary },
-                  ]}
-                  onPress={() => void setBackgroundOpacity(option.value)}
-                >
-                  <Text
-                    style={[
-                      styles.opacityText,
-                      { color: active ? palette.primary : palette.text },
-                    ]}
-                  >
-                    {option.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-      ) : null}
+      <View style={styles.actions}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.primaryButton,
+            {
+              backgroundColor: palette.primary,
+              opacity: pressed ? 0.8 : 1,
+            },
+          ]}
+          onPress={handlePick}
+          disabled={picking}
+          android_ripple={{ color: palette.primaryText }}
+        >
+          <Text style={[styles.primaryButtonText, { color: palette.primaryText }]}>
+            {picking ? "选择中…" : backgroundImageUri ? "更换图片" : "选择图片"}
+          </Text>
+        </Pressable>
+        {backgroundImageUri ? (
+          <Pressable
+            style={({ pressed }) => [
+              styles.secondaryButton,
+              {
+                backgroundColor: palette.dangerSurface,
+                borderColor: palette.danger,
+                opacity: pressed ? 0.7 : 1,
+              },
+            ]}
+            onPress={handleClear}
+            android_ripple={{ color: palette.danger }}
+          >
+            <Text style={[styles.secondaryButtonText, { color: palette.danger }]}>移除</Text>
+          </Pressable>
+        ) : null}
+      </View>
     </SettingsCard>
   );
 }
@@ -156,6 +127,7 @@ const styles = StyleSheet.create({
   },
   headerText: {
     flex: 1,
+    gap: spacing.xxs,
   },
   title: {
     fontSize: typography.body,
@@ -163,43 +135,24 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: typography.caption,
-    marginTop: spacing.xxs,
   },
-  smallButton: {
-    minHeight: touch.iconButton,
-    paddingHorizontal: spacing.s,
-    borderRadius: radius.sm,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  smallButtonText: {
-    fontSize: typography.meta,
-    fontWeight: "700",
+  hint: {
+    fontSize: typography.caption,
   },
   previewWrap: {
     height: 140,
-    borderRadius: radius.sm,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.md,
+    borderWidth: 2,
     overflow: "hidden",
   },
   preview: {
     width: "100%",
     height: "100%",
   },
-  previewOverlay: {
-    ...StyleSheet.absoluteFill,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  previewText: {
-    fontSize: 12,
-    fontWeight: "600",
-    opacity: 0.9,
-  },
   emptyPreview: {
-    height: 90,
-    borderRadius: radius.sm,
-    borderWidth: StyleSheet.hairlineWidth,
+    height: 140,
+    borderRadius: radius.md,
+    borderWidth: 2,
     borderStyle: "dashed",
     alignItems: "center",
     justifyContent: "center",
@@ -207,9 +160,12 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: typography.meta,
   },
+  actions: {
+    gap: spacing.s,
+  },
   primaryButton: {
     minHeight: touch.minTarget,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -217,28 +173,15 @@ const styles = StyleSheet.create({
     fontSize: typography.body,
     fontWeight: "700",
   },
-  opacitySection: {
-    gap: spacing.xs,
-  },
-  opacityLabel: {
-    fontSize: typography.caption,
-    fontWeight: "600",
-  },
-  opacityGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.xs,
-  },
-  opacityOption: {
-    minHeight: touch.iconButton,
-    paddingHorizontal: spacing.s,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.sm,
+  secondaryButton: {
+    minHeight: touch.minTarget,
+    borderRadius: radius.md,
+    borderWidth: 2,
     alignItems: "center",
     justifyContent: "center",
   },
-  opacityText: {
-    fontSize: typography.caption,
+  secondaryButtonText: {
+    fontSize: typography.body,
     fontWeight: "700",
   },
 });

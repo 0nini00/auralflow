@@ -66,14 +66,16 @@ export function ThemeModeCard() {
           return (
             <Pressable
               key={option.value}
-              style={[
+              style={({ pressed }) => [
                 styles.themeOption,
                 {
                   backgroundColor: active ? palette.primary : palette.surfaceMuted,
                   borderColor: active ? palette.primary : palette.border,
+                  opacity: pressed ? 0.7 : 1,
                 },
               ]}
               onPress={() => setThemeMode(option.value)}
+              android_ripple={{ color: palette.primary }}
             >
               <Text
                 style={[
@@ -122,14 +124,16 @@ export function ThemeModeCard() {
           return (
             <Pressable
               key={option.value}
-              style={[
+              style={({ pressed }) => [
                 styles.accentOption,
                 {
                   borderColor: active ? palette.primary : palette.border,
                   backgroundColor: active ? palette.surfaceStrong : palette.surfaceMuted,
+                  opacity: pressed ? 0.7 : 1,
                 },
               ]}
               onPress={() => void setAccentColor(option.value)}
+              android_ripple={{ color: palette.primary }}
             >
               <View style={[styles.accentSwatch, { backgroundColor: option.value }]} />
               <Text style={[styles.accentLabel, { color: active ? palette.primary : palette.textMuted }]}>
@@ -138,13 +142,21 @@ export function ThemeModeCard() {
             </Pressable>
           );
         })}
-        <Pressable
-          style={[styles.resetAccentButton, { borderColor: palette.border, backgroundColor: palette.surfaceMuted }]}
-          onPress={() => void resetAccentColor()}
-        >
-          <Text style={[styles.resetAccentText, { color: palette.textMuted }]}>重置</Text>
-        </Pressable>
       </View>
+      <Pressable
+        style={({ pressed }) => [
+          styles.resetAccentButton,
+          {
+            borderColor: palette.border,
+            backgroundColor: palette.surfaceMuted,
+            opacity: pressed ? 0.7 : 1,
+          },
+        ]}
+        onPress={() => void resetAccentColor()}
+        android_ripple={{ color: palette.textMuted }}
+      >
+        <Text style={[styles.resetAccentText, { color: palette.textMuted }]}>重置为默认主题色</Text>
+      </Pressable>
     </SettingsCard>
   );
 }
@@ -165,83 +177,87 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   sectionLabel: {
-    fontSize: 12,
+    fontSize: typography.caption,
     fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
   themeOptions: {
     flexDirection: "row",
-    gap: 8,
+    gap: spacing.s,
   },
   themeOption: {
     flex: 1,
     minHeight: touch.minTarget,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.sm,
+    borderWidth: 2,
+    borderRadius: radius.md,
     alignItems: "center",
     justifyContent: "center",
   },
   themeOptionText: {
-    fontSize: 13,
-    fontWeight: "600",
+    fontSize: typography.meta,
+    fontWeight: "700",
   },
   accentOptions: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
+    gap: spacing.s,
   },
   customAccentRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: spacing.s,
   },
   customAccentSwatch: {
     width: 44,
     height: 44,
-    borderRadius: 22,
-    borderWidth: 1,
+    borderRadius: 999,
+    borderWidth: 2,
   },
   customAccentInput: {
     flex: 1,
     minHeight: touch.minTarget,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.s,
+    borderWidth: 2,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.m,
     fontSize: typography.body,
     fontWeight: "600",
   },
   accentInputError: {
-    fontSize: 12,
+    fontSize: typography.caption,
     fontWeight: "500",
   },
   accentOption: {
-    minWidth: 68,
+    minWidth: 80,
     minHeight: touch.minTarget,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.xs,
+    borderWidth: 2,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.s,
     alignItems: "center",
-    gap: 6,
+    justifyContent: "center",
+    gap: spacing.xs,
   },
   accentSwatch: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(0,0,0,0.1)",
   },
   accentLabel: {
-    fontSize: 12,
-    fontWeight: "600",
+    fontSize: typography.caption,
+    fontWeight: "700",
   },
   resetAccentButton: {
-    minWidth: 68,
     minHeight: touch.minTarget,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.xs,
+    borderWidth: 2,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.m,
     alignItems: "center",
     justifyContent: "center",
   },
   resetAccentText: {
-    fontSize: 12,
-    fontWeight: "600",
+    fontSize: typography.meta,
+    fontWeight: "700",
   },
 });

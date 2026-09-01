@@ -23,7 +23,12 @@ import {
 import { syncPlaybackParameters } from "@/services/androidPitchService";
 import { buildMobilePlayRequestKey } from "@/services/playerRequestModel";
 import { invalidateCachedPlaybackUrl } from "@/services/playbackUrlCache";
-import { invalidatePrefetchForSong } from "../services/playerService";
+import {
+  decidePlaybackFailureAction,
+  notePlaybackHealthy,
+  noteRetrySettled,
+} from "@/services/playbackFailurePolicy";
+import { invalidatePrefetchForSong, prefetchUpcomingSongNearEnd } from "../services/playerService";
 
 
 
@@ -33,6 +38,16 @@ let playRequestId = 0;
 
 // 已判定为试听片段的歌曲 key：进度事件 0.25s 触发一次，防同一首歌重复告警。
 const previewRejectedKeys = new Set<string>();
+
+/**
+ * 判定「该曲确实可播」的播放位置阈值（秒）：越过它才归还重试额度。
+ * 取 5s 是为了越过坏链的报错窗口——实测坏链要到约 3s 后原生才发 PlaybackError，
+ * 阈值若落在窗口内会把即将失败的加载误判为健康，重试额度反复归还即成无限重试。
+ */
+const PLAYBACK_HEALTHY_POSITION_SECONDS = 5;
+
+// 播放失败的重试额度与处置结论由 @/services/playbackFailurePolicy 统一持有：
+// 本 store 与后台 playbackService 监听同一条原生事件，各自记账会得出矛盾结论。
 
 // 同 key 播放进入去重（对齐桌面端 inflightPlayRequest）：同 key 的并发 play 复用同一 Promise，
 // 避免重复 reset/add 同一 track；不同 key 不去重，仍靠上面的令牌丢弃过期请求。
@@ -49,6 +64,16 @@ const FADE_OUT_MS = 80;
 
 const FADE_IN_MS = 120;
 
+// 淡变的步进时间预算（非硬上限）：步进依赖 setTimeout，系统节流时单步回调会被拖长。
+// 每步之间检查已用时长，超预算就放弃剩余步进、一步落到目标音量收尾。
+// 单步回调本身可能超时，因此实际耗时仍可能略大于该值；它只是限制节流的累积放大。
+const FADE_MAX_MS = 400;
+
+// 淡变互斥令牌：每次 fadeVolume 自增并记下自己的令牌。
+// 淡入是 void 非阻塞的，下一次切歌的淡出会与它并发；旧 fade 在任意 await 之后
+// 都必须自查令牌并退出，否则会把新 fade 刚设好的音量写回去（音量抖动/爆音）。
+let fadeToken = 0;
+
 /**
  * 曲末静音占位轨。
  *
@@ -64,13 +89,45 @@ const SILENCE_GAP_TRACK_URL = "android.resource://cn.chenle.auralflow.mobile/raw
 
 
 
+/**
+ * 单步淡变等待：App 一离开前台就立刻返回。
+ *
+ * 后台的 setTimeout 会被冻结，纯 timer 等待可能永远不回调；AppState 的 change
+ * 事件来自原生、不受 timer 节流影响，用它作为逃逸出口，避免干等。
+ */
+function fadeStepDelay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    let settled = false;
+    // 用 let + 可选值声明：finish 在两者赋值前就已被捕获，const 会有 TDZ 风险。
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let subscription: ReturnType<typeof AppState.addEventListener> | undefined;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
+      subscription?.remove();
+      subscription = undefined;
+      resolve();
+    };
+    timer = setTimeout(finish, ms);
+    subscription = AppState.addEventListener("change", (state) => {
+      if (state !== "active") finish();
+    });
+  });
+}
+
 async function fadeVolume(target: number, durationMs: number): Promise<void> {
+
+  const safeTarget = Math.max(0, Math.min(1, target));
+
+  const token = ++fadeToken;
 
   // App 在后台/锁屏时 RN 的 setTimeout 被系统严重节流甚至冻结，步进淡入淡出会卡住：
   // 淡出 await 不 resolve → reset/add/play 永远等不到（后台曲终不跳下一首的根因）；
   // 淡入 void 不阻塞但音量停在 0 → 静音播放。后台时直接一步设目标音量，跳过步进。
   if (AppState.currentState !== "active") {
-    try { await TrackPlayer.setVolume(Math.max(0, Math.min(1, target))); } catch {}
+    try { await TrackPlayer.setVolume(safeTarget); } catch {}
     return;
   }
 
@@ -78,17 +135,32 @@ async function fadeVolume(target: number, durationMs: number): Promise<void> {
 
   const current = await TrackPlayer.getVolume();
 
-  const delta = (target - current) / steps;
+  if (token !== fadeToken) return;
+
+  const delta = (safeTarget - current) / steps;
+
+  const deadline = Date.now() + FADE_MAX_MS;
 
   for (let i = 1; i <= steps; i++) {
 
     await TrackPlayer.setVolume(Math.max(0, Math.min(1, current + delta * i)));
 
-    await new Promise((r) => setTimeout(r, durationMs / steps));
+    // 已被更新的 fade 接管：连收尾的目标音量都不能再写，否则会覆盖新 fade。
+    if (token !== fadeToken) return;
+
+    // 最后一步无需再等待，直接收尾。
+    if (i === steps) break;
+
+    // 淡变途中被切到后台，或已超出时间预算：放弃剩余步进，直接落到目标音量。
+    if (AppState.currentState !== "active" || Date.now() >= deadline) break;
+
+    await fadeStepDelay(durationMs / steps);
+
+    if (token !== fadeToken) return;
 
   }
 
-  await TrackPlayer.setVolume(Math.max(0, Math.min(1, target)));
+  await TrackPlayer.setVolume(safeTarget);
 
 }
 
@@ -546,21 +618,35 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     } catch (error) {
       const message = error instanceof Error ? error.message : "播放失败";
       set({
-        loading: false,
         error: message,
       });
       throw error;
+    } finally {
+      // loading 的兜底出口：竞态令牌提前 return、睡眠定时到期 return、异常、正常完成
+      // 都会走到这里。只有本次仍是最新请求时才落回 false —— 已被新请求接管时
+      // loading 归它管，这里照写会抹掉新请求刚点亮的加载态；反之若完全不写，设过
+      // loading:true 后走提前 return 的路径会把 UI 永久钉在加载中（转圈不停、按钮点不动）。
+      // 成功路径已连同 currentSong 原子置过 false，故先读一下避开多余的 set 广播。
+      if (requestId === playRequestId && get().loading) {
+        set({ loading: false });
+      }
     }
     })();
 
     inflightPlayRequests.set(requestKey, request);
-    try {
-      await request;
-    } finally {
+
+    // 清理绑定在 promise 自身而不是调用方的 await 上：调用方若不等待（或提前放弃等待），
+    // 已 settle 的死条目会留在 Map 里，后续同 key 点击复用它就表现为「点了没反应」。
+    const clearInflightRequest = () => {
+      // 仅删自己登记的那一条：新请求已通过上面的 clear/set 顶掉本条时不能再删，
+      // 否则会连带清掉当前有效的在途请求。
       if (inflightPlayRequests.get(requestKey) === request) {
         inflightPlayRequests.delete(requestKey);
       }
-    }
+    };
+    void request.then(clearInflightRequest, clearInflightRequest);
+
+    return request;
   },
 
   pause: async () => {
@@ -980,11 +1066,17 @@ export function setupPlayerListeners() {
     // 试听兜底判定，会造成曲末误报"检测到试听片段"。整段忽略。
     if (usePlayerStore.getState().onSilenceGap) return;
     updateProgress(position, duration, buffered);
+    // 曲末提前预解析下一首：剩余 10s 内触发一次（内部按「当前曲→下一首」组合与
+    // 预读 key 双重去重，0.25s 的进度事件不会重复解析）。无下一首/单曲循环无副作用。
+    prefetchUpcomingSongNearEnd(position, duration);
     // 试听兜底：解析期拿不到 Content-Length / Content-Range 的流式响应靠播放器实际时长判定。
     // 明显短于期望时长（song.interval）即视为试听：停播 + 清缓存，下次重播强制重新解析（对齐失败即停）。
     const song = usePlayerStore.getState().currentSong;
     if (!song) return;
     const key = `${song.source}:${song.id}`;
+    // 位置推进过阈值即证明该曲可播（音频真的在解码）：归还其重试额度，
+    // 使下次遇到坏链时仍能重新走「重试一次 → 再失败才跳」，而非一失败就直接跳。
+    if (position >= PLAYBACK_HEALTHY_POSITION_SECONDS) notePlaybackHealthy(key);
     if (previewRejectedKeys.has(key)) return;
     if (isPreviewDuration({ actualDurationSeconds: duration, expectedDurationSeconds: song.interval })) {
       previewRejectedKeys.add(key);
@@ -1009,15 +1101,54 @@ export function setupPlayerListeners() {
     }
   });
 
-  // 播放错误：仅展示错误，不再自动跳下一首（用户要求失败即停，手动切歌）。
-  // 解析成功但播放器拒收（典型：URL 实际已 403/失效），把该歌持久化 URL 缓存清掉，
-  // 避免坏链接被缓存 6h 反复命中「播放即停」；预读缓存同步失效，重播强制重新解析。
+  // 播放错误：解析成功但播放器拒收（典型：URL 实际已 403/失效），先把该歌持久化 URL
+  // 缓存清掉，避免坏链接被缓存 6h 反复命中「播放即停」；预读缓存同步失效，重播强制重新解析。
+  // 清完缓存后对同一首歌自动重播一次（多数 403 靠重新解析即可救回）；重试仍失败只报错，
+  // 不在此自动跳下一首。
   TrackPlayer.addEventListener(Event.PlaybackError, ({ message }) => {
     const currentSong = usePlayerStore.getState().currentSong;
     if (!currentSong) return;
-    setError(message);
-    void invalidateCachedPlaybackUrl(currentSong).catch(() => undefined);
-    invalidatePrefetchForSong(currentSong);
+    const retryKey = `${currentSong.source}:${currentSong.id}`;
+
+    // 处置判定必须同步完成：后台服务在让出一个微任务后回读本结论决定是否跳歌
+    if (decidePlaybackFailureAction(retryKey) === "skip") {
+      // 重试额度已用掉 → 终局失败。仍清坏链缓存（下次重播强制重新解析），
+      // 跳下一首由后台 playbackService 发起：app 退到后台后这里跳不动。
+      setError(message);
+      void invalidateCachedPlaybackUrl(currentSong).catch(() => undefined);
+      invalidatePrefetchForSong(currentSong);
+      return;
+    }
+
+    const retryIndex = usePlayerStore.getState().currentIndex;
+    const retryQueueSong = usePlayerStore.getState().queue[retryIndex];
+
+    void (async () => {
+      try {
+        // 必须等缓存真正失效再重播，否则重解析会命中同一条坏链接
+        await invalidateCachedPlaybackUrl(currentSong).catch(() => undefined);
+        invalidatePrefetchForSong(currentSong);
+        // 等待期间用户已切歌：本次重播作废，不劫持新的播放意图
+        if (usePlayerStore.getState().currentSong !== currentSong) return;
+        const { playFromQueue, playSong } = await import("../services/playerService");
+        // 队列该位置仍是本曲时走 playFromQueue，保留队列/FM 上下文与索引语义；
+        // 队列已变动则退回按歌曲重播。
+        const sameQueueSlot =
+          retryQueueSong != null &&
+          retryQueueSong.source === currentSong.source &&
+          String(retryQueueSong.id) === String(currentSong.id);
+        if (sameQueueSlot) {
+          await playFromQueue(retryIndex);
+        } else {
+          await playSong(currentSong);
+        }
+      } catch {
+        setError(message);
+      } finally {
+        // 解除在途标记：此后同曲再报错即判终局，由后台服务跳下一首
+        noteRetrySettled(retryKey);
+      }
+    })();
   });
 
   // 曲末自动切歌不在此注册：该逻辑必须运行在 TrackPlayer 的后台服务上下文

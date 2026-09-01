@@ -500,6 +500,12 @@ function prefetchNearbySongs(): void {
 }
 
 /**
+ * 在途预读任务（按预读 key = 音源:id:音质 去重）。
+ * 曲末预读由 0.25s 一次的进度事件驱动，没有这道锁会对同一首歌重复发起整条解析链。
+ */
+const prefetchInflight = new Map<string, Promise<void>>();
+
+/**
  * 预取单首歌曲的播放 URL/歌词/封面（幂等：各自内部跳过已命中项）。
  * 供「下一首播放/稍后播放」插入时立即预热，播到它时命中缓存秒开。
  */
@@ -513,9 +519,80 @@ export function prefetchSong(song: MusicInfo): void {
     usePlaybackSettingsStore.getState().defaultQuality,
   );
   if (getCachedPrefetch(song, quality)) return;
+  // 同一「歌 + 音质」的解析已在途则复用，不再发起第二条解析链
+  const inflightKey = buildPlaybackPrefetchKey(song, quality);
+  if (prefetchInflight.has(inflightKey)) return;
   // 只解析并缓存播放 URL（prefetchCache 命中后 playNext/playPrevious 秒开），
   // 不写入 TrackPlayer 原生队列——原生始终保持单曲，切歌由 JS 调度。
-  resolveSongUrl(song).catch(() => undefined);
+  const task = resolveSongUrl(song).then(
+    () => undefined,
+    () => undefined,
+  );
+  prefetchInflight.set(
+    inflightKey,
+    task.finally(() => {
+      prefetchInflight.delete(inflightKey);
+    }),
+  );
+}
+
+/**
+ * 取「即将播放的下一首」用于曲末提前预解析。只读 store，不写任何状态
+ * （随机历史 / playedIndices 仍由 playNext 在真正切歌时更新）。
+ *
+ * 优先级与 playNext 一致：稍后播放暂存区首曲 → FM 当前批次下一首/缓冲头部 → 队列下一首。
+ * single 单曲循环与「顺序播放已到队尾」返回 undefined，不产生任何预读副作用。
+ */
+function getNextSongForPrefetch(): MusicInfo | undefined {
+  const { playbackContext, queue, currentIndex, playMode, tempPlayList, shuffleHistory, playedIndices } =
+    usePlayerStore.getState();
+  if (tempPlayList.length > 0) return tempPlayList[0];
+  if (playbackContext.type === "personalFm") {
+    return (
+      playbackContext.currentBatch[playbackContext.currentBatchIndex + 1] ?? playbackContext.buffer[0]
+    );
+  }
+  if (playMode === "single") return undefined;
+  // 随机模式的下一首在 playNext 里才抽取，这里不预抽（会与真正切歌抽到的不一致，
+  // 更不能推进 playedIndices）：沿用邻近预读窗口的首个候选，命中即秒开、不中也只多一次后台解析。
+  const nextIndex =
+    playMode === "shuffle"
+      ? getNearbyQueueIndexes(queue.length, currentIndex, playMode)[0]
+      : getNextQueueNavigationState({
+          queueLength: queue.length,
+          currentIndex,
+          playMode,
+          shuffleHistory,
+          playedIndices,
+        }).nextIndex;
+  if (nextIndex == null || nextIndex === currentIndex) return undefined;
+  return queue[nextIndex];
+}
+
+/** 曲末提前预解析窗口（秒）：剩余进入该窗口即预读下一首，留足整条解析链的时间。 */
+const UPCOMING_PREFETCH_LEAD_SECONDS = 10;
+
+/** 上一次触发曲末预读的「当前曲 → 下一首」组合，避免进度事件重复触发。 */
+let lastUpcomingPrefetchKey: string | null = null;
+
+/**
+ * 曲末提前预解析入口（供进度事件调用）：剩余时间进入窗口时预读下一首。
+ *
+ * 三重去重：窗口外直接返回、同一「当前曲 → 下一首」组合只触发一次、
+ * prefetchSong 内部按预读 key 命中缓存/在途即跳过。
+ * 无下一首（顺序播放队尾、空队列）与 single 单曲循环不做任何事。
+ */
+export function prefetchUpcomingSongNearEnd(position: number, duration: number): void {
+  if (!Number.isFinite(position) || !Number.isFinite(duration) || duration <= 0) return;
+  const remaining = duration - position;
+  if (remaining <= 0 || remaining > UPCOMING_PREFETCH_LEAD_SECONDS) return;
+  const nextSong = getNextSongForPrefetch();
+  if (!nextSong) return;
+  const currentSong = usePlayerStore.getState().currentSong;
+  const key = `${currentSong ? `${currentSong.source}:${currentSong.id}` : "-"}->${nextSong.source}:${nextSong.id}`;
+  if (key === lastUpcomingPrefetchKey) return;
+  lastUpcomingPrefetchKey = key;
+  prefetchSong(nextSong);
 }
 
 // playSongCore 级别的播放意图序号：每次发起新的播放意图（含切音质）递增。
@@ -700,8 +777,13 @@ export async function playShuffledQueue(songs: MusicInfo[]): Promise<void> {
 
 /**
  * 播放下一首
+ *
+ * auto=true 为「非用户点击」的自动跳过（playbackService 里播放失败后的有限跳过）：
+ * 已有切换在途时直接放弃本次，不排补跳——补跳语义是「用户连点要多跳一步」，
+ * 自动跳过若也排进去会在用户手动切歌完成后凭空多跳一首。
  */
-export async function playNext(): Promise<void> {
+export async function playNext(auto = false): Promise<void> {
+  if (auto && switchStepQueue.switching) return;
   const step = applySwitchStepRequest(switchStepQueue, "next");
   switchStepQueue = step.nextState;
   if (!step.startNow) return;
