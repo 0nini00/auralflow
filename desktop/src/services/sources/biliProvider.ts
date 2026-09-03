@@ -1,4 +1,5 @@
 import type { MusicInfo, MusicSource, PlaylistInfo, SearchResult, SearchType } from "@lx/core";
+import { getBiliAudioUrl, pickBiliDashAudioByQuality, type BiliDashAudioLike } from "@lx/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { biliCacheAudio, biliGetJson } from "@lx/tauri-bridge";
 import CryptoJS from "crypto-js";
@@ -22,6 +23,7 @@ interface BiliMusicExtra extends MusicInfo {
 }
 
 interface BiliDashAudio {
+  id?: number | string;
   baseUrl?: string;
   base_url?: string;
   bandwidth?: number;
@@ -30,6 +32,7 @@ interface BiliDashAudio {
 interface BiliPlayUrlData {
   dash?: {
     audio?: BiliDashAudio[];
+    flac?: { audio?: BiliDashAudio };
   };
 }
 
@@ -129,16 +132,25 @@ async function getVideoCid(music: MusicInfo): Promise<string> {
   return String(cid);
 }
 
-function selectBestDashAudio(data: BiliPlayUrlData): BiliDashAudio | null {
-  const audio = [...(data?.dash?.audio ?? [])].sort((left, right) => (right.bandwidth ?? 0) - (left.bandwidth ?? 0));
-  return audio[0] ?? null;
+/**
+ * 按目标音质从 DASH 流里选最优音频。
+ * 映射规则在 @lx/core bili-quality(30232=128k/30280=192k/30250=320k/30251=Hi-Res)。
+ */
+function selectDashAudioByQuality(data: BiliPlayUrlData, quality?: string): BiliDashAudio | null {
+  const audioList = data?.dash?.audio ?? [];
+  if (!audioList.length) return null;
+  const list = audioList as BiliDashAudioLike[];
+  const picked = pickBiliDashAudioByQuality(list, (quality ?? "320k") as never);
+  if (picked) return picked as BiliDashAudio;
+  const fallback = list.find((audio) => getBiliAudioUrl(audio));
+  return (fallback as BiliDashAudio | undefined) ?? null;
 }
 
 function getDashAudioUrl(audio: BiliDashAudio | null): string {
-  return audio?.baseUrl || audio?.base_url || "";
+  return getBiliAudioUrl(audio as BiliDashAudioLike | null);
 }
 
-async function resolveLegacyPlayUrl(bvid: string, aid: string, cid: string, referer: string): Promise<string> {
+async function resolveLegacyPlayUrl(bvid: string, aid: string, cid: string, referer: string, quality?: string): Promise<string> {
   const params = new URLSearchParams();
   if (bvid) params.set("bvid", bvid);
   if (!bvid && aid) params.set("aid", aid);
@@ -149,12 +161,12 @@ async function resolveLegacyPlayUrl(bvid: string, aid: string, cid: string, refe
   params.set("fourk", "0");
 
   const data = await biliFetchJson<BiliPlayUrlData>(`https://api.bilibili.com/x/player/playurl?${params.toString()}`, referer);
-  const rawUrl = getDashAudioUrl(selectBestDashAudio(data));
+  const rawUrl = getDashAudioUrl(selectDashAudioByQuality(data, quality));
   if (!rawUrl) throw new Error("普通 playurl 未返回音频流");
   return rawUrl;
 }
 
-async function resolveWbiPlayUrl(bvid: string, aid: string, cid: string, referer: string): Promise<string> {
+async function resolveWbiPlayUrl(bvid: string, aid: string, cid: string, referer: string, quality?: string): Promise<string> {
   const keys = await getWbiKeys();
   const signedQuery = encWbi({
     ...(bvid ? { bvid } : { aid }),
@@ -169,22 +181,22 @@ async function resolveWbiPlayUrl(bvid: string, aid: string, cid: string, referer
     `https://api.bilibili.com/x/player/wbi/playurl?${signedQuery}`,
     referer,
   );
-  const rawUrl = getDashAudioUrl(selectBestDashAudio(data));
+  const rawUrl = getDashAudioUrl(selectDashAudioByQuality(data, quality));
   if (!rawUrl) throw new Error("WBI playurl 未返回音频流");
   return rawUrl;
 }
 
-async function resolveBiliPlaybackUrl(bvid: string, aid: string, cid: string, referer: string): Promise<string> {
+async function resolveBiliPlaybackUrl(bvid: string, aid: string, cid: string, referer: string, quality?: string): Promise<string> {
   const errors: string[] = [];
 
   try {
-    return await resolveLegacyPlayUrl(bvid, aid, cid, referer);
+    return await resolveLegacyPlayUrl(bvid, aid, cid, referer, quality);
   } catch (error) {
     errors.push(`普通 playurl: ${getErrorMessage(error)}`);
   }
 
   try {
-    return await resolveWbiPlayUrl(bvid, aid, cid, referer);
+    return await resolveWbiPlayUrl(bvid, aid, cid, referer, quality);
   } catch (error) {
     errors.push(`WBI playurl: ${getErrorMessage(error)}`);
   }
@@ -192,12 +204,12 @@ async function resolveBiliPlaybackUrl(bvid: string, aid: string, cid: string, re
   throw new Error(`B站播放地址解析失败：${errors.join("；")}`);
 }
 
-async function getMusicUrl(music: MusicInfo): Promise<string | null> {
+async function fetchBiliMusicUrl(music: MusicInfo, quality?: string): Promise<string | null> {
   const bvid = getBvid(music);
   const aid = getAid(music);
   const cid = await getVideoCid(music);
   const referer = getVideoReferer(bvid, aid);
-  const rawUrl = await resolveBiliPlaybackUrl(bvid, aid, cid, referer);
+  const rawUrl = await resolveBiliPlaybackUrl(bvid, aid, cid, referer, quality);
 
   const cookie = await getBiliCookie();
   const cachePath = await biliCacheAudio({
@@ -209,6 +221,53 @@ async function getMusicUrl(music: MusicInfo): Promise<string | null> {
   return convertFileSrc(cachePath);
 }
 
+/**
+ * 拉取 B站视频 CC 字幕并转成 LRC 歌词文本。
+ * 无字幕/失败返回 null,由调用方走外部歌词兜底。
+ */
+async function fetchBiliCcSubtitleLyric(music: MusicInfo): Promise<string | null> {
+  try {
+    const bvid = getBvid(music);
+    const cid = await getVideoCid(music);
+    if (!bvid || !cid) return null;
+    const referer = getVideoReferer(bvid, getAid(music));
+
+    let subtitleUrl: string | undefined;
+    try {
+      const keys = await getWbiKeys();
+      const signed = encWbi({ bvid, cid, qn: 80, fnval: 4048, fnver: 0, fourk: 1 }, keys.imgKey, keys.subKey);
+      const player = await biliFetchJson<{ subtitle?: { subtitles?: Array<{ subtitle_url?: string; subtitle_url_v2?: string }> } }>(
+        `https://api.bilibili.com/x/player/wbi/v2?${signed}`,
+        referer,
+      );
+      const sub = player?.subtitle?.subtitles?.[0];
+      subtitleUrl = sub?.subtitle_url || sub?.subtitle_url_v2;
+    } catch {
+      return null;
+    }
+    if (!subtitleUrl) return null;
+
+    const normalized = subtitleUrl.startsWith("//") ? `https:${subtitleUrl}` : subtitleUrl;
+    const data = await biliFetchJson<{ body?: Array<{ from?: number; content?: string }> }>(normalized, referer);
+    const body = Array.isArray(data?.body) ? data.body : [];
+    if (!body.length) return null;
+
+    const lines = body.map((item) => {
+      const text = String(item.content || "").replace(/^[♪♫]+|[♪♫]+$/g, "").trim();
+      if (!text) return "";
+      const sec = Number(item.from) || 0;
+      const ms = Math.max(0, Math.round(sec * 1000));
+      const m = Math.floor(ms / 60000);
+      const s2 = Math.floor((ms % 60000) / 1000);
+      const cs = Math.floor((ms % 1000) / 10);
+      return `[${String(m).padStart(2, "0")}:${String(s2).padStart(2, "0")}.${String(cs).padStart(2, "0")}]${text}`;
+    }).filter(Boolean).join("\n");
+    return lines || null;
+  } catch {
+    return null;
+  }
+}
+
 export const biliProvider: MusicSource = {
   id: "bili",
   name: "哔哩哔哩",
@@ -218,16 +277,18 @@ export const biliProvider: MusicSource = {
     return {};
   },
 
-  async getMusicUrl(music: MusicInfo): Promise<string | null> {
-    return getMusicUrl(music);
+  async getMusicUrl(music: MusicInfo, quality?: string): Promise<string | null> {
+    return fetchBiliMusicUrl(music, quality);
   },
 
   async getMusicDetail(music: MusicInfo): Promise<MusicInfo> {
     return music;
   },
 
-  async getLyric() {
-    return { lyric: undefined, tlyric: undefined, message: "暂无歌词" } as { lyric?: string; tlyric?: string; message: string };
+  async getLyric(music: MusicInfo) {
+    const ccLyric = await fetchBiliCcSubtitleLyric(music);
+    if (ccLyric) return { lyric: ccLyric, tlyric: undefined, message: "" };
+    return { lyric: undefined, tlyric: undefined, message: "暂无歌词" };
   },
 
   async getPlaylistDetail(playlist: PlaylistInfo): Promise<MusicInfo[]> {

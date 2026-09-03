@@ -4,6 +4,7 @@ export * from "./lyrics";
 export * from "./cover-image";
 export * from "./mobile-api";
 export * from "./playback-quality";
+export * from "./bili-quality";
 export * from "./stream-integrity";
 export * from "./switch-step-queue";
 export * from "./outbound-host";
