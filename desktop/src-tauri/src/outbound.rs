@@ -68,7 +68,14 @@ pub fn assert_public_url(url: &str, label: &str) -> Result<reqwest::Url, String>
     let host = parsed
         .host_str()
         .ok_or_else(|| format!("{}地址缺少 host", label))?;
+    // 尾点是等价的 FQDN 写法（`localhost.` 照样解析到回环），必须先剥掉，
+    // 否则既躲过 `== "localhost"` 也躲过 `.ends_with(".local")`。
+    // 与 JS 侧 `normalizeHost` 的同一步保持一致。
     let lowered = host.to_ascii_lowercase();
+    let lowered = lowered.trim_end_matches('.');
+    if lowered.is_empty() {
+        return Err(format!("{}地址缺少 host", label));
+    }
     if lowered == "localhost" || lowered.ends_with(".localhost") || lowered.ends_with(".local") {
         return Err(format!("{}不允许访问本地地址: {}", label, host));
     }

@@ -115,6 +115,18 @@ function bridgeProxyFetch(
         body,
         signal: controller.signal as unknown as RequestInit["signal"],
       });
+      // 不要加 redirect: "manual"：RN 的 fetch 是 whatwg-fetch over XHR，
+      // Request 构造函数根本不读这个字段，Android 侧 OkHttp 始终 followRedirects(true)。
+      // 写上去不会报错，只会让人误以为已经防住了 302 到内网。
+      //
+      // 这里改为校验最终落地 URL。边界（显式声明）：内网请求此时已经发出，
+      // 本校验只阻断响应数据回流到脚本，不能阻止盲打点与端口探测。
+      // 彻底修复需要原生侧 followRedirects(false) 并逐跳校验，对齐桌面端
+      // desktop/src-tauri/src/outbound.rs 的 guarded_redirect_policy。
+      const finalUrl = response.url;
+      if (finalUrl && finalUrl !== url) {
+        assertPublicOutboundUrl(finalUrl, "自定义音源重定向目标");
+      }
       const text = await response.text();
       let parsed: unknown = text;
       try {
@@ -612,6 +624,9 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
         if (typeof response !== "string" || response.length > 2048 || !/^https?:/.test(response)) {
           throw new Error("自定义音源没有返回可播放 URL");
         }
+        // 在脚本返回值入口收口：这个 URL 下游会流向 probeStreamUrl、
+        // RNFS.downloadFile 与 TrackPlayer，三处都不做出站校验。
+        assertPublicOutboundUrl(response, "自定义音源播放地址");
         return {
           source: data.source,
           action: data.action,
