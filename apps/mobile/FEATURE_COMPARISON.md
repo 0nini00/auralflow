@@ -7,7 +7,7 @@
 | 端 | 框架 | 状态管理 | 播放引擎 | 持久化 |
 | --- | --- | --- | --- | --- |
 | 桌面端 | Tauri v2 + React 18 + Vite | Zustand | 浏览器 Audio / playerEngine | Rust JSON（settings / library） |
-| 移动端 | React Native 0.86（Android） | Zustand | react-native-track-player | AsyncStorage |
+| 移动端 | React Native 0.86（Android） | Zustand | react-native-track-player | AsyncStorage（Cookie 等敏感项存原生 Keystore 加密存储） |
 
 两端共享 `@lx/core`（歌曲模型、歌词解析、`webdav-merge`、内置音乐 API 工具）与网易云 / QQ 音乐 provider 逻辑。
 
@@ -24,13 +24,13 @@
 | **每日推荐** | 前端页面 | `DailyRecommendScreen` |
 | **私人 FM** | 前端 FM 逻辑 | `PersonalFmScreen`（约 640 行） |
 | **播放** | 浏览器 Audio + playerEngine | react-native-track-player + `playerService` |
-| **歌词** | 前端滚动歌词 + 卡拉 OK | `LyricView`（587 行）+ `KaraokeLyricLine` + `lyricSettingsStore` |
+| **歌词** | 前端滚动歌词 + 逐字卡拉 OK | `LyricView`（587 行，行级高亮：纯色 + 缩放动画，不做逐字填充）+ `lyricSettingsStore` |
 | **本地音乐** | Rust 目录扫描 + 元数据 | `localMusicService` + RN-FS + 权限 + jaudiotagger 写回 |
 | **缓存** | 浏览器缓存 | `cacheService` + `CachedImage`（Glide）+ `playbackUrlCache` |
-| **下载** | Rust 文件操作 | `downloadService` + `DownloadScreen` |
+| **下载** | Rust 文件操作 | `downloadService` + `DownloadScreen`（串行队列；暂停即删半成品、整曲重下，无断点续传） |
 | **历史** | Rust JSON | `historyStore` + `useHistoryStore` |
-| **WebDAV 同步** | 前端 `withSyncLock` | `webdavSyncService`（约 1000 行）+ `webdavStore` |
-| **账号** | Cookie + 二维码登录 | `wyQrLoginService` / `QrLoginView` + AsyncStorage |
+| **WebDAV 同步** | 前端 `withSyncLock` | `webdavSyncService`（约 1000 行；远端根 `/AuralFlow/`，读回退旧 `/LX_Music/`，上传只写新路径）+ `webdavStore` |
+| **账号** | Cookie + 二维码登录 | Cookie 粘贴登录（`NeteaseAccountCard`：剪贴板一键读取、掩码摘要、MUSIC_U 检测；无二维码扫码）+ 原生 SecureStorageModule（Keystore） |
 | **主题** | `themeStore`（亮 / 暗 / 跟随系统） | `themeStore`（同） |
 | **B 站** | biliService + biliAccountStore | `biliService`（约 800 行）+ `biliAccountStore`（LRU 收藏夹） |
 | **自定义音源** | 前端运行时 | `customSourceRuntime` + `CustomSourceScreen` |
@@ -88,8 +88,8 @@
 | --- | --- |
 | 核心播放 | 100% |
 | 搜索 | ~100% |
-| 歌词 | ~95%（移动端无独立桌面歌词窗口，但有 Android 浮窗歌词） |
-| 账号登录 | 100% |
+| 歌词 | ~95%（移动端行级高亮，无逐字卡拉 OK；无独立桌面歌词窗口，但有 Android 浮窗歌词） |
+| 账号登录 | ~95%（移动端仅 Cookie 粘贴登录，无二维码扫码） |
 | 歌单与收藏 | 100% |
 | 本地音乐 | ~95% |
 | 内容浏览 | 100% |

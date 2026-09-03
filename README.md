@@ -2,7 +2,7 @@
 
 一款跨平台在线音乐播放器，桌面端与 Android 移动端通过共享核心包 `@lx/core` 复用领域模型与平台无关逻辑，功能高度对齐，并参考 **lx-music** 打磨播放器、歌词与歌单核心体验。
 
-> 版本 0.1.0 · pnpm monorepo · ~410 源文件 · ~82,200 行代码 · 远端仓库 https://github.com/0nini00/auralflow.git
+> 版本 0.1.0 · pnpm monorepo · ~410 源文件 · ~75,000 行代码 · 远端仓库 https://github.com/0nini00/auralflow.git
 
 ## 功能特性矩阵
 
@@ -15,13 +15,13 @@
 | 推荐 / FM | 每日推荐、私人 FM（下一首预取、切歌秒开）、排行榜 |
 | 播放 | 播放队列、下一首 / 稍后播放（独立插播暂存区）、4 种播放模式（顺序 / 列表循环 / 单曲循环 / 随机去重）、倍速、音质切换、进度拖动 |
 | 全屏沉浸播放器 | 封面页 / 歌词页 / 进度 / 控制栏 / 更多菜单 / 评论 / 音质切换 / 睡眠定时 |
-| 歌词 | 滚动跟随（手动滚动暂停 3 秒恢复）、逐字卡拉 OK（YRC / QRC / KRC）、译文合并、简繁转换、字号 / 颜色 / 字体 / 对齐 / 字重 / 行距 / 动效自定义 |
+| 歌词 | 滚动跟随（手动滚动暂停 3 秒恢复）、逐字卡拉 OK（YRC / QRC / KRC，解析层两端一致；桌面端逐字渲染，移动端为行级高亮）、译文合并、简繁转换、字号 / 颜色 / 字体 / 对齐 / 字重 / 行距 / 动效自定义 |
 | 本地音乐 | 扫描 + 手动选歌、内嵌封面 / 歌词提取、无内嵌回退 `.lrc` 与 `folder.jpg`、可写回标题 / 歌手 / 封面 / 歌词标签 |
-| 缓存 | 封面 / 歌词 / 音频三级缓存，URL MD5 命名；封面音频 immutable + LRU 回收（默认 100MB），歌词 30 天过期；可缓存音源音频落盘离线即开 |
+| 缓存 | 封面 / 歌词 / 音频三级缓存，URL MD5 命名；封面 / 音频 immutable（移动端 100MB LRU 回收，桌面端为 Rust 三层媒体缓存），歌词 30 天过期；可缓存音源音频落盘离线即开 |
 | 下载 | 串行队列、5 级音质（128 / 192 / 320 / FLAC / Hi-Res）、实时进度速度、暂停 / 继续 / 取消、下载后嵌入 ID3 + 旁挂 `.lrc` |
 | 播放历史 | 分时间记录（今天 / 昨天 / 日期）、同日同曲去重、跨天保留、31 天滚动、上限 2000 条 |
-| WebDAV 同步 | 远端 `LX_Music/` 目录，`playlists.json` + `user_apis.json`，上传 / 下载 / 合并，云端较旧拦截 + 强制下载，移动端可选启动自动同步 |
-| 账号 | 网易云二维码登录、B站 Cookie 登录 |
+| WebDAV 同步 | 远端 `/AuralFlow/` 目录（读取兼容旧 `LX_Music/`），`playlists.json` v3 + `user_apis.json` v2，上传 / 下载 / 合并，下载前本地备份、云端较旧拦截 + 强制下载，移动端可选启动自动同步 |
+| 账号 | 网易云登录（桌面端扫码 / Cookie，移动端 Cookie 粘贴）、B站 Cookie 粘贴（桌面端支持 refresh_token 自动续期） |
 | 主题 | 浅色 / 深色 / 跟随系统、强调色、自定义背景、夜间模式沉浸页配色 |
 
 ### 桌面端独有
@@ -29,10 +29,10 @@
 | 能力 | 说明 |
 |---|---|
 | 浮动歌词窗口 | 透明置顶 WebView，150ms 轮询穿透悬停，token / epoch 防竞态 |
-| 系统托盘 | 托盘菜单控制，关闭主窗口最小化到托盘 |
-| 全局快捷键 | 沉浸播放页内自动屏蔽避免误触 |
+| 系统托盘 | 托盘菜单经 Rust 发出 `native-action` 事件由前端执行播放，关闭主窗口最小化到托盘 |
+| 窗口内键盘快捷键 | WebView 内 keydown 快捷键（非系统级全局热键），沉浸播放页内自动屏蔽避免误触 |
 | Rust 文件操作 | 本地音频标签读写（audiotags / lofty 双库）、目录扫描（walkdir） |
-| 媒体缓存 | 三层 2GiB LRU 缓存 |
+| 媒体缓存 | Rust 三层缓存：歌曲音频 2GiB 常量 LRU（按 mtime 淘汰）、封面 / B站不限量；前端 persistentCache 索引分层 TTL（URL 6h / B站 30min / 本地文件 365d / 歌词 30 天 / 空结果 7d） |
 | 可变下载目录 | 下载目录可配置 |
 | 沉浸页 cursor 特效 | 播放页鼠标交互特效 |
 
@@ -81,11 +81,11 @@ flowchart TD
 | 框架 | Tauri v2 (Rust) + React 18.3.1 | React Native 0.86 + React 19.2.3 |
 | 构建 | Vite 5（端口 1420 固定，manualChunks） | Metro（自定义 resolveRequest）+ Gradle |
 | 语言 | TypeScript 5.6 | TypeScript 5.8 |
-| 状态管理 | Zustand 5（~16 store） | Zustand 5（15 store） |
+| 状态管理 | Zustand 5（16 store） | Zustand 5（17 store） |
 | 播放 | HTMLAudio + rAF + 余弦淡入淡出 | react-native-track-player (ExoPlayer) |
-| 导航 | BrowserRouter v6（12 路由） | Drawer > NativeStack > BottomTabs + MaterialTopTabs |
-| 后端 | Rust 17 文件 2747 行 / 39 IPC 命令 | Android 原生 10 Java + 2 Kotlin 2111 行 |
-| 共享核心 | `@lx/core` 18 文件 2255 行 TS | `@lx/tauri-bridge` 345 行（桌面 IPC 桥） |
+| 导航 | BrowserRouter v6（13 具名路由 + index + 兜底） | Drawer > NativeStack > BottomTabs + MaterialTopTabs |
+| 后端 | Rust 18 文件 3304 行 / 35 IPC 命令 | Android 原生 12 Java + 2 Kotlin 2496 行 |
+| 共享核心 | `@lx/core` 18 文件 1981 行 TS | `@lx/tauri-bridge` 346 行（桌面 IPC 桥，位于 `desktop/packages/`） |
 
 ## 项目结构
 
@@ -95,15 +95,15 @@ auralflow/                      pnpm monorepo · 4 workspace 包
 │   ├── src/
 │   │   ├── screens/            首页 / 搜索 / 我的 / 播放器 / 设置 / 沉浸歌词
 │   │   ├── services/           播放 / 下载 / 缓存 / WebDAV / 本地音乐 / 音源
-│     │   ├── stores/           15 个 Zustand store
+│     │   ├── stores/           17 个 Zustand store
 │   │   ├── player/             playbackService.ts 后台播放
 │   │   └── navigation/         Drawer > NativeStack > BottomTabs + MaterialTopTabs
-│   └── android/                Android 原生（6 模块 + lx_bridge）
+│   └── android/                Android 原生（8 模块 + lx_bridge）
 ├── desktop/                    @auralflow/desktop — Tauri v2 桌面端
 │   ├── src/                    React 18 前端（播放引擎 / 歌词 / 音源 / WebDAV）
-│   ├── src-tauri/              Rust 后端 17 文件 2747 行 / 39 IPC 命令
-│   └── packages/tauri-bridge/  @lx/tauri-bridge IPC 桥 345 行
-├── packages/core/              @lx/core — 共享核心 18 文件 2255 行 TS
+│   ├── src-tauri/              Rust 后端 18 文件 3304 行 / 35 IPC 命令
+│   └── packages/tauri-bridge/  @lx/tauri-bridge IPC 桥 346 行
+├── packages/core/              @lx/core — 共享核心 18 文件 1981 行 TS（唯一带 vitest 的包）
 └── package.json                workspace 根配置与统一脚本
 ```
 
@@ -139,6 +139,8 @@ pnpm mobile:build:debug   # 生成 debug APK
 pnpm desktop:typecheck
 pnpm mobile:typecheck
 pnpm mobile:lint
+pnpm core:typecheck
+pnpm core:test             # vitest，SSRF 守卫回归
 
 # ── Rust 检查 ──
 cargo check --manifest-path desktop/src-tauri/Cargo.toml
