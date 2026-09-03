@@ -123,7 +123,15 @@ async function getLyricsForSingle(music: MusicInfo): Promise<LyricResponse> {
     let result: LyricResponse;
 
     if (music.source === 'bili') {
-      result = { lines: [], error: '暂无歌词' };
+      // B站:先取视频 CC 字幕当歌词,无字幕再走外部兜底(LRC Lib → 网易搜索)
+      const provider = getSource('bili');
+      try {
+        const lyricResult = await provider?.getLyric(music);
+        const lines = lyricResult ? parseProviderLyrics(lyricResult) : [];
+        result = lines.length > 0 ? { lines } : await searchAndMatchLyrics(music);
+      } catch {
+        result = await searchAndMatchLyrics(music);
+      }
     } else if (music.source === 'local') {
       if ('lyrics' in music && music.lyrics) {
         const lyricFormat = normalizeLyricFormat((music as { lyricFormat?: string }).lyricFormat);
@@ -264,8 +272,59 @@ function scoreLyricContentQuality(lines: LyricLine[]): number {
 
 const MAX_LYRIC_CANDIDATES_TO_TRY = 3;
 
+/**
+ * LRC Lib(https://lrclib.net)按「标题 + 歌手 + 时长」直查。
+ *
+ * 返回三态:
+ *  - `null`         无结果或请求不可用(继续走网易搜索兜底)
+ *  - `"instrumental"` 命中且明确为纯音乐(无词,直接结束,不必再搜)
+ *  - `LyricLine[]`  命中歌词
+ */
+async function fetchLrclibLyrics(
+  music: MusicInfo,
+): Promise<LyricLine[] | "instrumental" | null> {
+  const title = music.name?.trim();
+  const artist = music.singer?.trim();
+  if (!title || !artist) return null;
+
+  const params = new URLSearchParams({
+    artist_name: artist,
+    track_name: title,
+  });
+  const interval = music.interval;
+  const durationSec = typeof interval === "number" && Number.isFinite(interval) ? Math.round(interval) : 0;
+  if (durationSec > 0) params.set("duration", String(durationSec));
+
+  const response = await tauriFetch(`https://lrclib.net/api/get?${params.toString()}`, {
+    method: "GET",
+    headers: {
+      "User-Agent": "AuralFlow/0.1 (https://github.com/0nini00/auralflow)",
+    },
+  });
+  if (!response.ok) return null;
+  const data = (await response.json()) as {
+    syncedLyrics?: string;
+    plainLyrics?: string;
+    instrumental?: boolean;
+  };
+  if (data.instrumental) return "instrumental";
+  const source = data.syncedLyrics || data.plainLyrics;
+  if (!source) return null;
+  const lines = parseLyricSource({ content: source });
+  return lines.length > 0 ? lines : null;
+}
+
 async function searchAndMatchLyrics(music: MusicInfo): Promise<LyricResponse> {
   try {
+    // 先试 LRC Lib:标题/歌手直查,命中即返回,省去网易搜索+打分
+    try {
+      const lrclibResult = await fetchLrclibLyrics(music);
+      if (lrclibResult === "instrumental") return { lines: [], error: "暂无歌词" };
+      if (lrclibResult && lrclibResult.length > 0) return { lines: lrclibResult };
+    } catch {
+      // LRC Lib 不可用(网络/限流)时静默走网易搜索兜底
+    }
+
     const keyword = `${music.name} ${music.singer}`.trim();
     if (!keyword) {
       return { lines: [], error: '歌曲信息不完整' };
