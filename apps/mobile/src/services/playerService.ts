@@ -106,33 +106,44 @@ export async function resolveUrlWithCustomSource(
     throw new Error("没有可尝试的音质档位");
   }
 
-  const attempts: Array<Promise<{ url: string; quality: string }>> = [];
+  // 按前端排列顺序逐源尝试,每源 2.5s 预算;达标即定稿,不试后面的源。
+  // (对齐桌面端 customSourceBackend 2026-09:前端拖拽排序 = 播放优先级)
+  const targetQuality = normalizePlaybackQuality(qualities[0]);
+  let lastError: unknown;
   for (const source of enabledSources) {
-    for (const quality of qualities) {
-      attempts.push(
-        // 取链期间脚本主动 send(updateAlert) 时写入 store，让全局更新弹窗能感知
-        requestCustomSourceMusicUrl(source, song, quality, (alert) => {
-          useCustomSourceStore.getState().applyRuntimeUpdateAlert(source.id, alert);
-        }).then((result) => ({
-          url: result.url,
-          // 与网关通道同样归一化：脚本可能回传 "flac24bit" 之外的别名
-          quality: normalizePlaybackQuality(result.quality || quality),
-        })),
-      );
-    }
-  }
+    // 该源在本轮音质档内从高到低试,拿到该源最优可用档。
+    const sourceAttempt = (async () => {
+      const errors: string[] = [];
+      for (const quality of qualities) {
+        try {
+          // 取链期间脚本主动 send(updateAlert) 时写入 store,让全局更新弹窗能感知
+          const result = await requestCustomSourceMusicUrl(source, song, quality, (alert) => {
+            useCustomSourceStore.getState().applyRuntimeUpdateAlert(source.id, alert);
+          });
+          return {
+            url: result.url,
+            // 与网关通道同样归一化:脚本可能回传 "flac24bit" 之外的别名
+            quality: normalizePlaybackQuality(result.quality || quality),
+          };
+        } catch (error) {
+          errors.push(`${quality}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      throw new Error(`${source.name} 全部音质失败:${errors.join(" | ")}`);
+    })();
 
-  return raceForBestQuality(attempts, {
-    getQuality: (value) => value.quality,
-    upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
-    ceiling: qualities[0],
-    formatError: (errors) => {
-      const detail = errors
-        .map((error) => (error instanceof Error ? error.message : String(error)))
-        .join(" | ");
-      return new Error(detail || "所有自定义音源均解析失败");
-    },
-  });
+    const hit = await withBudget(sourceAttempt, PRIMARY_BUDGET_MS);
+    if (hit && hit.quality === targetQuality) {
+      // 该源在预算内给出本轮最高档 → 定稿,不再试后面的源。
+      return hit;
+    }
+    // 未命中:超时或音质不足本轮期望 → 记一笔并轮下一个源。
+    lastError = hit
+      ? new Error(`${source.name} 音质不足(${hit.quality} < ${targetQuality})`)
+      : new Error(`${source.name} 解析超时`);
+  }
+  const detail = lastError ? (lastError instanceof Error ? lastError.message : String(lastError)) : "";
+  throw new Error(detail || "所有自定义音源均解析失败");
 }
 
 /**
