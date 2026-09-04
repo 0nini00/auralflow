@@ -53,7 +53,7 @@ export function DownloadsView() {
     toLocalMusic,
 
   } = useDownloadStore();
-  const play = usePlayerStore((s) => s.play);
+  const playQueue = usePlayerStore((s) => s.playQueue);
 
   useEffect(() => {
     initDownloadListeners().catch(() => undefined);
@@ -61,7 +61,9 @@ export function DownloadsView() {
 
   const handlePlay = (task: DownloadTask) => {
     const localMusic = toLocalMusic(task);
-    if (localMusic) play(localMusic).catch(() => undefined);
+    // 下载目录点播 = 新播放上下文:走 playQueue(单曲队列),自动退出 FM,
+    // 避免在 FM 中听下载曲播完/切歌被拉回推荐流。
+    if (localMusic) playQueue([localMusic]).catch(() => undefined);
   };
 
   return (

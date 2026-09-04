@@ -129,7 +129,7 @@ async function advanceAfterTrackFinished(): Promise<void> {
     if (queue.length > 0 || playbackContext.type === "personalFm") {
       const { playNext } = await import("../services/playerService");
       try {
-        await playNext();
+        await playNext(true);  // 曲末自动推进:同失败跳过,防被当补跳多跳一首
       } catch (error) {
         // FM 拉新失败不静默：写入 error 让 UI 可见，对齐桌面端「切歌失败不静默」
         const message = error instanceof Error ? error.message : String(error);
