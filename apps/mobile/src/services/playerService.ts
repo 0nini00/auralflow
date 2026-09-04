@@ -175,14 +175,26 @@ async function raceQualityTier(
     },
   );
 
-  return raceForBestQuality([gatewayAttempt, customAttempt], {
+  // 懒切(对齐桌面端 playbackResolver):网关先行 2.5s,达标即定稿,自定义源零唤醒
+  const gatewayHit = await withBudget(gatewayAttempt, PRIMARY_BUDGET_MS);
+  if (gatewayHit && gatewayHit.quality === normalizePlaybackQuality(qualities[0])) {
+    return gatewayHit;
+  }
+
+  const gatewayRetry = gatewayHit
+    ? Promise.resolve(gatewayHit)
+    : gatewayAttempt.catch((error: unknown) => {
+        throw new Error(error instanceof Error ? error.message : String(error));
+      });
+
+  return raceForBestQuality([gatewayRetry, customAttempt], {
     getQuality: (value) => value.quality,
     upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
     ceiling: qualities[0],
     formatError: (errors) => {
       const detail = errors
         .map((error) => (error instanceof Error ? error.message : String(error)))
-        .join("；");
+        .join(";");
       return new Error(detail || "该音质档位全部解析失败");
     },
   });
@@ -192,6 +204,22 @@ async function raceQualityTier(
  * 解析单首歌曲的播放地址（优先命中预读缓存）。
  * 解析成功后写入预读缓存，供 playNext/playPrevious 直接复用。
  */
+/**
+ * 给 Promise 加预算:超时返回 null(不抛),由调用方决定是否唤醒兜底。
+ */
+async function withBudget<T>(task: Promise<T>, budgetMs: number): Promise<T | null> {
+  return new Promise<T | null>((resolve) => {
+    const timer = setTimeout(() => resolve(null), budgetMs);
+    task.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      () => { clearTimeout(timer); resolve(null); },
+    );
+  });
+}
+
+/** 懒切预算:内置网关先单独跑,超时/不足才唤醒自定义源(对齐桌面端 2500ms)。 */
+const PRIMARY_BUDGET_MS = 2500;
+
 async function resolveSongUrl(
   song: MusicInfo,
   qualityOverride?: string | null,
