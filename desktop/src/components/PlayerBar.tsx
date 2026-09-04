@@ -13,6 +13,7 @@ import { formatTime } from '@/utils/formatTime';
 import {
   Play,
   Pause,
+  Loader2,
   SkipBack,
   SkipForward,
   Volume2,
@@ -314,7 +315,9 @@ export const PlayerBar: React.FC = () => {
                 className="af-play-button"
                 aria-label={isPlaying ? '暂停' : '播放'}
               >
-                {isPlaying ? (
+                {status === "loading" ? (
+                  <Loader2 size={20} className="af-spin" />
+                ) : isPlaying ? (
                   <Pause size={20} fill="currentColor" />
                 ) : (
                   <Play size={20} fill="currentColor" />
