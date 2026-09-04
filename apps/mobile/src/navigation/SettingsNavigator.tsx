@@ -55,6 +55,9 @@ export function SettingsNavigator() {
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
+  const backgroundImageUri = useThemeStore((state) => state.backgroundImageUri);
+  const hasBackground = Boolean(backgroundImageUri);
+  const isDark = getResolvedTheme(mode, systemTheme) === "dark";
   const palette = useMemo(
     () => getThemePalette(getResolvedTheme(mode, systemTheme), accentColor),
     [mode, systemTheme, accentColor],
@@ -62,7 +65,7 @@ export function SettingsNavigator() {
   useSettingsBackInterceptor();
 
   return (
-    <View style={[styles.root, { backgroundColor: palette.background }]}>
+    <View style={[styles.root, { backgroundColor: hasBackground ? (isDark ? "rgba(10,10,14,0.55)" : "rgba(255,255,255,0.62)") : palette.background }]}>
       <SettingsTopBar palette={palette} />
       <ActiveSettingsPage />
     </View>

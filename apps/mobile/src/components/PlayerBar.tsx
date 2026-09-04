@@ -70,6 +70,9 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
   const themeMode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
+  const backgroundImageUri = useThemeStore((state) => state.backgroundImageUri);
+  const hasBackground = Boolean(backgroundImageUri);
+  const isDark = getResolvedTheme(themeMode, systemTheme) === "dark";
   const palette = useMemo(
     () => getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor),
     [themeMode, systemTheme, accentColor],
@@ -219,7 +222,7 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
           // 固定高度 + 底部安全区延伸（push 页手势条区域同底色）
           height: PLAYER_BAR_HEIGHT + bottomInset,
           paddingBottom: bottomInset,
-          backgroundColor: palette.surface,
+          backgroundColor: hasBackground ? (isDark ? "rgba(26,26,26,0.72)" : "rgba(255,255,255,0.55)") : palette.surface,
           borderTopColor: palette.border,
         },
       ]}
