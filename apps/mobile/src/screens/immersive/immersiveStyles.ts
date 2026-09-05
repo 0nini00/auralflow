@@ -17,6 +17,26 @@ export const styles = StyleSheet.create({
 
   },
 
+  // GestureHandlerRootView：RN Modal 是独立窗口，Android 上手势需要自己的 RootView
+  flexFill: {
+    flex: 1,
+  },
+
+  // 顶栏宿主：topBar 组件内部是 absolute 定位，宿主铺满根容器保持坐标不变
+  topBarHost: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 10,
+  },
+
+  // 真实封面显隐宿主（封面飞行浮层交叉淡换期间用）
+  coverRevealHost: {
+    flex: 1,
+  },
+
   coverFrame: {
 
     borderRadius: radius.sm,

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, Modal, Pressable, StyleSheet, Text, TouchableWithoutFeedback, View } from "react-native";
+import { FlatList, Modal, Pressable, StyleSheet, Text, TouchableWithoutFeedback, View, useWindowDimensions } from "react-native";
 import type { MusicInfo } from "@lx/core";
 import type { ThemePalette } from "@/stores/themeStore";
 import type { ImmersiveQueuePanelModel } from "@/services/playerQueueModel";
@@ -15,9 +15,12 @@ import { SongItem } from "@/components/SongList";
 import { ActionMenuSheet, type ActionMenuAnchor, type ActionMenuItem } from "@/components/ActionMenuSheet";
 import { AddToLocalPlaylistModal } from "@/components/AddToLocalPlaylistModal";
 import { DownloadQualityModal } from "@/components/DownloadQualityModal";
+import { BottomSheet } from "@/components/BottomSheet";
 import { Touchable } from "@/components/Touchable";
 
 const ROW_HEIGHT = 64;
+/** sheet 形态的面板高度占窗口比例（对齐 lx PlayerPlaylist 的比例式高度） */
+const QUEUE_SHEET_HEIGHT_RATIO = 0.72;
 
 export interface QueueModalProps {
   visible: boolean;
@@ -35,6 +38,14 @@ export interface QueueModalProps {
    * 否则新页面被盖住不可见；迷你播放栏场景无覆盖层，不传即可。
    */
   onRequestNavigate?: () => void;
+  /**
+   * 呈现形态：
+   * - "modal"（默认）：RN Modal 居中卡片。用于迷你播放栏（宿主容器不满屏，
+   *   无法承载应用内覆盖层）。
+   * - "sheet"：应用内底部弹层（BottomSheet，非 Modal）。用于全屏播放页——
+   *   队列面板与子弹窗不再构成嵌套 Modal，根除 Android 嵌套 Modal 白屏问题。
+   */
+  presentation?: "modal" | "sheet";
 }
 
 /**
@@ -54,8 +65,10 @@ export function QueueModal({
   onRemoveItem,
   onClear,
   onRequestNavigate,
+  presentation = "modal",
 }: QueueModalProps) {
   const listRef = useRef<FlatList<MusicInfo>>(null);
+  const { height: windowHeight } = useWindowDimensions();
   const addToQueue = usePlayerStore((state) => state.addToQueue);
   const playNextInQueue = usePlayerStore((state) => state.playNextInQueue);
   const downloadSong = useDownloadStore((state) => state.downloadSong);
@@ -184,6 +197,120 @@ export function QueueModal({
     return items;
   }, [actionSong, queue, currentItemIndex, addToQueue, playNextInQueue, onRemoveItem, onRequestNavigate]);
 
+  // 队列面板主体（modal/sheet 两形态共用）：标题行 + 虚拟化列表
+  const renderPanel = (sheetMode: boolean) => (
+    <Pressable
+      onPress={() => undefined}
+      style={
+        sheetMode
+          ? [styles.sheetContent, { backgroundColor: palette.background }]
+          : [styles.content, { backgroundColor: palette.background, borderColor: palette.border }]
+      }
+    >
+      <View style={styles.header}>
+        <View style={styles.titleWrap}>
+          <Text style={[styles.title, { color: palette.text }]}>{queueModel.title}</Text>
+          <Text style={[styles.meta, { color: palette.textMuted }]} numberOfLines={1}>
+            {queueModel.summary}
+          </Text>
+        </View>
+        <View style={styles.actions}>
+          <Touchable
+            style={[
+              styles.clearButton,
+              { backgroundColor: palette.surface },
+              !queueModel.management.canClearQueue && styles.clearButtonDisabled,
+            ]}
+            onPress={onClear}
+            disabled={!queueModel.management.canClearQueue}
+            accessibilityRole="button"
+            accessibilityLabel={queueModel.management.clearLabel}
+          >
+            <Text style={[styles.clearText, { color: palette.danger }]}>
+              {queueModel.management.clearLabel}
+            </Text>
+          </Touchable>
+          <Touchable
+            style={[styles.closeButton, { backgroundColor: palette.surface }]}
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel={queueModel.closeLabel}
+          >
+            <Text style={[styles.closeText, { color: palette.textMuted }]}>{queueModel.closeLabel}</Text>
+          </Touchable>
+        </View>
+      </View>
+      <FlatList
+        ref={listRef}
+        data={queue}
+        keyExtractor={(_item, index) => `${index}`}
+        style={[styles.list, sheetMode ? { height: Math.round(windowHeight * QUEUE_SHEET_HEIGHT_RATIO) - 60 } : undefined]}
+        contentContainerStyle={styles.listContent}
+        getItemLayout={(_data, index) => ({ length: ROW_HEIGHT, offset: ROW_HEIGHT * index, index })}
+        renderItem={({ item, index }) => (
+          <SongItem
+            song={item}
+            index={index}
+            onRowPress={(_song, index) => onPlayItem(index)}
+            isPlaying={queueModel.items[index]?.isCurrent ?? false}
+            showCover
+            showDuration
+            hideSourceTag
+            showLikeAction
+            showMoreAction
+            onOpenMenu={handleRowMenu}
+          />
+        )}
+      />
+    </Pressable>
+  );
+
+  // sheet 形态（全屏播放页）：应用内底部弹层，与子弹窗（Modal）不再嵌套
+  if (presentation === "sheet") {
+    return (
+      <>
+        <BottomSheet visible={visible} onClose={onClose} palette={palette} maxHeightRatio={QUEUE_SHEET_HEIGHT_RATIO}>
+          {renderPanel(true)}
+        </BottomSheet>
+
+        <ActionMenuSheet
+          visible={menuVisible}
+          title={actionSong?.name ?? ""}
+          items={menuItems}
+          anchor={menuAnchor}
+          onClose={() => {
+            setMenuVisible(false);
+            setMenuAnchor(null);
+            setSubSheetOpen(false);
+          }}
+        />
+        {actionSong ? (
+          <AddToLocalPlaylistModal
+            visible={addToPlaylistVisible}
+            song={actionSong}
+            onClose={() => {
+              setAddToPlaylistVisible(false);
+              setSubSheetOpen(false);
+            }}
+          />
+        ) : null}
+        <DownloadQualityModal
+          visible={downloadVisible}
+          song={actionSong}
+          pendingQuality={pendingQuality}
+          defaultQuality={defaultQuality}
+          onClose={() => {
+            if (!downloading) {
+              setDownloadVisible(false);
+              setSubSheetOpen(false);
+            }
+          }}
+          onDownload={handleDownloadSelected}
+        />
+      </>
+    );
+  }
+
   return (
     <>
       <Modal
@@ -194,63 +321,7 @@ export function QueueModal({
       >
         <TouchableWithoutFeedback accessibilityRole="button" accessibilityLabel="关闭播放列表" onPress={onClose}>
           <View style={styles.overlay}>
-            <Pressable onPress={() => undefined} style={[styles.content, { backgroundColor: palette.background, borderColor: palette.border }]}>
-              <View style={styles.header}>
-              <View style={styles.titleWrap}>
-                <Text style={[styles.title, { color: palette.text }]}>{queueModel.title}</Text>
-                <Text style={[styles.meta, { color: palette.textMuted }]} numberOfLines={1}>
-                  {queueModel.summary}
-                </Text>
-              </View>
-              <View style={styles.actions}>
-                <Touchable
-                  style={[
-                    styles.clearButton,
-                    { backgroundColor: palette.surface },
-                    !queueModel.management.canClearQueue && styles.clearButtonDisabled,
-                  ]}
-                  onPress={onClear}
-                  disabled={!queueModel.management.canClearQueue}
-                  accessibilityRole="button"
-                  accessibilityLabel={queueModel.management.clearLabel}
-                >
-                  <Text style={[styles.clearText, { color: palette.danger }]}>
-                    {queueModel.management.clearLabel}
-                  </Text>
-                </Touchable>
-                <Touchable
-                  style={[styles.closeButton, { backgroundColor: palette.surface }]}
-                  onPress={onClose}
-                  accessibilityRole="button"
-                  accessibilityLabel={queueModel.closeLabel}
-                >
-                  <Text style={[styles.closeText, { color: palette.textMuted }]}>{queueModel.closeLabel}</Text>
-                </Touchable>
-              </View>
-            </View>
-            <FlatList
-              ref={listRef}
-              data={queue}
-              keyExtractor={(_item, index) => `${index}`}
-              style={styles.list}
-              contentContainerStyle={styles.listContent}
-              getItemLayout={(_data, index) => ({ length: ROW_HEIGHT, offset: ROW_HEIGHT * index, index })}
-              renderItem={({ item, index }) => (
-                <SongItem
-                  song={item}
-                  index={index}
-                  onRowPress={(_song, index) => onPlayItem(index)}
-                  isPlaying={queueModel.items[index]?.isCurrent ?? false}
-                  showCover
-                  showDuration
-                  hideSourceTag
-                  showLikeAction
-                  showMoreAction
-                  onOpenMenu={handleRowMenu}
-                />
-              )}
-            />
-          </Pressable>
+            {renderPanel(false)}
           </View>
         </TouchableWithoutFeedback>
       </Modal>
@@ -304,6 +375,11 @@ const styles = StyleSheet.create({
     maxHeight: "78%",
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+  },
+  sheetContent: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
     overflow: "hidden",
   },
   header: {

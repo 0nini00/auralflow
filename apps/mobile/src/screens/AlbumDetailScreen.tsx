@@ -1,8 +1,8 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { radius, spacing, typography } from "@/theme/tokens";
+import { layout, radius, spacing, typography } from "@/theme/tokens";
 import {
+  FlatList,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -12,7 +12,7 @@ import type { MusicInfo } from "@lx/core";
 import { DetailHero } from "@/components/DetailHero";
 import { PlaybackActionButtons } from "@/components/PlaybackActionButtons";
 import { BatchDownloadModal } from "@/components/BatchDownloadModal";
-import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
+import { ScreenScaffold } from "@/components/ScreenScaffold";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
 import { SectionHeader } from "@/components/SectionHeader";
@@ -28,7 +28,6 @@ import { runPlaybackUiAction } from "@/services/playbackUiAction";
 import {
   buildContentDetailPlaybackActions,
   findContentDetailCurrentSongIndex,
-  getContentDetailLocateScrollOffset,
   shuffleContentDetailSongs,
 } from "@/services/contentDetailPlaybackActions";
 import { buildContentDescriptionModel } from "@/services/contentDescriptionModel";
@@ -68,7 +67,7 @@ export function AlbumDetailScreen({
   const palette = getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor);
   const currentSong = usePlayerStore((state) => state.currentSong);
 
-  const scrollRef = useRef<ScrollView>(null);
+  const listRef = useRef<FlatList<MusicInfo> | null>(null);
   const requestSequenceRef = useRef(0);
   const currentIdRef = useRef(album.id);
   currentIdRef.current = album.id;
@@ -193,10 +192,7 @@ export function AlbumDetailScreen({
   const handleLocateCurrentSong = () => {
     if (!playbackActions.canLocateCurrentSong || currentSongIndex < 0) return;
     setLocatedSongIndex(currentSongIndex);
-    scrollRef.current?.scrollTo({
-      y: getContentDetailLocateScrollOffset(currentSongIndex),
-      animated: true,
-    });
+    listRef.current?.scrollToIndex({ index: currentSongIndex, animated: true, viewPosition: 0 });
   };
 
   const handleOpenArtist = () => {
@@ -244,26 +240,31 @@ export function AlbumDetailScreen({
 
   return (
     <ScreenScaffold>
-      <ScreenScrollView innerRef={scrollRef}>
-        <PlaybackErrorState
-          message={playbackError}
-          onDismiss={() => setPlaybackError(null)}
-        />
-        <DetailHero
-          imageUrl={heroImageUrl}
-          title={heroTitle}
-          subtitle={artistRoute ? undefined : albumInfo.artistName}
-          metadata={heroMetadata}
-          actions={heroActions}
-        />
-
-        {currentState.kind === "loading" ? (
-          <LoadingState label="正在加载专辑详情" />
-        ) : currentState.kind === "error" ? (
-          <ErrorState message={currentState.message} onRetry={() => void load()} />
-        ) : (
+      <SongList
+        virtualized
+        listRef={listRef}
+        songs={songs}
+        onPlay={handlePlay}
+        highlightedIndex={
+          locatedSongIndex ?? (currentSongIndex >= 0 ? currentSongIndex : null)
+        }
+        hideSourceTag
+        contentContainerStyle={styles.listContent}
+        ListHeaderComponent={
           <>
-            {descriptionModel.show ? (
+            <PlaybackErrorState
+              message={playbackError}
+              onDismiss={() => setPlaybackError(null)}
+            />
+            <DetailHero
+              imageUrl={heroImageUrl}
+              title={heroTitle}
+              subtitle={artistRoute ? undefined : albumInfo.artistName}
+              metadata={heroMetadata}
+              actions={heroActions}
+            />
+
+            {currentState.kind === "success" && descriptionModel.show ? (
               <View style={styles.section}>
                 <SectionHeader title="简介" />
                 <Text
@@ -285,25 +286,23 @@ export function AlbumDetailScreen({
               </View>
             ) : null}
 
-            <View style={styles.section}>
-              <SectionHeader title={playbackActions.songSectionTitle} />
-              {songs.length > 0 ? (
-                <SongList
-                  songs={songs}
-                  onPlay={handlePlay}
-                  emptyText={playbackActions.emptySongsText}
-                  highlightedIndex={
-                    locatedSongIndex ?? (currentSongIndex >= 0 ? currentSongIndex : null)
-                  }
-                  hideSourceTag
-                />
-              ) : (
-                <EmptyState title={playbackActions.emptySongsText} />
-              )}
-            </View>
+            {currentState.kind === "success" ? (
+              <View style={styles.section}>
+                <SectionHeader title={playbackActions.songSectionTitle} />
+              </View>
+            ) : null}
           </>
-        )}
-      </ScreenScrollView>
+        }
+        ListFooterComponent={
+          currentState.kind === "loading" ? (
+            <LoadingState label="正在加载专辑详情" />
+          ) : currentState.kind === "error" ? (
+            <ErrorState message={currentState.message} onRetry={() => void load()} />
+          ) : songs.length > 0 ? null : (
+            <EmptyState title={playbackActions.emptySongsText} />
+          )
+        }
+      />
       <BatchDownloadModal
         visible={batchDownloadVisible}
         songs={songs}
@@ -343,5 +342,11 @@ const styles = StyleSheet.create({
   descriptionToggleText: {
     fontSize: typography.meta,
     fontWeight: "600",
+  },
+  // 对齐 ScreenScrollView 的页面内边距约定（虚拟化列表本体即滚动容器）
+  listContent: {
+    paddingHorizontal: layout.pagePadding,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.l,
   },
 });

@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState, useEffect } from "react";
 import { KeyboardAvoidingView, Platform, StyleSheet, Text, View, Pressable, Alert, ActivityIndicator, Modal, TextInput, Image } from "react-native";
-import { radius, spacing, touch, typography } from "@/theme/tokens";
+import { layout, radius, spacing, touch, typography } from "@/theme/tokens";
 import type { MusicInfo } from "@lx/core";
 
 import { useHistoryStore } from "@/stores/historyStore";
@@ -269,13 +269,78 @@ export function LibraryScreen({
     }
   };
 
+  // 本地曲库可达上千首：走虚拟化列表（SongList 本体即滚动容器），头部内容进 ListHeaderComponent；
+  // 历史/下载/B站合集等其余分支维持 ScreenScrollView 结构
+  const isLocalVirtualList = contentModel.kind === "songList" && contentModel.songSource === "local";
+  const playbackErrorNode = (
+    <PlaybackErrorState
+      message={playbackError}
+      onDismiss={() => setPlaybackError(null)}
+    />
+  );
+  const sectionActionsNode =
+    contentModel.showClearHistory || contentModel.showLocalScan ? (
+      <View style={styles.sectionActions}>
+        {contentModel.showLocalScan && (
+          <>
+            <View style={styles.actionButtonItem}>
+              <ActionButton
+                small
+                grow
+                accessibilityLabel="扫描本地音乐"
+                onPress={handleScanLocal}
+                label="扫描本地"
+              />
+            </View>
+            <View style={styles.actionButtonItem}>
+              <ActionButton
+                small
+                grow
+                accessibilityLabel="添加本地音乐文件"
+                onPress={() => {
+                  void handleImportLocalFiles();
+                }}
+                label="添加文件"
+              />
+            </View>
+          </>
+        )}
+        {contentModel.showClearHistory && (
+          <ActionButton
+            small
+            variant="danger"
+            accessibilityLabel="清空播放历史"
+            onPress={handleClearHistory}
+            label="清空"
+          />
+        )}
+      </View>
+    ) : null;
+  const contentErrorNode = contentModel.error ? <ErrorState message={contentModel.error} /> : null;
+
   return (
     <ScreenScaffold>
-      <ScreenScrollView>
-        <PlaybackErrorState
-          message={playbackError}
-          onDismiss={() => setPlaybackError(null)}
+      {isLocalVirtualList ? (
+        <SongList
+          virtualized
+          songs={localSongs}
+          onPlay={handlePlay}
+          onEdit={handleEditLocalSong}
+          onDelete={librarySongActions.canDeleteSongs ? handleDeleteLibrarySong : undefined}
+          ListHeaderComponent={
+            <>
+              {playbackErrorNode}
+              {sectionActionsNode}
+              {contentErrorNode}
+            </>
+          }
+          contentContainerStyle={styles.listContent}
         />
+      ) : (
+      <ScreenScrollView>
+        {playbackErrorNode}
+        {sectionActionsNode}
+        {contentErrorNode}
         <Modal
           visible={Boolean(editingLocalSong)}
           animationType="slide"
@@ -363,50 +428,9 @@ export function LibraryScreen({
           </KeyboardAvoidingView>
         </Modal>
 
-        {(contentModel.showClearHistory || contentModel.showLocalScan) && (
-          <View style={styles.sectionActions}>
-            {contentModel.showLocalScan && (
-              <>
-                <View style={styles.actionButtonItem}>
-                  <ActionButton
-                    small
-                    grow
-                    accessibilityLabel="扫描本地音乐"
-                    onPress={handleScanLocal}
-                    label="扫描本地"
-                  />
-                </View>
-                <View style={styles.actionButtonItem}>
-                  <ActionButton
-                    small
-                    grow
-                    accessibilityLabel="添加本地音乐文件"
-                    onPress={() => {
-                      void handleImportLocalFiles();
-                    }}
-                    label="添加文件"
-                  />
-                </View>
-              </>
-            )}
-            {contentModel.showClearHistory && (
-              <ActionButton
-                small
-                variant="danger"
-                accessibilityLabel="清空播放历史"
-                onPress={handleClearHistory}
-                label="清空"
-              />
-            )}
-          </View>
-        )}
-
-        {contentModel.error && (
-          <ErrorState message={contentModel.error} />
-        )}
-
         {renderContent()}
       </ScreenScrollView>
+      )}
     </ScreenScaffold>
   );
 }
@@ -427,6 +451,12 @@ function LibraryDownloadsSection({ onNavigateToPlayer }: { onNavigateToPlayer: (
 }
 
 const styles = StyleSheet.create({
+  // 对齐 ScreenScrollView 的页面内边距约定（本地曲库虚拟化列表本体即滚动容器）
+  listContent: {
+    paddingHorizontal: layout.pagePadding,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.l,
+  },
   // 操作按钮独立成行放在标题下方：不再挤在 SectionHeader 右侧
   // （本地页最多 4 个按钮，塞标题旁边会换行错乱、对不齐）
   sectionActions: {

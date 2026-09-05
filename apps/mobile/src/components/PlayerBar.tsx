@@ -39,6 +39,7 @@ import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
 import { useLyricLineIndex } from "@/hooks/useLyricLineIndex";
 import { usePlayerStore } from "@/stores/playerStore";
 import { PLAYER_BAR_HEIGHT } from "@/navigation/tabLayout";
+import { setImmersiveFlySource } from "@/screens/immersive/immersiveFlySource";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, touch, typography } from "@/theme/tokens";
 
@@ -141,6 +142,10 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
     };
   }, []);
 
+  // 测量迷你栏封面在窗口中的位置，供播放页「封面飞入/飞回」转场取起点。
+  // onLayout 在布局变化（键盘弹出/隐藏、底栏挂载）时会重新触发，坐标保持新鲜。
+  const coverMeasureRef = useRef<View | null>(null);
+
   if (!currentSong || keyboardVisible) return null;
 
   const coverUrl = currentSong.picUrl || currentSong.img;
@@ -210,6 +215,16 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
     }
   };
 
+  const handleCoverLayout = () => {
+    const node = coverMeasureRef.current;
+    if (!node) return;
+    node.measureInWindow((x, y, width, height) => {
+      if (width > 0 && height > 0) {
+        setImmersiveFlySource({ x, y, width, height });
+      }
+    });
+  };
+
   return (
     <View
       {...panResponder.panHandlers}
@@ -236,21 +251,23 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
           accessibilityRole="button"
           accessibilityLabel="打开沉浸式播放器"
         >
-          {coverUrl ? (
-            <CachedImage
-              uri={coverUrl}
-              style={styles.cover}
-              fallback={
-                <View style={[styles.cover, styles.coverFallback, { backgroundColor: palette.surfaceStrong }]}>
-                  <Music2 size={20} color={palette.primary} />
-                </View>
-              }
-            />
-          ) : (
-            <View style={[styles.cover, styles.coverFallback, { backgroundColor: palette.surfaceStrong }]}>
-              <Music2 size={20} color={palette.primary} />
-            </View>
-          )}
+          <View ref={coverMeasureRef} onLayout={handleCoverLayout}>
+            {coverUrl ? (
+              <CachedImage
+                uri={coverUrl}
+                style={styles.cover}
+                fallback={
+                  <View style={[styles.cover, styles.coverFallback, { backgroundColor: palette.surfaceStrong }]}>
+                    <Music2 size={20} color={palette.primary} />
+                  </View>
+                }
+              />
+            ) : (
+              <View style={[styles.cover, styles.coverFallback, { backgroundColor: palette.surfaceStrong }]}>
+                <Music2 size={20} color={palette.primary} />
+              </View>
+            )}
+          </View>
           <View style={styles.trackText}>
             {/* 对齐 lx Title：第一行“歌名 - 歌手”（formatMusicName 格式）。
                 迷你栏空间有限，超长时自动缩小字号保整段可见，不再从尾部截掉歌手。 */}

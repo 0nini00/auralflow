@@ -1,12 +1,12 @@
 ﻿import React, { useState } from "react";
-import { radius, spacing, typography } from "@/theme/tokens";
-import { Alert, type ScrollView as ScrollViewType, StyleSheet, View } from "react-native";
+import { radius, layout, spacing, typography } from "@/theme/tokens";
+import { Alert, FlatList, StyleSheet, View } from "react-native";
 import type { MusicInfo } from "@lx/core";
 
 import { ActionButton } from "@/components/ActionButton";
 import { SongList } from "@/components/SongList";
 import { DetailHero } from "@/components/DetailHero";
-import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
+import { ScreenScaffold } from "@/components/ScreenScaffold";
 import { ListMusic } from "lucide-react-native";
 
 import { EmptyState } from "@/components/ScreenState";
@@ -15,7 +15,6 @@ import { SectionHeader } from "@/components/SectionHeader";
 import { playQueue } from "@/services/playerService";
 import { runPlaybackUiAction } from "@/services/playbackUiAction";
 import { buildPlaylistDetailActions, findPlaylistCurrentSongIndex } from "@/services/playlistDetailActions";
-import { getContentDetailLocateScrollOffset } from "@/services/contentDetailPlaybackActions";
 import { usePlaylistStore } from "@/stores/playlistStore";
 import { usePlayerStore } from "@/stores/playerStore";
 
@@ -27,7 +26,7 @@ interface LocalPlaylistDetailScreenProps {
 }
 
 export function LocalPlaylistDetailScreen({ playlistId, onBack, onNavigateToPlayer, onOpenPlaylist }: LocalPlaylistDetailScreenProps) {
-  const scrollRef = React.useRef<ScrollViewType>(null);
+  const listRef = React.useRef<FlatList<MusicInfo> | null>(null);
   const playlist = usePlaylistStore((state) => state.localPlaylists.find((item) => item.id === playlistId));
   const deleteLocalPlaylist = usePlaylistStore((state) => state.deleteLocalPlaylist);
   const removeSongFromLocalPlaylist = usePlaylistStore((state) => state.removeSongFromLocalPlaylist);
@@ -69,10 +68,7 @@ export function LocalPlaylistDetailScreen({ playlistId, onBack, onNavigateToPlay
   const handleLocateCurrentSong = () => {
     if (currentSongIndex < 0) return;
     setLocatedSongIndex(currentSongIndex);
-    scrollRef.current?.scrollTo({
-      y: getContentDetailLocateScrollOffset(currentSongIndex),
-      animated: true,
-    });
+    listRef.current?.scrollToIndex({ index: currentSongIndex, animated: true, viewPosition: 0 });
   };
 
   const handleDeletePlaylist = () => {
@@ -98,46 +94,50 @@ export function LocalPlaylistDetailScreen({ playlistId, onBack, onNavigateToPlay
 
   return (
     <ScreenScaffold>
-      <ScreenScrollView innerRef={scrollRef}>
-        <PlaybackErrorState
-          message={playbackError}
-          onDismiss={() => setPlaybackError(null)}
-        />
-        <DetailHero
-          actionsFullBleed
-          imageUrl={coverUrl}
-          title={playlist.name}
-          subtitle={playlist.description}
-          metadata={[`${playlist.songs.length} 首歌曲`]}
-          actions={
-            <View style={styles.heroActions}>
-              <ActionButton small grow variant="primary" label={detailActions.playAllLabel} onPress={() => void handlePlayAll()} />
-              <ActionButton small grow variant="primary" label="定位歌曲" disabled={currentSongIndex < 0} onPress={handleLocateCurrentSong} />
-              <ActionButton small grow variant="danger" label="删除歌单" onPress={handleDeletePlaylist} />
-            </View>
-          }
-        />
-
-        <View style={styles.songSection}>
-          <SectionHeader title="歌曲" description={`${playlist.songs.length} 首`} />
-          {playlist.songs.length > 0 ? (
-            <SongList
-              songs={playlist.songs}
-              onPlay={handlePlay}
-              onDelete={(song) => handleRemoveSong(song)}
-              emptyText="还没有歌曲，点击添加歌曲，导入本地音乐"
-              highlightedIndex={locatedSongIndex}
-              hideSourceTag
+      <SongList
+        virtualized
+        listRef={listRef}
+        songs={playlist.songs}
+        onPlay={handlePlay}
+        onDelete={(song) => handleRemoveSong(song)}
+        highlightedIndex={locatedSongIndex}
+        hideSourceTag
+        contentContainerStyle={styles.listContent}
+        ListHeaderComponent={
+          <>
+            <PlaybackErrorState
+              message={playbackError}
+              onDismiss={() => setPlaybackError(null)}
             />
-          ) : (
+            <DetailHero
+              actionsFullBleed
+              imageUrl={coverUrl}
+              title={playlist.name}
+              subtitle={playlist.description}
+              metadata={[`${playlist.songs.length} 首歌曲`]}
+              actions={
+                <View style={styles.heroActions}>
+                  <ActionButton small grow variant="primary" label={detailActions.playAllLabel} onPress={() => void handlePlayAll()} />
+                  <ActionButton small grow variant="primary" label="定位歌曲" disabled={currentSongIndex < 0} onPress={handleLocateCurrentSong} />
+                  <ActionButton small grow variant="danger" label="删除歌单" onPress={handleDeletePlaylist} />
+                </View>
+              }
+            />
+
+            <View style={styles.songSection}>
+              <SectionHeader title="歌曲" description={`${playlist.songs.length} 首`} />
+            </View>
+          </>
+        }
+        ListFooterComponent={
+          playlist.songs.length > 0 ? null : (
             <EmptyState
               title="还没有歌曲"
               description="点击添加歌曲，导入本地音乐。"
             />
-          )}
-        </View>
-
-      </ScreenScrollView>
+          )
+        }
+      />
     </ScreenScaffold>
   );
 }
@@ -160,6 +160,12 @@ const styles = StyleSheet.create({
   },
   songSection: {
     gap: spacing.s,
+  },
+  // 对齐 ScreenScrollView 的页面内边距约定（虚拟化列表本体即滚动容器）
+  listContent: {
+    paddingHorizontal: layout.pagePadding,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.l,
   },
   emptyContainer: {
     paddingVertical: 40,

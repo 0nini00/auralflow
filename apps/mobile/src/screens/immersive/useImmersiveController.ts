@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, PanResponder, type LayoutChangeEvent, useWindowDimensions } from "react-native";
+import { Alert, type LayoutChangeEvent, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { buildImmersiveCurrentSongActions } from "@/services/currentSongActions";
@@ -130,28 +130,11 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
   // PagerView 的歌词页标记（0=封面,1=歌词）
   const isLyricsPage = currentPage === 1;
 
-  // 供下滑关闭使用的实时引用（避免 PanResponder 闭包过期）
-  const isLyricsPageRef = useRef(isLyricsPage);
-  useEffect(() => {
-    isLyricsPageRef.current = isLyricsPage;
-  }, [isLyricsPage]);
-
+  // 下拉关闭手势已迁移到 ImmersiveLyricsScreen（Gesture.Pan + reanimated 跟手位移）
   const onCloseRef = useRef(onClose);
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
-
-  // 点住封面区域下拉关闭播放页（歌词页禁用以避免与歌词纵向滚动冲突）
-  const dismissResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, g) =>
-        !isLyricsPageRef.current && g.dy > 80 && g.dy > Math.abs(g.dx) * 1.5,
-      onPanResponderRelease: (_, g) => {
-        if (!isLyricsPageRef.current && g.dy > 120) onCloseRef.current();
-      },
-    })
-  ).current;
 
   // lx 式行变更触发：行号只在歌词行切换时更新（不随 0.25s 进度事件高频重渲染）
   const currentLyricIndex = useLyricLineIndex(lyrics, manualOffsetMs);
@@ -444,7 +427,6 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
   return {
     visible,
     onClose,
-    dismissResponder: dismissResponder.panHandlers,
     insets,
     layoutWidth,
     onLayout,

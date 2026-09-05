@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useCallback } from "react";
-import { View, Animated, Easing, Pressable } from "react-native";
+import { View, Animated, Easing, Pressable, type LayoutChangeEvent } from "react-native";
 import { Music2 } from "lucide-react-native";
 import { COVER_SIZE_LARGE } from "@lx/core";
 import type { ThemePalette } from "@/stores/themeStore";
+import type { ImmersiveFlyRect } from "@/screens/immersive/immersiveFlySource";
 import { CachedImage } from "@/components/CachedImage";
 import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
 import { styles } from "@/screens/immersive/immersiveStyles";
@@ -13,6 +14,8 @@ export interface ImmersiveCoverPageProps {
   isPlaying: boolean;
   palette: ThemePalette;
   onLongPress?: () => void;
+  /** 封面框布局完成时上报其在窗口中的位置（播放页封面飞入转场的终点） */
+  onCoverMeasured?: (rect: ImmersiveFlyRect) => void;
 }
 
 export function ImmersiveCoverPage({
@@ -21,6 +24,7 @@ export function ImmersiveCoverPage({
   isPlaying,
   palette,
   onLongPress,
+  onCoverMeasured,
 }: ImmersiveCoverPageProps) {
   const spinValue = useRef(new Animated.Value(0)).current;
   const animationRef = useRef<Animated.CompositeAnimation | null>(null);
@@ -79,10 +83,20 @@ export function ImmersiveCoverPage({
 
   const coverBorderRadius = coverSpin ? coverSize / 2 : 8;
 
+  const handleCoverFrameLayout = (event: LayoutChangeEvent) => {
+    if (!onCoverMeasured) return;
+    (event.currentTarget as unknown as View).measureInWindow((x, y, width, height) => {
+      if (width > 0 && height > 0) {
+        onCoverMeasured({ x, y, width, height });
+      }
+    });
+  };
+
   return (
     <View style={styles.coverPageContainer}>
       <Pressable onLongPress={onLongPress}>
         <View
+          onLayout={handleCoverFrameLayout}
           style={[
             styles.coverFrame,
             {

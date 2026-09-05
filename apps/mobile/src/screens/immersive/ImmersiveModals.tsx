@@ -522,6 +522,9 @@ export function ImmersiveModals({
   onRemoveItem={handleRemoveQueueItem}
   onClear={() => void handleClearQueue()}
   onRequestNavigate={onQueueNavigate}
+  // 播放页内走应用内底部弹层（非 Modal）：队列与子弹窗不再构成嵌套 Modal，
+  // 根除 Android 嵌套 Modal 白屏问题（此前需收起主面板规避）
+  presentation="sheet"
 />
     </>
   );

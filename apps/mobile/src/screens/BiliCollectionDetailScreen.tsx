@@ -1,7 +1,7 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { spacing } from "@/theme/tokens";
+import { layout, spacing } from "@/theme/tokens";
 import {
-  type ScrollView as ScrollViewType,
+  FlatList,
   StyleSheet,
   Text,
   View,
@@ -17,7 +17,7 @@ import { ActionButton } from "@/components/ActionButton";
 import { PlaybackActionButtons } from "@/components/PlaybackActionButtons";
 import { SongList } from "@/components/SongList";
 import { DetailHero } from "@/components/DetailHero";
-import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
+import { ScreenScaffold } from "@/components/ScreenScaffold";
 import { ListMusic } from "lucide-react-native";
 
 import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
@@ -25,7 +25,6 @@ import { PlaybackErrorState } from "@/components/PlaybackErrorState";
 import { SectionHeader } from "@/components/SectionHeader";
 import {
   buildContentDetailPlaybackActions,
-  getContentDetailLocateScrollOffset,
   shuffleContentDetailSongs,
 } from "@/services/contentDetailPlaybackActions";
 import { findPlaylistCurrentSongIndex } from "@/services/playlistDetailActions";
@@ -52,7 +51,7 @@ export function BiliCollectionDetailScreen({
   collection,
   onNavigateToPlayer,
 }: BiliCollectionDetailScreenProps) {
-  const scrollRef = useRef<ScrollViewType>(null);
+  const listRef = useRef<FlatList<MusicInfo> | null>(null);
   const requestSequenceRef = useRef(0);
   const currentIdRef = useRef(collection.id);
   currentIdRef.current = collection.id;
@@ -152,10 +151,7 @@ export function BiliCollectionDetailScreen({
   const handleLocateCurrentSong = () => {
     if (currentSongIndex < 0) return;
     setLocatedSongIndex(currentSongIndex);
-    scrollRef.current?.scrollTo({
-      y: getContentDetailLocateScrollOffset(currentSongIndex),
-      animated: true,
-    });
+    listRef.current?.scrollToIndex({ index: currentSongIndex, animated: true, viewPosition: 0 });
   };
 
   const refreshBusyRef = useRef(false);
@@ -198,41 +194,46 @@ export function BiliCollectionDetailScreen({
 
   return (
     <ScreenScaffold>
-      <ScreenScrollView innerRef={scrollRef}>
-        <PlaybackErrorState
-          message={playbackError}
-          onDismiss={() => setPlaybackError(null)}
-        />
-        <DetailHero
-          compact
-          imageUrl={coverUrl}
-          title={collection.name}
-          subtitle={collection.desc}
-          metadata={heroMetadata}
-          actions={heroActions}
-        />
+      <SongList
+        virtualized
+        listRef={listRef}
+        songs={songs}
+        onPlay={handlePlay}
+        highlightedIndex={locatedSongIndex ?? currentSongIndex}
+        hideSourceTag
+        contentContainerStyle={styles.listContent}
+        ListHeaderComponent={
+          <>
+            <PlaybackErrorState
+              message={playbackError}
+              onDismiss={() => setPlaybackError(null)}
+            />
+            <DetailHero
+              compact
+              imageUrl={coverUrl}
+              title={collection.name}
+              subtitle={collection.desc}
+              metadata={heroMetadata}
+              actions={heroActions}
+            />
 
-        {currentState.kind === "loading" ? (
-          <LoadingState label="正在加载 B站合集内容" />
-        ) : currentState.kind === "error" ? (
-          <ErrorState message={currentState.message} onRetry={() => void handleRefresh()} />
-        ) : (
-          <View style={styles.section}>
-            <SectionHeader title="歌曲" description={`${songs.length} 首`} />
-            {songs.length > 0 ? (
-              <SongList
-                songs={songs}
-                onPlay={handlePlay}
-                emptyText="该合集暂无歌曲"
-                highlightedIndex={locatedSongIndex ?? currentSongIndex}
-                hideSourceTag
-              />
-            ) : (
-              <EmptyState icon={ListMusic} title="该合集暂无歌曲" description="合集为空或尚未同步完成。" />
-            )}
-          </View>
-        )}
-      </ScreenScrollView>
+            {currentState.kind === "success" ? (
+              <View style={styles.section}>
+                <SectionHeader title="歌曲" description={`${songs.length} 首`} />
+              </View>
+            ) : null}
+          </>
+        }
+        ListFooterComponent={
+          currentState.kind === "loading" ? (
+            <LoadingState label="正在加载 B站合集内容" />
+          ) : currentState.kind === "error" ? (
+            <ErrorState message={currentState.message} onRetry={() => void handleRefresh()} />
+          ) : songs.length > 0 ? null : (
+            <EmptyState icon={ListMusic} title="该合集暂无歌曲" description="合集为空或尚未同步完成。" />
+          )
+        }
+      />
     </ScreenScaffold>
   );
 }
@@ -240,5 +241,11 @@ export function BiliCollectionDetailScreen({
 const styles = StyleSheet.create({
   section: {
     gap: spacing.s,
+  },
+  // 对齐 ScreenScrollView 的页面内边距约定（虚拟化列表本体即滚动容器）
+  listContent: {
+    paddingHorizontal: layout.pagePadding,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.l,
   },
 });

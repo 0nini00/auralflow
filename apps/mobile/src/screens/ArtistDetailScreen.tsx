@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { spacing, typography } from "@/theme/tokens";
+import { layout, spacing, typography } from "@/theme/tokens";
 import {
+  FlatList,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -11,7 +11,7 @@ import type { MusicInfo } from "@lx/core";
 
 import { DetailHero } from "@/components/DetailHero";
 import { PlaybackActionButtons } from "@/components/PlaybackActionButtons";
-import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
+import { ScreenScaffold } from "@/components/ScreenScaffold";
 import { Disc3 } from "lucide-react-native";
 
 import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
@@ -32,7 +32,6 @@ import { runPlaybackUiAction } from "@/services/playbackUiAction";
 import {
   buildContentDetailPlaybackActions,
   findContentDetailCurrentSongIndex,
-  getContentDetailLocateScrollOffset,
   shuffleContentDetailSongs,
 } from "@/services/contentDetailPlaybackActions";
 import { buildContentDescriptionModel } from "@/services/contentDescriptionModel";
@@ -65,7 +64,7 @@ export function ArtistDetailScreen({
   const palette = getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor);
   const currentSong = usePlayerStore((state) => state.currentSong);
 
-  const scrollRef = useRef<ScrollView>(null);
+  const listRef = useRef<FlatList<MusicInfo> | null>(null);
   const requestSequenceRef = useRef(0);
   const currentIdRef = useRef(artist.id);
   currentIdRef.current = artist.id;
@@ -195,56 +194,56 @@ export function ArtistDetailScreen({
   const handleLocateCurrentSong = () => {
     if (!playbackActions.canLocateCurrentSong || currentSongIndex < 0) return;
     setLocatedSongIndex(currentSongIndex);
-    // 歌手页上方还有专辑区，定位偏移略加大
-    scrollRef.current?.scrollTo({
-      y: getContentDetailLocateScrollOffset(currentSongIndex, {
-        headerOffset: albums.length > 0 ? 420 : 280,
-      }),
-      animated: true,
-    });
+    // scrollToIndex 直接按行测量位置定位，不再需要估算页头偏移
+    listRef.current?.scrollToIndex({ index: currentSongIndex, animated: true, viewPosition: 0 });
   };
 
   return (
     <ScreenScaffold>
-      <ScreenScrollView innerRef={scrollRef}>
-        <PlaybackErrorState
-          message={playbackError}
-          onDismiss={() => setPlaybackError(null)}
-        />
-        <DetailHero
-          imageUrl={heroImageUrl}
-          title={heroTitle}
-          subtitle={heroSubtitle}
-          metadata={heroMetadata}
-          actions={
-            successfulDetail ? (
-              <PlaybackActionButtons
-                show={playbackActions.show}
-                playAllLabel={playbackActions.playAllLabel}
-                shuffleLabel={playbackActions.shuffleLabel}
-                locateLabel={playbackActions.locateLabel}
-                canLocateCurrentSong={playbackActions.canLocateCurrentSong}
-                playAllBusy={pendingAction === "play-all"}
-                shuffleBusy={pendingAction === "shuffle"}
-                onPlayAll={() => {
-                  void handlePlayAll();
-                }}
-                onShuffle={() => {
-                  void handleShufflePlay();
-                }}
-                onLocate={handleLocateCurrentSong}
-              />
-            ) : undefined
-          }
-        />
-
-        {currentState.kind === "loading" ? (
-          <LoadingState label="正在加载歌手详情" />
-        ) : currentState.kind === "error" ? (
-          <ErrorState message={currentState.message} onRetry={handleRetry} />
-        ) : (
+      <SongList
+        virtualized
+        listRef={listRef}
+        songs={songs}
+        onPlay={handlePlay}
+        highlightedIndex={
+          locatedSongIndex ?? (currentSongIndex >= 0 ? currentSongIndex : null)
+        }
+        hideSourceTag
+        contentContainerStyle={styles.listContent}
+        ListHeaderComponent={
           <>
-            {descriptionModel.show ? (
+            <PlaybackErrorState
+              message={playbackError}
+              onDismiss={() => setPlaybackError(null)}
+            />
+            <DetailHero
+              imageUrl={heroImageUrl}
+              title={heroTitle}
+              subtitle={heroSubtitle}
+              metadata={heroMetadata}
+              actions={
+                successfulDetail ? (
+                  <PlaybackActionButtons
+                    show={playbackActions.show}
+                    playAllLabel={playbackActions.playAllLabel}
+                    shuffleLabel={playbackActions.shuffleLabel}
+                    locateLabel={playbackActions.locateLabel}
+                    canLocateCurrentSong={playbackActions.canLocateCurrentSong}
+                    playAllBusy={pendingAction === "play-all"}
+                    shuffleBusy={pendingAction === "shuffle"}
+                    onPlayAll={() => {
+                      void handlePlayAll();
+                    }}
+                    onShuffle={() => {
+                      void handleShufflePlay();
+                    }}
+                    onLocate={handleLocateCurrentSong}
+                  />
+                ) : undefined
+              }
+            />
+
+            {currentState.kind === "success" && descriptionModel.show ? (
               <View style={styles.section}>
                 <SectionHeader title="简介" />
                 <Text
@@ -266,34 +265,34 @@ export function ArtistDetailScreen({
               </View>
             ) : null}
 
-            <View style={styles.section}>
-              <SectionHeader title="专辑" />
-              {albums.length > 0 ? (
-                <AlbumResultList albums={albums} onPress={onOpenAlbum} />
-              ) : (
-                <EmptyState icon={Disc3} title="暂无专辑" description="该歌手暂时没有可展示的专辑。" />
-              )}
-            </View>
+            {currentState.kind === "success" ? (
+              <View style={styles.section}>
+                <SectionHeader title="专辑" />
+                {albums.length > 0 ? (
+                  <AlbumResultList albums={albums} onPress={onOpenAlbum} />
+                ) : (
+                  <EmptyState icon={Disc3} title="暂无专辑" description="该歌手暂时没有可展示的专辑。" />
+                )}
+              </View>
+            ) : null}
 
-            <View style={styles.section}>
-              <SectionHeader title={playbackActions.songSectionTitle} />
-              {songs.length > 0 ? (
-                <SongList
-                  songs={songs}
-                  onPlay={handlePlay}
-                  emptyText={playbackActions.emptySongsText}
-                  highlightedIndex={
-                    locatedSongIndex ?? (currentSongIndex >= 0 ? currentSongIndex : null)
-                  }
-                  hideSourceTag
-                />
-              ) : (
-                <EmptyState title={playbackActions.emptySongsText} />
-              )}
-            </View>
+            {currentState.kind === "success" ? (
+              <View style={styles.section}>
+                <SectionHeader title={playbackActions.songSectionTitle} />
+              </View>
+            ) : null}
           </>
-        )}
-      </ScreenScrollView>
+        }
+        ListFooterComponent={
+          currentState.kind === "loading" ? (
+            <LoadingState label="正在加载歌手详情" />
+          ) : currentState.kind === "error" ? (
+            <ErrorState message={currentState.message} onRetry={handleRetry} />
+          ) : songs.length > 0 ? null : (
+            <EmptyState title={playbackActions.emptySongsText} />
+          )
+        }
+      />
     </ScreenScaffold>
   );
 }
@@ -316,5 +315,11 @@ const styles = StyleSheet.create({
   descriptionToggleText: {
     fontSize: typography.meta,
     fontWeight: "600",
+  },
+  // 对齐 ScreenScrollView 的页面内边距约定（虚拟化列表本体即滚动容器）
+  listContent: {
+    paddingHorizontal: layout.pagePadding,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.l,
   },
 });

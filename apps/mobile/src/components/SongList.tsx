@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, ActivityIndicator, Alert, InteractionManager, useWindowDimensions } from "react-native";
+import { View, Text, StyleSheet, ActivityIndicator, Alert, InteractionManager, useWindowDimensions, FlatList, type StyleProp, type ViewStyle, type RefreshControlProps } from "react-native";
 import type { MusicInfo } from "@lx/core";
 import { AudioLines, CheckCircle2, Circle, Ellipsis, Heart, Music2 } from "lucide-react-native";
 import { CachedImage } from "./CachedImage";
@@ -48,14 +48,32 @@ export interface SongListProps {
   selectedKeys?: ReadonlySet<string>;
   onToggleSelection?: (song: MusicInfo, index: number) => void;
   onPlayMv?: (song: MusicInfo) => void;
+  /** 虚拟化渲染（FlatList）：长列表的独立宿主屏使用。默认 false 走增量挂载（嵌在 ScrollView 里的短列表宿主） */
+  virtualized?: boolean;
+  /** virtualized：列表头（详情页头部内容，随列表滚动、空态时仍然可见） */
+  ListHeaderComponent?: React.ComponentType<unknown> | React.ReactElement | null;
+  /** virtualized：列表尾（如空态卡片、相关内容区） */
+  ListFooterComponent?: React.ComponentType<unknown> | React.ReactElement | null;
+  /** virtualized：内容容器样式（页面左右 padding 等） */
+  contentContainerStyle?: StyleProp<ViewStyle>;
+  /** virtualized：暴露 FlatList 实例（scrollToIndex 定位歌曲等） */
+  listRef?: React.MutableRefObject<FlatList<MusicInfo> | null>;
+  /** virtualized：触底回调（分页加载） */
+  onEndReached?: () => void;
+  /** virtualized：下拉刷新控件 */
+  refreshControl?: React.ReactElement<RefreshControlProps>;
 }
 
 /**
- * 增量挂载参数：
- * SongList 全部嵌在 ScrollView 里（14 个屏的既有结构），换 FlatList 会触发
- * VirtualizedList 嵌套失效。因此用「首屏少量 + 交互空闲后分批挂载」的方式
- * 消除长歌单冷打开的同步渲染卡顿；行组件 memo + 稳定回调保证挂载完成后的
- * 切歌/选择等更新只重渲染受影响的行。
+ * 增量挂载参数（legacy 路径）：
+ * SongList 默认嵌在各屏的 ScrollView 里（首页预览/搜索/FM/每日推荐等短列表），
+ * 换 FlatList 会触发 VirtualizedList 嵌套失效。因此 legacy 用「首屏少量 + 交互
+ * 空闲后分批挂载」消除冷打开的同步渲染卡顿；行组件 memo + 稳定回调保证挂载完成后
+ * 的切歌/选择等更新只重渲染受影响的行。
+ *
+ * virtualized 路径（FlatList）：长列表详情页（歌单/专辑/歌手/收藏/B站合集/本地曲库）
+ * 以 SongList 本体作为滚动容器，头部内容经 ListHeaderComponent 随列表滚动——
+ * 只有可视区行在树上，几千首的歌单滚动也保持跟手（对齐 lx OnlineList 方案）。
  */
 const INITIAL_MOUNT_COUNT = 60;
 const MOUNT_BATCH_SIZE = 100;
@@ -85,6 +103,13 @@ export function SongList({
   selectedKeys,
   onToggleSelection,
   onPlayMv,
+  virtualized = false,
+  ListHeaderComponent,
+  ListFooterComponent,
+  contentContainerStyle,
+  listRef,
+  onEndReached,
+  refreshControl,
 }: SongListProps) {
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
@@ -161,7 +186,61 @@ export function SongList({
     setQualityModalVisible(true);
   }, []);
 
-  if (songs.length === 0) {
+  // ── virtualized 路径：FlatList 虚拟化，SongList 本体即滚动容器 ──
+  // （钩子声明在 legacy 空态早退之前，保证两条路径 hook 顺序一致）
+  const flatListRef = useRef<FlatList<MusicInfo> | null>(null);
+  const renderSongRow = useCallback(
+    ({ item: song, index }: { item: MusicInfo; index: number }) => {
+      const key = `${song.source}:${song.id}`;
+      return (
+        <SongItem
+          index={index}
+          song={song}
+          onRowPress={handleRowPress}
+          onRowLongPress={handleRowLongPress}
+          onRowEdit={onEdit ? handleRowEdit : undefined}
+          onRowDelete={onDelete ? handleRowDelete : undefined}
+          onOpenMenu={handleOpenMenu}
+          getExtraMetadata={getExtraMetadata}
+          pressable={selectionMode || (isSongPressable?.(song, index) ?? true)}
+          isPlaying={currentSong?.source === song.source && currentSong?.id === song.id}
+          showCover={showCover}
+          highlighted={highlightedIndex === index}
+          hideSourceTag={hideSourceTag}
+          selectionMode={selectionMode}
+          selected={selectedKeys?.has(key) ?? false}
+          showLikeAction={showLikeAction}
+          showMoreAction={showMoreAction}
+          showDuration={showDuration}
+        />
+      );
+    },
+    [
+      handleRowPress,
+      handleRowLongPress,
+      handleRowEdit,
+      handleRowDelete,
+      handleOpenMenu,
+      getExtraMetadata,
+      selectionMode,
+      isSongPressable,
+      currentSong,
+      showCover,
+      highlightedIndex,
+      hideSourceTag,
+      selectedKeys,
+      showLikeAction,
+      showMoreAction,
+      showDuration,
+      onEdit,
+      onDelete,
+    ],
+  );
+
+  // legacy（嵌 ScrollView）路径的空态提前返回；virtualized 路径的空态由
+  // ListEmptyComponent 呈现，保证详情页头部（ListHeaderComponent）在空态下仍可见
+  // （virtualized 的 useRef/useCallback 钩子必须全部在此早退之前执行，避免 hook 顺序违规）
+  if (!virtualized && songs.length === 0) {
     return (
       <View style={styles.emptyContainer}>
         <Text style={[styles.emptyText, { color: palette.textMuted }]}>{emptyText || "暂无歌曲"}</Text>
@@ -247,6 +326,73 @@ export function SongList({
   };
 
   const visibleSongs = songs.slice(0, mountedCount);
+
+  if (virtualized) {
+    return (
+      <View style={[styles.virtualizedRoot]}>
+        <FlatList
+          ref={(node) => {
+            flatListRef.current = node;
+            if (listRef) listRef.current = node;
+          }}
+          data={songs}
+          keyExtractor={(item, index) => `${item.source}-${item.id}-${index}`}
+          renderItem={renderSongRow}
+          ListHeaderComponent={ListHeaderComponent ?? null}
+          ListFooterComponent={ListFooterComponent ?? null}
+          ListEmptyComponent={
+            emptyText ? (
+              <View style={styles.emptyContainer}>
+                <Text style={[styles.emptyText, { color: palette.textMuted }]}>{emptyText}</Text>
+              </View>
+            ) : null
+          }
+          contentContainerStyle={[styles.listContent, contentContainerStyle]}
+          onEndReached={onEndReached}
+          onEndReachedThreshold={0.5}
+          refreshControl={refreshControl}
+          initialNumToRender={12}
+          maxToRenderPerBatch={24}
+          windowSize={9}
+          removeClippedSubviews
+          onScrollToIndexFailed={(info) => {
+            // 远端索引尚未测量时先按平均行高滚到估算位置，渲染后再精确对齐
+            const offset = info.averageItemLength * info.index;
+            flatListRef.current?.scrollToOffset({ offset, animated: true });
+            setTimeout(() => {
+              flatListRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0 });
+            }, 60);
+          }}
+        />
+        {/* 单例弹窗与 legacy 路径共用：菜单 / 加入歌单 / 下载音质 */}
+        <ActionMenuSheet
+          visible={menuVisible}
+          title={actionSong?.name ?? ""}
+          items={actionSong ? menuItems(actionSong) : []}
+          anchor={menuAnchor}
+          onClose={() => {
+            setMenuVisible(false);
+            setMenuAnchor(null);
+          }}
+        />
+        {actionSong ? (
+          <AddToLocalPlaylistModal
+            visible={addToPlaylistVisible}
+            song={actionSong}
+            onClose={() => setAddToPlaylistVisible(false)}
+          />
+        ) : null}
+        <DownloadQualityModal
+          visible={qualityModalVisible}
+          song={actionSong}
+          pendingQuality={pendingQuality}
+          defaultQuality={defaultQuality}
+          onClose={() => setQualityModalVisible(false)}
+          onDownload={handleDownloadSelected}
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.listContent}>
@@ -577,6 +723,9 @@ function withAlpha(hexColor: string, alpha: number): string {
 }
 
 const styles = StyleSheet.create({
+  virtualizedRoot: {
+    flex: 1,
+  },
   listContent: {
     gap: 0,
   },

@@ -2,8 +2,8 @@
 import { layout, radius, spacing, typography } from "@/theme/tokens";
 import {
   Alert,
+  FlatList,
   RefreshControl,
-  type ScrollView as ScrollViewType,
   StyleSheet,
   Text,
   View,
@@ -29,14 +29,13 @@ import {
   canRemoveSongsFromPlaylistDetail,
   findPlaylistCurrentSongIndex,
 } from "@/services/playlistDetailActions";
-import { getContentDetailLocateScrollOffset } from "@/services/contentDetailPlaybackActions";
 import { ActionButton } from "@/components/ActionButton";
 import { BatchActionBar, batchToolbarPositionStyle } from "@/components/BatchActionBar";
 import { SongList } from "@/components/SongList";
 import { AddToLocalPlaylistModal } from "@/components/AddToLocalPlaylistModal";
 import { DownloadQualityModal } from "@/components/DownloadQualityModal";
 import { DetailHero } from "@/components/DetailHero";
-import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
+import { ScreenScaffold } from "@/components/ScreenScaffold";
 import { EmptyState, ErrorState } from "@/components/ScreenState";
 import { PlaylistDetailSkeleton } from "@/components/PlaylistDetailSkeleton";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
@@ -53,7 +52,7 @@ export function PlaylistDetailScreen({
   onBack,
   onNavigateToPlayer,
 }: PlaylistDetailScreenProps) {
-  const scrollRef = useRef<ScrollViewType>(null);
+  const listRef = useRef<FlatList<MusicInfo> | null>(null);
   const mountedRef = useRef(true);
   const themeMode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
@@ -271,10 +270,7 @@ export function PlaylistDetailScreen({
   const handleLocateCurrentSong = () => {
     if (currentSongIndex < 0) return;
     setLocatedSongIndex(currentSongIndex);
-    scrollRef.current?.scrollTo({
-      y: getContentDetailLocateScrollOffset(currentSongIndex),
-      animated: true,
-    });
+    listRef.current?.scrollToIndex({ index: currentSongIndex, animated: true, viewPosition: 0 });
   };
 
   const handleDeletePlaylist = () => {
@@ -321,9 +317,19 @@ export function PlaylistDetailScreen({
 
   return (
     <ScreenScaffold>
-      <ScreenScrollView
-        innerRef={scrollRef}
-        contentContainerStyle={selectionMode ? styles.selectionScrollContent : undefined}
+      <SongList
+        virtualized
+        listRef={listRef}
+        songs={error ? [] : songs}
+        onPlay={handlePlay}
+        highlightedIndex={locatedSongIndex}
+        onDelete={canRemoveSongs && !removingSongKey ? (song) => handleRemoveWySong(song) : undefined}
+        hideSourceTag
+        onLongPressSong={enterSelectionMode}
+        selectionMode={selectionMode}
+        selectedKeys={selectedKeys}
+        onToggleSelection={toggleSelection}
+        contentContainerStyle={selectionMode ? styles.selectionScrollContent : styles.listContent}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -333,103 +339,93 @@ export function PlaylistDetailScreen({
             progressBackgroundColor={palette.surface}
           />
         }
-      >
-        <PlaybackErrorState
-          message={playbackError}
-          onDismiss={() => setPlaybackError(null)}
-        />
-        <DetailHero
-          compact
-          actionsFullBleed
-          imageUrl={coverUrl}
-          title={displayPlaylist.name}
-          subtitle={displayPlaylist.desc}
-          coverBadge={
-            displayPlaylist.playCount && displayPlaylist.playCount > 0
-              ? formatPlayCount(displayPlaylist.playCount)
-              : undefined
-          }
-          actions={(!loading || refreshing) && !error && detailActions.show ? (
-            <View style={styles.heroActions}>
-              <ActionButton
-                shrink
-                small
-                variant="primary"
-                label={detailActions.playAllLabel}
-                onPress={() => void handlePlayAll()}
-              />
-              <ActionButton
-                shrink
-                small
-                variant="primary"
-                label="定位歌曲"
-                disabled={currentSongIndex < 0}
-                onPress={handleLocateCurrentSong}
-              />
-              {canSubscribeWyPlaylist ? (
-                <ActionButton
-                  shrink
-                  small
-                  disabled={subscribingWyPlaylist}
-                  label={isWyPlaylistSubscribed ? "取消收藏" : "收藏歌单"}
-                  onPress={handleToggleWySubscribe}
-                />
-              ) : null}
-              {/* 收藏歌单属于他人创建，"删除歌单"只对自建歌单有意义 */}
-              {!canSubscribeWyPlaylist ? (
-                <ActionButton
-                  shrink
-                  small
-                  variant="danger"
-                  label="删除歌单"
-                  onPress={handleDeletePlaylist}
-                />
-              ) : null}
-            </View>
-          ) : undefined}
-        />
-
-        {loading && !refreshing ? (
-          <PlaylistDetailSkeleton />
-        ) : error ? (
-          <ErrorState
-            message={error}
-            onRetry={() => void fetchPlaylistDetail(playlist.id, playlist.source, playlist)}
-          />
-        ) : (
-          <View style={styles.section}>
-            <SectionHeader
-              title="歌曲"
-              description={`${songs.length} 首`}
-              action={songs.length > 0 && !selectionMode ? (
-                <Pressable
-                  style={[styles.selectButton, { backgroundColor: palette.surface }]}
-                  onPress={() => setSelectionMode(true)}
-                >
-                  <SquareCheckBig size={17} color={palette.primary} />
-                  <Text style={[styles.selectButtonText, { color: palette.primary }]}>选择</Text>
-                </Pressable>
+        ListHeaderComponent={
+          <>
+            <PlaybackErrorState
+              message={playbackError}
+              onDismiss={() => setPlaybackError(null)}
+            />
+            <DetailHero
+              compact
+              actionsFullBleed
+              imageUrl={coverUrl}
+              title={displayPlaylist.name}
+              subtitle={displayPlaylist.desc}
+              coverBadge={
+                displayPlaylist.playCount && displayPlaylist.playCount > 0
+                  ? formatPlayCount(displayPlaylist.playCount)
+                  : undefined
+              }
+              actions={(!loading || refreshing) && !error && detailActions.show ? (
+                <View style={styles.heroActions}>
+                  <ActionButton
+                    shrink
+                    small
+                    variant="primary"
+                    label={detailActions.playAllLabel}
+                    onPress={() => void handlePlayAll()}
+                  />
+                  <ActionButton
+                    shrink
+                    small
+                    variant="primary"
+                    label="定位歌曲"
+                    disabled={currentSongIndex < 0}
+                    onPress={handleLocateCurrentSong}
+                  />
+                  {canSubscribeWyPlaylist ? (
+                    <ActionButton
+                      shrink
+                      small
+                      disabled={subscribingWyPlaylist}
+                      label={isWyPlaylistSubscribed ? "取消收藏" : "收藏歌单"}
+                      onPress={handleToggleWySubscribe}
+                    />
+                  ) : null}
+                  {/* 收藏歌单属于他人创建，"删除歌单"只对自建歌单有意义 */}
+                  {!canSubscribeWyPlaylist ? (
+                    <ActionButton
+                      shrink
+                      small
+                      variant="danger"
+                      label="删除歌单"
+                      onPress={handleDeletePlaylist}
+                    />
+                  ) : null}
+                </View>
               ) : undefined}
             />
-            {songs.length > 0 ? (
-              <SongList
-                songs={songs}
-                onPlay={handlePlay}
-                emptyText="暂无歌曲"
-                highlightedIndex={locatedSongIndex}
-                onDelete={canRemoveSongs && !removingSongKey ? (song) => handleRemoveWySong(song) : undefined}
-                hideSourceTag
-                onLongPressSong={enterSelectionMode}
-                selectionMode={selectionMode}
-                selectedKeys={selectedKeys}
-                onToggleSelection={toggleSelection}
+
+            <View style={styles.section}>
+              <SectionHeader
+                title="歌曲"
+                description={`${songs.length} 首`}
+                action={songs.length > 0 && !selectionMode ? (
+                  <Pressable
+                    style={[styles.selectButton, { backgroundColor: palette.surface }]}
+                    onPress={() => setSelectionMode(true)}
+                  >
+                    <SquareCheckBig size={17} color={palette.primary} />
+                    <Text style={[styles.selectButtonText, { color: palette.primary }]}>选择</Text>
+                  </Pressable>
+                ) : undefined}
               />
-            ) : (
-              <EmptyState icon={Music2} title="暂无歌曲" description="该歌单还没有收录歌曲，去首页逛逛其他歌单吧。" />
-            )}
-          </View>
-        )}
-      </ScreenScrollView>
+            </View>
+          </>
+        }
+        ListFooterComponent={
+          loading && !refreshing ? (
+            <PlaylistDetailSkeleton />
+          ) : error ? (
+            <ErrorState
+              message={error}
+              onRetry={() => void fetchPlaylistDetail(playlist.id, playlist.source, playlist)}
+            />
+          ) : songs.length > 0 ? null : (
+            <EmptyState icon={Music2} title="暂无歌曲" description="该歌单还没有收录歌曲，去首页逛逛其他歌单吧。" />
+          )
+        }
+      />
       {selectionMode ? (
         <BatchActionBar
           style={batchToolbarPositionStyle()}
@@ -534,6 +530,12 @@ const styles = StyleSheet.create({
   },
   selectionScrollContent: {
     paddingBottom: 152,
+  },
+  // 对齐 ScreenScrollView 的页面内边距约定（虚拟化列表本体即滚动容器）
+  listContent: {
+    paddingHorizontal: layout.pagePadding,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.l,
   },
   section: {
     gap: spacing.s,

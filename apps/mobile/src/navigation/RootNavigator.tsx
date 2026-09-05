@@ -32,7 +32,9 @@ export function RootNavigator() {
         name="Player"
         options={{
           presentation: "fullScreenModal",
-          animation: "slide_from_bottom",
+          // 开合转场由屏幕内部的封面飞入/飞回接管（react-native-reanimated），
+          // 栈级滑动不再参与，避免与自绘转场叠加
+          animation: "none",
         }}
       >
         {({ navigation }) => (
