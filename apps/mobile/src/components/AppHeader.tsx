@@ -29,8 +29,6 @@ export function AppHeader({
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
   const setMode = useThemeStore((state) => state.setMode);
-  const backgroundImageUri = useThemeStore((state) => state.backgroundImageUri);
-  const hasBackground = Boolean(backgroundImageUri);
   const palette = useMemo(
     () => getThemePalette(getResolvedTheme(mode, systemTheme), accentColor),
     [mode, systemTheme, accentColor],
@@ -103,7 +101,7 @@ export function AppHeader({
         style={[
           styles.bar,
           {
-            backgroundColor: hasBackground ? (resolvedTheme === "dark" ? "rgba(26,26,26,0.72)" : "rgba(255,255,255,0.55)") : palette.surface,
+            backgroundColor: palette.surface,
             borderColor: palette.border,
           },
         ]}

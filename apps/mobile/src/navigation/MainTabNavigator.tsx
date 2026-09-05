@@ -182,9 +182,6 @@ function MiniPlayerTabBar({ keyboardVisible, ...props }: BottomTabBarProps & { k
 export function MainTabNavigator() {
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
-  const backgroundImageUri = useThemeStore((state) => state.backgroundImageUri);
-  const hasBackground = Boolean(backgroundImageUri);
-  const isDark = getResolvedTheme(mode, systemTheme) === "dark";
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = useMemo(
     () => getThemePalette(getResolvedTheme(mode, systemTheme), accentColor),
@@ -215,9 +212,9 @@ export function MainTabNavigator() {
         // 若动态增大到“迷你栏+导航键”，会把导航键区域拉高导致下方白屏。
         // 内容区让位由 BottomTabView 的 screens(flex:1) 按 tabBar 元素实际高度自动完成。
         tabBarStyle: {
-          backgroundColor: hasBackground ? (isDark ? "rgba(26,26,26,0.72)" : "rgba(255,255,255,0.55)") : palette.surface,
+          backgroundColor: palette.surface,
           borderTopWidth: 1,
-          borderTopColor: hasBackground ? (isDark ? "rgba(226,232,240,0.12)" : "rgba(15,23,42,0.12)") : palette.border,
+          borderTopColor: palette.border,
           height: MAIN_TAB_BAR_HEIGHT,
           paddingBottom: 4,
           paddingTop: 4,
