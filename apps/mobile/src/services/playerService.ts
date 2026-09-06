@@ -490,10 +490,79 @@ export function getNearbyQueueIndexes(
   return result;
 }
 
+// ── 随机模式预抽 ──
+// 预读（切歌后邻近预读 + 曲末预读窗口）时提前抽定随机模式的下一首；
+// playNext 真正切歌时消费同一结果（fixedNextIndex），保证预读预解析的就是接下来
+// 要播的歌。此前预读的是顺序下一首，随机抽取几乎必 miss → 切歌必然现场走
+// 整条解析链（内置网关/自定义音源竞速 + 探活），表现为「一切歌就在缓冲」。
+// 校验失败（切歌/改队列/换模式后失效）时重新抽取，最坏退化为原先的现场解析。
+let preDrawnShuffle: { fromKey: string; songKey: string; index: number } | null = null;
+
+function songKeyOf(song: MusicInfo): string {
+  return `${song.source}:${song.id}`;
+}
+
+/** 消费（命中即清除）有效的随机预抽：返回预抽索引，无效返回 null。 */
+function consumePreDrawnShuffleIndex(): number | null {
+  if (!preDrawnShuffle) return null;
+  const { playMode, queue, currentSong } = usePlayerStore.getState();
+  const valid =
+    playMode === "shuffle" &&
+    !!currentSong &&
+    preDrawnShuffle.fromKey === songKeyOf(currentSong) &&
+    preDrawnShuffle.index >= 0 &&
+    preDrawnShuffle.index < queue.length &&
+    queue[preDrawnShuffle.index] != null &&
+    songKeyOf(queue[preDrawnShuffle.index]) === preDrawnShuffle.songKey;
+  const index = valid ? preDrawnShuffle.index : null;
+  preDrawnShuffle = null;
+  return index;
+}
+
+/** 取（无则抽取并缓存）随机模式预抽的下一首，供预读链路使用。 */
+function getOrDrawPreDrawnShuffleSong(): MusicInfo | undefined {
+  const { playMode, queue, currentIndex, currentSong, playedIndices } = usePlayerStore.getState();
+  if (playMode !== "shuffle" || queue.length <= 1) return undefined;
+
+  if (!preDrawnShuffle) {
+    if (!currentSong) return undefined;
+    // 只抽号不记账：shuffleHistory/playedIndices 仍由 playNext 消费时统一写回
+    const drawn = getNextQueueNavigationState({
+      queueLength: queue.length,
+      currentIndex,
+      playMode,
+      shuffleHistory: [],
+      playedIndices,
+    });
+    if (drawn.nextIndex == null) return undefined;
+    const song = queue[drawn.nextIndex];
+    if (!song) return undefined;
+    preDrawnShuffle = {
+      fromKey: songKeyOf(currentSong),
+      songKey: songKeyOf(song),
+      index: drawn.nextIndex,
+    };
+  }
+
+  const valid =
+    preDrawnShuffle.fromKey === (currentSong ? songKeyOf(currentSong) : "") &&
+    preDrawnShuffle.index >= 0 &&
+    preDrawnShuffle.index < queue.length &&
+    queue[preDrawnShuffle.index] != null &&
+    songKeyOf(queue[preDrawnShuffle.index]) === preDrawnShuffle.songKey;
+  if (!valid) {
+    preDrawnShuffle = null;
+    return undefined;
+  }
+  return queue[preDrawnShuffle.index];
+}
+
 /** 取当前曲邻近需预读的歌曲列表。
  *  queue 上下文：队列下一首；
  *  personalFm：当前批次下一首 + 缓冲头部 2 首——FM 切歌同样需要预取 URL，
  *  否则每次「下一首」都实时走网关解析，正是 FM 切歌慢的根因。
+ *  shuffle：预抽定的下一首（见 drawPreDrawnShuffleSong）——随机抽取若不预抽定，
+ *  预读预解析的顺序下一首几乎必 miss，切歌只能现场走整条解析链（一切歌就缓冲的主因）。
  */
 function getNearbySongs(): MusicInfo[] {
   const { playbackContext, queue, currentIndex, playMode } = usePlayerStore.getState();
@@ -511,6 +580,10 @@ function getNearbySongs(): MusicInfo[] {
     push(playbackContext.buffer[0]);
     push(playbackContext.buffer[1]);
     return result;
+  }
+  if (playMode === "shuffle") {
+    const drawn = getOrDrawPreDrawnShuffleSong();
+    return drawn ? [drawn] : [];
   }
   return getNearbyQueueIndexes(queue.length, currentIndex, playMode)
     .map((index) => queue[index])
@@ -614,18 +687,18 @@ function getNextSongForPrefetch(): MusicInfo | undefined {
     );
   }
   if (playMode === "single") return undefined;
-  // 随机模式的下一首在 playNext 里才抽取，这里不预抽（会与真正切歌抽到的不一致，
-  // 更不能推进 playedIndices）：沿用邻近预读窗口的首个候选，命中即秒开、不中也只多一次后台解析。
-  const nextIndex =
-    playMode === "shuffle"
-      ? getNearbyQueueIndexes(queue.length, currentIndex, playMode)[0]
-      : getNextQueueNavigationState({
-          queueLength: queue.length,
-          currentIndex,
-          playMode,
-          shuffleHistory,
-          playedIndices,
-        }).nextIndex;
+  // 随机模式：预抽定下一首（drawPreDrawnShuffleSong），playNext 消费同一首——
+  // 预读与真实切歌指向同一目标后，随机模式切歌才能命中预读缓存秒开。
+  if (playMode === "shuffle") {
+    return getOrDrawPreDrawnShuffleSong();
+  }
+  const nextIndex = getNextQueueNavigationState({
+    queueLength: queue.length,
+    currentIndex,
+    playMode,
+    shuffleHistory,
+    playedIndices,
+  }).nextIndex;
   if (nextIndex == null || nextIndex === currentIndex) return undefined;
   return queue[nextIndex];
 }
@@ -886,6 +959,9 @@ export async function playNext(auto = false): Promise<void> {
     playMode,
     shuffleHistory,
     playedIndices,
+    // 随机模式消费预抽结果：预读预解析的就是这首歌，切歌命中预读缓存秒开
+    // （无效时模型内部回退为现场随机抽取，行为与原先一致）
+    fixedNextIndex: playMode === "shuffle" ? consumePreDrawnShuffleIndex() ?? undefined : undefined,
   });
   usePlayerStore.setState({ shuffleHistory: next.shuffleHistory, playedIndices: next.playedIndices });
   if (next.nextIndex == null) return;
@@ -1064,6 +1140,18 @@ async function loadLyrics(song: MusicInfo, intent: number): Promise<void> {
     if (intent !== playIntentSeq) return;
     usePlayerStore.getState().setLyrics([]);
   }
+}
+
+/**
+ * 快照恢复（重启后暂停态）补拉当前曲歌词。
+ * 播放快照只持久化歌曲/队列/进度，不携带歌词；歌词只在 playSongCore 真正播放时加载，
+ * 重启后的暂停态若不补拉，沉浸页歌词页与迷你歌词会一直显示「暂无歌词」直到下次播放。
+ */
+export async function loadLyricsForRestoredSong(song: MusicInfo): Promise<void> {
+  const { currentSong } = usePlayerStore.getState();
+  // 期间用户已切歌则放弃：切歌流程（playSongCore）会自己加载歌词
+  if (!currentSong || currentSong.source !== song.source || currentSong.id !== song.id) return;
+  await loadLyrics(song, playIntentSeq);
 }
 
 /**

@@ -8,6 +8,12 @@ export interface NextQueueNavigationInput {
   /** 本轮随机已播放过的索引，用于整轮去重（避免短期内重复随机到同一首） */
   playedIndices?: number[];
   random?: () => number;
+  /**
+   * 随机模式预抽结果（playerService 预读时提前抽定的下一首）：
+   * 传入时 shuffle 分支不再重新随机，直接消费该索引（记账语义与自抽一致），
+   * 保证「预读预解析的歌」与「真正切过去播的歌」是同一首，切歌秒开。
+   */
+  fixedNextIndex?: number;
 }
 
 export interface NextQueueNavigationState {
@@ -81,6 +87,7 @@ export function getNextQueueNavigationState({
   shuffleHistory,
   playedIndices = [],
   random = Math.random,
+  fixedNextIndex,
 }: NextQueueNavigationInput): NextQueueNavigationState {
   const safeCurrentIndex = clampCurrentIndex(currentIndex, queueLength);
   if (queueLength <= 0 || safeCurrentIndex < 0) {
@@ -88,6 +95,20 @@ export function getNextQueueNavigationState({
   }
 
   if (playMode === "shuffle") {
+    // 预抽消费：索引在界内且不是当前曲时直接采用（记账与自抽完全一致）
+    if (
+      typeof fixedNextIndex === "number" &&
+      Number.isInteger(fixedNextIndex) &&
+      fixedNextIndex >= 0 &&
+      fixedNextIndex < queueLength &&
+      fixedNextIndex !== safeCurrentIndex
+    ) {
+      return {
+        nextIndex: fixedNextIndex,
+        shuffleHistory: [...shuffleHistory, safeCurrentIndex],
+        playedIndices: [...playedIndices, fixedNextIndex],
+      };
+    }
     const picked = pickShuffleIndex(queueLength, safeCurrentIndex, playedIndices, random);
     return {
       nextIndex: picked.nextIndex,

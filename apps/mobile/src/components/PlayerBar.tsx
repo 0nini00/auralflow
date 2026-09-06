@@ -290,7 +290,13 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
             tone="strong"
             onPress={handlePrevious}
             accessibilityLabel="上一首"
-            render={({ size, color }) => <SkipBack size={size} color={color} />}
+            render={({ size, color }) =>
+              loading ? (
+                <ActivityIndicator color={color} size="small" />
+              ) : (
+                <SkipBack size={size} color={color} />
+              )
+            }
           />
           <IconButton
             variant="accent"
@@ -312,7 +318,13 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
             tone="strong"
             onPress={handleNext}
             accessibilityLabel="下一首"
-            render={({ size, color }) => <SkipForward size={size} color={color} />}
+            render={({ size, color }) =>
+              loading ? (
+                <ActivityIndicator color={color} size="small" />
+              ) : (
+                <SkipForward size={size} color={color} />
+              )
+            }
           />
           <IconButton
             size="sm"
@@ -350,13 +362,19 @@ interface MiniLyricStatusProps {
  * 行号统一走 useLyricLineIndex（与沉浸屏同源：锚点外推 + 行边界调度 + 单调钳制），
  * 不再随 0.25s 进度事件重算。组件隔离到叶子：
  * - 只有这一行 Text 随行切换重渲染，整个 PlayerBar（封面、按钮、弹窗）不再随进度重建；
- * - 悬浮歌词原生桥调用做节流：仅当行号切换或行内进度跨档（10%）且距上次 ≥250ms 时才发送。
+ * - 悬浮歌词原生桥按「显示签名」去重推送：内容不变不发送。
+ *
+ * 悬浮窗推送语义（对齐 lx 桌面歌词）：
+ * - 有归属当前曲的歌词且行号有效 → 推当前行 + 下一行；
+ * - 切歌在途（新歌已入 store、歌词未加载）/ 前奏 / 无词 → 推「歌名 - 歌手」，
+ *   保证上一首一结束悬浮窗就切换到新歌，而不是挂着旧歌词等新歌唱起来；
+ * - 队列清空 → 推空串清窗。
  */
 function MiniLyricStatus({ overlayVisible, color }: MiniLyricStatusProps) {
-  const position = usePlayerStore((state) => state.position);
   const lyrics = usePlayerStore((state) => state.lyrics);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const loading = usePlayerStore((state) => state.loading);
+  const currentSong = usePlayerStore((state) => state.currentSong);
   // 与沉浸歌词保持一致：手动偏移校准 + 简繁转换（否则设置后迷你栏/悬浮歌词与其他歌词不一致）
   const manualOffsetMs = useLyricSettingsStore((s) => s.manualOffsetMs);
   const chineseConversion = useLyricSettingsStore((s) => s.chineseConversion);
@@ -376,26 +394,45 @@ function MiniLyricStatus({ overlayVisible, color }: MiniLyricStatusProps) {
       ? convertText(lyrics[currentIndex]?.text ?? "")
       : "";
 
-  const lastSentRef = useRef({ index: -1, bucket: -1, ts: 0 });
+  const songKey = currentSong ? `${currentSong.source}:${currentSong.id}` : "";
+
+  // 歌词归属打标：只在歌词数组身份变化那一刻按 store 当时的 currentSong 归属。
+  // 切歌在途窗口（currentSong 已是新歌、歌词还是上一首的）里旧歌词不归新歌所有，
+  // 悬浮窗改推歌名——否则会拿上一首的歌词按新歌进度取行（音词错位）或退化为空窗。
+  // currentSong 在 play() 内先于 loadLyrics 落库（playerStore.ts play → playSongCore 第 3 步），
+  // 歌词到达时打到的必是新歌的标；同曲重播（切音质）数组虽换但 key 不变，不会闪歌名。
+  const lyricsOwnerRef = useRef({ array: lyrics, key: songKey });
+  if (lyricsOwnerRef.current.array !== lyrics) {
+    lyricsOwnerRef.current = { array: lyrics, key: songKey };
+  }
+  const lyricsOwned = songKey !== "" && lyricsOwnerRef.current.key === songKey;
+
+  // 原生悬浮窗当前显示内容的签名：只在显示会变化时才发桥调用
+  const lastSentRef = useRef("");
 
   useEffect(() => {
     if (!overlayVisible) return;
 
-    const now = Date.now();
-    const last = lastSentRef.current;
-    // 悬浮窗只显示整行文字（无行内进度条），因此只在换行时推送，
-    // 不再按行内进度做 250ms 节流——原来那样每行要多发十几次无效更新。
-    if (currentIndex === last.index) return;
+    const titleText = currentSong
+      ? convertText(currentSong.singer ? `${currentSong.name} - ${currentSong.singer}` : currentSong.name)
+      : "";
+    let currentText = titleText;
+    let nextText = "";
+    if (currentSong && lyricsOwned && currentIndex >= 0) {
+      const line = convertText(lyrics[currentIndex]?.text ?? "");
+      if (line) {
+        currentText = line;
+        const next = lyrics[currentIndex + 1];
+        nextText = next ? convertText(next.text) : "";
+      }
+    }
 
-    lastSentRef.current = { index: currentIndex, bucket: 0, ts: now };
-    const currentLine = lyrics[currentIndex];
-    const nextLine = lyrics[currentIndex + 1];
-    void updateLyricOverlay(
-      currentLine ? convertText(currentLine.text) : "",
-      nextLine ? convertText(nextLine.text) : "",
-    ).catch((error: unknown) => {
+    const signature = `${currentText}\u0000${nextText}`;
+    if (signature === lastSentRef.current) return;
+    lastSentRef.current = signature;
+    void updateLyricOverlay(currentText, nextText).catch((error: unknown) => {
     });
-  }, [currentIndex, lyrics, overlayVisible, position, offsetSec, convertText]);
+  }, [currentSong, songKey, lyricsOwned, currentIndex, lyrics, overlayVisible, offsetSec, convertText]);
 
   return (
     <Text style={[styles.trackArtist, { color }]} numberOfLines={1}>

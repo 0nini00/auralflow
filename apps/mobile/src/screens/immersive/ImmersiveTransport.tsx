@@ -143,7 +143,13 @@ export function ImmersiveTransport({
             onPrevious();
           }}
           accessibilityLabel="上一首"
-          render={({ size, color }) => <SkipBack size={size} color={color} fill={color} />}
+          render={({ size, color }) =>
+            loading ? (
+              <ActivityIndicator color={color} size="small" />
+            ) : (
+              <SkipBack size={size} color={color} fill={color} />
+            )
+          }
         />
 
         <IconButton
@@ -170,7 +176,13 @@ export function ImmersiveTransport({
             onNext();
           }}
           accessibilityLabel="下一首"
-          render={({ size, color }) => <SkipForward size={size} color={color} fill={color} />}
+          render={({ size, color }) =>
+            loading ? (
+              <ActivityIndicator color={color} size="small" />
+            ) : (
+              <SkipForward size={size} color={color} fill={color} />
+            )
+          }
         />
       </View>
 

@@ -17,8 +17,8 @@ const COVER_CACHE_DIR = `${CACHE_DIR}/covers`;
 const LYRIC_CACHE_DIR = `${CACHE_DIR}/lyrics`;
 const AUDIO_CACHE_DIR = `${CACHE_DIR}/audio`;
 
-/** 仅这些音源的音质 URL 稳定可落盘缓存（对齐桌面端 CACHEABLE_AUDIO_SOURCES） */
-export const CACHEABLE_AUDIO_SOURCES = new Set<string>(["wy", "tx"]);
+/** 仅这些音源的音质 URL 稳定可落盘缓存（对齐桌面端 CACHEABLE_AUDIO_SOURCES；移动端额外加 bili：预读下一首时后台整曲落盘，切歌即本地播放，下载失败静默由在线流兜底） */
+export const CACHEABLE_AUDIO_SOURCES = new Set<string>(["wy", "tx", "bili"]);
 
 function normalizeKeyPart(value: unknown): string {
   return String(value ?? "")
