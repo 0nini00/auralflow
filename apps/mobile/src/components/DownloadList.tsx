@@ -1,6 +1,6 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { Play, RotateCcw, Trash2, X } from "lucide-react-native";
+import { Pause, Play, RotateCcw, X } from "lucide-react-native";
 import type { MusicInfo } from "@lx/core";
 
 import type { DownloadQuality } from "@/stores/downloadStore";
@@ -11,6 +11,7 @@ import { PlaybackErrorState } from "@/components/PlaybackErrorState";
 import { CachedImage } from "@/components/CachedImage";
 import { Touchable } from "@/components/Touchable";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
+import { withAlpha } from "@/services/themePaletteModel";
 import { iconButton, radius, spacing, typography } from "@/theme/tokens";
 import {
   buildCompletedDownloadMetadata,
@@ -30,9 +31,11 @@ interface DownloadListProps {
 /**
  * 下载管理列表（对齐 lx DownloadManager 的任务视图设计）：
  * - 列表项不再提供「播放」按键，点击歌名行即播放（与全 app 列表交互一致）
- * - 「移除」只删记录不动文件（lx removeTask 语义）；「删除文件」是独立动作
- * - 进行中任务提供 暂停/继续/取消；失败任务提供 重试/移除
- * - 所有按键统一走 IconButton / Touchable 原语
+ * - 已完成任务的两个删除动作必须带文字：「移除记录」只删记录不动文件
+ *   （lx removeTask 语义，重新下载按文件名约定秒完成），「删除文件」连本地
+ *   文件一起删——两个纯图标按钮（X/垃圾桶）用户无法区分，已回归为文字按钮
+ * - 进行中任务提供 暂停/继续/取消（图标按常规语义：暂停=Pause，取消=X）；
+ *   失败任务提供 重试/移除
  */
 export function DownloadList({ downloads, downloading, failedDownloads = [], onNavigateToPlayer }: DownloadListProps) {
   const removeDownloadRecord = useDownloadStore((state) => state.removeDownloadRecord);
@@ -141,7 +144,7 @@ export function DownloadList({ downloads, downloading, failedDownloads = [], onN
                   tone="default"
                   accessibilityLabel="暂停下载"
                   onPress={() => pauseDownload(item.song, item.quality)}
-                  render={({ color, size }) => <X color={color} size={size} />}
+                  render={({ color, size }) => <Pause color={color} size={size} />}
                 />
               )}
               <IconButton
@@ -149,7 +152,7 @@ export function DownloadList({ downloads, downloading, failedDownloads = [], onN
                 tone="danger"
                 accessibilityLabel="取消下载"
                 onPress={() => cancelDownload(item.song, item.quality)}
-                render={({ color, size }) => <Trash2 color={color} size={size} />}
+                render={({ color, size }) => <X color={color} size={size} />}
               />
             </View>
           </View>
@@ -227,20 +230,23 @@ export function DownloadList({ downloads, downloading, failedDownloads = [], onN
               </Text>
             </View>
             <View style={styles.downloadActions}>
-              <IconButton
-                size="sm"
-                tone="strong"
-                accessibilityLabel="移除下载记录（保留文件）"
+              {/* 两个删除动作语义不同必须可见：移除记录=只清列表项保留文件；删除文件=连本地文件一起删 */}
+              <Touchable
+                style={[styles.textAction, { backgroundColor: palette.surfaceStrong }]}
                 onPress={() => void removeDownloadRecord(item.song, quality)}
-                render={({ color, size }) => <X color={color} size={size} />}
-              />
-              <IconButton
-                size="sm"
-                tone="danger"
-                accessibilityLabel="删除下载文件"
+                accessibilityRole="button"
+                accessibilityLabel="移除下载记录，保留本地文件"
+              >
+                <Text style={[styles.textActionText, { color: palette.textMuted }]}>移除记录</Text>
+              </Touchable>
+              <Touchable
+                style={[styles.textAction, { backgroundColor: withAlpha(palette.danger, 0.12) }]}
                 onPress={() => void removeDownload(item.song, quality)}
-                render={({ color, size }) => <Trash2 color={color} size={size} />}
-              />
+                accessibilityRole="button"
+                accessibilityLabel="删除下载文件并移除记录"
+              >
+                <Text style={[styles.textActionText, { color: palette.danger }]}>删除文件</Text>
+              </Touchable>
             </View>
           </Touchable>
         );
@@ -321,5 +327,16 @@ const styles = StyleSheet.create({
   downloadActions: {
     gap: spacing.xxs,
     alignItems: "flex-end",
+  },
+  textAction: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radius.sm,
+    minWidth: 68,
+    alignItems: "center",
+  },
+  textActionText: {
+    fontSize: typography.caption,
+    fontWeight: "600",
   },
 });
