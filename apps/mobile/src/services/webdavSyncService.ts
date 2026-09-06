@@ -876,12 +876,33 @@ export async function downloadSourcesSync(options?: { force?: boolean }): Promis
   });
 }
 
+/**
+ * 上传前补拉云端歌单歌曲：移动端云端歌单只持有引用，cloudSongsCache 只在
+ * 「本设备下载过远端文件」时才有内容。新设备登录后直接手动上传，会让每个
+ * 云端歌单以 list: [] 覆盖远端真实歌曲列表（autoSync 先下载后上传，没有这个
+ * 问题）。只要有云端歌单还没挂上缓存歌曲，就先拉一次远端文件补齐；远端存在
+ * 但拉取失败时抛错中止上传——数据安全优先于上传便利。
+ */
+async function primeCloudSongsCacheForUpload(cfg: WebdavConfig): Promise<void> {
+  const { playlists } = usePlaylistStore.getState();
+  const needsPrime = playlists.some(
+    (p) => p.source !== "local" && !cloudSongsCache.has(cloudPlaylistKey(p.source, p.id)),
+  );
+  if (!needsPrime) return;
+  const text = await readSyncFileWithLegacyFallback(cfg, playlistsPath);
+  // 云端没有歌单文件：没有任何可被覆盖的数据，直接放行
+  if (!text) return;
+  const { cloudSongs } = parsePlaylistsSyncFile(text);
+  await rememberCloudSongs(cloudSongs);
+}
+
 /** 上传收藏、歌单和播放历史到 WebDAV（覆盖远端 playlists.json）。 */
 export async function uploadPlaylistsSync(): Promise<void> {
   return withSyncLock("上传歌单", async () => {
     const cfg = await getConfig();
     if (!cfg) throw new Error("请先填写 WebDAV 地址");
     await ensureRemoteDirectory(cfg, REMOTE_ROOT_PATH);
+    await primeCloudSongsCacheForUpload(cfg);
 
     const body = await buildPlaylistsSyncFile();
 
