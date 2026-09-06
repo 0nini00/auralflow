@@ -1,15 +1,16 @@
 import React, { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Check, Monitor, Moon, Sun } from "lucide-react-native";
 
 import { SettingsCard } from "@/components/settings/SettingsCard";
-import { DEFAULT_ACCENT_COLOR, parseAccentColorInput } from "@/services/themePaletteModel";
+import { DEFAULT_ACCENT_COLOR, parseAccentColorInput, withAlpha } from "@/services/themePaletteModel";
 import { getResolvedTheme, getThemePalette, type ThemeMode, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, touch, typography } from "@/theme/tokens";
 
-const THEME_OPTIONS: Array<{ value: ThemeMode; label: string }> = [
-  { value: "light", label: "浅色" },
-  { value: "dark", label: "深色" },
-  { value: "system", label: "跟随系统" },
+const THEME_OPTIONS: Array<{ value: ThemeMode; label: string; icon: typeof Sun }> = [
+  { value: "light", label: "浅色", icon: Sun },
+  { value: "dark", label: "深色", icon: Moon },
+  { value: "system", label: "跟随系统", icon: Monitor },
 ];
 
 const ACCENT_OPTIONS = [
@@ -20,14 +21,10 @@ const ACCENT_OPTIONS = [
   { label: "粉色", value: "#ec4899" },
 ] as const;
 
-function getThemeModeLabel(mode: ThemeMode, systemTheme: "light" | "dark") {
-  if (mode === "system") {
-    return `跟随系统（${systemTheme === "light" ? "浅色" : "深色"}）`;
-  }
-
-  return mode === "light" ? "浅色" : "深色";
-}
-
+/**
+ * 外观设置：明暗模式 + 主题色两张聚焦卡片。
+ * 明暗模式 = 带图标的三选一块；主题色 = 圆形色板单行 + 精简 Hex 自定义输入。
+ */
 export function ThemeModeCard() {
   const themeMode = useThemeStore((state) => state.mode);
   const setThemeMode = useThemeStore((state) => state.setMode);
@@ -39,6 +36,7 @@ export function ThemeModeCard() {
   const [accentColorInput, setAccentColorInput] = useState(accentColor.toUpperCase());
   const parsedAccentColorInput = parseAccentColorInput(accentColorInput);
   const isAccentColorInputValid = parsedAccentColorInput !== null;
+  const isCustomAccent = accentColor !== DEFAULT_ACCENT_COLOR;
 
   useEffect(() => {
     setAccentColorInput(accentColor.toUpperCase());
@@ -52,169 +50,200 @@ export function ThemeModeCard() {
   };
 
   return (
-    <SettingsCard style={styles.themeCard}>
-      <View style={styles.themeHeader}>
-        <Text style={[styles.themeTitle, { color: palette.text }]}>主题</Text>
-        <Text style={[styles.themeSubtitle, { color: palette.textMuted }]}>
-          当前：{getThemeModeLabel(themeMode, systemTheme)}
-        </Text>
-      </View>
-      <Text style={[styles.sectionLabel, { color: palette.textMuted }]}>明暗模式</Text>
-      <View style={styles.themeOptions}>
-        {THEME_OPTIONS.map((option) => {
-          const active = option.value === themeMode;
-          return (
-            <Pressable
-              key={option.value}
-              style={({ pressed }) => [
-                styles.themeOption,
-                {
-                  backgroundColor: active ? palette.primary : palette.surfaceMuted,
-                  borderColor: active ? palette.primary : palette.border,
-                  opacity: pressed ? 0.7 : 1,
-                },
-              ]}
-              onPress={() => setThemeMode(option.value)}
-              android_ripple={{ color: palette.primary }}
-            >
-              <Text
-                style={[
-                  styles.themeOptionText,
-                  { color: active ? palette.primaryText : palette.textMuted },
+    <>
+      <SettingsCard style={styles.card}>
+        <Text style={[styles.cardTitle, { color: palette.text }]}>明暗模式</Text>
+        <View style={styles.modeRow}>
+          {THEME_OPTIONS.map((option) => {
+            const active = option.value === themeMode;
+            const Icon = option.icon;
+            return (
+              <Pressable
+                key={option.value}
+                accessibilityRole="radio"
+                accessibilityLabel={`明暗模式：${option.label}`}
+                accessibilityState={{ selected: active }}
+                style={({ pressed }) => [
+                  styles.modeTile,
+                  {
+                    backgroundColor: active ? withAlpha(palette.primary, 0.12) : palette.surfaceMuted,
+                    borderColor: active ? palette.primary : palette.border,
+                    opacity: pressed ? 0.7 : 1,
+                  },
                 ]}
+                onPress={() => setThemeMode(option.value)}
+                android_ripple={{ color: withAlpha(palette.primary, 0.2) }}
               >
-                {option.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
+                <Icon size={20} color={active ? palette.primary : palette.textMuted} strokeWidth={2} />
+                <Text
+                  style={[
+                    styles.modeTileText,
+                    { color: active ? palette.primary : palette.textMuted },
+                  ]}
+                >
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        {themeMode === "system" ? (
+          <Text style={[styles.modeCaption, { color: palette.textSubtle }]}>
+            当前跟随系统 · 实际为{systemTheme === "light" ? "浅色" : "深色"}
+          </Text>
+        ) : null}
+      </SettingsCard>
 
-      <Text style={[styles.sectionLabel, { color: palette.textMuted }]}>主题色</Text>
-      <View style={styles.customAccentRow}>
-        <View
-          style={[
-            styles.customAccentSwatch,
-            { backgroundColor: accentColor, borderColor: palette.border },
-          ]}
-        />
-        <TextInput
-          style={[
-            styles.customAccentInput,
-            {
-              color: palette.text,
-              backgroundColor: palette.surfaceMuted,
-              borderColor: isAccentColorInputValid ? palette.border : palette.danger,
-            },
-          ]}
-          value={accentColorInput}
-          onChangeText={handleAccentColorInputChange}
-          autoCapitalize="characters"
-          autoCorrect={false}
-          placeholder="#3BD877"
-          placeholderTextColor={palette.textSubtle}
-        />
-      </View>
-      {!isAccentColorInputValid ? (
-        <Text style={[styles.accentInputError, { color: palette.danger }]}>请输入 6 位 Hex 颜色</Text>
-      ) : null}
-      <View style={styles.accentOptions}>
-        {ACCENT_OPTIONS.map((option) => {
-          const active = option.value === accentColor;
-          return (
+      <SettingsCard style={styles.card}>
+        <View style={styles.titleRow}>
+          <Text style={[styles.cardTitle, { color: palette.text }]}>主题色</Text>
+          {isCustomAccent ? (
             <Pressable
-              key={option.value}
-              style={({ pressed }) => [
-                styles.accentOption,
-                {
-                  borderColor: active ? palette.primary : palette.border,
-                  backgroundColor: active ? palette.surfaceStrong : palette.surfaceMuted,
-                  opacity: pressed ? 0.7 : 1,
-                },
-              ]}
-              onPress={() => void setAccentColor(option.value)}
-              android_ripple={{ color: palette.primary }}
+              onPress={() => void resetAccentColor()}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="重置为默认主题色"
             >
-              <View style={[styles.accentSwatch, { backgroundColor: option.value }]} />
-              <Text style={[styles.accentLabel, { color: active ? palette.primary : palette.textMuted }]}>
-                {option.label}
-              </Text>
+              <Text style={[styles.resetLink, { color: palette.primary }]}>重置</Text>
             </Pressable>
-          );
-        })}
-      </View>
-      <Pressable
-        style={({ pressed }) => [
-          styles.resetAccentButton,
-          {
-            borderColor: palette.border,
-            backgroundColor: palette.surfaceMuted,
-            opacity: pressed ? 0.7 : 1,
-          },
-        ]}
-        onPress={() => void resetAccentColor()}
-        android_ripple={{ color: palette.textMuted }}
-      >
-        <Text style={[styles.resetAccentText, { color: palette.textMuted }]}>重置为默认主题色</Text>
-      </Pressable>
-    </SettingsCard>
+          ) : null}
+        </View>
+
+        <View style={styles.swatchRow}>
+          {ACCENT_OPTIONS.map((option) => {
+            const active = option.value === accentColor;
+            return (
+              <Pressable
+                key={option.value}
+                accessibilityRole="radio"
+                accessibilityLabel={`主题色：${option.label}`}
+                accessibilityState={{ selected: active }}
+                style={({ pressed }) => [
+                  styles.swatchRing,
+                  { borderColor: active ? palette.primary : "transparent", opacity: pressed ? 0.7 : 1 },
+                ]}
+                onPress={() => void setAccentColor(option.value)}
+              >
+                <View style={[styles.swatchCircle, { backgroundColor: option.value }]}>
+                  {active ? <Check size={16} color="#ffffff" strokeWidth={3} /> : null}
+                </View>
+              </Pressable>
+            );
+          })}
+          <View style={[styles.swatchRing, { borderColor: "transparent" }]}>
+            <View
+              style={[
+                styles.swatchCircle,
+                styles.swatchCustom,
+                { backgroundColor: accentColor, borderColor: palette.border },
+              ]}
+            >
+              <Text style={[styles.swatchCustomText, { color: palette.textMuted }]}>自定</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.customRow}>
+          <TextInput
+            style={[
+              styles.customInput,
+              {
+                color: palette.text,
+                backgroundColor: palette.surfaceMuted,
+                borderColor: isAccentColorInputValid ? palette.border : palette.danger,
+              },
+            ]}
+            value={accentColorInput}
+            onChangeText={handleAccentColorInputChange}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            placeholder="#3BD877"
+            placeholderTextColor={palette.textSubtle}
+            accessibilityLabel="自定义主题色 Hex 值"
+          />
+          <View style={[styles.customPreview, { backgroundColor: accentColor, borderColor: palette.border }]} />
+        </View>
+        {!isAccentColorInputValid ? (
+          <Text style={[styles.inputError, { color: palette.danger }]}>请输入 6 位 Hex 颜色</Text>
+        ) : null}
+      </SettingsCard>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  themeCard: {
-    gap: spacing.s,
+  card: {
+    gap: spacing.m,
   },
-  // 卡片自带 gap: spacing.s，子元素不再叠加 marginBottom，间距节奏统一
-  themeHeader: {
-    gap: spacing.xxs,
+  cardTitle: {
+    fontSize: 15,
+    fontWeight: "700",
   },
-  themeTitle: {
-    fontSize: 16,
-    fontWeight: "600",
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
-  themeSubtitle: {
-    fontSize: 13,
-  },
-  sectionLabel: {
+  resetLink: {
     fontSize: typography.caption,
     fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
+    minHeight: touch.minTarget / 2,
+    textAlignVertical: "center",
   },
-  themeOptions: {
+  modeRow: {
     flexDirection: "row",
     gap: spacing.s,
   },
-  themeOption: {
+  modeTile: {
     flex: 1,
-    minHeight: touch.minTarget,
+    minHeight: touch.minTarget + 8,
     borderWidth: 2,
     borderRadius: radius.md,
     alignItems: "center",
     justifyContent: "center",
+    gap: spacing.xxs,
   },
-  themeOptionText: {
-    fontSize: typography.meta,
+  modeTileText: {
+    fontSize: typography.caption,
     fontWeight: "700",
   },
-  accentOptions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.s,
+  modeCaption: {
+    fontSize: typography.caption,
+    marginTop: -spacing.xxs,
   },
-  customAccentRow: {
+  swatchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.m,
+    flexWrap: "wrap",
+  },
+  swatchRing: {
+    padding: 3,
+    borderWidth: 2,
+    borderRadius: 999,
+  },
+  swatchCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(0,0,0,0.08)",
+  },
+  swatchCustom: {
+    // 自定义入口：底色实时跟随当前 accentColor（JSX 中覆盖）
+  },
+  swatchCustomText: {
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  customRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.s,
   },
-  customAccentSwatch: {
-    width: 44,
-    height: 44,
-    borderRadius: 999,
-    borderWidth: 2,
-  },
-  customAccentInput: {
+  customInput: {
     flex: 1,
     minHeight: touch.minTarget,
     borderWidth: 2,
@@ -223,41 +252,15 @@ const styles = StyleSheet.create({
     fontSize: typography.body,
     fontWeight: "600",
   },
-  accentInputError: {
+  customPreview: {
+    width: 40,
+    height: 40,
+    borderRadius: 999,
+    borderWidth: 2,
+  },
+  inputError: {
     fontSize: typography.caption,
     fontWeight: "500",
-  },
-  accentOption: {
-    minWidth: 80,
-    minHeight: touch.minTarget,
-    borderWidth: 2,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.s,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.xs,
-  },
-  accentSwatch: {
-    width: 28,
-    height: 28,
-    borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(0,0,0,0.1)",
-  },
-  accentLabel: {
-    fontSize: typography.caption,
-    fontWeight: "700",
-  },
-  resetAccentButton: {
-    minHeight: touch.minTarget,
-    borderWidth: 2,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.m,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  resetAccentText: {
-    fontSize: typography.meta,
-    fontWeight: "700",
+    marginTop: -spacing.xs,
   },
 });

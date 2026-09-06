@@ -42,6 +42,10 @@ const DEFAULT_STYLE: Required<LyricOverlayStyle> = {
   fontFamily: "",
 };
 
+/**
+ * 悬浮歌词设置：收敛为「开关」「样式」两张分组卡片，
+ * 行内条目用 hairline 分隔，终结此前 7 张零散卡片的碎片化排版。
+ */
 export function LyricOverlaySettings() {
   const visible = useLyricOverlayStore((state) => state.visible);
   const locked = useLyricOverlayStore((state) => state.locked);
@@ -124,7 +128,6 @@ export function LyricOverlaySettings() {
     }
   };
 
-
   const notificationSubtitle = !supported
     ? "当前设备不支持播放通知显示歌词按钮"
     : !loaded
@@ -133,134 +136,155 @@ export function LyricOverlaySettings() {
 
   return (
     <>
-    <SettingsCard style={styles.card}>
-      <View style={styles.copy}>
-        <Text style={[styles.title, { color: palette.text }]}>悬浮歌词</Text>
-        <Text style={[styles.subtitle, { color: palette.textMuted }]}>
-          {`${visible ? "已显示" : "未显示"}，在其他应用上层展示当前歌词`}
-        </Text>
-      </View>
-      <Switch
-        accessibilityLabel="悬浮歌词开关"
-        value={visible}
-        onValueChange={() => void toggleVisible()}
-        trackColor={{ false: palette.surfaceMuted, true: palette.primary }}
-      />
-    </SettingsCard>
-    <SettingsCard style={styles.card}>
-      <View style={styles.copy}>
-        <Text style={[styles.title, { color: palette.text }]}>锁定悬浮歌词位置</Text>
-        <Text style={[styles.subtitle, { color: palette.textMuted }]}>
-          {locked ? "已锁定，位置不可拖动" : "未锁定，可拖动调整位置"}
-        </Text>
-      </View>
-      <Switch
-        accessibilityLabel="锁定悬浮歌词位置"
-        value={locked}
-        onValueChange={() => void toggleLocked()}
-        trackColor={{ false: palette.surfaceMuted, true: palette.primary }}
-      />
-    </SettingsCard>
-    <SettingsCard style={styles.card}>
-      <View style={styles.copy}>
-        <Text style={[styles.title, { color: palette.text }]}>播放通知显示歌词按钮</Text>
-        <Text style={[styles.subtitle, { color: palette.textMuted }]}>{notificationSubtitle}</Text>
-      </View>
-      <Switch
-        accessibilityLabel="播放通知显示歌词按钮"
-        accessibilityState={{ disabled: !loaded || notificationButtonUpdating || !supported }}
-        disabled={!loaded || notificationButtonUpdating || !supported}
-        value={notificationButtonEnabled}
-        onValueChange={(enabled) => void toggleNotificationButton(enabled)}
-        trackColor={{ false: palette.surfaceMuted, true: palette.primary }}
-      />
-    </SettingsCard>
+      <SettingsCard style={styles.groupCard}>
+        <SwitchRow
+          palette={palette}
+          title="悬浮歌词"
+          subtitle={`${visible ? "已显示" : "未显示"}，在其他应用上层展示当前歌词`}
+          value={visible}
+          onValueChange={() => void toggleVisible()}
+          accessibilityLabel="悬浮歌词开关"
+        />
+        <Hairline palette={palette} />
+        <SwitchRow
+          palette={palette}
+          title="锁定悬浮歌词位置"
+          subtitle={locked ? "已锁定，位置不可拖动" : "未锁定，可拖动调整位置"}
+          value={locked}
+          onValueChange={() => void toggleLocked()}
+          accessibilityLabel="锁定悬浮歌词位置"
+        />
+        <Hairline palette={palette} />
+        <SwitchRow
+          palette={palette}
+          title="播放通知显示歌词按钮"
+          subtitle={notificationSubtitle}
+          value={notificationButtonEnabled}
+          disabled={!loaded || notificationButtonUpdating || !supported}
+          onValueChange={(enabled) => void toggleNotificationButton(enabled)}
+          accessibilityLabel="播放通知显示歌词按钮"
+        />
+      </SettingsCard>
 
-
-    <SettingsCard style={styles.stackCard}>
-      <View style={styles.copy}>
-        <Text style={[styles.title, { color: palette.text }]}>歌词字号</Text>
-        <Text style={[styles.subtitle, { color: palette.textMuted }]}>
-          下一行会自动小一档
-        </Text>
-      </View>
-      <View style={styles.chipRow}>
-        {FONT_SIZE_OPTIONS.map((option) => (
-          <ChoiceChip
-            key={option.value}
-            label={option.label}
-            selected={style.fontSize === option.value}
-            disabled={!supported}
-            onPress={() => void patchStyle({ fontSize: option.value })}
-            accessibilityLabel={`歌词字号 ${option.label}`}
-          />
-        ))}
-      </View>
-    </SettingsCard>
-
-    <SettingsCard style={styles.stackCard}>
-      <View style={styles.copy}>
-        <Text style={[styles.title, { color: palette.text }]}>文字不透明度</Text>
-      </View>
-      <View style={styles.chipRow}>
-        {OPACITY_OPTIONS.map((option) => (
-          <ChoiceChip
-            key={option.value}
-            label={option.label}
-            selected={style.textOpacity === option.value}
-            disabled={!supported}
-            onPress={() => void patchStyle({ textOpacity: option.value })}
-            accessibilityLabel={`文字不透明度 ${option.label}`}
-          />
-        ))}
-      </View>
-    </SettingsCard>
-
-    <SettingsCard style={styles.card}>
-      <View style={styles.copy}>
-        <Text style={[styles.title, { color: palette.text }]}>显示下一行歌词</Text>
-        <Text style={[styles.subtitle, { color: palette.textMuted }]}>
-          {style.showNextLine ? "显示两行" : "只显示当前行"}
-        </Text>
-      </View>
-      <Switch
-        accessibilityLabel="显示下一行歌词"
-        disabled={!supported}
-        value={style.showNextLine}
-        onValueChange={(value) => void patchStyle({ showNextLine: value })}
-        trackColor={{ false: palette.surfaceMuted, true: palette.primary }}
-      />
-    </SettingsCard>
-
-    <SettingsCard style={styles.card}>
-      <View style={styles.copy}>
-        <Text style={[styles.title, { color: palette.text }]}>文字投影</Text>
-        <Text style={[styles.subtitle, { color: palette.textMuted }]}>
-          关闭后在浅色壁纸上可能看不清
-        </Text>
-      </View>
-      <Switch
-        accessibilityLabel="文字投影"
-        disabled={!supported}
-        value={style.shadowEnabled}
-        onValueChange={(value) => void patchStyle({ shadowEnabled: value })}
-        trackColor={{ false: palette.surfaceMuted, true: palette.primary }}
-      />
-    </SettingsCard>
+      <SettingsCard style={styles.groupCard}>
+        <View style={styles.stackGroup}>
+          <Text style={[styles.rowTitle, { color: palette.text }]}>歌词字号</Text>
+          <Text style={[styles.rowSubtitle, { color: palette.textMuted }]}>下一行会自动小一档</Text>
+          <View style={styles.chipRow}>
+            {FONT_SIZE_OPTIONS.map((option) => (
+              <ChoiceChip
+                key={option.value}
+                label={option.label}
+                selected={style.fontSize === option.value}
+                disabled={!supported}
+                onPress={() => void patchStyle({ fontSize: option.value })}
+                accessibilityLabel={`歌词字号 ${option.label}`}
+              />
+            ))}
+          </View>
+        </View>
+        <Hairline palette={palette} />
+        <View style={styles.stackGroup}>
+          <Text style={[styles.rowTitle, { color: palette.text }]}>文字不透明度</Text>
+          <View style={styles.chipRow}>
+            {OPACITY_OPTIONS.map((option) => (
+              <ChoiceChip
+                key={option.value}
+                label={option.label}
+                selected={style.textOpacity === option.value}
+                disabled={!supported}
+                onPress={() => void patchStyle({ textOpacity: option.value })}
+                accessibilityLabel={`文字不透明度 ${option.label}`}
+              />
+            ))}
+          </View>
+        </View>
+        <Hairline palette={palette} />
+        <SwitchRow
+          palette={palette}
+          title="显示下一行歌词"
+          subtitle={style.showNextLine ? "显示两行" : "只显示当前行"}
+          value={style.showNextLine}
+          disabled={!supported}
+          onValueChange={(value) => void patchStyle({ showNextLine: value })}
+          accessibilityLabel="显示下一行歌词"
+        />
+        <Hairline palette={palette} />
+        <SwitchRow
+          palette={palette}
+          title="文字投影"
+          subtitle="关闭后在浅色壁纸上可能看不清"
+          value={style.shadowEnabled}
+          disabled={!supported}
+          onValueChange={(value) => void patchStyle({ shadowEnabled: value })}
+          accessibilityLabel="文字投影"
+        />
+      </SettingsCard>
     </>
   );
 }
 
+function Hairline({ palette }: { palette: ReturnType<typeof getThemePalette> }) {
+  return <View style={[styles.hairline, { backgroundColor: palette.border }]} />;
+}
+
+interface SwitchRowProps {
+  palette: ReturnType<typeof getThemePalette>;
+  title: string;
+  subtitle?: string;
+  value: boolean;
+  onValueChange: (value: boolean) => void;
+  accessibilityLabel: string;
+  disabled?: boolean;
+}
+
+function SwitchRow({
+  palette,
+  title,
+  subtitle,
+  value,
+  onValueChange,
+  accessibilityLabel,
+  disabled = false,
+}: SwitchRowProps) {
+  return (
+    <View style={styles.switchRow}>
+      <View style={styles.copy}>
+        <Text style={[styles.rowTitle, { color: palette.text }]}>{title}</Text>
+        {subtitle ? (
+          <Text style={[styles.rowSubtitle, { color: palette.textMuted }]}>{subtitle}</Text>
+        ) : null}
+      </View>
+      <Switch
+        accessibilityLabel={accessibilityLabel}
+        disabled={disabled}
+        value={value}
+        onValueChange={onValueChange}
+        trackColor={{ false: palette.surfaceMuted, true: palette.primary }}
+        thumbColor={value ? palette.primaryText : palette.textMuted}
+      />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  card: {
-    minHeight: 56,
+  groupCard: {
+    gap: spacing.xs,
+    padding: spacing.s,
+  },
+  hairline: {
+    height: StyleSheet.hairlineWidth,
+  },
+  switchRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.xs,
+    gap: spacing.s,
+    paddingVertical: spacing.xxs,
+    minHeight: 52,
   },
-  stackCard: {
-    minHeight: 56,
+  stackGroup: {
     gap: spacing.xs,
+    paddingVertical: spacing.xxs,
   },
   chipRow: {
     flexDirection: "row",
@@ -268,6 +292,6 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   copy: { flex: 1, minWidth: 0, gap: spacing.xxs },
-  title: { fontSize: typography.body, fontWeight: "600" },
-  subtitle: { fontSize: typography.caption },
+  rowTitle: { fontSize: typography.body, fontWeight: "600" },
+  rowSubtitle: { fontSize: typography.caption },
 });

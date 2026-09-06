@@ -1,12 +1,7 @@
 import React from "react";
-import { View, Text, StyleSheet, Pressable, Switch, Modal, Alert } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ChevronLeft } from "lucide-react-native";
+import { Pressable, StyleSheet, Switch, Text, View } from "react-native";
 
-import { IconButton } from "@/components/IconButton";
-import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
 import { SettingsCard } from "@/components/settings/SettingsCard";
-import { SectionHeader } from "@/components/SectionHeader";
 import {
   useLyricSettingsStore,
   FONT_OPTIONS,
@@ -20,41 +15,14 @@ import {
   type ThemePalette,
 } from "@/stores/themeStore";
 import { syncLyricOverlayTextAppearance } from "@/services/lyricOverlayAppearance";
-import { radius, spacing, touch, typography } from "@/theme/tokens";
-
-export interface LyricSettingsScreenProps {
-  visible: boolean;
-  onBack: () => void;
-}
-
-export interface LyricSettingsContentProps {
-  onBack: () => void;
-  showNavigation?: boolean;
-}
-
-export function LyricSettingsScreen({ visible, onBack }: LyricSettingsScreenProps) {
-  return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      transparent={false}
-      onRequestClose={onBack}
-      statusBarTranslucent
-    >
-      <LyricSettingsContent onBack={onBack} />
-    </Modal>
-  );
-}
+import { radius, spacing, typography } from "@/theme/tokens";
 
 /**
- * 歌词样式设置：仅保留 译文 / 当前行颜色 / 其他行颜色 / 字体。
- * 字号、行间距、其他行透明度、偏移、对齐、字重、动效等一律固定为
- * lyricSettingsStore 里的默认值（不再暴露 UI）；颜色与字体会同步作用于
- * 悬浮歌词窗口（见 LyricOverlaySettings 的颜色/字体同步）。
+ * 沉浸歌词设置内容（纯区块组件，由 settings/LyricsSettingsScreen 组装进设置页）：
+ * 播放行为 / 颜色 / 字体 / 预览 四张卡片。
+ * 颜色与字体会同步作用于悬浮歌词窗口（见 lyricOverlayAppearance 的同步）。
  */
-export function LyricSettingsContent({ onBack, showNavigation = true }: LyricSettingsContentProps) {
-  const insets = useSafeAreaInsets();
-
+export function LyricSettingsContent() {
   const mode = useThemeStore((s) => s.mode);
   const systemTheme = useThemeStore((s) => s.systemTheme);
   const accentColor = useThemeStore((s) => s.accentColor);
@@ -67,252 +35,253 @@ export function LyricSettingsContent({ onBack, showNavigation = true }: LyricSet
   const activeColor = useLyricSettingsStore((s) => s.activeColor);
   const inactiveColor = useLyricSettingsStore((s) => s.inactiveColor);
   const fontFamily = useLyricSettingsStore((s) => s.fontFamily);
+  const coverSpin = useLyricSettingsStore((s) => s.coverSpin);
+  const ambientCoverTint = useLyricSettingsStore((s) => s.ambientCoverTint);
+  const showLyricProgress = useLyricSettingsStore((s) => s.showLyricProgress);
 
   const setShowTranslation = useLyricSettingsStore((s) => s.setShowTranslation);
   const setActiveColor = useLyricSettingsStore((s) => s.setActiveColor);
   const setInactiveColor = useLyricSettingsStore((s) => s.setInactiveColor);
   const setFontFamily = useLyricSettingsStore((s) => s.setFontFamily);
-  const resetSettings = useLyricSettingsStore((s) => s.resetSettings);
+  const setCoverSpin = useLyricSettingsStore((s) => s.setCoverSpin);
+  const setAmbientCoverTint = useLyricSettingsStore((s) => s.setAmbientCoverTint);
+  const setShowLyricProgress = useLyricSettingsStore((s) => s.setShowLyricProgress);
 
   // 颜色/字体同样作用于悬浮歌词：变更即同步（悬浮窗开着会就地重刷）
   React.useEffect(() => {
     void syncLyricOverlayTextAppearance();
   }, [activeColor, inactiveColor, fontFamily]);
 
-  const confirmResetSettings = () => {
-    Alert.alert("恢复默认样式", "确定恢复歌词默认样式吗？", [
-      { text: "取消", style: "cancel" },
-      {
-        text: "恢复",
-        style: "destructive",
-        onPress: () => {
-          void resetSettings();
-          Alert.alert("已恢复", "歌词样式已恢复为默认设置");
-        },
-      },
-    ]);
-  };
-
   return (
-    <View style={[styles.root, { backgroundColor: palette.background, paddingTop: showNavigation ? insets.top : 0 }]}>
-      <ScreenScaffold style={styles.scaffold}>
-        {showNavigation ? (
-          <View style={[styles.topBar, { borderBottomColor: palette.border }]}>
-            <IconButton
-              onPress={onBack}
-              tone="strong"
-              accessibilityLabel="关闭歌词设置"
-              render={({ size, color }) => <ChevronLeft size={size} strokeWidth={2} color={color} />}
-            />
-            <Text style={[styles.title, { color: palette.text }]}>歌词样式</Text>
-            <Pressable
-              onPress={confirmResetSettings}
-              style={styles.resetButton}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel="恢复默认歌词样式"
+    <>
+      <SettingsCard style={styles.groupCard}>
+        <SwitchRow
+          palette={palette}
+          title="显示译文"
+          subtitle="歌词下方展示翻译行"
+          value={showTranslation}
+          onValueChange={setShowTranslation}
+          accessibilityLabel="显示译文"
+        />
+        <Hairline palette={palette} />
+        <SwitchRow
+          palette={palette}
+          title="封面旋转"
+          subtitle="播放页封面缓慢旋转（对齐 lx）"
+          value={coverSpin}
+          onValueChange={setCoverSpin}
+          accessibilityLabel="封面旋转"
+        />
+        <Hairline palette={palette} />
+        <SwitchRow
+          palette={palette}
+          title="氛围色背景"
+          subtitle="用封面主色给播放页背景染色"
+          value={ambientCoverTint}
+          onValueChange={setAmbientCoverTint}
+          accessibilityLabel="氛围色背景"
+        />
+        <Hairline palette={palette} />
+        <SwitchRow
+          palette={palette}
+          title="封面页迷你歌词"
+          subtitle="在封面下方显示单行歌词与进度"
+          value={showLyricProgress}
+          onValueChange={setShowLyricProgress}
+          accessibilityLabel="封面页迷你歌词"
+        />
+      </SettingsCard>
+
+      <SettingsCard style={styles.groupCard}>
+        <ColorSwatchRow
+          palette={palette}
+          label="当前行"
+          presets={ACTIVE_COLOR_PRESETS}
+          value={activeColor}
+          fallbackColor={palette.primary}
+          onSelect={setActiveColor}
+        />
+        <Hairline palette={palette} />
+        <ColorSwatchRow
+          palette={palette}
+          label="其他行"
+          presets={INACTIVE_COLOR_PRESETS}
+          value={inactiveColor}
+          fallbackColor={palette.textMuted}
+          onSelect={setInactiveColor}
+        />
+      </SettingsCard>
+
+      <SettingsCard style={styles.groupCard}>
+        <View style={styles.fontGrid}>
+          {FONT_OPTIONS.map((opt) => {
+            const selected = fontFamily === opt.value;
+            return (
+              <Pressable
+                key={opt.value || "system"}
+                onPress={() => setFontFamily(opt.value)}
+                accessibilityRole="radio"
+                accessibilityLabel={`字体：${opt.label}`}
+                accessibilityState={{ selected }}
+                style={({ pressed }) => [
+                  styles.fontChip,
+                  {
+                    backgroundColor: selected ? palette.primary : "transparent",
+                    borderColor: selected ? palette.primary : palette.border,
+                    opacity: pressed ? 0.7 : 1,
+                  },
+                ]}
+                android_ripple={{ color: palette.primary }}
+              >
+                <Text
+                  style={[
+                    styles.fontChipText,
+                    {
+                      color: selected ? palette.primaryText : palette.text,
+                      fontFamily: opt.value || undefined,
+                    },
+                  ]}
+                >
+                  {opt.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </SettingsCard>
+
+      <SettingsCard style={styles.groupCard}>
+        <View style={[styles.previewBox, { backgroundColor: palette.surfaceMuted }]}>
+          <Text
+            style={[
+              styles.previewActive,
+              {
+                color: activeColor || palette.primary,
+                fontSize,
+                fontFamily: fontFamily || undefined,
+                marginBottom: lineGap,
+              },
+            ]}
+          >
+            这是当前正在播放的歌词行
+          </Text>
+          <Text
+            style={[
+              styles.previewInactive,
+              {
+                color: inactiveColor || palette.textMuted,
+                fontSize,
+                fontFamily: fontFamily || undefined,
+                opacity: textOpacity,
+              },
+            ]}
+          >
+            这是其他未播放的歌词行
+          </Text>
+          {showTranslation ? (
+            <Text
+              style={[
+                styles.previewTranslation,
+                {
+                  color: palette.textSubtle,
+                  marginTop: lineGap / 2,
+                  opacity: textOpacity,
+                },
+              ]}
             >
-              <Text style={[styles.resetButtonText, { color: palette.primary }]}>恢复默认样式</Text>
-            </Pressable>
-          </View>
-        ) : null}
-
-        <ScreenScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
-        >
-          <View style={styles.sections}>
-            {/* 基本设置 */}
-            <Section title="基本设置">
-              <View style={styles.settingRow}>
-                <Text style={[styles.settingLabel, { color: palette.text }]}>显示译文</Text>
-                <Switch
-                  value={showTranslation}
-                  onValueChange={setShowTranslation}
-                  trackColor={{ false: palette.surfaceMuted, true: palette.primary }}
-                  thumbColor={showTranslation ? palette.primaryText : palette.textMuted}
-                />
-              </View>
-            </Section>
-
-            {/* 颜色 */}
-            <Section title="颜色">
-              <View style={styles.colorSection}>
-                <Text style={[styles.colorSectionLabel, { color: palette.textMuted }]}>当前行</Text>
-                <ColorPicker
-                  purpose="当前行歌词颜色"
-                  presets={ACTIVE_COLOR_PRESETS}
-                  value={activeColor}
-                  fallbackColor={palette.primary}
-                  palette={palette}
-                  onSelect={setActiveColor}
-                />
-              </View>
-              <View style={styles.colorSection}>
-                <Text style={[styles.colorSectionLabel, { color: palette.textMuted }]}>其他行</Text>
-                <ColorPicker
-                  purpose="其他行歌词颜色"
-                  presets={INACTIVE_COLOR_PRESETS}
-                  value={inactiveColor}
-                  fallbackColor={palette.textMuted}
-                  palette={palette}
-                  onSelect={setInactiveColor}
-                />
-              </View>
-            </Section>
-
-            {/* 字体 */}
-            <Section title="字体">
-              <View style={styles.fontGrid}>
-                {FONT_OPTIONS.map((opt) => {
-                  const selected = fontFamily === opt.value;
-                  return (
-                    <Pressable
-                      key={opt.value || "system"}
-                      onPress={() => setFontFamily(opt.value)}
-                      accessibilityRole="radio"
-                      accessibilityLabel={`字体：${opt.label}`}
-                      accessibilityState={{ selected }}
-                      style={({ pressed }) => [
-                        styles.fontChip,
-                        {
-                          backgroundColor: selected ? palette.primary : palette.surface,
-                          borderColor: selected ? palette.primary : palette.border,
-                          opacity: pressed ? 0.7 : 1,
-                        },
-                      ]}
-                      android_ripple={{ color: palette.primary }}
-                    >
-                      <Text
-                        style={[
-                          styles.fontChipText,
-                          {
-                            color: selected ? palette.primaryText : palette.text,
-                            fontFamily: opt.value || undefined,
-                          },
-                        ]}
-                      >
-                        {opt.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </Section>
-
-            {/* 预览 */}
-            <Section title="预览">
-              <View style={[styles.previewBox, { backgroundColor: palette.surfaceMuted }]}>
-                <Text
-                  style={[
-                    styles.previewActive,
-                    {
-                      color: activeColor || palette.primary,
-                      fontSize,
-                      fontFamily: fontFamily || undefined,
-                      marginBottom: lineGap,
-                    },
-                  ]}
-                >
-                  这是当前正在播放的歌词行
-                </Text>
-                <Text
-                  style={[
-                    styles.previewInactive,
-                    {
-                      color: inactiveColor || palette.textMuted,
-                      fontSize,
-                      fontFamily: fontFamily || undefined,
-                      opacity: textOpacity,
-                    },
-                  ]}
-                >
-                  这是其他未播放的歌词行
-                </Text>
-                {showTranslation && (
-                  <Text
-                    style={[
-                      styles.previewTranslation,
-                      {
-                        color: palette.textSubtle,
-                        marginTop: lineGap / 2,
-                        opacity: textOpacity,
-                      },
-                    ]}
-                  >
-                    This is a translation line
-                  </Text>
-                )}
-              </View>
-            </Section>
-          </View>
-        </ScreenScrollView>
-      </ScreenScaffold>
-    </View>
+              This is a translation line
+            </Text>
+          ) : null}
+        </View>
+      </SettingsCard>
+    </>
   );
 }
 
 /* ---------------- 子组件 ---------------- */
 
-interface SectionProps {
-  title: string;
-  children: React.ReactNode;
+function Hairline({ palette }: { palette: ThemePalette }) {
+  return <View style={[styles.hairline, { backgroundColor: palette.border }]} />;
 }
 
-function Section({ title, children }: SectionProps) {
+interface SwitchRowProps {
+  palette: ThemePalette;
+  title: string;
+  subtitle?: string;
+  value: boolean;
+  onValueChange: (value: boolean) => void;
+  accessibilityLabel: string;
+}
+
+function SwitchRow({ palette, title, subtitle, value, onValueChange, accessibilityLabel }: SwitchRowProps) {
   return (
-    <View style={styles.section}>
-      <SectionHeader title={title} style={styles.sectionHeader} />
-      <SettingsCard style={styles.sectionBody}>
-        {children}
-      </SettingsCard>
+    <View style={styles.switchRow}>
+      <View style={styles.copy}>
+        <Text style={[styles.rowTitle, { color: palette.text }]}>{title}</Text>
+        {subtitle ? (
+          <Text style={[styles.rowSubtitle, { color: palette.textMuted }]}>{subtitle}</Text>
+        ) : null}
+      </View>
+      <Switch
+        accessibilityLabel={accessibilityLabel}
+        value={value}
+        onValueChange={onValueChange}
+        trackColor={{ false: palette.surfaceMuted, true: palette.primary }}
+        thumbColor={value ? palette.primaryText : palette.textMuted}
+      />
     </View>
   );
 }
 
-interface ColorPickerProps {
-  purpose: string;
+interface ColorSwatchRowProps {
+  palette: ThemePalette;
+  label: string;
   presets: Array<{ label: string; value: string }>;
   value: string;
   fallbackColor: string;
-  palette: ThemePalette;
   onSelect: (v: string) => void;
 }
 
-function ColorPicker({ purpose, presets, value, fallbackColor, palette, onSelect }: ColorPickerProps) {
+/** 紧凑圆形色板：一行圆点，选中 = 主色描边圈；行标题跟随显示当前选中的预设名 */
+function ColorSwatchRow({ palette, label, presets, value, fallbackColor, onSelect }: ColorSwatchRowProps) {
+  const selectedPreset = presets.find((preset) => preset.value === value);
   return (
-    <View style={styles.colorRow}>
-      {presets.map((p) => {
-        const selected = value === p.value;
-        const swatchColor = p.value || fallbackColor;
-        return (
-          <Pressable
-            key={p.label}
-            onPress={() => onSelect(p.value)}
-            accessibilityRole="radio"
-            accessibilityLabel={`${purpose}：${p.label}${p.value ? `，颜色 ${p.value}` : "，跟随主题"}`}
-            accessibilityState={{ selected }}
-            style={({ pressed }) => [
-              styles.colorChip,
-              {
-                borderColor: selected ? palette.primary : palette.border,
-                opacity: pressed ? 0.7 : 1,
-              },
-            ]}
-            android_ripple={{ color: palette.primary }}
-          >
-            <View style={[styles.colorSwatch, { backgroundColor: swatchColor }]} />
-            <Text
-              style={[
-                styles.colorLabel,
-                { color: selected ? palette.primary : palette.textMuted },
+    <View style={styles.stackGroup}>
+      <Text style={[styles.rowSubtitle, { color: palette.textMuted }]}>
+        {label} · {selectedPreset ? selectedPreset.label : "自定义"}
+      </Text>
+      <View style={styles.swatchRow}>
+        {presets.map((preset) => {
+          const selected = value === preset.value;
+          const swatchColor = preset.value || fallbackColor;
+          return (
+            <Pressable
+              key={preset.label}
+              onPress={() => onSelect(preset.value)}
+              accessibilityRole="radio"
+              accessibilityLabel={`${label}歌词颜色：${preset.label}${preset.value ? `，颜色 ${preset.value}` : "，跟随主题"}`}
+              accessibilityState={{ selected }}
+              style={({ pressed }) => [
+                styles.swatchRing,
+                {
+                  borderColor: selected ? palette.primary : "transparent",
+                  opacity: pressed ? 0.7 : 1,
+                },
               ]}
-              numberOfLines={1}
             >
-              {p.label}
-            </Text>
-          </Pressable>
-        );
-      })}
+              <View
+                style={[
+                  styles.swatchCircle,
+                  {
+                    backgroundColor: swatchColor,
+                    borderColor: palette.border,
+                  },
+                ]}
+              />
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -320,97 +289,43 @@ function ColorPicker({ purpose, presets, value, fallbackColor, palette, onSelect
 /* ---------------- 样式 ---------------- */
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
+  groupCard: {
+    gap: spacing.xs,
+    padding: spacing.s,
   },
-  scaffold: {
-    borderRadius: 0,
-    borderWidth: 0,
+  hairline: {
+    height: StyleSheet.hairlineWidth,
   },
-  topBar: {
+  switchRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: spacing.s,
+    paddingVertical: spacing.xxs,
+    minHeight: 52,
   },
-  title: {
-    flex: 1,
-    textAlign: "left",
-    fontSize: typography.title,
-    fontWeight: "700",
-  },
-  resetButton: {
-    minWidth: 96,
-    minHeight: touch.minTarget,
-    justifyContent: "center",
-    alignItems: "flex-end",
-  },
-  resetButtonText: {
-    fontSize: typography.meta,
-    fontWeight: "700",
-  },
-  content: {
-    paddingHorizontal: spacing.m,
-    paddingTop: spacing.m,
-  },
-  sections: {
-    gap: spacing.l,
-  },
-  section: {
+  stackGroup: {
     gap: spacing.xs,
+    paddingVertical: spacing.xxs,
   },
-  sectionHeader: {
-    marginBottom: 0,
-  },
-  sectionBody: {
-    gap: spacing.m,
-  },
-  settingRow: {
+  copy: { flex: 1, minWidth: 0, gap: spacing.xxs },
+  rowTitle: { fontSize: typography.body, fontWeight: "600" },
+  rowSubtitle: { fontSize: typography.caption },
+  swatchRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.xs,
-    paddingVertical: spacing.xs,
-  },
-  settingLabel: {
-    fontSize: typography.body,
-    fontWeight: "500",
-  },
-  colorSection: {
-    gap: spacing.xs,
-  },
-  colorSectionLabel: {
-    fontSize: typography.caption,
-    fontWeight: "600",
-    paddingLeft: spacing.xxs,
-  },
-  colorRow: {
-    flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.s,
   },
-  colorChip: {
-    alignItems: "center",
+  swatchRing: {
+    padding: 2.5,
     borderWidth: 2,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.s,
-    paddingVertical: spacing.s,
-    minWidth: 72,
-    minHeight: touch.minTarget,
-    justifyContent: "center",
-  },
-  colorSwatch: {
-    width: 32,
-    height: 32,
     borderRadius: 999,
-    marginBottom: spacing.xs,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(0,0,0,0.1)",
   },
-  colorLabel: {
-    fontSize: typography.caption,
-    fontWeight: "600",
+  swatchCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   fontGrid: {
     flexDirection: "row",
@@ -422,8 +337,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.s,
     borderRadius: radius.md,
     borderWidth: 2,
-    minWidth: 88,
-    minHeight: touch.minTarget,
+    minHeight: 44,
     justifyContent: "center",
     alignItems: "center",
   },
