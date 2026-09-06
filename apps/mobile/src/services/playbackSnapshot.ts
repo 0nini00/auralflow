@@ -4,6 +4,7 @@ import type { MusicInfo } from "@lx/core";
 import { usePlayerStore, type PlayMode, type PlaybackContext } from "../stores/playerStore";
 import { clampPlaybackRate, DEFAULT_PLAYBACK_RATE } from "@/services/playerRateModel";
 import { normalizePersistedVolumeState } from "@/services/playerVolumeModel";
+import { loadLyricsForRestoredSong } from "./playerService";
 import { getPlaybackSnapshotSaveTrigger, isPlaybackSnapshotEmpty } from "./playbackSnapshotModel";
 
 const SNAPSHOT_KEY = "auralflow:playback-snapshot:v1";
@@ -136,6 +137,12 @@ export async function loadPlaybackSnapshot(): Promise<PlaybackSnapshot | null> {
       playbackContext: snapshot.playbackContext,
       isPlaying: false,
     });
+
+    // 快照不携带歌词：重启后的暂停态补拉当前曲歌词（缓存优先，失败静默），
+    // 否则沉浸页歌词页/迷你歌词在下次播放前一直显示「暂无歌词」
+    if (snapshot.currentSong) {
+      void loadLyricsForRestoredSong(snapshot.currentSong).catch(() => undefined);
+    }
 
     return snapshot;
   } catch (error) {
