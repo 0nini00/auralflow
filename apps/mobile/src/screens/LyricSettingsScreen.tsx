@@ -2,12 +2,14 @@ import React from "react";
 import { Pressable, StyleSheet, Switch, Text, View } from "react-native";
 
 import { SettingsCard } from "@/components/settings/SettingsCard";
+import { PaletteSlider } from "@/components/settings/PaletteSlider";
 import {
   useLyricSettingsStore,
   FONT_OPTIONS,
   ACTIVE_COLOR_PRESETS,
   INACTIVE_COLOR_PRESETS,
 } from "@/stores/lyricSettingsStore";
+import type { LyricAnimationIntensity } from "@/services/lyricSettingsModel";
 import {
   getResolvedTheme,
   getThemePalette,
@@ -22,6 +24,13 @@ import { radius, spacing, typography } from "@/theme/tokens";
  * 播放行为 / 颜色 / 字体 / 预览 四张卡片。
  * 颜色与字体会同步作用于悬浮歌词窗口（见 lyricOverlayAppearance 的同步）。
  */
+/** 歌词动效强度档位（store 持久值 → 展示名） */
+const ANIMATION_INTENSITY_OPTIONS: Array<{ label: string; value: LyricAnimationIntensity }> = [
+  { label: "轻柔", value: "reduced" },
+  { label: "标准", value: "normal" },
+  { label: "增强", value: "enhanced" },
+];
+
 export function LyricSettingsContent() {
   const mode = useThemeStore((s) => s.mode);
   const systemTheme = useThemeStore((s) => s.systemTheme);
@@ -38,6 +47,8 @@ export function LyricSettingsContent() {
   const coverSpin = useLyricSettingsStore((s) => s.coverSpin);
   const ambientCoverTint = useLyricSettingsStore((s) => s.ambientCoverTint);
   const showLyricProgress = useLyricSettingsStore((s) => s.showLyricProgress);
+  const enableAnimation = useLyricSettingsStore((s) => s.enableAnimation);
+  const animationIntensity = useLyricSettingsStore((s) => s.animationIntensity);
 
   const setShowTranslation = useLyricSettingsStore((s) => s.setShowTranslation);
   const setActiveColor = useLyricSettingsStore((s) => s.setActiveColor);
@@ -46,6 +57,9 @@ export function LyricSettingsContent() {
   const setCoverSpin = useLyricSettingsStore((s) => s.setCoverSpin);
   const setAmbientCoverTint = useLyricSettingsStore((s) => s.setAmbientCoverTint);
   const setShowLyricProgress = useLyricSettingsStore((s) => s.setShowLyricProgress);
+  const setTextOpacity = useLyricSettingsStore((s) => s.setTextOpacity);
+  const setEnableAnimation = useLyricSettingsStore((s) => s.setEnableAnimation);
+  const setAnimationIntensity = useLyricSettingsStore((s) => s.setAnimationIntensity);
 
   // 颜色/字体同样作用于悬浮歌词：变更即同步（悬浮窗开着会就地重刷）
   React.useEffect(() => {
@@ -63,6 +77,54 @@ export function LyricSettingsContent() {
           onValueChange={setShowTranslation}
           accessibilityLabel="显示译文"
         />
+        <Hairline palette={palette} />
+        <SwitchRow
+          palette={palette}
+          title="歌词切换动画"
+          subtitle="换行时的高亮过渡动效"
+          value={enableAnimation}
+          onValueChange={setEnableAnimation}
+          accessibilityLabel="歌词切换动画"
+        />
+        {enableAnimation ? (
+          <>
+            <Hairline palette={palette} />
+            <View style={styles.stackGroup}>
+              <Text style={[styles.rowSubtitle, { color: palette.textMuted }]}>动效强度</Text>
+              <View style={styles.intensityRow}>
+                {ANIMATION_INTENSITY_OPTIONS.map((option) => {
+                  const selected = animationIntensity === option.value;
+                  return (
+                    <Pressable
+                      key={option.value}
+                      onPress={() => setAnimationIntensity(option.value)}
+                      accessibilityRole="radio"
+                      accessibilityLabel={`动效强度：${option.label}`}
+                      accessibilityState={{ selected }}
+                      style={({ pressed }) => [
+                        styles.intensityChip,
+                        {
+                          backgroundColor: selected ? palette.primary : "transparent",
+                          borderColor: selected ? palette.primary : palette.border,
+                          opacity: pressed ? 0.7 : 1,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.intensityChipText,
+                          { color: selected ? palette.primaryText : palette.text },
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          </>
+        ) : null}
         <Hairline palette={palette} />
         <SwitchRow
           palette={palette}
@@ -110,6 +172,21 @@ export function LyricSettingsContent() {
           fallbackColor={palette.textMuted}
           onSelect={setInactiveColor}
         />
+        <Hairline palette={palette} />
+        <View style={styles.stackGroup}>
+          <Text style={[styles.rowSubtitle, { color: palette.textMuted }]}>
+            其他行与译文透明度 · {Math.round(textOpacity * 100)}%
+          </Text>
+          <PaletteSlider
+            style={styles.fullSlider}
+            min={0.1}
+            max={1}
+            step={0.05}
+            value={textOpacity}
+            palette={palette}
+            onChange={setTextOpacity}
+          />
+        </View>
       </SettingsCard>
 
       <SettingsCard style={styles.groupCard}>
@@ -306,6 +383,26 @@ const styles = StyleSheet.create({
   stackGroup: {
     gap: spacing.xs,
     paddingVertical: spacing.xxs,
+  },
+  fullSlider: {
+    width: "100%",
+  },
+  intensityRow: {
+    flexDirection: "row",
+    gap: spacing.s,
+  },
+  intensityChip: {
+    paddingHorizontal: spacing.m,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.md,
+    borderWidth: 2,
+    minHeight: 36,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  intensityChipText: {
+    fontSize: typography.caption,
+    fontWeight: "600",
   },
   copy: { flex: 1, minWidth: 0, gap: spacing.xxs },
   rowTitle: { fontSize: typography.body, fontWeight: "600" },
