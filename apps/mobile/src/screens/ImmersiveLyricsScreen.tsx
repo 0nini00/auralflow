@@ -311,10 +311,14 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
   }, [flightEnabled, targetRect, closeNow, contentTranslateY, rootOpacity, realCoverOpacity, flyOverlayOpacity, flyProgress]);
 
   // ── 下拉关闭（跟手）：仅封面页启用，纵向位移驱动整页下移 ──
+  // 播放列表 / 评论等应用内底部弹层打开期间必须禁用：它们盖在封面页上且自带
+  // 可滚动列表，根级下拉手势会劫持列表滚动（页面跟着位移），快速滑动还会
+  // 触发关闭判定把整个播放页拽走。
+  const pullDownGestureEnabled = !isLyricsPage && !closing && flightDone && !queueModalVisible && !commentsVisible;
   const panGesture = React.useMemo(
     () =>
       Gesture.Pan()
-        .enabled(!isLyricsPage && !closing && flightDone)
+        .enabled(pullDownGestureEnabled)
         .activeOffsetY(14)
         .failOffsetX(16)
         .onUpdate((event) => {
@@ -340,7 +344,7 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
             },
           );
         }),
-    [isLyricsPage, closing, flightDone, windowHeight, contentTranslateY, closeNow],
+    [pullDownGestureEnabled, windowHeight, contentTranslateY, closeNow],
   );
 
   const rootAnimatedStyle = useAnimatedStyle(() => ({

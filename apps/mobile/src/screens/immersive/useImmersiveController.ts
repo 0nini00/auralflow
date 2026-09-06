@@ -8,7 +8,7 @@ import { buildImmersivePlaybackRateModel } from "@/services/playerRateModel";
 import { buildImmersiveQueuePanelModel } from "@/services/playerQueueModel";
 import { buildImmersiveVolumeControlModel } from "@/services/playerVolumeModel";
 import { buildMobileSleepTimerControl } from "@/services/songSleepTimerModel";
-import { playFromQueue, playNext, playPrevious } from "@/services/playerService";
+import { playFromQueue, playNext, playPrevious, loadLyricsForRestoredSong } from "@/services/playerService";
 import { useLyricLineIndex } from "@/hooks/useLyricLineIndex";
 import { shareMusic } from "@/services/shareMusicService";
 import { saveCoverToDownloads } from "@/services/downloadService";
@@ -139,6 +139,13 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
   // lx 式行变更触发：行号只在歌词行切换时更新（不随 0.25s 进度事件高频重渲染）
   const currentLyricIndex = useLyricLineIndex(lyrics, manualOffsetMs);
 
+  // 暂停态进入沉浸页时歌词仍为空的兜底：快照恢复的启动补拉是异步的（离线启动会失败），
+  // 若打开页面时还没有歌词且当前曲存在，就地再拉一次（缓存优先；期间切歌由 intent 守卫丢弃旧响应）
+  useEffect(() => {
+    if (!visible || !currentSong || lyrics.length > 0) return;
+    void loadLyricsForRestoredSong(currentSong).catch(() => undefined);
+  }, [visible, currentSong, lyrics.length]);
+
   const artwork = currentSong?.picUrl || currentSong?.img;
 
   const currentSongActions = useMemo(
@@ -257,9 +264,14 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
     await toggleMute();
   };
 
-  const handlePlayQueueItem = async (index: number) => {
-    await playFromQueue(index);
+  const handlePlayQueueItem = (index: number) => {
+    // 立即收起面板、后台解析：URL 解析可能耗时数秒，等播上才关面板会被当成
+    // 「点了没反应」（此前 await 完才关，失败时面板永久卡住且错误被 void 吞掉）。
+    // 失败弹窗提示，对齐本控制器下载/悬浮歌词的错误风格。
     setQueueModalVisible(false);
+    void playFromQueue(index).catch((error: unknown) => {
+      Alert.alert("播放失败", error instanceof Error ? error.message : String(error));
+    });
   };
 
   const handleRemoveQueueItem = (index: number) => {
