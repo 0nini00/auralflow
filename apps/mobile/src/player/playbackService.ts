@@ -3,7 +3,7 @@ import { getAudioInterruptionAction } from "@/services/audioInterruptionPolicy";
 import { getNextQueueNavigationState } from "@/services/queueNavigationModel";
 import { shouldAutoSkipAfterFailure } from "@/services/playbackFailurePolicy";
 import { usePlaybackSettingsStore } from "@/stores/playbackSettingsStore";
-import { usePlayerStore } from "@/stores/playerStore";
+import { shouldAttributePlaybackErrorToCurrentSong, usePlayerStore } from "@/stores/playerStore";
 import { SILENCE_GAP_TRACK_ID } from "@/stores/playerStore";
 
 /**
@@ -192,6 +192,10 @@ function resolveAutoSkipBlockReason(): string | null {
 async function autoSkipAfterPlaybackError(message: string): Promise<void> {
   const currentSong = usePlayerStore.getState().currentSong;
   if (!currentSong) return;
+
+  // 归属守卫（与 playerStore 的 PlaybackError 监听同一套判定，同步执行）：
+  // 切歌在途时这条错误已不在 currentSong 的责任窗口，跳歌会跳过用户刚点的新歌。
+  if (!shouldAttributePlaybackErrorToCurrentSong()) return;
 
   const songKey = `${currentSong.source}:${currentSong.id}`;
 

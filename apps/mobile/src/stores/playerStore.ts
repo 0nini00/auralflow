@@ -36,6 +36,24 @@ import { invalidatePrefetchForSong, prefetchUpcomingSongNearEnd } from "../servi
 
 let playRequestId = 0;
 
+// 底层 play 最近一次接管的歌曲 key（play 入口同步登记）。PlaybackError 没有曲目归属，
+// 据此做同步归属判定（不引入桥接调用，保住错误处置「必须同步完成」的约定）：
+// 切歌在途时它 ≠ currentSong 的 key，迟到的旧曲错误不得触发重播。
+let lastQueuedTrackOwnerKey: string | null = null;
+
+/**
+ * PlaybackError 归属判定：这条错误是否还能归因给 currentSong。
+ * 有更新的播放请求在途（用户已点新歌，play 已带着新曲进入解析/reset/add 流程）时，
+ * 错误无论属于正被替换的旧曲还是装车中的新曲，都不再归因 currentSong——
+ * 旧曲错误重播会劫持刚点的新歌，新曲错误由其自身 play 流程与后续事件收口。
+ */
+export function shouldAttributePlaybackErrorToCurrentSong(): boolean {
+  const { currentSong } = usePlayerStore.getState();
+  if (!currentSong) return false;
+  const key = `${currentSong.source}:${currentSong.id}`;
+  return lastQueuedTrackOwnerKey === null || lastQueuedTrackOwnerKey === key;
+}
+
 // 已判定为试听片段的歌曲 key：进度事件 0.25s 触发一次，防同一首歌重复告警。
 const previewRejectedKeys = new Set<string>();
 
@@ -475,6 +493,9 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   play: async (song: MusicInfo, url: string, headers?: Record<string, string>, startPosition?: number) => {
     // 同 key 并发 play 去重：直接复用进行中的同一请求；完成后清除。不同 key 走下方令牌竞态丢弃。
     const requestKey = buildMobilePlayRequestKey(song);
+    // 登记本次 play 接管的歌曲：此后到 currentSong 落库前到达的 PlaybackError
+    // 一律不归因旧 currentSong（见 shouldAttributePlaybackErrorToCurrentSong）。
+    lastQueuedTrackOwnerKey = `${song.source}:${song.id}`;
     const inflight = inflightPlayRequests.get(requestKey);
     if (inflight) return inflight;
 
@@ -666,8 +687,16 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     if (!isPlayerSetup) return;
     try {
       await TrackPlayer.play();
-      set({ isPlaying: true });
     } catch {}
+    // 原生处于 IDLE/ENDED（加载失败停播、清队列、顺序播完）时 play() 是 no-op，
+    // 且不会再派发 PlaybackState 事件纠偏——必须回读原生状态才落库，否则 UI 进入
+    // 假播放态（有进度无声音），PlayerBar 的快照续播兜底（!isPlaying 才触发）也永不可达。
+    let nativePlaying = false;
+    try {
+      const state = await TrackPlayer.getState();
+      nativePlaying = state === State.Playing || state === State.Buffering;
+    } catch {}
+    set({ isPlaying: nativePlaying });
   },
 
   stop: async () => {
@@ -1109,6 +1138,14 @@ export function setupPlayerListeners() {
     const currentSong = usePlayerStore.getState().currentSong;
     if (!currentSong) return;
     const retryKey = `${currentSong.source}:${currentSong.id}`;
+
+    // 归属守卫：切歌在途（见 shouldAttributePlaybackErrorToCurrentSong）时只清旧曲
+    // 坏链缓存、不发起重播——重播会劫持刚点的新歌或把在播的新曲从头重启。
+    if (!shouldAttributePlaybackErrorToCurrentSong()) {
+      void invalidateCachedPlaybackUrl(currentSong).catch(() => undefined);
+      invalidatePrefetchForSong(currentSong);
+      return;
+    }
 
     // 处置判定必须同步完成：后台服务在让出一个微任务后回读本结论决定是否跳歌
     if (decidePlaybackFailureAction(retryKey) === "skip") {
