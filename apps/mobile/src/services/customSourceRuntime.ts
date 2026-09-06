@@ -15,6 +15,10 @@ import {
   waitForBridge,
 } from "@/services/customSourceWebViewBridge";
 import { disposeRuntimePendingRequests } from "@/services/customSourceRuntimeLifecycleModel";
+import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
+
+/** 远端音源脚本拉取超时：脚本通常几十 KB，弱网 15s 足够；不再无限挂起更新检查。 */
+const REMOTE_SCRIPT_FETCH_TIMEOUT_MS = 15_000;
 
 // 桥消息处理：WebView→RN 的 inited/updateAlert/error/http/request-response 分发。
 // 各 runtime 实例用 rid（runtime id）路由，见 createRuntime 内 bridgeRoutes。
@@ -312,12 +316,20 @@ function getRemoteScriptUrl(api: CustomSourceItem): string | null {
 }
 
 async function fetchRemoteScript(url: string): Promise<string> {
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      Accept: "text/plain,application/javascript,*/*",
+  // 更新检查同样走出站校验：homepage 来自音源脚本本体，WebView 内请求都过
+  // assertPublicOutboundUrl，这条裸 fetch 不能成为打内网的后门；
+  // isLikelyCustomSourceRemoteUrl 只识别「像脚本链接」，不含内网判定。
+  assertPublicOutboundUrl(url, "自定义音源更新检查");
+  const response = await fetchWithTimeout(
+    url,
+    {
+      method: "GET",
+      headers: {
+        Accept: "text/plain,application/javascript,*/*",
+      },
     },
-  });
+    REMOTE_SCRIPT_FETCH_TIMEOUT_MS,
+  );
   if (!response.ok) {
     throw new Error(`远端音源请求失败：HTTP ${response.status} ${response.statusText}`);
   }
