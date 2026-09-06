@@ -36,8 +36,6 @@ interface PrefetchedUrl {
   fetchedAt: number;
 }
 const PREFETCH_TTL_MS = 10 * 60 * 1000;
-/** 预读条目超过该龄后命中需补探活：过期 CDN 链接直接进播放器会触发 PlaybackError（失败即停）。 */
-const PREFETCH_PROBE_AFTER_MS = 60 * 1000;
 /**
  * 并发竞速整条降级链的总时间预算。
  *
@@ -234,6 +232,7 @@ const PRIMARY_BUDGET_MS = 2500;
 async function resolveSongUrl(
   song: MusicInfo,
   qualityOverride?: string | null,
+  options?: { skipPrefetchInflight?: boolean },
 ): Promise<{ url: string; headers?: Record<string, string> }> {
   // 计算音质降级链（显式指定音质时跳过预读/持久化缓存，避免旧码率命中）
   const quality = qualityOverride
@@ -243,22 +242,26 @@ async function resolveSongUrl(
   // 分轮次表：首轮为「不低于选定音质」的全部档位，之后逐档下调。
   const qualityTiers = buildPlaybackQualityTiers(quality);
 
-  // 1. 命中预读缓存直接返回
+  // 1. 命中预读缓存直接返回。
+  // 缓存命中不再探活（对齐 lx 的 URL 信任策略）：过期死链由 PlaybackError
+  // → 清缓存自动重播一次的恢复链路收口。实际解析路径对新解析结果的探活保留
+  // （黑盒死代理「TCP 连上不返回数据、ExoPlayer 无错误无限缓冲」主要发生在新解析，
+  // 探活继续挡在那一步）。
   if (!qualityOverride) {
     const prefetched = getCachedPrefetch(song, qualityCandidates);
     if (prefetched) {
-      // 本地文件与新鲜条目直接用；超龄条目补一次轻量探活——
-      // 预读时距实际播放可能隔着整首歌（甚至达到 TTL 边界），CDN 链接可能已失效，
-      // 探不通就地作废走重新解析，避免把死链交给播放器触发「播放即停」
-      if (prefetched.url.startsWith("file://") || Date.now() - prefetched.fetchedAt < PREFETCH_PROBE_AFTER_MS) {
-        return { url: prefetched.url, headers: prefetched.headers };
+      return { url: prefetched.url, headers: prefetched.headers };
+    }
+    // 1.1 同一首歌的预读解析正在进行中：直接 await 同一条链的结果，而不是
+    // 另起一条重复的解析链——用户在预读进行中点下一首时，等的是已经跑了
+    // 一半的那次解析，省掉重复链路的启动与网关配额。结果为 null（预读链
+    // 失败）时继续走下方真实解析兜底。
+    if (!options?.skipPrefetchInflight) {
+      const inflight = prefetchInflight.get(buildPlaybackPrefetchKey(song, quality));
+      if (inflight) {
+        const reused = await inflight;
+        if (reused) return reused;
       }
-      const prefetchHeaders = prefetched.headers ?? buildStreamHeaders(song.source);
-      const prefetchProbe = await probeStreamUrl(prefetched.url, prefetchHeaders);
-      if (prefetchProbe.ok) {
-        return { url: prefetched.url, headers: prefetchHeaders };
-      }
-      invalidatePrefetchForSong(song);
     }
     // 1.2 直接命中本地音频缓存文件（lx isCached 等价）：优先整曲落盘的 wy/tx 等可缓存音源，
     // 离线可播、省流量，不必依赖持久化 URL 缓存中的 file:// 条目（该条目可能被清理/过期）。
@@ -276,7 +279,17 @@ async function resolveSongUrl(
         return { url: cachedAudioPath, headers: undefined };
       }
     }
-    // 1.5 命中持久化 URL 缓存：冷启动/重启后免重新解析网关，对齐桌面端 persistentCache
+    // 1.5 命中持久化 URL 缓存：冷启动/重启后免重新解析网关，对齐桌面端 persistentCache。
+    // 命中直接使用、不再探活（2026-09 对齐 lx 的 URL 信任策略）：
+    // - wy/tx CDN 签名链接的实际有效期远短于 6h TTL，旧逻辑「探活失败→作废→重解析」
+    //   让重听永远走完整解析链；且每次重解析得到新 URL，ExoPlayer SimpleCache 按 URL
+    //   键永远 miss——重听既慢又费流量。信任缓存后重听直接复用旧 URL，SimpleCache
+    //   按 URL 持续累积，常听的歌接近离线秒开。
+    // - 死链（403/404 快速失败）交给 PlaybackError 恢复链路：清缓存 → 自动重播一次 →
+    //   终局才判失败（playbackFailurePolicy），与 lx 的 isRefresh 重解析语义一致。
+    // - 已知取舍：黑盒死代理（TCP 连上不返回数据）不触发 PlaybackError，重播该缓存
+    //   条目会停在缓冲。该场景主要来自新解析（下方实际解析路径的探活继续挡住），
+    //   缓存条目多为曾播通过的链接，风险可接受（lx 同策略）。
     const persisted = await getCachedPlaybackUrl(song, qualityCandidates);
     if (persisted) {
       // 持久化缓存可能存的是本地音频文件（#2 媒体缓存）：校验文件未被清理策略回收
@@ -293,18 +306,12 @@ async function resolveSongUrl(
       } else {
         // 旧持久化条目可能没存 headers（修复前写入）：按音源补齐防盗链头，避免命中旧缓存仍 403
         const persistedHeaders = persisted.headers ?? buildStreamHeaders(song.source);
-        // 持久化缓存同样探活：死代理 URL 不会触发 PlaybackError，缓存会无限命中死链，
-        // 表现为重启 app 后同一首歌永远缓冲。探不通就地作废，走下面重新解析。
-        const probe = await probeStreamUrl(persisted.url, persistedHeaders);
-        if (probe.ok) {
-          prefetchCache.set(buildPlaybackPrefetchKey(song, persisted.quality), {
-            url: persisted.url,
-            headers: persistedHeaders,
-            fetchedAt: Date.now(),
-          });
-          return { url: persisted.url, headers: persistedHeaders };
-        }
-        void invalidateCachedPlaybackUrl(song, persisted.quality).catch(() => undefined);
+        prefetchCache.set(buildPlaybackPrefetchKey(song, persisted.quality), {
+          url: persisted.url,
+          headers: persistedHeaders,
+          fetchedAt: Date.now(),
+        });
+        return { url: persisted.url, headers: persistedHeaders };
       }
     }
   }
@@ -435,18 +442,20 @@ async function resolveSongUrl(
 }
 
 /**
- * 邻近歌曲预读窗口（对齐桌面端 PREFETCH_OFFSETS：上一首 + 下两首）。
- * 非随机模式按 [-1, 1, 2]；随机模式按 [1, 2, -1]。
+ * 邻近歌曲预读窗口：只预读下一首。
+ * 此前对齐桌面端为「上一首 + 下两首」[-1,1,2]，实测成本偏高：
+ * 上一首多为听过的歌（持久化 URL 缓存即可命中）、下下首在快跳/随机场景最易作废，
+ * 都在白耗网关配额（gdstudio 限流）；顺序听歌的丝滑由「下一首」保住，
+ * 曲末 10s 兜底与「下一首播放」插入预热不变。
  */
-const PREFETCH_OFFSETS = [-1, 1, 2] as const;
-const SHUFFLE_PREFETCH_OFFSETS = [1, 2, -1] as const;
+const PREFETCH_OFFSETS = [1] as const;
 
 function isQueueWrappingMode(playMode: PlayMode): boolean {
   return playMode === "list" || playMode === "shuffle";
 }
 
 /**
- * 计算当前曲周围需预读的候选索引（去重、排除当前曲、按播放模式处理越界环绕）。
+ * 计算当前曲周围需预读的候选索引（排除当前曲、按播放模式处理越界环绕）。
  * single 单曲循环无邻近预读。
  */
 export function getNearbyQueueIndexes(
@@ -457,10 +466,9 @@ export function getNearbyQueueIndexes(
   if (queueLength <= 0 || currentIndex < 0 || currentIndex >= queueLength) return [];
   if (playMode === "single") return [];
   const wrap = isQueueWrappingMode(playMode);
-  const offsets = playMode === "shuffle" ? SHUFFLE_PREFETCH_OFFSETS : PREFETCH_OFFSETS;
   const seen = new Set<number>([currentIndex]);
   const result: number[] = [];
-  for (const offset of offsets) {
+  for (const offset of PREFETCH_OFFSETS) {
     const rawIndex = currentIndex + offset;
     let index: number | null = null;
     if (rawIndex >= 0 && rawIndex < queueLength) {
@@ -476,7 +484,7 @@ export function getNearbyQueueIndexes(
 }
 
 /** 取当前曲邻近需预读的歌曲列表。
- *  queue 上下文：队列邻近（上一首 + 下两首）；
+ *  queue 上下文：队列下一首；
  *  personalFm：当前批次下一首 + 缓冲头部 2 首——FM 切歌同样需要预取 URL，
  *  否则每次「下一首」都实时走网关解析，正是 FM 切歌慢的根因。
  */
@@ -527,7 +535,7 @@ function prefetchCover(song: MusicInfo): void {
 }
 
 /**
- * 异步预读邻近歌曲（上一首 + 下两首，对齐桌面端 prefetchNearbyTracks）：
+ * 异步预读邻近歌曲（下一首）：
  * 解析并缓存播放 URL、预取歌词与封面，使切歌时 URL/歌词/封面秒开。
  * 只做缓存预取，不写入 TrackPlayer 原生队列（原生始终保持单曲，切歌由 JS 调度）。
  */
@@ -541,8 +549,13 @@ function prefetchNearbySongs(): void {
 /**
  * 在途预读任务（按预读 key = 音源:id:音质 去重）。
  * 曲末预读由 0.25s 一次的进度事件驱动，没有这道锁会对同一首歌重复发起整条解析链。
+ * 值为解析结果 Promise（失败记为 null、从不 reject）：真实切歌的 resolveSongUrl
+ * 发现同一首歌正在预读时直接 await 此任务复用结果，不再起重复链。
  */
-const prefetchInflight = new Map<string, Promise<void>>();
+const prefetchInflight = new Map<
+  string,
+  Promise<{ url: string; headers?: Record<string, string> } | null>
+>();
 
 /**
  * 预取单首歌曲的播放 URL/歌词/封面（幂等：各自内部跳过已命中项）。
@@ -561,11 +574,13 @@ export function prefetchSong(song: MusicInfo): void {
   // 同一「歌 + 音质」的解析已在途则复用，不再发起第二条解析链
   const inflightKey = buildPlaybackPrefetchKey(song, quality);
   if (prefetchInflight.has(inflightKey)) return;
-  // 只解析并缓存播放 URL（prefetchCache 命中后 playNext/playPrevious 秒开），
+  // 只解析并缓存播放 URL（成功后写入预读缓存，playNext/playPrevious 秒开），
   // 不写入 TrackPlayer 原生队列——原生始终保持单曲，切歌由 JS 调度。
-  const task = resolveSongUrl(song).then(
-    () => undefined,
-    () => undefined,
+  // skipPrefetchInflight：本条解析自身不得再复用在途任务（否则会等待自己死锁）。
+  // 失败记为 null 并静默：预读失败不影响真实播放时的解析兜底。
+  const task = resolveSongUrl(song, undefined, { skipPrefetchInflight: true }).then(
+    (result) => result,
+    () => null,
   );
   prefetchInflight.set(
     inflightKey,
@@ -688,7 +703,7 @@ async function playSongCore(song: MusicInfo, startPosition?: number): Promise<vo
     if (song.picUrl || song.img) {
       cacheCover(song.picUrl || song.img!).catch(() => undefined);
     }
-    // 5. 异步预读邻近歌曲（上一首 + 下两首）：解析 URL/歌词/封面入缓存，下一首提前入队
+    // 5. 异步预读邻近歌曲（下一首）：解析 URL/歌词/封面入缓存，下一首提前入队
     prefetchNearbySongs();
   } catch (error) {
     const message = error instanceof Error ? error.message : "播放失败";

@@ -34,7 +34,11 @@ function getAudioCacheFilePath(music: MusicInfo, quality: string): string {
 }
 
 // 缓存配置
-const MAX_CACHE_SIZE = 100 * 1024 * 1024; // 100MB
+// 整曲落盘缓存的总容量上限。此前 100MB 时十几首 flac/二三十首 320k 就把重听曲目
+// LRU 驱逐出去，「以前听过的重新听」永远 miss 缓存、走完整解析链；提到 2GB 后
+// 常听曲目能稳定驻留（file:// 命中不探活、离线可播，对齐 ExoPlayer SimpleCache 的量级）。
+// 磁盘空间不足的兜底见 autoCleanCache（启动时检查，剩余 <500MB 清 7 天前文件）。
+const MAX_CACHE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB
 // 歌词内容可能随版权/修词更新，保留 30 天过期；封面/音频采用 lx 的 immutable 语义
 // （URL 不变永不过期，仅受容量上限 LRU 约束），避免定期失效导致重新下载。
 const MAX_CACHE_AGE = 30 * 24 * 60 * 60 * 1000; // 30天（仅歌词使用）

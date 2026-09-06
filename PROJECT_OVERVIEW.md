@@ -91,7 +91,7 @@ React Native 0.86 + React 19.2.3，面向 Android（minSdk 24）。
 | 导航 | Drawer > NativeStack > BottomTabs + MaterialTopTabs | `navigation/` |
 | 沉浸歌词 | PagerView 2 页 | `ImmersiveLyricsScreen`（useImmersiveController 539 行 + 下拉关闭）、`LyricView`（587 行 动态行高 + 累积偏移；仅行级高亮，逐字渲染为桌面能力） |
 | 列表 | 增量挂载（非 FlatList） | — |
-| 图片 | CachedImage（Glide） | `cacheService.ts` 100MB LRU（封面/音频 immutable 近似 FIFO，歌词 30 天，AsyncStorage 索引 reconcile） |
+| 图片 | CachedImage（Glide） | `cacheService.ts` 2GB LRU（封面/音频 immutable 近似 FIFO，歌词 30 天，AsyncStorage 索引 reconcile；启动时 autoCleanCache 磁盘守卫） |
 | Android 原生 | 12 Java + 2 Kotlin 2496 行 | 8 模块：`LocalMusicModule`（778 行 MediaStore + jaudiotagger）、`LyricOverlayModule` + `LyricOverlayService`（439 行 WindowManager 悬浮歌词）、`SecureStorageModule`（Keystore AES-256-GCM）、`CryptoModule`（原生 weapi：AES-CBC + RSA NoPadding，固定向量会话自校验，失败回退 weapiJs）、`CoverColorModule`、`ImagePickerModule`、`ApkInstallerModule`、`CustomSourceFilePickerModule`；`lx_bridge`（隐藏 WebView 沙箱跑 LX 脚本：lx 注入 + 13 个全局名参数遮蔽 + RN 侧静态扫描拒 eval/Function，vendor.js 2510 行 CryptoJS + pako；RN fetch 不能禁重定向，自定义源能力白名单仅 musicUrl（kg/tx/wy）+ local 的 musicUrl/lyric/pic）；通知栏歌词按钮（`apply-track-player-patch.js` 补丁 RNTP `MusicService`） |
 | 权限 | 无 RECORD_AUDIO | INTERNET / SYSTEM_ALERT_WINDOW / WAKE_LOCK / FOREGROUND_SERVICE_MEDIA_PLAYBACK / POST_NOTIFICATIONS / READ_MEDIA_AUDIO |
 
