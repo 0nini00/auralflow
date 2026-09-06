@@ -58,6 +58,12 @@ interface FlyOverlayProps {
  * 封面飞入/飞回的浮层：对齐 lx 播放页 shared element 观感——
  * 迷你栏封面（source）与沉浸页封面框（target）之间插值位置/尺寸/圆角。
  * target 未测到前静止停在 source（入场等待期）；progress 0↔1 驱动双向飞行。
+ *
+ * 实现：布局静态锚定 target 满尺寸，飞行用 transform（translate+scale）插值。
+ * 不再逐帧插值 left/top/width/height——那会每帧触发原生 relayout（含内部大图
+ * 重排）加 elevation 阴影重算，中低端机 360ms 飞行内明显掉帧；transform 走
+ * 合成层，bounds 不变、阴影只算一次。内层 CachedImage 按 target 尺寸解码，
+ * 飞行起点是缩小显示（降采样），起点与终点都清晰。
  */
 const FlyOverlay = React.memo(function FlyOverlay({
   artwork,
@@ -66,19 +72,25 @@ const FlyOverlay = React.memo(function FlyOverlay({
   progress,
   opacity,
 }: FlyOverlayProps) {
+  const fromCx = source.x + source.width / 2;
+  const fromCy = source.y + source.height / 2;
+  const toCx = target ? target.x + target.width / 2 : fromCx;
+  const toCy = target ? target.y + target.height / 2 : fromCy;
+  // 缩放比按宽度换算（双端封面均为正方形）；target 未测到或异常为 0 时退化为不缩放
+  const targetScale = target && target.width > 0 ? target.width / source.width : 1;
   const animatedStyle = useAnimatedStyle(() => {
-    const toX = target ? target.x : source.x;
-    const toY = target ? target.y : source.y;
-    const toW = target ? target.width : source.width;
-    const toH = target ? target.height : source.height;
-    const toRadius = target ? target.radius : 8;
     return {
       position: "absolute" as const,
-      left: interpolate(progress.value, [0, 1], [source.x, toX]),
-      top: interpolate(progress.value, [0, 1], [source.y, toY]),
-      width: interpolate(progress.value, [0, 1], [source.width, toW]),
-      height: interpolate(progress.value, [0, 1], [source.height, toH]),
-      borderRadius: interpolate(progress.value, [0, 1], [8, toRadius]),
+      left: target ? target.x : source.x,
+      top: target ? target.y : source.y,
+      width: target ? target.width : source.width,
+      height: target ? target.height : source.height,
+      borderRadius: interpolate(progress.value, [0, 1], [8, target ? target.radius : 8]),
+      transform: [
+        { translateX: interpolate(progress.value, [0, 1], [fromCx - toCx, 0]) },
+        { translateY: interpolate(progress.value, [0, 1], [fromCy - toCy, 0]) },
+        { scale: interpolate(progress.value, [0, 1], [1 / targetScale, 1]) },
+      ],
       opacity: opacity.value,
       zIndex: 100,
       elevation: 24,

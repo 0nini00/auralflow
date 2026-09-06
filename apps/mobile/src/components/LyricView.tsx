@@ -43,6 +43,14 @@ export interface LyricViewProps {
 const FALLBACK_ITEM_HEIGHT = 68;
 // 上下各填充几行空白，让当前歌词始终显示在列表中间
 const SPACING_ROWS = 4;
+
+/**
+ * 首帧同步渲染的行数上限。旧实现按 targetIndex + 10 预渲染：快歌唱到歌词中段
+ * （如第 300 行）时打开播放页，首帧要同步挂载 300+ 行（每行 onLayout + Animated）
+ * 造成可感知卡顿。固定小窗口，深处的当前行由 onScrollToIndexFailed 的估算偏移
+ * 补偿定位收口（先跳平均行高估算点触发窗口渲染，再精确对位）。
+ */
+const LYRIC_INITIAL_NUM_TO_RENDER = 30;
 const AnimatedView = Animated.createAnimatedComponent(View);
 
 /** easeInOutQuad 缓动（对齐 lx utils/scroll.ts）。 */
@@ -353,7 +361,17 @@ export function LyricView({
   }, [targetIndex, data.length, handleScrollToActive]);
 
   const handleScrollToIndexFailed = (info: { index: number; highestMeasuredFrameIndex: number; averageItemLength: number }) => {
-    // 目标未渲染时重试（对齐 lx：等待后再次滚动到目标）
+    // 目标行未渲染时的补偿定位：先用平均行高估算偏移跳过去（触发目标区域的
+    // 窗口渲染与 onLayout 测量），等待后再精确对位。只重试不先跳会原地失败
+    // ——initialNumToRender 固定小窗口后，深行号首挂载必然走这里。
+    try {
+      listRef.current?.scrollToOffset({
+        offset: info.averageItemLength * info.index,
+        animated: false,
+      });
+    } catch {
+      // 忽略
+    }
     setTimeout(() => {
       handleScrollToActive(info.index, false);
     }, 100);
@@ -435,7 +453,7 @@ export function LyricView({
           renderItem={renderItem}
           onScrollToIndexFailed={handleScrollToIndexFailed}
           fadingEdgeLength={100}
-          initialNumToRender={Math.max(targetIndex + 10, 10)}
+          initialNumToRender={LYRIC_INITIAL_NUM_TO_RENDER}
           onScrollBeginDrag={() => {
             // 对齐 lx：开始拖动 → 取消自动滚动动画与延迟，暂停自动跟唱
             isPauseScrollRef.current = true;

@@ -202,6 +202,17 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
   fetchPlaylistDetail: async (playlistId, source = "wy", inputPlaylist) => {
     const requestId = playlistDetailRequestGate.begin();
     set({ loading: true, error: null });
+    // 切换到不同歌单时先清空上一份详情：currentPlaylistSongs 是全局单槽，
+    // 不清的话慢网下新歌单的页面会先滚出上一份歌单的完整歌曲列表，
+    // 拉取失败时错误态下面也仍挂着旧歌单。同一歌单刷新（下拉）保留旧数据防闪空。
+    const prev = get();
+    const isSamePlaylist =
+      prev.currentPlaylist != null &&
+      String(prev.currentPlaylist.id) === String(playlistId) &&
+      (prev.currentPlaylist.source ?? "wy") === source;
+    if (!isSamePlaylist) {
+      set({ currentPlaylist: null, currentPlaylistSongs: [] });
+    }
     try {
       const { playlists } = get();
       const playlist = inputPlaylist || playlists.find((p) => p.id === playlistId && p.source === source) || null;

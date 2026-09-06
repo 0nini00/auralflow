@@ -229,26 +229,39 @@ export function SearchScreen({
   const songGroups = useMemo(() => groupSongResults(results.songs), [results.songs]);
   const dedupedSongs = useMemo(() => songGroups.map((g) => g.primary), [songGroups]);
 
-  const runPlayback = async (action: () => Promise<void>) => {
+  const runPlayback = useCallback(async (action: () => Promise<void>) => {
     setPlaybackError(null);
     const result = await runPlaybackUiAction(action);
     if (!result.ok) {
       setPlaybackError(result.message);
       return;
     }
-  };
+  }, []);
 
-  const handlePlay = async (_song: MusicInfo, index: number) => {
-    await runPlayback(() => playQueue(dedupedSongs, index));
-  };
+  const handlePlay = useCallback(
+    async (_song: MusicInfo, index: number) => {
+      await runPlayback(() => playQueue(dedupedSongs, index));
+    },
+    [runPlayback, dedupedSongs],
+  );
+
+  // 多源标记预建 Map：SongItem 是 memo 组件，行回调必须稳定引用，
+  // 且逐行 songGroups.find 是 O(行数×分组数)，打字期间每次渲染全量重扫
+  const sourceLabelByKey = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const group of songGroups) {
+      if (group.variants.length <= 1) continue;
+      const sources = [...new Set(group.variants.map((v) => v.source.toUpperCase()))];
+      map.set(`${group.primary.source}:${group.primary.id}`, sources.join(" / "));
+    }
+    return map;
+  }, [songGroups]);
 
   /** 去重后显示多源标记，如 "wy / tx" */
-  const getSongSourceLabel = (song: MusicInfo): string | undefined => {
-    const group = songGroups.find((g) => g.primary === song || (g.primary.source === song.source && g.primary.id === song.id));
-    if (!group || group.variants.length <= 1) return undefined;
-    const sources = [...new Set(group.variants.map((v) => v.source.toUpperCase()))];
-    return sources.join(" / ");
-  };
+  const getSongSourceLabel = useCallback(
+    (song: MusicInfo): string | undefined => sourceLabelByKey.get(`${song.source}:${song.id}`),
+    [sourceLabelByKey],
+  );
 
   const handleSuggestionPress = (suggestion: SearchSuggestion) => {
     setKeyword(suggestion.keyword);

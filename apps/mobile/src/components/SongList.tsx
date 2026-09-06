@@ -489,8 +489,10 @@ interface SongItemProps {
   showDuration?: boolean;
 }
 
-export const SongItem = memo(function SongItem({
-  song,
+/** 同行连点防抖窗口：两次点击间隔小于该值视为误触双击。 */
+const SONG_ROW_REPRESS_GUARD_MS = 600;
+
+export const SongItem = memo(function SongItem({  song,
   index,
   onRowPress,
   onRowLongPress,
@@ -520,6 +522,9 @@ export const SongItem = memo(function SongItem({
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
   const suppressNextPressRef = useRef(false);
   const clearSuppressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 同行连点防抖：点歌在途（URL 解析/播放器加载）时快速双击会重复触发完整播放
+  // 链路——同曲从头「重启」+ 双倍取链请求。600ms 内对同一行的再次点击忽略。
+  const lastPressRef = useRef<{ key: string; at: number } | null>(null);
 
   const onPress = () => onRowPress(song, index);
   const onLongPress = onRowLongPress ? () => onRowLongPress(song, index) : undefined;
@@ -547,6 +552,12 @@ export const SongItem = memo(function SongItem({
       }
       return;
     }
+    const pressKey = `${song.source}:${song.id}`;
+    const now = Date.now();
+    if (lastPressRef.current && lastPressRef.current.key === pressKey && now - lastPressRef.current.at < SONG_ROW_REPRESS_GUARD_MS) {
+      return;
+    }
+    lastPressRef.current = { key: pressKey, at: now };
     onPress();
   };
 
