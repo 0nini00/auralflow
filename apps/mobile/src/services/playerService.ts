@@ -13,7 +13,14 @@ import { getPersonalFmSongs, trashPersonalFmSong } from "./wyPlaylistService";
 import { getNextQueueNavigationState, getPreviousQueueNavigationState } from "@/services/queueNavigationModel";
 import { dequeueTempPlayList, insertSongToPlayNext } from "@/services/songQueueActions";
 import { buildPlaybackQualityTiers, getPlaybackQualityFallbacks, normalizePlaybackQuality, resolveEffectivePlaybackQuality, type PlaybackQuality } from "@/services/playbackQualityModel";
-import { DEFAULT_QUALITY_UPGRADE_WINDOW_MS, estimateStreamDurationSeconds, isPreviewStream, raceForBestQuality } from "@lx/core";
+import {
+  DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
+  estimateStreamDurationSeconds,
+  findCurrentLyricLineIndex,
+  isPreviewStream,
+  LYRIC_LINE_ADVANCE_HYSTERESIS_SECONDS,
+  raceForBestQuality,
+} from "@lx/core";
 import { applySwitchStepRequest, createSwitchStepQueueState, finishSwitchStep } from "@lx/core";
 import { usePlaybackSettingsStore } from "@/stores/playbackSettingsStore";
 import { buildPlaybackPrefetchKey, isPlaybackPrefetchKeyForSong } from "@/services/playbackPrefetchModel";
@@ -46,8 +53,8 @@ const RESOLVE_RACE_BUDGET_MS = 10_000;
 /**
  * 整条解析链的总预算帽（对齐桌面端 withResolveDeadline）。
  *
- * 内层 20s/15s 两级预算互相独立、串行最坏可达 35s，bili 多级取链更是完全没有预算；
- * 这里在 playSongCore 调用 resolveSongUrl 处再套一层 25s 总 race，先到先出：
+ * 内层各源/各 tier 有独立预算、串行叠加最坏会远超预期，bili 多级取链更是没有预算；
+ * 这里在 playSongCore 调用 resolveSongUrl 处再套一层 12s 总 race，先到先出：
  * 内层预算先触发就先退出，总帽只兜底，超时统一报「解析超时」。
  */
 const RESOLVE_TOTAL_BUDGET_MS = 12_000;
@@ -673,20 +680,21 @@ async function playSongCore(song: MusicInfo, startPosition?: number): Promise<vo
   const { play, setLoading, setError } = usePlayerStore.getState();
   const { addToHistory } = useHistoryStore.getState();
   const intent = ++playIntentSeq;
+  // 总帽定时器句柄提到 try 外：finally 里统一清理，不在播放会话里留空转句柄
+  let budgetTimer: ReturnType<typeof setTimeout> | undefined;
   try {
     setLoading(true);
     setError(null);
     // 1. 解析播放 URL（命中预读缓存时无需等待网络）。
-    // 整条解析链（内置降级链→自定义源兜底、bili 多级取链）统一套 25s 总预算帽：
-    // 内层 20s/15s 预算保留不动、先触发就先退出，总帽只兜底串行叠加（最坏 35s）。
+    // 整条解析链（内置降级链→自定义源兜底、bili 多级取链）统一套 12s 总预算帽：
     // 超时后迟到的解析结果不会再走到 play（await 已 reject）；
     // 未超时但迟到的旧意图（用户已改点其它歌曲）由下方 intent 序号拦截，
     // 避免十几秒后突然劫持播放；迟到的成功结果仍会静默写缓存，供下次命中。
     const { url, headers } = await Promise.race([
       resolveSongUrl(song),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("解析超时")), RESOLVE_TOTAL_BUDGET_MS),
-      ),
+      new Promise<never>((_, reject) => {
+        budgetTimer = setTimeout(() => reject(new Error("解析超时")), RESOLVE_TOTAL_BUDGET_MS);
+      }),
     ]);
     if (intent !== playIntentSeq) return;
     // 2. 播放（B站音源需要带 headers；startPosition 用于快照恢复续播）
@@ -710,6 +718,8 @@ async function playSongCore(song: MusicInfo, startPosition?: number): Promise<vo
     setError(message);
     throw error;
   } finally {
+    // 竞速已定稿（胜出或被总帽拒绝）后清掉总帽定时器，不在播放会话里留空转句柄
+    if (budgetTimer) clearTimeout(budgetTimer);
     // 请求被更新的播放意图取代时，loading 归新请求所有，不提前清掉它的加载态
     if (intent === playIntentSeq) {
       setLoading(false);
@@ -1066,26 +1076,15 @@ export function formatTime(seconds: number): string {
   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
-/** 行切换滞后带（秒）：前进进入新行需越过行起点 0.12s 才确认，对齐桌面 playbackSync.findCurrentLyricLine */
-const LYRIC_LINE_ADVANCE_HYSTERESIS_SECONDS = 0.12;
-
 /**
- * 获取当前歌词行索引
+ * 获取当前歌词行索引（收敛到 @lx/core 的唯一实现：
+ * 二分查找 + 前进滞后带 0.12s + 首行前返回 -1）。
  */
 export function getCurrentLyricIndex(
   lyrics: Array<{ time: number; text: string }>,
   position: number
 ): number {
-  if (lyrics.length === 0) return -1;
-  for (let i = lyrics.length - 1; i >= 0; i--) {
-    if (position >= lyrics[i].time) {
-      // 滞后带：仅对「前进进入新行」生效——越过该行起点 0.12s 才确认切换，
-      // 吸收进度插值在行边界附近的锯齿；回退（seek 往回落在行中部）立即生效不受影响
-      if (i > 0 && position - lyrics[i].time < LYRIC_LINE_ADVANCE_HYSTERESIS_SECONDS) {
-        return i - 1;
-      }
-      return i;
-    }
-  }
-  return -1;
+  return findCurrentLyricLineIndex(lyrics, position, {
+    hysteresisSeconds: LYRIC_LINE_ADVANCE_HYSTERESIS_SECONDS,
+  });
 }

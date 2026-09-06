@@ -3,7 +3,7 @@ import { fetchWithTimeout, isTimeoutError } from "@/utils/fetchWithTimeout";
 import { weapi } from "@/services/weapi";
 import { getSecureItem, removeSecureItem, setSecureItem } from "@/services/secureStorageService";
 import { migrateLegacySecret } from "@/services/secureStorageMigrationModel";
-import { normalizeWyCookie } from "@/services/wyCookieModel";
+import { extractWyCsrfToken, normalizeWyCookie } from "@/services/wyCookieModel";
 import { WyAuthExpiredError } from "@/services/wyAuthError";
 
 const WY_COOKIE_KEY = "auralflow.mobile.wy.cookie";
@@ -56,7 +56,15 @@ export async function saveWyUser(user: WyUserInfo): Promise<void> {
  */
 export async function getWyUser(): Promise<WyUserInfo | null> {
   const data = await AsyncStorage.getItem(WY_USER_KEY);
-  return data ? JSON.parse(data) : null;
+  if (!data) return null;
+  try {
+    return JSON.parse(data) as WyUserInfo;
+  } catch {
+    // 数据损坏（写入中断/版本变更）会让 checkLoginStatus 每次都抛错，
+    // 登录卡片永久「状态检查失败」。清掉损坏键自愈，视为未登录。
+    await AsyncStorage.removeItem(WY_USER_KEY).catch(() => undefined);
+    return null;
+  }
 }
 
 /**
@@ -94,11 +102,6 @@ function parseCookieFromHeaders(setCookieHeader: string | null): string | null {
   return cookieParts.length > 0 ? cookieParts.join("; ") : null;
 }
 
-function extractCsrfToken(cookie: string): string {
-  const match = cookie.match(/(?:^|;\s*)__?csrf(?:_token)?=([^;]+)/);
-  return match?.[1] ?? "";
-}
-
 /**
  * 验证 Cookie 是否有效
  *
@@ -113,7 +116,7 @@ export async function validateWyCookie(rawCookie: string): Promise<WyUserInfo | 
   }
 
   const { params, encSecKey } = await weapi({
-    csrf_token: extractCsrfToken(trimmedCookie),
+    csrf_token: extractWyCsrfToken(trimmedCookie),
   });
 
   let response: Response;

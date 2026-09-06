@@ -2,6 +2,7 @@ import { getWyCookie } from "./wyAccountService";
 import type { PlaylistInfo, MusicInfo } from "@lx/core";
 import { mapWyTrackToMusicInfo } from "./wyMusicMapper";
 import { weapi } from "@/services/weapi";
+import { extractWyCsrfToken } from "@/services/wyCookieModel";
 import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
 import { WyAuthExpiredError } from "./wyAuthError";
 import {
@@ -42,11 +43,6 @@ const WY_REQUEST_HEADERS = {
 
 type JsonRecord = Record<string, any>;
 
-function csrfToken(cookie: string): string {
-  const match = cookie.match(/(?:^|;\s*)__?csrf=([^;]+)/);
-  return match?.[1] ?? "";
-}
-
 export async function postWyWeapi<TResponse = JsonRecord>(
   path: string,
   payload: Record<string, any>,
@@ -54,7 +50,7 @@ export async function postWyWeapi<TResponse = JsonRecord>(
 ): Promise<TResponse> {
   const { params, encSecKey } = await weapi({
     ...payload,
-    csrf_token: csrfToken(cookie),
+    csrf_token: extractWyCsrfToken(cookie),
   });
   const response = await fetchWithTimeout(`https://music.163.com/weapi${path}`, {
     method: "POST",

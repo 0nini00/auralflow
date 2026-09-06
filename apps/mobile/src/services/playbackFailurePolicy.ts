@@ -35,8 +35,12 @@ const retryConsumedKeys = new Set<string>();
 /** 重试在途的歌曲 key：其加载期间到达的错误不得触发跳过，由该次重试自己收口。 */
 let retryInFlightKey: string | null = null;
 
-/** 最近一次处置结论，供后台服务回读（同一条原生事件，两个监听器先后各收一次）。 */
-let lastDecision: { songKey: string; action: PlaybackFailureAction } | null = null;
+/**
+ * 最近处置结论，供后台服务回读（同一条原生事件，两个监听器先后各收一次）。
+ * 按歌曲 key 记账而非单槽：两条不同曲目的错误在同一微任务窗口内连发时，
+ * 单槽会让第一条读到第二条的结论而误判；条目在歌曲证明可播时移除，不无界增长。
+ */
+const lastDecisions = new Map<string, PlaybackFailureAction>();
 
 /**
  * 判定一条 PlaybackError 的处置，并落库结论。
@@ -48,7 +52,7 @@ export function decidePlaybackFailureAction(songKey: string): PlaybackFailureAct
     retryConsumedKeys.add(songKey);
     retryInFlightKey = songKey;
   }
-  lastDecision = { songKey, action };
+  lastDecisions.set(songKey, action);
   return action;
 }
 
@@ -67,7 +71,7 @@ export function shouldAutoSkipAfterFailure(songKey: string): boolean {
   // 重试正在加载：这条错误属于重试之前的那次加载，跳过会打断在途重试
   if (retryInFlightKey === songKey) return false;
   // 结论为 retry 即已有重试接手；无结论（未经 store 判定）按跳过处理，避免卡死
-  return !(lastDecision?.songKey === songKey && lastDecision.action === "retry");
+  return lastDecisions.get(songKey) !== "retry";
 }
 
 /**
@@ -78,4 +82,6 @@ export function shouldAutoSkipAfterFailure(songKey: string): boolean {
  */
 export function notePlaybackHealthy(songKey: string): void {
   retryConsumedKeys.delete(songKey);
+  // 歌曲已在正常播放，其旧处置结论随之失效；一并移除防 Map 无界增长
+  lastDecisions.delete(songKey);
 }

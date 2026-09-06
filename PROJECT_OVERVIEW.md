@@ -50,7 +50,7 @@ flowchart TB
 | `sources/tx-meta.ts` | 33 | 腾讯取链元数据（strMediaMid，脚本据此拼 M500/F000 文件名） |
 | `custom-source.ts` | 61 | 自定义音源脚本契约（与 `sources/custom-source.ts` 并存） |
 | `lyrics/parser.ts` | 300 | lrc / enhanced-lrc / yrc / qrc / krc / vtt 6 格式归一化解析 |
-| `lyrics/playbackSync.ts` | 194 | 二分查找行定位（0.08s 提前量）；无真实消费方——桌面 `services/lyrics/playbackSync` 为其超集（0.12s 滞后带、词级进度、1.5s 时钟过期防御），移动端另有手抄实现，三份已漂移 |
+| `lyrics/playbackSync.ts` | 75 | `findCurrentLyricLineIndex` 行定位唯一实现（lead 提前量 + 前进滞后带可配，首行前返回 -1）；移动端 `playerService.getCurrentLyricIndex` 已接入。桌面 `services/lyrics/playbackSync` 仍为其本地超集副本（词级进度、时钟外推），迁移待办 |
 | `playback-quality.ts` | 186 | 质量排序唯一真相源，`raceForBestQuality` 800ms 升级窗口 |
 | `stream-integrity.ts` | 86 | 试听检测 |
 | `webdav-merge.ts` | 122 | 纯函数加法合并，删除不传播 |
