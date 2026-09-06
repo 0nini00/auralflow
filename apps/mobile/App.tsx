@@ -24,6 +24,8 @@ import { MainDrawerNavigator, navigationRef } from "@/navigation";
 import { acceptMobilePact, hasAcceptedMobilePact } from "@/services/mobilePactService";
 import { parseMobileDeepLink } from "@/services/mobileDeepLinkService";
 import { initPlaybackSnapshotPersistence } from "@/services/playbackSnapshot";
+import { autoCleanCache } from "@/services/cacheService";
+import { consumeLastJSError } from "@/services/globalErrorCapture";
 import { checkForUpdates, type UpdateInfo } from "@/services/updateService";
 import { setupPlayerListeners } from "@/stores/playerStore";
 import { canRunStartupNetworkTasks } from "@/services/startupPolicy";
@@ -114,8 +116,18 @@ export default function App() {
     (async () => {
       try {
         setBootError(null);
+        // 上一次闪退的 JS 异常取证：存在则直接展示在启动屏（点「重试」后正常启动）
+        const lastCrash = await consumeLastJSError();
+        if (!cancelled && lastCrash) {
+          setBootError(lastCrash);
+          return;
+        }
         setupPlayerListeners();
         initPlaybackSnapshotPersistence();
+
+        // 缓存容量上限已到 2GB：启动时做一次磁盘空间守卫（内部自带阈值判断，
+        // 剩余 <500MB 才清理 7 天前文件；磁盘健康时是零开销的 statvfs 调用）
+        void autoCleanCache();
 
         const accepted = await hasAcceptedMobilePact();
         if (cancelled) return;

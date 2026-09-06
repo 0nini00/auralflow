@@ -56,10 +56,17 @@ export function ProgressBar({ position, duration, buffered, onSeek }: ProgressBa
     }).start();
   }, [progress, seeking, progressAnim]);
 
-  const thumbTranslateX = progressAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, trackWidth],
-  });
+  // 插值节点按 trackWidth 缓存：本组件随进度事件 4Hz 重渲染，
+  // 若每次渲染都重建 .interpolate() 会向原生动画层高频注册/丢弃节点
+  // （native animated 节点竞态是 Android 闪退的已知来源），必须 memo 化。
+  const thumbTranslateX = React.useMemo(
+    () =>
+      progressAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, trackWidth],
+      }),
+    [progressAnim, trackWidth],
+  );
 
   const handleLayout = (event: LayoutChangeEvent) => {
     setTrackWidth(event.nativeEvent.layout.width);
