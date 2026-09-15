@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   BackHandler,
   Pressable,
@@ -16,6 +16,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import type { ThemePalette } from "@/stores/themeStore";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export interface BottomSheetProps {
   visible: boolean;
@@ -42,22 +43,30 @@ export function BottomSheet({
   children,
 }: BottomSheetProps) {
   const { height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [mounted, setMounted] = useState(visible);
   const progress = useSharedValue(0);
+  // 最新 visible 的 ref:退场动画回调里判断是否仍处于关闭态,避免快速重开时
+  // 退场回调把已重新打开的 sheet 误卸载(visible 已翻 true 但旧退场动画仍在飞)。
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
 
   useEffect(() => {
     if (visible) {
+      // 每次进入都从隐藏位(progress=0)干净起动画:若上一次退场动画被打断,
+      // progress 停在中间值,不重置直接 spring(1) 会表现为「先出现在中间再滑到底」。
+      progress.value = 0;
       setMounted(true);
       progress.value = withSpring(1, { stiffness: 320, damping: 32 });
       return;
     }
     if (!mounted) return;
-    // visible 已翻 false：先播退场动画，结束后卸载内容
+    // visible 已翻 false:先播退场动画,结束后卸载内容(若期间重新打开则放弃卸载)
     progress.value = withTiming(
       0,
       { duration: 200, easing: Easing.in(Easing.quad) },
       (finished) => {
-        if (finished) runOnJS(setMounted)(false);
+        if (finished && !visibleRef.current) runOnJS(setMounted)(false);
       },
     );
   }, [visible, mounted, progress]);
@@ -113,6 +122,8 @@ export function BottomSheet({
             maxHeight: windowHeight * maxHeightRatio,
             backgroundColor: palette.background,
             borderTopColor: palette.border,
+            // 底部安全区避让：列表不被手势条截断（max(安全区, 现有内边距)）
+            paddingBottom: Math.max(insets.bottom, 0),
           },
           sheetStyle,
         ]}

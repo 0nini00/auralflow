@@ -42,6 +42,7 @@ interface BiliCollectionDetailScreenProps {
 
 type BiliRemoteState =
   | { id: string; kind: "loading" }
+  | { id: string; kind: "refreshing"; songs: MusicInfo[] }
   | { id: string; kind: "error"; message: string }
   | { id: string; kind: "success"; songs: MusicInfo[] };
 
@@ -73,7 +74,10 @@ export function BiliCollectionDetailScreen({
   const currentState: BiliRemoteState = remoteState.id === collection.id
     ? remoteState
     : { id: collection.id, kind: "loading" };
-  const successfulSongs = currentState.kind === "success" ? currentState.songs : null;
+  const successfulSongs =
+    currentState.kind === "success" || currentState.kind === "refreshing"
+      ? currentState.songs
+      : null;
   // useMemo 稳定引用：loading 态每次渲染不再新建空数组，下游 handlePlay 的 useCallback 依赖才稳定
   const songs = useMemo(() => successfulSongs ?? [], [successfulSongs]);
   const currentSongIndex = findPlaylistCurrentSongIndex(songs, currentSong);
@@ -83,6 +87,7 @@ export function BiliCollectionDetailScreen({
     async (
       request: CollectionSongRequest,
       isMounted: () => boolean = () => true,
+      isRefresh = false,
     ) => {
       const requestedId = collection.id;
       const requestSequence = ++requestSequenceRef.current;
@@ -93,7 +98,16 @@ export function BiliCollectionDetailScreen({
 
       try {
         if (isCurrentRequest()) {
-          setRemoteState({ id: requestedId, kind: "loading" });
+          if (isRefresh) {
+            // 后台刷新：保留已有歌曲，仅把状态标记为刷新中，成功后才换成新数据
+            setRemoteState((prev) =>
+              prev.id === requestedId && prev.kind === "success"
+                ? { id: requestedId, kind: "refreshing", songs: prev.songs }
+                : prev,
+            );
+          } else {
+            setRemoteState({ id: requestedId, kind: "loading" });
+          }
           setLocatedSongIndex(null);
         }
         const result = await request(requestedId);
@@ -159,8 +173,10 @@ export function BiliCollectionDetailScreen({
     // 防重：刷新是全量分页串行拉取（最多几十页），双击会翻倍请求并可能触发风控
     if (refreshBusyRef.current) return;
     refreshBusyRef.current = true;
+    // 仅在已成功加载后走后台刷新（保留旧数据）；失败重试/首载仍走全量 loading
+    const isRefresh = currentState.kind === "success";
     try {
-      await runCollectionRequest(refreshCollectionSongs);
+      await runCollectionRequest(refreshCollectionSongs, () => true, isRefresh);
     } finally {
       refreshBusyRef.current = false;
     }
@@ -217,7 +233,7 @@ export function BiliCollectionDetailScreen({
               actions={heroActions}
             />
 
-            {currentState.kind === "success" ? (
+            {currentState.kind === "success" || currentState.kind === "refreshing" ? (
               <View style={styles.section}>
                 <SectionHeader title="歌曲" description={`${songs.length} 首`} />
               </View>
@@ -227,6 +243,8 @@ export function BiliCollectionDetailScreen({
         ListFooterComponent={
           currentState.kind === "loading" ? (
             <LoadingState label="正在加载 B站合集内容" />
+          ) : currentState.kind === "refreshing" ? (
+            <LoadingState label="正在刷新 B站合集内容" />
           ) : currentState.kind === "error" ? (
             <ErrorState message={currentState.message} onRetry={() => void handleRefresh()} />
           ) : songs.length > 0 ? null : (

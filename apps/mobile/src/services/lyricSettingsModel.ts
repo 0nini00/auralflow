@@ -50,6 +50,7 @@ export interface LyricTypographyStyleModel {
     marginTop: number;
     opacity: number;
     textAlign: LyricTextAlign;
+    fontFamily?: string;
   };
 }
 
@@ -107,6 +108,31 @@ export function normalizeLyricAnimationIntensity(value: unknown): LyricAnimation
     : "normal";
 }
 
+export function normalizeLyricFontFamily(value: unknown): string {
+  if (typeof value !== "string") return "";
+  switch (value) {
+    // 系统默认（空串）与打包字体文件名（不带扩展名），原样通过
+    case "":
+    case "SourceHanSerifSC":
+    case "LXGWWenKai":
+      return value;
+    // 旧值迁移：历史 Android 系统字体族 / 旧裸字体名 → 打包字体
+    case "serif":
+    case "Source Han Serif SC":
+      return "SourceHanSerifSC";
+    case "sans-serif-medium":
+    case "LXGW WenKai":
+      return "LXGWWenKai";
+    // 其余旧值（近似默认的黑体族、monospace、未知）一律回落系统默认
+    case "sans-serif-condensed":
+    case "monospace":
+    case "Source Han Sans SC":
+    case "Noto Sans CJK SC":
+    default:
+      return "";
+  }
+}
+
 export function getLyricAnimationIntensityScale(value: unknown): number {
   switch (normalizeLyricAnimationIntensity(value)) {
     case "reduced":
@@ -157,16 +183,22 @@ export function buildLyricTypographyStyleModel(
     lineTextStyle.fontFamily = input.fontFamily;
   }
 
+  const translationStyle: LyricTypographyStyleModel["translationStyle"] = {
+    color: input.active ? input.palette.text : input.palette.textSubtle,
+    marginTop: input.lineGap / 2,
+    opacity: input.active ? 0.9 : opacity,
+    textAlign: input.textAlign,
+  };
+
+  if (input.fontFamily) {
+    translationStyle.fontFamily = input.fontFamily;
+  }
+
   return {
     lineWrapStyle: {
       paddingBottom: input.lineGap,
     },
     lineTextStyle,
-    translationStyle: {
-      color: input.active ? input.palette.text : input.palette.textSubtle,
-      marginTop: input.lineGap / 2,
-      opacity: input.active ? 0.9 : opacity,
-      textAlign: input.textAlign,
-    },
+    translationStyle,
   };
 }

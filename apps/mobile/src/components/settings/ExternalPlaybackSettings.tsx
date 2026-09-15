@@ -1,8 +1,10 @@
 import React, { useEffect } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+
+import { Volume2 } from "lucide-react-native";
 
 import { SettingsCard } from "@/components/settings/SettingsCard";
-import { Chip } from "@/components/ui/Chip";
+import { withAlpha } from "@/services/themePaletteModel";
 import { usePlaybackSettingsStore } from "@/stores/playbackSettingsStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, typography } from "@/theme/tokens";
@@ -23,24 +25,36 @@ export function ExternalPlaybackSettings() {
 
   return (
     <SettingsCard style={styles.card}>
-      <View style={styles.copy}>
+      <View style={styles.header}>
+        <Volume2 size={18} color={palette.textSubtle} strokeWidth={2} />
         <Text style={[styles.title, { color: palette.text }]}>其他应用播放音频时</Text>
-        <Text style={[styles.subtitle, { color: palette.textMuted }]}>选择暂停当前歌曲或仅降低音量</Text>
       </View>
-      <View style={[styles.options, { backgroundColor: palette.surfaceMuted }]}>
+      <Text style={[styles.subtitle, { color: palette.textMuted }]}>选择暂停当前歌曲或仅降低音量</Text>
+      <View style={[styles.segmentGroup, { backgroundColor: palette.surfaceMuted }]}>
         {[
           { label: "暂停", value: true },
           { label: "降音量", value: false },
         ].map((option) => {
           const selected = pause === option.value;
           return (
-            <Chip
+            <Pressable
               key={option.label}
-              label={option.label}
-              selected={selected}
+              accessibilityRole="radio"
+              accessibilityLabel={`其他应用播放音频时：${option.label}`}
+              accessibilityState={{ selected }}
               onPress={() => void setPause(option.value)}
-              style={styles.option}
-            />
+              style={({ pressed }) => [
+                styles.segment,
+                {
+                  backgroundColor: selected ? withAlpha(palette.primary, 0.14) : "transparent",
+                  opacity: pressed ? 0.7 : 1,
+                },
+              ]}
+            >
+              <Text style={[styles.segmentLabel, { color: selected ? palette.primary : palette.textMuted }]}>
+                {option.label}
+              </Text>
+            </Pressable>
           );
         })}
       </View>
@@ -50,15 +64,27 @@ export function ExternalPlaybackSettings() {
 
 const styles = StyleSheet.create({
   card: {
+    gap: spacing.s,
+  },
+  header: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.s,
   },
-  copy: { flex: 1, minWidth: 0, gap: spacing.xxs },
-  title: { fontSize: typography.body, fontWeight: "600" },
+  title: { fontSize: typography.title, fontWeight: "700" },
   subtitle: { fontSize: typography.caption },
-  options: { flexDirection: "row", borderRadius: radius.sm, padding: spacing.xxs },
-  option: {
-    minWidth: 64,
+  segmentGroup: {
+    flexDirection: "row",
+    borderRadius: radius.md,
+    padding: spacing.xxs,
   },
+  segment: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    minHeight: 44,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.s,
+  },
+  segmentLabel: { fontSize: typography.body, fontWeight: "600" },
 });

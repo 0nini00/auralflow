@@ -14,6 +14,20 @@ const HISTORY_TIMESTAMPS_KEY = "auralflow.mobile.playHistoryTimestamps";
 const MAX_HISTORY_ITEMS = 2000;
 const MAX_HISTORY_AGE_MS = 31 * 24 * 60 * 60 * 1000;
 
+// 启动 load* 未完成时用户即写入：串行化加载 + 写入，避免晚到的 load 回滚刚写入的记录。
+let historyLoadPromise: Promise<void> | null = null;
+let historyHydrated = false;
+
+async function ensureHistoryLoaded(get: () => HistoryStore): Promise<void> {
+  if (!historyHydrated || historyLoadPromise) {
+    try {
+      await get().loadHistory();
+    } catch {
+      // load 失败不阻断写入：在现有内存态上继续
+    }
+  }
+}
+
 export interface HistoryState {
   /** 分时间记录的条目（含 playedAt），供分组展示；按播放时间倒序。 */
   entries: HistoryEntry[];
@@ -29,7 +43,7 @@ interface HistoryActions {
   loadHistory: () => Promise<void>;
   addToHistory: (song: MusicInfo) => Promise<void>;
   clearHistory: () => Promise<void>;
-  removeFromHistory: (songId: string, source: string) => Promise<void>;
+  removeFromHistory: (songId: string, source: string, dayStart?: number) => Promise<void>;
   /** WebDAV 同步覆盖：用远端历史替换本地播放历史。 */
   replaceAllHistory: (history: MusicInfo[], timestamps?: Record<string, number>) => Promise<void>;
   /** WebDAV 同步合并：本地与远端历史并集，同曲保留播放时间较新的条目。 */
@@ -92,50 +106,61 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
   error: null,
 
   loadHistory: async () => {
-    try {
-      set({ loading: true, error: null });
-      const [[, raw], [, rawTs]] = await AsyncStorage.multiGet([
-        HISTORY_KEY,
-        HISTORY_TIMESTAMPS_KEY,
-      ]);
-      const timestamps = parseTimestamps(rawTs);
-      const parsed = raw ? JSON.parse(raw) : [];
-      let entries: HistoryEntry[] = [];
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        if (isHistoryEntry(parsed[0])) {
-          entries = parsed as HistoryEntry[];
-        } else {
-          // 旧格式（去重 MusicInfo[]）：用时间戳 sidecar 重建条目，保证分时间记录可用。
-          const now = Date.now();
-          entries = (parsed as MusicInfo[])
-            .filter((music) => music?.id)
-            .map((song, index) => ({
-              key: historySongKey(song),
-              song,
-              playedAt: timestamps[historySongKey(song)] ?? now - index,
-            }));
+    if (historyLoadPromise) return historyLoadPromise;
+    historyLoadPromise = (async () => {
+      try {
+        set({ loading: true, error: null });
+        const [[, raw], [, rawTs]] = await AsyncStorage.multiGet([
+          HISTORY_KEY,
+          HISTORY_TIMESTAMPS_KEY,
+        ]);
+        const timestamps = parseTimestamps(rawTs);
+        const parsed = raw ? JSON.parse(raw) : [];
+        let entries: HistoryEntry[] = [];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          if (isHistoryEntry(parsed[0])) {
+            entries = parsed as HistoryEntry[];
+          } else {
+            // 旧格式（去重 MusicInfo[]）：用时间戳 sidecar 重建条目，保证分时间记录可用。
+            const now = Date.now();
+            entries = (parsed as MusicInfo[])
+              .filter((music) => music?.id)
+              .map((song, index) => ({
+                key: historySongKey(song),
+                song,
+                playedAt: timestamps[historySongKey(song)] ?? now - index,
+              }));
+          }
         }
+        const normalized = normalizeEntries(entries, Date.now());
+        const derived = derive(normalized);
+        // 迁移/规整后一次性回写新格式（失败不影响内存态）。
+        await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(normalized)).catch(() => undefined);
+        set({
+          entries: normalized,
+          ...derived,
+          loading: false,
+          error: null,
+        });
+      } catch (error) {
+        set({
+          loading: false,
+          error: error instanceof Error ? error.message : "加载播放历史失败",
+        });
+      } finally {
+        historyHydrated = true;
       }
-      const normalized = normalizeEntries(entries, Date.now());
-      const derived = derive(normalized);
-      // 迁移/规整后一次性回写新格式（失败不影响内存态）。
-      await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(normalized)).catch(() => undefined);
-      set({
-        entries: normalized,
-        ...derived,
-        loading: false,
-        error: null,
-      });
-    } catch (error) {
-      set({
-        loading: false,
-        error: error instanceof Error ? error.message : "加载播放历史失败",
-      });
+    })();
+    try {
+      await historyLoadPromise;
+    } finally {
+      historyLoadPromise = null;
     }
   },
 
   addToHistory: async (song: MusicInfo) => {
     try {
+      await ensureHistoryLoaded(get);
       const { entries } = get();
       const now = Date.now();
       const key = historySongKey(song);
@@ -165,11 +190,17 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
     }
   },
 
-  removeFromHistory: async (songId: string, source: string) => {
+  removeFromHistory: async (songId: string, source: string, dayStart?: number) => {
     try {
+      await ensureHistoryLoaded(get);
       const { entries } = get();
       const key = `${source}:${songId}`;
-      const normalized = entries.filter((entry) => entry.key !== key);
+      // 带 dayStart（单日视图删除）时只移除该天内的同曲条目；否则保留旧行为（删除全部天的副本）。
+      const normalized = entries.filter((entry) => {
+        if (entry.key !== key) return true;
+        if (dayStart == null) return false;
+        return !isSameDay(entry.playedAt, dayStart);
+      });
       const derived = derive(normalized);
       await AsyncStorage.multiSet([
         [HISTORY_KEY, JSON.stringify(normalized)],
@@ -181,6 +212,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
 
   replaceAllHistory: async (history, timestamps) => {
     try {
+      await ensureHistoryLoaded(get);
       const now = Date.now();
       const entries = history
         .filter((music) => music?.id)
@@ -204,6 +236,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
 
   mergeHistory: async (history, timestamps) => {
     try {
+      await ensureHistoryLoaded(get);
       const { entries: current, historyTimestamps } = get();
       const now = Date.now();
       // 时间戳取两侧较新值：远端同步文件可能早于本地最近播放，避免时间回退。

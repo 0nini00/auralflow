@@ -11,6 +11,8 @@ import type {
 
 } from "@/services/lyricSettingsModel";
 
+import { normalizeLyricFontFamily } from "@/services/lyricSettingsModel";
+
 import type { ChineseConversionMode } from "@/services/chineseConversionService";
 
 /**
@@ -90,13 +92,11 @@ export const LYRIC_FONT_SIZE_MAX = 32;
 /** 系统默认字体（空串表示使用 RN 默认字体） */
 export const DEFAULT_FONT_FAMILY = "";
 
-/** 可选字体列表（label 展示用，value 为 fontFamily 值） */
+/** 可选字体列表（label 展示用，value 为打包在 assets/fonts 中的字体文件名（不带扩展名），空串为系统默认） */
 export const FONT_OPTIONS: Array<{ label: string; value: string }> = [
   { label: "系统默认", value: DEFAULT_FONT_FAMILY },
-  { label: "思源宋体", value: "Source Han Serif SC" },
-  { label: "思源黑体", value: "Source Han Sans SC" },
-  { label: "Noto Sans CJK", value: "Noto Sans CJK SC" },
-  { label: "霞鹜文楷", value: "LXGW WenKai" },
+  { label: "思源宋体", value: "SourceHanSerifSC" },
+  { label: "霞鹜文楷", value: "LXGWWenKai" },
 ];
 
 /** 当前行颜色预设 */
@@ -142,6 +142,17 @@ chineseConversion: "off",
 
 } as const;
 
+/** 歌词偏移校准值域：±0.5s（±500ms），步进 50ms；持久化旧值（如 ±1000）在载入时收敛 */
+const MANUAL_OFFSET_MIN = -500;
+const MANUAL_OFFSET_MAX = 500;
+const MANUAL_OFFSET_STEP = 50;
+
+/** 将任意毫秒值收敛到 [-500, 500] 并吸附到最近 50ms 的倍数 */
+function clampManualOffset(ms: number): number {
+  const clamped = Math.min(MANUAL_OFFSET_MAX, Math.max(MANUAL_OFFSET_MIN, ms));
+  return Math.round(clamped / MANUAL_OFFSET_STEP) * MANUAL_OFFSET_STEP;
+}
+
 export const useLyricSettingsStore = create<LyricSettingsState>()(
   persist(
     (set) => ({
@@ -152,7 +163,7 @@ export const useLyricSettingsStore = create<LyricSettingsState>()(
       setActiveColor: (activeColor) => set({ activeColor }),
       setInactiveColor: (inactiveColor) => set({ inactiveColor }),
       setLineGap: (lineGap) => set({ lineGap }),
-      setFontFamily: (fontFamily) => set({ fontFamily }),
+      setFontFamily: (fontFamily) => set({ fontFamily: normalizeLyricFontFamily(fontFamily) }),
       setTextAlign: (textAlign) => set({ textAlign }),
       setFontWeight: (fontWeight) => set({ fontWeight }),
       setTextOpacity: (textOpacity) => set({ textOpacity }),
@@ -173,6 +184,16 @@ setChineseConversion: (chineseConversion) => set({ chineseConversion }),
     {
       name: "auralflow-lyric-settings",
       storage: createJSONStorage(() => AsyncStorage),
+      merge: (persisted, current) => {
+        const merged = { ...current, ...(persisted as Partial<LyricSettingsState>) } as LyricSettingsState;
+        // 歌词对齐设置已移除：统一居中（覆盖存量 left/right 持久化值）
+        merged.textAlign = "center";
+        merged.fontFamily = normalizeLyricFontFamily(merged.fontFamily);
+        if (typeof merged.manualOffsetMs === "number") {
+          merged.manualOffsetMs = clampManualOffset(merged.manualOffsetMs);
+        }
+        return merged;
+      },
     }
   )
 );

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState, type ElementRef, type MutableRefObject } from "react";
-import { ActivityIndicator, StatusBar, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, BackHandler, StatusBar, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import Video, { type OnBufferData, type OnProgressData } from "react-native-video";
 import KeepAwake from "react-native-keep-awake";
 import { ArrowLeft, Maximize2, Minimize2, Pause, Play, RotateCcw } from "lucide-react-native";
@@ -8,7 +8,7 @@ import { IconButton } from "@/components/IconButton";
 import { ChoiceChip } from "@/components/ChoiceChip";
 import { fetchWyMvPlaybackSource, type MvPlaybackSource, type MvResolution } from "@/services/wyMvService";
 import { startMvAudioSession, type MvAudioSession } from "@/services/mvAudioSession";
-import { setLandscapePreferred } from "@/services/orientationService";
+import { setLandscapePreferred, restoreOrientationPreference } from "@/services/orientationService";
 import { formatTime } from "@/services/playerService";
 
 const QUALITY_OPTIONS: MvResolution[] = [1080, 720, 480];
@@ -131,6 +131,13 @@ function MvProgressBar({
 export function MvPlayerScreen({ mvId, title, artist, posterUrl, onBack }: MvPlayerScreenProps) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const isLandscape = windowWidth > windowHeight;
+  // 全屏意图(用户请求的方向),与布局实际方向(isLandscape)解耦:
+  // 旋转动画期间布局未更新,快速操作以意图为准,避免重复发同向请求。
+  const fullscreenIntentRef = useRef(false);
+  // 旋转切换进行中:期间忽略再次点击,防抖动。
+  const rotationPendingRef = useRef(false);
+  // 是否进入过全屏(供卸载时决定是否需要恢复方向)。
+  const everEnteredFullscreenRef = useRef(false);
   const videoRef = useRef<ElementRef<typeof Video> | null>(null);
   const sessionRef = useRef<MvAudioSession | null>(null);
   const requestIdRef = useRef(0);
@@ -195,22 +202,69 @@ export function MvPlayerScreen({ mvId, title, artist, posterUrl, onBack }: MvPla
     };
   }, [resolve]);
 
-  // 卸载归还方向控制：全屏开启过的话回到系统默认行为（清单未锁方向）
-  useEffect(() => {
-    return () => {
-      void setLandscapePreferred(false);
-    };
-  }, []);
-
   const handleQuality = useCallback((nextQuality: MvResolution) => {
     if (nextQuality === quality) return;
     lastPreferredResolution = nextQuality;
     void resolve(nextQuality, positionRef.current);
   }, [quality, resolve]);
 
+  const enterFullscreen = useCallback(async () => {
+    if (rotationPendingRef.current) return;
+    rotationPendingRef.current = true;
+    try {
+      await setLandscapePreferred(true);
+      fullscreenIntentRef.current = true;
+      everEnteredFullscreenRef.current = true;
+    } catch {
+      // 进入失败:意图不置位,允许用户再次点击
+    } finally {
+      rotationPendingRef.current = false;
+    }
+  }, []);
+
+  const exitFullscreen = useCallback(async () => {
+    if (rotationPendingRef.current) return;
+    rotationPendingRef.current = true;
+    try {
+      await setLandscapePreferred(false);
+      fullscreenIntentRef.current = false;
+    } catch {
+      // 退出失败(原生无 Activity 等):意图保持,仍显示「退出全屏」可重试
+    } finally {
+      rotationPendingRef.current = false;
+    }
+  }, []);
+
   const toggleFullscreen = useCallback(() => {
-    void setLandscapePreferred(!isLandscape);
-  }, [isLandscape]);
+    if (rotationPendingRef.current) return;
+    // 以用户意图为基准,而非布局(布局在旋转动画期间滞后)
+    if (fullscreenIntentRef.current || isLandscape) {
+      void exitFullscreen();
+    } else {
+      void enterFullscreen();
+    }
+  }, [isLandscape, enterFullscreen, exitFullscreen]);
+
+  // 全屏时系统返回键先退出全屏(而非直接退出页面),避免方向未恢复就离开
+  useEffect(() => {
+    if (!isLandscape) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (!fullscreenIntentRef.current) return false;
+      void exitFullscreen();
+      return true; // 拦截:本次返回只退全屏
+    });
+    return () => sub.remove();
+  }, [isLandscape, exitFullscreen]);
+
+  // 卸载归还方向控制:仅当确实进入过全屏时恢复,失败补一次重试
+  useEffect(() => {
+    return () => {
+      if (!everEnteredFullscreenRef.current) return;
+      void restoreOrientationPreference()
+        .catch(() => restoreOrientationPreference())
+        .catch(() => undefined);
+    };
+  }, []);
 
   // 播完进入 ended 态：按钮变重播，按下回到 0 重新播放
   const handlePlayPause = useCallback(() => {

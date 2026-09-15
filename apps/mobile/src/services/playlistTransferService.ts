@@ -1,3 +1,4 @@
+import { Alert } from "react-native";
 import { useFavoritesStore } from "../stores/favoritesStore";
 import { usePlaylistStore } from "../stores/playlistStore";
 import {
@@ -45,18 +46,26 @@ export async function exportLocalPlaylists(localPlaylists: LocalPlaylist[]): Pro
 
 export async function shareExportedPlaylists(): Promise<void> {
   const { Share } = await import("react-native");
-  await Share.share({
-    title: "导出 AuralFlow 歌单",
-    message: await exportPlaylists(),
-  });
+  try {
+    await Share.share({
+      title: "导出 AuralFlow 歌单",
+      message: await exportPlaylists(),
+    });
+  } catch (err) {
+    Alert.alert("分享失败", err instanceof Error ? err.message : String(err));
+  }
 }
 
 export async function shareExportedLocalPlaylists(localPlaylists: LocalPlaylist[]): Promise<void> {
   const { Share } = await import("react-native");
-  await Share.share({
-    title: "导出 AuralFlow 歌单",
-    message: await exportLocalPlaylists(localPlaylists),
-  });
+  try {
+    await Share.share({
+      title: "导出 AuralFlow 歌单",
+      message: await exportLocalPlaylists(localPlaylists),
+    });
+  } catch (err) {
+    Alert.alert("分享失败", err instanceof Error ? err.message : String(err));
+  }
 }
 
 /**

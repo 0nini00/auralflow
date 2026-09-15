@@ -20,7 +20,7 @@ interface HistorySectionProps {
   entries: HistoryEntry[];
   /** 播放一组歌曲：songs 为组内列表，index 为组内序号。 */
   onPlay: (songs: MusicInfo[], index: number) => void;
-  onDelete?: (song: MusicInfo) => void;
+  onDelete?: (song: MusicInfo, dayStart: number) => void;
   emptyText?: string;
   hideSourceTag?: boolean;
 }
@@ -94,7 +94,7 @@ export function HistorySection({
       <SongList
         songs={songs}
         onPlay={songs.length > 0 ? handlePlay : () => undefined}
-        onDelete={onDelete}
+        onDelete={onDelete ? (song) => onDelete(song, selectedDay) : undefined}
         emptyText={emptyText}
         hideSourceTag={hideSourceTag}
       />

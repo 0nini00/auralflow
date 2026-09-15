@@ -46,13 +46,22 @@ export interface QueueModalProps {
    *   队列面板与子弹窗不再构成嵌套 Modal，根除 Android 嵌套 Modal 白屏问题。
    */
   presentation?: "modal" | "sheet";
+  /**
+   * sheet 形态的宿主（仅 presentation="sheet" 时生效）：
+   * - "overlay"（默认）：BottomSheet 直接挂载为应用内覆盖层。用于已处于 RN Modal
+   *   内的全屏播放页（沉浸屏），避免与子弹窗构成嵌套 Modal。
+   * - "modal"：在 BottomSheet 外包一层全屏透明 RN Modal 作为宿主。用于宿主容器
+   *   不满屏的迷你播放栏，让弹层获得整屏空间，观感/动画与沉浸屏一致；PlayerBar
+   *   不在沉浸 Modal 内，故无嵌套 Modal 问题。
+   */
+  sheetHost?: "overlay" | "modal";
 }
 
 /**
  * 播放队列面板（对齐 lx PlayerPlaylist）。
  *
  * 行样式复用 SongItem（lx 风格：封面/歌名/歌手·专辑/时长/喜欢/更多），
- * 更多菜单含队列专属的「从队列移除」。打开时自动滚动到当前播放曲。
+ * 更多菜单含队列专属的「从队列移除」。
  * 全屏播放器（ImmersiveModals）与迷你播放器（PlayerBar）共用。
  */
 export function QueueModal({
@@ -66,6 +75,7 @@ export function QueueModal({
   onClear,
   onRequestNavigate,
   presentation = "modal",
+  sheetHost = "overlay",
 }: QueueModalProps) {
   const listRef = useRef<FlatList<MusicInfo>>(null);
   const { height: windowHeight } = useWindowDimensions();
@@ -86,23 +96,6 @@ export function QueueModal({
   // 上次选择的下载音质（记住上次选择，对齐 lx）
   const [defaultQuality, setDefaultQuality] = useState<DownloadQuality | null>(null);
 
-  // 打开面板时滚动到当前播放曲（对齐 lx PlayerPlaylist scrollToIndex）
-  const currentItemIndex = useMemo(
-    () => queueModel.items.findIndex((item) => item.isCurrent),
-    [queueModel.items],
-  );
-
-  useEffect(() => {
-    if (!visible || currentItemIndex < 0) return;
-    const timer = setTimeout(() => {
-      try {
-        listRef.current?.scrollToIndex({ index: currentItemIndex, viewPosition: 0, animated: true });
-      } catch {
-        // 列表尚未布局完成时忽略
-      }
-    }, 120);
-    return () => clearTimeout(timer);
-  }, [visible, currentItemIndex]);
 
   const handleDownloadSelected = async (quality: DownloadQuality) => {
     if (!actionSong || downloading) return;
@@ -145,6 +138,31 @@ export function QueueModal({
     (song: MusicInfo, anchor: ActionMenuAnchor) => openQueueMenu(song, -1, anchor),
     [],
   );
+
+  // 当前播放曲在队列中的索引(仅用于「从队列移除」的可用性判断)
+  const currentItemIndex = useMemo(
+    () => queueModel.items.findIndex((item) => item.isCurrent),
+    [queueModel.items],
+  );
+
+  // 打开瞬间无动画直达当前播放曲(行高固定 + getItemLayout,offset 精确):
+  // 用 animated:false 在首帧直接落位,不给用户看到「从顶部滚过来」的跳变。
+  // 只在 visible false→true 时触发一次(用 ref 记上次值,避免重复滚动)。
+  const prevVisibleRef = useRef(visible);
+  useEffect(() => {
+    const justOpened = visible && !prevVisibleRef.current;
+    prevVisibleRef.current = visible;
+    if (!justOpened) return;
+    if (currentItemIndex < 0) return;
+    // 面板本体动画(modal/sheet)与列表定位同帧:延到下一帧等布局就绪
+    const raf = requestAnimationFrame(() => {
+      listRef.current?.scrollToOffset({
+        offset: ROW_HEIGHT * currentItemIndex,
+        animated: false,
+      });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [visible, currentItemIndex]);
 
   const menuItems: ActionMenuItem[] = useMemo(() => {
     if (!actionSong) return [];
@@ -265,13 +283,25 @@ export function QueueModal({
     </Pressable>
   );
 
-  // sheet 形态（全屏播放页）：应用内底部弹层，与子弹窗（Modal）不再嵌套
+  // sheet 形态：应用内底部弹层（BottomSheet），与子弹窗（Modal）不再嵌套
   if (presentation === "sheet") {
+    const sheet = (
+      <BottomSheet visible={visible} onClose={onClose} palette={palette} maxHeightRatio={QUEUE_SHEET_HEIGHT_RATIO}>
+        {renderPanel(true)}
+      </BottomSheet>
+    );
     return (
       <>
-        <BottomSheet visible={visible} onClose={onClose} palette={palette} maxHeightRatio={QUEUE_SHEET_HEIGHT_RATIO}>
-          {renderPanel(true)}
-        </BottomSheet>
+        {sheetHost === "modal" ? (
+          // 迷你播放栏宿主容器不满屏：套一层全屏透明 Modal 让 BottomSheet 获得整屏空间，
+          // 观感/动画与沉浸屏一致；PlayerBar 不在沉浸 Modal 内，无嵌套 Modal 问题。
+          <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
+            {sheet}
+          </Modal>
+        ) : (
+          // 沉浸屏本身是 RN Modal：直接挂应用内覆盖层，避免嵌套 Modal 白屏
+          sheet
+        )}
 
         <ActionMenuSheet
           visible={menuVisible}

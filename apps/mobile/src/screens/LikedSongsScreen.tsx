@@ -43,6 +43,11 @@ export function LikedSongsScreen({ onNavigateToPlayer }: LikedSongsScreenProps) 
   const detailActions = buildPlaylistDetailActions(favorites.length);
   const currentSongIndex = findPlaylistCurrentSongIndex(favorites, currentSong);
 
+  // 切歌/当前索引变化时清掉「定位」高亮，避免 highlightedIndex 卡在旧位置。
+  React.useEffect(() => {
+    setLocatedSongIndex(null);
+  }, [currentSongIndex]);
+
   const runPlayback = React.useCallback(async (action: () => Promise<void>) => {
     setPlaybackError(null);
     const result = await runPlaybackUiAction(action);

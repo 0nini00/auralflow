@@ -1,5 +1,5 @@
 import React from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Alert, StyleSheet, Text, View } from "react-native";
 import { Pause, Play, RotateCcw, X } from "lucide-react-native";
 import type { MusicInfo } from "@lx/core";
 
@@ -233,7 +233,10 @@ export function DownloadList({ downloads, downloading, failedDownloads = [], onN
               {/* 两个删除动作语义不同必须可见：移除记录=只清列表项保留文件；删除文件=连本地文件一起删 */}
               <Touchable
                 style={[styles.textAction, { backgroundColor: palette.surfaceStrong }]}
-                onPress={() => void removeDownloadRecord(item.song, quality)}
+                onPress={(e) => {
+                  e?.stopPropagation?.();
+                  void removeDownloadRecord(item.song, quality);
+                }}
                 accessibilityRole="button"
                 accessibilityLabel="移除下载记录，保留本地文件"
               >
@@ -241,7 +244,21 @@ export function DownloadList({ downloads, downloading, failedDownloads = [], onN
               </Touchable>
               <Touchable
                 style={[styles.textAction, { backgroundColor: withAlpha(palette.danger, 0.12) }]}
-                onPress={() => void removeDownload(item.song, quality)}
+                onPress={(e) => {
+                  e?.stopPropagation?.();
+                  Alert.alert(
+                    "删除下载文件",
+                    "将同时删除本地文件与下载记录,此操作不可恢复。确定删除?",
+                    [
+                      { text: "取消", style: "cancel" },
+                      {
+                        text: "删除",
+                        style: "destructive",
+                        onPress: () => void removeDownload(item.song, quality),
+                      },
+                    ],
+                  );
+                }}
                 accessibilityRole="button"
                 accessibilityLabel="删除下载文件并移除记录"
               >

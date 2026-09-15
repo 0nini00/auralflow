@@ -292,6 +292,11 @@ export async function searchSongs(
 /** searchAll 缓存命名空间 */
 const ALL_CACHE_NAMESPACE = "all";
 
+/** 判断一组 allSettled 结果里是否至少有一个来源真正 fulfilled。 */
+function anyFulfilled(results: readonly PromiseSettledResult<unknown>[]): boolean {
+  return results.some((result) => result.status === "fulfilled");
+}
+
 export async function searchAll(source: SearchSource, keyword: string): Promise<SearchResults> {
   // 优先查缓存，命中则直接返回（searchSongs 内部也会命中各自缓存）
   const cached = getCachedResult<SearchResults>(source, keyword, ALL_CACHE_NAMESPACE);
@@ -323,6 +328,7 @@ export async function searchAll(source: SearchSource, keyword: string): Promise<
   }
   const mergedSongs = mergeDuplicateSongs(songs);
 
+  let anySourceFulfilled = false;
   let finalResults: SearchResults;
   if (source === "all") {
     const [artistsResult, albumsResult, wyPlaylistsResult, txPlaylistsResult] = await Promise.allSettled([
@@ -331,6 +337,9 @@ export async function searchAll(source: SearchSource, keyword: string): Promise<
       searchNeteasePlaylists(keyword),
       searchTxPlaylists(keyword),
     ]);
+    anySourceFulfilled =
+      anyFulfilled(songResults) ||
+      anyFulfilled([artistsResult, albumsResult, wyPlaylistsResult, txPlaylistsResult]);
 
     finalResults = {
       songs: mergedSongs,
@@ -350,6 +359,9 @@ export async function searchAll(source: SearchSource, keyword: string): Promise<
       searchNeteaseAlbums(keyword),
       searchNeteasePlaylists(keyword),
     ]);
+    anySourceFulfilled =
+      anyFulfilled(songResults) ||
+      anyFulfilled([artistsResult, albumsResult, playlistsResult]);
 
     finalResults = {
       songs: mergedSongs,
@@ -361,6 +373,7 @@ export async function searchAll(source: SearchSource, keyword: string): Promise<
     // 与 wy 分支一致用 allSettled：歌单接口返回风控页/非 JSON 时，
     // 不应让整个 tx 综合搜索 reject（歌曲结果此时已拿到）。
     const playlistsResult = await Promise.allSettled([searchTxPlaylists(keyword)]);
+    anySourceFulfilled = anyFulfilled(songResults) || anyFulfilled(playlistsResult);
     finalResults = {
       songs: mergedSongs,
       artists: [],
@@ -369,8 +382,12 @@ export async function searchAll(source: SearchSource, keyword: string): Promise<
     };
   }
 
-  // 写入缓存
-  setCachedResult(source, keyword, finalResults, ALL_CACHE_NAMESPACE);
+  // 仅当至少有一个来源真正 fulfilled 时才写缓存：
+  // 全部来源失败（网络/风控）时跳过缓存，避免“空结果”被当作真实的空结果缓存 5 分钟，
+  // 让 UI 仍能走网络错误路径并允许重试。注意 bili 分支为单源直调，走到写缓存处即该源已 fulfilled。
+  if (anySourceFulfilled) {
+    setCachedResult(source, keyword, finalResults, ALL_CACHE_NAMESPACE);
+  }
   return finalResults;
 }
 

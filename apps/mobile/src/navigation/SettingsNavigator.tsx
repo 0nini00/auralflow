@@ -71,8 +71,11 @@ export function SettingsNavigator() {
 
 function ActiveSettingsPage() {
   const category = useSettingsCategoryStore((state) => state.category);
+  const navId = useSettingsCategoryStore((state) => state.navId);
   const Page = SETTINGS_PAGE_COMPONENTS[category];
-  return <Page />;
+  // key=navId：每次点击分类（含重复点击同一分类）都会整体重挂载页面组件，
+  // 从而清空未保存的本地草稿（如半输入的 WebDAV 表单），避免草稿残留在旧页面上。
+  return <Page key={navId} />;
 }
 
 function SettingsTopBar({

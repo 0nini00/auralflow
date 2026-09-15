@@ -131,9 +131,123 @@ export function parseEnhancedLrc(lrc: string): LyricLine[] {
   return sortLines(result);
 }
 
+const KRC_KEY = [0x40, 0x47, 0x61, 0x77, 0x5e, 0x32, 0x74, 0x47, 0x51, 0x76, 0x31, 0x32, 0x31, 0x65, 0x5b, 0x0a];
+/** ms-word 格式行标记（`[绝对毫秒,时长]`），用于识别已解密的 krc/qrc 明文 */
+const MS_WORD_LINE_RE = /^\[\d+,\d+\]/m;
+/** krc 逐字标记 `<开始,时长[,...]>` */
+const MS_WORD_KRC_TAG_RE = /<\d+,\d+(?:,\d+)?>/;
+
+const BASE64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+function decodeBase64ToBytes(input: string): Uint8Array {
+  const clean = input.replace(/[^A-Za-z0-9+/=]/g, '');
+  if (!clean.length) return new Uint8Array(0);
+  const lookup = new Int32Array(256).fill(-1);
+  for (let i = 0; i < BASE64_CHARS.length; i += 1) lookup[BASE64_CHARS.charCodeAt(i)] = i;
+  lookup[61] = 0; // '='
+  const length = clean.length;
+  const padding = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0;
+  const outLength = (length >> 2) * 3 - padding;
+  const bytes = new Uint8Array(outLength);
+  let index = 0;
+  for (let i = 0; i < length; i += 4) {
+    const c0 = lookup[clean.charCodeAt(i)];
+    const c1 = lookup[clean.charCodeAt(i + 1)];
+    const c2 = lookup[clean.charCodeAt(i + 2)];
+    const c3 = lookup[clean.charCodeAt(i + 3)];
+    if (c0 < 0 || c1 < 0 || c2 < 0 || c3 < 0) break;
+    const triplet = (c0 << 18) | (c1 << 12) | (c2 << 6) | c3;
+    if (index < outLength) bytes[index++] = (triplet >> 16) & 0xff;
+    if (index < outLength) bytes[index++] = (triplet >> 8) & 0xff;
+    if (index < outLength) bytes[index++] = triplet & 0xff;
+  }
+  return bytes;
+}
+
+function utf8Decode(bytes: Uint8Array): string {
+  // 纯 JS UTF-8 解码，避免依赖 Hermes/RN 不确定的 TextDecoder。
+  let out = '';
+  let i = 0;
+  while (i < bytes.length) {
+    const b0 = bytes[i];
+    let codePoint: number;
+    let extra: number;
+    if (b0 < 0x80) {
+      codePoint = b0;
+      extra = 0;
+    } else if ((b0 & 0xe0) === 0xc0) {
+      codePoint = b0 & 0x1f;
+      extra = 1;
+    } else if ((b0 & 0xf0) === 0xe0) {
+      codePoint = b0 & 0x0f;
+      extra = 2;
+    } else if ((b0 & 0xf8) === 0xf0) {
+      codePoint = b0 & 0x07;
+      extra = 3;
+    } else {
+      out += String.fromCharCode(b0);
+      i += 1;
+      continue;
+    }
+    if (i + extra >= bytes.length) {
+      out += String.fromCharCode(b0);
+      i += 1;
+      continue;
+    }
+    for (let j = 1; j <= extra; j += 1) codePoint = (codePoint << 6) | (bytes[i + j] & 0x3f);
+    out += String.fromCodePoint(codePoint);
+    i += extra + 1;
+  }
+  return out;
+}
+
+/** 从原始 krc 字节解码出明文歌词脚本（krc 魔数头 + 小端长度 + base64 + 异或 key + UTF-8）。 */
+function krcDecodeBytes(fileBytes: Uint8Array): string {
+  const hasMagic = fileBytes[0] === 0x6b && fileBytes[1] === 0x72 && fileBytes[2] === 0x63;
+  const bodyStart = hasMagic ? 8 : 0; // 跳过 4 字节魔数 + 4 字节小端长度
+  let b64 = '';
+  for (let i = bodyStart; i < fileBytes.length; i += 1) {
+    const code = fileBytes[i];
+    const isB64Char =
+      (code >= 0x41 && code <= 0x5a) ||
+      (code >= 0x61 && code <= 0x7a) ||
+      (code >= 0x30 && code <= 0x39) ||
+      code === 0x2b ||
+      code === 0x2f ||
+      code === 0x3d;
+    if (isB64Char) b64 += String.fromCharCode(code);
+  }
+  if (!b64) return '';
+  const decoded = decodeBase64ToBytes(b64);
+  if (!decoded.length) return '';
+  const plainBytes = new Uint8Array(decoded.length);
+  for (let i = 0; i < decoded.length; i += 1) plainBytes[i] = decoded[i] ^ KRC_KEY[i % KRC_KEY.length];
+  return utf8Decode(plainBytes);
+}
+
+/** 兼容 Hermes / RN：输入可能已是明文，也可能仍是 krc 密文（二进制串或 base64 串）。 */
+function decodeKrc(content: string): string {
+  if (MS_WORD_LINE_RE.test(content) || MS_WORD_KRC_TAG_RE.test(content)) return content;
+  const toBytes = (text: string): Uint8Array => {
+    const bytes = new Uint8Array(text.length);
+    for (let i = 0; i < text.length; i += 1) bytes[i] = text.charCodeAt(i) & 0xff;
+    return bytes;
+  };
+  const direct = krcDecodeBytes(toBytes(content));
+  if (direct && MS_WORD_LINE_RE.test(direct) && MS_WORD_KRC_TAG_RE.test(direct)) return direct;
+  const asBytes = decodeBase64ToBytes(content);
+  if (asBytes.length) {
+    const viaB64 = krcDecodeBytes(asBytes);
+    if (viaB64 && MS_WORD_LINE_RE.test(viaB64) && MS_WORD_KRC_TAG_RE.test(viaB64)) return viaB64;
+  }
+  return content;
+}
+
 function parseMsWordFormat(content: string, tagRegex: RegExp): LyricLine[] {
   const result: LyricLine[] = [];
   const lineTimeRe = /^\[(\d+),(\d+)\](.*)/;
+  const offsetMatch = content.match(OFFSET_REGEX);
+  const offsetSeconds = offsetMatch ? Number(offsetMatch[1]) / 1000 : 0;
 
   for (const raw of content.replace(/^\uFEFF/, '').split(/\r?\n/)) {
     const line = raw.trim();
@@ -148,7 +262,7 @@ function parseMsWordFormat(content: string, tagRegex: RegExp): LyricLine[] {
     tagRegex.lastIndex = 0;
     while ((match = tagRegex.exec(body)) !== null) {
       marks.push({
-        start: Number.parseInt(match[1], 10) / 1000,
+        start: Math.max(0, Number.parseInt(match[1], 10) / 1000 + offsetSeconds),
         dur: Number.parseInt(match[2], 10) / 1000,
         tagStart: match.index,
         begin: match.index + match[0].length,
@@ -168,7 +282,7 @@ function parseMsWordFormat(content: string, tagRegex: RegExp): LyricLine[] {
     const lineText = text.trim();
     if (!lineText && words.length === 0) continue;
     result.push({
-      time: lineStartMs / 1000,
+      time: Math.max(0, lineStartMs / 1000 + offsetSeconds),
       text: lineText,
       words: words.length > 0 ? words : undefined,
     });
@@ -186,7 +300,8 @@ export function parseQrc(qrc: string): LyricLine[] {
 }
 
 export function parseKrc(krc: string): LyricLine[] {
-  return parseMsWordFormat(krc, /<(\d+),(\d+)(?:,\d+)?>/g);
+  const plaintext = decodeKrc(krc);
+  return parseMsWordFormat(plaintext, /<(\d+),(\d+)(?:,\d+)?>/g);
 }
 
 function parseVttTimestamp(value: string): number {
@@ -228,6 +343,13 @@ export function detectLyricSourceType(content: string): LyricSourceType {
     return 'enhanced-lrc';
   }
   ANGLE_TIME_REGEX.lastIndex = 0;
+  // 明文 lrc 都会有 `[mm:ss]` 时间戳；若完全没有，则可能是 krc 密文，尝试解码后判型。
+  if (!LRC_SINGLE_TIME_REGEX.test(trimmed)) {
+    const decoded = decodeKrc(content);
+    if (decoded !== content && MS_WORD_LINE_RE.test(decoded) && MS_WORD_KRC_TAG_RE.test(decoded)) {
+      return 'krc';
+    }
+  }
   return 'lrc';
 }
 

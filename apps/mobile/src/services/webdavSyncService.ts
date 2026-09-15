@@ -307,16 +307,28 @@ async function assertCloudNotStale(
 ): Promise<void> {
   if (force) return;
   if (localItemCount <= 0) return;
+  // 解析远端 lastModified：缺失 / 0 / NaN / 非法 JSON 一律视为“未知”，
+  // 无法可靠判断云端与本地哪个更新；进入下面的保守分支，而不是静默放行。
   let remoteLm: number | null = null;
   try {
     const parsed = JSON.parse(remoteText) as { lastModified?: unknown };
     const n = Number(parsed?.lastModified);
     remoteLm = Number.isFinite(n) && n > 0 ? n : null;
   } catch {
-    return;
+    remoteLm = null;
+  }
+  if (remoteLm == null) {
+    // 远端 lastModified 未知：无法判断云端是否比本地新。保守起见不再静默放行
+    // “用未知的云端数据覆盖本地”，交由调用方决定——合并模式可继续（合并不覆盖本地数据），
+    // 覆盖模式则中止；sources 无合并模式，直接中止，由 force 放行。
+    throw new Error(
+      `云端${kind === "playlists" ? "歌单" : "音源"}文件无法确定更新状态（lastModified 缺失或无法解析），` +
+        `无法判断云端与本地哪个更新，无法安全地将云端数据下载覆盖到本地约 ${localItemCount} 项。` +
+        `若确认以云端为准，请强制下载。`,
+    );
   }
   const localMeta = await readLocalMeta(kind);
-  if (remoteLm == null || localMeta == null) return;
+  if (localMeta == null) return;
   if (remoteLm + 1000 < localMeta.lastModified) {
     const remoteAt = new Date(remoteLm).toLocaleString();
     const localAt = new Date(localMeta.lastModified).toLocaleString();
@@ -520,7 +532,7 @@ function buildPlayHistorySync(entries: HistoryEntry[]): PlayHistorySyncItem[] {
 
 async function buildPlaylistsSyncFile(): Promise<PlaylistsSyncFile> {
   await loadCloudSongsCache();
-  const { playlists, localPlaylists } = usePlaylistStore.getState();
+  const { playlists, localPlaylists, currentPlaylist, currentPlaylistSongs } = usePlaylistStore.getState();
   // loveList = 本地收藏（对齐桌面端 favoritesStore），双端同一数据槽互通
   const favorites = useFavoritesStore.getState().favorites;
 
@@ -551,7 +563,9 @@ async function buildPlaylistsSyncFile(): Promise<PlaylistsSyncFile> {
           author: playlist.author ?? "",
           // 移动端云端歌单只同步引用、歌曲按需拉取；但若从远端下载过真实歌曲列表
           // （如桌面端写入的），上传时重新挂载，避免用空列表覆盖云端数据。
-          list: cachedCloudSongs(playlist.source, playlist.id),
+          // 优先使用当前已加载/编辑过的本地真实歌曲列表，仅当本地未加载为空时
+          // 才回退到上次下载的缓存快照，避免“本地删除被旧快照回滚”。
+          list: cloudPlaylistUploadSongs(playlist, currentPlaylist, currentPlaylistSongs),
           createdAt: Date.now(),
           updatedAt: playlist.updatedAt ?? Date.now(),
         })),
@@ -633,6 +647,84 @@ async function rememberCloudSongs(songsByKey: Map<string, MusicInfo[]>): Promise
 function cachedCloudSongs(source: string, id: string): MusicInfo[] {
   return cloudSongsCache.get(cloudPlaylistKey(source, id)) ?? [];
 }
+
+function cloudPlaylistUploadSongs(
+  playlist: WyPlaylistInfo,
+  currentPlaylist: WyPlaylistInfo | null,
+  currentPlaylistSongs: MusicInfo[],
+): MusicInfo[] {
+  // 当前打开且已加载的云端歌单：其歌曲列表是用户在本地真实看到/编辑过的内容，
+  // 上传时以它为准，避免用旧的下载快照回滚本地的增删。仅当本地未加载为空时才
+  // 回退到缓存快照，防止用空列表抹掉云端已有歌曲。
+  if (
+    currentPlaylist != null &&
+    String(currentPlaylist.id) === String(playlist.id) &&
+    (currentPlaylist.source ?? "wy") === (playlist.source ?? "wy") &&
+    currentPlaylistSongs.length > 0
+  ) {
+    return currentPlaylistSongs;
+  }
+  return cachedCloudSongs(playlist.source, playlist.id);
+}
+
+/** 移除某个云端歌单的缓存歌曲（本地删空/移除了该歌单的全部歌曲时调用），
+ *  避免上传时把旧下载快照重新挂载、导致本地删除被回滚。只删确有缓存的条目，
+ *  无缓存时直接返回，不写盘。 */
+export async function forgetCloudSongs(source: string, id: string): Promise<void> {
+  const key = cloudPlaylistKey(source, id);
+  if (!cloudSongsCache.has(key)) return;
+  cloudSongsCache.delete(key);
+  try {
+    const payload: Record<string, MusicInfo[]> = {};
+    for (const [cacheKey, songs] of cloudSongsCache) {
+      payload[cacheKey] = songs;
+    }
+    await AsyncStorage.setItem(CLOUD_SONGS_CACHE_KEY, JSON.stringify(payload));
+  } catch (error) {
+    console.warn("保存 WebDAV 云端歌曲缓存失败", error);
+  }
+}
+
+/**
+ * 让上传反映“真实的当前本地歌单内容”：
+ *
+ * 移动端云端歌单只保存引用，歌曲列表缓存在 cloudSongsCache；上传用该缓存挂载歌曲。
+ * 若用户在本地删除/新增了云端歌单的歌曲，缓存仍是上次下载的快照，下次上传会按旧快照
+ * 重新挂载，导致本地删除被“回滚”（删除没生效）或新增丢失。
+ *
+ * 这里订阅歌单 store：当前打开的云端歌单一旦发生歌曲编辑（增/删），立即把它的当前
+ * 歌曲列表同步回 cloudSongsCache，确保下次上传用的是编辑后的真实内容。只在与缓存确有
+ * 差异、且是非空列表时写入，避免用“详情加载失败/未加载完”的空列表抹掉已有缓存。
+ */
+function syncOpenCloudPlaylistSongs(state: {
+  currentPlaylist: WyPlaylistInfo | null;
+  currentPlaylistSongs: MusicInfo[];
+}): void {
+  const cp = state.currentPlaylist;
+  if (!cp || cp.source === "local") return;
+  const songs = state.currentPlaylistSongs;
+  const key = cloudPlaylistKey(cp.source, cp.id);
+  if (!songs.length) {
+    // 打开的云端歌单歌曲已被清空（本地删除/删到空）：删掉该歌单的缓存快照，
+    // 避免上传时把旧快照重新挂载、导致删除被回滚。只有 currentPlaylist 非空才
+    // 走到这——未加载/加载失败的场景不会以空列表出现，故不会误伤已有缓存。
+    void forgetCloudSongs(cp.source, cp.id);
+    return;
+  }
+  if (sameSongKeyOrder(cachedCloudSongs(cp.source, cp.id), songs)) return;
+  cloudSongsCache.set(key, songs);
+  void rememberCloudSongs(new Map([[key, songs]]));
+}
+
+function sameSongKeyOrder(a: MusicInfo[], b: MusicInfo[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) {
+    if (`${a[index].source}:${a[index].id}` !== `${b[index].source}:${b[index].id}`) return false;
+  }
+  return true;
+}
+
+usePlaylistStore.subscribe(syncOpenCloudPlaylistSongs);
 
 function remoteItemToWyPlaylist(remote: RemotePlaylistItem, index: number): WyPlaylistInfo {
   const songs = toMusicList(remote.list ?? remote.songs);

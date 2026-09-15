@@ -24,7 +24,7 @@ export function getAudioInterruptionAction({
   pauseOnExternalPlayback,
   currentVolume,
 }: AudioInterruptionInput): AudioInterruptionAction {
-  if (permanent) return { type: "pause" };
+  if (permanent && pauseOnExternalPlayback) return { type: "pause" };
   if (paused && pauseOnExternalPlayback) return { type: "pause" };
   if (paused) return { type: "setVolume", volume: Math.min(DUCKED_VOLUME, clampPlayerVolume(currentVolume)) };
   return { type: "setVolume", volume: clampPlayerVolume(currentVolume) };

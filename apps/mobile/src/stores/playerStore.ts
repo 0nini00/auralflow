@@ -16,7 +16,6 @@ import { clampPlaybackRate, DEFAULT_PLAYBACK_RATE } from "@/services/playerRateM
 import { DEFAULT_VOLUME, getNextMuteState, getNextVolumeState } from "@/services/playerVolumeModel";
 import {
   insertSongAtQueueEnd,
-  insertSongToPlayNext,
   enqueueTempPlayList,
   removeFromTempPlayList as removeFromTempPlayListPure,
 } from "@/services/songQueueActions";
@@ -76,22 +75,6 @@ const inflightPlayRequests = new Map<string, Promise<void>>();
 
 
 
-// ── 淡入淡出 ──
-
-const FADE_OUT_MS = 80;
-
-const FADE_IN_MS = 120;
-
-// 淡变的步进时间预算（非硬上限）：步进依赖 setTimeout，系统节流时单步回调会被拖长。
-// 每步之间检查已用时长，超预算就放弃剩余步进、一步落到目标音量收尾。
-// 单步回调本身可能超时，因此实际耗时仍可能略大于该值；它只是限制节流的累积放大。
-const FADE_MAX_MS = 400;
-
-// 淡变互斥令牌：每次 fadeVolume 自增并记下自己的令牌。
-// 淡入是 void 非阻塞的，下一次切歌的淡出会与它并发；旧 fade 在任意 await 之后
-// 都必须自查令牌并退出，否则会把新 fade 刚设好的音量写回去（音量抖动/爆音）。
-let fadeToken = 0;
-
 /**
  * 曲末静音占位轨。
  *
@@ -104,85 +87,6 @@ let fadeToken = 0;
  */
 export const SILENCE_GAP_TRACK_ID = "__auralflow_silence_gap__";
 const SILENCE_GAP_TRACK_URL = "android.resource://cn.chenle.auralflow.mobile/raw/silence_2s";
-
-
-
-/**
- * 单步淡变等待：App 一离开前台就立刻返回。
- *
- * 后台的 setTimeout 会被冻结，纯 timer 等待可能永远不回调；AppState 的 change
- * 事件来自原生、不受 timer 节流影响，用它作为逃逸出口，避免干等。
- */
-function fadeStepDelay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    let settled = false;
-    // 用 let + 可选值声明：finish 在两者赋值前就已被捕获，const 会有 TDZ 风险。
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let subscription: ReturnType<typeof AppState.addEventListener> | undefined;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      if (timer !== undefined) clearTimeout(timer);
-      timer = undefined;
-      subscription?.remove();
-      subscription = undefined;
-      resolve();
-    };
-    timer = setTimeout(finish, ms);
-    subscription = AppState.addEventListener("change", (state) => {
-      if (state !== "active") finish();
-    });
-  });
-}
-
-async function fadeVolume(target: number, durationMs: number): Promise<void> {
-
-  const safeTarget = Math.max(0, Math.min(1, target));
-
-  const token = ++fadeToken;
-
-  // App 在后台/锁屏时 RN 的 setTimeout 被系统严重节流甚至冻结，步进淡入淡出会卡住：
-  // 淡出 await 不 resolve → reset/add/play 永远等不到（后台曲终不跳下一首的根因）；
-  // 淡入 void 不阻塞但音量停在 0 → 静音播放。后台时直接一步设目标音量，跳过步进。
-  if (AppState.currentState !== "active") {
-    try { await TrackPlayer.setVolume(safeTarget); } catch {}
-    return;
-  }
-
-  const steps = Math.max(1, Math.round(durationMs / 16));
-
-  const current = await TrackPlayer.getVolume();
-
-  if (token !== fadeToken) return;
-
-  const delta = (safeTarget - current) / steps;
-
-  const deadline = Date.now() + FADE_MAX_MS;
-
-  for (let i = 1; i <= steps; i++) {
-
-    await TrackPlayer.setVolume(Math.max(0, Math.min(1, current + delta * i)));
-
-    // 已被更新的 fade 接管：连收尾的目标音量都不能再写，否则会覆盖新 fade。
-    if (token !== fadeToken) return;
-
-    // 最后一步无需再等待，直接收尾。
-    if (i === steps) break;
-
-    // 淡变途中被切到后台，或已超出时间预算：放弃剩余步进，直接落到目标音量。
-    if (AppState.currentState !== "active" || Date.now() >= deadline) break;
-
-    await fadeStepDelay(durationMs / steps);
-
-    if (token !== fadeToken) return;
-
-  }
-
-  await TrackPlayer.setVolume(safeTarget);
-
-}
-
-
 
 // ── 音量持久化 ──
 
@@ -222,7 +126,7 @@ export async function loadPersistedVolume(): Promise<number | null> {
 
     }
 
-  } catch {}
+  } catch { /* 读取/解析失败：无持久化音量，回退 null */ }
 
   return null;
 
@@ -307,8 +211,25 @@ async function ensurePlayerSetup(): Promise<void> {
   }
 }
 
-// 睡眠定时器：使用 setTimeout 逐分钟递减剩余分钟数
+// ─ 睡眠定时器 ──
+//
+// 记账模型：剩余毫秒 sleepTimerRemainingMs + 上次结算时间点 sleepTimerLastReconcileAt。
+// 每次结算按「真实经过时间」一次性补扣（仅播放中扣减），而不是靠逐分钟 setTimeout 累加。
+// 纯 timer 链在后台会被系统冻结/节流，可能整段不回调（设 30 分钟睡到早上还在放）。
+// 三个结算入口共用同一个幂等 reconcile：
+//   1) 定时器：前台的分钟级心跳，以及到点唤醒；
+//   2) AppState 回到 active：把 timer 冻结期间的欠账一次结清，已到点则立即停；
+//   3) 原生进度事件（0.25s 一次）：事件在流时无需等 timer，到点即停。
 let sleepTimerId: ReturnType<typeof setTimeout> | null = null;
+let sleepTimerRemainingMs = 0;
+let sleepTimerLastReconcileAt = 0;
+let sleepTimerAppStateSubscription: { remove: () => void } | null = null;
+
+/** 前台心跳上限：到点前每分钟唤醒一次刷新剩余分钟显示即可。 */
+const SLEEP_TIMER_HEARTBEAT_MS = 60_000;
+
+/** 进度事件驱动的结算节流：4 次/秒的事件不必每次都重排定时器。 */
+const SLEEP_TIMER_EVENT_RECONCILE_INTERVAL_MS = 1_000;
 
 function clearSleepTimerTimeout() {
   if (sleepTimerId) {
@@ -317,33 +238,69 @@ function clearSleepTimerTimeout() {
   }
 }
 
-function scheduleSleepTimerTick() {
+function ensureSleepTimerAppStateListener() {
+  if (sleepTimerAppStateSubscription) return;
+  sleepTimerAppStateSubscription = AppState.addEventListener("change", (state) => {
+    // 后台 timer 被冻结期间账没结：回前台立即按真实经过时间补扣
+    if (state === "active") reconcileSleepTimer();
+  });
+}
+
+function resetSleepTimerAccounting() {
+  sleepTimerRemainingMs = 0;
+  sleepTimerLastReconcileAt = Date.now();
+}
+
+/** 播放/暂停切换时重置结算基准，避免把暂停期间的时间算进播放时长。 */
+function syncSleepTimerClock() {
+  sleepTimerLastReconcileAt = Date.now();
+}
+
+function scheduleSleepTimerTimeout() {
   clearSleepTimerTimeout();
+  if (!usePlayerStore.getState().sleepTimerActive) return;
   sleepTimerId = setTimeout(() => {
-    const { sleepTimerMinutes, isPlaying } = usePlayerStore.getState();
-    if (sleepTimerMinutes == null) {
-      return;
-    }
-    // 暂停期间不倒数（对齐主流睡眠定时语义：只统计实际播放时长，
-    // 否则「设 30 分钟听 5 分钟后暂停离开」回来很快就会被停）
-    if (!isPlaying) {
-      scheduleSleepTimerTick();
-      return;
-    }
-    const next = sleepTimerMinutes - 1;
-    if (next <= 0) {
-      // 时间到：停止播放并清除定时器状态
+    sleepTimerId = null;
+    reconcileSleepTimer();
+  }, Math.max(0, Math.min(sleepTimerRemainingMs, SLEEP_TIMER_HEARTBEAT_MS)));
+}
+
+/**
+ * 结算睡眠定时（幂等）：按真实经过时间补扣剩余时长。
+ * 暂停中只推进时间点不扣减（对齐主流语义：只统计实际播放时长）。
+ */
+function reconcileSleepTimer(): void {
+  const { sleepTimerActive, sleepTimerMinutes, isPlaying } = usePlayerStore.getState();
+  if (!sleepTimerActive || sleepTimerMinutes == null) return;
+
+  const now = Date.now();
+  const elapsed = Math.max(0, now - sleepTimerLastReconcileAt);
+  sleepTimerLastReconcileAt = now;
+
+  if (isPlaying) {
+    sleepTimerRemainingMs = Math.max(0, sleepTimerRemainingMs - elapsed);
+    if (sleepTimerRemainingMs <= 0) {
+      // 时间到：停播并清状态（不再重排心跳）
       clearSleepTimerTimeout();
-      usePlayerStore.setState({
-        sleepTimerMinutes: null,
-        sleepTimerActive: false,
-      });
+      resetSleepTimerAccounting();
+      usePlayerStore.setState({ sleepTimerMinutes: null, sleepTimerActive: false });
       usePlayerStore.getState().pause().catch(() => undefined);
       return;
     }
-    usePlayerStore.setState({ sleepTimerMinutes: next });
-    scheduleSleepTimerTick();
-  }, 60_000);
+    const nextMinutes = Math.max(1, Math.ceil(sleepTimerRemainingMs / 60_000));
+    if (nextMinutes !== sleepTimerMinutes) {
+      usePlayerStore.setState({ sleepTimerMinutes: nextMinutes });
+    }
+  }
+
+  scheduleSleepTimerTimeout();
+}
+
+/** 进度事件驱动入口：节流后走同一次结算。 */
+function maybeReconcileSleepTimer(): void {
+  if (!usePlayerStore.getState().sleepTimerActive) return;
+  if (Date.now() - sleepTimerLastReconcileAt < SLEEP_TIMER_EVENT_RECONCILE_INTERVAL_MS) return;
+  reconcileSleepTimer();
 }
 
 export interface PlayerState {
@@ -532,14 +489,6 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
 
       await ensurePlayerSetup();
 
-
-
-      // 淡出当前播放（避免切歌爆音）
-
-      try { await fadeVolume(0, FADE_OUT_MS); } catch {}
-
-
-
       // 竞态检查：已有更新的 play 请求，丢弃本次
 
       if (requestId !== playRequestId) return;
@@ -603,8 +552,12 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
 
       const { playbackRate, volume, externalDuckVolume } = get();
 
-      const nextPlaybackRate = clampPlaybackRate(playbackRate);      await TrackPlayer.setRate(nextPlaybackRate);
-      await TrackPlayer.setVolume(0);
+      const nextPlaybackRate = clampPlaybackRate(playbackRate);
+      await TrackPlayer.setRate(nextPlaybackRate);
+      // 无淡入淡出：入原生前直接落到目标音量。外部音频压低（duck）期间以压低音量为上限，
+      // 避免 duck 中自动切歌把音量拉回满格、盖住导航播报等外部音频。
+      const targetVolume = externalDuckVolume != null ? Math.min(volume, externalDuckVolume) : volume;
+      await TrackPlayer.setVolume(targetVolume);
       await TrackPlayer.play();
 
       if (requestId !== playRequestId) return;
@@ -613,13 +566,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       if (startPosition && startPosition > 0) {
         try {
           await TrackPlayer.seekTo(startPosition);
-        } catch {}
+        } catch { /* 恢复进度失败：忽略，从头播放 */ }
       }
-
-      // 淡入到目标音量：外部音频压低（duck）期间以压低音量为上限，
-      // 避免 duck 中自动切歌把音量淡回满格、盖住导航播报等外部音频
-      const fadeInTarget = externalDuckVolume != null ? Math.min(volume, externalDuckVolume) : volume;
-      void fadeVolume(fadeInTarget, FADE_IN_MS);
 
       set({
         currentSong: song,
@@ -678,7 +626,9 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     }
     try {
       await TrackPlayer.pause();
-    } catch {}
+    } catch { /* 原生 pause 失败：仍落 UI 暂停态 */ }
+    // 暂停即重置结算基准：暂停期间不倒数
+    syncSleepTimerClock();
     set({ isPlaying: false });
   },
 
@@ -687,7 +637,9 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     if (!isPlayerSetup) return;
     try {
       await TrackPlayer.play();
-    } catch {}
+    } catch { /* 原生 play 失败：由下方状态回读纠偏 */ }
+    // 续播即重置结算基准：暂停期间的时间不计入睡眠时长
+    syncSleepTimerClock();
     // 原生处于 IDLE/ENDED（加载失败停播、清队列、顺序播完）时 play() 是 no-op，
     // 且不会再派发 PlaybackState 事件纠偏——必须回读原生状态才落库，否则 UI 进入
     // 假播放态（有进度无声音），PlayerBar 的快照续播兜底（!isPlaying 才触发）也永不可达。
@@ -695,7 +647,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     try {
       const state = await TrackPlayer.getState();
       nativePlaying = state === State.Playing || state === State.Buffering;
-    } catch {}
+    } catch { /* 回读失败：按未播放落库，避免假播放态 */ }
     set({ isPlaying: nativePlaying });
   },
 
@@ -706,7 +658,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     }
     try {
       await TrackPlayer.stop();
-    } catch {}
+    } catch { /* 原生 stop 失败：仍清空 UI 播放态 */ }
+    syncSleepTimerClock();
     set({ isPlaying: false, position: 0 });
   },
 
@@ -723,10 +676,10 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
         // 占位轨时长按比例理解，表现"点了没反应"。映射回真实曲目（index 0）再 seek。
         try {
           await TrackPlayer.skip(0);
-        } catch {}
+        } catch { /* 占位轨 skip 失败：继续按原位置 seek */ }
       }
       await TrackPlayer.seekTo(position);
-    } catch {}
+    } catch { /* seek 失败：仍落 UI 位置 */ }
     set({ position });
   },
 
@@ -748,7 +701,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
 
         await TrackPlayer.setVolume(next.volume);
 
-      } catch {}
+      } catch { /* 原生 setVolume 失败：下次 play 会重新应用 */ }
 
     }
 
@@ -770,7 +723,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
 
         await TrackPlayer.setVolume(next.volume);
 
-      } catch {}
+      } catch { /* 原生 setVolume 失败：下次 play 会重新应用 */ }
 
     }
 
@@ -785,9 +738,13 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     clearSleepTimerTimeout();
     const m = Math.max(0, Math.floor(minutes));
     if (m <= 0) {
+      resetSleepTimerAccounting();
       set({ sleepTimerMinutes: null, sleepTimerActive: false });
       return;
     }
+    ensureSleepTimerAppStateListener();
+    sleepTimerRemainingMs = m * 60_000;
+    sleepTimerLastReconcileAt = Date.now();
     set({
       sleepTimerMinutes: m,
       sleepTimerActive: true,
@@ -795,11 +752,12 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       sleepTimerSongActive: false,
       sleepTimerLastTrackKey: null,
     });
-    scheduleSleepTimerTick();
+    scheduleSleepTimerTimeout();
   },
 
   startSongSleepTimer: (songCount: number) => {
     clearSleepTimerTimeout();
+    resetSleepTimerAccounting();
     const normalizedCount = normalizeSongSleepTimerCount(songCount);
     set({
       sleepTimerMinutes: null,
@@ -812,6 +770,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
 
   cancelSleepTimer: () => {
     clearSleepTimerTimeout();
+    resetSleepTimerAccounting();
     set({
       sleepTimerMinutes: null,
       sleepTimerActive: false,
@@ -902,7 +861,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     // stop 可能在播放器未 setup 时被调用（如快照恢复后直接清空队列），兜住 rejection 避免崩溃。
     try {
       await TrackPlayer.stop();
-    } catch {}
+    } catch { /* 未 setup 时 stop 会 reject：忽略，照常清空队列 */ }
     set({
       currentSong: null,
       currentUrl: null,
@@ -1027,7 +986,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     // 切歌一律由 JS 调度）。未 setup（如快照恢复后未播放）或原生异常时兜底，仅保留 UI 状态。
     try {
       await TrackPlayer.setRepeatMode(RepeatMode.Off);
-    } catch {}
+    } catch { /* 未 setup 或原生异常：仅保留 UI 模式状态 */ }
   },
 
   togglePlayMode: async () => {
@@ -1055,6 +1014,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   syncPlayerState: (state: State) => {
     const isPlaying =
       state === State.Playing || state === State.Buffering;
+    // 原生事件驱动的播放/暂停切换（如音频焦点中断）同样重置结算基准
+    if (isPlaying !== get().isPlaying) syncSleepTimerClock();
     set({ isPlaying });
   },
 }));
@@ -1090,6 +1051,8 @@ export function setupPlayerListeners() {
 
   // 播放进度更新
   TrackPlayer.addEventListener(Event.PlaybackProgressUpdated, ({ position, duration, buffered }) => {
+    // 睡眠定时器的进度驱动结算：后台 timer 可能被冻结，只要进度事件在流就能到点停播
+    maybeReconcileSleepTimer();
     // 静音占位轨期间（曲末 2s 窗口）：position/duration 是占位轨的，
     // 写入会把真实进度污染成 2s 长度；且「明显短于期望时长」恰好命中
     // 试听兜底判定，会造成曲末误报"检测到试听片段"。整段忽略。

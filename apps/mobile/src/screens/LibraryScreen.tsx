@@ -174,10 +174,10 @@ export function LibraryScreen({
     clearHistory();
   };
 
-  const handleDeleteLibrarySong = useCallback((song: MusicInfo) => {
+  const handleDeleteLibrarySong = useCallback((song: MusicInfo, dayStart?: number) => {
     const request = buildLibrarySongDeleteRequest(activeSection, song);
     if (request.type === "history") {
-      void removeFromHistory(request.songId, request.source);
+      void removeFromHistory(request.songId, request.source, dayStart);
       return;
     }
     if (request.type === "local") {

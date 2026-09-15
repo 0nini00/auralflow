@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Pressable,
   StyleSheet,
@@ -47,18 +47,15 @@ export function DailyRecommendScreen({ onNavigateToPlayer }: DailyRecommendScree
   const [error, setError] = useState<string | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const mountedRef = useRef(true);
   const dailyCoverUrl = songs[0]?.img || songs[0]?.picUrl;
 
   useEffect(() => {
-    void checkStatus();
-  }, [checkStatus]);
+    mountedRef.current = true;
 
-  useEffect(() => {
-    let mounted = true;
-
-    const load = async (isRefresh = false) => {
-      if (!isLoggedIn) {
-        if (mounted) {
+    const load = async (isLoggedInNow: boolean, isRefresh = false) => {
+      if (!isLoggedInNow) {
+        if (mountedRef.current) {
           setSongs([]);
           setHasMore(false);
           setError(null);
@@ -68,7 +65,7 @@ export function DailyRecommendScreen({ onNavigateToPlayer }: DailyRecommendScree
         return;
       }
 
-      if (mounted) {
+      if (mountedRef.current) {
         if (isRefresh) {
           setRefreshing(true);
         } else {
@@ -79,30 +76,36 @@ export function DailyRecommendScreen({ onNavigateToPlayer }: DailyRecommendScree
 
       try {
         const result: DailyRecommendResult = await getDailyRecommendSongs();
-        if (mounted) {
+        if (mountedRef.current) {
           setSongs(result.songs);
           setHasMore(result.hasMore);
         }
       } catch (err) {
-        if (mounted) {
+        if (mountedRef.current) {
           setSongs([]);
           setHasMore(false);
           setError(err instanceof Error ? err.message : String(err));
         }
       } finally {
-        if (mounted) {
+        if (mountedRef.current) {
           setLoading(false);
           setRefreshing(false);
         }
       }
     };
 
-    void load();
+    // 合并加载入口：先 checkStatus（可能重设 isLoggedIn），再据此加载一次，
+    // 避免 checkStatus 重置 isLoggedIn 触发 isLoggedIn 依赖重跑导致重复加载。
+    void (async () => {
+      await checkStatus();
+      if (!mountedRef.current) return;
+      await load(useAccountStore.getState().isLoggedIn);
+    })();
 
     return () => {
-      mounted = false;
+      mountedRef.current = false;
     };
-  }, [isLoggedIn]);
+  }, [checkStatus]);
 
   const handleRefresh = async () => {
     if (!isLoggedIn) return;
@@ -111,14 +114,20 @@ export function DailyRecommendScreen({ onNavigateToPlayer }: DailyRecommendScree
     setError(null);
     try {
       const result = await getDailyRecommendSongs();
-      setSongs(result.songs);
-      setHasMore(result.hasMore);
+      if (mountedRef.current) {
+        setSongs(result.songs);
+        setHasMore(result.hasMore);
+      }
     } catch (err) {
-      setSongs([]);
-      setHasMore(false);
-      setError(err instanceof Error ? err.message : String(err));
+      if (mountedRef.current) {
+        setSongs([]);
+        setHasMore(false);
+        setError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
-      setRefreshing(false);
+      if (mountedRef.current) {
+        setRefreshing(false);
+      }
     }
   };
 

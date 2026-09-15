@@ -1,5 +1,5 @@
 ﻿import React from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { MusicInfo } from "@lx/core";
 
 import { ActionButton } from "@/components/ActionButton";
@@ -11,8 +11,9 @@ import { SectionHeader } from "@/components/SectionHeader";
 import type { SearchFallbackDetailModel } from "@/services/searchFallbackDetailModel";
 import { playQueue } from "@/services/playerService";
 import { runPlaybackUiAction } from "@/services/playbackUiAction";
+import { shouldShowNestedBackButton } from "@/services/appNavigation";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { spacing, typography } from "@/theme/tokens";
+import { spacing, touch, typography } from "@/theme/tokens";
 
 interface SearchFallbackDetailScreenProps {
   detail: SearchFallbackDetailModel;
@@ -24,6 +25,7 @@ interface SearchFallbackDetailScreenProps {
  * 非网易云歌手/专辑的降级详情：没有官方详情接口时，用搜索结果里的相关歌曲顶上。 */
 export function SearchFallbackDetailScreen({
   detail,
+  onBack,
   onNavigateToPlayer,
 }: SearchFallbackDetailScreenProps) {
   const themeMode = useThemeStore((state) => state.mode);
@@ -31,29 +33,43 @@ export function SearchFallbackDetailScreen({
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor);
   const [playbackError, setPlaybackError] = React.useState<string | null>(null);
+  const showBackButton = shouldShowNestedBackButton(onBack);
 
-  const runPlayback = async (action: () => Promise<void>) => {
+  const runPlayback = async (action: () => Promise<void>): Promise<boolean> => {
     setPlaybackError(null);
     const result = await runPlaybackUiAction(action);
     if (!result.ok) {
       setPlaybackError(result.message);
-      return;
+      return false;
     }
+    return true;
   };
 
   const handlePlay = async (_song: MusicInfo, index: number) => {
     if (detail.songs.length === 0) return;
-    await runPlayback(() => playQueue(detail.songs, index));
+    const ok = await runPlayback(() => playQueue(detail.songs, index));
+    if (ok) onNavigateToPlayer();
   };
 
   const handlePlayAll = async () => {
     if (detail.songs.length === 0) return;
-    await runPlayback(() => playQueue(detail.songs, 0));
+    const ok = await runPlayback(() => playQueue(detail.songs, 0));
+    if (ok) onNavigateToPlayer();
   };
 
   return (
     <ScreenScaffold>
       <ScreenScrollView>
+        {showBackButton && onBack ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="返回"
+            style={styles.backButton}
+            onPress={onBack}
+          >
+            <Text style={[styles.backText, { color: palette.primary }]}>返回</Text>
+          </Pressable>
+        ) : null}
         <PlaybackErrorState
           message={playbackError}
           onDismiss={() => setPlaybackError(null)}
@@ -96,6 +112,17 @@ export function SearchFallbackDetailScreen({
 }
 
 const styles = StyleSheet.create({
+  backButton: {
+    minHeight: touch.minTarget,
+    minWidth: touch.minTarget,
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "flex-start",
+  },
+  backText: {
+    fontSize: typography.title,
+    fontWeight: "600",
+  },
   header: {
     gap: spacing.xs,
     marginBottom: spacing.m,

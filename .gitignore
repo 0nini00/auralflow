@@ -65,3 +65,8 @@ mobile_ui_scan.json
 
 # 真机截图验收产物
 .shots/
+
+# 根目录散落的调试截图（临时产物，勿入库）
+/_device_*.png
+/_shot*.png
+/.af_screen*.png

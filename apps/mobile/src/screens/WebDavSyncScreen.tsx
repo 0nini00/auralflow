@@ -51,6 +51,8 @@ export function WebDavSyncScreen() {
   const [formPassword, setFormPassword] = useState("");
   const [savingConfig, setSavingConfig] = useState(false);
   const actionInProgress = savingConfig || webdavSyncing;
+  // 配置未加载完成时禁用所有会写回凭据的按钮/开关，避免用空表单覆盖已存配置
+  const actionsDisabled = actionInProgress || !webdavLoaded;
 
   // 首次进入加载已保存的配置
   useEffect(() => {
@@ -275,7 +277,7 @@ export function WebDavSyncScreen() {
             shrink
             small
             label="保存配置"
-            disabled={actionInProgress}
+            disabled={actionsDisabled}
             loading={savingConfig}
             onPress={() => void handleSaveConfig()}
             accessibilityLabel="保存 WebDAV 配置"
@@ -284,7 +286,7 @@ export function WebDavSyncScreen() {
             shrink
             small
             label="测试连接"
-            disabled={actionInProgress}
+            disabled={actionsDisabled}
             loading={webdavSyncing}
             onPress={() => void handleTestSync()}
             accessibilityLabel="测试 WebDAV 连接"
@@ -309,11 +311,11 @@ export function WebDavSyncScreen() {
           <Switch
             value={autoSyncPlaylists}
             onValueChange={(enabled) => void handleAutoSyncChange(enabled)}
-            disabled={actionInProgress}
+            disabled={actionsDisabled}
             accessibilityRole="switch"
             accessibilityLabel="自动同步歌单历史"
             accessibilityState={{
-              disabled: actionInProgress,
+              disabled: actionsDisabled,
               busy: savingConfig,
               checked: autoSyncPlaylists,
             }}
@@ -329,7 +331,7 @@ export function WebDavSyncScreen() {
             small
             label="上传歌单历史"
             loading={webdavSyncing}
-            disabled={actionInProgress}
+            disabled={actionsDisabled}
             onPress={() => void handleUploadPlaylists()}
             accessibilityLabel="上传歌单历史到 WebDAV"
           />
@@ -337,7 +339,7 @@ export function WebDavSyncScreen() {
             shrink
             small
             label="下载歌单历史"
-            disabled={actionInProgress}
+            disabled={actionsDisabled}
             onPress={handleDownloadPlaylists}
             accessibilityLabel="从 WebDAV 下载歌单历史"
           />
@@ -358,7 +360,7 @@ export function WebDavSyncScreen() {
             shrink
             small
             label="上传音源"
-            disabled={actionInProgress}
+            disabled={actionsDisabled}
             onPress={() => void handleUploadSources()}
             accessibilityLabel="上传音源到 WebDAV"
           />
@@ -366,7 +368,7 @@ export function WebDavSyncScreen() {
             shrink
             small
             label="下载音源"
-            disabled={actionInProgress}
+            disabled={actionsDisabled}
             onPress={handleDownloadSources}
             accessibilityLabel="从 WebDAV 下载音源"
           />

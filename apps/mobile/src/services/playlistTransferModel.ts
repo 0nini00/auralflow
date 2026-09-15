@@ -7,6 +7,7 @@ export interface PlaylistTransferEnvelope {
   version: 1;
   exportedAt: number;
   playlists: Array<{
+    id?: string;
     name: string;
     description?: string;
     cover?: string;
@@ -61,6 +62,8 @@ export function buildPlaylistExportEnvelope({
   for (const playlist of localPlaylists) {
     if (playlist.songs.length === 0) continue;
     playlists.push({
+      // 复用本地歌单自身的 id 作为稳定身份，导入时按 id 匹配以保留同名歌单的边界。
+      id: playlist.id,
       name: playlist.name,
       description: playlist.description,
       cover: playlist.cover,
@@ -137,7 +140,10 @@ export function buildImportedLocalPlaylists(
   data.playlists.forEach((playlist, index) => {
     if (!playlist || !Array.isArray(playlist.songs) || playlist.songs.length === 0) return;
     const name = (playlist.name || `导入歌单 ${index + 1}`).trim() || `导入歌单 ${index + 1}`;
-    const existingPlaylist = localPlaylists.find((item) => item.name === name);
+    // 优先按导出时写入的稳定 id 匹配（保留同名歌单边界）；仅当导出数据没有 id 时才回退到按名称匹配。
+    const existingPlaylist = playlist.id
+      ? localPlaylists.find((item) => item.id === playlist.id)
+      : localPlaylists.find((item) => item.name === name);
 
     if (existingPlaylist) {
       const before = existingPlaylist.songs.length;

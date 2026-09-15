@@ -51,6 +51,10 @@ export function decidePlaybackFailureAction(songKey: string): PlaybackFailureAct
   if (action === "retry") {
     retryConsumedKeys.add(songKey);
     retryInFlightKey = songKey;
+  } else if (retryInFlightKey === songKey) {
+    // 同曲第二次报错且已判定跳过：此前那次「在途重试」已随本次错误收口。
+    // 不解除在途标记会让后台 shouldAutoSkipAfterFailure 误认为重试仍在加载而永不跳歌。
+    noteRetrySettled(songKey);
   }
   lastDecisions.set(songKey, action);
   return action;

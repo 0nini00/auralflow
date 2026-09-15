@@ -345,6 +345,9 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
         onPlayItem={(index) => void handlePlayQueueItem(index)}
         onRemoveItem={handleRemoveQueueItem}
         onClear={() => void handleClearQueue()}
+        // 与沉浸屏统一为底部弹层；迷你栏宿主容器不满屏，需套一层全屏透明 Modal 作宿主
+        presentation="sheet"
+        sheetHost="modal"
       />
     </View>
   );

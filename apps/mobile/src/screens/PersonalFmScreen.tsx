@@ -29,6 +29,7 @@ import {
   dislikeCurrentPersonalFmSong,
   playNext,
   startPersonalFm,
+  startPersonalFmWithSongs,
 } from "@/services/playerService";
 import { getPersonalFmSongs } from "@/services/wyPlaylistService";
 import { radius, spacing, touch, typography } from "@/theme/tokens";
@@ -125,11 +126,21 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
   const personalFmMeta = buildPersonalFmMeta(isLoggedIn, user);
   const showBackButton = shouldShowNestedBackButton(onBack);
 
-  const handleStart = async () => {
+  // 预览与播放共享同一批结果：用已加载的 previewSongs 启动，
+  // 避免 startPersonalFm 重新随机拉取导致第一首歌与预览不一致。
+  const startFmWithPreview = async (startIndex = 0) => {
+    if (previewSongs.length > 0) {
+      await startPersonalFmWithSongs(previewSongs, true, startIndex);
+    } else {
+      await startPersonalFm();
+    }
+  };
+
+  const handleStart = async (startIndex = 0) => {
     setStarting(true);
     setError(null);
     try {
-      await startPersonalFm();
+      await startFmWithPreview(startIndex);
       onNavigateToPlayer();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -155,10 +166,15 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
     void loadPreviewSongs();
   };
 
-  const handleFmSongPress = (_song: MusicInfo, index: number) => {
-    if (isFmPlaying && index === 0) {
-      void handleTogglePlay();
+  const handleFmSongPress = async (_song: MusicInfo, index: number) => {
+    if (isFmPlaying) {
+      if (index === 0) {
+        await handleTogglePlay();
+      }
+      return;
     }
+    // 未播放：用预览列表启动 FM，播放点击的那一首
+    await handleStart(index);
   };
 
   const handleNext = async () => {
@@ -166,7 +182,7 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
     setError(null);
     try {
       if (!isFmPlaying) {
-        await startPersonalFm();
+        await startFmWithPreview();
       } else {
         await playNext();
       }
@@ -183,7 +199,7 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
     setError(null);
     try {
       if (!isFmPlaying) {
-        await startPersonalFm();
+        await startFmWithPreview();
       } else {
         await dislikeCurrentPersonalFmSong();
       }
@@ -331,7 +347,7 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
               hideSourceTag
               showLikeAction={false}
               showMoreAction={false}
-              isSongPressable={(_song, index) => isFmPlaying && index === 0}
+              isSongPressable={(_song, index) => (isFmPlaying ? index === 0 : previewSongs.length > 0)}
             />
           </View>
         )}

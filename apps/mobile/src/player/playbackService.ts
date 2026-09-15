@@ -57,6 +57,8 @@ export default async function playbackService() {
 
     if (action.type === "pause") {
       await TrackPlayer.pause();
+      // 永久中断暂停分支同样要清除 duck 标记，否则下次淡入仍以被打断前的音量作上限
+      usePlayerStore.setState({ externalDuckVolume: null });
       return;
     }
 

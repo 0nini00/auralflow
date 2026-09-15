@@ -1019,10 +1019,25 @@ export async function playPrevious(): Promise<void> {
  */
 export async function startPersonalFm(): Promise<MusicInfo[]> {
   const { songs, hasMore } = await getPersonalFmSongs();
+  return startPersonalFmWithSongs(songs, hasMore);
+}
+
+/**
+ * 用已取回的歌曲列表直接启动私人 FM（预览与播放共享同一批结果，
+ * 保证「开始 FM」后第一首真实歌曲与预览列表一致）。startIndex 默认从第一首
+ * 开始；点击预览某一行时传该行索引，播放的就是那一首。
+ */
+export async function startPersonalFmWithSongs(
+  songs: MusicInfo[],
+  hasMore: boolean,
+  startIndex = 0,
+): Promise<MusicInfo[]> {
   if (songs.length === 0) {
     throw new Error("暂无可播放的私人 FM");
   }
-  const [currentSong, ...restSongs] = songs;
+  const safeIndex = Math.max(0, Math.min(startIndex, songs.length - 1));
+  const currentSong = songs[safeIndex];
+  const restSongs = songs.filter((_, index) => index !== safeIndex);
   usePlayerStore.getState().setPersonalFmContext({
     currentBatch: [currentSong],
     currentBatchIndex: 0,
@@ -1059,7 +1074,7 @@ export async function playNextPersonalFmSong(): Promise<void> {
     }
     const [firstSong, ...restSongs] = result.songs;
     usePlayerStore.getState().setPersonalFmContext({
-      currentBatch: result.songs,
+      currentBatch: [firstSong],
       currentBatchIndex: 0,
       buffer: restSongs,
       hasMore: result.hasMore,

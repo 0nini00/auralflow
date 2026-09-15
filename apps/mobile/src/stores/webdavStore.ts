@@ -43,6 +43,7 @@ interface WebdavActions {
 type WebdavStore = WebdavState & WebdavActions;
 
 let autoSyncPromise: Promise<void> | null = null;
+let loadConfigPromise: Promise<void> | null = null;
 
 export const useWebdavStore = create<WebdavStore>((set, get) => ({
   url: "",
@@ -54,29 +55,39 @@ export const useWebdavStore = create<WebdavStore>((set, get) => ({
   message: "",
 
   loadConfig: async () => {
-    try {
-      const cfg = await loadWebdavConfig();
-      const autoSyncPlaylists =
-        cfg.autoSyncPlaylists &&
-        Boolean(cfg.url.trim()) &&
-        Boolean(cfg.username.trim()) &&
-        Boolean(cfg.password);
-      set({
-        url: cfg.url,
-        username: cfg.username,
-        password: cfg.password,
-        autoSyncPlaylists,
-        loaded: true,
-      });
-      if (cfg.autoSyncPlaylists !== autoSyncPlaylists) {
-        await saveWebdavConfig({ ...cfg, autoSyncPlaylists });
+    if (loadConfigPromise) return loadConfigPromise;
+    const run = (async () => {
+      try {
+        const cfg = await loadWebdavConfig();
+        const autoSyncPlaylists =
+          cfg.autoSyncPlaylists &&
+          Boolean(cfg.url.trim()) &&
+          Boolean(cfg.username.trim()) &&
+          Boolean(cfg.password);
+        set({
+          url: cfg.url,
+          username: cfg.username,
+          password: cfg.password,
+          autoSyncPlaylists,
+          loaded: true,
+        });
+        if (cfg.autoSyncPlaylists !== autoSyncPlaylists) {
+          await saveWebdavConfig({ ...cfg, autoSyncPlaylists });
+        }
+      } catch (error) {
+        set({ loaded: true });
+      } finally {
+        loadConfigPromise = null;
       }
-    } catch (error) {
-      set({ loaded: true });
-    }
+    })();
+    loadConfigPromise = run;
+    return run;
   },
 
   setConfig: async (cfg) => {
+    if (!get().loaded) {
+      await get().loadConfig();
+    }
     const state = get();
     const url = cfg.url ?? state.url;
     const username = cfg.username ?? state.username;

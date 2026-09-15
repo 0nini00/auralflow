@@ -222,6 +222,8 @@ export function LyricView({
   const lineHeightsRef = useRef<number[]>([]);
   const scrollInfoRef = useRef<NativeSyntheticEvent<NativeScrollEvent>["nativeEvent"] | null>(null);
   const scrollCancelRef = useRef<(() => void) | null>(null);
+  // onScrollToIndexFailed 的补偿重试定时器(纳入统一清理,防切歌后旧回调滚错位)
+  const scrollRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleLineLayout = useCallback((index: number, height: number) => {
     if (height > 0) lineHeightsRef.current[index] = height;
@@ -290,6 +292,7 @@ export function LyricView({
     return () => {
       if (delayScrollTimeoutRef.current) clearTimeout(delayScrollTimeoutRef.current);
       if (scrollResumeTimeoutRef.current) clearTimeout(scrollResumeTimeoutRef.current);
+      if (scrollRetryTimeoutRef.current) clearTimeout(scrollRetryTimeoutRef.current);
       if (scrollCancelRef.current) scrollCancelRef.current();
     };
   }, []);
@@ -302,6 +305,10 @@ export function LyricView({
       scrollResumeTimeoutRef.current = null;
     }
     lineHeightsRef.current = [];
+    if (scrollRetryTimeoutRef.current) {
+      clearTimeout(scrollRetryTimeoutRef.current);
+      scrollRetryTimeoutRef.current = null;
+    }
     prevTargetRef.current = -1;
     if (listRef.current) {
       try {
@@ -372,8 +379,13 @@ export function LyricView({
     } catch {
       // 忽略
     }
-    setTimeout(() => {
-      handleScrollToActive(info.index, false);
+    if (scrollRetryTimeoutRef.current) clearTimeout(scrollRetryTimeoutRef.current);
+    scrollRetryTimeoutRef.current = setTimeout(() => {
+      scrollRetryTimeoutRef.current = null;
+      // 用最新行数兜底:切歌后旧索引可能越界,按当前歌词行数钳制
+      const maxIndex = data.length - 1;
+      const target = Math.min(info.index, maxIndex);
+      if (target >= 0) handleScrollToActive(target, false);
     }, 100);
   };
 
@@ -464,6 +476,10 @@ export function LyricView({
             if (scrollResumeTimeoutRef.current) {
               clearTimeout(scrollResumeTimeoutRef.current);
               scrollResumeTimeoutRef.current = null;
+            }
+            if (scrollRetryTimeoutRef.current) {
+              clearTimeout(scrollRetryTimeoutRef.current);
+              scrollRetryTimeoutRef.current = null;
             }
             if (scrollCancelRef.current) {
               scrollCancelRef.current();

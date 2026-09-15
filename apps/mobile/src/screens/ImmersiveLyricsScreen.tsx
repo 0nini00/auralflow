@@ -503,44 +503,6 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
               />
             </Animated.View>
 
-            <ImmersiveModals
-              customMinutes={customMinutes}
-              customSongCount={customSongCount}
-              handleCancelSleepTimer={handleCancelSleepTimer}
-              handleClearQueue={handleClearQueue}
-              handlePlayQueueItem={handlePlayQueueItem}
-              handleRemoveQueueItem={handleRemoveQueueItem}
-              handleSetPlaybackRate={handleSetPlaybackRate}
-              handleSetVolume={handleSetVolume}
-              handleStartCustomSleepTimer={handleStartCustomSleepTimer}
-              handleStartCustomSongSleepTimer={handleStartCustomSongSleepTimer}
-              handleStartSleepTimer={handleStartSleepTimer}
-              handleStartSongSleepTimer={handleStartSongSleepTimer}
-              handleToggleMute={handleToggleMute}
-              management={queueModel.management}
-              palette={palette}
-              queue={queue}
-              queueModalVisible={queueModalVisible}
-              queueModel={queueModel}
-              rateModalVisible={rateModalVisible}
-              rateModel={rateModel}
-              setCustomMinutes={setCustomMinutes}
-              setCustomSongCount={setCustomSongCount}
-              setQueueModalVisible={setQueueModalVisible}
-              setRateModalVisible={setRateModalVisible}
-              setSleepModalVisible={setSleepModalVisible}
-              setVolumeModalVisible={setVolumeModalVisible}
-              sleepModalVisible={sleepModalVisible}
-              sleepTimerActive={sleepTimerActive}
-              sleepTimerControl={sleepTimerControl}
-              sleepTimerMinutes={sleepTimerMinutes ?? 0}
-              sleepTimerSongActive={sleepTimerSongActive}
-              sleepTimerSongCount={sleepTimerSongCount ?? 0}
-              volumeModalVisible={volumeModalVisible}
-              volumeModel={volumeModel}
-              onQueueNavigate={onClose}
-            />
-
             <AddToLocalPlaylistModal
               visible={addToPlaylistVisible}
               song={currentSong}
@@ -587,6 +549,45 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
             />
           </Animated.View>
         </GestureDetector>
+
+          <ImmersiveModals
+            customMinutes={customMinutes}
+            customSongCount={customSongCount}
+            handleCancelSleepTimer={handleCancelSleepTimer}
+            handleClearQueue={handleClearQueue}
+            handlePlayQueueItem={handlePlayQueueItem}
+            handleRemoveQueueItem={handleRemoveQueueItem}
+            handleSetPlaybackRate={handleSetPlaybackRate}
+            handleSetVolume={handleSetVolume}
+            handleStartCustomSleepTimer={handleStartCustomSleepTimer}
+            handleStartCustomSongSleepTimer={handleStartCustomSongSleepTimer}
+            handleStartSleepTimer={handleStartSleepTimer}
+            handleStartSongSleepTimer={handleStartSongSleepTimer}
+            handleToggleMute={handleToggleMute}
+            management={queueModel.management}
+            palette={palette}
+            queue={queue}
+            queueModalVisible={queueModalVisible}
+            queueModel={queueModel}
+            rateModalVisible={rateModalVisible}
+            rateModel={rateModel}
+            setCustomMinutes={setCustomMinutes}
+            setCustomSongCount={setCustomSongCount}
+            setQueueModalVisible={setQueueModalVisible}
+            setRateModalVisible={setRateModalVisible}
+            setSleepModalVisible={setSleepModalVisible}
+            setVolumeModalVisible={setVolumeModalVisible}
+            sleepModalVisible={sleepModalVisible}
+            sleepTimerActive={sleepTimerActive}
+            sleepTimerControl={sleepTimerControl}
+            sleepTimerMinutes={sleepTimerMinutes ?? 0}
+            sleepTimerSongActive={sleepTimerSongActive}
+            sleepTimerSongCount={sleepTimerSongCount ?? 0}
+            volumeModalVisible={volumeModalVisible}
+            volumeModel={volumeModel}
+            onQueueNavigate={onClose}
+          />
+
 
         {/* 封面飞行浮层：盖在整页内容之上，入场/出场期间可见 */}
         {flightEnabled && artwork && !overlayGone ? (

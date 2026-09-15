@@ -62,6 +62,12 @@ export interface SongListProps {
   onEndReached?: () => void;
   /** virtualized：下拉刷新控件 */
   refreshControl?: React.ReactElement<RefreshControlProps>;
+  /**
+   * virtualized:首次渲染时直接定位到的行索引(与 getItemLayout 配合,首帧即落位、
+   * 无滚动动画)。用于打开详情页时直接显示当前播放曲。当前曲不在列表传 undefined。
+   * 注意:仅在列表首次挂载时生效,后续数据变化不会触发二次滚动。
+   */
+  initialScrollIndex?: number;
 }
 
 /**
@@ -110,6 +116,7 @@ export function SongList({
   listRef,
   onEndReached,
   refreshControl,
+  initialScrollIndex,
 }: SongListProps) {
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
@@ -132,6 +139,10 @@ export function SongList({
   const [downloading, setDownloading] = useState(false);
   // 上次选择的下载音质（记住上次选择，对齐 lx）
   const [defaultQuality, setDefaultQuality] = useState<DownloadQuality | null>(null);
+
+  // virtualized：ListHeaderComponent 实际渲染高度，用于 getItemLayout 修正 scrollToIndex 定位。
+  // 头部（Hero + 简介/分区头）默认 0，onLayout 后更新；描述区展开/收起等高度变化会再次触发更新。
+  const [headerHeight, setHeaderHeight] = useState(0);
 
   // ---- 增量挂载：首屏 60 行，交互空闲后每批 +100，直到挂满 ----
   const [mountedCount, setMountedCount] = useState(INITIAL_MOUNT_COUNT);
@@ -336,9 +347,28 @@ export function SongList({
             if (listRef) listRef.current = node;
           }}
           data={songs}
+          initialScrollIndex={initialScrollIndex}
+          getItemLayout={(_data, index) => ({
+            length: layout.songRowMinHeight,
+            offset: headerHeight + layout.songRowMinHeight * index,
+            index,
+          })}
           keyExtractor={(item, index) => `${item.source}-${item.id}-${index}`}
           renderItem={renderSongRow}
-          ListHeaderComponent={ListHeaderComponent ?? null}
+          ListHeaderComponent={
+            ListHeaderComponent ? (
+              <View
+                onLayout={(event) => {
+                  const height = event.nativeEvent.layout.height;
+                  setHeaderHeight((current) => (current === height ? current : height));
+                }}
+              >
+                {typeof ListHeaderComponent === "function"
+                  ? <ListHeaderComponent />
+                  : ListHeaderComponent}
+              </View>
+            ) : null
+          }
           ListFooterComponent={ListFooterComponent ?? null}
           ListEmptyComponent={
             emptyText ? (
@@ -357,7 +387,7 @@ export function SongList({
           removeClippedSubviews
           onScrollToIndexFailed={(info) => {
             // 远端索引尚未测量时先按平均行高滚到估算位置，渲染后再精确对齐
-            const offset = info.averageItemLength * info.index;
+            const offset = headerHeight + info.averageItemLength * info.index;
             flatListRef.current?.scrollToOffset({ offset, animated: true });
             setTimeout(() => {
               flatListRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0 });

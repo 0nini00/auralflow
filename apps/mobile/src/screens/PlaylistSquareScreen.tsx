@@ -44,6 +44,7 @@ export function PlaylistSquareScreen() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const pageRef = useRef(0);
   const requestIdRef = useRef(0);
   // 同步守卫：onScroll 单帧多次触发时，避免重复发起「加载更多」请求（state 更新是异步的，防不住同帧连击）。
@@ -54,12 +55,16 @@ export function PlaylistSquareScreen() {
     if (reset) {
       setLoading(true);
       setError(null);
+      setLoadMoreError(null);
       pageRef.current = 0;
     } else {
       if (loadingMoreRef.current) return;
-      loadingMoreRef.current = true;
+      setLoadMoreError(null);
       setLoadingMore(true);
     }
+    // 统一守卫：reset（分类切换）也要占用 loadingMoreRef，
+    // 避免加载更多尚未结束就切换分类时，旧请求与重置请求互相干扰。
+    loadingMoreRef.current = true;
     try {
       const page = await fetchWyPlaylistsByCategory(
         nextCategory,
@@ -73,7 +78,13 @@ export function PlaylistSquareScreen() {
       setPlaylists((previous) => (reset ? page.playlists : [...previous, ...page.playlists]));
     } catch (loadError) {
       if (requestId !== requestIdRef.current) return;
-      setError(loadError instanceof Error ? loadError.message : "歌单加载失败");
+      const message = loadError instanceof Error ? loadError.message : "歌单加载失败";
+      // 仅首页（reset）失败才整屏报错；加载更多失败保留已加载数据，仅行内提示。
+      if (reset) {
+        setError(message);
+      } else {
+        setLoadMoreError(message);
+      }
     } finally {
       loadingMoreRef.current = false;
       if (requestId === requestIdRef.current) {
@@ -88,7 +99,7 @@ export function PlaylistSquareScreen() {
   }, [category, loadPage]);
 
   const handleEndReached = () => {
-    if (loading || loadingMoreRef.current || !hasMore || error) return;
+    if (loading || loadingMoreRef.current || !hasMore || error || loadMoreError) return;
     void loadPage(category, false);
   };
 
@@ -165,6 +176,19 @@ export function PlaylistSquareScreen() {
               onPress={(playlist) => openPlaylistDetailScreen(playlist)}
             />
           ) : null}
+          {!loading && loadMoreError && playlists.length > 0 ? (
+            <View style={styles.moreBox}>
+              <Text style={[styles.hint, { color: palette.danger }]}>{loadMoreError}</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="加载更多重试"
+                onPress={() => void loadPage(category, false)}
+                style={styles.retryButton}
+              >
+                <Text style={[styles.retryText, { color: palette.primary }]}>重试</Text>
+              </Pressable>
+            </View>
+          ) : null}
           {loadingMore ? (
             <View style={styles.moreBox}>
               <ActivityIndicator size="small" color={palette.primary} />
@@ -221,6 +245,15 @@ function createStyles(palette: ReturnType<typeof getThemePalette>) {
     moreBox: {
       paddingVertical: spacing.m,
       alignItems: "center",
+    },
+    retryButton: {
+      minHeight: touch.minTarget,
+      justifyContent: "center",
+      paddingHorizontal: spacing.s,
+    },
+    retryText: {
+      fontSize: typography.meta,
+      fontWeight: "600",
     },
     endText: {
       textAlign: "center",

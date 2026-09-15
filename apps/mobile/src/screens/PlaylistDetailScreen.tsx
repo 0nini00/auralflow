@@ -54,6 +54,8 @@ export function PlaylistDetailScreen({
 }: PlaylistDetailScreenProps) {
   const listRef = useRef<FlatList<MusicInfo> | null>(null);
   const mountedRef = useRef(true);
+  // 批量下载同步锁：batchDownloadQuality 是异步 state，同帧双击都会通过 batchBusy 检查
+  const batchRunningRef = useRef(false);
   const themeMode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
@@ -100,6 +102,8 @@ export function PlaylistDetailScreen({
     fetchPlaylistDetail(playlist.id, playlist.source, playlist);
     setSelectionMode(false);
     setSelectedKeys(new Set());
+    // 切换歌单时重置本地收藏覆写，避免上一个歌单的覆写状态污染当前歌单
+    setWySubscribeOverride(null);
   }, [playlist, fetchPlaylistDetail]);
 
   useEffect(() => {
@@ -193,7 +197,8 @@ export function PlaylistDetailScreen({
   };
 
   const handleBatchDownload = async (quality: DownloadQuality) => {
-    if (batchBusy || selectedSongs.length === 0) return;
+    if (batchRunningRef.current || selectedSongs.length === 0) return;
+    batchRunningRef.current = true;
     const targets = [...selectedSongs];
     const counts: Record<DownloadSongResult["status"], number> = {
       completed: 0,
@@ -206,16 +211,20 @@ export function PlaylistDetailScreen({
     setBatchDownloadQuality(quality);
     setBatchDownloadProgress({ processed: 0, total: targets.length });
 
-    for (let index = 0; index < targets.length; index += 1) {
-      if (!mountedRef.current) return;
-      const song = targets[index]!;
-      const result = await downloadSong(song, quality);
-      if (!mountedRef.current) return;
-      counts[result.status] += 1;
-      if (result.status === "failed") failures.push(song.name);
-      if (mountedRef.current) {
-        setBatchDownloadProgress({ processed: index + 1, total: targets.length });
+    try {
+      for (let index = 0; index < targets.length; index += 1) {
+        if (!mountedRef.current) return;
+        const song = targets[index]!;
+        const result = await downloadSong(song, quality);
+        if (!mountedRef.current) return;
+        counts[result.status] += 1;
+        if (result.status === "failed") failures.push(song.name);
+        if (mountedRef.current) {
+          setBatchDownloadProgress({ processed: index + 1, total: targets.length });
+        }
       }
+    } finally {
+      batchRunningRef.current = false;
     }
 
     if (!mountedRef.current) return;
@@ -315,11 +324,22 @@ export function PlaylistDetailScreen({
       .finally(() => setSubscribingWyPlaylist(false));
   };
 
+  // 初次加载(数据未到)先整页骨架:确保 FlatList 首次挂载时数据已齐,
+  // initialScrollIndex 才能首帧定位到当前播放曲(先挂空列表再塞数据会失效)
+  if (loading && songs.length === 0 && !error) {
+    return (
+      <ScreenScaffold>
+        <PlaylistDetailSkeleton />
+      </ScreenScaffold>
+    );
+  }
+
   return (
     <ScreenScaffold>
       <SongList
         virtualized
         listRef={listRef}
+        initialScrollIndex={currentSongIndex >= 0 ? currentSongIndex : undefined}
         songs={error ? [] : songs}
         onPlay={handlePlay}
         highlightedIndex={locatedSongIndex}

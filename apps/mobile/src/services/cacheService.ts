@@ -10,6 +10,7 @@ import {
   type AudioCacheIndexEntry,
   type CachedAudioEntry,
 } from "./audioCacheListModel";
+import { usePlayerStore } from "@/stores/playerStore";
 
 // 缓存目录
 const CACHE_DIR = `${RNFS.CachesDirectoryPath}/auralflow`;
@@ -42,6 +43,10 @@ const MAX_CACHE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB
 // 歌词内容可能随版权/修词更新，保留 30 天过期；封面/音频采用 lx 的 immutable 语义
 // （URL 不变永不过期，仅受容量上限 LRU 约束），避免定期失效导致重新下载。
 const MAX_CACHE_AGE = 30 * 24 * 60 * 60 * 1000; // 30天（仅歌词使用）
+// CDN 下载超时：弱网/断网时 RNFS.downloadFile 可能长期挂起，若不中断会把 InFlight
+// 条目永久占用，同 URL 后续请求永远复用同一个 pending Promise。超时后停止下载并
+// 在 catch/finally 清理 InFlight，标记失败，下一个请求可重试。
+const DOWNLOAD_TIMEOUT_MS = 30_000;
 
 export interface CacheStats {
   totalSize: number;
@@ -146,16 +151,25 @@ export async function cacheCover(url: string): Promise<string | null> {
   if (inFlight) return inFlight;
 
   const promise = (async () => {
-    // 下载并缓存（带 UA 请求头，对齐 lx defaultHeaders，避免部分图床 403）
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const downloadResult = await RNFS.downloadFile({
+      // 下载并缓存（带 UA 请求头，对齐 lx defaultHeaders，避免部分图床 403）
+      const download = RNFS.downloadFile({
         fromUrl: targetUrl,
         toFile: filePath,
         headers: {
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36",
         },
-      }).promise;
+      });
+      const jobId = download.jobId;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          try { RNFS.stopDownload(jobId); } catch {}
+          reject(new Error("封面下载超时"));
+        }, DOWNLOAD_TIMEOUT_MS);
+      });
+      const downloadResult = await Promise.race([download.promise, timeoutPromise]);
 
       if (downloadResult.statusCode === 200) {
         scheduleEnforceCacheSizeLimit();
@@ -169,6 +183,7 @@ export async function cacheCover(url: string): Promise<string | null> {
       await RNFS.unlink(filePath).catch(() => undefined);
       return null;
     } finally {
+      if (timer) clearTimeout(timer);
       coverDownloadsInFlight.delete(filePath);
     }
   })();
@@ -281,8 +296,17 @@ export async function cacheAudioFile(
   if (inFlight) return inFlight;
 
   const promise = (async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const result = await RNFS.downloadFile({ fromUrl: url, toFile: filePath }).promise;
+      const download = RNFS.downloadFile({ fromUrl: url, toFile: filePath });
+      const jobId = download.jobId;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          try { RNFS.stopDownload(jobId); } catch {}
+          reject(new Error("音频下载超时"));
+        }, DOWNLOAD_TIMEOUT_MS);
+      });
+      const result = await Promise.race([download.promise, timeoutPromise]);
       if (result.statusCode >= 200 && result.statusCode < 300) {
         await recordAudioCacheIndex(music, quality, filePath);
         scheduleEnforceCacheSizeLimit();
@@ -291,10 +315,11 @@ export async function cacheAudioFile(
       await RNFS.unlink(filePath).catch(() => undefined);
       return null;
     } catch (error) {
-      // 下载中断会留下部分文件（可能非空），清理避免被 getCachedAudioFile 误判为完整缓存
+      // 下载中断（网络错误/超时）会留下部分文件（可能非空），清理避免被 getCachedAudioFile 误判为完整缓存
       await RNFS.unlink(filePath).catch(() => undefined);
       return null;
     } finally {
+      if (timer) clearTimeout(timer);
       audioDownloadsInFlight.delete(filePath);
     }
   })();
@@ -436,16 +461,36 @@ async function collectAllCacheFiles(now: number): Promise<CachedFileEntry[]> {
  * 容量上限 LRU 清理：总缓存超过 MAX_CACHE_SIZE 时，按最旧优先删除直到低于上限。
  * 并发安全（同一时刻仅执行一次）。
  */
+function getProtectedPlaybackCachePaths(): Set<string> {
+  const protectedPaths = new Set<string>();
+  try {
+    const { currentUrl } = usePlayerStore.getState();
+    if (currentUrl && currentUrl.startsWith("file://")) {
+      protectedPaths.add(currentUrl.slice("file://".length));
+    }
+  } catch {}
+  return protectedPaths;
+}
+
 export async function enforceCacheSizeLimit(now = Date.now()): Promise<void> {
   if (enforceInFlight) return enforceInFlight;
   enforceInFlight = (async () => {
     try {
       const files = await collectAllCacheFiles(now);
-      const toEvict = selectFilesToEvict(files, MAX_CACHE_SIZE);
+      // 正在播放的文件（mtime 是下载完成时间而非访问时间：若将其视为 LRU 最旧项淘汰，
+      // 会把 TrackPlayer 正在播的本地缓存删掉）。先把它们排除出“可回收”候选，
+      // 避免 selectFilesToEvict 因选中它而漏掉其它本可回收的文件。
+      const protectedPaths = getProtectedPlaybackCachePaths();
+      const evictable = protectedPaths.size > 0
+        ? files.filter((file) => !protectedPaths.has(file.path))
+        : files;
+      const toEvict = selectFilesToEvict(evictable, MAX_CACHE_SIZE);
       if (toEvict.length === 0) return;
       for (const path of toEvict) {
         await RNFS.unlink(path).catch(() => undefined);
       }
+      // 兜底说明：被保护的文件不计入“可回收”总量，只剩它在播时目录可能仍略超上限，
+      // 属 best-effort——只要正在播的文件在，就不为达标而删除它。
     } catch {} finally {
       enforceInFlight = null;
     }
