@@ -43,6 +43,8 @@ desktop/src-tauri/gen/
 .aionrs/
 .claude/
 .config/alma/
+.pi-lens.json
+.pi-lens/
 
 # 误建的空文件
 /Configure
