@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { ActivityIndicator, Text, View } from "react-native";
+import React, { useRef, useState } from "react";
+import { ActivityIndicator, Animated, StyleSheet, Text, View } from "react-native";
 import {
   ArrowRight,
   Captions,
@@ -24,6 +24,7 @@ import { formatTime } from "@/services/playerService";
 import { usePlayerStore } from "@/stores/playerStore";
 import { ImmersiveMoreMenu } from "@/screens/immersive/ImmersiveMoreMenu";
 import { styles } from "@/screens/immersive/immersiveStyles";
+import { getNextMobilePlayMode, getMobilePlayModeLabel } from "@/services/mobilePlayModeModel";
 
 export interface ImmersiveTransportProps {
   insetsBottom: number;
@@ -131,6 +132,43 @@ export function ImmersiveTransport({
   queueLabel,
 }: ImmersiveTransportProps) {
   const [moreMenuVisible, setMoreMenuVisible] = useState(false);
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMode, setToastMode] = useState<MobilePlayMode>(playMode);
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  React.useEffect(() => {
+    return () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    };
+  }, []);
+
+  const handleToggleModeWithToast = () => {
+    hapticLight();
+    const nextMode = getNextMobilePlayMode(playMode);
+    setToastMode(nextMode);
+    setToastVisible(true);
+
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+
+    Animated.timing(toastOpacity, {
+      toValue: 1,
+      duration: 120,
+      useNativeDriver: true,
+    }).start();
+
+    onTogglePlayMode();
+
+    toastTimer.current = setTimeout(() => {
+      Animated.timing(toastOpacity, {
+        toValue: 0,
+        duration: 220,
+        useNativeDriver: true,
+      }).start(() => {
+        setToastVisible(false);
+      });
+    }, 1100);
+  };
 
   return (
     <View style={[styles.playerArea, { paddingBottom: insetsBottom + 12 }]}>
@@ -193,7 +231,7 @@ export function ImmersiveTransport({
       {/* ── MoreBtn：播放模式 / 喜欢 / 桌面歌词 / 评论 / 更多（对齐 lx 一排小按钮） ── */}
       <View style={styles.moreBtnRow}>
         <IconButton
-          onPress={onTogglePlayMode}
+          onPress={handleToggleModeWithToast}
           tone={playModeControl.active ? "primary" : "strong"}
           selected={playModeControl.active}
           accessibilityLabel={`播放模式：${playModeControl.label}`}
@@ -237,6 +275,25 @@ export function ImmersiveTransport({
         />
       </View>
 
+      {/* ── 播放模式微型小胶囊提示（点击后左下角浮现1.1s后淡出，不占主屏幕） ── */}
+      {toastVisible ? (
+        <Animated.View
+          style={[
+            localStyles.modeToast,
+            {
+              bottom: insetsBottom + 54,
+              opacity: toastOpacity,
+            },
+          ]}
+          pointerEvents="none"
+        >
+          <PlayModeIcon mode={toastMode} color="#ffffff" size={12} />
+          <Text style={localStyles.modeToastText}>
+            {getMobilePlayModeLabel(toastMode)}
+          </Text>
+        </Animated.View>
+      ) : null}
+
       <ImmersiveMoreMenu
         visible={moreMenuVisible}
         onClose={() => setMoreMenuVisible(false)}
@@ -255,3 +312,28 @@ export function ImmersiveTransport({
     </View>
   );
 }
+
+const localStyles = StyleSheet.create({
+  modeToast: {
+    position: "absolute",
+    left: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "rgba(24, 24, 27, 0.88)",
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 6,
+    zIndex: 20,
+  },
+  modeToastText: {
+    color: "#ffffff",
+    fontSize: 11.5,
+    fontWeight: "600",
+  },
+});
