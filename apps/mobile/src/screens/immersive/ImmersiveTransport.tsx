@@ -46,6 +46,8 @@ export interface ImmersiveTransportProps {
   canShare: boolean;
   shareLabel: string;
   onShare: () => void;
+  canShowSimilarSongs?: boolean;
+  onOpenSimilarSongs?: () => void;
   onOpenDownload: () => void;
   onPlayMv?: () => void;
   canShowComments: boolean;
@@ -119,6 +121,8 @@ export function ImmersiveTransport({
   onAddToPlaylist,
   canShare,
   onShare,
+  canShowSimilarSongs,
+  onOpenSimilarSongs,
   onOpenDownload,
   onPlayMv,
   canShowComments,
@@ -243,6 +247,8 @@ export function ImmersiveTransport({
         onPlayMv={onPlayMv}
         canShare={canShare}
         onShare={onShare}
+        canShowSimilarSongs={canShowSimilarSongs}
+        onOpenSimilarSongs={onOpenSimilarSongs}
         onOpenQueue={onOpenQueue}
         queueLabel={queueLabel}
       />

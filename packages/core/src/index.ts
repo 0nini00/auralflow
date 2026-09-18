@@ -11,3 +11,5 @@ export * from "./outbound-host";
 export * from "./webdav-merge";
 export * from "./custom-source";
 export * from "./playlist-link";
+export * from "./history";
+export * from "./recommendations";

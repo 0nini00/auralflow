@@ -180,6 +180,52 @@ public class LyricOverlayModule extends ReactContextBaseJavaModule {
         dispatchOperation(intent, promise, true);
     }
 
+    @ReactMethod
+    public void setLyrics(String lyricsJson, String fallbackText, Promise promise) {
+        Intent intent = new Intent(context, LyricOverlayService.class);
+        intent.setAction(LyricOverlayService.ACTION_SET_LYRICS);
+        intent.putExtra(LyricOverlayService.EXTRA_LYRICS_JSON, lyricsJson);
+        intent.putExtra(
+            LyricOverlayService.EXTRA_FALLBACK_TEXT,
+            fallbackText != null ? fallbackText : ""
+        );
+        dispatchOperation(intent, promise, true);
+    }
+
+    @ReactMethod
+    public void playLyricClock(double position, Promise promise) {
+        Intent intent = new Intent(context, LyricOverlayService.class);
+        intent.setAction(LyricOverlayService.ACTION_PLAY_CLOCK);
+        intent.putExtra(LyricOverlayService.EXTRA_POSITION, position);
+        dispatchOperation(intent, promise, true);
+    }
+
+    @ReactMethod
+    public void pauseLyricClock(Promise promise) {
+        Intent intent = new Intent(context, LyricOverlayService.class);
+        intent.setAction(LyricOverlayService.ACTION_PAUSE_CLOCK);
+        dispatchOperation(intent, promise, true);
+    }
+
+    @ReactMethod
+    public void setLyricClockRate(double rate, Promise promise) {
+        Intent intent = new Intent(context, LyricOverlayService.class);
+        intent.setAction(LyricOverlayService.ACTION_SET_CLOCK_RATE);
+        intent.putExtra(LyricOverlayService.EXTRA_RATE, (float) rate);
+        dispatchOperation(intent, promise, true);
+    }
+
+    @ReactMethod
+    public void clearLyrics(String fallbackText, Promise promise) {
+        Intent intent = new Intent(context, LyricOverlayService.class);
+        intent.setAction(LyricOverlayService.ACTION_CLEAR_LYRICS);
+        intent.putExtra(
+            LyricOverlayService.EXTRA_FALLBACK_TEXT,
+            fallbackText != null ? fallbackText : ""
+        );
+        dispatchOperation(intent, promise, true);
+    }
+
     private void dispatchOperation(Intent intent, Promise promise, boolean resolveVoid) {
         Handler handler = new Handler(Looper.getMainLooper());
         AtomicBoolean settled = new AtomicBoolean(false);

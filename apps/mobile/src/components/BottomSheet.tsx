@@ -25,6 +25,8 @@ export interface BottomSheetProps {
   /** 面板最大高度占窗口高度比例（默认 0.72） */
   maxHeightRatio?: number;
   children: React.ReactNode;
+  /** 是否启用滑入/滑出过渡动画，默认为 false（瞬间弹出与收起） */
+  animated?: boolean;
 }
 
 /**
@@ -41,17 +43,23 @@ export function BottomSheet({
   palette,
   maxHeightRatio = 0.72,
   children,
+  animated = false,
 }: BottomSheetProps) {
   const { height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [mounted, setMounted] = useState(visible);
-  const progress = useSharedValue(0);
+  const progress = useSharedValue(visible ? 1 : 0);
   // 最新 visible 的 ref:退场动画回调里判断是否仍处于关闭态,避免快速重开时
   // 退场回调把已重新打开的 sheet 误卸载(visible 已翻 true 但旧退场动画仍在飞)。
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
 
   useEffect(() => {
+    if (!animated) {
+      progress.value = visible ? 1 : 0;
+      setMounted(visible);
+      return;
+    }
     if (visible) {
       // 每次进入都从隐藏位(progress=0)干净起动画:若上一次退场动画被打断,
       // progress 停在中间值,不重置直接 spring(1) 会表现为「先出现在中间再滑到底」。
@@ -69,7 +77,7 @@ export function BottomSheet({
         if (finished && !visibleRef.current) runOnJS(setMounted)(false);
       },
     );
-  }, [visible, mounted, progress]);
+  }, [visible, mounted, progress, animated]);
 
   // 安卓返回键关闭（与 RN Modal onRequestClose 行为一致）
   useEffect(() => {
@@ -100,7 +108,8 @@ export function BottomSheet({
     ],
   }));
 
-  if (!mounted) return null;
+  const shouldRender = animated ? mounted : visible;
+  if (!shouldRender) return null;
 
   return (
     <View

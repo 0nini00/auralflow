@@ -1,10 +1,19 @@
 import React from "react";
-import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
-import { X } from "lucide-react-native";
+import {
+  StyleSheet,
+  Text,
+  View,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Check, X } from "lucide-react-native";
 
 import { Touchable } from "@/components/Touchable";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { iconButton, layout, radius, spacing, typography } from "@/theme/tokens";
+import { radius, spacing, typography } from "@/theme/tokens";
+import { withAlpha } from "@/services/themePaletteModel";
+import { hapticLight } from "@/services/hapticService";
 
 export interface BatchActionItem {
   key: string;
@@ -15,9 +24,9 @@ export interface BatchActionItem {
 }
 
 export interface BatchActionBarProps {
-  /** 顶部计数文案，如 `已选 12 首` 或下载进度 */ 
+  /** 顶部计数文案，如 `已选 12 首` 或下载进度 */
   headerText: string;
-  /** 全选按钮文案（不传则不显示） */ 
+  /** 全选按钮文案（不传则不显示） */
   selectAllLabel?: string;
   /** 是否处于「全选」状态（用于切换文案为取消全选） */
   allSelected?: boolean;
@@ -27,15 +36,16 @@ export interface BatchActionBarProps {
   /** 批量任务进行中（禁用 header 与网格操作） */
   busy?: boolean;
   actions: BatchActionItem[];
-  /** 外层定位（absolute/left/right/bottom 等）由调用方控制 */
+  /** 外层定位由调用方控制 */
   style?: StyleProp<ViewStyle>;
 }
 
 /**
- * 歌单等场景的「批量选择」底部操作栏：顶部计数 + 全选/退出，
- * 下方图标+文字的等宽操作格（队列/下一首/收藏/下载等）。
- * 统一了此前 PlaylistDetailScreen 内自建的 BatchActionButton 与工具栏样式，
- * 供所有多选场景复用。
+ * 现代移动端批量操作底部工具栏：
+ * - 悬浮卡片式微底座（Floating Glass Toolbar）；
+ * - 顶部状态行：高亮选中计数 + 全选胶囊 + 退出按钮；
+ * - 下方操作单元：扁平圆形微底座图标 + 语义文字，消除厚重视觉水泥块；
+ * - 具备流畅按压反馈与触觉震动。
  */
 export function BatchActionBar({
   headerText,
@@ -47,61 +57,134 @@ export function BatchActionBar({
   actions,
   style,
 }: BatchActionBarProps) {
+  const insets = useSafeAreaInsets();
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
 
   return (
-    <View style={[styles.toolbar, { backgroundColor: palette.surface, borderColor: palette.border }, style]}>
+    <View
+      style={[
+        styles.toolbar,
+        {
+          backgroundColor: palette.surface,
+          borderColor: withAlpha(palette.border, 0.8),
+          paddingBottom: Math.max(insets.bottom, spacing.s) + spacing.xs,
+        },
+        style,
+      ]}
+    >
+      {/* 顶部计数与全局操作栏 */}
       <View style={styles.header}>
-        <Text style={[styles.count, { color: palette.text }]} numberOfLines={1}>
-          {headerText}
-        </Text>
-        {onToggleSelectAll && selectAllLabel ? (
-          <Touchable style={styles.headerButton} onPress={onToggleSelectAll} disabled={busy} activeScale={1}>
-            <Text
-              style={[styles.headerButtonText, { color: busy ? palette.textMuted : palette.primary }]}
+        <View style={styles.counterWrap}>
+          <Text style={[styles.countText, { color: palette.text }]} numberOfLines={1}>
+            {headerText}
+          </Text>
+        </View>
+
+        <View style={styles.headerRightActions}>
+          {onToggleSelectAll && selectAllLabel ? (
+            <Touchable
+              style={[
+                styles.selectAllChip,
+                {
+                  backgroundColor: allSelected
+                    ? withAlpha(palette.primary, 0.12)
+                    : palette.surfaceMuted,
+                  borderColor: allSelected ? palette.primary : "transparent",
+                },
+              ]}
+              onPress={() => {
+                hapticLight();
+                onToggleSelectAll();
+              }}
+              disabled={busy}
+              activeScale={0.96}
+              accessibilityRole="button"
+              accessibilityLabel={allSelected ? "取消全选" : selectAllLabel}
             >
-              {allSelected ? "取消全选" : selectAllLabel}
-            </Text>
+              {allSelected ? (
+                <Check size={13} color={palette.primary} style={{ marginRight: 2 }} />
+              ) : null}
+              <Text
+                style={[
+                  styles.selectAllText,
+                  { color: allSelected ? palette.primary : palette.text },
+                ]}
+              >
+                {allSelected ? "取消全选" : selectAllLabel}
+              </Text>
+            </Touchable>
+          ) : null}
+
+          <Touchable
+            style={[styles.exitChip, { backgroundColor: palette.surfaceMuted }]}
+            onPress={() => {
+              hapticLight();
+              onExit();
+            }}
+            disabled={busy}
+            activeScale={0.96}
+            accessibilityRole="button"
+            accessibilityLabel="退出多选"
+          >
+            <X size={14} color={palette.textMuted} />
+            <Text style={[styles.exitText, { color: palette.textMuted }]}>退出</Text>
           </Touchable>
-        ) : null}
-        <Touchable style={styles.exitButton} onPress={onExit} disabled={busy} activeScale={1}>
-          <X size={iconButton.sm.icon} color={busy ? palette.textMuted : palette.text} />
-          <Text style={[styles.headerButtonText, { color: busy ? palette.textMuted : palette.text }]}>退出</Text>
-        </Touchable>
+        </View>
       </View>
+
+      <View style={[styles.divider, { backgroundColor: palette.border }]} />
+
+      {/* 底部 4 宫格等宽操作项（现代轻量图标 + 文字） */}
       <View style={styles.grid}>
         {actions.map((action) => {
           const disabled = busy || action.disabled;
           return (
             <Touchable
               key={action.key}
-              style={[styles.action, { backgroundColor: palette.surfaceStrong }, disabled && styles.actionDisabled]}
-              onPress={action.onPress}
+              style={[styles.actionCell, disabled && styles.actionDisabled]}
+              onPress={() => {
+                hapticLight();
+                action.onPress();
+              }}
               disabled={disabled}
               accessibilityRole="button"
               accessibilityLabel={action.label}
               accessibilityState={{ disabled }}
-              activeScale={1}
+              activeScale={0.92}
             >
-              {action.icon ? (
-                <View style={styles.actionIcon}>
-                  {/* 尺寸与颜色统一由本组件注入，调用方只提供图标类型 */}
-                  {React.isValidElement(action.icon)
+              <View
+                style={[
+                  styles.iconCircle,
+                  {
+                    backgroundColor: disabled
+                      ? palette.surfaceMuted
+                      : withAlpha(palette.primary, 0.1),
+                  },
+                ]}
+              >
+                {action.icon ? (
+                  React.isValidElement(action.icon)
                     ? React.cloneElement(
                         action.icon as React.ReactElement<{ color?: string; size?: number }>,
                         {
-                          color: disabled ? palette.textMuted : palette.primary,
-                          size: iconButton.sm.icon,
+                          color: disabled ? palette.textSubtle : palette.primary,
+                          size: 20,
                         },
                       )
-                    : action.icon}
-                </View>
-              ) : null}
+                    : action.icon
+                ) : null}
+              </View>
               <Text
-                style={[styles.actionText, { color: disabled ? palette.textMuted : palette.text }]}
+                style={[
+                  styles.actionLabel,
+                  {
+                    color: disabled ? palette.textSubtle : palette.text,
+                    fontWeight: disabled ? "500" : "600",
+                  },
+                ]}
                 numberOfLines={1}
               >
                 {action.label}
@@ -116,76 +199,102 @@ export function BatchActionBar({
 
 const styles = StyleSheet.create({
   toolbar: {
-    minHeight: 140,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
     borderWidth: 1,
     borderBottomWidth: 0,
-    borderTopLeftRadius: radius.md,
-    borderTopRightRadius: radius.md,
-    padding: spacing.s,
-    gap: spacing.s,
+    paddingHorizontal: spacing.m,
+    paddingTop: spacing.s,
+    paddingBottom: spacing.m,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: -3 },
+    elevation: 16,
   },
   header: {
-    minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.s,
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.xs,
+    paddingBottom: spacing.xs,
+    minHeight: 38,
   },
-  count: {
+  counterWrap: {
     flex: 1,
-    minWidth: 0,
+  },
+  countText: {
     fontSize: typography.body,
     fontWeight: "700",
   },
-  headerButton: {
-    minHeight: 44,
-    justifyContent: "center",
-    paddingHorizontal: spacing.xs,
-  },
-  exitButton: {
-    minHeight: 44,
+  headerRightActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.xxs,
-    paddingHorizontal: spacing.xs,
+    gap: spacing.s,
   },
-  headerButtonText: {
-    fontSize: typography.meta,
-    fontWeight: "700",
-  },
-  grid: {
+  selectAllChip: {
     flexDirection: "row",
-    gap: spacing.xs,
-  },
-  action: {
-    flex: 1,
-    minWidth: 0,
-    height: 52,
     alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.xxs,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.xxs,
+    height: 32,
+    paddingHorizontal: spacing.m,
+    borderRadius: radius.md,
+    borderWidth: 1,
   },
-  actionDisabled: {
-    opacity: 0.55,
-  },
-  actionIcon: {
-    minHeight: 20,
-    justifyContent: "center",
-  },
-  actionText: {
-    maxWidth: "100%",
+  selectAllText: {
     fontSize: typography.caption,
     fontWeight: "600",
   },
+  exitChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    height: 32,
+    paddingHorizontal: spacing.m,
+    borderRadius: radius.md,
+  },
+  exitText: {
+    fontSize: typography.caption,
+    fontWeight: "600",
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    marginVertical: spacing.xs,
+    opacity: 0.6,
+  },
+  grid: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingTop: spacing.xs,
+  },
+  actionCell: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 4,
+  },
+  actionDisabled: {
+    opacity: 0.4,
+  },
+  iconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  actionLabel: {
+    fontSize: 12,
+  },
 });
 
-// 定位辅助：调用方把 toolbar 固定在底部（默认与页面同宽）
+// 定位辅助：吸附在屏幕底部
 export function batchToolbarPositionStyle(): ViewStyle {
   return {
     position: "absolute",
-    left: layout.pagePadding,
-    right: layout.pagePadding,
+    left: 0,
+    right: 0,
     bottom: 0,
   };
 }

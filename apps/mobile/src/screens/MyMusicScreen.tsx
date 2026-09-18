@@ -11,6 +11,8 @@ import {
   View,
   ActivityIndicator,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Cloud, FileJson, FolderPlus, X } from "lucide-react-native";
 
 import { AccountInfo } from "@/components/AccountInfo";
 import { ImportPlaylistLinkModal } from "@/components/ImportPlaylistLinkModal";
@@ -25,9 +27,11 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useFavoritesStore } from "@/stores/favoritesStore";
 import { usePlaylistStore } from "@/stores/playlistStore";
 import {
+  openFollowedArtistsScreen,
   openLikedSongsScreen,
   openLocalPlaylistDetailScreen,
   openPlaylistDetailScreen,
+  openSubscribedAlbumsScreen,
 } from "@/navigation/navigationRef";
 import { buildLibraryQuickActions } from "@/services/libraryQuickActions";
 import { buildWyPlaylistGroups } from "@/services/libraryPlaylistGroups";
@@ -49,6 +53,7 @@ interface MyMusicScreenProps {
  * 收敛"私人资产"：本地/网易云歌单都在这里聚合，替代原先三个空占位 tab。
  */
 export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
+  const insets = useSafeAreaInsets();
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
@@ -140,12 +145,19 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
   const quickActions = buildLibraryQuickActions({
     favoritesCount: favorites.length,
     likedCoverUri: favorites[0]?.img || favorites[0]?.picUrl || null,
+    isWyLoggedIn: isLoggedIn,
   });
 
   const handleQuickAction = (action: LibraryQuickActionType) => {
     switch (action) {
       case "openLikedPlaylist":
         openLikedSongsScreen();
+        return;
+      case "openFollowedArtists":
+        openFollowedArtistsScreen();
+        return;
+      case "openSubscribedAlbums":
+        openSubscribedAlbumsScreen();
         return;
     }
   };
@@ -351,154 +363,361 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
           visible={showCreateLocalPlaylistModal}
           animationType="slide"
           transparent
+          statusBarTranslucent
           onRequestClose={closeLocalPlaylistEditor}
         >
-          <KeyboardAvoidingView
-            style={styles.createModalOverlay}
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-          >
-            <View style={[styles.createModalCard, { backgroundColor: palette.surface }]}>
-              <Text style={[styles.createModalTitle, { color: palette.text }]}>
-                {editingLocalPlaylistId ? "编辑本地歌单" : "新建本地歌单"}
-              </Text>
-              <TextInput
-                value={localPlaylistName}
-                onChangeText={setLocalPlaylistName}
-                placeholder="输入歌单名称"
-                placeholderTextColor={palette.textMuted}
-                style={[styles.createInput, { borderColor: palette.border, color: palette.text }]}
-              />
-              <TextInput
-                value={localPlaylistDescription}
-                onChangeText={setLocalPlaylistDescription}
-                placeholder="简介（可选）"
-                placeholderTextColor={palette.textMuted}
-                multiline
-                style={[styles.createInput, styles.createTextArea, { borderColor: palette.border, color: palette.text }]}
-              />
-              <View style={styles.createModalActions}>
-                <Pressable
-                  style={styles.createModalButton}
-                  onPress={closeLocalPlaylistEditor}
-                  disabled={creatingLocalPlaylist}
-                >
-                  <Text style={[styles.createModalButtonText, { color: palette.textMuted }]}>取消</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.createModalButton, { backgroundColor: palette.surface, borderColor: palette.border, borderWidth: 1 }]}
-                  onPress={handleCreateLocalPlaylist}
-                  disabled={creatingLocalPlaylist}
-                >
-                  {creatingLocalPlaylist ? (
-                    <ActivityIndicator color={palette.primary} size="small" />
-                  ) : (
-                    <Text style={[styles.createModalButtonText, { color: palette.primary }]}>
-                      {editingLocalPlaylistId ? "保存" : "创建"}
+          <View style={styles.createModalOverlay}>
+            <Pressable
+              style={styles.createModalBackdrop}
+              onPress={closeLocalPlaylistEditor}
+              accessibilityRole="button"
+              accessibilityLabel="关闭"
+            />
+            <KeyboardAvoidingView
+              behavior={Platform.OS === "ios" ? "padding" : undefined}
+              style={styles.createModalKeyboardWrap}
+            >
+              <View
+                style={[
+                  styles.createModalCard,
+                  {
+                    backgroundColor: palette.surface,
+                    paddingBottom: Math.max(insets.bottom, spacing.m),
+                  },
+                ]}
+              >
+                <View style={styles.sheetHandleContainer}>
+                  <View style={[styles.sheetHandle, { backgroundColor: palette.border }]} />
+                </View>
+
+                <View style={styles.sheetHeader}>
+                  <View style={styles.titleWithIcon}>
+                    <FolderPlus size={18} color={palette.primary} />
+                    <Text style={[styles.createModalTitle, { color: palette.text }]}>
+                      {editingLocalPlaylistId ? "编辑本地歌单" : "新建本地歌单"}
                     </Text>
-                  )}
-                </Pressable>
+                  </View>
+                  <Pressable
+                    style={[styles.closeIconButton, { backgroundColor: palette.surfaceMuted }]}
+                    onPress={closeLocalPlaylistEditor}
+                    accessibilityRole="button"
+                    accessibilityLabel="关闭"
+                  >
+                    <X size={18} color={palette.textMuted} />
+                  </Pressable>
+                </View>
+
+                <View style={styles.modalFormBody}>
+                  <TextInput
+                    value={localPlaylistName}
+                    onChangeText={setLocalPlaylistName}
+                    placeholder="输入歌单名称"
+                    placeholderTextColor={palette.textMuted}
+                    style={[
+                      styles.createInput,
+                      {
+                        backgroundColor: palette.surfaceMuted,
+                        borderColor: palette.border,
+                        color: palette.text,
+                      },
+                    ]}
+                  />
+                  <TextInput
+                    value={localPlaylistDescription}
+                    onChangeText={setLocalPlaylistDescription}
+                    placeholder="简介（可选）"
+                    placeholderTextColor={palette.textMuted}
+                    multiline
+                    style={[
+                      styles.createInput,
+                      styles.createTextArea,
+                      {
+                        backgroundColor: palette.surfaceMuted,
+                        borderColor: palette.border,
+                        color: palette.text,
+                      },
+                    ]}
+                  />
+                  <View style={styles.createModalActions}>
+                    <Pressable
+                      style={[styles.cancelModalButton, { backgroundColor: palette.surfaceMuted }]}
+                      onPress={closeLocalPlaylistEditor}
+                      disabled={creatingLocalPlaylist}
+                    >
+                      <Text style={[styles.createModalButtonText, { color: palette.textMuted }]}>
+                        取消
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={[
+                        styles.confirmModalButton,
+                        {
+                          backgroundColor: localPlaylistName.trim()
+                            ? palette.primary
+                            : palette.border,
+                        },
+                      ]}
+                      onPress={handleCreateLocalPlaylist}
+                      disabled={creatingLocalPlaylist || !localPlaylistName.trim()}
+                    >
+                      {creatingLocalPlaylist ? (
+                        <ActivityIndicator color={palette.primaryText} size="small" />
+                      ) : (
+                        <Text
+                          style={[
+                            styles.createModalButtonText,
+                            {
+                              color: localPlaylistName.trim()
+                                ? palette.primaryText
+                                : palette.textMuted,
+                            },
+                          ]}
+                        >
+                          {editingLocalPlaylistId ? "保存" : "创建"}
+                        </Text>
+                      )}
+                    </Pressable>
+                  </View>
+                </View>
               </View>
-            </View>
-          </KeyboardAvoidingView>
+            </KeyboardAvoidingView>
+          </View>
         </Modal>
 
         <Modal
           visible={showCreateWyPlaylistModal}
           animationType="slide"
           transparent
+          statusBarTranslucent
           onRequestClose={closeWyPlaylistEditor}
         >
-          <KeyboardAvoidingView
-            style={styles.createModalOverlay}
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-          >
-            <View style={[styles.createModalCard, { backgroundColor: palette.surface }]}>
-              <Text style={[styles.createModalTitle, { color: palette.text }]}>
-                {editingWyPlaylistId ? "编辑网易云歌单" : "新建网易云歌单"}
-              </Text>
-              <TextInput
-                value={wyPlaylistName}
-                onChangeText={setWyPlaylistName}
-                placeholder="输入歌单名称"
-                placeholderTextColor={palette.textMuted}
-                style={[styles.createInput, { borderColor: palette.border, color: palette.text }]}
-              />
-              <TextInput
-                value={wyPlaylistDescription}
-                onChangeText={setWyPlaylistDescription}
-                placeholder="简介（可选）"
-                placeholderTextColor={palette.textMuted}
-                multiline
-                style={[styles.createInput, styles.createTextArea, { borderColor: palette.border, color: palette.text }]}
-              />
-              <View style={styles.createModalActions}>
-                <Pressable
-                  style={styles.createModalButton}
-                  onPress={closeWyPlaylistEditor}
-                  disabled={creatingWyPlaylist}
-                >
-                  <Text style={[styles.createModalButtonText, { color: palette.textMuted }]}>取消</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.createModalButton, { backgroundColor: palette.surface, borderColor: palette.border, borderWidth: 1 }]}
-                  onPress={handleCreateWyPlaylist}
-                  disabled={creatingWyPlaylist}
-                >
-                  {creatingWyPlaylist ? (
-                    <ActivityIndicator color={palette.primary} size="small" />
-                  ) : (
-                    <Text style={[styles.createModalButtonText, { color: palette.primary }]}>
-                      {editingWyPlaylistId ? "保存" : "创建"}
+          <View style={styles.createModalOverlay}>
+            <Pressable
+              style={styles.createModalBackdrop}
+              onPress={closeWyPlaylistEditor}
+              accessibilityRole="button"
+              accessibilityLabel="关闭"
+            />
+            <KeyboardAvoidingView
+              behavior={Platform.OS === "ios" ? "padding" : undefined}
+              style={styles.createModalKeyboardWrap}
+            >
+              <View
+                style={[
+                  styles.createModalCard,
+                  {
+                    backgroundColor: palette.surface,
+                    paddingBottom: Math.max(insets.bottom, spacing.m),
+                  },
+                ]}
+              >
+                <View style={styles.sheetHandleContainer}>
+                  <View style={[styles.sheetHandle, { backgroundColor: palette.border }]} />
+                </View>
+
+                <View style={styles.sheetHeader}>
+                  <View style={styles.titleWithIcon}>
+                    <Cloud size={18} color={palette.primary} />
+                    <Text style={[styles.createModalTitle, { color: palette.text }]}>
+                      {editingWyPlaylistId ? "编辑网易云歌单" : "新建网易云歌单"}
                     </Text>
-                  )}
-                </Pressable>
+                  </View>
+                  <Pressable
+                    style={[styles.closeIconButton, { backgroundColor: palette.surfaceMuted }]}
+                    onPress={closeWyPlaylistEditor}
+                    accessibilityRole="button"
+                    accessibilityLabel="关闭"
+                  >
+                    <X size={18} color={palette.textMuted} />
+                  </Pressable>
+                </View>
+
+                <View style={styles.modalFormBody}>
+                  <TextInput
+                    value={wyPlaylistName}
+                    onChangeText={setWyPlaylistName}
+                    placeholder="输入歌单名称"
+                    placeholderTextColor={palette.textMuted}
+                    style={[
+                      styles.createInput,
+                      {
+                        backgroundColor: palette.surfaceMuted,
+                        borderColor: palette.border,
+                        color: palette.text,
+                      },
+                    ]}
+                  />
+                  <TextInput
+                    value={wyPlaylistDescription}
+                    onChangeText={setWyPlaylistDescription}
+                    placeholder="简介（可选）"
+                    placeholderTextColor={palette.textMuted}
+                    multiline
+                    style={[
+                      styles.createInput,
+                      styles.createTextArea,
+                      {
+                        backgroundColor: palette.surfaceMuted,
+                        borderColor: palette.border,
+                        color: palette.text,
+                      },
+                    ]}
+                  />
+                  <View style={styles.createModalActions}>
+                    <Pressable
+                      style={[styles.cancelModalButton, { backgroundColor: palette.surfaceMuted }]}
+                      onPress={closeWyPlaylistEditor}
+                      disabled={creatingWyPlaylist}
+                    >
+                      <Text style={[styles.createModalButtonText, { color: palette.textMuted }]}>
+                        取消
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={[
+                        styles.confirmModalButton,
+                        {
+                          backgroundColor: wyPlaylistName.trim()
+                            ? palette.primary
+                            : palette.border,
+                        },
+                      ]}
+                      onPress={handleCreateWyPlaylist}
+                      disabled={creatingWyPlaylist || !wyPlaylistName.trim()}
+                    >
+                      {creatingWyPlaylist ? (
+                        <ActivityIndicator color={palette.primaryText} size="small" />
+                      ) : (
+                        <Text
+                          style={[
+                            styles.createModalButtonText,
+                            {
+                              color: wyPlaylistName.trim()
+                                ? palette.primaryText
+                                : palette.textMuted,
+                            },
+                          ]}
+                        >
+                          {editingWyPlaylistId ? "保存" : "创建"}
+                        </Text>
+                      )}
+                    </Pressable>
+                  </View>
+                </View>
               </View>
-            </View>
-          </KeyboardAvoidingView>
+            </KeyboardAvoidingView>
+          </View>
         </Modal>
 
         <Modal
           visible={showImportLocalPlaylistModal}
           animationType="slide"
           transparent
+          statusBarTranslucent
           onRequestClose={() => setShowImportLocalPlaylistModal(false)}
         >
-          <KeyboardAvoidingView
-            style={styles.createModalOverlay}
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-          >
-            <View style={[styles.createModalCard, { backgroundColor: palette.surface }]}>
-              <Text style={[styles.createModalTitle, { color: palette.text }]}>导入本地歌单</Text>
-              <TextInput
-                value={localPlaylistImportJson}
-                onChangeText={setLocalPlaylistImportJson}
-                placeholder="粘贴从 AuralFlow 导出的 JSON"
-                placeholderTextColor={palette.textMuted}
-                multiline
-                style={[styles.createInput, styles.importTextArea, { borderColor: palette.border, color: palette.text }]}
-              />
-              <View style={styles.createModalActions}>
-                <Pressable
-                  style={styles.createModalButton}
-                  onPress={() => setShowImportLocalPlaylistModal(false)}
-                  disabled={importingLocalPlaylists}
-                >
-                  <Text style={[styles.createModalButtonText, { color: palette.textMuted }]}>取消</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.createModalButton, { backgroundColor: palette.surface, borderColor: palette.border, borderWidth: 1 }]}
-                  onPress={handleImportLocalPlaylists}
-                  disabled={importingLocalPlaylists}
-                >
-                  {importingLocalPlaylists ? (
-                    <ActivityIndicator color={palette.primary} size="small" />
-                  ) : (
-                    <Text style={[styles.createModalButtonText, { color: palette.primary }]}>导入</Text>
-                  )}
-                </Pressable>
+          <View style={styles.createModalOverlay}>
+            <Pressable
+              style={styles.createModalBackdrop}
+              onPress={() => setShowImportLocalPlaylistModal(false)}
+              accessibilityRole="button"
+              accessibilityLabel="关闭"
+            />
+            <KeyboardAvoidingView
+              behavior={Platform.OS === "ios" ? "padding" : undefined}
+              style={styles.createModalKeyboardWrap}
+            >
+              <View
+                style={[
+                  styles.createModalCard,
+                  {
+                    backgroundColor: palette.surface,
+                    paddingBottom: Math.max(insets.bottom, spacing.m),
+                  },
+                ]}
+              >
+                <View style={styles.sheetHandleContainer}>
+                  <View style={[styles.sheetHandle, { backgroundColor: palette.border }]} />
+                </View>
+
+                <View style={styles.sheetHeader}>
+                  <View style={styles.titleWithIcon}>
+                    <FileJson size={18} color={palette.primary} />
+                    <Text style={[styles.createModalTitle, { color: palette.text }]}>
+                      导入本地歌单
+                    </Text>
+                  </View>
+                  <Pressable
+                    style={[styles.closeIconButton, { backgroundColor: palette.surfaceMuted }]}
+                    onPress={() => setShowImportLocalPlaylistModal(false)}
+                    accessibilityRole="button"
+                    accessibilityLabel="关闭"
+                  >
+                    <X size={18} color={palette.textMuted} />
+                  </Pressable>
+                </View>
+
+                <View style={styles.modalFormBody}>
+                  <TextInput
+                    value={localPlaylistImportJson}
+                    onChangeText={setLocalPlaylistImportJson}
+                    placeholder="粘贴从 AuralFlow 导出的歌单 JSON 内容..."
+                    placeholderTextColor={palette.textMuted}
+                    multiline
+                    style={[
+                      styles.createInput,
+                      styles.importTextArea,
+                      {
+                        backgroundColor: palette.surfaceMuted,
+                        borderColor: palette.border,
+                        color: palette.text,
+                      },
+                    ]}
+                  />
+                  <View style={styles.createModalActions}>
+                    <Pressable
+                      style={[styles.cancelModalButton, { backgroundColor: palette.surfaceMuted }]}
+                      onPress={() => setShowImportLocalPlaylistModal(false)}
+                      disabled={importingLocalPlaylists}
+                    >
+                      <Text style={[styles.createModalButtonText, { color: palette.textMuted }]}>
+                        取消
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={[
+                        styles.confirmModalButton,
+                        {
+                          backgroundColor: localPlaylistImportJson.trim()
+                            ? palette.primary
+                            : palette.border,
+                        },
+                      ]}
+                      onPress={handleImportLocalPlaylists}
+                      disabled={importingLocalPlaylists || !localPlaylistImportJson.trim()}
+                    >
+                      {importingLocalPlaylists ? (
+                        <ActivityIndicator color={palette.primaryText} size="small" />
+                      ) : (
+                        <Text
+                          style={[
+                            styles.createModalButtonText,
+                            {
+                              color: localPlaylistImportJson.trim()
+                                ? palette.primaryText
+                                : palette.textMuted,
+                            },
+                          ]}
+                        >
+                          导入
+                        </Text>
+                      )}
+                    </Pressable>
+                  </View>
+                </View>
               </View>
-            </View>
-          </KeyboardAvoidingView>
+            </KeyboardAvoidingView>
+          </View>
         </Modal>
         <ImportPlaylistLinkModal
           visible={showImportLinkModal}
@@ -538,49 +757,105 @@ const styles = StyleSheet.create({
   },
   createModalOverlay: {
     flex: 1,
-    justifyContent: "center",
-    padding: 20,
+    justifyContent: "flex-end",
     backgroundColor: "rgba(0, 0, 0, 0.45)",
   },
+  createModalBackdrop: {
+    ...StyleSheet.absoluteFill,
+  },
+  createModalKeyboardWrap: {
+    width: "100%",
+    justifyContent: "flex-end",
+  },
   createModalCard: {
-    borderRadius: radius.lg,
-    padding: spacing.l,
+    width: "100%",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: -4 },
+    elevation: 20,
+  },
+  sheetHandleContainer: {
+    alignItems: "center",
+    paddingVertical: 10,
+  },
+  sheetHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.l,
+    paddingBottom: spacing.s,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(0, 0, 0, 0.06)",
+  },
+  titleWithIcon: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  closeIconButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalFormBody: {
+    paddingHorizontal: spacing.l,
+    paddingVertical: spacing.m,
     gap: spacing.m,
   },
   createModalTitle: {
-    fontSize: typography.heading,
+    fontSize: typography.title,
     fontWeight: "700",
   },
   createInput: {
     borderWidth: 1,
-    borderRadius: radius.sm,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: typography.title,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.m,
+    height: 44,
+    fontSize: typography.body,
   },
   createTextArea: {
-    minHeight: 76,
+    height: 80,
+    paddingVertical: spacing.s,
     textAlignVertical: "top",
   },
   importTextArea: {
-    minHeight: 160,
+    height: 160,
+    paddingVertical: spacing.s,
     textAlignVertical: "top",
   },
   createModalActions: {
     flexDirection: "row",
-    justifyContent: "flex-end",
-    gap: spacing.s,
+    alignItems: "center",
+    gap: spacing.m,
+    marginTop: spacing.xs,
   },
-  createModalButton: {
-    minWidth: 80,
-    minHeight: touch.minTarget,
-    borderRadius: radius.sm,
+  cancelModalButton: {
+    flex: 1,
+    height: 46,
+    borderRadius: radius.md,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 12,
+  },
+  confirmModalButton: {
+    flex: 2,
+    height: 46,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
   },
   createModalButtonText: {
     fontSize: typography.body,
-    fontWeight: "600",
+    fontWeight: "700",
   },
 });

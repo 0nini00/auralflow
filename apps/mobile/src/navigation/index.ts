@@ -25,6 +25,9 @@ export {
   openSearchFallbackDetailScreen,
   openDailyRecommendScreen,
   openPersonalFmScreen,
+  openFollowedArtistsScreen,
+  openSubscribedAlbumsScreen,
+  openSimilarSongsScreen,
 } from "./navigationRef";
 export { RootNavigator } from "./RootNavigator";
 export { MainDrawerNavigator } from "./MainDrawerNavigator";

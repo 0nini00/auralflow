@@ -39,7 +39,7 @@ import { fetchCoverColors, type CoverColors } from "@/services/coverColorService
 import { withAlpha } from "@/services/themePaletteModel";
 import { getResolvedTheme, useThemeStore } from "@/stores/themeStore";
 import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
-import { openMvPlayerScreen } from "@/navigation";
+import { openMvPlayerScreen, openSimilarSongsScreen } from "@/navigation";
 
 export interface ImmersiveLyricsScreenProps {
   visible: boolean;
@@ -498,6 +498,14 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
                 }
                 canShowComments={currentSong.source === "wy"}
                 onOpenComments={() => setCommentsVisible(true)}
+                canShowSimilarSongs={currentSong.source === "wy"}
+                onOpenSimilarSongs={() => {
+                  onClose();
+                  openSimilarSongsScreen({
+                    songId: currentSong.id,
+                    songName: currentSong.name,
+                  });
+                }}
                 onOpenQueue={() => setQueueModalVisible(true)}
                 queueLabel={queueModel.triggerLabel}
               />

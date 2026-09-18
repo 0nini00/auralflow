@@ -275,6 +275,39 @@ export function removeSongFromLocalPlaylist(
   });
 }
 
+export function removeSongsFromLocalPlaylist(
+  playlists: LocalPlaylist[],
+  playlistId: string,
+  songsToRemove: Array<Pick<MusicInfo, "source" | "id">>,
+  now?: number,
+): LocalPlaylist[] {
+  const updatedAt = getNow(now);
+  const keysToRemove = new Set(songsToRemove.map(getSongKey));
+  return updateLocalPlaylist(playlists, playlistId, (playlist) => {
+    const songs = playlist.songs.filter((item) => !keysToRemove.has(getSongKey(item)));
+    if (songs.length === playlist.songs.length) return playlist;
+    return {
+      ...playlist,
+      songs,
+      updatedAt,
+    };
+  });
+}
+
+/**
+ * 解析本地歌单封面：
+ * 优先取显式设置的 cover；
+ * 若未设置，自动取歌单中第一首包含封面的歌曲作为歌单封面。
+ */
+export function resolveLocalPlaylistCover(playlist: LocalPlaylist | null | undefined): string | undefined {
+  if (!playlist) return undefined;
+  if (playlist.cover && playlist.cover.trim().length > 0) {
+    return playlist.cover;
+  }
+  const firstWithCover = playlist.songs?.find((s) => Boolean(s.picUrl || s.img));
+  return firstWithCover ? (firstWithCover.picUrl || firstWithCover.img) : undefined;
+}
+
 export function getLocalPlaylistTrackCount(playlist: LocalPlaylist | null | undefined): number {
   return playlist?.songs.length ?? 0;
 }

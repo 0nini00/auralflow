@@ -18,6 +18,7 @@ export interface WyPlaylistInfo extends PlaylistInfo {
   trackCount: number;
   playCount?: number;
   subscribed?: boolean;
+  specialType?: number;
   creator?: {
     userId: string;
     nickname: string;
@@ -146,6 +147,7 @@ export async function getUserPlaylists(userId: string): Promise<WyPlaylistInfo[]
       trackCount: item.trackCount || 0,
       source: "wy" as const,
       subscribed,
+      specialType: typeof item.specialType === "number" ? item.specialType : undefined,
       creator,
     };
   });
@@ -405,6 +407,49 @@ export async function trashPersonalFmSong(songId: string): Promise<void> {
   } catch (error) {
     throw error;
   }
+}
+
+/** 从用户的网易云歌单中定位「我喜欢的音乐」歌单 ID */
+export function findWyLikedPlaylistId(playlists: WyPlaylistInfo[]): string | null {
+  const target = playlists.find(
+    (p) => p.specialType === 5 || p.name === "我喜欢的音乐" || p.name === "喜欢的音乐",
+  );
+  return target ? target.id : null;
+}
+
+/**
+ * 获取心动模式推荐列表（基于种子曲与红心歌单）
+ * 接口返回约 150 首个性化推荐歌曲，与当前种子曲风格高度契合。
+ */
+export async function getHeartbeatModeList(
+  seedSongId: string,
+  playlistId: string,
+): Promise<MusicInfo[]> {
+  const cookie = await getWyCookie();
+  if (!cookie) {
+    throw new Error("未登录");
+  }
+
+  const data = await postWyWeapi<JsonRecord>(
+    "/playmode/intelligence/list",
+    {
+      playlistId: String(playlistId),
+      songId: String(seedSongId),
+      type: "fromPlayOne",
+      startMusicId: String(seedSongId),
+      count: "150",
+    },
+    cookie,
+  );
+
+  if (data.code !== 200) {
+    throw new Error(String(data.message || `获取心动模式推荐失败 (code=${data.code})`));
+  }
+
+  const list = Array.isArray(data.data) ? data.data : [];
+  return list
+    .map((item: any) => mapWyTrackToMusicInfo(item.songInfo ?? item))
+    .filter((song) => Boolean(song.id));
 }
 
 // ---------------------------------------------------------------------------

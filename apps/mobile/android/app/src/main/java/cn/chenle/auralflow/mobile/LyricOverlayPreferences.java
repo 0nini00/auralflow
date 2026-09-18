@@ -23,6 +23,9 @@ public final class LyricOverlayPreferences {
     public static final String KEY_INACTIVE_COLOR = "inactive_color";
     /** 歌词字体 family（空串=系统默认），随歌词样式设置的「字体」同步。 */
     public static final String KEY_FONT_FAMILY = "font_family";
+    /** 悬浮窗屏幕位置持久化坐标。 */
+    public static final String KEY_POSITION_X = "position_x";
+    public static final String KEY_POSITION_Y = "position_y";
 
     public static final int DEFAULT_FONT_SIZE = 18;
     public static final int DEFAULT_TEXT_OPACITY = 100;
@@ -85,6 +88,21 @@ public final class LyricOverlayPreferences {
 
     public static String getFontFamily(Context context) {
         return preferences(context).getString(KEY_FONT_FAMILY, "");
+    }
+
+    public static int getPositionX(Context context, int defaultX) {
+        return preferences(context).getInt(KEY_POSITION_X, defaultX);
+    }
+
+    public static int getPositionY(Context context, int defaultY) {
+        return preferences(context).getInt(KEY_POSITION_Y, defaultY);
+    }
+
+    public static void setPosition(Context context, int x, int y) {
+        preferences(context).edit()
+            .putInt(KEY_POSITION_X, x)
+            .putInt(KEY_POSITION_Y, y)
+            .apply();
     }
 
     /** 批量写入样式，未传的项保持原值。字号与不透明度会被夹取到合法区间。 */

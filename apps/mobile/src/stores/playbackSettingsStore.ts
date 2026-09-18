@@ -15,12 +15,14 @@ interface PersistedPlaybackSettings {
   defaultQuality?: string;
   pauseOnExternalPlayback?: boolean;
   autoSkipOnPlaybackError?: boolean;
+  enableScrobble?: boolean;
 }
 
 interface PlaybackSettingsState {
   defaultQuality: PlaybackQuality;
   pauseOnExternalPlayback: boolean;
   autoSkipOnPlaybackError: boolean;
+  enableScrobble: boolean;
   loaded: boolean;
 }
 
@@ -29,6 +31,7 @@ interface PlaybackSettingsActions {
   setDefaultQuality: (quality: string) => Promise<void>;
   setPauseOnExternalPlayback: (enabled: boolean) => Promise<void>;
   setAutoSkipOnPlaybackError: (enabled: boolean) => Promise<void>;
+  setEnableScrobble: (enabled: boolean) => Promise<void>;
 }
 
 type PlaybackSettingsStore = PlaybackSettingsState & PlaybackSettingsActions;
@@ -43,16 +46,17 @@ function serialize(state: PlaybackSettingsState): string {
     defaultQuality: state.defaultQuality,
     pauseOnExternalPlayback: state.pauseOnExternalPlayback,
     autoSkipOnPlaybackError: state.autoSkipOnPlaybackError,
+    enableScrobble: state.enableScrobble,
   });
 }
 
 export const usePlaybackSettingsStore = create<PlaybackSettingsStore>((set, get) => ({
   defaultQuality: DEFAULT_PLAYBACK_QUALITY,
-  // 默认「降音量」：其他应用播放音频时压低本应用音量（duck），而非暂停。
-  // 旧版本默认 true（暂停），存量用户在 loadFromStorage 里通过版本迁移统一改回 false。
+  // 默认「不暂停」：其他应用播放音频时保持播放，而非暂停。
   pauseOnExternalPlayback: false,
   // 默认「暂停」：播放失败重试仍不通时停在错误态，由用户决定重试/切歌，不自动往下翻。
   autoSkipOnPlaybackError: false,
+  enableScrobble: true,
   loaded: false,
 
   loadFromStorage: async () => {
@@ -60,9 +64,8 @@ export const usePlaybackSettingsStore = create<PlaybackSettingsStore>((set, get)
     try {
       const raw = await AsyncStorage.getItem(PLAYBACK_SETTINGS_KEY);
       const data = raw ? (JSON.parse(raw) as PersistedPlaybackSettings) : {};
-      // 版本迁移：旧版本默认 pauseOnExternalPlayback=true（外部音频→暂停）。
-      // 现默认改为 duck（降音量）。对从未显式选择过的存量用户（无 v 标记），
-      // 统一迁移到新默认 false；已显式选择过的用户保留其选择。
+      // pauseOnExternalPlayback：true 为暂停，false 为不暂停。
+      // 对从未显式选择过的存量用户（无 v 标记），统一迁移到默认 false（不暂停）；已显式选择过的用户保留其选择。
       let pauseOnExternalPlayback = normalizePauseOnExternalPlayback(data.pauseOnExternalPlayback);
       if (data.pauseOnExternalPlayback == null || data.v !== 1) {
         pauseOnExternalPlayback = false;
@@ -72,6 +75,7 @@ export const usePlaybackSettingsStore = create<PlaybackSettingsStore>((set, get)
         pauseOnExternalPlayback,
         // 缺省即 false（失败即停）：旧数据没有该字段时落到安全默认，无需版本迁移
         autoSkipOnPlaybackError: normalizeAutoSkipOnPlaybackError(data.autoSkipOnPlaybackError),
+        enableScrobble: data.enableScrobble !== false,
         loaded: true,
       });
       await AsyncStorage.setItem(PLAYBACK_SETTINGS_KEY, serialize(get()));
@@ -80,6 +84,7 @@ export const usePlaybackSettingsStore = create<PlaybackSettingsStore>((set, get)
         defaultQuality: DEFAULT_PLAYBACK_QUALITY,
         pauseOnExternalPlayback: false,
         autoSkipOnPlaybackError: false,
+        enableScrobble: true,
         loaded: true,
       });
     }
@@ -97,6 +102,11 @@ export const usePlaybackSettingsStore = create<PlaybackSettingsStore>((set, get)
 
   setAutoSkipOnPlaybackError: async (enabled: boolean) => {
     set({ autoSkipOnPlaybackError: normalizeAutoSkipOnPlaybackError(enabled), loaded: true });
+    await AsyncStorage.setItem(PLAYBACK_SETTINGS_KEY, serialize(get()));
+  },
+
+  setEnableScrobble: async (enabled: boolean) => {
+    set({ enableScrobble: Boolean(enabled), loaded: true });
     await AsyncStorage.setItem(PLAYBACK_SETTINGS_KEY, serialize(get()));
   },
 }));

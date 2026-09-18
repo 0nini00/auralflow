@@ -5,10 +5,16 @@ import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.Typeface;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.IntentFilter;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.ResultReceiver;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -19,17 +25,34 @@ import android.view.WindowManager;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.util.ArrayList;
+import java.util.List;
+
 public class LyricOverlayService extends Service {
     public static final String ACTION_SHOW = "cn.chenle.auralflow.mobile.lyrics.SHOW";
     public static final String ACTION_UPDATE = "cn.chenle.auralflow.mobile.lyrics.UPDATE";
     public static final String ACTION_SET_LOCKED = "cn.chenle.auralflow.mobile.lyrics.SET_LOCKED";
     public static final String ACTION_HIDE = "cn.chenle.auralflow.mobile.lyrics.HIDE";
     public static final String ACTION_APPLY_STYLE = "cn.chenle.auralflow.mobile.lyrics.APPLY_STYLE";
+    public static final String ACTION_SET_LYRICS = "cn.chenle.auralflow.mobile.lyrics.SET_LYRICS";
+    public static final String ACTION_PLAY_CLOCK = "cn.chenle.auralflow.mobile.lyrics.PLAY_CLOCK";
+    public static final String ACTION_PAUSE_CLOCK = "cn.chenle.auralflow.mobile.lyrics.PAUSE_CLOCK";
+    public static final String ACTION_SET_CLOCK_RATE = "cn.chenle.auralflow.mobile.lyrics.SET_CLOCK_RATE";
+    public static final String ACTION_CLEAR_LYRICS = "cn.chenle.auralflow.mobile.lyrics.CLEAR_LYRICS";
+
     public static final String EXTRA_CURRENT = "current";
     public static final String EXTRA_NEXT = "next";
     public static final String EXTRA_LOCKED = "locked";
     public static final String EXTRA_FROM_NOTIFICATION = "fromNotification";
     public static final String EXTRA_RESULT_RECEIVER = "resultReceiver";
+    public static final String EXTRA_LYRICS_JSON = "lyricsJson";
+    public static final String EXTRA_POSITION = "position";
+    public static final String EXTRA_RATE = "rate";
+    public static final String EXTRA_FALLBACK_TEXT = "fallbackText";
+
     public static final int RESULT_SUCCESS = 1;
     public static final int RESULT_FAILURE = 2;
     public static final String RESULT_ERROR_CODE = "errorCode";
@@ -58,6 +81,30 @@ public class LyricOverlayService extends Service {
     private String nextText = "";
     private boolean locked;
 
+    private static class LyricLineEntry {
+        final double time;
+        final String text;
+        final String tr;
+
+        LyricLineEntry(double time, String text, String tr) {
+            this.time = time;
+            this.text = text != null ? text : "";
+            this.tr = tr != null ? tr : "";
+        }
+    }
+
+    private final List<LyricLineEntry> lyricEntries = new ArrayList<>();
+    private String fallbackText = "";
+
+    private boolean isClockRunning = false;
+    private double currentClockPosition = 0.0;
+    private long clockStartTimeMs = 0;
+    private float clockPlaybackRate = 1.0f;
+    private final Handler clockHandler = new Handler(Looper.getMainLooper());
+    private final Runnable clockTickRunnable = this::onClockTick;
+    private boolean isScreenOff = false;
+    private BroadcastReceiver screenStateReceiver;
+
     private int dragStartX;
     private int dragStartY;
     private float dragTouchX;
@@ -67,6 +114,33 @@ public class LyricOverlayService extends Service {
     public void onCreate() {
         super.onCreate();
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+        registerScreenStateReceiver();
+    }
+
+    private void registerScreenStateReceiver() {
+        screenStateReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (intent == null) return;
+                if (Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) {
+                    isScreenOff = true;
+                    clockHandler.removeCallbacks(clockTickRunnable);
+                } else if (Intent.ACTION_SCREEN_ON.equals(intent.getAction())) {
+                    isScreenOff = false;
+                    if (isClockRunning && windowAttached) {
+                        scheduleNextTick();
+                    }
+                }
+            }
+        };
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(Intent.ACTION_SCREEN_OFF);
+        filter.addAction(Intent.ACTION_SCREEN_ON);
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(screenStateReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(screenStateReceiver, filter);
+        }
     }
 
     @Override
@@ -86,10 +160,17 @@ public class LyricOverlayService extends Service {
             return;
         }
 
+        boolean isClockAction = ACTION_SET_LYRICS.equals(action)
+            || ACTION_PLAY_CLOCK.equals(action)
+            || ACTION_PAUSE_CLOCK.equals(action)
+            || ACTION_SET_CLOCK_RATE.equals(action)
+            || ACTION_CLEAR_LYRICS.equals(action);
+
         if (
-            ACTION_UPDATE.equals(action)
+            (ACTION_UPDATE.equals(action) || isClockAction)
                 && (!LyricOverlayPreferences.isVisible(this) || !Settings.canDrawOverlays(this))
         ) {
+            if (receiver != null) sendSuccess(receiver);
             return;
         }
 
@@ -122,6 +203,43 @@ public class LyricOverlayService extends Service {
                 if (receiver != null) sendSuccess(receiver);
                 return;
             }
+            if (ACTION_SET_LYRICS.equals(action)) {
+                String json = intent.getStringExtra(EXTRA_LYRICS_JSON);
+                String fallback = intent.getStringExtra(EXTRA_FALLBACK_TEXT);
+                parseLyricsJson(json);
+                fallbackText = fallback != null ? fallback : "";
+                ensureWindow();
+                if (isClockRunning) {
+                    scheduleNextTick();
+                } else {
+                    renderCurrentIndex();
+                }
+                if (receiver != null) sendSuccess(receiver);
+                return;
+            }
+            if (ACTION_PLAY_CLOCK.equals(action)) {
+                double pos = intent.getDoubleExtra(EXTRA_POSITION, 0.0);
+                startClock(pos);
+                if (receiver != null) sendSuccess(receiver);
+                return;
+            }
+            if (ACTION_PAUSE_CLOCK.equals(action)) {
+                pauseClock();
+                if (receiver != null) sendSuccess(receiver);
+                return;
+            }
+            if (ACTION_SET_CLOCK_RATE.equals(action)) {
+                float rate = intent.getFloatExtra(EXTRA_RATE, 1.0f);
+                setClockRate(rate);
+                if (receiver != null) sendSuccess(receiver);
+                return;
+            }
+            if (ACTION_CLEAR_LYRICS.equals(action)) {
+                String fallback = intent.getStringExtra(EXTRA_FALLBACK_TEXT);
+                clearLyrics(fallback);
+                if (receiver != null) sendSuccess(receiver);
+                return;
+            }
             if (ACTION_SET_LOCKED.equals(action)) {
                 if (!windowAttached) {
                     throw new IllegalStateException("悬浮歌词窗口尚未创建");
@@ -139,6 +257,7 @@ public class LyricOverlayService extends Service {
                 return;
             }
             if (ACTION_HIDE.equals(action)) {
+                pauseClock();
                 LyricOverlayPreferences.setVisible(this, false);
                 LyricOverlayPreferences.notifyNotificationStateChanged(this);
                 removeOverlayWindow();
@@ -168,7 +287,12 @@ public class LyricOverlayService extends Service {
     private boolean requiresOverlayPermission(String action) {
         return ACTION_SHOW.equals(action)
             || ACTION_UPDATE.equals(action)
-            || ACTION_SET_LOCKED.equals(action);
+            || ACTION_SET_LOCKED.equals(action)
+            || ACTION_SET_LYRICS.equals(action)
+            || ACTION_PLAY_CLOCK.equals(action)
+            || ACTION_PAUSE_CLOCK.equals(action)
+            || ACTION_SET_CLOCK_RATE.equals(action)
+            || ACTION_CLEAR_LYRICS.equals(action);
     }
 
     private String errorCodeForAction(String action) {
@@ -201,6 +325,149 @@ public class LyricOverlayService extends Service {
         receiver.send(RESULT_FAILURE, result);
     }
 
+    private void parseLyricsJson(String json) {
+        lyricEntries.clear();
+        if (json == null || json.trim().isEmpty()) {
+            return;
+        }
+        try {
+            JSONArray arr = new JSONArray(json);
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject obj = arr.getJSONObject(i);
+                double time = obj.optDouble("time", 0.0);
+                String text = obj.optString("text", "");
+                String tr = obj.optString("tr", "");
+                lyricEntries.add(new LyricLineEntry(time, text, tr));
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to parse lyrics json", e);
+        }
+    }
+
+    private void startClock(double position) {
+        currentClockPosition = Math.max(0.0, position);
+        clockStartTimeMs = SystemClock.elapsedRealtime();
+        isClockRunning = true;
+        ensureWindow();
+        scheduleNextTick();
+    }
+
+    private void pauseClock() {
+        if (isClockRunning) {
+            currentClockPosition = getCurrentPosition();
+            isClockRunning = false;
+        }
+        clockHandler.removeCallbacks(clockTickRunnable);
+    }
+
+    private void setClockRate(float rate) {
+        if (isClockRunning) {
+            currentClockPosition = getCurrentPosition();
+            clockStartTimeMs = SystemClock.elapsedRealtime();
+        }
+        clockPlaybackRate = rate > 0 ? rate : 1.0f;
+        if (isClockRunning && windowAttached) {
+            scheduleNextTick();
+        }
+    }
+
+    private void clearLyrics(String fallback) {
+        pauseClock();
+        lyricEntries.clear();
+        fallbackText = fallback != null ? fallback : "";
+        currentText = fallbackText;
+        nextText = "";
+        if (windowAttached) {
+            renderState();
+        }
+    }
+
+    private double getCurrentPosition() {
+        if (!isClockRunning) {
+            return currentClockPosition;
+        }
+        long elapsedMs = SystemClock.elapsedRealtime() - clockStartTimeMs;
+        return currentClockPosition + (elapsedMs / 1000.0) * clockPlaybackRate;
+    }
+
+    private void onClockTick() {
+        if (!isClockRunning || !windowAttached || isScreenOff) {
+            return;
+        }
+        scheduleNextTick();
+    }
+
+    private int findCurrentLineIndex(double position) {
+        if (lyricEntries.isEmpty()) return -1;
+        if (position < lyricEntries.get(0).time) return -1;
+        int low = 0;
+        int high = lyricEntries.size() - 1;
+        int current = -1;
+        while (low <= high) {
+            int mid = (low + high) / 2;
+            if (lyricEntries.get(mid).time <= position) {
+                current = mid;
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+        return current;
+    }
+
+    private void renderCurrentIndex() {
+        if (!windowAttached) return;
+        double pos = getCurrentPosition();
+        int index = findCurrentLineIndex(pos);
+        updateTextsForIndex(index);
+        renderState();
+    }
+
+    private void updateTextsForIndex(int index) {
+        if (index < 0) {
+            currentText = fallbackText != null && !fallbackText.isEmpty() ? fallbackText : "";
+            nextText = !lyricEntries.isEmpty() ? lyricEntries.get(0).text : "";
+        } else {
+            LyricLineEntry cur = lyricEntries.get(index);
+            currentText = cur.text;
+            if (cur.tr != null && !cur.tr.isEmpty()) {
+                nextText = cur.tr;
+            } else if (index + 1 < lyricEntries.size()) {
+                nextText = lyricEntries.get(index + 1).text;
+            } else {
+                nextText = "";
+            }
+        }
+    }
+
+    private void scheduleNextTick() {
+        clockHandler.removeCallbacks(clockTickRunnable);
+        if (!windowAttached) return;
+
+        double pos = getCurrentPosition();
+        int index = findCurrentLineIndex(pos);
+        updateTextsForIndex(index);
+        renderState();
+
+        if (isScreenOff || !isClockRunning) {
+            return;
+        }
+
+        double nextTime;
+        if (index < 0) {
+            if (lyricEntries.isEmpty()) return;
+            nextTime = lyricEntries.get(0).time;
+        } else if (index + 1 < lyricEntries.size()) {
+            nextTime = lyricEntries.get(index + 1).time;
+        } else {
+            return;
+        }
+
+        double diffSec = Math.max(0.01, (nextTime - pos) / clockPlaybackRate);
+        long delayMs = Math.max(16L, (long) Math.round(diffSec * 1000));
+        clockHandler.postDelayed(clockTickRunnable, delayMs);
+    }
+
     private void ensureWindow() {
         if (windowAttached) {
             return;
@@ -225,16 +492,25 @@ public class LyricOverlayService extends Service {
         overlayView.addView(nextLyricView, nextTextParams);
         overlayView.setOnTouchListener(this::handleDrag);
 
+        DisplayMetrics metrics = getResources().getDisplayMetrics();
+        int screenWidth = metrics.widthPixels;
+        int windowWidth = Math.min(dp(360), Math.max(dp(260), screenWidth - dp(24)));
+        int defaultX = Math.max(0, (screenWidth - windowWidth) / 2);
+        int defaultY = getStatusBarHeight() + dp(4);
+
+        int initialX = LyricOverlayPreferences.getPositionX(this, defaultX);
+        int initialY = LyricOverlayPreferences.getPositionY(this, defaultY);
+
         layoutParams = new WindowManager.LayoutParams(
-            dp(320),
+            windowWidth,
             WindowManager.LayoutParams.WRAP_CONTENT,
             windowType(),
             windowFlags(),
             PixelFormat.TRANSLUCENT
         );
         layoutParams.gravity = Gravity.TOP | Gravity.START;
-        layoutParams.x = dp(20);
-        layoutParams.y = dp(100);
+        layoutParams.x = initialX;
+        layoutParams.y = initialY;
 
         windowManager.addView(overlayView, layoutParams);
         windowAttached = true;
@@ -383,6 +659,9 @@ public class LyricOverlayService extends Service {
                 windowManager.updateViewLayout(overlayView, layoutParams);
                 return true;
             case MotionEvent.ACTION_UP:
+                clampWindowPosition(view);
+                LyricOverlayPreferences.setPosition(this, layoutParams.x, layoutParams.y);
+                return true;
             case MotionEvent.ACTION_CANCEL:
                 return true;
             default:
@@ -406,6 +685,18 @@ public class LyricOverlayService extends Service {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
+    private int getStatusBarHeight() {
+        int result = 0;
+        int resourceId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        if (resourceId > 0) {
+            result = getResources().getDimensionPixelSize(resourceId);
+        }
+        if (result <= 0) {
+            result = dp(28);
+        }
+        return result;
+    }
+
     private void removeOverlayWindow() {
         if (!windowAttached) {
             return;
@@ -420,6 +711,13 @@ public class LyricOverlayService extends Service {
 
     @Override
     public void onDestroy() {
+        pauseClock();
+        if (screenStateReceiver != null) {
+            try {
+                unregisterReceiver(screenStateReceiver);
+            } catch (Exception ignored) {}
+            screenStateReceiver = null;
+        }
         LyricOverlayPreferences.setVisible(this, false);
         LyricOverlayPreferences.notifyNotificationStateChanged(this);
         if (windowAttached) {

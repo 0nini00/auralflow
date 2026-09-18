@@ -4,12 +4,13 @@ import { resolveWySongUrl } from "./wyDirectProvider";
 import { resolveBiliSongUrl } from "./biliService";
 import { usePlayerStore } from "../stores/playerStore";
 import type { PlayMode } from "../stores/playerStore";
-import { useHistoryStore } from "../stores/historyStore";
+import { startListeningSession } from "./listenTrackerService";
 import { useCustomSourceStore } from "../stores/customSourceStore";
 import { requestCustomSourceMusicUrl } from "./customSourceRuntime";
 import { cacheCover, cacheLyrics, getCachedLyrics, cacheAudioFile, getCachedAudioFile, isLocalFilePlayable, CACHEABLE_AUDIO_SOURCES } from "./cacheService";
 import { getCachedPlaybackUrl, saveCachedPlaybackUrl, invalidateCachedPlaybackUrl } from "./playbackUrlCache";
-import { getPersonalFmSongs, trashPersonalFmSong } from "./wyPlaylistService";
+import { getHeartbeatModeList, getPersonalFmSongs, trashPersonalFmSong } from "./wyPlaylistService";
+import { appendHeartbeatRefill, consumeHeartbeatNext } from "@lx/core";
 import { getNextQueueNavigationState, getPreviousQueueNavigationState } from "@/services/queueNavigationModel";
 import { dequeueTempPlayList, insertSongToPlayNext } from "@/services/songQueueActions";
 import { buildPlaybackQualityTiers, getPlaybackQualityFallbacks, normalizePlaybackQuality, resolveEffectivePlaybackQuality, type PlaybackQuality } from "@/services/playbackQualityModel";
@@ -352,35 +353,36 @@ async function resolveSongUrl(
         // 防盗链 headers 统一按音源补齐：LX 自定义音源返回的也多为 wy/tx 官方 CDN 链接，
         // 缺 Referer 会直接 403（竞速版本初期的回归点）；其他源 CDN 无 Referer 要求，多带无害。
         const candidateHeaders = buildStreamHeaders(song.source);
-        // 死代理探活：LX 音源代理等黑盒服务器可能 TCP 连上后永不返回数据，
-        // ExoPlayer 会无限缓冲无任何错误。竞速胜出后用 1 字节 Range 探测可用性，
-        // 探不通视为该轮失败，继续降下一档音质重试。
-        const probe = await probeStreamUrl(racedResult.url, candidateHeaders);
-        if (!probe.ok) {
-          // 带上地址来源（协议 + 主机，不含可能含 token 的路径与查询串）：
-          // 明文 http 被 Android 拦截、代理域名不可达等失败在错误文案上无法区分，
-          // 没有来源信息只能靠猜。
-          lastTierError = new Error(
-            `解析的播放地址不可用（${probe.reason}）[${describeUrlOrigin(racedResult.url)}]`,
-          );
-          continue;
-        }
-        // 试听判定：30s 试听与完整版同样返回 206，靠 Content-Range / Content-Length
-        // 估算流时长后与期望时长（song.interval）比对，是试听则本档作废继续降档。
-        if (
-          probe.ok &&
-          probe.totalBytes != null &&
-          isPreviewStream({
-            totalBytes: probe.totalBytes,
-            quality: racedResult.quality,
-            expectedDurationSeconds: song.interval,
-          })
-        ) {
-          const previewSeconds = estimateStreamDurationSeconds(probe.totalBytes, racedResult.quality);
-          lastTierError = new Error(
-            `解析到试听片段（约 ${Math.round(previewSeconds ?? 0)}s），已跳过并降档重试`,
-          );
-          continue;
+        // 死代理探活：仅对来自第三方自定义音源代理的结果做 1 字节探活，
+        // 官方网关直连 CDN 稳定可靠，跳过冗余探活省去一次全握手往返（节省 300~800ms 切歌延迟）。
+        if (racedResult.fromCustomSource) {
+          const probe = await probeStreamUrl(racedResult.url, candidateHeaders);
+          if (!probe.ok) {
+            // 带上地址来源（协议 + 主机，不含可能含 token 的路径与查询串）：
+            // 明文 http 被 Android 拦截、代理域名不可达等失败在错误文案上无法区分，
+            // 没有来源信息只能靠猜。
+            lastTierError = new Error(
+              `解析的播放地址不可用（${probe.reason}）[${describeUrlOrigin(racedResult.url)}]`,
+            );
+            continue;
+          }
+          // 试听判定：30s 试听与完整版同样返回 206，靠 Content-Range / Content-Length
+          // 估算流时长后与期望时长（song.interval）比对，是试听则本档作废继续降档。
+          if (
+            probe.ok &&
+            probe.totalBytes != null &&
+            isPreviewStream({
+              totalBytes: probe.totalBytes,
+              quality: racedResult.quality,
+              expectedDurationSeconds: song.interval,
+            })
+          ) {
+            const previewSeconds = estimateStreamDurationSeconds(probe.totalBytes, racedResult.quality);
+            lastTierError = new Error(
+              `解析到试听片段（约 ${Math.round(previewSeconds ?? 0)}s），已跳过并降档重试`,
+            );
+            continue;
+          }
         }
         raced = racedResult;
         url = racedResult.url;
@@ -431,7 +433,7 @@ async function resolveSongUrl(
     // 3.6 后台缓存音频文件到本地（仅 wy/tx，对齐桌面端 CACHEABLE_AUDIO_SOURCES），
     // 下载完成后把本地 file:// 写回持久化缓存与预读缓存，下次播放离线即开。
     if (CACHEABLE_AUDIO_SOURCES.has(song.source) && /^https?:\/\//i.test(url)) {
-      void cacheAudioFile(url, song, cacheQuality)
+      void cacheAudioFile(url, song, cacheQuality, headers)
         .then((localPath) => {
           if (!localPath) return;
           prefetchCache.set(buildPlaybackPrefetchKey(song, cacheQuality), {
@@ -681,7 +683,7 @@ function getNextSongForPrefetch(): MusicInfo | undefined {
   const { playbackContext, queue, currentIndex, playMode, tempPlayList, shuffleHistory, playedIndices } =
     usePlayerStore.getState();
   if (tempPlayList.length > 0) return tempPlayList[0];
-  if (playbackContext.type === "personalFm") {
+  if (playbackContext.type === "personalFm" || playbackContext.type === "heartbeat") {
     return (
       playbackContext.currentBatch[playbackContext.currentBatchIndex + 1] ?? playbackContext.buffer[0]
     );
@@ -751,13 +753,19 @@ async function completeQueuedSwitchStep(): Promise<void> {
 
 async function playSongCore(song: MusicInfo, startPosition?: number): Promise<void> {
   const { play, setLoading, setError } = usePlayerStore.getState();
-  const { addToHistory } = useHistoryStore.getState();
   const intent = ++playIntentSeq;
   // 总帽定时器句柄提到 try 外：finally 里统一清理，不在播放会话里留空转句柄
   let budgetTimer: ReturnType<typeof setTimeout> | undefined;
   try {
-    setLoading(true);
-    setError(null);
+    // 先切 UI：封面/歌名立刻跟上手指，URL 解析在后台跑，避免「点了还播上一首」。
+    usePlayerStore.setState({
+      currentSong: song,
+      loading: true,
+      error: null,
+      position: startPosition && startPosition > 0 ? startPosition : 0,
+      duration: song.interval || 0,
+      lyrics: [],
+    });
     // 1. 解析播放 URL（命中预读缓存时无需等待网络）。
     // 整条解析链（内置降级链→自定义源兜底、bili 多级取链）统一套 12s 总预算帽：
     // 超时后迟到的解析结果不会再走到 play（await 已 reject）；
@@ -772,10 +780,9 @@ async function playSongCore(song: MusicInfo, startPosition?: number): Promise<vo
     if (intent !== playIntentSeq) return;
     // 2. 播放（B站音源需要带 headers；startPosition 用于快照恢复续播）
     await play(song, url, headers, startPosition);
-    // 3. 添加到历史（过期请求不写历史：play 因竞态被丢弃时静默 return、
-    //    不会把 currentSong 置为本次的 song，据此跳过历史写入）
+    // 3. 启动听歌时长追踪（满足 2 分钟或 50% 播放条件才记入历史与打点，过期请求不启动）
     if (usePlayerStore.getState().currentSong === song) {
-      await addToHistory(song);
+      startListeningSession(song, startPosition ?? 0);
       // 歌词同样以「本曲仍是在播曲」为前提加载，避免过期请求把别首歌的歌词
       // 写进 store 造成音词错位；intent 序号贯穿 loadLyrics 的每个 await 之后
       loadLyrics(song, intent);
@@ -784,8 +791,12 @@ async function playSongCore(song: MusicInfo, startPosition?: number): Promise<vo
     if (song.picUrl || song.img) {
       cacheCover(song.picUrl || song.img!).catch(() => undefined);
     }
-    // 5. 异步预读邻近歌曲（下一首）：解析 URL/歌词/封面入缓存，下一首提前入队
-    prefetchNearbySongs();
+    // 5. 异步预读邻近歌曲（下一首）：延迟 800ms 触发，将首帧 CPU 与带宽完全让给当前曲起播
+    setTimeout(() => {
+      if (usePlayerStore.getState().currentSong === song) {
+        prefetchNearbySongs();
+      }
+    }, 800);
   } catch (error) {
     const message = error instanceof Error ? error.message : "播放失败";
     setError(message);
@@ -880,6 +891,8 @@ export async function playFromQueue(index: number, startPosition?: number): Prom
   const song = queue[index];
   if (playbackContext.type === "personalFm") {
     usePlayerStore.getState().setPersonalFmBatchIndex(index);
+  } else if (playbackContext.type === "heartbeat") {
+    usePlayerStore.getState().setHeartbeatBatchIndex(index);
   } else {
     usePlayerStore.setState({ currentIndex: index });
   }
@@ -953,6 +966,11 @@ export async function playNext(auto = false): Promise<void> {
     return;
   }
 
+  if (playbackContext.type === "heartbeat") {
+    await playNextHeartbeatSong();
+    return;
+  }
+
   const next = getNextQueueNavigationState({
     queueLength: queue.length,
     currentIndex,
@@ -981,7 +999,7 @@ export async function playPrevious(): Promise<void> {
   try {
   const { playbackContext, queue, currentIndex, position, playMode, shuffleHistory } = usePlayerStore.getState();
   if (queue.length === 0) return;
-  if (playbackContext.type === "personalFm") {
+  if (playbackContext.type === "personalFm" || playbackContext.type === "heartbeat") {
     if (position > 3) {
       await usePlayerStore.getState().seekTo(0);
       return;
@@ -991,7 +1009,11 @@ export async function playPrevious(): Promise<void> {
       await usePlayerStore.getState().seekTo(0);
       return;
     }
-    usePlayerStore.getState().setPersonalFmBatchIndex(prevIndex);
+    if (playbackContext.type === "personalFm") {
+      usePlayerStore.getState().setPersonalFmBatchIndex(prevIndex);
+    } else {
+      usePlayerStore.getState().setHeartbeatBatchIndex(prevIndex);
+    }
     await playFromQueue(prevIndex);
     return;
   }
@@ -1125,6 +1147,90 @@ export async function dislikeCurrentPersonalFmSong(): Promise<void> {
   await trashPersonalFmSong(currentSong.id);
   store.markCurrentPersonalFmSongSkipped();
   await playNextPersonalFmSong();
+}
+
+/**
+ * 启动心动模式（基于种子歌曲与网易云红心歌单 ID）
+ */
+export async function startHeartbeat(seedSong: MusicInfo, playlistId: string): Promise<MusicInfo[]> {
+  const songs = await getHeartbeatModeList(seedSong.id, playlistId);
+  if (songs.length === 0) {
+    throw new Error("暂无可播放的心动模式推荐歌曲");
+  }
+
+  const rest = songs.filter((s) => s.id !== seedSong.id);
+  usePlayerStore.getState().setHeartbeatContext({
+    seedSongId: seedSong.id,
+    playlistId,
+    currentBatch: [seedSong],
+    currentBatchIndex: 0,
+    buffer: rest,
+    hasMore: true,
+  });
+
+  await playSongCore(seedSong);
+  return [seedSong, ...rest];
+}
+
+export async function playNextHeartbeatSong(): Promise<void> {
+  const store = usePlayerStore.getState();
+  const context = store.playbackContext;
+  if (context.type !== "heartbeat") {
+    return;
+  }
+
+  const { nextSong, nextBatch, nextBatchIndex, nextBuffer, needsRefill } =
+    consumeHeartbeatNext(context.currentBatch, context.currentBatchIndex, context.buffer);
+
+  if (!nextSong) {
+    const currentSong = store.currentSong;
+    if (!currentSong) throw new Error("心动模式暂无更多推荐歌曲");
+    const fresh = await getHeartbeatModeList(currentSong.id, context.playlistId);
+    if (fresh.length === 0) {
+      throw new Error("心动模式暂无更多推荐歌曲");
+    }
+    const [first, ...rest] = fresh;
+    usePlayerStore.getState().setHeartbeatContext({
+      seedSongId: context.seedSongId,
+      playlistId: context.playlistId,
+      currentBatch: [...context.currentBatch, first].slice(-FM_HISTORY_MAX),
+      currentBatchIndex: Math.min(context.currentBatch.length, FM_HISTORY_MAX - 1),
+      buffer: rest,
+      hasMore: true,
+    });
+    await playSongCore(first);
+    return;
+  }
+
+  const truncatedBatch = nextBatch.slice(-FM_HISTORY_MAX);
+  const truncatedIndex = Math.min(nextBatchIndex, truncatedBatch.length - 1);
+
+  usePlayerStore.getState().setHeartbeatContext({
+    seedSongId: context.seedSongId,
+    playlistId: context.playlistId,
+    currentBatch: truncatedBatch,
+    currentBatchIndex: truncatedIndex,
+    buffer: nextBuffer,
+    hasMore: context.hasMore,
+  });
+
+  await playSongCore(nextSong);
+
+  if (needsRefill && context.hasMore) {
+    void (async () => {
+      try {
+        const refill = await getHeartbeatModeList(nextSong.id, context.playlistId);
+        const latest = usePlayerStore.getState().playbackContext;
+        if (latest.type === "heartbeat") {
+          const existingKeys = new Set(latest.currentBatch.map((s) => `${s.source}:${s.id}`));
+          const { nextBuffer: appended } = appendHeartbeatRefill(latest.buffer, refill, existingKeys);
+          usePlayerStore.getState().appendHeartbeatBuffer(appended.slice(latest.buffer.length), true);
+        }
+      } catch (err) {
+        console.warn("[Heartbeat] 续批推荐失败 (静默忽略):", err);
+      }
+    })();
+  }
 }
 
 /**

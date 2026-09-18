@@ -21,6 +21,7 @@ import {
   duplicateLocalPlaylist as duplicateLocalPlaylistModel,
   type DuplicateLocalPlaylistOptions,
   removeSongFromLocalPlaylist as removeSongFromLocalPlaylistModel,
+  removeSongsFromLocalPlaylist as removeSongsFromLocalPlaylistModel,
   renameLocalPlaylist as renameLocalPlaylistModel,
   updateLocalPlaylistInfo as updateLocalPlaylistInfoModel,
   type UpdateLocalPlaylistInfoInput,
@@ -74,6 +75,7 @@ interface PlaylistActions {
   addSongToWyPlaylist: (playlistId: string, song: MusicInfo) => Promise<void>;
   removeSongFromWyPlaylist: (playlistId: string, song: MusicInfo) => Promise<void>;
   removeSongFromLocalPlaylist: (playlistId: string, song: Pick<MusicInfo, "source" | "id">, now?: number) => Promise<void>;
+  removeSongsFromLocalPlaylist: (playlistId: string, songs: Array<Pick<MusicInfo, "source" | "id">>, now?: number) => Promise<void>;
   /** WebDAV 同步覆盖：替换云端歌单列表（收藏在 favoritesStore、本地歌单单独替换）。 */
   replaceAllFromSync: (playlists: WyPlaylistInfo[]) => void;
   /** WebDAV 同步合并：云端歌单/本地歌单与远端合并（不丢本地独有项）。 */
@@ -91,9 +93,13 @@ async function persistLocalPlaylists(localPlaylists: LocalPlaylist[]): Promise<v
 
 function parseLocalPlaylists(raw: string | null): LocalPlaylist[] {
   if (!raw) return [];
-  const parsed = JSON.parse(raw) as unknown;
-  if (!Array.isArray(parsed)) throw new Error("本地歌单数据格式错误");
-  return parsed as LocalPlaylist[];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) throw new Error("本地歌单数据格式错误");
+    return parsed as LocalPlaylist[];
+  } catch (error) {
+    throw error instanceof Error ? error : new Error("本地歌单数据格式错误");
+  }
 }
 
 function songKey(song: Pick<MusicInfo, "source" | "id">): string {
@@ -493,6 +499,18 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
       set({ localPlaylists, error: null });
     } catch (error) {
       const message = error instanceof Error ? error.message : "从本地歌单移除歌曲失败";
+      set({ error: message });
+      throw error;
+    }
+  },
+
+  removeSongsFromLocalPlaylist: async (playlistId, songs, now) => {
+    try {
+      const localPlaylists = removeSongsFromLocalPlaylistModel(get().localPlaylists, playlistId, songs, now);
+      await persistLocalPlaylists(localPlaylists);
+      set({ localPlaylists, error: null });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "批量从本地歌单移除歌曲失败";
       set({ error: message });
       throw error;
     }

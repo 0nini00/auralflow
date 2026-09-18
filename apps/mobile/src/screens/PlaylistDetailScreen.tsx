@@ -10,7 +10,7 @@ import {
   Pressable,
 } from "react-native";
 import type { MusicInfo } from "@lx/core";
-import { Download, ListEnd, ListPlus, ListStart, Music2, SquareCheckBig } from "lucide-react-native";
+import { Download, FolderPlus, ListEnd, ListPlus, ListStart, Music2, SquareCheckBig } from "lucide-react-native";
 import type { WyPlaylistInfo } from "@/services/wyPlaylistService";
 
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
@@ -29,6 +29,9 @@ import {
   canRemoveSongsFromPlaylistDetail,
   findPlaylistCurrentSongIndex,
 } from "@/services/playlistDetailActions";
+import { Touchable } from "@/components/Touchable";
+import { withAlpha } from "@/services/themePaletteModel";
+import { hapticLight } from "@/services/hapticService";
 import { ActionButton } from "@/components/ActionButton";
 import { BatchActionBar, batchToolbarPositionStyle } from "@/components/BatchActionBar";
 import { SongList } from "@/components/SongList";
@@ -421,13 +424,25 @@ export function PlaylistDetailScreen({
                 title="歌曲"
                 description={`${songs.length} 首`}
                 action={songs.length > 0 && !selectionMode ? (
-                  <Pressable
-                    style={[styles.selectButton, { backgroundColor: palette.surface }]}
-                    onPress={() => setSelectionMode(true)}
+                  <Touchable
+                    style={[
+                      styles.selectButton,
+                      {
+                        backgroundColor: withAlpha(palette.primary, 0.08),
+                        borderColor: withAlpha(palette.primary, 0.2),
+                      },
+                    ]}
+                    onPress={() => {
+                      hapticLight();
+                      setSelectionMode(true);
+                    }}
+                    activeScale={0.96}
+                    accessibilityRole="button"
+                    accessibilityLabel="批量选择歌曲"
                   >
-                    <SquareCheckBig size={17} color={palette.primary} />
-                    <Text style={[styles.selectButtonText, { color: palette.primary }]}>选择</Text>
-                  </Pressable>
+                    <SquareCheckBig size={14} color={palette.primary} />
+                    <Text style={[styles.selectButtonText, { color: palette.primary }]}>多选</Text>
+                  </Touchable>
                 ) : undefined}
               />
             </View>
@@ -536,17 +551,18 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   selectButton: {
-    minHeight: layout.compactControlHeight,
+    height: 30,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: spacing.xxs,
-    paddingHorizontal: spacing.s,
-    borderRadius: radius.md,
+    gap: 4,
+    paddingHorizontal: 10,
+    borderRadius: 15,
+    borderWidth: 1,
   },
   selectButtonText: {
-    fontSize: typography.body,
-    fontWeight: "700",
+    fontSize: typography.caption,
+    fontWeight: "600",
   },
   selectionScrollContent: {
     paddingBottom: 152,

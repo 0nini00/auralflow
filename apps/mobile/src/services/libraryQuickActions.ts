@@ -1,4 +1,7 @@
-export type LibraryQuickActionType = "openLikedPlaylist";
+export type LibraryQuickActionType =
+  | "openLikedPlaylist"
+  | "openFollowedArtists"
+  | "openSubscribedAlbums";
 
 export interface LibraryQuickAction {
   action: LibraryQuickActionType;
@@ -12,6 +15,7 @@ export interface BuildLibraryQuickActionsInput {
   favoritesCount: number;
   likedCoverUri?: string | null;
   historyCoverUri?: string | null;
+  isWyLoggedIn?: boolean;
 }
 
 export function buildLibraryQuickActions(input: BuildLibraryQuickActionsInput): LibraryQuickAction[] {
@@ -23,6 +27,18 @@ export function buildLibraryQuickActions(input: BuildLibraryQuickActionsInput): 
       subtitle: input.favoritesCount > 0 ? `${input.favoritesCount} 首歌曲` : "还没有喜欢的歌曲",
       disabled: false,
       ...(input.likedCoverUri ? { coverUri: input.likedCoverUri } : {}),
+    },
+    {
+      action: "openFollowedArtists",
+      title: "关注歌手",
+      subtitle: input.isWyLoggedIn ? "网易云关注列表" : "登录网易云查看",
+      disabled: !input.isWyLoggedIn,
+    },
+    {
+      action: "openSubscribedAlbums",
+      title: "收藏专辑",
+      subtitle: input.isWyLoggedIn ? "网易云收藏列表" : "登录网易云查看",
+      disabled: !input.isWyLoggedIn,
     },
   ];
 }

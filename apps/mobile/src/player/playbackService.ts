@@ -5,6 +5,7 @@ import { shouldAutoSkipAfterFailure } from "@/services/playbackFailurePolicy";
 import { usePlaybackSettingsStore } from "@/stores/playbackSettingsStore";
 import { shouldAttributePlaybackErrorToCurrentSong, usePlayerStore } from "@/stores/playerStore";
 import { SILENCE_GAP_TRACK_ID } from "@/stores/playerStore";
+import { acquirePlaybackWakeLock, releasePlaybackWakeLock } from "@/services/wakeLockService";
 
 /**
  * 后台播放服务
@@ -66,6 +67,12 @@ export default async function playbackService() {
       await TrackPlayer.setVolume(action.volume);
       // duck 态落库：切歌淡入以该音量为上限；中断结束（paused=false）恢复音量时清除标记
       usePlayerStore.setState({ externalDuckVolume: paused ? action.volume : null });
+      return;
+    }
+
+    // action.type === "none"：不暂停且不降低音量；确保清除可能残留的 duck 标记
+    if (usePlayerStore.getState().externalDuckVolume != null) {
+      usePlayerStore.setState({ externalDuckVolume: null });
     }
   });
 
@@ -75,8 +82,8 @@ export default async function playbackService() {
   // 后台后 JS 被挂起，切歌要等用户回到前台才发生。本服务是 TrackPlayer 的
   // 后台服务，播放期间保持存活。
   //
-  // 主路径是 PlaybackActiveTrackChanged：每首歌尾部挂了 2 秒静音占位轨，
-  // 原生队列自动推进到它时播放并未中断，这 2 秒就是解析下一首的窗口。
+  // 主路径是 PlaybackActiveTrackChanged：每首歌尾部挂静音占位轨，
+  // 原生队列自动推进到它时播放并未中断，这段窗口用来解析下一首。
   // PlaybackQueueEnded 作为兜底：静音也播完仍没切走时再试一次。
   TrackPlayer.addEventListener(Event.PlaybackActiveTrackChanged, async ({ track }) => {
     if (!track || track.id !== SILENCE_GAP_TRACK_ID) return;
@@ -85,6 +92,22 @@ export default async function playbackService() {
 
   TrackPlayer.addEventListener(Event.PlaybackQueueEnded, async () => {
     await advanceAfterTrackFinished();
+  });
+
+  // 后台播放进度更新：曲末 10s 触发下一首预读（解决退后台时 UI 监听器被系统暂停导致无法提前预读的问题）
+  let prefetchUpcoming: ((position: number, duration: number) => void) | null = null;
+  TrackPlayer.addEventListener(Event.PlaybackProgressUpdated, ({ position, duration }) => {
+    if (usePlayerStore.getState().onSilenceGap) return;
+    if (prefetchUpcoming) {
+      prefetchUpcoming(position, duration);
+      return;
+    }
+    void import("../services/playerService").then((mod) => {
+      prefetchUpcoming = mod.prefetchUpcomingSongNearEnd;
+      if (!usePlayerStore.getState().onSilenceGap) {
+        prefetchUpcoming(position, duration);
+      }
+    });
   });
 
   // 播放失败的有限自动跳过。
@@ -113,22 +136,25 @@ let advancingInBackground = false;
 async function advanceAfterTrackFinished(): Promise<void> {
   if (advancingInBackground) return;
   advancingInBackground = true;
+  await acquirePlaybackWakeLock(25_000);
   try {
     // 有歌自然播完即说明播放链是通的：失败连跳计数归零，下次故障重新从 0 起算
     consecutiveAutoSkips = 0;
     const { playMode, queue, playbackContext } = usePlayerStore.getState();
 
-    if (playbackContext.type !== "personalFm" && playMode === "single") {
+    if (playbackContext.type !== "personalFm" && playbackContext.type !== "heartbeat" && playMode === "single") {
       // 单曲循环：回到队列首位的真实曲目重播（index 1 是静音占位）
       try {
         await TrackPlayer.skip(0);
-      } catch {}
+      } catch (error) {
+        console.warn("TrackPlayer.skip(0) failed:", error);
+      }
       await TrackPlayer.seekTo(0);
       await TrackPlayer.play();
       return;
     }
 
-    if (queue.length > 0 || playbackContext.type === "personalFm") {
+    if (queue.length > 0 || playbackContext.type === "personalFm" || playbackContext.type === "heartbeat") {
       const { playNext } = await import("../services/playerService");
       try {
         await playNext(true);  // 曲末自动推进:同失败跳过,防被当补跳多跳一首
@@ -139,6 +165,7 @@ async function advanceAfterTrackFinished(): Promise<void> {
       }
     }
   } finally {
+    await releasePlaybackWakeLock();
     advancingInBackground = false;
   }
 }
@@ -164,8 +191,8 @@ let lastAutoSkipAt = 0;
 function resolveAutoSkipBlockReason(): string | null {
   const { playbackContext, playMode, queue, currentIndex, tempPlayList, shuffleHistory, playedIndices } =
     usePlayerStore.getState();
-  // FM 上下文永远有下一首（可继续拉新批次），且 FM 不受单曲循环影响
-  if (playbackContext.type === "personalFm") return null;
+  // FM/心动 上下文永远有下一首（可继续拉新批次），且 FM/心动 不受单曲循环影响
+  if (playbackContext.type === "personalFm" || playbackContext.type === "heartbeat") return null;
   // 单曲循环优先于稍后播放：单曲模式下不得自动跳走，保留错误交给用户
   if (playMode === "single") return "单曲循环";
   // 稍后播放暂存区里必有下一首（playNext 会优先消费它）

@@ -1,21 +1,33 @@
-import { Modal, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import React from "react";
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Download,
   ListEnd,
   ListMusic,
   ListStart,
+  Music2,
   Pencil,
   Share2,
   Trash2,
   Video,
   type LucideIcon,
 } from "lucide-react-native";
+import type { MusicInfo } from "@lx/core";
 
-import { radius, typography } from "@/theme/tokens";
-
+import { radius, spacing, typography } from "@/theme/tokens";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { Touchable } from "@/components/Touchable";
+import { CachedImage } from "@/components/CachedImage";
+import { withAlpha } from "@/services/themePaletteModel";
 
 export type ActionMenuIconKey =
   | "playNext"
@@ -46,91 +58,120 @@ export interface ActionMenuItem {
   disabled?: boolean;
 }
 
-/** 触发按钮在窗口内的坐标（lx ListMenu 用 measure 获取，这里用点击点 pageX/pageY） */
+/** 触发按钮在窗口内的坐标（保持接口兼容） */
 export interface ActionMenuAnchor {
   x: number;
   y: number;
 }
 
-interface ActionMenuSheetProps {
+export interface ActionMenuSheetProps {
   visible: boolean;
   title?: string;
+  song?: MusicInfo | null;
   items: ActionMenuItem[];
-  anchor: ActionMenuAnchor | null;
+  anchor?: ActionMenuAnchor | null;
   onClose: () => void;
 }
 
-const ITEM_HEIGHT = 44;
-const MENU_WIDTH = 212;
-const SCREEN_EDGE_GAP = 8;
-const ANCHOR_GAP = 6;
-
 /**
- * 对齐 lx 的 ListMenu：锚定在触发按钮/点击点附近的弹出菜单，
- * 自动判断下方/上方、靠左/靠右，避免全宽白色底部弹层。
+ * 现代移动端歌曲更多操作抽屉（Bottom Action Sheet）：
+ * - 顶部配有圆角拉手与当前歌曲概要（封面缩略图、歌名、歌手与专辑）；
+ * - 底部舒适大触控热区（图标 + 文案），单手操作友好；
+ * - 自动适配底部安全区域，点击遮罩快速关闭。
  */
-export function ActionMenuSheet({ visible, title, items, anchor, onClose }: ActionMenuSheetProps) {
+export function ActionMenuSheet({
+  visible,
+  title,
+  song,
+  items,
+  onClose,
+}: ActionMenuSheetProps) {
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
-  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
-  const titleHeight = title ? 36 : 0;
-  const menuHeight = Math.min(
-    titleHeight + items.length * ITEM_HEIGHT + 16,
-    windowHeight - insets.top - insets.bottom - 24,
-  );
-
-  const position = (() => {
-    if (!anchor) {
-      // 兜底：无锚点时水平居中于底部上方
-      return {
-        left: Math.max(SCREEN_EDGE_GAP, (windowWidth - MENU_WIDTH) / 2),
-        top: Math.max(insets.top + SCREEN_EDGE_GAP, windowHeight - insets.bottom - menuHeight - 48),
-      };
-    }
-    let top = anchor.y + ANCHOR_GAP;
-    if (top + menuHeight > windowHeight - insets.bottom - SCREEN_EDGE_GAP) {
-      top = anchor.y - menuHeight - ANCHOR_GAP;
-    }
-    top = Math.max(insets.top + SCREEN_EDGE_GAP, Math.min(top, windowHeight - insets.bottom - menuHeight - SCREEN_EDGE_GAP));
-
-    let left = anchor.x;
-    if (left + MENU_WIDTH > windowWidth - SCREEN_EDGE_GAP) {
-      left = Math.max(SCREEN_EDGE_GAP, windowWidth - MENU_WIDTH - SCREEN_EDGE_GAP);
-    }
-    left = Math.min(left, windowWidth - MENU_WIDTH - SCREEN_EDGE_GAP);
-    return { left, top };
-  })();
+  const songName = song?.name || title || "";
+  const songArtist = song?.singer || "";
+  const songAlbum = song?.albumName || "";
+  const subMeta = [songArtist, songAlbum].filter(Boolean).join(" · ");
+  const artwork = song?.picUrl || song?.img;
 
   return (
     <Modal
       visible={visible}
       transparent
-      animationType="fade"
+      animationType="slide"
       statusBarTranslucent
       onRequestClose={onClose}
     >
-      <Pressable style={styles.backdrop} onPress={onClose}>
+      <View style={styles.overlay}>
+        <Pressable
+          style={styles.backdrop}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="关闭菜单"
+        />
         <View
           style={[
-            styles.menu,
+            styles.sheet,
             {
               backgroundColor: palette.surface,
-              left: position.left,
-              top: position.top,
-              width: MENU_WIDTH,
+              maxHeight: windowHeight * 0.75,
+              paddingBottom: Math.max(insets.bottom, spacing.m),
             },
           ]}
         >
-          {title ? (
-            <Text style={[styles.title, { color: palette.textMuted }]} numberOfLines={1}>
-              {title}
-            </Text>
+          {/* 顶部胶囊拉手 */}
+          <View style={styles.handleContainer}>
+            <View style={[styles.handle, { backgroundColor: palette.border }]} />
+          </View>
+
+          {/* 歌曲信息摘要头部 */}
+          {songName ? (
+            <View style={styles.header}>
+              <View style={[styles.artworkWrap, { backgroundColor: palette.surfaceStrong }]}>
+                {artwork ? (
+                  <CachedImage
+                    uri={artwork}
+                    size={48}
+                    style={styles.artwork}
+                    fallback={
+                      <View style={styles.artworkFallback}>
+                        <Music2 size={20} color={palette.textMuted} />
+                      </View>
+                    }
+                  />
+                ) : (
+                  <View style={styles.artworkFallback}>
+                    <Music2 size={20} color={palette.textMuted} />
+                  </View>
+                )}
+              </View>
+              <View style={styles.headerTextWrap}>
+                <Text style={[styles.songTitle, { color: palette.text }]} numberOfLines={1}>
+                  {songName}
+                </Text>
+                {subMeta ? (
+                  <Text style={[styles.songMeta, { color: palette.textMuted }]} numberOfLines={1}>
+                    {subMeta}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
           ) : null}
-          <View>
+
+          <View style={[styles.divider, { backgroundColor: palette.border }]} />
+
+          {/* 菜单操作列表 */}
+          <ScrollView
+            style={styles.menuScroll}
+            contentContainerStyle={styles.menuContent}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+          >
             {items.map((item, index) => {
               const Icon = item.icon ? ACTION_MENU_ICONS[item.icon] : null;
               const iconColor = item.disabled
@@ -142,10 +183,13 @@ export function ActionMenuSheet({ visible, title, items, anchor, onClose }: Acti
               return (
                 <Touchable
                   key={`${item.label}-${index}`}
-                  style={styles.item}
+                  style={[
+                    styles.item,
+                    item.danger && { backgroundColor: withAlpha(palette.danger, 0.04) },
+                  ]}
                   disabled={item.disabled}
-                  activeScale={1}
-                  activeOpacity={0.55}
+                  activeScale={0.99}
+                  activeOpacity={0.65}
                   accessibilityRole="button"
                   accessibilityLabel={item.label}
                   accessibilityState={{ disabled: item.disabled }}
@@ -154,13 +198,24 @@ export function ActionMenuSheet({ visible, title, items, anchor, onClose }: Acti
                     item.onPress();
                   }}
                 >
-                  {Icon ? <Icon size={18} color={iconColor} style={styles.itemIcon} /> : null}
+                  <View
+                    style={[
+                      styles.iconCircle,
+                      {
+                        backgroundColor: item.danger
+                          ? withAlpha(palette.danger, 0.1)
+                          : palette.surfaceMuted,
+                      },
+                    ]}
+                  >
+                    {Icon ? <Icon size={18} color={iconColor} /> : null}
+                  </View>
                   <Text
                     numberOfLines={1}
                     style={[
                       styles.itemLabel,
                       { color: palette.text },
-                      item.danger && { color: palette.danger },
+                      item.danger && { color: palette.danger, fontWeight: "600" },
                       item.disabled && { color: palette.textMuted },
                     ]}
                   >
@@ -169,47 +224,107 @@ export function ActionMenuSheet({ visible, title, items, anchor, onClose }: Acti
                 </Touchable>
               );
             })}
-          </View>
+          </ScrollView>
         </View>
-      </Pressable>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
+  overlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.35)",
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
   },
-  menu: {
-    position: "absolute",
-    borderRadius: radius.md,
-    paddingVertical: 8,
-    paddingHorizontal: 6,
-    elevation: 6,
+  backdrop: {
+    ...StyleSheet.absoluteFill,
+  },
+  sheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    overflow: "hidden",
     shadowColor: "#000",
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: -4 },
+    elevation: 20,
   },
-  title: {
-    fontSize: typography.caption,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+  handleContainer: {
+    alignItems: "center",
+    paddingVertical: 10,
   },
-  item: {
-    minHeight: ITEM_HEIGHT,
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+  },
+  header: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 10,
-    borderRadius: radius.sm,
+    paddingHorizontal: spacing.l,
+    paddingBottom: spacing.s,
+    gap: spacing.m,
   },
-  itemIcon: {
-    width: 18,
+  artworkWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: radius.sm,
+    overflow: "hidden",
+  },
+  artwork: {
+    width: "100%",
+    height: "100%",
+  },
+  artworkFallback: {
+    width: "100%",
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  headerTextWrap: {
+    flex: 1,
+    justifyContent: "center",
+    gap: 3,
+  },
+  songTitle: {
+    fontSize: typography.body,
+    fontWeight: "700",
+  },
+  songMeta: {
+    fontSize: typography.caption,
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    marginHorizontal: spacing.l,
+    marginBottom: spacing.xs,
+  },
+  menuScroll: {
+    flexGrow: 0,
+  },
+  menuContent: {
+    paddingHorizontal: spacing.m,
+    paddingVertical: spacing.xxs,
+  },
+  item: {
+    minHeight: 50,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.m,
+    paddingHorizontal: spacing.m,
+    borderRadius: radius.md,
+    marginVertical: 1,
+  },
+  iconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    justifyContent: "center",
+    alignItems: "center",
   },
   itemLabel: {
     fontSize: typography.body,
     fontWeight: "500",
+    flex: 1,
   },
 });

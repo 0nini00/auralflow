@@ -5,6 +5,7 @@ import { Platform } from "react-native";
 import { COVER_SIZE_LARGE, resizeCoverUrl, type MusicInfo } from "@lx/core";
 import { clearPlaybackUrlCache } from "./playbackUrlCache";
 import { selectFilesToEvict, type CachedFileEntry } from "./cacheEvictionModel";
+import { buildStreamHeaders } from "./musicApi";
 import {
   reconcileAudioCacheEntries,
   type AudioCacheIndexEntry,
@@ -284,6 +285,7 @@ export async function cacheAudioFile(
   url: string,
   music: MusicInfo,
   quality: string,
+  headers?: Record<string, string>,
 ): Promise<string | null> {
   if (!/^https?:\/\//i.test(url)) return null;
   await initCacheDirectories();
@@ -295,10 +297,16 @@ export async function cacheAudioFile(
   const inFlight = audioDownloadsInFlight.get(filePath);
   if (inFlight) return inFlight;
 
+  const effectiveHeaders = headers ?? buildStreamHeaders(music.source);
+
   const promise = (async () => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const download = RNFS.downloadFile({ fromUrl: url, toFile: filePath });
+      const download = RNFS.downloadFile({
+        fromUrl: url,
+        toFile: filePath,
+        headers: effectiveHeaders,
+      });
       const jobId = download.jobId;
       const timeoutPromise = new Promise<never>((_, reject) => {
         timer = setTimeout(() => {

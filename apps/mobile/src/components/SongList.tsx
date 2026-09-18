@@ -397,6 +397,7 @@ export function SongList({
         {/* 单例弹窗与 legacy 路径共用：菜单 / 加入歌单 / 下载音质 */}
         <ActionMenuSheet
           visible={menuVisible}
+          song={actionSong}
           title={actionSong?.name ?? ""}
           items={actionSong ? menuItems(actionSong) : []}
           anchor={menuAnchor}
@@ -464,6 +465,7 @@ export function SongList({
       {/* 单例弹窗：菜单 */}
       <ActionMenuSheet
         visible={menuVisible}
+        song={actionSong}
         title={actionSong?.name ?? ""}
         items={actionSong ? menuItems(actionSong) : []}
         anchor={menuAnchor}
@@ -612,8 +614,13 @@ export const SongItem = memo(function SongItem({  song,
     toggleFavorite(song);
   };
 
+  const isSelectedRow = selectionMode && selected;
   const isActive = isPlaying || highlighted;
-  const activeBackground = isActive ? withAlpha(palette.primary, 0.08) : "transparent";
+  const activeBackground = isSelectedRow
+    ? withAlpha(palette.primary, 0.1)
+    : isActive
+    ? withAlpha(palette.primary, 0.08)
+    : "transparent";
   const extraMetadata = getExtraMetadata?.(song, index);
 
   return (
@@ -633,12 +640,14 @@ export const SongItem = memo(function SongItem({  song,
       {selectionMode ? (
         <View style={styles.selectionIcon}>
           {selected ? (
-            <CheckCircle2 size={22} color={palette.primary} fill={palette.surface} />
+            <CheckCircle2 size={22} color={palette.primary} fill={withAlpha(palette.primary, 0.2)} />
           ) : (
-            <Circle size={22} color={palette.textMuted} />
+            <Circle size={22} color={palette.textSubtle} strokeWidth={1.5} />
           )}
         </View>
-      ) : showCover ? (
+      ) : null}
+
+      {showCover ? (
         <View style={styles.coverColumn}>
           {artwork ? (
             <CachedImage
@@ -656,7 +665,7 @@ export const SongItem = memo(function SongItem({  song,
             </View>
           )}
         </View>
-      ) : (
+      ) : !selectionMode ? (
         <View style={styles.indexColumn}>
           {isPlaying ? (
             <AudioLines size={16} color={palette.primary} />
@@ -666,7 +675,7 @@ export const SongItem = memo(function SongItem({  song,
             </Text>
           )}
         </View>
-      )}
+      ) : null}
 
       <View style={styles.info}>
         <Text

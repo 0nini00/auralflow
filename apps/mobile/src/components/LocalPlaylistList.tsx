@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { ChevronRight, Music2 } from "lucide-react-native";
 import type { LocalPlaylist } from "@/services/localPlaylistModel";
 import { CachedImage } from "./CachedImage";
-import { getLocalPlaylistTrackCount } from "@/services/localPlaylistModel";
+import { getLocalPlaylistTrackCount, resolveLocalPlaylistCover } from "@/services/localPlaylistModel";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, typography } from "@/theme/tokens";
 
@@ -50,7 +50,7 @@ function LocalPlaylistItem({ playlist, onPress }: LocalPlaylistItemProps) {
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
-  const coverUrl = playlist.cover;
+  const coverUrl = resolveLocalPlaylistCover(playlist);
 
   return (
     <Pressable

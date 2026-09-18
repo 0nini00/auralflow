@@ -106,7 +106,7 @@
 
 `playbackService.ts` 的 `RemoteDuck`：
 
-- `getAudioInterruptionAction`（`audioInterruptionPolicy.ts`）：`permanent` → 暂停；临时中断且 `pauseOnExternalPlayback` 开启 → 暂停；否则临时 duck → 音量压到 `DUCKED_VOLUME = 0.2`（存 `externalDuckVolume`）；中断结束（`paused=false`）恢复原音量。
+- `getAudioInterruptionAction`（`audioInterruptionPolicy.ts`）：`pauseOnExternalPlayback` 开启时，受到焦点抢占（永久中断或临时中断）均执行暂停；设置为不暂停（关闭）时，忽略打断不暂停且不降音量，保持原音量继续播放。
 - duck 态落库：切歌淡入以该音量为上限（`fadeInTarget = min(volume, externalDuckVolume)`），避免 duck 中自动切歌把音量淡回满格、盖住导航播报；恢复音量时清除标记。
 
 ### 3.6 后台 fadeVolume 跳过步进

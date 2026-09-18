@@ -171,11 +171,19 @@ export function buildLyricTypographyStyleModel(
   input: LyricTypographyStyleInput,
 ): LyricTypographyStyleModel {
   const opacity = Math.max(0.2, Math.min(1, input.textOpacity));
+  // 自定义字体（如霞鹜文楷、思源宋体）打包在 assets/fonts 中，且仅包含 Regular 单字重。
+  // Android 下若对单字重自定义字体设置 >= 600（如 700 / Bold）的字重，
+  // React Native 的 ReactFontManager 会因找不到 Bold 变体而直接回退到系统默认字体。
+  // 因此使用自定义字体时字重保持为 500（映射 Typeface.NORMAL），靠颜色与缩放区分高亮；
+  // 仅在系统默认字体（未指定 fontFamily）时才应用加粗字重。
+  const hasCustomFont = Boolean(input.fontFamily && input.fontFamily.trim().length > 0);
+  const targetWeight = hasCustomFont ? 500 : (input.active ? input.fontWeight : 500);
+
   const lineTextStyle: LyricTypographyStyleModel["lineTextStyle"] = {
     color: input.active ? input.activeColor || input.palette.primary : input.inactiveColor || input.palette.textMuted,
     fontSize: input.fontSize,
     opacity: input.active ? 1 : opacity,
-    fontWeight: String(input.active ? input.fontWeight : 500) as `${LyricFontWeight}`,
+    fontWeight: String(targetWeight) as `${LyricFontWeight}`,
     textAlign: input.textAlign,
   };
 

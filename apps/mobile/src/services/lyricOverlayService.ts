@@ -17,6 +17,17 @@ interface NativeLyricOverlayModule {
   setLocked(locked: boolean): Promise<void>;
   setStyle(style: LyricOverlayStyle): Promise<void>;
   getStyle(): Promise<Required<LyricOverlayStyle>>;
+  setLyrics(lyricsJson: string, fallbackText: string): Promise<void>;
+  playLyricClock(position: number): Promise<void>;
+  pauseLyricClock(): Promise<void>;
+  setLyricClockRate(rate: number): Promise<void>;
+  clearLyrics(fallbackText: string): Promise<void>;
+}
+
+export interface OverlayLyricLine {
+  time: number;
+  text: string;
+  tr?: string;
 }
 
 /** 悬浮歌词外观。字段留空表示保持原值。 */
@@ -95,3 +106,42 @@ export async function getLyricOverlayStyle(): Promise<Required<LyricOverlayStyle
 export async function setLyricOverlayLocked(locked: boolean): Promise<void> {
   return getNativeModule().setLocked(locked);
 }
+
+/**
+ * 向原生悬浮歌词注入当前歌曲的歌词列表与未开始时的回退文本（歌名 - 歌手）。
+ * 原生内部启动/准备时钟调度，App 退入后台后歌词仍可在原生 Service 中自行推进行号。
+ */
+export async function setLyricOverlayLyrics(
+  lines: OverlayLyricLine[],
+  fallbackText = "",
+): Promise<void> {
+  const json = JSON.stringify(
+    lines.map((l) => ({
+      time: l.time,
+      text: l.text ?? "",
+      tr: l.tr ?? "",
+    })),
+  );
+  return getNativeModule().setLyrics(json, fallbackText);
+}
+
+/** 启动/校准原生悬浮歌词时钟（以秒为单位的当前播放位置）。 */
+export async function playLyricOverlayClock(position: number): Promise<void> {
+  return getNativeModule().playLyricClock(Math.max(0, position));
+}
+
+/** 暂停原生悬浮歌词时钟。 */
+export async function pauseLyricOverlayClock(): Promise<void> {
+  return getNativeModule().pauseLyricClock();
+}
+
+/** 更新原生悬浮歌词时钟倍速。 */
+export async function setLyricOverlayClockRate(rate: number): Promise<void> {
+  return getNativeModule().setLyricClockRate(rate);
+}
+
+/** 清空原生悬浮歌词（切歌或无歌词时），回退显示歌曲信息。 */
+export async function clearLyricOverlayLyrics(fallbackText = ""): Promise<void> {
+  return getNativeModule().clearLyrics(fallbackText);
+}
+

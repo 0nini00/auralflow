@@ -27,6 +27,7 @@ import { useFavoritesStore } from "@/stores/favoritesStore";
 import { useDownloadStore, type DownloadQuality } from "@/stores/downloadStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { openArtistDetailScreen } from "@/navigation/navigationRef";
+import { hapticLight } from "@/services/hapticService";
 import type { SearchArtistResult } from "@/services/musicApi";
 
 export interface UseImmersiveControllerArgs {
@@ -235,10 +236,12 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
   };
 
   const handlePrevious = async () => {
+    hapticLight();
     await playPrevious();
   };
 
   const handleNext = async () => {
+    hapticLight();
     await playNext();
   };
 

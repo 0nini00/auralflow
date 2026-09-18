@@ -22,10 +22,14 @@ import { MiniProgressBar } from "@/components/MiniProgressBar";
 import { IconButton } from "@/components/IconButton";
 import { Touchable } from "@/components/Touchable";
 import {
+  clearLyricOverlayLyrics,
   hideLyricOverlay,
+  playLyricOverlayClock,
   setLyricOverlayLocked,
+  setLyricOverlayLyrics,
   updateLyricOverlay,
 } from "@/services/lyricOverlayService";
+import { shouldCalibrateClock } from "@lx/core";
 import {
   playFromQueue,
   playNext,
@@ -41,6 +45,7 @@ import { usePlayerStore } from "@/stores/playerStore";
 import { PLAYER_BAR_HEIGHT } from "@/navigation/tabLayout";
 import { setImmersiveFlySource } from "@/screens/immersive/immersiveFlySource";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
+import { hapticLight } from "@/services/hapticService";
 import { radius, spacing, touch, typography } from "@/theme/tokens";
 
 export interface PlayerBarProps {
@@ -176,9 +181,15 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
     }
   };
 
-  const handleNext = () => void handlePlayerAction(playNext);
+  const handleNext = () => {
+    hapticLight();
+    void handlePlayerAction(playNext);
+  };
 
-  const handlePrevious = () => void handlePlayerAction(playPrevious);
+  const handlePrevious = () => {
+    hapticLight();
+    void handlePlayerAction(playPrevious);
+  };
 
   const handlePlayQueueItem = async (index: number) => {
     try {
@@ -410,32 +421,53 @@ function MiniLyricStatus({ overlayVisible, color }: MiniLyricStatusProps) {
   }
   const lyricsOwned = songKey !== "" && lyricsOwnerRef.current.key === songKey;
 
-  // 原生悬浮窗当前显示内容的签名：只在显示会变化时才发桥调用
-  const lastSentRef = useRef("");
+  const position = usePlayerStore((s) => s.position);
+  const lastInjectedKeyRef = useRef("");
+  const lastSyncTimeRef = useRef(0);
 
+  // 会话边界同步：当歌曲、歌词数组或悬浮窗开启状态发生改变时，向原生注入歌词全集与初始时钟
   useEffect(() => {
-    if (!overlayVisible) return;
+    if (!overlayVisible) {
+      lastInjectedKeyRef.current = "";
+      return;
+    }
 
     const titleText = currentSong
       ? convertText(currentSong.singer ? `${currentSong.name} - ${currentSong.singer}` : currentSong.name)
       : "";
-    let currentText = titleText;
-    let nextText = "";
-    if (currentSong && lyricsOwned && currentIndex >= 0) {
-      const line = convertText(lyrics[currentIndex]?.text ?? "");
-      if (line) {
-        currentText = line;
-        const next = lyrics[currentIndex + 1];
-        nextText = next ? convertText(next.text) : "";
+
+    if (currentSong && lyricsOwned && lyrics.length > 0) {
+      const injectionKey = `${songKey}:${lyrics.length}`;
+      if (injectionKey !== lastInjectedKeyRef.current) {
+        lastInjectedKeyRef.current = injectionKey;
+        const converted = lyrics.map((l) => ({
+          time: l.time,
+          text: convertText(l.text ?? ""),
+          tr: l.tr ? convertText(l.tr) : undefined,
+        }));
+        void setLyricOverlayLyrics(converted, titleText).then(() => {
+          if (isPlaying) {
+            void playLyricOverlayClock(position).catch(() => {});
+          }
+        }).catch(() => {});
+      }
+    } else {
+      if (lastInjectedKeyRef.current !== "") {
+        lastInjectedKeyRef.current = "";
+        void clearLyricOverlayLyrics(titleText).catch(() => {});
       }
     }
+  }, [overlayVisible, currentSong, songKey, lyricsOwned, lyrics, convertText, isPlaying, position]);
 
-    const signature = `${currentText}\u0000${nextText}`;
-    if (signature === lastSentRef.current) return;
-    lastSentRef.current = signature;
-    void updateLyricOverlay(currentText, nextText).catch((error: unknown) => {
-    });
-  }, [currentSong, songKey, lyricsOwned, currentIndex, lyrics, overlayVisible, offsetSec, convertText]);
+  // 前台 5s 周期校准：避免累积时钟漂移
+  useEffect(() => {
+    if (!overlayVisible || !isPlaying) return;
+    const now = Date.now();
+    if (shouldCalibrateClock(now - lastSyncTimeRef.current, true)) {
+      lastSyncTimeRef.current = now;
+      void playLyricOverlayClock(position).catch(() => {});
+    }
+  }, [position, overlayVisible, isPlaying]);
 
   return (
     <Text style={[styles.trackArtist, { color }]} numberOfLines={1}>

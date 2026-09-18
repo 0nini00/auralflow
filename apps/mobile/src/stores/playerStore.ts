@@ -28,6 +28,13 @@ import {
   noteRetrySettled,
 } from "@/services/playbackFailurePolicy";
 import { invalidatePrefetchForSong, prefetchUpcomingSongNearEnd } from "../services/playerService";
+import {
+  isLyricOverlaySupported,
+  playLyricOverlayClock,
+  pauseLyricOverlayClock,
+  setLyricOverlayClockRate,
+} from "@/services/lyricOverlayService";
+import { onPlaybackProgress, resetListeningSession } from "@/services/listenTrackerService";
 
 
 
@@ -78,8 +85,8 @@ const inflightPlayRequests = new Map<string, Promise<void>>();
 /**
  * 曲末静音占位轨。
  *
- * 每首歌入队时跟一条 2 秒静音，使曲末不会因队列见底而停止播放——播放不停，
- * 前台服务就不会被回收，JS 线程有机会在这 2 秒内醒来解析并切下一首。
+ * 每首歌入队时跟一条静音占位（raw/silence_2s.wav，现为 15s），使曲末不会因队列见底而停止播放——播放不停，
+ * 前台服务就不会被回收，JS 线程有机会在这段窗口内醒来解析并切下一首。
  * 检测到当前活动轨是它，就等同于「上一首播完了」。
  *
  * 包名固定于 android/app/build.gradle 的 applicationId；若修改需同步此处。
@@ -135,7 +142,7 @@ export async function loadPersistedVolume(): Promise<number | null> {
 
 
 export type PlayMode = MobilePlayMode;
-export type PlaybackContextType = "queue" | "personalFm";
+export type PlaybackContextType = "queue" | "personalFm" | "heartbeat";
 
 export interface PersonalFmContext {
   type: "personalFm";
@@ -145,9 +152,20 @@ export interface PersonalFmContext {
   hasMore: boolean;
 }
 
+export interface HeartbeatContext {
+  type: "heartbeat";
+  seedSongId: string;
+  playlistId: string;
+  buffer: MusicInfo[];
+  currentBatch: MusicInfo[];
+  currentBatchIndex: number;
+  hasMore: boolean;
+}
+
 export type PlaybackContext =
   | { type: "queue" }
-  | PersonalFmContext;
+  | PersonalFmContext
+  | HeartbeatContext;
 
 let isPlayerSetup = false;
 let playerSetupPromise: Promise<void> | null = null;
@@ -168,10 +186,12 @@ async function ensurePlayerSetup(): Promise<void> {
       // maxCacheSize：启用 ExoPlayer SimpleCache 边播边缓存（与 lx-mobile 同机制），
       // 播放过的歌曲片段落盘，再次播放同一 URL 时离线即开、省流量。默认 1GB，与 lx 默认一致。
       await TrackPlayer.setupPlayer({
-        minBuffer: 15,
-        maxBuffer: 50,
-        backBuffer: 10,
-        playBuffer: 2.5,
+        minBuffer: 8,
+        maxBuffer: 30,
+        backBuffer: 6,
+        // 起播缓冲从 2.5s 降到 1s：切歌后不必等 CDN 填满 2.5s 才出声。
+        // 弱网卡顿由 ExoPlayer 自己回缓冲，不靠拉高这个门槛。
+        playBuffer: 1.0,
         maxCacheSize: 1024 * 1024 * 1024,
       });
       await TrackPlayer.updateOptions({
@@ -398,6 +418,18 @@ interface PlayerActions {
   shiftPersonalFmBuffer: () => MusicInfo | null;
   markCurrentPersonalFmSongSkipped: () => void;
 
+  // 心动模式上下文
+  setHeartbeatContext: (payload: {
+    seedSongId: string;
+    playlistId: string;
+    currentBatch: MusicInfo[];
+    currentBatchIndex: number;
+    buffer?: MusicInfo[];
+    hasMore?: boolean;
+  }) => void;
+  setHeartbeatBatchIndex: (index: number) => void;
+  appendHeartbeatBuffer: (songs: MusicInfo[], hasMore?: boolean) => void;
+
   // 状态更新
   buffered: number;
   /**
@@ -495,56 +527,55 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
 
 
 
-      await TrackPlayer.reset();
-
-      // reset 与 add 之间存在 await 让出点：并发 play() 可能在本请求 reset 之后、add 之前
-      // 完成它自己的 reset，本请求若继续 add 会把旧曲残留在原生单曲槽（音画不一致）。
-      // 此处再查一次令牌；检查与 add 调用之间无让出点，可关死该交错窗口。
+      // 切歌不 reset：reset 会拆掉 ExoPlayer 音频管线（停 AudioTrack、清缓冲、关 WakeLock），
+      // 下一首要从零重建，听感就是「卡一下」。对齐 lx：新曲接到队尾 → skip 过去 → 再删旧轨。
+      let previousQueueLength = 0;
+      try {
+        previousQueueLength = (await TrackPlayer.getQueue()).length;
+      } catch {
+        previousQueueLength = 0;
+      }
       if (requestId !== playRequestId) return;
 
-      // 双轨入队：真实曲目 + 2 秒静音占位。
-      //
-      // 曲末如果队列直接见底，原生播放会停止，Android 随即失去维持进程的理由，
-      // JS 线程被挂起 —— 后台切歌就卡住，直到用户回到 app（用户实测现象）。
-      // 补一个静音尾轨后，原生队列会自动推进到它，播放状态不中断、前台服务存活，
-      // 这 2 秒正是留给 JS 醒来解析下一首的窗口。真正的切歌仍由 JS 决定，
-      // 原生不参与队列编排（RepeatMode 依旧 Off）。
-      await TrackPlayer.add([
+      // 双轨入队：真实曲目 + 静音占位（文件已扩到 15s，仅作后台保活窗口）。
+      // 曲末队列见底会停播，Android 随即失去维持进程的理由；静音尾轨让前台服务继续存活。
+      const nextTracks = [
         {
           id: `${song.source}-${song.id}`,
-
           url,
-
           title: song.name,
-
           artist: song.singer || "未知歌手",
-
           album: song.albumName || "未知专辑",
-
           artwork: song.picUrl || song.img || undefined,
-
           duration: song.interval,
-
-          // B站等需要 Referer 的音源通过 headers 传递请求头
-
           headers: headers ?? undefined,
         },
         {
           id: SILENCE_GAP_TRACK_ID,
           url: SILENCE_GAP_TRACK_URL,
-          // 元数据沿用当前曲：这 2 秒仍属于「刚播完的那首」，
-          // 通知栏不应闪成空白或下一首
           title: song.name,
           artist: song.singer || "未知歌手",
           album: song.albumName || "未知专辑",
           artwork: song.picUrl || song.img || undefined,
           duration: 0,
         },
-      ]);
+      ];
+      await TrackPlayer.add(nextTracks);
+      if (requestId !== playRequestId) return;
 
+      const newSongIndex = previousQueueLength;
+      try {
+        await TrackPlayer.skip(newSongIndex, startPosition && startPosition > 0 ? startPosition : 0);
+      } catch {
+        // 空队列首次入队时 skip 可能多余，继续 play 即可
+      }
+      if (requestId !== playRequestId) return;
 
-
-      // 竞态检查：add 之后再次确认请求仍有效，避免在已过期的请求上继续 setRate/setVolume/play
+      // 先出声再清旧轨：remove 会再触发一次轨道切换事件，不必挡在 play() 前面。
+      if (previousQueueLength > 0) {
+        const staleIndexes = Array.from({ length: previousQueueLength }, (_, i) => i);
+        void TrackPlayer.remove(staleIndexes).catch(() => undefined);
+      }
 
       if (requestId !== playRequestId) return;
 
@@ -561,13 +592,6 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       await TrackPlayer.play();
 
       if (requestId !== playRequestId) return;
-
-      // 快照恢复续播：跳转到上次保存的进度（仅首次播放恢复的歌曲时传入）
-      if (startPosition && startPosition > 0) {
-        try {
-          await TrackPlayer.seekTo(startPosition);
-        } catch { /* 恢复进度失败：忽略，从头播放 */ }
-      }
 
       set({
         currentSong: song,
@@ -652,6 +676,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   },
 
   stop: async () => {
+    resetListeningSession();
     if (!isPlayerSetup) {
       set({ isPlaying: false, position: 0 });
       return;
@@ -681,12 +706,18 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       await TrackPlayer.seekTo(position);
     } catch { /* seek 失败：仍落 UI 位置 */ }
     set({ position });
+    if (isLyricOverlaySupported() && get().isPlaying) {
+      void playLyricOverlayClock(position).catch(() => {});
+    }
   },
 
   setPlaybackRate: async (rate: number) => {
     const nextRate = clampPlaybackRate(rate);
     set({ playbackRate: nextRate });
     await syncPlaybackParameters();
+    if (isLyricOverlaySupported()) {
+      void setLyricOverlayClockRate(nextRate).catch(() => {});
+    }
   },
 
   setVolume: async (volume: number) => {
@@ -975,6 +1006,59 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     });
   },
 
+  // 心动模式上下文
+  setHeartbeatContext: ({ seedSongId, playlistId, currentBatch, currentBatchIndex, buffer = [], hasMore = true }) => {
+    set({
+      playbackContext: {
+        type: "heartbeat",
+        seedSongId,
+        playlistId,
+        currentBatch,
+        currentBatchIndex,
+        buffer,
+        hasMore,
+      },
+      queue: currentBatch,
+      currentIndex: currentBatchIndex,
+      shuffleHistory: [],
+      playedIndices: [],
+    });
+  },
+
+  setHeartbeatBatchIndex: (index: number) => {
+    set((state) => {
+      if (state.playbackContext.type !== "heartbeat") {
+        return state;
+      }
+
+      const maxIndex = Math.max(0, state.playbackContext.currentBatch.length - 1);
+      const nextIndex = Math.max(0, Math.min(index, maxIndex));
+      return {
+        playbackContext: {
+          ...state.playbackContext,
+          currentBatchIndex: nextIndex,
+        },
+        currentIndex: nextIndex,
+      };
+    });
+  },
+
+  appendHeartbeatBuffer: (songs: MusicInfo[], hasMore = true) => {
+    set((state) => {
+      if (state.playbackContext.type !== "heartbeat") {
+        return state;
+      }
+
+      return {
+        playbackContext: {
+          ...state.playbackContext,
+          buffer: [...state.playbackContext.buffer, ...songs],
+          hasMore,
+        },
+      };
+    });
+  },
+
   // 播放模式
   setPlayMode: async (mode: PlayMode) => {
     // 切换播放模式（尤其进/出 shuffle）视为开新一轮，清空本轮去重记录。
@@ -1015,7 +1099,16 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     const isPlaying =
       state === State.Playing || state === State.Buffering;
     // 原生事件驱动的播放/暂停切换（如音频焦点中断）同样重置结算基准
-    if (isPlaying !== get().isPlaying) syncSleepTimerClock();
+    if (isPlaying !== get().isPlaying) {
+      syncSleepTimerClock();
+      if (isLyricOverlaySupported()) {
+        if (state === State.Playing) {
+          void playLyricOverlayClock(get().position).catch(() => {});
+        } else if (state === State.Paused || state === State.Stopped) {
+          void pauseLyricOverlayClock().catch(() => {});
+        }
+      }
+    }
     set({ isPlaying });
   },
 }));
@@ -1058,6 +1151,8 @@ export function setupPlayerListeners() {
     // 试听兜底判定，会造成曲末误报"检测到试听片段"。整段忽略。
     if (usePlayerStore.getState().onSilenceGap) return;
     updateProgress(position, duration, buffered);
+    // 听歌时长追踪：连续播放满 2 分钟或 50% 时记录历史与网易云打点
+    onPlaybackProgress(position, usePlayerStore.getState().isPlaying);
     // 曲末提前预解析下一首：剩余 10s 内触发一次（内部按「当前曲→下一首」组合与
     // 预读 key 双重去重，0.25s 的进度事件不会重复解析）。无下一首/单曲循环无副作用。
     prefetchUpcomingSongNearEnd(position, duration);
@@ -1088,6 +1183,9 @@ export function setupPlayerListeners() {
   // （切歌主逻辑在 playbackService 的同名监听里，这里只维护 UI 状态标记。）
   TrackPlayer.addEventListener(Event.PlaybackActiveTrackChanged, ({ track }) => {
     const onSilenceGap = track?.id === SILENCE_GAP_TRACK_ID;
+    if (onSilenceGap) {
+      resetListeningSession();
+    }
     if (usePlayerStore.getState().onSilenceGap !== onSilenceGap) {
       usePlayerStore.setState({ onSilenceGap });
     }

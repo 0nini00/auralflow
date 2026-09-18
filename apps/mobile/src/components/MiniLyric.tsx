@@ -18,6 +18,7 @@ interface MiniLyricProps {
 export function MiniLyric({ lyrics, currentLineIndex, palette, onPress }: MiniLyricProps) {
   const showTranslation = useLyricSettingsStore((s) => s.showTranslation);
   const fontSize = useLyricSettingsStore((s) => s.fontSize);
+  const fontFamily = useLyricSettingsStore((s) => s.fontFamily);
   // 与沉浸歌词 LyricView 保持一致，应用简繁转换
   const chineseConversion = useLyricSettingsStore((s) => s.chineseConversion);
   const current = lyrics && currentLineIndex >= 0 ? lyrics[currentLineIndex] : undefined;
@@ -49,13 +50,23 @@ export function MiniLyric({ lyrics, currentLineIndex, palette, onPress }: MiniLy
         numberOfLines={1}
         style={[
           styles.line,
-          { color: palette.text, fontSize: Math.max(12, Math.round(fontSize * 0.7)) },
+          {
+            color: palette.text,
+            fontSize: Math.max(12, Math.round(fontSize * 0.7)),
+            fontFamily: fontFamily || undefined,
+          },
         ]}
       >
         {convertChineseText(current.text, chineseConversion)}
       </Text>
       {showTranslation && current.tr ? (
-        <Text numberOfLines={1} style={[styles.translation, { color: palette.textMuted }]}>
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.translation,
+            { color: palette.textMuted, fontFamily: fontFamily || undefined },
+          ]}
+        >
           {convertChineseText(current.tr, chineseConversion)}
         </Text>
       ) : null}

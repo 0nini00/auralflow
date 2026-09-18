@@ -1,11 +1,12 @@
 import type { MusicInfo } from "@lx/core";
 import type { LocalPlaylist } from "./localPlaylistModel";
-import { getLocalPlaylistTrackCount } from "./localPlaylistModel";
+import { getLocalPlaylistTrackCount, resolveLocalPlaylistCover } from "./localPlaylistModel";
 import type { WyPlaylistInfo } from "./wyPlaylistService";
 
 export interface LocalPlaylistSongOption {
   id: string;
   name: string;
+  cover?: string;
   trackCount: number;
   containsSong: boolean;
 }
@@ -13,6 +14,7 @@ export interface LocalPlaylistSongOption {
 export interface WyPlaylistSongOption {
   id: string;
   name: string;
+  cover?: string;
   trackCount: number;
 }
 
@@ -28,6 +30,7 @@ export function buildLocalPlaylistSongOptions(
   return playlists.map((playlist) => ({
     id: playlist.id,
     name: playlist.name,
+    cover: resolveLocalPlaylistCover(playlist),
     trackCount: getLocalPlaylistTrackCount(playlist),
     containsSong: playlist.songs.some((item) => getSongKey(item) === songKey),
   }));
@@ -50,6 +53,7 @@ export function buildOwnedWyPlaylistSongOptions(
     .map((playlist) => ({
       id: playlist.id,
       name: playlist.name,
+      cover: playlist.coverImgUrl || playlist.picUrl,
       trackCount: playlist.trackCount ?? 0,
     }));
 }

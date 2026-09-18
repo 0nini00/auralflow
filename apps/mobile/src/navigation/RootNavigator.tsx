@@ -20,6 +20,9 @@ import { PlaylistDetailScreen } from "@/screens/PlaylistDetailScreen";
 import { SearchFallbackDetailScreen } from "@/screens/SearchFallbackDetailScreen";
 import { LeaderboardScreen } from "@/screens/LeaderboardScreen";
 import { PlaylistSquareScreen } from "@/screens/PlaylistSquareScreen";
+import { FollowedArtistsScreen } from "@/screens/FollowedArtistsScreen";
+import { SubscribedAlbumsScreen } from "@/screens/SubscribedAlbumsScreen";
+import { SimilarSongsScreen } from "@/screens/SimilarSongsScreen";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -152,6 +155,28 @@ export function RootNavigator() {
 
       <Stack.Screen name="PlaylistSquare">
         {() => <PlaylistSquareScreen />}
+      </Stack.Screen>
+
+      <Stack.Screen name="FollowedArtists">
+        {({ navigation }) => (
+          <FollowedArtistsScreen onBack={() => navigation.goBack()} />
+        )}
+      </Stack.Screen>
+
+      <Stack.Screen name="SubscribedAlbums">
+        {({ navigation }) => (
+          <SubscribedAlbumsScreen onBack={() => navigation.goBack()} />
+        )}
+      </Stack.Screen>
+
+      <Stack.Screen name="SimilarSongs">
+        {({ navigation, route }) => (
+          <SimilarSongsScreen
+            songId={route.params.songId}
+            songName={route.params.songName}
+            onBack={() => navigation.goBack()}
+          />
+        )}
       </Stack.Screen>
     </Stack.Navigator>
   );

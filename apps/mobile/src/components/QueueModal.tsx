@@ -139,10 +139,36 @@ export function QueueModal({
     [],
   );
 
-  // 当前播放曲在队列中的索引(仅用于「从队列移除」的可用性判断)
-  const currentItemIndex = useMemo(
-    () => queueModel.items.findIndex((item) => item.isCurrent),
-    [queueModel.items],
+  // 当前播放曲在队列中的索引(支持播放中与暂停态精准解析)
+  const currentSong = usePlayerStore((state) => state.currentSong);
+  const currentIndex = usePlayerStore((state) => state.currentIndex);
+  const currentItemIndex = useMemo(() => {
+    const fromModel = queueModel.items.findIndex((item) => item.isCurrent);
+    if (fromModel >= 0) return fromModel;
+    if (currentIndex >= 0 && currentIndex < queue.length) return currentIndex;
+    if (currentSong) {
+      const idx = queue.findIndex(
+        (item) => item.source === currentSong.source && String(item.id) === String(currentSong.id),
+      );
+      if (idx >= 0) return idx;
+    }
+    return -1;
+  }, [queueModel.items, currentIndex, queue, currentSong]);
+
+  const scrollToTarget = useCallback(
+    (index: number) => {
+      if (index < 0 || index >= queue.length) return;
+      const targetOffset = ROW_HEIGHT * index;
+      try {
+        listRef.current?.scrollToOffset({
+          offset: targetOffset,
+          animated: false,
+        });
+      } catch {
+        // 布局尚未完成时静默跳过
+      }
+    },
+    [queue.length],
   );
 
   // 打开瞬间无动画直达当前播放曲(行高固定 + getItemLayout,offset 精确):
@@ -152,17 +178,26 @@ export function QueueModal({
   useEffect(() => {
     const justOpened = visible && !prevVisibleRef.current;
     prevVisibleRef.current = visible;
-    if (!justOpened) return;
-    if (currentItemIndex < 0) return;
-    // 面板本体动画(modal/sheet)与列表定位同帧:延到下一帧等布局就绪
-    const raf = requestAnimationFrame(() => {
-      listRef.current?.scrollToOffset({
-        offset: ROW_HEIGHT * currentItemIndex,
-        animated: false,
+    if (!visible || currentItemIndex < 0) return;
+
+    if (justOpened) {
+      scrollToTarget(currentItemIndex);
+      const r1 = requestAnimationFrame(() => {
+        scrollToTarget(currentItemIndex);
       });
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [visible, currentItemIndex]);
+      const t1 = setTimeout(() => {
+        scrollToTarget(currentItemIndex);
+      }, 30);
+      const t2 = setTimeout(() => {
+        scrollToTarget(currentItemIndex);
+      }, 100);
+      return () => {
+        cancelAnimationFrame(r1);
+        clearTimeout(t1);
+        clearTimeout(t2);
+      };
+    }
+  }, [visible, currentItemIndex, scrollToTarget]);
 
   const menuItems: ActionMenuItem[] = useMemo(() => {
     if (!actionSong) return [];
@@ -265,12 +300,27 @@ export function QueueModal({
         style={[styles.list, sheetMode ? { height: Math.round(windowHeight * QUEUE_SHEET_HEIGHT_RATIO) - 60 } : undefined]}
         contentContainerStyle={styles.listContent}
         getItemLayout={(_data, index) => ({ length: ROW_HEIGHT, offset: ROW_HEIGHT * index, index })}
+        initialScrollIndex={
+          currentItemIndex >= 0 && currentItemIndex < queue.length ? currentItemIndex : undefined
+        }
+        onScrollToIndexFailed={(info) => {
+          const offset = ROW_HEIGHT * info.index;
+          listRef.current?.scrollToOffset({ offset, animated: false });
+          setTimeout(() => {
+            listRef.current?.scrollToOffset({ offset, animated: false });
+          }, 40);
+        }}
+        onLayout={() => {
+          if (visible && currentItemIndex >= 0) {
+            scrollToTarget(currentItemIndex);
+          }
+        }}
         renderItem={({ item, index }) => (
           <SongItem
             song={item}
             index={index}
             onRowPress={(_song, index) => onPlayItem(index)}
-            isPlaying={queueModel.items[index]?.isCurrent ?? false}
+            isPlaying={index === currentItemIndex}
             showCover
             showDuration
             hideSourceTag
@@ -286,7 +336,13 @@ export function QueueModal({
   // sheet 形态：应用内底部弹层（BottomSheet），与子弹窗（Modal）不再嵌套
   if (presentation === "sheet") {
     const sheet = (
-      <BottomSheet visible={visible} onClose={onClose} palette={palette} maxHeightRatio={QUEUE_SHEET_HEIGHT_RATIO}>
+      <BottomSheet
+        visible={visible}
+        onClose={onClose}
+        palette={palette}
+        maxHeightRatio={QUEUE_SHEET_HEIGHT_RATIO}
+        animated={false}
+      >
         {renderPanel(true)}
       </BottomSheet>
     );
@@ -294,8 +350,8 @@ export function QueueModal({
       <>
         {sheetHost === "modal" ? (
           // 迷你播放栏宿主容器不满屏：套一层全屏透明 Modal 让 BottomSheet 获得整屏空间，
-          // 观感/动画与沉浸屏一致；PlayerBar 不在沉浸 Modal 内，无嵌套 Modal 问题。
-          <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
+          // 移除动画，瞬间展示
+          <Modal transparent visible={visible} animationType="none" onRequestClose={onClose}>
             {sheet}
           </Modal>
         ) : (
@@ -305,6 +361,7 @@ export function QueueModal({
 
         <ActionMenuSheet
           visible={menuVisible}
+          song={actionSong}
           title={actionSong?.name ?? ""}
           items={menuItems}
           anchor={menuAnchor}
@@ -346,7 +403,7 @@ export function QueueModal({
       <Modal
         visible={visible && !subSheetOpen}
         transparent
-        animationType="fade"
+        animationType="none"
         onRequestClose={onClose}
       >
         <TouchableWithoutFeedback accessibilityRole="button" accessibilityLabel="关闭播放列表" onPress={onClose}>
@@ -358,6 +415,7 @@ export function QueueModal({
 
       <ActionMenuSheet
         visible={menuVisible}
+        song={actionSong}
         title={actionSong?.name ?? ""}
         items={menuItems}
         anchor={menuAnchor}
