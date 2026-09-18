@@ -132,15 +132,18 @@ function useAppShellController(): AppShellController {
 
   const isSearchActive = activeRoute.name === "SearchTab";
   const isSettingsActive = activeRoute.name === "Settings" || activeRoute.ancestors.includes("Settings");
-  const showChrome = activeRoute.name !== "MvPlayer";
+  const isPlayerActive = activeRoute.name === "Player" || activeRoute.ancestors.includes("Player");
+  const isMvActive = activeRoute.name === "MvPlayer" || activeRoute.ancestors.includes("MvPlayer");
+  const isFullScreenImmersive = isPlayerActive || isMvActive;
+  const showChrome = !isMvActive;
 
   return {
     showChrome,
-    showHeader: !isSettingsActive,
-    showPlayerBar: !isSettingsActive,
-    applyTopSafeArea: !isSettingsActive,
-    statusBar: showChrome ? palette.statusBar : "light-content",
-    chromeBackground: showChrome ? palette.background : "#000",
+    showHeader: !isSettingsActive && !isFullScreenImmersive,
+    showPlayerBar: !isSettingsActive && !isFullScreenImmersive,
+    applyTopSafeArea: !isSettingsActive && !isFullScreenImmersive,
+    statusBar: isMvActive ? "light-content" : palette.statusBar,
+    chromeBackground: isMvActive ? "#000" : palette.background,
     headerProps: {
       canGoBack,
       onOpenDrawer: openDrawer,
