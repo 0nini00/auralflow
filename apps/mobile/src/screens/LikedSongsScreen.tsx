@@ -1,5 +1,5 @@
 ﻿import React from "react";
-import { Alert, FlatList, StyleSheet } from "react-native";
+import { FlatList, StyleSheet } from "react-native";
 import type { MusicInfo } from "@lx/core";
 
 import { PlaybackActionButtons } from "@/components/PlaybackActionButtons";
@@ -10,16 +10,12 @@ import { Heart } from "lucide-react-native";
 import { EmptyState } from "@/components/ScreenState";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
 import { SectionHeader } from "@/components/SectionHeader";
-import { playQueue, startHeartbeat } from "@/services/playerService";
+import { playQueue } from "@/services/playerService";
 import { runPlaybackUiAction } from "@/services/playbackUiAction";
 import { buildPlaylistDetailActions, findPlaylistCurrentSongIndex, shufflePlaylistSongs } from "@/services/playlistDetailActions";
-import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import { layout, spacing } from "@/theme/tokens";
 import { useFavoritesStore } from "@/stores/favoritesStore";
-import { useAccountStore } from "@/stores/accountStore";
-import { usePlaylistStore } from "@/stores/playlistStore";
-import { findWyLikedPlaylistId, getPlaylistDetail, getUserPlaylists } from "@/services/wyPlaylistService";
 
 interface LikedSongsScreenProps {
   onBack: () => void;
@@ -32,70 +28,14 @@ interface LikedSongsScreenProps {
  *
  * 列表虚拟化：SongList 本体即滚动容器，头部内容经 ListHeaderComponent 随列表滚动。
  */
-export function LikedSongsScreen({ onNavigateToPlayer }: LikedSongsScreenProps) {
+export function LikedSongsScreen({ onNavigateToPlayer: _onNavigateToPlayer }: LikedSongsScreenProps) {
   const listRef = React.useRef<FlatList<MusicInfo> | null>(null);
-  const themeMode = useThemeStore((state) => state.mode);
-  const systemTheme = useThemeStore((state) => state.systemTheme);
-  const accentColor = useThemeStore((state) => state.accentColor);
-  const palette = getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor);
   const favorites = useFavoritesStore((state) => state.favorites);
-  const removeFavorite = useFavoritesStore((state) => state.removeFavorite);
   const currentSong = usePlayerStore((state) => state.currentSong);
   const [locatedSongIndex, setLocatedSongIndex] = React.useState<number | null>(null);
   const [playbackError, setPlaybackError] = React.useState<string | null>(null);
-  const [heartbeatBusy, setHeartbeatBusy] = React.useState(false);
   const detailActions = buildPlaylistDetailActions(favorites.length);
   const currentSongIndex = findPlaylistCurrentSongIndex(favorites, currentSong);
-
-  const isLoggedIn = useAccountStore((state) => state.isLoggedIn);
-  const user = useAccountStore((state) => state.user);
-
-  const handleHeartbeat = async () => {
-    if (!isLoggedIn || !user) {
-      Alert.alert("心动模式", "心动模式需要先在「设置 → 账号」中登录网易云音乐");
-      return;
-    }
-
-    setHeartbeatBusy(true);
-    setPlaybackError(null);
-    try {
-      let playlists = usePlaylistStore.getState().playlists;
-      if (playlists.length === 0) {
-        playlists = await getUserPlaylists(user.userId);
-      }
-      const likedPlaylistId = findWyLikedPlaylistId(playlists) || "0";
-
-      let seedSong =
-        currentSong && currentSong.source === "wy"
-          ? currentSong
-          : favorites.find((s) => s.source === "wy");
-
-      // 智能兜底：若本地我喜欢列表中没有网易云歌曲，尝试直接从网易云我喜欢的歌单中拉取第一首作为种子
-      if (!seedSong && likedPlaylistId && likedPlaylistId !== "0") {
-        try {
-          const cloudSongs = await getPlaylistDetail(likedPlaylistId);
-          if (cloudSongs.length > 0) {
-            seedSong = cloudSongs[0];
-          }
-        } catch {
-          // 忽略云端歌单歌曲拉取失败
-        }
-      }
-
-      if (!seedSong) {
-        Alert.alert("心动模式", "未找到可用的网易云歌曲作为心动模式种子，请先在网易云中收藏歌曲");
-        return;
-      }
-
-      await startHeartbeat(seedSong, likedPlaylistId);
-      onNavigateToPlayer();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setPlaybackError(`启动心动模式失败: ${message}`);
-    } finally {
-      setHeartbeatBusy(false);
-    }
-  };
 
   // 切歌/当前索引变化时清掉「定位」高亮，避免 highlightedIndex 卡在旧位置。
   React.useEffect(() => {
@@ -152,13 +92,6 @@ export function LikedSongsScreen({ onNavigateToPlayer }: LikedSongsScreenProps) 
         onPlayAll={handlePlayAll}
         onShuffle={handleShufflePlay}
         onLocate={handleLocateCurrentSong}
-        extraActions={[
-          {
-            label: "心动模式",
-            onPress: handleHeartbeat,
-            loading: heartbeatBusy,
-          },
-        ]}
         style={[styles.actions, styles.actionsRowOverride]}
       />
     </>
