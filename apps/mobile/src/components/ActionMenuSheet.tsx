@@ -11,8 +11,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Download,
+  FolderPlus,
   ListEnd,
-  ListMusic,
   ListStart,
   Music2,
   Pencil,
@@ -28,6 +28,7 @@ import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/theme
 import { Touchable } from "@/components/Touchable";
 import { CachedImage } from "@/components/CachedImage";
 import { withAlpha } from "@/services/themePaletteModel";
+import { hapticLight } from "@/services/hapticService";
 
 export type ActionMenuIconKey =
   | "playNext"
@@ -39,10 +40,11 @@ export type ActionMenuIconKey =
   | "edit"
   | "delete";
 
+// 收藏到歌单更换为现代通用的 FolderPlus 图标（文件夹加号）
 const ACTION_MENU_ICONS: Record<ActionMenuIconKey, LucideIcon> = {
   playNext: ListStart,
   addToQueue: ListEnd,
-  playlist: ListMusic,
+  playlist: FolderPlus,
   download: Download,
   mv: Video,
   share: Share2,
@@ -58,7 +60,6 @@ export interface ActionMenuItem {
   disabled?: boolean;
 }
 
-/** 触发按钮在窗口内的坐标（保持接口兼容） */
 export interface ActionMenuAnchor {
   x: number;
   y: number;
@@ -73,11 +74,33 @@ export interface ActionMenuSheetProps {
   onClose: () => void;
 }
 
+/** 核心高频动作图标集合（抽离到上方横排大圆钮栏） */
+const PRIMARY_ACTION_KEYS = new Set<ActionMenuIconKey>([
+  "playNext",
+  "playlist",
+  "download",
+  "share",
+]);
+
+/** 精简高频动作的短标签 */
+function getShortActionLabel(item: ActionMenuItem): string {
+  if (item.icon === "playNext") return "下一首";
+  if (item.icon === "playlist") return "收藏";
+  if (item.icon === "download") {
+    return item.label.includes("%") || item.label === "已下载" || item.label === "重试"
+      ? item.label
+      : "下载";
+  }
+  if (item.icon === "share") return "分享";
+  return item.label;
+}
+
 /**
- * 现代移动端歌曲更多操作抽屉（Bottom Action Sheet）：
- * - 顶部配有圆角拉手与当前歌曲概要（封面缩略图、歌名、歌手与专辑）；
- * - 底部舒适大触控热区（图标 + 文案），单手操作友好；
- * - 自动适配底部安全区域，点击遮罩快速关闭。
+ * 现代移动端单曲操作抽屉：
+ * - 顶部：歌曲封面 + 歌名 + 歌手专辑摘要；
+ * - 中部：核心高频动作（下一首、收藏、下载、分享）采用横排圆形大功能键栏，去除冗余长文案，单手秒选；
+ * - 下部：次要操作（播放 MV、从队列移除、编辑等）轻量单行平铺；
+ * - 底部：安全区自适应避让。
  */
 export function ActionMenuSheet({
   visible,
@@ -86,18 +109,27 @@ export function ActionMenuSheet({
   items,
   onClose,
 }: ActionMenuSheetProps) {
+  const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
-  const { height: windowHeight } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
 
   const songName = song?.name || title || "";
   const songArtist = song?.singer || "";
   const songAlbum = song?.albumName || "";
   const subMeta = [songArtist, songAlbum].filter(Boolean).join(" · ");
   const artwork = song?.picUrl || song?.img;
+
+  // 将高频快捷动作与下方列表动作智能拆分
+  const primaryItems = items.filter(
+    (item) => item.icon && PRIMARY_ACTION_KEYS.has(item.icon),
+  );
+  const secondaryItems = items.filter(
+    (item) => !item.icon || !PRIMARY_ACTION_KEYS.has(item.icon),
+  );
 
   return (
     <Modal
@@ -114,12 +146,13 @@ export function ActionMenuSheet({
           accessibilityRole="button"
           accessibilityLabel="关闭菜单"
         />
+
         <View
           style={[
             styles.sheet,
             {
               backgroundColor: palette.surface,
-              maxHeight: windowHeight * 0.75,
+              maxHeight: windowHeight * 0.78,
               paddingBottom: Math.max(insets.bottom, spacing.m),
             },
           ]}
@@ -140,13 +173,13 @@ export function ActionMenuSheet({
                     style={styles.artwork}
                     fallback={
                       <View style={styles.artworkFallback}>
-                        <Music2 size={20} color={palette.textMuted} />
+                        <Music2 size={22} color={palette.primary} />
                       </View>
                     }
                   />
                 ) : (
                   <View style={styles.artworkFallback}>
-                    <Music2 size={20} color={palette.textMuted} />
+                    <Music2 size={22} color={palette.primary} />
                   </View>
                 )}
               </View>
@@ -163,68 +196,126 @@ export function ActionMenuSheet({
             </View>
           ) : null}
 
-          <View style={[styles.divider, { backgroundColor: palette.border }]} />
+          {/* ── 核心高频动作横排圆形功能键栏（消除冗余文字行） ── */}
+          {primaryItems.length > 0 ? (
+            <View style={styles.quickActionsBar}>
+              {primaryItems.map((item, index) => {
+                const Icon = item.icon ? ACTION_MENU_ICONS[item.icon] : null;
+                const disabled = item.disabled;
+                const shortLabel = getShortActionLabel(item);
 
-          {/* 菜单操作列表 */}
-          <ScrollView
-            style={styles.menuScroll}
-            contentContainerStyle={styles.menuContent}
-            showsVerticalScrollIndicator={false}
-            bounces={false}
-          >
-            {items.map((item, index) => {
-              const Icon = item.icon ? ACTION_MENU_ICONS[item.icon] : null;
-              const iconColor = item.disabled
-                ? palette.textMuted
-                : item.danger
-                  ? palette.danger
-                  : palette.text;
+                return (
+                  <Touchable
+                    key={`${item.label}-${index}`}
+                    style={styles.quickActionCell}
+                    disabled={disabled}
+                    activeScale={0.92}
+                    onPress={() => {
+                      hapticLight();
+                      onClose();
+                      item.onPress();
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={item.label}
+                    accessibilityState={{ disabled }}
+                  >
+                    <View
+                      style={[
+                        styles.quickActionCircle,
+                        {
+                          backgroundColor: disabled
+                            ? palette.surfaceMuted
+                            : withAlpha(palette.primary, 0.1),
+                        },
+                      ]}
+                    >
+                      {Icon ? (
+                        <Icon
+                          size={21}
+                          color={disabled ? palette.textSubtle : palette.primary}
+                        />
+                      ) : null}
+                    </View>
+                    <Text
+                      style={[
+                        styles.quickActionLabel,
+                        { color: disabled ? palette.textSubtle : palette.text },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {shortLabel}
+                    </Text>
+                  </Touchable>
+                );
+              })}
+            </View>
+          ) : null}
 
-              return (
-                <Touchable
-                  key={`${item.label}-${index}`}
-                  style={[
-                    styles.item,
-                    item.danger && { backgroundColor: withAlpha(palette.danger, 0.04) },
-                  ]}
-                  disabled={item.disabled}
-                  activeScale={0.99}
-                  activeOpacity={0.65}
-                  accessibilityRole="button"
-                  accessibilityLabel={item.label}
-                  accessibilityState={{ disabled: item.disabled }}
-                  onPress={() => {
-                    onClose();
-                    item.onPress();
-                  }}
-                >
-                  <View
-                    style={[
-                      styles.iconCircle,
-                      {
-                        backgroundColor: item.danger
-                          ? withAlpha(palette.danger, 0.1)
-                          : palette.surfaceMuted,
-                      },
-                    ]}
-                  >
-                    {Icon ? <Icon size={18} color={iconColor} /> : null}
-                  </View>
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      styles.itemLabel,
-                      { color: palette.text },
-                      item.danger && { color: palette.danger, fontWeight: "600" },
-                      item.disabled && { color: palette.textMuted },
-                    ]}
-                  >
-                    {item.label}
-                  </Text>
-                </Touchable>
-              );
-            })}
-          </ScrollView>
+          {/* 次要/高级操作列表（若存在） */}
+          {secondaryItems.length > 0 ? (
+            <>
+              <View style={[styles.divider, { backgroundColor: palette.border }]} />
+              <ScrollView
+                style={styles.menuScroll}
+                contentContainerStyle={styles.menuContent}
+                showsVerticalScrollIndicator={false}
+                bounces={false}
+              >
+                {secondaryItems.map((item, index) => {
+                  const Icon = item.icon ? ACTION_MENU_ICONS[item.icon] : null;
+                  const iconColor = item.disabled
+                    ? palette.textMuted
+                    : item.danger
+                    ? palette.danger
+                    : palette.text;
+
+                  return (
+                    <Touchable
+                      key={`${item.label}-${index}`}
+                      style={[
+                        styles.secondaryItem,
+                        item.danger && { backgroundColor: withAlpha(palette.danger, 0.04) },
+                      ]}
+                      disabled={item.disabled}
+                      activeScale={0.98}
+                      onPress={() => {
+                        hapticLight();
+                        onClose();
+                        item.onPress();
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={item.label}
+                      accessibilityState={{ disabled: item.disabled }}
+                    >
+                      <View
+                        style={[
+                          styles.secondaryIconCircle,
+                          {
+                            backgroundColor: item.danger
+                              ? withAlpha(palette.danger, 0.1)
+                              : palette.surfaceMuted,
+                          },
+                        ]}
+                      >
+                        {Icon ? <Icon size={17} color={iconColor} /> : null}
+                      </View>
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.secondaryItemLabel,
+                          { color: palette.text },
+                          item.danger && { color: palette.danger, fontWeight: "600" },
+                          item.disabled && { color: palette.textMuted },
+                        ]}
+                      >
+                        {item.label}
+                      </Text>
+                    </Touchable>
+                  );
+                })}
+              </ScrollView>
+            </>
+          ) : null}
         </View>
       </View>
     </Modal>
@@ -267,8 +358,8 @@ const styles = StyleSheet.create({
     gap: spacing.m,
   },
   artworkWrap: {
-    width: 46,
-    height: 46,
+    width: 48,
+    height: 48,
     borderRadius: radius.sm,
     overflow: "hidden",
   },
@@ -294,20 +385,46 @@ const styles = StyleSheet.create({
   songMeta: {
     fontSize: typography.caption,
   },
+  quickActionsBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+    paddingHorizontal: spacing.m,
+    paddingTop: spacing.m,
+    paddingBottom: spacing.s,
+  },
+  quickActionCell: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    minWidth: 64,
+  },
+  quickActionCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  quickActionLabel: {
+    fontSize: 11.5,
+    fontWeight: "500",
+  },
   divider: {
     height: StyleSheet.hairlineWidth,
     marginHorizontal: spacing.l,
-    marginBottom: spacing.xs,
+    marginVertical: spacing.xs,
+    opacity: 0.7,
   },
   menuScroll: {
     flexGrow: 0,
   },
   menuContent: {
     paddingHorizontal: spacing.m,
-    paddingVertical: spacing.xxs,
+    paddingBottom: spacing.xs,
   },
-  item: {
-    minHeight: 50,
+  secondaryItem: {
+    minHeight: 46,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.m,
@@ -315,14 +432,14 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     marginVertical: 1,
   },
-  iconCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+  secondaryIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     justifyContent: "center",
     alignItems: "center",
   },
-  itemLabel: {
+  secondaryItemLabel: {
     fontSize: typography.body,
     fontWeight: "500",
     flex: 1,
