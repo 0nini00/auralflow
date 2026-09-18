@@ -1,6 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
-import { Music2 } from "lucide-react-native";
+import {
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { ChevronRight, Music2, Trophy } from "lucide-react-native";
 
 import { CachedImage } from "@/components/CachedImage";
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
@@ -14,12 +20,15 @@ import {
 } from "@/services/wyLeaderboardService";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, touch, typography } from "@/theme/tokens";
-
+import { Touchable } from "@/components/Touchable";
+import { withAlpha } from "@/services/themePaletteModel";
+import { hapticLight } from "@/services/hapticService";
 
 /**
- * 网易云排行榜页（对齐 lx Leaderboard 视图）：
- * 官方榜 + 语种榜 + 流派榜 + 场景榜 三列网格。
- * 榜单详情复用 PlaylistDetailScreen，无需单独详情页。
+ * 网易云排行榜页：
+ * - 官方榜（前 4 大榜）：横向通栏大卡片（左侧封面 + 右侧 TOP 3 歌曲试读）；
+ * - 语种榜 / 流派榜 / 场景榜：下方精致 3 列网格，主次分明；
+ * - 榜单详情直接复用 PlaylistDetailScreen。
  */
 export function LeaderboardScreen() {
   const themeMode = useThemeStore((state) => state.mode);
@@ -49,7 +58,6 @@ export function LeaderboardScreen() {
     }
   }, []);
 
-  // 下拉刷新：保留已加载的榜单网格，不整页切回 LoadingState
   const handleRefresh = useCallback(async () => {
     if (loading || refreshing) return;
     setRefreshing(true);
@@ -76,35 +84,110 @@ export function LeaderboardScreen() {
 
   const boardById = new Map(boards.map((board) => [board.id, board]));
 
-  const renderBoard = (board: WyLeaderboardBoard) => (
-    <Pressable
+  // 官方榜大卡片（带 TOP 3 歌曲预览）
+  const renderOfficialCard = (board: WyLeaderboardBoard) => {
+    const topSongs = board.topSongs ?? [];
+
+    return (
+      <Touchable
+        key={board.id}
+        style={[styles.officialCard, { backgroundColor: palette.surface }]}
+        onPress={() => {
+          hapticLight();
+          openPlaylistDetailScreen(boardToPlaylistInfo(board));
+        }}
+        activeScale={0.98}
+        accessibilityRole="button"
+        accessibilityLabel={`${board.name}，官方排行榜`}
+      >
+        <View style={styles.officialCoverWrap}>
+          {board.coverUrl ? (
+            <CachedImage uri={board.coverUrl} style={styles.officialCover} />
+          ) : (
+            <View style={[styles.officialCover, styles.coverFallback, { backgroundColor: palette.surfaceStrong }]}>
+              <Music2 size={32} color={palette.primary} />
+            </View>
+          )}
+          {board.updateFrequency ? (
+            <View style={styles.freqBadge}>
+              <Text style={styles.freqText}>{board.updateFrequency}</Text>
+            </View>
+          ) : null}
+        </View>
+
+        <View style={styles.officialContent}>
+          <View style={styles.officialHeader}>
+            <Text style={[styles.officialTitle, { color: palette.text }]} numberOfLines={1}>
+              {board.name}
+            </Text>
+            <ChevronRight size={16} color={palette.textSubtle} />
+          </View>
+
+          <View style={styles.officialSongsList}>
+            {topSongs.length > 0 ? (
+              topSongs.slice(0, 3).map((song, idx) => (
+                <View key={idx} style={styles.songRow}>
+                  <Text style={[styles.songIndex, { color: idx === 0 ? palette.primary : palette.textMuted }]}>
+                    {idx + 1}
+                  </Text>
+                  <Text style={[styles.songTitle, { color: palette.text }]} numberOfLines={1}>
+                    {song.title}
+                    {song.artist ? (
+                      <Text style={[styles.songArtist, { color: palette.textMuted }]}>
+                        {"  -  " + song.artist}
+                      </Text>
+                    ) : null}
+                  </Text>
+                </View>
+              ))
+            ) : (
+              <Text style={[styles.noPreviewText, { color: palette.textMuted }]}>
+                点击查看排行榜完整 100 首曲目
+              </Text>
+            )}
+          </View>
+        </View>
+      </Touchable>
+    );
+  };
+
+  // 3 列普通榜单网格卡片
+  const renderGridBoard = (board: WyLeaderboardBoard) => (
+    <Touchable
       key={board.id}
+      style={[styles.gridCell, { backgroundColor: palette.surface }]}
+      onPress={() => {
+        hapticLight();
+        openPlaylistDetailScreen(boardToPlaylistInfo(board));
+      }}
+      activeScale={0.96}
       accessibilityRole="button"
       accessibilityLabel={board.name}
-      onPress={() => openPlaylistDetailScreen(boardToPlaylistInfo(board))}
-      style={({ pressed }) => [styles.cell, { opacity: pressed ? 0.7 : 1 }]}
     >
-      {board.coverUrl ? (
-        <CachedImage uri={board.coverUrl} style={styles.cover} />
-      ) : (
-        <View style={[styles.cover, styles.coverFallback]}>
-          <Music2 size={28} color={palette.primary} />
-        </View>
-      )}
-      <Text numberOfLines={1} style={[styles.cellName, { color: palette.text }]}>
+      <View style={styles.gridCoverWrap}>
+        {board.coverUrl ? (
+          <CachedImage uri={board.coverUrl} style={styles.gridCover} />
+        ) : (
+          <View style={[styles.gridCover, styles.coverFallback, { backgroundColor: palette.surfaceStrong }]}>
+            <Music2 size={24} color={palette.primary} />
+          </View>
+        )}
+        {board.updateFrequency ? (
+          <View style={styles.freqBadge}>
+            <Text style={styles.freqText}>{board.updateFrequency}</Text>
+          </View>
+        ) : null}
+      </View>
+      <Text numberOfLines={1} style={[styles.gridName, { color: palette.text }]}>
         {board.name}
       </Text>
-      {board.updateFrequency ? (
-        <Text numberOfLines={1} style={[styles.cellMeta, { color: palette.textMuted }]}>
-          {board.updateFrequency}
-        </Text>
-      ) : null}
-    </Pressable>
+    </Touchable>
   );
 
   return (
     <ScreenScaffold>
       <ScreenScrollView
+        contentContainerStyle={styles.scrollContent}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -115,9 +198,12 @@ export function LeaderboardScreen() {
           />
         }
       >
-        <Text style={[styles.pageTitle, { color: palette.text }]}>排行榜</Text>
+        <View style={styles.titleHeader}>
+          <Trophy size={22} color={palette.primary} />
+          <Text style={[styles.pageTitle, { color: palette.text }]}>排行榜</Text>
+        </View>
 
-        {loading ? <LoadingState label="正在加载排行榜" /> : null}
+        {loading ? <LoadingState label="正在载入精彩榜单..." /> : null}
         {!loading && error ? (
           <ErrorState message={error} onRetry={() => void loadBoards()} />
         ) : null}
@@ -128,12 +214,30 @@ export function LeaderboardScreen() {
                 const enriched = boardById.get(item.id);
                 return enriched ?? { id: item.id, name: item.name, group: group.key };
               });
+              const isOfficial = group.key === "official";
+
               return (
                 <View key={group.key} style={styles.section}>
-                  <Text style={[styles.sectionTitle, { color: palette.text }]}>
-                    {group.title}
-                  </Text>
-                  <View style={styles.grid}>{groupBoards.map(renderBoard)}</View>
+                  <View style={styles.sectionHeaderRow}>
+                    <Text style={[styles.sectionTitle, { color: palette.text }]}>
+                      {group.title}
+                    </Text>
+                    {isOfficial ? (
+                      <Text style={[styles.sectionHint, { color: palette.textMuted }]}>
+                        热门官方数据指标
+                      </Text>
+                    ) : null}
+                  </View>
+
+                  {isOfficial ? (
+                    <View style={styles.officialColumn}>
+                      {groupBoards.map(renderOfficialCard)}
+                    </View>
+                  ) : (
+                    <View style={styles.grid}>
+                      {groupBoards.map(renderGridBoard)}
+                    </View>
+                  )}
                 </View>
               );
             })
@@ -145,45 +249,153 @@ export function LeaderboardScreen() {
 
 function createStyles(palette: ReturnType<typeof getThemePalette>) {
   return StyleSheet.create({
+    scrollContent: {
+      paddingHorizontal: spacing.l,
+      paddingBottom: spacing.xl,
+    },
+    titleHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+      marginBottom: spacing.m,
+      paddingTop: spacing.xs,
+    },
     pageTitle: {
       fontSize: typography.heading,
       fontWeight: "700",
-      marginBottom: spacing.m,
     },
     section: {
       marginBottom: spacing.l,
       gap: spacing.s,
     },
+    sectionHeaderRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: 2,
+    },
     sectionTitle: {
       fontSize: typography.title,
       fontWeight: "700",
     },
+    sectionHint: {
+      fontSize: typography.caption,
+    },
+    officialColumn: {
+      gap: spacing.m,
+    },
+    officialCard: {
+      flexDirection: "row",
+      borderRadius: radius.md,
+      padding: spacing.s,
+      gap: spacing.m,
+      alignItems: "center",
+      shadowColor: "#000",
+      shadowOpacity: 0.06,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 2,
+    },
+    officialCoverWrap: {
+      width: 96,
+      height: 96,
+      borderRadius: radius.sm,
+      overflow: "hidden",
+      position: "relative",
+    },
+    officialCover: {
+      width: "100%",
+      height: "100%",
+    },
+    coverFallback: {
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    freqBadge: {
+      position: "absolute",
+      top: 4,
+      right: 4,
+      backgroundColor: "rgba(0, 0, 0, 0.6)",
+      paddingHorizontal: 5,
+      paddingVertical: 2,
+      borderRadius: 4,
+    },
+    freqText: {
+      color: "#ffffff",
+      fontSize: 9,
+      fontWeight: "600",
+    },
+    officialContent: {
+      flex: 1,
+      justifyContent: "center",
+      gap: 6,
+    },
+    officialHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    officialTitle: {
+      fontSize: typography.body,
+      fontWeight: "700",
+    },
+    officialSongsList: {
+      gap: 3,
+    },
+    songRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    songIndex: {
+      fontSize: 12,
+      fontWeight: "700",
+      width: 14,
+    },
+    songTitle: {
+      fontSize: 12,
+      fontWeight: "500",
+      flex: 1,
+    },
+    songArtist: {
+      fontSize: 11,
+    },
+    noPreviewText: {
+      fontSize: 12,
+      paddingVertical: 4,
+    },
     grid: {
       flexDirection: "row",
       flexWrap: "wrap",
-      gap: spacing.m,
+      justifyContent: "space-between",
+      rowGap: spacing.m,
     },
-    cell: {
-      width: "30%",
-      minWidth: 0,
-      gap: spacing.xxs,
+    gridCell: {
+      width: "31.5%",
+      borderRadius: radius.sm,
+      padding: 6,
+      gap: 6,
+      shadowColor: "#000",
+      shadowOpacity: 0.04,
+      shadowRadius: 4,
+      shadowOffset: { width: 0, height: 1 },
+      elevation: 1,
     },
-    cover: {
+    gridCoverWrap: {
       width: "100%",
       aspectRatio: 1,
-      borderRadius: radius.md,
-      backgroundColor: palette.surfaceStrong,
+      borderRadius: 6,
+      overflow: "hidden",
+      position: "relative",
     },
-    coverFallback: {
-      alignItems: "center",
-      justifyContent: "center",
+    gridCover: {
+      width: "100%",
+      height: "100%",
     },
-    cellName: {
-      fontSize: typography.meta,
+    gridName: {
+      fontSize: 12,
       fontWeight: "600",
-    },
-    cellMeta: {
-      fontSize: typography.caption,
+      textAlign: "center",
     },
   });
 }

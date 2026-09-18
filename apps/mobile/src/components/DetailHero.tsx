@@ -1,9 +1,11 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
+import { Music2 } from "lucide-react-native";
 
 import { CachedImage } from "@/components/CachedImage";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, typography } from "@/theme/tokens";
+import { withAlpha } from "@/services/themePaletteModel";
 
 export interface DetailHeroProps {
   imageUrl?: string | null;
@@ -40,15 +42,15 @@ export function DetailHero({
   return (
     <View style={[styles.root, compact && styles.rootCompact]}>
       {imageUrl ? (
-        <View style={[styles.cover, compact && styles.coverCompact]}>
+        <View style={[styles.cover, compact && styles.coverCompact, { borderColor: withAlpha(palette.border, 0.6) }]}>
           <CachedImage
             uri={imageUrl}
             resizeMode="cover"
             style={StyleSheet.absoluteFill}
             fallback={
-              <View
-                style={[StyleSheet.absoluteFill, { backgroundColor: palette.surfaceStrong }]}
-              />
+              <View style={[StyleSheet.absoluteFill, styles.coverFallback, { backgroundColor: palette.surfaceStrong }]}>
+                <Music2 size={compact ? 24 : 36} color={palette.primary} />
+              </View>
             }
           />
           {coverBadge ? (
@@ -61,8 +63,15 @@ export function DetailHero({
         <View
           accessibilityElementsHidden
           importantForAccessibility="no"
-          style={[styles.cover, compact && styles.coverCompact, { backgroundColor: palette.surfaceStrong }]}
-        />
+          style={[
+            styles.cover,
+            compact && styles.coverCompact,
+            styles.coverFallback,
+            { backgroundColor: palette.surfaceStrong, borderColor: withAlpha(palette.border, 0.6) },
+          ]}
+        >
+          <Music2 size={compact ? 24 : 36} color={palette.primary} />
+        </View>
       )}
 
       <View style={[styles.copy, compact && styles.copyCompact]}>
@@ -132,6 +141,16 @@ const styles = StyleSheet.create({
     height: 120,
     borderRadius: radius.md,
     overflow: "hidden",
+    borderWidth: 1,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
+  },
+  coverFallback: {
+    justifyContent: "center",
+    alignItems: "center",
   },
   // 对齐 lx：歌单详情封面 scaleSizeW(70)
   coverCompact: {

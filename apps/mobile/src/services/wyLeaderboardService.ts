@@ -29,6 +29,7 @@ export interface WyLeaderboardBoard {
   group: WyBoardGroupKey;
   coverUrl?: string;
   updateFrequency?: string;
+  topSongs?: { title: string; artist: string }[];
 }
 
 /** 内置榜单分组（对齐 lx leaderboard.js）。id 即网易云歌单 id。 */
@@ -119,6 +120,17 @@ export async function fetchWyLeaderboardBoards(): Promise<WyLeaderboardBoard[]> 
           : typeof meta?.picUrl === "string" ? meta.picUrl : undefined,
         updateFrequency: typeof meta?.updateFrequency === "string"
           ? meta.updateFrequency
+          : undefined,
+        topSongs: Array.isArray(meta?.tracks)
+          ? meta.tracks
+              .map((t: unknown) => {
+                const r = asRecord(t);
+                return {
+                  title: typeof r?.first === "string" ? r.first : "",
+                  artist: typeof r?.second === "string" ? r.second : "",
+                };
+              })
+              .filter((t) => t.title.length > 0)
           : undefined,
       };
     }),
