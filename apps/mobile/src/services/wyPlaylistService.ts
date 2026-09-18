@@ -409,12 +409,31 @@ export async function trashPersonalFmSong(songId: string): Promise<void> {
   }
 }
 
-/** 从用户的网易云歌单中定位「我喜欢的音乐」歌单 ID */
+/** 从用户的网易云歌单中定位「我喜欢的音乐」歌单 ID（带多级容错识别与保底） */
 export function findWyLikedPlaylistId(playlists: WyPlaylistInfo[]): string | null {
-  const target = playlists.find(
-    (p) => p.specialType === 5 || p.name === "我喜欢的音乐" || p.name === "喜欢的音乐",
+  if (!playlists || playlists.length === 0) return null;
+  // 1. 官方特殊标记 specialType === 5 为「我喜欢的音乐」
+  const special = playlists.find((p) => p.specialType === 5);
+  if (special) return special.id;
+
+  // 2. 名称完全匹配
+  const exact = playlists.find((p) => p.name === "我喜欢的音乐" || p.name === "喜欢的音乐");
+  if (exact) return exact.id;
+
+  // 3. 包含“喜欢”或“favorite”的自建歌单
+  const fuzzy = playlists.find(
+    (p) =>
+      p.subscribed !== true &&
+      (p.name.includes("喜欢") || p.name.toLowerCase().includes("favorite")),
   );
-  return target ? target.id : null;
+  if (fuzzy) return fuzzy.id;
+
+  // 4. 网易云账号下用户首个自建歌单必定是红心歌单（保底）
+  const firstOwned = playlists.find((p) => p.subscribed !== true);
+  if (firstOwned) return firstOwned.id;
+
+  // 5. 任何首个歌单
+  return playlists[0]?.id ?? null;
 }
 
 /**
@@ -430,14 +449,18 @@ export async function getHeartbeatModeList(
     throw new Error("未登录");
   }
 
+  const pid = String(playlistId || "0");
+  const sid = String(seedSongId);
+
   const data = await postWyWeapi<JsonRecord>(
     "/playmode/intelligence/list",
     {
-      playlistId: String(playlistId),
-      songId: String(seedSongId),
+      playlistId: pid,
+      songId: sid,
       type: "fromPlayOne",
-      startMusicId: String(seedSongId),
-      count: "150",
+      startMusicId: sid,
+      count: 150,
+      songIds: JSON.stringify([sid]),
     },
     cookie,
   );
@@ -446,8 +469,16 @@ export async function getHeartbeatModeList(
     throw new Error(String(data.message || `获取心动模式推荐失败 (code=${data.code})`));
   }
 
-  const list = Array.isArray(data.data) ? data.data : [];
-  return list
+  let rawList: any[] = [];
+  if (Array.isArray(data.data)) {
+    rawList = data.data;
+  } else if (data.data && Array.isArray(data.data.songs)) {
+    rawList = data.data.songs;
+  } else if (Array.isArray(data.songs)) {
+    rawList = data.songs;
+  }
+
+  return rawList
     .map((item: any) => mapWyTrackToMusicInfo(item.songInfo ?? item))
     .filter((song) => Boolean(song.id));
 }

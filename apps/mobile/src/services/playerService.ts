@@ -1168,7 +1168,25 @@ export async function startHeartbeat(seedSong: MusicInfo, playlistId: string): P
     hasMore: true,
   });
 
-  await playSongCore(seedSong);
+  try {
+    await playSongCore(seedSong);
+  } catch (playError) {
+    // 种子歌曲播放失败（如 VIP 或无版权），自动尝试播放推荐列表中的首首歌曲
+    if (rest.length > 0) {
+      const firstValid = rest[0]!;
+      usePlayerStore.getState().setHeartbeatContext({
+        seedSongId: seedSong.id,
+        playlistId,
+        currentBatch: [seedSong, firstValid],
+        currentBatchIndex: 1,
+        buffer: rest.slice(1),
+        hasMore: true,
+      });
+      await playSongCore(firstValid);
+    } else {
+      throw playError;
+    }
+  }
   return [seedSong, ...rest];
 }
 

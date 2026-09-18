@@ -19,7 +19,7 @@ import { layout, spacing } from "@/theme/tokens";
 import { useFavoritesStore } from "@/stores/favoritesStore";
 import { useAccountStore } from "@/stores/accountStore";
 import { usePlaylistStore } from "@/stores/playlistStore";
-import { findWyLikedPlaylistId, getUserPlaylists } from "@/services/wyPlaylistService";
+import { findWyLikedPlaylistId, getPlaylistDetail, getUserPlaylists } from "@/services/wyPlaylistService";
 
 interface LikedSongsScreenProps {
   onBack: () => void;
@@ -56,15 +56,6 @@ export function LikedSongsScreen({ onNavigateToPlayer }: LikedSongsScreenProps) 
       return;
     }
 
-    const seedSong = (currentSong && currentSong.source === "wy")
-      ? currentSong
-      : favorites.find((s) => s.source === "wy");
-
-    if (!seedSong) {
-      Alert.alert("心动模式", "当前收藏列表中没有网易云歌曲，无法作为心动模式种子");
-      return;
-    }
-
     setHeartbeatBusy(true);
     setPlaybackError(null);
     try {
@@ -72,12 +63,32 @@ export function LikedSongsScreen({ onNavigateToPlayer }: LikedSongsScreenProps) 
       if (playlists.length === 0) {
         playlists = await getUserPlaylists(user.userId);
       }
-      const likedPlaylistId = findWyLikedPlaylistId(playlists);
-      if (!likedPlaylistId) {
-        throw new Error("未找到网易云「我喜欢的音乐」歌单，请先在网易云收藏歌曲");
+      const likedPlaylistId = findWyLikedPlaylistId(playlists) || "0";
+
+      let seedSong =
+        currentSong && currentSong.source === "wy"
+          ? currentSong
+          : favorites.find((s) => s.source === "wy");
+
+      // 智能兜底：若本地我喜欢列表中没有网易云歌曲，尝试直接从网易云我喜欢的歌单中拉取第一首作为种子
+      if (!seedSong && likedPlaylistId && likedPlaylistId !== "0") {
+        try {
+          const cloudSongs = await getPlaylistDetail(likedPlaylistId);
+          if (cloudSongs.length > 0) {
+            seedSong = cloudSongs[0];
+          }
+        } catch {
+          // 忽略云端歌单歌曲拉取失败
+        }
+      }
+
+      if (!seedSong) {
+        Alert.alert("心动模式", "未找到可用的网易云歌曲作为心动模式种子，请先在网易云中收藏歌曲");
+        return;
       }
 
       await startHeartbeat(seedSong, likedPlaylistId);
+      onNavigateToPlayer();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setPlaybackError(`启动心动模式失败: ${message}`);
