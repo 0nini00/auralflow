@@ -28,6 +28,9 @@ import { useNativeControls } from "./hooks/useNativeControls";
 import { setupPlayerSync } from "./stores/playerSync";
 import { detectWindowRoleFromParts, type AppWindowRole } from "./utils/windowRole";
 import { customSourcePersistence, useCustomSourceStore } from "./stores/customSourceStore";
+import { favoritesPersistence } from "./stores/favoritesStore";
+import { playlistPersistence } from "./stores/playlistStore";
+import { historyPersistence } from "./stores/historyStore";
 import { usePlayerStore, setPlaybackFailedAutoNext } from "./stores/playerStore";
 import { playerEngine } from "./services/playerEngine";
 import { normalizePauseOnExternalPlayback } from "./services/mediaInterruptionPolicy";
@@ -63,6 +66,7 @@ function MainApp() {
         .catch(() => undefined);
     }, 3000);
     let customSourceUpdateTimer: number | undefined;
+    let autoSyncTimer: number | undefined;
     let disposed = false;
     Promise.all([loadSettings(), customSourcePersistence.ready])
       .then(([s]) => {
@@ -72,12 +76,37 @@ function MainApp() {
         }, 4500);
       })
       .catch(() => undefined);
+
+    // 启动时自动同步歌单历史：
+    // 必须等本地曲库（收藏/歌单/历史）hydrate 完成后才能开始，否则会把空数据当成本地全集
+    // 上传回云端，造成云端数据被清空。延迟 4s 开始，避开首屏渲染与其它启动任务。
+    Promise.all([
+      loadSettings(),
+      favoritesPersistence.ready,
+      playlistPersistence.ready,
+      historyPersistence.ready,
+    ])
+      .then(([s]) => {
+        if (disposed || !s.webdavAutoSyncPlaylists) return;
+        if (!(s.webdavUrl ?? "").trim() || !s.webdavPassword) return;
+        autoSyncTimer = window.setTimeout(() => {
+          void import("./services/webdavSyncService")
+            .then(({ autoSyncPlaylistsOnce }) => autoSyncPlaylistsOnce())
+            .catch((error) => {
+              console.warn("[WebDAV 自动同步] 启动同步失败", error);
+            });
+        }, 4000);
+      })
+      .catch(() => undefined);
     return () => {
       disposed = true;
       window.removeEventListener("af-cursor-change", loadCursor);
       clearTimeout(updateTimer);
       if (customSourceUpdateTimer != null) {
         window.clearTimeout(customSourceUpdateTimer);
+      }
+      if (autoSyncTimer != null) {
+        window.clearTimeout(autoSyncTimer);
       }
     };
   }, []);

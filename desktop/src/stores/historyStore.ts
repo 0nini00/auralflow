@@ -44,7 +44,7 @@ export const useHistoryStore = create<HistoryState>()((set) => ({
   },
 }));
 
-attachLibraryPersistence<HistoryState, { history: MusicInfo[] }>(useHistoryStore, {
+export const historyPersistence = attachLibraryPersistence<HistoryState, { history: MusicInfo[] }>(useHistoryStore, {
   namespace: "recent",
   pick: (state) => ({ history: state.history }),
   apply: (slice, set) => set({ history: slice.history ?? [] }),

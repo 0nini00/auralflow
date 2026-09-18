@@ -51,6 +51,7 @@ export interface RustAppSettings {
   webdavUrl?: string | null;
   webdavUsername?: string | null;
   webdavPassword?: string | null;
+  webdavAutoSyncPlaylists: boolean;
   customSourceAutoCheck: boolean;
 }
 

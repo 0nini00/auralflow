@@ -136,6 +136,8 @@ function writeLocalBackup(kind: "sources" | "playlists", payload: unknown): void
       JSON.stringify({ savedAt: Date.now(), payload }),
     );
   } catch (err) {
+    // 备份写入失败（多为 localStorage 配额）不影响同步主流程，静默忽略
+    void err;
   }
 }
 
@@ -384,7 +386,12 @@ async function convertUserApiToCustomSource(
 }
 
 async function parseUserApisSyncFile(text: string): Promise<CustomSourceItem[]> {
-  const payload = JSON.parse(text) as UserApisSyncFile;
+  let payload: UserApisSyncFile;
+  try {
+    payload = JSON.parse(text) as UserApisSyncFile;
+  } catch {
+    throw new Error("云端音源文件已损坏或不是有效的 JSON");
+  }
   const data = payload.data;
   const apis = Array.isArray(data) ? data : data?.list ?? [];
   const scripts = Array.isArray(data) ? {} : data?.scripts ?? {};
@@ -439,7 +446,12 @@ function parsePlayHistory(value: unknown): MusicInfo[] {
 }
 
 function parsePlaylistsSyncFile(text: string): { favorites: MusicInfo[]; playlists: Playlist[]; history: MusicInfo[] } {
-  const payload = JSON.parse(text) as Record<string, unknown>;
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error("云端歌单文件已损坏或不是有效的 JSON");
+  }
   const data = isObject(payload.data) ? payload.data : payload;
   const favorites = toMusicList(data.loveList ?? data.favorites);
   const playlists: Playlist[] = [];
@@ -573,13 +585,17 @@ export async function uploadPlaylistsSync(): Promise<void> {
   });
 }
 
-export async function downloadPlaylistsSync(options?: { force?: boolean }): Promise<void> {
+export async function downloadPlaylistsSync(options?: { force?: boolean; allowMissing?: boolean }): Promise<void> {
   return withSyncLock("下载歌单", async () => {
     const cfg = await getConfig();
     if (!cfg) throw new Error("请先在设置中填写 WebDAV 地址");
 
     const text = await readSyncFileWithLegacyFallback(cfg, playlistsPath);
-    if (!text) throw new Error("云端没有歌单文件");
+    if (!text) {
+      // 自动同步场景：云端尚未写入过歌单文件属正常状态，直接跳过下载交由上传创建
+      if (options?.allowMissing) return;
+      throw new Error("云端没有歌单文件");
+    }
 
     const favorites = useFavoritesStore.getState().favorites;
     const playlists = usePlaylistStore.getState().playlists;
@@ -602,6 +618,33 @@ export async function downloadPlaylistsSync(options?: { force?: boolean }): Prom
       itemCount: parsed.favorites.length + parsed.playlists.length + parsed.history.length,
     });
   });
+}
+
+let autoPlaylistsSyncPromise: Promise<void> | null = null;
+
+/**
+ * 启动时安全自动同步歌单与播放历史：
+ * 1. 先合并下载云端数据（云端较旧时跳过，以本地为准）；
+ * 2. 再把合并后的本地全集上传收敛，保证双端最终一致。
+ * 单飞防并发重入，且完成后必须重置 —— 首次失败（如启动时离线）后网络恢复仍可重试。
+ */
+export function autoSyncPlaylistsOnce(): Promise<void> {
+  if (autoPlaylistsSyncPromise) return autoPlaylistsSyncPromise;
+  autoPlaylistsSyncPromise = (async () => {
+    try {
+      try {
+        await downloadPlaylistsSync({ allowMissing: true });
+      } catch (error) {
+        // 云端较旧（本地更新）时跳过下载，继续上传本地结果收敛；其余错误照常抛出
+        const msg = error instanceof Error ? error.message : String(error);
+        if (!msg.includes("较旧") && !msg.includes("强制下载")) throw error;
+      }
+      await uploadPlaylistsSync();
+    } finally {
+      autoPlaylistsSyncPromise = null;
+    }
+  })();
+  return autoPlaylistsSyncPromise;
 }
 
 export async function testSync(): Promise<string> {

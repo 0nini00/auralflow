@@ -70,7 +70,7 @@ export const useFavoritesStore = create<FavoritesState>()((set, get) => ({
   },
 }));
 
-attachLibraryPersistence<FavoritesState, { favorites: MusicInfo[] }>(useFavoritesStore, {
+export const favoritesPersistence = attachLibraryPersistence<FavoritesState, { favorites: MusicInfo[] }>(useFavoritesStore, {
   namespace: "favorites",
   pick: (state) => ({ favorites: state.favorites }),
   apply: (slice, set) => set({ favorites: slice.favorites ?? [] }),

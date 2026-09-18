@@ -5,6 +5,7 @@ export function SyncSettingsSection() {
   const [webdavUrl, setWebdavUrl] = useState("");
   const [webdavUser, setWebdavUser] = useState("");
   const [webdavPass, setWebdavPass] = useState("");
+  const [autoSyncPlaylists, setAutoSyncPlaylists] = useState(false);
   const [syncStatus, setSyncStatus] = useState("");
   const [syncBusy, setSyncBusy] = useState(false);
 
@@ -13,6 +14,7 @@ export function SyncSettingsSection() {
       setWebdavUrl(s.webdavUrl ?? "");
       setWebdavUser(s.webdavUsername ?? "");
       setWebdavPass(s.webdavPassword ?? "");
+      setAutoSyncPlaylists(Boolean(s.webdavAutoSyncPlaylists));
     }).catch((error) => {
       setSyncStatus(`读取同步配置失败：${error instanceof Error ? error.message : String(error)}`);
     });
@@ -24,6 +26,18 @@ export function SyncSettingsSection() {
       webdavUsername: webdavUser.trim(),
       webdavPassword: webdavPass,
     });
+  };
+
+  const handleToggleAutoSync = async (enabled: boolean) => {
+    if (enabled && (!webdavUrl.trim() || !webdavUser.trim() || !webdavPass)) {
+      setSyncStatus("请先填写 WebDAV 地址、用户名和密码");
+      setAutoSyncPlaylists(false);
+      await patchSettings({ webdavAutoSyncPlaylists: false });
+      return;
+    }
+    setAutoSyncPlaylists(enabled);
+    await patchSettings({ webdavAutoSyncPlaylists: enabled });
+    setSyncStatus(enabled ? "已开启启动时自动同步（下次启动生效）" : "已关闭启动时自动同步");
   };
 
   const runSync = async (label: string, action: () => Promise<void | string>) => {
@@ -150,6 +164,20 @@ export function SyncSettingsSection() {
           onChange={(e) => setWebdavPass(e.target.value)}
           autoComplete="off"
         />
+      </div>
+
+      <div className="af-settings-group">
+        <label className="af-settings-label">启动时自动同步歌单历史</label>
+        <div className="af-settings-row" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <input
+            type="checkbox"
+            checked={autoSyncPlaylists}
+            onChange={(e) => { void handleToggleAutoSync(e.target.checked); }}
+          />
+          <span className="af-settings-hint" style={{ margin: 0 }}>
+            开启后每次启动应用自动与云端合并下载并上传收敛（需填完上方配置）
+          </span>
+        </div>
       </div>
 
       <div className="af-settings-group">

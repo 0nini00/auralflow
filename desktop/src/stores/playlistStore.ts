@@ -195,7 +195,7 @@ export const usePlaylistStore = create<PlaylistStore>()((set, get) => ({
       },
 }));
 
-attachLibraryPersistence<PlaylistStore, { playlists: Playlist[] }>(usePlaylistStore, {
+export const playlistPersistence = attachLibraryPersistence<PlaylistStore, { playlists: Playlist[] }>(usePlaylistStore, {
   namespace: 'playlists',
   pick: (state) => ({ playlists: state.playlists }),
   apply: (slice, set) => set({ playlists: slice.playlists ?? [] }),

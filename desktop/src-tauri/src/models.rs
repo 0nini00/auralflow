@@ -100,6 +100,9 @@ pub struct AppSettings {
     pub webdav_username: Option<String>,
     /// WebDAV 密码
     pub webdav_password: Option<String>,
+    /// WebDAV 启动时自动同步歌单与历史
+    #[serde(default)]
+    pub webdav_auto_sync_playlists: bool,
     /// 自定义音源：启动后自动检测更新
     #[serde(default = "default_true")]
     pub custom_source_auto_check: bool,
@@ -151,6 +154,7 @@ impl Default for AppSettings {
             webdav_url: None,
             webdav_username: None,
             webdav_password: None,
+            webdav_auto_sync_playlists: false,
             custom_source_auto_check: true,
         }
     }
