@@ -79,7 +79,6 @@ export function QueueModal({
 }: QueueModalProps) {
   const listRef = useRef<FlatList<MusicInfo>>(null);
   const { height: windowHeight } = useWindowDimensions();
-  const addToQueue = usePlayerStore((state) => state.addToQueue);
   const playNextInQueue = usePlayerStore((state) => state.playNextInQueue);
   const downloadSong = useDownloadStore((state) => state.downloadSong);
 
@@ -208,7 +207,6 @@ export function QueueModal({
     );
     const items: ActionMenuItem[] = [
       { label: "下一首播放", icon: "playNext", onPress: () => playNextInQueue(song) },
-      { label: "加入队列", icon: "addToQueue", onPress: () => addToQueue(song) },
       {
         label: "收藏到歌单",
         icon: "playlist",
@@ -248,7 +246,7 @@ export function QueueModal({
       });
     }
     return items;
-  }, [actionSong, queue, currentItemIndex, addToQueue, playNextInQueue, onRemoveItem, onRequestNavigate]);
+  }, [actionSong, queue, currentItemIndex, playNextInQueue, onRemoveItem, onRequestNavigate]);
 
   // 队列面板主体（modal/sheet 两形态共用）：标题行 + 虚拟化列表
   const renderPanel = (sheetMode: boolean) => (

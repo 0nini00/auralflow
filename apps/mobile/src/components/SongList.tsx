@@ -125,7 +125,6 @@ export function SongList({
   const { width } = useWindowDimensions();
   const showDuration = width >= 380;
   const downloadSong = useDownloadStore((state) => state.downloadSong);
-  const addToQueue = usePlayerStore((state) => state.addToQueue);
   const playNextInQueue = usePlayerStore((state) => state.playNextInQueue);
   const currentSong = usePlayerStore((state) => state.currentSong);
 
@@ -294,7 +293,6 @@ export function SongList({
         : "下载";
     const items: ActionMenuItem[] = [
       { label: buildSongQueueActionLabels().playNextLabel, icon: "playNext", onPress: () => playNextInQueue(song) },
-      { label: buildSongQueueActionLabels().addToQueueLabel, icon: "addToQueue", onPress: () => addToQueue(song) },
       { label: "收藏到歌单", icon: "playlist", onPress: () => openAddToPlaylist(song) },
     ];
     if (showDownloadAction) {

@@ -5,7 +5,6 @@ import {
   Download,
   FolderPlus,
   ListMusic,
-  ListPlus,
   ListStart,
   SquareCheckBig,
   Trash2,
@@ -45,8 +44,8 @@ interface LocalPlaylistDetailScreenProps {
 export function LocalPlaylistDetailScreen({
   playlistId,
   onBack,
-  onNavigateToPlayer,
-  onOpenPlaylist,
+  onNavigateToPlayer: _onNavigateToPlayer,
+  onOpenPlaylist: _onOpenPlaylist,
 }: LocalPlaylistDetailScreenProps) {
   const listRef = useRef<FlatList<MusicInfo> | null>(null);
   const mountedRef = useRef(true);
@@ -63,7 +62,6 @@ export function LocalPlaylistDetailScreen({
   const deleteLocalPlaylist = usePlaylistStore((state) => state.deleteLocalPlaylist);
   const removeSongFromLocalPlaylist = usePlaylistStore((state) => state.removeSongFromLocalPlaylist);
   const removeSongsFromLocalPlaylist = usePlaylistStore((state) => state.removeSongsFromLocalPlaylist);
-  const addToQueue = usePlayerStore((state) => state.addToQueue);
   const playNextInQueue = usePlayerStore((state) => state.playNextInQueue);
   const currentSong = usePlayerStore((state) => state.currentSong);
   const downloadSong = useDownloadStore((state) => state.downloadSong);
@@ -194,13 +192,6 @@ export function LocalPlaylistDetailScreen({
   };
 
   // 批量操作处理
-  const handleBatchAddToQueue = () => {
-    if (selectedSongs.length === 0) return;
-    selectedSongs.forEach((song) => addToQueue(song));
-    Alert.alert("已加入队列", `已将 ${selectedSongs.length} 首歌曲加入播放队列`);
-    exitSelectionMode();
-  };
-
   const handleBatchPlayNext = () => {
     if (selectedSongs.length === 0) return;
     selectedSongs.slice().reverse().forEach((song) => playNextInQueue(song));
@@ -393,13 +384,6 @@ export function LocalPlaylistDetailScreen({
           onExit={exitSelectionMode}
           busy={batchRunningRef.current}
           actions={[
-            {
-              key: "queue",
-              label: "加入队列",
-              icon: <ListPlus />,
-              disabled: selectedSongs.length === 0,
-              onPress: handleBatchAddToQueue,
-            },
             {
               key: "next",
               label: "下一首",

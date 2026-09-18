@@ -10,7 +10,7 @@ import {
   Pressable,
 } from "react-native";
 import type { MusicInfo } from "@lx/core";
-import { Download, FolderPlus, ListEnd, ListPlus, ListStart, Music2, SquareCheckBig } from "lucide-react-native";
+import { Download, FolderPlus, ListEnd, ListStart, Music2, SquareCheckBig } from "lucide-react-native";
 import type { WyPlaylistInfo } from "@/services/wyPlaylistService";
 
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
@@ -80,7 +80,6 @@ export function PlaylistDetailScreen({
     (state) => state.fetchPlaylistDetail
   );
   const deleteWyPlaylist = usePlaylistStore((state) => state.deleteWyPlaylist);
-  const addToQueue = usePlayerStore((state) => state.addToQueue);
   const playNextInQueue = usePlayerStore((state) => state.playNextInQueue);
   const downloadSong = useDownloadStore((state) => state.downloadSong);
 
@@ -187,16 +186,10 @@ export function PlaylistDetailScreen({
     setSelectedKeys(allSelected ? new Set() : new Set(songs.map(getSongKey)));
   };
 
-  const handleBatchAddToQueue = () => {
-    if (selectedSongs.length === 0) return;
-    selectedSongs.forEach(addToQueue);
-    Alert.alert("已加入队列", `已添加 ${selectedSongs.length} 首歌曲`);
-  };
-
   const handleBatchPlayNext = () => {
     if (selectedSongs.length === 0) return;
     selectedSongs.forEach(playNextInQueue);
-    Alert.alert("已添加", `${selectedSongs.length} 首歌曲将按歌单顺序播放`);
+    Alert.alert("已设置下一首", `${selectedSongs.length} 首歌曲设为稍后播放`);
   };
 
   const handleBatchDownload = async (quality: DownloadQuality) => {
@@ -476,13 +469,6 @@ export function PlaylistDetailScreen({
           busy={batchBusy}
           actions={[
             {
-              key: "queue",
-              label: "队列",
-              icon: <ListPlus />,
-              disabled: selectedSongs.length === 0,
-              onPress: handleBatchAddToQueue,
-            },
-            {
               key: "next",
               label: "下一首",
               icon: <ListStart />,
@@ -491,14 +477,14 @@ export function PlaylistDetailScreen({
             },
             {
               key: "collect",
-              label: "收藏",
-              icon: <ListEnd />,
+              label: "收藏到歌单",
+              icon: <FolderPlus />,
               disabled: selectedSongs.length === 0,
               onPress: () => setAddToLocalVisible(true),
             },
             {
               key: "download",
-              label: "下载",
+              label: "批量下载",
               icon: <Download />,
               disabled: selectedSongs.length === 0,
               onPress: () => setDownloadModalVisible(true),
