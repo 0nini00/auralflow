@@ -341,96 +341,95 @@ export function LibraryScreen({
         {playbackErrorNode}
         {sectionActionsNode}
         {contentErrorNode}
-        <Modal
-          visible={Boolean(editingLocalSong)}
-          animationType="slide"
-          transparent
-          onRequestClose={closeLocalSongEditor}
-        >
-          <KeyboardAvoidingView
-            style={styles.createModalOverlay}
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-          >
-            <View style={[styles.createModalCard, { backgroundColor: palette.surface }]}>
-              <Text style={[styles.createModalTitle, { color: palette.text }]}>编辑本地音乐</Text>
-              <TextInput
-                value={localSongName}
-                onChangeText={setLocalSongName}
-                placeholder="歌曲标题"
-                placeholderTextColor={palette.textMuted}
-                style={[styles.createInput, { borderColor: palette.border, color: palette.text }]}
-              />
-              <TextInput
-                value={localSongSinger}
-                onChangeText={setLocalSongSinger}
-                placeholder="歌手"
-                placeholderTextColor={palette.textMuted}
-                style={[styles.createInput, { borderColor: palette.border, color: palette.text }]}
-              />
-              <TextInput
-                value={localSongAlbumName}
-                onChangeText={setLocalSongAlbumName}
-                placeholder="专辑"
-                placeholderTextColor={palette.textMuted}
-                style={[styles.createInput, { borderColor: palette.border, color: palette.text }]}
-              />
-              <TextInput
-                value={localSongCoverUrl}
-                onChangeText={(text) => {
-                  setLocalSongCoverUrl(text);
-                  setLocalSongCoverUri("");
-                }}
-                placeholder="封面 URL（可选，不写入文件）"
-                placeholderTextColor={palette.textMuted}
-                style={[styles.createInput, { borderColor: palette.border, color: palette.text }]}
-              />
-              <Pressable
-                style={[styles.createInput, styles.coverPickerButton, { borderColor: palette.border }]}
-                onPress={handlePickCover}
-              >
-                <Text style={[styles.coverPickerText, { color: palette.primary }]}>
-                  {localSongCoverUri ? "已选择本地图片（将写入文件）" : "从相册选择封面图片"}
-                </Text>
-              </Pressable>
-              {localSongCoverUri ? (
-                <Image source={{ uri: localSongCoverUri }} style={styles.coverPreview} />
-              ) : null}
-              <TextInput
-                value={localSongLyrics}
-                onChangeText={setLocalSongLyrics}
-                placeholder="LRC 或纯文本歌词，留空清除"
-                placeholderTextColor={palette.textMuted}
-                multiline
-                style={[styles.createInput, styles.editLocalSongLyricsInput, { borderColor: palette.border, color: palette.text }]}
-              />
-              <Text style={[styles.editLocalSongHint, { color: palette.textMuted }]}>标题、歌手、专辑会更新到系统媒体库；从相册选择的封面与歌词会写入音频文件（可能需授权修改媒体文件），留空可清除内嵌歌词。</Text>
-              <View style={styles.createModalActions}>
-                <Pressable
-                  style={styles.createModalButton}
-                  onPress={closeLocalSongEditor}
-                  disabled={savingLocalSongMetadata}
-                >
-                  <Text style={[styles.createModalButtonText, { color: palette.textMuted }]}>取消</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.createModalButton, { backgroundColor: palette.surface, borderColor: palette.border, borderWidth: 1 }]}
-                  onPress={handleSaveLocalSongMetadata}
-                  disabled={savingLocalSongMetadata}
-                >
-                  {savingLocalSongMetadata ? (
-                    <ActivityIndicator color={palette.primary} size="small" />
-                  ) : (
-                    <Text style={[styles.createModalButtonText, { color: palette.primary }]}>保存</Text>
-                  )}
-                </Pressable>
-              </View>
-            </View>
-          </KeyboardAvoidingView>
-        </Modal>
-
         {renderContent()}
       </ScreenScrollView>
       )}
+      <Modal
+        visible={Boolean(editingLocalSong)}
+        animationType="slide"
+        transparent
+        onRequestClose={closeLocalSongEditor}
+      >
+        <KeyboardAvoidingView
+          style={styles.createModalOverlay}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          <View style={[styles.createModalCard, { backgroundColor: palette.surface }]}>
+            <Text style={[styles.createModalTitle, { color: palette.text }]}>编辑本地音乐</Text>
+            <TextInput
+              value={localSongName}
+              onChangeText={setLocalSongName}
+              placeholder="歌曲标题"
+              placeholderTextColor={palette.textMuted}
+              style={[styles.createInput, { borderColor: palette.border, color: palette.text }]}
+            />
+            <TextInput
+              value={localSongSinger}
+              onChangeText={setLocalSongSinger}
+              placeholder="歌手"
+              placeholderTextColor={palette.textMuted}
+              style={[styles.createInput, { borderColor: palette.border, color: palette.text }]}
+            />
+            <TextInput
+              value={localSongAlbumName}
+              onChangeText={setLocalSongAlbumName}
+              placeholder="专辑"
+              placeholderTextColor={palette.textMuted}
+              style={[styles.createInput, { borderColor: palette.border, color: palette.text }]}
+            />
+            <TextInput
+              value={localSongCoverUrl}
+              onChangeText={(text) => {
+                setLocalSongCoverUrl(text);
+                setLocalSongCoverUri("");
+              }}
+              placeholder="封面 URL（可选，不写入文件）"
+              placeholderTextColor={palette.textMuted}
+              style={[styles.createInput, { borderColor: palette.border, color: palette.text }]}
+            />
+            <Pressable
+              style={[styles.createInput, styles.coverPickerButton, { borderColor: palette.border }]}
+              onPress={handlePickCover}
+            >
+              <Text style={[styles.coverPickerText, { color: palette.primary }]}>
+                {localSongCoverUri ? "已选择本地图片（将写入文件）" : "从相册选择封面图片"}
+              </Text>
+            </Pressable>
+            {localSongCoverUri ? (
+              <Image source={{ uri: localSongCoverUri }} style={styles.coverPreview} />
+            ) : null}
+            <TextInput
+              value={localSongLyrics}
+              onChangeText={setLocalSongLyrics}
+              placeholder="LRC 或纯文本歌词，留空清除"
+              placeholderTextColor={palette.textMuted}
+              multiline
+              style={[styles.createInput, styles.editLocalSongLyricsInput, { borderColor: palette.border, color: palette.text }]}
+            />
+            <Text style={[styles.editLocalSongHint, { color: palette.textMuted }]}>标题、歌手、专辑会更新到系统媒体库；从相册选择的封面与歌词会写入音频文件（可能需授权修改媒体文件），留空可清除内嵌歌词。</Text>
+            <View style={styles.createModalActions}>
+              <Pressable
+                style={styles.createModalButton}
+                onPress={closeLocalSongEditor}
+                disabled={savingLocalSongMetadata}
+              >
+                <Text style={[styles.createModalButtonText, { color: palette.textMuted }]}>取消</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.createModalButton, { backgroundColor: palette.surface, borderColor: palette.border, borderWidth: 1 }]}
+                onPress={handleSaveLocalSongMetadata}
+                disabled={savingLocalSongMetadata}
+              >
+                {savingLocalSongMetadata ? (
+                  <ActivityIndicator color={palette.primary} size="small" />
+                ) : (
+                  <Text style={[styles.createModalButtonText, { color: palette.primary }]}>保存</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </ScreenScaffold>
   );
 }
