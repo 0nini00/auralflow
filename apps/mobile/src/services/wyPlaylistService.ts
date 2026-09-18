@@ -42,11 +42,11 @@ const WY_REQUEST_HEADERS = {
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36 Edg/108.0.1462.54",
 };
 
-type JsonRecord = Record<string, any>;
+type JsonRecord = Record<string, unknown>;
 
 export async function postWyWeapi<TResponse = JsonRecord>(
   path: string,
-  payload: Record<string, any>,
+  payload: Record<string, unknown>,
   cookie: string,
 ): Promise<TResponse> {
   const { params, encSecKey } = await weapi({
@@ -86,7 +86,8 @@ async function parseWyJsonResponse<TResponse>(response: Response): Promise<TResp
     throw new WyAuthExpiredError();
   }
   if (!response.ok) {
-    throw new Error(data?.message || "请求失败，请检查网络后重试");
+    const message = typeof data?.message === "string" ? data.message : "请求失败，请检查网络后重试";
+    throw new Error(message);
   }
   return data as TResponse;
 }
@@ -119,14 +120,20 @@ export async function getUserPlaylists(userId: string): Promise<WyPlaylistInfo[]
     throw new Error(String(data.message || `获取歌单失败 (code=${data.code})`));
   }
 
-  const raw = Array.isArray(data.playlist) ? (data.playlist as any[]) : [];
-  return raw.map((item: any) => {
-    const creatorUserId = item.creator?.userId;
+  const raw = Array.isArray(data.playlist)
+    ? (data.playlist as Array<Record<string, unknown>>)
+    : [];
+  return raw.map((item) => {
+    const creatorObj =
+      item.creator && typeof item.creator === "object"
+        ? (item.creator as Record<string, unknown>)
+        : undefined;
+    const creatorUserId = creatorObj?.userId;
     const creator =
       creatorUserId != null && String(creatorUserId).trim()
         ? {
             userId: String(creatorUserId),
-            nickname: String(item.creator?.nickname ?? ""),
+            nickname: String(creatorObj?.nickname ?? ""),
           }
         : undefined;
 
@@ -138,13 +145,13 @@ export async function getUserPlaylists(userId: string): Promise<WyPlaylistInfo[]
 
     return {
       id: String(item.id),
-      name: item.name,
-      author: item.creator?.nickname || "未知",
-      picUrl: item.coverImgUrl,
-      coverImgUrl: item.coverImgUrl,
-      desc: item.description ?? item.desc,
-      playCount: item.playCount,
-      trackCount: item.trackCount || 0,
+      name: String(item.name ?? "未知歌单"),
+      author: creator?.nickname || String(item.author ?? "未知"),
+      picUrl: typeof item.coverImgUrl === "string" ? item.coverImgUrl : undefined,
+      coverImgUrl: typeof item.coverImgUrl === "string" ? item.coverImgUrl : undefined,
+      desc: typeof item.description === "string" ? item.description : typeof item.desc === "string" ? item.desc : undefined,
+      playCount: typeof item.playCount === "number" ? item.playCount : undefined,
+      trackCount: typeof item.trackCount === "number" ? item.trackCount : 0,
       source: "wy" as const,
       subscribed,
       specialType: typeof item.specialType === "number" ? item.specialType : undefined,
@@ -165,7 +172,11 @@ const SONG_DETAIL_CHUNK_SIZE = 500;
 function extractWyTrackIds(playlist: JsonRecord): string[] {
   const raw = Array.isArray(playlist.trackIds) ? playlist.trackIds : [];
   return raw
-    .map((item: any) => (item != null && typeof item === "object" ? item?.id : item))
+    .map((item: unknown) =>
+      item != null && typeof item === "object" && "id" in item
+        ? (item as Record<string, unknown>).id
+        : item,
+    )
     .map((id: unknown) => String(id))
     .filter((id) => id && id !== "undefined" && id !== "null");
 }
@@ -214,9 +225,10 @@ export async function getPlaylistDetail(playlistId: string): Promise<MusicInfo[]
       throw new WyAuthExpiredError();
     }
 
-    if (data.code === 200 && data.playlist) {
-      const previewTracks = Array.isArray(data.playlist.tracks) ? data.playlist.tracks : [];
-      const trackIds = extractWyTrackIds(data.playlist);
+    const playlist = data.playlist as JsonRecord | undefined;
+    if (data.code === 200 && playlist) {
+      const previewTracks = Array.isArray(playlist.tracks) ? playlist.tracks : [];
+      const trackIds = extractWyTrackIds(playlist);
 
       // v6 接口只返回前 ~10 首完整歌曲 + 全部 trackIds，需要按 trackIds 批量补齐（对齐桌面端/lx）
       if (trackIds.length > previewTracks.length) {
@@ -248,7 +260,7 @@ export async function subscribePlaylist(playlistId: string, subscribe: boolean):
   const request = buildWyPlaylistSubscribeRequest(playlistId, subscribe);
   const data = await postWyWeapi(request.path, request.payload, cookie);
   if (data.code !== 200) {
-    throw new Error(data.message || "网易云歌单收藏失败");
+    throw new Error(String(data.message || "网易云歌单收藏失败"));
   }
 }
 
@@ -279,7 +291,7 @@ async function manipulatePlaylistTracks(
     data = await postWyWeapi("/playlist/manipulate/tracks", buildPayload([...ids, ...ids]), cookie);
   }
   if (data.code !== 200 && data.code !== 201) {
-    throw new Error(data.message || "网易云歌单歌曲操作失败");
+    throw new Error(String(data.message || "网易云歌单歌曲操作失败"));
   }
 }
 
@@ -318,15 +330,16 @@ export async function getDailyRecommendSongs(): Promise<DailyRecommendResult> {
       throw new WyAuthExpiredError();
     }
     if (data.code !== 200) {
-      throw new Error(data.message || "获取每日推荐失败");
-    }
+    throw new Error(String(data.message || "获取每日推荐失败"));
+  }
 
-    const recommend = Array.isArray(data.data?.dailySongs) ? data.data.dailySongs : [];
+  const innerData = data.data as JsonRecord | undefined;
+  const recommend = Array.isArray(innerData?.dailySongs) ? innerData.dailySongs : [];
 
-    return {
-      songs: recommend.map(mapWyTrackToMusicInfo),
-      hasMore: Boolean(data.data?.hasMore),
-    };
+  return {
+    songs: recommend.map(mapWyTrackToMusicInfo),
+    hasMore: Boolean(innerData?.hasMore),
+  };
   } catch (error) {
     throw error;
   }
@@ -364,7 +377,7 @@ export async function getPersonalFmSongs(): Promise<PersonalFmResult> {
       throw new WyAuthExpiredError();
     }
     if (data.code !== 200) {
-      throw new Error(data.message || "获取私人 FM 失败");
+      throw new Error(String(data.message || "获取私人 FM 失败"));
     }
 
     const recommend = Array.isArray(data.data) ? data.data : [];
@@ -402,7 +415,7 @@ export async function trashPersonalFmSong(songId: string): Promise<void> {
     const data = (await response.json()) as JsonRecord;
 
     if (data.code !== 200) {
-      throw new Error(data.message || "标记不喜欢失败");
+      throw new Error(String(data.message || "标记不喜欢失败"));
     }
   } catch (error) {
     throw error;
@@ -469,17 +482,20 @@ export async function getHeartbeatModeList(
     throw new Error(String(data.message || `获取心动模式推荐失败 (code=${data.code})`));
   }
 
-  let rawList: any[] = [];
+  let rawList: unknown[] = [];
   if (Array.isArray(data.data)) {
     rawList = data.data;
-  } else if (data.data && Array.isArray(data.data.songs)) {
-    rawList = data.data.songs;
+  } else if (data.data && typeof data.data === "object" && "songs" in data.data && Array.isArray((data.data as Record<string, unknown>).songs)) {
+    rawList = (data.data as Record<string, unknown>).songs as unknown[];
   } else if (Array.isArray(data.songs)) {
     rawList = data.songs;
   }
 
   return rawList
-    .map((item: any) => mapWyTrackToMusicInfo(item.songInfo ?? item))
+    .map((item: unknown) => {
+      const rec = item && typeof item === "object" ? (item as Record<string, unknown>) : null;
+      return mapWyTrackToMusicInfo(rec?.songInfo ?? item);
+    })
     .filter((song) => Boolean(song.id));
 }
 
@@ -505,9 +521,9 @@ export async function createWyPlaylist(
     cookie,
   );
   if (data.code !== 200) {
-    throw new Error(data.message || "创建歌单失败");
+    throw new Error(String(data.message || "创建歌单失败"));
   }
-  const playlist = data.playlist ?? data;
+  const playlist = (data.playlist ?? data) as Record<string, unknown>;
   const playlistId = String(playlist.id ?? "");
   const description = options?.description ?? "";
   if (description.trim()) {
@@ -522,11 +538,22 @@ export async function createWyPlaylist(
     id: playlistId,
     name: String(playlist.name ?? name),
     author: "",
-    desc: description.trim() ? description : playlist.description ?? playlist.desc ?? undefined,
-    picUrl: playlist.coverImgUrl ?? playlist.picUrl ?? undefined,
-    playCount: playlist.playCount ?? 0,
+    desc: description.trim()
+      ? description
+      : typeof playlist.description === "string"
+      ? playlist.description
+      : typeof playlist.desc === "string"
+      ? playlist.desc
+      : undefined,
+    picUrl:
+      typeof playlist.coverImgUrl === "string"
+        ? playlist.coverImgUrl
+        : typeof playlist.picUrl === "string"
+        ? playlist.picUrl
+        : undefined,
+    playCount: typeof playlist.playCount === "number" ? playlist.playCount : 0,
     trackCount: Number(playlist.trackCount ?? 0),
-    coverImgUrl: playlist.coverImgUrl ?? undefined,
+    coverImgUrl: typeof playlist.coverImgUrl === "string" ? playlist.coverImgUrl : undefined,
     source: "wy",
     subscribed: false,
   };
@@ -539,13 +566,13 @@ export async function updateWyPlaylistInfo(
 ): Promise<void> {
   const cookie = await getWyCookie();
   if (!cookie) throw new Error("未登录");
-  const payload: Record<string, any> = { id: Number(playlistId) };
+  const payload: Record<string, unknown> = { id: Number(playlistId) };
   if (changes.name !== undefined) payload.name = changes.name;
   if (changes.description !== undefined) payload.desc = changes.description;
   if (changes.coverImgUrl !== undefined) payload.pic = changes.coverImgUrl;
   const data = await postWyWeapi("/playlist/update", payload, cookie);
   if (data.code !== 200) {
-    throw new Error(data.message || "编辑歌单失败");
+    throw new Error(String(data.message || "编辑歌单失败"));
   }
 }
 
@@ -555,7 +582,7 @@ export async function deleteWyPlaylist(playlistId: string): Promise<void> {
   if (!cookie) throw new Error("未登录");
   const data = await postWyWeapi("/playlist/delete", { ids: `[${playlistId}]` }, cookie);
   if (data.code !== 200) {
-    throw new Error(data.message || "删除歌单失败");
+    throw new Error(String(data.message || "删除歌单失败"));
   }
 }
 
@@ -583,7 +610,7 @@ export async function sendWyComment(
     cookie,
   );
   if (data.code !== 200 && data.code !== 201) {
-    throw new Error(data.message || "评论失败");
+    throw new Error(String(data.message || "评论失败"));
   }
 }
 
