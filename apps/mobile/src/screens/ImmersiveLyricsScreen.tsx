@@ -1,5 +1,15 @@
 import React from "react";
-import { Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import {
+  AppState,
+  BackHandler,
+  Modal,
+  Pressable,
+  StatusBar,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, {
   Easing,
@@ -310,6 +320,36 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     }
   }, [flightEnabled, targetRect, closeNow, contentTranslateY, rootOpacity, realCoverOpacity, flyOverlayOpacity, flyProgress]);
 
+  // 接管系统物理/手势返回键：先播飞回动画再真正返回
+  React.useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      requestClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [requestClose]);
+
+  // 从后台恢复前台时的状态保护：长时间后台挂起后唤醒，确保不透明度与位移处于可见态，杜绝白屏/假死
+  React.useEffect(() => {
+    const sub = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active" && !closingRef.current) {
+        if (rootOpacity.value !== 1) rootOpacity.value = 1;
+        if (contentTranslateY.value !== 0) contentTranslateY.value = 0;
+        if (realCoverOpacity.value !== 1) realCoverOpacity.value = 1;
+        setFlightDone(true);
+        setOverlayGone(true);
+      }
+    });
+    return () => sub.remove();
+  }, [rootOpacity, contentTranslateY, realCoverOpacity]);
+
+  // 歌曲丢失兜底：若后台切歌异常导致 currentSong 被清空，自动退出沉浸页
+  React.useEffect(() => {
+    if (!currentSong && !closingRef.current) {
+      onCloseRef.current();
+    }
+  }, [currentSong]);
+
   // ── 下拉关闭（跟手）：仅封面页启用，纵向位移驱动整页下移 ──
   // 播放列表 / 评论等应用内底部弹层打开期间必须禁用：它们盖在封面页上且自带
   // 可滚动列表，根级下拉手势会劫持列表滚动（页面跟着位移），快速滑动还会
@@ -360,13 +400,12 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
   const currentMvId = currentSong.source === "wy" ? currentSong.mvId : undefined;
 
   return (
-    <Modal
-      visible={visible}
-      animationType="none"
-      transparent
-      onRequestClose={requestClose}
-      statusBarTranslucent
-    >
+    <View style={styles.flexFill}>
+      <StatusBar
+        translucent
+        backgroundColor="transparent"
+        barStyle={isDark ? "light-content" : "dark-content"}
+      />
       <GestureHandlerRootView style={styles.flexFill}>
         <GestureDetector gesture={panGesture}>
           <Animated.View
@@ -608,7 +647,7 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
           />
         ) : null}
       </GestureHandlerRootView>
-    </Modal>
+    </View>
   );
 }
 
