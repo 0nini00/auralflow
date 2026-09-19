@@ -8,6 +8,7 @@ import { getPlayModeState, type PlayModeId } from "@/services/playback/playModeC
 import { invalidateCachedPlaybackUrl } from "@/services/persistentCache";
 import { debugLog, patchSettings } from "@lx/tauri-bridge";
 import { applySwitchStepRequest, createSwitchStepQueueState, finishSwitchStep } from "@lx/core";
+import { findTxVariants, describeCrossSourceFailure } from "@/services/playback/crossSourceFallbackService";
 import { useHistoryStore } from "./historyStore";
 import { useSleepTimerStore } from "./sleepTimerStore";
 import { useDiscoveryStore } from "./discoveryStore";
@@ -106,6 +107,7 @@ async function invalidatePersistentPlaybackCache(
       await invalidateCachedPlaybackUrl(target, quality);
     }
   } catch (error) {
+    debugLog(`[cache] invalidatePersistentPlaybackCache failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -364,17 +366,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
             if (requestId !== activePlayRequestId) return;
 
             if (!resolved?.url) {
-
-              set({
-
-                status: "error",
-
-                error: "当前播放方式没有返回可播放地址",
-
-              });
-
-              return;
-
+              throw new Error("当前播放方式没有返回可播放地址");
             }
 
             try {
@@ -396,6 +388,44 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
           preloadNext(get);
         } catch (e) {
           if (requestId !== activePlayRequestId) return;
+
+          // 网易云曲目常规解析失败时，自动直连 QQ 音乐检索并严格校验同名曲接管播放
+          if (music.source === "wy") {
+            try {
+              debugLog(`[fallback] 网易云曲目解析失败，尝试自动跨源降级 QQ 音乐: ${music.name}`);
+              const candidates = await findTxVariants(music);
+              if (requestId !== activePlayRequestId) return;
+
+              for (const candidate of candidates) {
+                if (requestId !== activePlayRequestId) return;
+                try {
+                  const fallbackResolved = await resolvePlaybackUrl(candidate);
+                  if (requestId !== activePlayRequestId) return;
+                  if (fallbackResolved?.url) {
+                    await playerEngine.play(fallbackResolved.music, fallbackResolved.url);
+                    if (requestId !== activePlayRequestId) return;
+                    set({ current: fallbackResolved.music });
+                    useHistoryStore.getState().add(fallbackResolved.music);
+                    preloadNext(get);
+                    debugLog(`[fallback] 跨源降级成功: ${music.name} -> QQ音乐: ${candidate.name} (${candidate.id})`);
+                    return;
+                  }
+                } catch {
+                  // 当前候选获取链接失败，尝试下一条候选
+                }
+              }
+
+              const reason = describeCrossSourceFailure(candidates);
+              set({
+                status: "error",
+                error: `${e instanceof Error ? e.message : String(e)}（${reason}）`,
+              });
+              return;
+            } catch (fallbackErr) {
+              debugLog(`[fallback] 跨源降级过程异常: ${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`);
+            }
+          }
+
           set({
             status: "error",
             error: e instanceof Error ? e.message : String(e),

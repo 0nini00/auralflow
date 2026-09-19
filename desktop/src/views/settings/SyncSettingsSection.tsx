@@ -35,9 +35,16 @@ export function SyncSettingsSection() {
       await patchSettings({ webdavAutoSyncPlaylists: false });
       return;
     }
+    await saveWebdavConfig();
     setAutoSyncPlaylists(enabled);
     await patchSettings({ webdavAutoSyncPlaylists: enabled });
-    setSyncStatus(enabled ? "已开启启动时自动同步（下次启动生效）" : "已关闭启动时自动同步");
+    setSyncStatus(enabled ? "已开启启动时自动同步（配置已保存，下次启动生效）" : "已关闭启动时自动同步");
+  };
+
+  const handleInputBlur = () => {
+    if (webdavUrl.trim() || webdavUser.trim() || webdavPass) {
+      void saveWebdavConfig();
+    }
   };
 
   const runSync = async (label: string, action: () => Promise<void | string>) => {
@@ -140,6 +147,7 @@ export function SyncSettingsSection() {
           className="af-settings-input"
           value={webdavUrl}
           onChange={(e) => setWebdavUrl(e.target.value)}
+          onBlur={handleInputBlur}
           placeholder="https://dav.example.com/auralflow"
           autoComplete="off"
         />
@@ -151,6 +159,7 @@ export function SyncSettingsSection() {
           className="af-settings-input"
           value={webdavUser}
           onChange={(e) => setWebdavUser(e.target.value)}
+          onBlur={handleInputBlur}
           autoComplete="off"
         />
       </div>
@@ -162,6 +171,7 @@ export function SyncSettingsSection() {
           type="password"
           value={webdavPass}
           onChange={(e) => setWebdavPass(e.target.value)}
+          onBlur={handleInputBlur}
           autoComplete="off"
         />
       </div>

@@ -522,7 +522,7 @@ export function PlaylistDetailView() {
                 title={currentSongIndex >= 0 ? '定位当前播放歌曲' : '定位当前播放'}
               >
                 <LocateFixed size={16} />
-                <span>定位当前播放</span>
+                <span>定位</span>
               </button>
               {isWyPlaylist && (
                 <button
