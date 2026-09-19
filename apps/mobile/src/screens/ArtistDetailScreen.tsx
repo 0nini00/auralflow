@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { layout, spacing, typography } from "@/theme/tokens";
 import {
-  FlatList,
   Pressable,
   StyleSheet,
   Text,
@@ -10,7 +9,6 @@ import {
 import type { MusicInfo } from "@lx/core";
 
 import { DetailHero } from "@/components/DetailHero";
-import { PlaybackActionButtons } from "@/components/PlaybackActionButtons";
 import { ScreenScaffold } from "@/components/ScreenScaffold";
 import { Disc3 } from "lucide-react-native";
 
@@ -30,9 +28,7 @@ import {
 import { playQueue } from "@/services/playerService";
 import { runPlaybackUiAction } from "@/services/playbackUiAction";
 import {
-  buildContentDetailPlaybackActions,
   findContentDetailCurrentSongIndex,
-  shuffleContentDetailSongs,
 } from "@/services/contentDetailPlaybackActions";
 import { buildContentDescriptionModel } from "@/services/contentDescriptionModel";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
@@ -55,7 +51,7 @@ type ArtistRemoteState =
 
 export function ArtistDetailScreen({
   artist,
-  onNavigateToPlayer,
+  onNavigateToPlayer: _onNavigateToPlayer,
   onOpenAlbum,
 }: ArtistDetailScreenProps) {
   const themeMode = useThemeStore((state) => state.mode);
@@ -64,7 +60,6 @@ export function ArtistDetailScreen({
   const palette = getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor);
   const currentSong = usePlayerStore((state) => state.currentSong);
 
-  const listRef = useRef<FlatList<MusicInfo> | null>(null);
   const requestSequenceRef = useRef(0);
   const currentIdRef = useRef(artist.id);
   currentIdRef.current = artist.id;
@@ -73,8 +68,6 @@ export function ArtistDetailScreen({
     kind: "loading",
   }));
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
-  const [pendingAction, setPendingAction] = useState<"play-all" | "shuffle" | null>(null);
-  const [locatedSongIndex, setLocatedSongIndex] = useState<number | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
 
   // 加载歌手详情，抽取为可复用函数供 useEffect 与重试按钮共用
@@ -90,8 +83,6 @@ export function ArtistDetailScreen({
       if (isCurrentRequest()) {
         setRemoteState({ id: requestedId, kind: "loading" });
         setDescriptionExpanded(false);
-        setPendingAction(null);
-        setLocatedSongIndex(null);
       }
 
       try {
@@ -150,13 +141,6 @@ export function ArtistDetailScreen({
     () => findContentDetailCurrentSongIndex(songs, currentSong),
     [songs, currentSong],
   );
-  const playbackActions = buildContentDetailPlaybackActions(songs.length, {
-    currentSongIndex,
-    playAllLabel: "播放热门",
-    songSectionTitle: "热门歌曲",
-    emptySongsText: "暂无热门歌曲",
-  });
-  const isPlayBusy = pendingAction !== null;
 
   const runPlayback = async (action: () => Promise<void>) => {
     setPlaybackError(null);
@@ -171,43 +155,13 @@ export function ArtistDetailScreen({
     await runPlayback(() => playQueue(songs, index));
   };
 
-  const handlePlayAll = async () => {
-    if (songs.length === 0 || isPlayBusy) return;
-    setPendingAction("play-all");
-    try {
-      await runPlayback(() => playQueue(songs, 0));
-    } finally {
-      setPendingAction(null);
-    }
-  };
-
-  const handleShufflePlay = async () => {
-    if (songs.length === 0 || isPlayBusy) return;
-    setPendingAction("shuffle");
-    try {
-      await runPlayback(() => playQueue(shuffleContentDetailSongs(songs), 0));
-    } finally {
-      setPendingAction(null);
-    }
-  };
-
-  const handleLocateCurrentSong = () => {
-    if (!playbackActions.canLocateCurrentSong || currentSongIndex < 0) return;
-    setLocatedSongIndex(currentSongIndex);
-    // scrollToIndex 直接按行测量位置定位，不再需要估算页头偏移
-    listRef.current?.scrollToIndex({ index: currentSongIndex, animated: true, viewPosition: 0 });
-  };
-
   return (
     <ScreenScaffold>
       <SongList
         virtualized
-        listRef={listRef}
         songs={songs}
         onPlay={handlePlay}
-        highlightedIndex={
-          locatedSongIndex ?? (currentSongIndex >= 0 ? currentSongIndex : null)
-        }
+        highlightedIndex={currentSongIndex >= 0 ? currentSongIndex : null}
         hideSourceTag
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
@@ -221,26 +175,6 @@ export function ArtistDetailScreen({
               title={heroTitle}
               subtitle={heroSubtitle}
               metadata={heroMetadata}
-              actions={
-                successfulDetail ? (
-                  <PlaybackActionButtons
-                    show={playbackActions.show}
-                    playAllLabel={playbackActions.playAllLabel}
-                    shuffleLabel={playbackActions.shuffleLabel}
-                    locateLabel={playbackActions.locateLabel}
-                    canLocateCurrentSong={playbackActions.canLocateCurrentSong}
-                    playAllBusy={pendingAction === "play-all"}
-                    shuffleBusy={pendingAction === "shuffle"}
-                    onPlayAll={() => {
-                      void handlePlayAll();
-                    }}
-                    onShuffle={() => {
-                      void handleShufflePlay();
-                    }}
-                    onLocate={handleLocateCurrentSong}
-                  />
-                ) : undefined
-              }
             />
 
             {currentState.kind === "success" && descriptionModel.show ? (
@@ -278,7 +212,7 @@ export function ArtistDetailScreen({
 
             {currentState.kind === "success" ? (
               <View style={styles.section}>
-                <SectionHeader title={playbackActions.songSectionTitle} />
+                <SectionHeader title="热门歌曲" />
               </View>
             ) : null}
           </>
@@ -289,7 +223,7 @@ export function ArtistDetailScreen({
           ) : currentState.kind === "error" ? (
             <ErrorState message={currentState.message} onRetry={handleRetry} />
           ) : songs.length > 0 ? null : (
-            <EmptyState title={playbackActions.emptySongsText} />
+            <EmptyState title="暂无热门歌曲" />
           )
         }
       />

@@ -1,7 +1,6 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { layout, radius, spacing, typography } from "@/theme/tokens";
 import {
-  FlatList,
   Pressable,
   StyleSheet,
   Text,
@@ -9,8 +8,8 @@ import {
 } from "react-native";
 import type { MusicInfo } from "@lx/core";
 
+import { ActionButton } from "@/components/ActionButton";
 import { DetailHero } from "@/components/DetailHero";
-import { PlaybackActionButtons } from "@/components/PlaybackActionButtons";
 import { BatchDownloadModal } from "@/components/BatchDownloadModal";
 import { ScreenScaffold } from "@/components/ScreenScaffold";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
@@ -26,9 +25,7 @@ import { useDownloadStore, type DownloadQuality } from "@/stores/downloadStore";
 import { playQueue } from "@/services/playerService";
 import { runPlaybackUiAction } from "@/services/playbackUiAction";
 import {
-  buildContentDetailPlaybackActions,
   findContentDetailCurrentSongIndex,
-  shuffleContentDetailSongs,
 } from "@/services/contentDetailPlaybackActions";
 import { buildContentDescriptionModel } from "@/services/contentDescriptionModel";
 import {
@@ -58,7 +55,7 @@ type AlbumRemoteState =
 export function AlbumDetailScreen({
   album,
   parentAlbum,
-  onNavigateToPlayer,
+  onNavigateToPlayer: _onNavigateToPlayer,
   onOpenArtist,
 }: AlbumDetailScreenProps) {
   const themeMode = useThemeStore((state) => state.mode);
@@ -67,7 +64,6 @@ export function AlbumDetailScreen({
   const palette = getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor);
   const currentSong = usePlayerStore((state) => state.currentSong);
 
-  const listRef = useRef<FlatList<MusicInfo> | null>(null);
   const requestSequenceRef = useRef(0);
   const currentIdRef = useRef(album.id);
   currentIdRef.current = album.id;
@@ -76,8 +72,6 @@ export function AlbumDetailScreen({
     kind: "loading",
   }));
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
-  const [pendingAction, setPendingAction] = useState<"play-all" | "shuffle" | null>(null);
-  const [locatedSongIndex, setLocatedSongIndex] = useState<number | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [batchDownloadVisible, setBatchDownloadVisible] = useState(false);
   const downloadSong = useDownloadStore((state) => state.downloadSong);
@@ -94,8 +88,6 @@ export function AlbumDetailScreen({
     if (isCurrentRequest()) {
       setRemoteState({ id: requestedId, kind: "loading" });
       setDescriptionExpanded(false);
-      setPendingAction(null);
-      setLocatedSongIndex(null);
     }
 
     try {
@@ -148,13 +140,7 @@ export function AlbumDetailScreen({
     () => findContentDetailCurrentSongIndex(songs, currentSong),
     [songs, currentSong],
   );
-  const playbackActions = buildContentDetailPlaybackActions(songs.length, {
-    currentSongIndex,
-    songSectionTitle: "歌曲",
-    emptySongsText: "暂无曲目",
-  });
   const artistRoute = successfulDetail ? openAlbumArtistDetail(albumInfo, parentAlbum) : null;
-  const isPlayBusy = pendingAction !== null;
 
   const runPlayback = async (action: () => Promise<void>) => {
     setPlaybackError(null);
@@ -167,32 +153,6 @@ export function AlbumDetailScreen({
 
   const handlePlay = async (_song: MusicInfo, index: number) => {
     await runPlayback(() => playQueue(songs, index));
-  };
-
-  const handlePlayAll = async () => {
-    if (songs.length === 0 || isPlayBusy) return;
-    setPendingAction("play-all");
-    try {
-      await runPlayback(() => playQueue(songs, 0));
-    } finally {
-      setPendingAction(null);
-    }
-  };
-
-  const handleShufflePlay = async () => {
-    if (songs.length === 0 || isPlayBusy) return;
-    setPendingAction("shuffle");
-    try {
-      await runPlayback(() => playQueue(shuffleContentDetailSongs(songs), 0));
-    } finally {
-      setPendingAction(null);
-    }
-  };
-
-  const handleLocateCurrentSong = () => {
-    if (!playbackActions.canLocateCurrentSong || currentSongIndex < 0) return;
-    setLocatedSongIndex(currentSongIndex);
-    listRef.current?.scrollToIndex({ index: currentSongIndex, animated: true, viewPosition: 0 });
   };
 
   const handleOpenArtist = () => {
@@ -214,27 +174,16 @@ export function AlbumDetailScreen({
           </Text>
         </Pressable>
       ) : null}
-      <PlaybackActionButtons
-        show={playbackActions.show}
-        playAllLabel={playbackActions.playAllLabel}
-        shuffleLabel={playbackActions.shuffleLabel}
-        locateLabel={playbackActions.locateLabel}
-        canLocateCurrentSong={playbackActions.canLocateCurrentSong}
-        playAllBusy={pendingAction === "play-all"}
-        shuffleBusy={pendingAction === "shuffle"}
-        onPlayAll={() => {
-          void handlePlayAll();
-        }}
-        onShuffle={() => {
-          void handleShufflePlay();
-        }}
-        onLocate={handleLocateCurrentSong}
-        extraActions={
-          songs.length > 0
-            ? [{ label: "下载全部", onPress: () => setBatchDownloadVisible(true) }]
-            : undefined
-        }
-      />
+      {/* 仅保留下载：播放全部/随机播放/定位属于播放便捷入口，歌手页与专辑页不再提供 */}
+      {songs.length > 0 ? (
+        <ActionButton
+          label="下载全部"
+          variant="primary"
+          small
+          onPress={() => setBatchDownloadVisible(true)}
+          accessibilityLabel="下载全部"
+        />
+      ) : null}
     </>
   ) : undefined;
 
@@ -242,12 +191,9 @@ export function AlbumDetailScreen({
     <ScreenScaffold>
       <SongList
         virtualized
-        listRef={listRef}
         songs={songs}
         onPlay={handlePlay}
-        highlightedIndex={
-          locatedSongIndex ?? (currentSongIndex >= 0 ? currentSongIndex : null)
-        }
+        highlightedIndex={currentSongIndex >= 0 ? currentSongIndex : null}
         hideSourceTag
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
@@ -288,7 +234,7 @@ export function AlbumDetailScreen({
 
             {currentState.kind === "success" ? (
               <View style={styles.section}>
-                <SectionHeader title={playbackActions.songSectionTitle} />
+                <SectionHeader title="歌曲" />
               </View>
             ) : null}
           </>
@@ -299,7 +245,7 @@ export function AlbumDetailScreen({
           ) : currentState.kind === "error" ? (
             <ErrorState message={currentState.message} onRetry={() => void load()} />
           ) : songs.length > 0 ? null : (
-            <EmptyState title={playbackActions.emptySongsText} />
+            <EmptyState title="暂无曲目" />
           )
         }
       />
