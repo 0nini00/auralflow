@@ -11,6 +11,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 
 import { AppBackground } from "@/components/AppBackground";
 import { AppHeader, type AppHeaderProps } from "@/components/AppHeader";
+import { BackgroundPlaybackGuard } from "@/components/BackgroundPlaybackGuard";
 import { PlayerBar } from "@/components/PlayerBar";
 import { navigateRoot, navigationRef, openPlayerScreen } from "@/navigation/navigationRef";
 import { useSearchQueryStore } from "@/stores/searchQueryStore";
@@ -174,6 +175,7 @@ export function AppShell({ children }: AppShellProps) {
       edges={shellState.applyTopSafeArea ? ["top", "left", "right"] : ["left", "right"]}
     >
       <StatusBar barStyle={shellState.statusBar} />
+      <BackgroundPlaybackGuard />
       {shellState.showChrome ? (
         <AppBackground>
           {shellState.showHeader ? <AppHeader {...shellState.headerProps} /> : null}

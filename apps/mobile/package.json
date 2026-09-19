@@ -1,11 +1,12 @@
 {
   "name": "@auralflow/mobile",
-  "version": "0.1.0",
-  "androidVersionCode": 1,
+  "version": "0.2.0",
+  "androidVersionCode": 2,
   "private": true,
   "scripts": {
     "android": "react-native run-android",
     "android:assembleDebug": "cd android && gradlew.bat assembleDebug",
+    "android:assembleRelease": "cd android && gradlew.bat assembleRelease",
     "start": "react-native start",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src App.tsx",

@@ -1,5 +1,6 @@
 import React from "react";
 
+import { BackgroundPlaybackSettings } from "@/components/settings/BackgroundPlaybackSettings";
 import { ExternalPlaybackSettings } from "@/components/settings/ExternalPlaybackSettings";
 import { PlaybackErrorSettings } from "@/components/settings/PlaybackErrorSettings";
 import { PlaybackQualitySettings } from "@/components/settings/PlaybackQualitySettings";
@@ -11,6 +12,7 @@ export function PlaybackSettingsScreen() {
     <SettingsPage title="播放" description="默认音质和播放行为">
       <PlaybackQualitySettings />
       <ExternalPlaybackSettings />
+      <BackgroundPlaybackSettings />
       <PlaybackErrorSettings />
       <ScrobbleSettings />
     </SettingsPage>

@@ -27,6 +27,7 @@ public class LocalMusicPackage implements ReactPackage {
     modules.add(new CoverColorModule(reactContext));
     modules.add(new OrientationModule(reactContext));
     modules.add(new WakeLockModule(reactContext));
+    modules.add(new BatteryOptimizationModule(reactContext));
     return modules;
   }
 

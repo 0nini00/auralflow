@@ -8,6 +8,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 后台保活：未加入「忽略电池优化」白名单时，OPPO/vivo/小米等国产 ROM 会在退到后台后
+         冻结应用进程（连 JS 线程一起冻），导致曲末无法解析并加载下一首而停播。
+         声明后方可拉起系统白名单授权页，见 BatteryOptimizationModule。 -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- 应用内更新：下载 APK 后直接拉起系统安装器（Android 8+ 需「安装未知应用」授权） -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
