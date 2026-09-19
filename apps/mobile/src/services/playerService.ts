@@ -1,4 +1,4 @@
-import type { MusicInfo, LyricLine } from "@lx/core";
+import type { MusicInfo } from "@lx/core";
 import { parseUrl, getLyrics, buildStreamHeaders, STREAM_USER_AGENT } from "./musicApi";
 import { resolveWySongUrl } from "./wyDirectProvider";
 import { resolveBiliSongUrl } from "./biliService";
@@ -25,6 +25,10 @@ import {
 import { applySwitchStepRequest, createSwitchStepQueueState, finishSwitchStep } from "@lx/core";
 import { usePlaybackSettingsStore } from "@/stores/playbackSettingsStore";
 import { buildPlaybackPrefetchKey, isPlaybackPrefetchKeyForSong } from "@/services/playbackPrefetchModel";
+import {
+  describeCrossSourceFailure,
+  findTxVariants,
+} from "@/services/crossSourceFallbackService";
 import { probeStreamUrl } from "./streamProbe";
 
 /**
@@ -751,9 +755,50 @@ async function completeQueuedSwitchStep(): Promise<void> {
   }
 }
 
+/**
+ * 网易云曲目解析失败时的跨源接管：去 QQ 音乐找同名曲，取第一个能解析出地址的顶上。
+ *
+ * 静默降级（用户确认的交互）：找到就直接播，不弹窗打断。
+ * 但绝不静默地“播错版本”：候选经 isSameSong（歌名规整相等 + 歌手重合 + 时长差 ≤ 5s）
+ * 严格校验，且全失败时抛出带结论的错误，让用户知道是没脚本而不是没版权以外的莫名其妙原因。
+ *
+ * 接管成功后会把 currentSong 换成 QQ 音乐曲目（而非沿用网易云元数据）：
+ * 否则会出现历史上那个被移除的实现同样的问题——用户看到网易云的歌名，
+ * 实际听的是另一平台的音频，歌词与音质都对不上。
+ *
+ * @throws 无可用替代时抛出错误，文案已合并原始失败原因与跨源结论
+ */
+async function resolveCrossSourceSubstitute(
+  song: MusicInfo,
+  intent: number,
+  primaryMessage: string,
+): Promise<{ song: MusicInfo; url: string; headers?: Record<string, string> }> {
+  // 仅接手网易云源：反向降级与「用户明确选了 QQ 曲目」的预期冲突，且网易云侧已有官方兜底
+  if (song.source !== "wy") throw new Error(primaryMessage);
+
+  const candidates = await findTxVariants(song);
+  // 搜索期间用户可能已改点其它歌曲，结果作废
+  if (intent !== playIntentSeq) throw new Error(primaryMessage);
+
+  for (const candidate of candidates) {
+    if (intent !== playIntentSeq) throw new Error(primaryMessage);
+    try {
+      const { url, headers } = await resolveSongUrl(candidate);
+      if (intent !== playIntentSeq) throw new Error(primaryMessage);
+      return { song: candidate, url, headers };
+    } catch {
+      // 该候选解析不出来（多数是没导入可用的 QQ 音源脚本）：继续试下一条，
+      // 全部失败才判终局，避免只因排序第一的候选恰是付费曲就放弃整首歌
+    }
+  }
+  throw new Error(`${primaryMessage}（${describeCrossSourceFailure(candidates)}）`);
+}
+
 async function playSongCore(song: MusicInfo, startPosition?: number): Promise<void> {
   const { play, setLoading, setError } = usePlayerStore.getState();
   const intent = ++playIntentSeq;
+  // 实际发声的曲目：网易云无版权时会换成 QQ 音乐的同名曲
+  let effectiveSong = song;
   // 总帽定时器句柄提到 try 外：finally 里统一清理，不在播放会话里留空转句柄
   let budgetTimer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -771,29 +816,53 @@ async function playSongCore(song: MusicInfo, startPosition?: number): Promise<vo
     // 超时后迟到的解析结果不会再走到 play（await 已 reject）；
     // 未超时但迟到的旧意图（用户已改点其它歌曲）由下方 intent 序号拦截，
     // 避免十几秒后突然劫持播放；迟到的成功结果仍会静默写缓存，供下次命中。
-    const { url, headers } = await Promise.race([
-      resolveSongUrl(song),
-      new Promise<never>((_, reject) => {
-        budgetTimer = setTimeout(() => reject(new Error("解析超时")), RESOLVE_TOTAL_BUDGET_MS);
-      }),
-    ]);
+    let url!: string;
+    let headers: Record<string, string> | undefined;
+    try {
+      const primary = await Promise.race([
+        resolveSongUrl(song),
+        new Promise<never>((_, reject) => {
+          budgetTimer = setTimeout(() => reject(new Error("解析超时")), RESOLVE_TOTAL_BUDGET_MS);
+        }),
+      ]);
+      url = primary.url;
+      headers = primary.headers;
+    } catch (primaryError) {
+      // 网易云无版权的歌永远解析不出地址：去 QQ 音乐找同名曲顶上（静默降级，见函数注释）
+      const primaryMessage = primaryError instanceof Error ? primaryError.message : String(primaryError);
+      const substitute = await resolveCrossSourceSubstitute(song, intent, primaryMessage);
+      effectiveSong = substitute.song;
+      url = substitute.url;
+      headers = substitute.headers;
+    }
     if (intent !== playIntentSeq) return;
+    // 接管成功：把 UI 也切到实际发声的 QQ 音乐版本，避免歌名/歌词与实际音频错位。
+    // 队列仍保留原来的网易云条目（不原地改写队列），切上/下一首仍按原位置推进。
+    if (effectiveSong !== song) {
+      usePlayerStore.setState({
+        currentSong: effectiveSong,
+        duration: effectiveSong.interval || 0,
+        lyrics: [],
+      });
+    }
     // 2. 播放（B站音源需要带 headers；startPosition 用于快照恢复续播）
-    await play(song, url, headers, startPosition);
+    await play(effectiveSong, url, headers, startPosition);
     // 3. 启动听歌时长追踪（满足 2 分钟或 50% 播放条件才记入历史与打点，过期请求不启动）
-    if (usePlayerStore.getState().currentSong === song) {
-      startListeningSession(song, startPosition ?? 0);
+    if (usePlayerStore.getState().currentSong === effectiveSong) {
+      startListeningSession(effectiveSong, startPosition ?? 0);
       // 歌词同样以「本曲仍是在播曲」为前提加载，避免过期请求把别首歌的歌词
       // 写进 store 造成音词错位；intent 序号贯穿 loadLyrics 的每个 await 之后
-      loadLyrics(song, intent);
+      loadLyrics(effectiveSong, intent);
     }
     // 4. 异步缓存封面
-    if (song.picUrl || song.img) {
-      cacheCover(song.picUrl || song.img!).catch(() => undefined);
+    if (effectiveSong.picUrl || effectiveSong.img) {
+      cacheCover(effectiveSong.picUrl || effectiveSong.img!).catch(() => undefined);
     }
     // 5. 异步预读邻近歌曲（下一首）：延迟 800ms 触发，将首帧 CPU 与带宽完全让给当前曲起播
     setTimeout(() => {
-      if (usePlayerStore.getState().currentSong === song) {
+      // 必须比 effectiveSong：跨源接管后 currentSong 已换成 QQ 音乐版本，
+      // 再比原 song 会永远不成立、预读彻底失效
+      if (usePlayerStore.getState().currentSong === effectiveSong) {
         prefetchNearbySongs();
       }
     }, 800);
