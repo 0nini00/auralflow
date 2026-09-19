@@ -385,7 +385,7 @@ export function PlaylistDetailScreen({
                     shrink
                     small
                     variant="primary"
-                    label="定位歌曲"
+                    label="定位"
                     disabled={currentSongIndex < 0}
                     onPress={handleLocateCurrentSong}
                   />
@@ -394,17 +394,17 @@ export function PlaylistDetailScreen({
                       shrink
                       small
                       disabled={subscribingWyPlaylist}
-                      label={isWyPlaylistSubscribed ? "取消收藏" : "收藏歌单"}
+                      label={isWyPlaylistSubscribed ? "已收藏" : "收藏"}
                       onPress={handleToggleWySubscribe}
                     />
                   ) : null}
-                  {/* 收藏歌单属于他人创建，"删除歌单"只对自建歌单有意义 */}
+                  {/* 收藏歌单属于他人创建，"删除"只对自建歌单有意义 */}
                   {!canSubscribeWyPlaylist ? (
                     <ActionButton
                       shrink
                       small
                       variant="danger"
-                      label="删除歌单"
+                      label="删除"
                       onPress={handleDeletePlaylist}
                     />
                   ) : null}
@@ -477,14 +477,14 @@ export function PlaylistDetailScreen({
             },
             {
               key: "collect",
-              label: "收藏到歌单",
+              label: "收藏",
               icon: <FolderPlus />,
               disabled: selectedSongs.length === 0,
               onPress: () => setAddToLocalVisible(true),
             },
             {
               key: "download",
-              label: "批量下载",
+              label: "下载",
               icon: <Download />,
               disabled: selectedSongs.length === 0,
               onPress: () => setDownloadModalVisible(true),

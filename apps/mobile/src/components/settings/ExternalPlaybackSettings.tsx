@@ -29,11 +29,13 @@ export function ExternalPlaybackSettings() {
         <Volume2 size={18} color={palette.textSubtle} strokeWidth={2} />
         <Text style={[styles.title, { color: palette.text }]}>其他应用播放音频时</Text>
       </View>
-      <Text style={[styles.subtitle, { color: palette.textMuted }]}>选择其他应用播放音频时是否暂停播放</Text>
+      <Text style={[styles.subtitle, { color: palette.textMuted }]}>
+        如刷短视频、玩游戏或导航语音打断时的响应方式
+      </Text>
       <View style={[styles.segmentGroup, { backgroundColor: palette.surfaceMuted }]}>
         {[
           { label: "暂停", value: true },
-          { label: "不暂停", value: false },
+          { label: "继续播放", value: false },
         ].map((option) => {
           const selected = pause === option.value;
           return (

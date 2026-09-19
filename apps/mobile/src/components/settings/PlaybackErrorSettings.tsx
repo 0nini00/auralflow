@@ -30,12 +30,12 @@ export function PlaybackErrorSettings() {
         <Text style={[styles.title, { color: palette.text }]}>播放失败时</Text>
       </View>
       <Text style={[styles.subtitle, { color: palette.textMuted }]}>
-        选择暂停并显示错误或自动尝试播放下一首
+        单曲播放遇到网络或音源失效时的处置策略
       </Text>
       <View style={[styles.segmentGroup, { backgroundColor: palette.surfaceMuted }]}>
         {[
           { label: "暂停", value: false },
-          { label: "下一首", value: true },
+          { label: "自动跳过", value: true },
         ].map((option) => {
           const selected = autoSkip === option.value;
           return (

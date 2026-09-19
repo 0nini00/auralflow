@@ -30,7 +30,7 @@ export function buildContentDetailPlaybackActions(
     show: songCount > 0,
     playAllLabel: input.playAllLabel ?? "播放全部",
     shuffleLabel: "随机播放",
-    locateLabel: "定位当前播放",
+    locateLabel: "定位",
     canLocateCurrentSong: input.currentSongIndex != null && input.currentSongIndex >= 0,
     songSectionTitle: input.songSectionTitle ?? "歌曲",
     emptySongsText: input.emptySongsText ?? "暂无歌曲",

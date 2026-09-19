@@ -87,7 +87,7 @@ export function LikedSongsScreen({ onNavigateToPlayer: _onNavigateToPlayer }: Li
         show={detailActions.show}
         playAllLabel={detailActions.playAllLabel}
         shuffleLabel={detailActions.shuffleLabel}
-        locateLabel="定位歌曲"
+        locateLabel="定位"
         canLocateCurrentSong={currentSongIndex >= 0}
         onPlayAll={handlePlayAll}
         onShuffle={handleShufflePlay}

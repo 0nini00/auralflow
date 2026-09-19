@@ -100,7 +100,7 @@ export function SimilarSongsScreen({ songId, songName, onBack }: SimilarSongsScr
         show={detailActions.show}
         playAllLabel={detailActions.playAllLabel}
         shuffleLabel={detailActions.shuffleLabel}
-        locateLabel="定位歌曲"
+        locateLabel="定位"
         canLocateCurrentSong={currentSongIndex >= 0}
         onPlayAll={handlePlayAll}
         onShuffle={handleShufflePlay}

@@ -122,7 +122,7 @@ export async function checkBackgroundPlaybackReadiness(): Promise<void> {
   await new Promise<void>((resolve) => {
     Alert.alert(
       "后台播放权限提醒",
-      "AuralFlow 未加入系统的「忽略电池优化」白名单，退到后台后可能被系统冻结，出现播放一两首就停止、需要回到应用才能继续的情况。建议加入白名单以保证连续播放。",
+      "AuralFlow 未加入系统的「忽略电池优化」白名单，退到后台可能被系统暂停播放。建议加入白名单以保证连续播放。",
       [
         {
           text: "不再提示",

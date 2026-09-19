@@ -314,7 +314,7 @@ export function LocalPlaylistDetailScreen({
                     small
                     grow
                     variant="primary"
-                    label="定位歌曲"
+                    label="定位"
                     disabled={currentSongIndex < 0}
                     onPress={handleLocateCurrentSong}
                   />
@@ -322,7 +322,7 @@ export function LocalPlaylistDetailScreen({
                     small
                     grow
                     variant="danger"
-                    label="删除歌单"
+                    label="删除"
                     onPress={handleDeletePlaylist}
                   />
                 </View>
@@ -393,21 +393,21 @@ export function LocalPlaylistDetailScreen({
             },
             {
               key: "playlist",
-              label: "收藏到歌单",
+              label: "收藏",
               icon: <FolderPlus />,
               disabled: selectedSongs.length === 0,
               onPress: () => setAddToPlaylistVisible(true),
             },
             {
               key: "remove",
-              label: "从歌单移除",
+              label: "移除",
               icon: <Trash2 />,
               disabled: selectedSongs.length === 0,
               onPress: handleBatchRemove,
             },
             {
               key: "download",
-              label: "批量下载",
+              label: "下载",
               icon: <Download />,
               disabled: selectedSongs.length === 0,
               onPress: () => setDownloadVisible(true),

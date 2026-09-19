@@ -58,8 +58,7 @@ export function BackgroundPlaybackSettings() {
         <Text style={[styles.title, { color: palette.text }]}>后台连续播放</Text>
       </View>
       <Text style={[styles.subtitle, { color: palette.textMuted }]}>
-        未加入系统「忽略电池优化」白名单时，国产 ROM 会在退到后台后冻结应用，
-        出现播放一两首就停止、需要回到应用按播放键才能继续的情况。
+        加入系统白名单可防止切到后台被系统冻结，保证锁屏与多任务连续播放。
       </Text>
 
       <View style={[styles.statusRow, { borderTopColor: palette.border }]}>
