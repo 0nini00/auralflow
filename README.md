@@ -1,165 +1,165 @@
-# AuralFlow
+<div align="center">
 
-一款跨平台在线音乐播放器，桌面端与 Android 移动端通过共享核心包 `@lx/core` 复用领域模型与平台无关逻辑，功能高度对齐，并参考 **lx-music** 打磨播放器、歌词与歌单核心体验。
+<img src="desktop/src/assets/logo.png" alt="AuralFlow Logo" width="96" height="96" />
 
-> 版本 0.1.0 · pnpm monorepo · ~410 源文件 · ~75,000 行代码 · 远端仓库 https://github.com/0nini00/auralflow.git
+<h1 align="center">AuralFlow</h1>
 
-## 功能特性矩阵
+<p align="center">A cross-platform modern music player for Desktop and Android, sharing domain logic via <code>@lx/core</code>.</p>
 
-### 三端共有能力
+<p align="center">
+  <a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a>
+</p>
 
-| 类别 | 能力 |
-|---|---|
-| 搜索 | 多音源合并搜索、搜索联想（网易云）、最近搜索、结果去重 |
-| 歌单 | 网易云 / QQ 音乐官方歌单、本地歌单、B站合集、我喜欢收藏、歌单搜索；歌单内「播放全部 / 收藏」 |
-| 推荐 / FM | 每日推荐、私人 FM（下一首预取、切歌秒开）、排行榜 |
-| 播放 | 播放队列、下一首 / 稍后播放（独立插播暂存区）、4 种播放模式（顺序 / 列表循环 / 单曲循环 / 随机去重）、倍速、音质切换、进度拖动 |
-| 全屏沉浸播放器 | 封面页 / 歌词页 / 进度 / 控制栏 / 更多菜单 / 评论 / 音质切换 / 睡眠定时 |
-| 歌词 | 滚动跟随（手动滚动暂停 3 秒恢复）、逐字卡拉 OK（YRC / QRC / KRC，解析层两端一致；桌面端逐字渲染，移动端为行级高亮）、译文合并、简繁转换、字号 / 颜色 / 字体 / 对齐 / 字重 / 行距 / 动效自定义 |
-| 本地音乐 | 扫描 + 手动选歌、内嵌封面 / 歌词提取、无内嵌回退 `.lrc` 与 `folder.jpg`、可写回标题 / 歌手 / 封面 / 歌词标签 |
-| 缓存 | 封面 / 歌词 / 音频三级缓存，URL MD5 命名；封面 / 音频 immutable（移动端 100MB LRU 回收，桌面端为 Rust 三层媒体缓存），歌词 30 天过期；可缓存音源音频落盘离线即开 |
-| 下载 | 串行队列、5 级音质（128 / 192 / 320 / FLAC / Hi-Res）、实时进度速度、暂停 / 继续 / 取消、下载后嵌入 ID3 + 旁挂 `.lrc` |
-| 播放历史 | 分时间记录（今天 / 昨天 / 日期）、同日同曲去重、跨天保留、31 天滚动、上限 2000 条 |
-| WebDAV 同步 | 远端 `/AuralFlow/` 目录（读取兼容旧 `LX_Music/`），`playlists.json` v3 + `user_apis.json` v2，上传 / 下载 / 合并，下载前本地备份、云端较旧拦截 + 强制下载，移动端可选启动自动同步 |
-| 账号 | 网易云登录（桌面端扫码 / Cookie，移动端 Cookie 粘贴）、B站 Cookie 粘贴（桌面端支持 refresh_token 自动续期） |
-| 主题 | 浅色 / 深色 / 跟随系统、强调色、自定义背景、夜间模式沉浸页配色 |
+<p align="center">
+  <img src="https://img.shields.io/badge/version-0.2.0-blue.svg" alt="Version" />
+  <img src="https://img.shields.io/badge/node-%3E%3D22.11.0-brightgreen.svg" alt="Node" />
+  <img src="https://img.shields.io/badge/tauri-v2-orange.svg" alt="Tauri" />
+  <img src="https://img.shields.io/badge/react--native-0.86-61dafb.svg" alt="React Native" />
+  <img src="https://img.shields.io/badge/package-pnpm%20monorepo-yellow.svg" alt="pnpm" />
+</p>
 
-### 桌面端独有
+</div>
 
-| 能力 | 说明 |
-|---|---|
-| 浮动歌词窗口 | 透明置顶 WebView，150ms 轮询穿透悬停，token / epoch 防竞态 |
-| 系统托盘 | 托盘菜单经 Rust 发出 `native-action` 事件由前端执行播放，关闭主窗口最小化到托盘 |
-| 窗口内键盘快捷键 | WebView 内 keydown 快捷键（非系统级全局热键），沉浸播放页内自动屏蔽避免误触 |
-| Rust 文件操作 | 本地音频标签读写（audiotags / lofty 双库）、目录扫描（walkdir） |
-| 媒体缓存 | Rust 三层缓存：歌曲音频 2GiB 常量 LRU（按 mtime 淘汰）、封面 / B站不限量；前端 persistentCache 索引分层 TTL（URL 6h / B站 30min / 本地文件 365d / 歌词 30 天 / 空结果 7d） |
-| 可变下载目录 | 下载目录可配置 |
-| 沉浸页 cursor 特效 | 播放页鼠标交互特效 |
+## Overview
 
-### 移动端独有
+AuralFlow is a full-featured, cross-platform music streaming and local audio player. Built with a monorepo architecture, it powers both a desktop application (Tauri v2 + React 18) and a mobile application (React Native 0.86 + React 19) through a shared domain core package (`@lx/core`).
 
-| 能力 | 说明 |
-|---|---|
-| 通知栏歌词开关 | 系统通知栏播放控制器 + 歌词显示开关 |
-| TrackPlayer 后台播放 | RNTP 后台 PlaybackActiveTrackChanged 驱动推进 |
-| 锁屏控制 | 系统媒体键 / 锁屏控制 |
-| 静音间隙技巧 | 真实歌曲 + SILENCE_GAP_TRACK 2s 保持前台服务 |
-| deep link | `auralflow://` scheme |
-| 分享 | 分享音乐 |
-| MV | MV 播放器 |
-| 首页 feed | 推荐歌单 / 新歌 / 新碟 / 排行榜 / MV |
-| Android 浮窗歌词 | WindowManager 浮窗，可拖动 / 锁定 / 随播放滚动 |
-| 自动检查自定义源 | 启动时检查自定义音源更新 |
+Inspired by LX Music, AuralFlow delivers a seamless audio playback experience with real-time synchronized karaoke lyrics, unified multi-source search, automatic cross-source copyright fallback, bi-directional WebDAV library synchronization, and deep Android background playback resilience.
 
-## 音源架构
+## Highlights
 
-解析按质量轮次并发竞速，**800ms 升级窗口**，**25s 总预算**。
+- **Shared Domain Core (`@lx/core`)**: Domain models, playback resolution race logic, stream probe validation, and lyric clock interpolation algorithms are centralized and verified by unit tests.
+- **Cross-Source Fallback**: When NetEase tracks cannot resolve playback streams due to regional restrictions or copyright unavailability, AuralFlow automatically queries QQ Music with strict metadata validation (normalized title + artist overlap + duration delta <= 5s) to take over playback seamlessly.
+- **Dynamic Synchronized Lyrics**: Supports LRC, YRC, QRC, and KRC lyric formats with dynamic character-by-character karaoke rendering, translation merging, and desktop transparent floating overlay / Android WindowManager overlay.
+- **Reliable WebDAV Sync**: Synchronizes playlists, favorite tracks, and listening history with automated startup convergence, conflict detection, and local pre-download snapshots.
+- **Android Background Resilience**: Integrates battery optimization exemption prompts and audio focus management to prevent background freeze on modern Android ROMs.
+- **Local Music Management**: High-performance local directory scanning, ID3 metadata inspection and editing, embedded album artwork extraction, and lossless audio downloading.
 
-```mermaid
-flowchart TD
-    A[官方直连] -->|网易云 wy eapi/weapi + 腾讯 tx musicu| B[搜索 + 歌单 / 封面 / 歌曲信息 / 歌词元数据]
-    B --> C[内置 gdstudio 网关<br/>免 key 播放 URL 解析]
-    C -->|失败| D[自定义 lx 脚本源<br/>兜底按序尝试]
-    E[B站 bili] -->|WBI 签名 DASH 音频<br/>独立管线| F[合集 / 视频搜索 / DASH 音频]
-
-    subgraph 竞速
-        G[质量轮次并发] -->|首个成功 + 800ms 升级窗口| H[raceForBestQuality]
-        H -->|25s 总预算| I[定稿最优音质]
-    end
-    C --> G
-    D --> G
-```
-
-- **搜索**：网易云 eapi `cloudsearch` + 腾讯 `musicu` 官方直连，元数据由官方接口直接提供；直连失败回退内置音乐 API 搜索。
-- **播放 / 下载**：内置音乐 API 网关（gdstudio，免 key）统一解析，失败后再尝试自定义音源。
-- **B站**：独立管线，WBI 签名 + DASH 音频解析。
-
-## 技术栈
-
-| 层级 | 桌面端 | 移动端 |
-|---|---|---|
-| 框架 | Tauri v2 (Rust) + React 18.3.1 | React Native 0.86 + React 19.2.3 |
-| 构建 | Vite 5（端口 1420 固定，manualChunks） | Metro（自定义 resolveRequest）+ Gradle |
-| 语言 | TypeScript 5.6 | TypeScript 5.8 |
-| 状态管理 | Zustand 5（16 store） | Zustand 5（17 store） |
-| 播放 | HTMLAudio + rAF + 余弦淡入淡出 | react-native-track-player (ExoPlayer) |
-| 导航 | BrowserRouter v6（13 具名路由 + index + 兜底） | Drawer > NativeStack > BottomTabs + MaterialTopTabs |
-| 后端 | Rust 18 文件 3304 行 / 35 IPC 命令 | Android 原生 12 Java + 2 Kotlin 2496 行 |
-| 共享核心 | `@lx/core` 18 文件 1981 行 TS | `@lx/tauri-bridge` 346 行（桌面 IPC 桥，位于 `desktop/packages/`） |
-
-## 项目结构
+## Architecture
 
 ```text
-auralflow/                      pnpm monorepo · 4 workspace 包
-├── apps/mobile/                @auralflow/mobile — React Native 移动端
-│   ├── src/
-│   │   ├── screens/            首页 / 搜索 / 我的 / 播放器 / 设置 / 沉浸歌词
-│   │   ├── services/           播放 / 下载 / 缓存 / WebDAV / 本地音乐 / 音源
-│     │   ├── stores/           17 个 Zustand store
-│   │   ├── player/             playbackService.ts 后台播放
-│   │   └── navigation/         Drawer > NativeStack > BottomTabs + MaterialTopTabs
-│   └── android/                Android 原生（8 模块 + lx_bridge）
-├── desktop/                    @auralflow/desktop — Tauri v2 桌面端
-│   ├── src/                    React 18 前端（播放引擎 / 歌词 / 音源 / WebDAV）
-│   ├── src-tauri/              Rust 后端 18 文件 3304 行 / 35 IPC 命令
-│   └── packages/tauri-bridge/  @lx/tauri-bridge IPC 桥 346 行
-├── packages/core/              @lx/core — 共享核心 18 文件 1981 行 TS（唯一带 vitest 的包）
-└── package.json                workspace 根配置与统一脚本
+┌─────────────────────────────────────────────────────────────────┐
+│                        AuralFlow Client                         │
+├───────────────────────────────┬─────────────────────────────────┤
+│        Desktop Client         │         Android Client          │
+│       Tauri v2 + React        │   React Native 0.86 + React 19  │
+│  - HTMLAudio + rAF Engine     │  - react-native-track-player    │
+│  - Transparent Desktop Lyric  │  - WindowManager Float Lyric    │
+│  - Rust Media Cache & FS      │  - Battery Exemption Keeper     │
+└───────────────┬───────────────┴─────────────────┬───────────────┘
+                │                                 │
+                ▼                                 ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              Shared Domain Core (@lx/core)                      │
+│  - Playback Quality Tiers (128k / 192k / 320k / FLAC / Hi-Res)  │
+│  - Cross-Source Strict Matcher (NetEase ──▶ QQ Music Fallback)  │
+│  - Lyric Clock Engine & Parsers (LRC / YRC / QRC / KRC)         │
+│  - WebDAV Playlist & History Merge Logic                        │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                        Audio Providers                          │
+│  - NetEase (wy): eapi/weapi   - QQ Music (tx): musicu/custom    │
+│  - Bilibili (bili): WBI/DASH  - Custom User API Scripts (LX)    │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-## 快速开始
+## Feature Matrix
 
-### 环境要求
+| Category | Capability | Desktop | Android |
+|---|---|---|---|
+| Search | Multi-source aggregated search with suggestion and deduplication | Supported | Supported |
+| Playlists | NetEase / QQ playlists, local playlists, Bilibili collections, favorites | Supported | Supported |
+| Discovery | Daily recommendation, Private FM mode with prefetch, leaderboards | Supported | Supported |
+| Playback | Queue management, Play Next, 4 loop modes, playback rate, quality switch | Supported | Supported |
+| Fallback | Automatic NetEase to QQ Music fallback for tracks without rights | Supported | Supported |
+| Lyrics | Synchronized scrolling, karaoke word-by-word timing, translation merge | Supported | Supported |
+| Floating Lyric | Transparent click-through desktop overlay / WindowManager overlay | Desktop window | Android overlay |
+| Local Music | File scanning, ID3 tag editing, embedded album art, lossless download | Rust Lofty/Tags | MediaStore/FS |
+| WebDAV | Cloud sync for playlists, history, and custom sources; startup auto-sync | Supported | Supported |
+| Background Play | Keeps audio uninterrupted during sleep or lockscreen | System tray | Foreground service |
 
-- **Node.js** ≥ 22.11.0（移动端 Metro 硬性要求）
-- **pnpm**
-- **Rust 工具链**（桌面端构建）
-- **Android Studio + Android SDK**，minSdk 24（移动端构建）
+## Repository Structure
 
-### 安装
-
-```bash
-pnpm install   # 含移动端 track-player 补丁脚本（postinstall）
+```text
+auralflow/
+├── apps/mobile/                Mobile app (React Native 0.86 + Android native modules)
+├── desktop/                    Desktop app (Tauri v2 + React 18 + Rust native core)
+│   └── packages/tauri-bridge/  IPC bridge for desktop web views
+├── packages/core/              Shared core domain package (@lx/core, Vitest suite)
+├── dist/                       Release package output directory
+└── package.json                Monorepo workspace root configuration
 ```
 
-### 开发命令
+## Quick Start
 
-```bash
-# ── 桌面端 ──
-pnpm desktop:dev          # Vite dev（浏览器模式）
-pnpm desktop:tauri:dev    # Tauri dev（原生窗口）
-pnpm desktop:tauri:build  # 打包桌面安装包
+### Prerequisites
 
-# ── 移动端（Android，需 USB 调试 / 模拟器）──
-pnpm mobile:start         # 启动 Metro
-pnpm mobile:android       # 运行到已连接的设备
-pnpm mobile:build:debug   # 生成 debug APK
+- **Node.js**: >= 22.11.0 (strict requirement for Metro compiler)
+- **pnpm**: >= 9.0.0
+- **Rust toolchain**: Required for desktop compilation (`cargo`, `rustc`)
+- **Android SDK & JDK 17**: Required for mobile compilation (minSdk 24, compileSdk 36)
 
-# ── 类型检查 ──
-pnpm desktop:typecheck
-pnpm mobile:typecheck
-pnpm mobile:lint
-pnpm core:typecheck
-pnpm core:test             # vitest，SSRF 守卫回归
+### Installation
 
-# ── Rust 检查 ──
-cargo check --manifest-path desktop/src-tauri/Cargo.toml
-```
-
-> 移动端 release APK：`cd apps/mobile/android && ./gradlew assembleRelease`。签名凭据从仓库外目录读取（环境变量 `AURALFLOW_KEYSTORE_DIR`，缺省 `F:/auralflow-secrets`），**缺失时硬失败**，禁止产出 debug 签名的 release APK。
-
-## 文档索引
-
-| 文档 | 说明 |
-|---|---|
-| [QUICK_START.md](./QUICK_START.md) | 精简上手指南：环境 / 安装 / 开发 / 类型检查 / 首次使用 |
-| [PROJECT_OVERVIEW.md](./PROJECT_OVERVIEW.md) | 架构概览：分层 / 核心职责 / 设计决策 |
-| [docs/CUSTOM_SOURCE_AND_GATEWAY_DESIGN.md](./docs/CUSTOM_SOURCE_AND_GATEWAY_DESIGN.md) | 音源与网关设计 |
-| [docs/desktop-mobile-feature-diff.md](./docs/desktop-mobile-feature-diff.md) | 双端功能对齐差异 |
-| [docs/playback-engine-diff.md](./docs/playback-engine-diff.md) | 播放引擎差异 |
-
-## 远端仓库
+Clone the repository and install dependencies:
 
 ```bash
 git clone https://github.com/0nini00/auralflow.git
+cd auralflow
+pnpm install
+```
+
+### Development
+
+Run the desktop application:
+
+```bash
+pnpm desktop:tauri:dev
+# Or run web view dev server alone:
+pnpm desktop:dev
+```
+
+Run the Android application:
+
+```bash
+# Terminal 1: Start Metro bundler
+pnpm mobile:start
+
+# Terminal 2: Launch Android application on emulator or connected device
+pnpm mobile:android
+```
+
+### Verification & Testing
+
+Run type checks and tests across the monorepo:
+
+```bash
+# Run core shared package unit tests
+pnpm core:test
+
+# Run desktop TypeScript type checking
+pnpm desktop:typecheck
+
+# Run mobile TypeScript type checking
+pnpm mobile:typecheck
+```
+
+### Build Release Artifacts
+
+Build desktop Windows installers (MSI and portable executable):
+
+```bash
+pnpm desktop:tauri:build
+```
+
+Build mobile Android APKs:
+
+```bash
+# Build Debug APK
+pnpm mobile:build:debug
+
+# Build Release APK
+pnpm mobile:build:release
 ```
