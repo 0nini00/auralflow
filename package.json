@@ -1,7 +1,7 @@
 {
   "name": "auralflow",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "scripts": {
     "core:typecheck": "pnpm --filter @lx/core typecheck",
     "core:test": "pnpm --filter @lx/core test",
