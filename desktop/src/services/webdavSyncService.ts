@@ -1,9 +1,10 @@
 import { loadSettings } from "@lx/tauri-bridge";
-import type { MusicInfo } from "@lx/core";
+import { isNumericPlaylistId, isWebdavLocalPlaylistRef, type MusicInfo } from "@lx/core";
 import { outboundRequest, type OutboundResponse } from "@/services/outboundHttp";
 import { useFavoritesStore } from "@/stores/favoritesStore";
 import { usePlaylistStore, type Playlist } from "@/stores/playlistStore";
 import { useHistoryStore } from "@/stores/historyStore";
+import { useWyAccountStore } from "@/stores/wyAccountStore";
 import { useCustomSourceStore, type CustomSourceItem } from "@/stores/customSourceStore";
 import { parseDesktopUserApiInfo } from "@/services/customSourceRuntime";
 import { inflateBytes } from "@/utils/compression";
@@ -47,6 +48,8 @@ interface UserApisSyncFile {
 interface RemotePlaylistItem {
   id?: unknown;
   name?: unknown;
+  source?: unknown;
+  author?: unknown;
   description?: unknown;
   desc?: unknown;
   cover?: unknown;
@@ -64,7 +67,8 @@ interface PlaylistsSyncFile {
   data: {
     defaultList: MusicInfo[];
     loveList: MusicInfo[];
-    userList: Array<Omit<Playlist, "songs"> & { list: MusicInfo[] }>;
+    /** 本地歌单（桌面端自己写入）+ 移动端写入的云端歌单引用（原样透传） */
+    userList: Array<(Omit<Playlist, "songs"> & { list: MusicInfo[] }) | RemotePlaylistItem>;
   };
   playHistory: PlayHistorySyncItem[];
 }
@@ -139,6 +143,69 @@ function writeLocalBackup(kind: "sources" | "playlists", payload: unknown): void
     // 备份写入失败（多为 localStorage 配额）不影响同步主流程，静默忽略
     void err;
   }
+}
+
+const CLOUD_PLAYLIST_REFS_KEY = "auralflow:webdav:cloudPlaylistRefs";
+
+/**
+ * 云端歌单引用（网易云 / QQ / B站）透传存储。
+ *
+ * 桌面端没有对应的云端歌单槽位，这些条目只是同步文件里的“引用”（歌曲按需拉取）。
+ * 下载时收集、上传时原样写回，才能既不在本地凭空造出 0 首歌曲的假歌单，
+ * 又不会把移动端的云端歌单从同步文件里抹掉。
+ */
+function readStoredCloudPlaylistRefs(): RemotePlaylistItem[] {
+  try {
+    const raw = localStorage.getItem(CLOUD_PLAYLIST_REFS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed.filter(isObject) as RemotePlaylistItem[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredCloudPlaylistRefs(refs: RemotePlaylistItem[]): void {
+  try {
+    localStorage.setItem(CLOUD_PLAYLIST_REFS_KEY, JSON.stringify(refs));
+  } catch (err) {
+    void err;
+  }
+}
+
+function cloudPlaylistRefKey(ref: RemotePlaylistItem): string {
+  const id = getString(ref.id);
+  return id || `${getString(ref.source)}\n${getString(ref.name)}`;
+}
+
+/** 云端引用按 id 并集，新下载到的版本胜出。 */
+function mergeCloudPlaylistRefs(
+  existing: RemotePlaylistItem[],
+  incoming: RemotePlaylistItem[],
+): RemotePlaylistItem[] {
+  const merged = new Map<string, RemotePlaylistItem>();
+  for (const ref of existing) merged.set(cloudPlaylistRefKey(ref), ref);
+  for (const ref of incoming) merged.set(cloudPlaylistRefKey(ref), ref);
+  return Array.from(merged.values());
+}
+
+/**
+ * 修正被旧版桌面端污染成 `source: "local"` 的云端引用：纯数字 id 只可能是云端歌单，
+ * 能对上本地网易云账号歌单就恢复成 wy，否则删掉伪造的 source，
+ * 交给移动端按“数字 id ⇒ 云端”重新归类。
+ */
+function normalizeCloudPlaylistRefSource(ref: RemotePlaylistItem): RemotePlaylistItem {
+  const source = getString(ref.source).toLowerCase();
+  if (!isNumericPlaylistId(ref.id) || (source && source !== "local")) return ref;
+
+  const wyId = getString(ref.id);
+  const matchedWy = useWyAccountStore
+    .getState()
+    .playlists.some((playlist) => String(playlist.id) === wyId);
+  if (matchedWy) return { ...ref, source: "wy" };
+
+  const { source: _polluted, ...rest } = ref;
+  return rest;
 }
 
 function extractRemoteLastModified(text: string): number | null {
@@ -415,21 +482,29 @@ function buildPlayHistorySync(history: MusicInfo[]): PlayHistorySyncItem[] {
 }
 
 function buildPlaylistsSyncFile(): PlaylistsSyncFile {
+  const cloudRefs = readStoredCloudPlaylistRefs()
+    .filter((ref) => !isWebdavLocalPlaylistRef(ref))
+    .map(normalizeCloudPlaylistRefSource);
+
   return {
     version: "3",
     lastModified: Date.now(),
     data: {
       defaultList: [],
       loveList: useFavoritesStore.getState().favorites,
-      userList: usePlaylistStore.getState().playlists.map((playlist) => {
-        const { songs, ...info } = playlist;
-        return {
-          ...info,
-          // 桌面端歌单均为本地歌单，显式标记 source 供移动端正确归类（避免被识别为云端歌单）
-          source: "local",
-          list: songs,
-        };
-      }),
+      userList: [
+        ...usePlaylistStore.getState().playlists.map((playlist) => {
+          const { songs, ...info } = playlist;
+          return {
+            ...info,
+            // 桌面端歌单均为本地歌单，显式标记 source 供移动端正确归类（避免被识别为云端歌单）
+            source: "local",
+            list: songs,
+          };
+        }),
+        // 移动端写入的云端歌单引用原样带回，桌面端不解释、不落地成本地歌单
+        ...cloudRefs,
+      ],
     },
     playHistory: buildPlayHistorySync(useHistoryStore.getState().history),
   };
@@ -445,7 +520,15 @@ function parsePlayHistory(value: unknown): MusicInfo[] {
     .filter((music): music is MusicInfo => music != null);
 }
 
-function parsePlaylistsSyncFile(text: string): { favorites: MusicInfo[]; playlists: Playlist[]; history: MusicInfo[] } {
+interface ParsedPlaylistsSyncFile {
+  favorites: MusicInfo[];
+  playlists: Playlist[];
+  history: MusicInfo[];
+  /** userList 里的云端歌单引用（网易云 / QQ / B站），原样透传不做本地化 */
+  cloudRefs: RemotePlaylistItem[];
+}
+
+function parsePlaylistsSyncFile(text: string): ParsedPlaylistsSyncFile {
   let payload: Record<string, unknown>;
   try {
     payload = JSON.parse(text) as Record<string, unknown>;
@@ -468,11 +551,18 @@ function parsePlaylistsSyncFile(text: string): { favorites: MusicInfo[]; playlis
     });
   }
 
+  const cloudRefs: RemotePlaylistItem[] = [];
   const userList = Array.isArray(data.userList) ? data.userList : data.playlists;
   if (Array.isArray(userList)) {
     for (const [index, item] of userList.entries()) {
       if (!isObject(item)) continue;
       const remote = item as RemotePlaylistItem;
+      // 云端歌单（移动端只写引用，歌曲按需拉取）绝不是本地歌单：
+      // 旧版此处照单全收，导致网易云歌单被物化成 0 首歌曲的“本地歌单”并回写污染双端数据。
+      if (!isWebdavLocalPlaylistRef(remote)) {
+        cloudRefs.push(remote);
+        continue;
+      }
       const songs = toMusicList(remote.list ?? remote.songs);
       const name = getString(remote.name, `歌单 ${index + 1}`);
       playlists.push({
@@ -488,7 +578,7 @@ function parsePlaylistsSyncFile(text: string): { favorites: MusicInfo[]; playlis
   }
 
   const history = parsePlayHistory(payload.playHistory ?? data.playHistory ?? payload.history ?? data.history);
-  return { favorites, playlists, history };
+  return { favorites, playlists, history, cloudRefs };
 }
 
 /** 上传自定义音源到 WebDAV（覆盖远端 user_apis.json）。 */
@@ -607,6 +697,12 @@ export async function downloadPlaylistsSync(options?: { force?: boolean; allowMi
     writeLocalBackup("playlists", { favorites, playlists, history });
 
     const parsed = parsePlaylistsSyncFile(text);
+    // 云端歌单引用只透传保留，供下次上传写回，避免抹掉移动端的云端歌单与其歌曲快照。
+    if (parsed.cloudRefs.length > 0) {
+      writeStoredCloudPlaylistRefs(
+        mergeCloudPlaylistRefs(readStoredCloudPlaylistRefs(), parsed.cloudRefs),
+      );
+    }
     // 合并而非覆盖：本地与远端收藏/歌单/历史并集,保留双端数据不丢失。
     useFavoritesStore.getState().mergeAll(parsed.favorites);
     usePlaylistStore.getState().mergeAll(parsed.playlists);

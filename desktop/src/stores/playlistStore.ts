@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { mergeWebdavLocalPlaylists, type MusicInfo } from '@lx/core';
+import { isWebdavLocalPlaylistRef, mergeWebdavLocalPlaylists, type MusicInfo } from '@lx/core';
 import { attachLibraryPersistence } from './libraryPersistence';
 
 export interface Playlist {
@@ -190,14 +190,77 @@ export const usePlaylistStore = create<PlaylistStore>()((set, get) => ({
 
       mergeAll: (remotePlaylists) => {
         set((state) => ({
-          playlists: mergeWebdavLocalPlaylists(state.playlists, remotePlaylists ?? []),
+          playlists: scrubSyncedCloudPlaylists(
+            mergeWebdavLocalPlaylists(state.playlists, remotePlaylists ?? []),
+          ),
         }));
       },
 }));
 
+const CLOUD_REF_SCRUB_BACKUP_KEY = 'auralflow:library:playlists:scrub-backup';
+
+function backupDroppedPlaylists(dropped: Playlist[]): void {
+  try {
+    const raw = localStorage.getItem(CLOUD_REF_SCRUB_BACKUP_KEY);
+    const previous = raw ? ((JSON.parse(raw) as { dropped?: Playlist[] }).dropped ?? []) : [];
+    localStorage.setItem(
+      CLOUD_REF_SCRUB_BACKUP_KEY,
+      JSON.stringify({ savedAt: Date.now(), dropped: [...previous, ...dropped] }),
+    );
+  } catch (err) {
+    void err;
+  }
+}
+
+/**
+ * 剔除被 WebDAV 同步误导入的云端歌单（网易云 / QQ 歌单引用曾被物化成本地歌单，
+ * 本地必然 0 首歌曲）。判定取最保守的组合：纯数字 id（云端歌单特征）且没有任何歌曲；
+ * 带歌曲的数字 id 歌单不擅自删除，仅告警。被移除的数据先备份到 localStorage。
+ */
+export function scrubSyncedCloudPlaylists(playlists: Playlist[]): Playlist[] {
+  if (!Array.isArray(playlists) || playlists.length === 0) return playlists ?? [];
+
+  const kept: Playlist[] = [];
+  const dropped: Playlist[] = [];
+  const suspicious: Playlist[] = [];
+
+  for (const playlist of playlists) {
+    if (!playlist) continue;
+    if (isWebdavLocalPlaylistRef(playlist)) {
+      kept.push(playlist);
+      continue;
+    }
+    // 纯数字 id ⇒ 云端歌单引用（网易云 / QQ）
+    if ((playlist.songs?.length ?? 0) > 0) {
+      suspicious.push(playlist);
+      kept.push(playlist);
+      continue;
+    }
+    dropped.push(playlist);
+  }
+
+  if (dropped.length === 0) {
+    if (suspicious.length > 0) {
+      console.warn(
+        '[歌单] 检测到疑似同步污染的歌单（纯数字 id 但含歌曲），已保留未删除：',
+        suspicious.map((p) => p.name),
+      );
+    }
+    return playlists;
+  }
+
+  backupDroppedPlaylists(dropped);
+  console.warn(
+    `[歌单] 已剔除 ${dropped.length} 个被 WebDAV 同步误导入的云端歌单（本地为 0 首）：` +
+      `${dropped.map((p) => p.name).join('、')}。` +
+      `原始数据已备份到 localStorage:${CLOUD_REF_SCRUB_BACKUP_KEY}`,
+  );
+  return kept;
+}
+
 export const playlistPersistence = attachLibraryPersistence<PlaylistStore, { playlists: Playlist[] }>(usePlaylistStore, {
   namespace: 'playlists',
   pick: (state) => ({ playlists: state.playlists }),
-  apply: (slice, set) => set({ playlists: slice.playlists ?? [] }),
+  apply: (slice, set) => set({ playlists: scrubSyncedCloudPlaylists(slice.playlists ?? []) }),
   legacyLocalStorageKey: 'playlist-storage',
 });
