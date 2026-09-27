@@ -112,6 +112,8 @@ pub async fn bili_cache_audio(
             .map_err(|err| format!("读取 B站音频缓存失败: {}", err))?
             .len();
         if size > 0 {
+            // 命中刷新 mtime，让容量淘汰成为真正的 LRU
+            touch_cache_file(&path);
             return Ok(path.to_string_lossy().to_string());
         }
     }
@@ -120,12 +122,16 @@ pub async fn bili_cache_audio(
         std::fs::create_dir_all(parent)
             .map_err(|err| format!("创建 B站音频缓存目录失败: {}", err))?;
     }
-    let temp_path = path.with_extension(format!(
-        "{}.download",
-        path.extension()
-            .and_then(|ext| ext.to_str())
-            .unwrap_or("tmp")
-    ));
+    // 每个任务写自己的临时文件：并发请求同一首时不会互相踩写字节
+    let temp_path = match path.file_name().and_then(|name| name.to_str()) {
+        Some(file_name) => path.with_file_name(format!(
+            "{}.{}.download",
+            file_name,
+            unique_temp_suffix()
+        )),
+        None => return Err("B站音频缓存路径无效".to_string()),
+    };
+    let mut temp_guard = TempFileGuard::new(temp_path.clone());
 
     let client = reqwest::Client::builder()
         .user_agent(BILI_UA)
@@ -169,13 +175,15 @@ pub async fn bili_cache_audio(
     drop(file);
 
     if downloaded == 0 {
-        let _ = std::fs::remove_file(&temp_path);
         return Err("B站音频下载为空".to_string());
     }
-    if path.exists() {
-        std::fs::remove_file(&path).map_err(|err| format!("覆盖 B站旧音频缓存失败: {}", err))?;
-    }
+    // 直接 rename 原子覆盖：先 remove 会制造「目标已删、新文件未就位」的空窗，
+    // 并发下载时还会误删另一个任务刚提交的文件。
     std::fs::rename(&temp_path, &path).map_err(|err| format!("完成 B站音频缓存失败: {}", err))?;
+    temp_guard.disarm();
+
+    // B站音频缓存此前没有任何容量上限，长期使用会一直增长
+    enforce_cache_limit(&bili_audio_cache_dir(&app)?, BILI_AUDIO_CACHE_MAX_BYTES);
 
     Ok(path.to_string_lossy().to_string())
 }

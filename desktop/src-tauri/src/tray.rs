@@ -50,7 +50,15 @@ pub fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     let _ = crate::lyric_window::toggle(app);
                 }
                 "quit" => {
-                    app.exit(0);
+                    // 退出前给前端一个 flush 窗口：用户数据（收藏/歌单/历史）是 debounce
+                    // 写盘的，直接 exit(0) 会把最后 ≤300ms 的修改丢掉。
+                    // 前端收到事件后立即落盘；这里只等一个短窗口，避免卡住退出。
+                    let _ = app.emit("app-before-quit", ());
+                    let handle = app.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(700));
+                        handle.exit(0);
+                    });
                 }
                 action => {
                     // 把动作派到前端（前端持有播放器状态）

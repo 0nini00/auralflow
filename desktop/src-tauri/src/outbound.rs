@@ -120,6 +120,11 @@ pub struct ProxyRequestOptions {
     pub headers: Option<HashMap<String, String>>,
     pub body: Option<String>,
     pub timeout_ms: Option<u64>,
+    /// 本次请求允许的最大响应体字节数，缺省用 `MAX_RESPONSE_BYTES`。
+    ///
+    /// 用于只需响应头/少量内容的调用（如流探活）：即使服务端忽略 `Range`
+    /// 返回整个文件，也不会被完整读进内存。
+    pub max_bytes: Option<u64>,
     /// `text`（默认）或 `base64`。二进制响应（封面图等）必须用 base64，
     /// 否则 UTF-8 lossy 转换会破坏字节。
     pub response_type: Option<String>,
@@ -164,7 +169,7 @@ pub async fn proxy_http_request(options: ProxyRequestOptions) -> Result<ProxyRes
         request = request.body(body);
     }
 
-    let response = request
+    let mut response = request
         .send()
         .await
         .map_err(|err| format!("请求失败: {}", err))?;
@@ -187,16 +192,40 @@ pub async fn proxy_http_request(options: ProxyRequestOptions) -> Result<ProxyRes
         headers.insert("set-cookie".to_string(), set_cookie_values.join("\n"));
     }
 
-    let bytes = response
-        .bytes()
+    // 流式读取并在超限时立即中止。
+    //
+    // 不能先 `response.bytes()` 全量缓冲再比长度：那样一个异常端点会在被拒绝前
+    // 就把内存吃满（流探活的 Range 请求被 CDN 忽略时，等于把整首歌读进内存）。
+    let limit = options
+        .max_bytes
+        .map(|value| value as usize)
+        .filter(|value| *value > 0)
+        .unwrap_or(MAX_RESPONSE_BYTES)
+        .min(MAX_RESPONSE_BYTES);
+
+    let mut bytes: Vec<u8> = Vec::new();
+    if let Some(length) = response.content_length() {
+        if length as usize > limit {
+            return Err(format!(
+                "响应体过大（声明 {} 字节，上限 {} 字节）",
+                length, limit
+            ));
+        }
+        bytes.reserve(length as usize);
+    }
+    while let Some(chunk) = response
+        .chunk()
         .await
-        .map_err(|err| format!("读取响应失败: {}", err))?;
-    if bytes.len() > MAX_RESPONSE_BYTES {
-        return Err(format!(
-            "响应体过大（{} 字节，上限 {} 字节）",
-            bytes.len(),
-            MAX_RESPONSE_BYTES
-        ));
+        .map_err(|err| format!("读取响应失败: {}", err))?
+    {
+        if bytes.len() + chunk.len() > limit {
+            return Err(format!(
+                "响应体过大（已读取 {} 字节，上限 {} 字节）",
+                bytes.len(),
+                limit
+            ));
+        }
+        bytes.extend_from_slice(&chunk);
     }
 
     let body = match options.response_type.as_deref() {

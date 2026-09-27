@@ -2,13 +2,17 @@ fn ensure_remote_cache_url(url: &str, label: &str) -> Result<reqwest::Url, Strin
     crate::outbound::assert_public_url(url, &format!("{}缓存", label))
 }
 
-pub(super) fn normalize_cache_key(value: Option<String>, fallback: &str) -> String {
-    let raw = value.unwrap_or_else(|| format!("{:x}", md5::compute(fallback)));
-    let normalized: String = raw
-        .chars()
+/// 只做字符净化（不提供回退）：查询侧用它判断调用方是否给了一个可用的 key。
+pub(super) fn sanitize_cache_key(raw: &str) -> String {
+    raw.chars()
         .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '-' || *ch == '_')
         .take(80)
-        .collect();
+        .collect()
+}
+
+pub(super) fn normalize_cache_key(value: Option<String>, fallback: &str) -> String {
+    let raw = value.unwrap_or_else(|| format!("{:x}", md5::compute(fallback)));
+    let normalized = sanitize_cache_key(&raw);
     if normalized.is_empty() {
         format!("{:x}", md5::compute(fallback))
     } else {
@@ -138,10 +142,93 @@ fn find_cached_file(
             .map_err(|err| format!("读取缓存文件失败: {}", err))?
             .len();
         if size > 0 {
+            // 命中即刷新 mtime，让容量淘汰变成真正的 LRU（否则常用文件反而先被删）
+            touch_cache_file(&path);
             return Ok(Some(path));
         }
     }
     Ok(None)
+}
+
+/**
+ * 并发下载的唯一后缀。
+ *
+ * 同一首歌可能被重复请求（播放中再次点击同一首、多窗口、重试），若两个任务共用
+ * 同一个 `.download` 临时文件，两次 `File::create` + 交错 `write_all` 会产出
+ * 字节错乱的文件，再被 rename 成正式缓存后永久命中。
+ */
+pub(super) fn unique_temp_suffix() -> String {
+    use std::sync::atomic::AtomicU64;
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let nanos = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|elapsed| elapsed.subsec_nanos())
+        .unwrap_or(0);
+    format!("{}-{}-{}", std::process::id(), seq, nanos)
+}
+
+/// 把本地音乐的内嵌封面写入封面缓存目录，返回文件路径。
+///
+/// 扫描整库时把封面 base64 塞进 IPC 载荷、再持久化进 library.json，会让内存与
+/// 库文件体积随曲目数线性膨胀（几千首即数百 MB）。落盘后前端只持有一个 asset
+/// 短路径，且文件名带内容哈希，重复扫描不重复写盘、换了封面也不会命中旧图。
+pub(super) fn persist_local_cover(
+    app: &AppHandle,
+    source_path: &Path,
+    data: &[u8],
+    ext: &str,
+) -> Option<String> {
+    if data.is_empty() {
+        return None;
+    }
+    let dir = song_cover_cache_dir(app).ok()?;
+    let path_hash = format!("{:x}", md5::compute(source_path.to_string_lossy().as_bytes()));
+    let data_hash = format!("{:x}", md5::compute(data));
+    let file_name = format!("{}-{}.{}", path_hash, &data_hash[..8], ext);
+    let cover_path = dir.join(&file_name);
+
+    if cover_path.exists() {
+        return Some(cover_path.to_string_lossy().to_string());
+    }
+    std::fs::create_dir_all(&dir).ok()?;
+
+    // 原子落盘：半截文件会被当成有效封面长期沿用
+    let temp_path = dir.join(format!("{}.{}.tmp", file_name, unique_temp_suffix()));
+    if std::fs::write(&temp_path, data).is_err() {
+        let _ = std::fs::remove_file(&temp_path);
+        return None;
+    }
+    if std::fs::rename(&temp_path, &cover_path).is_err() {
+        let _ = std::fs::remove_file(&temp_path);
+        return None;
+    }
+    Some(cover_path.to_string_lossy().to_string())
+}
+
+/// 下载/落盘临时文件守卫：任何提前返回（含 `?` 错误路径）都会清掉残片，
+/// 成功提交（rename）后调用 `disarm()` 交出所有权。
+pub(super) struct TempFileGuard {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl TempFileGuard {
+    pub(super) fn new(path: PathBuf) -> Self {
+        Self { path, armed: true }
+    }
+
+    pub(super) fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
 }
 
 async fn cache_remote_file(
@@ -188,7 +275,9 @@ async fn cache_remote_file(
         .and_then(|value| value.to_str().ok());
     let ext = extension_from_content_type(content_type, allowed_exts, &fallback);
     let path = cache_dir.join(format!("{}.{}", key, ext));
-    let temp_path = path.with_extension(format!("{}.download", ext));
+    // 每个下载任务写自己的临时文件：并发任务之间不会互相踩写字节。
+    let temp_path = cache_dir.join(format!("{}.{}.download", key, unique_temp_suffix()));
+    let mut temp_guard = TempFileGuard::new(temp_path.clone());
 
     let mut file = std::fs::File::create(&temp_path)
         .map_err(|err| format!("创建{}缓存文件失败: {}", label, err))?;
@@ -207,13 +296,13 @@ async fn cache_remote_file(
     drop(file);
 
     if downloaded == 0 {
-        let _ = std::fs::remove_file(&temp_path);
         return Err(format!("{}下载为空", label));
     }
-    if path.exists() {
-        std::fs::remove_file(&path).map_err(|err| format!("覆盖旧{}缓存失败: {}", label, err))?;
-    }
+    // 直接 rename 覆盖（Windows 上等价于 MOVEFILE_REPLACE_EXISTING）：
+    // 先 remove 会制造「目标已删、新文件未就位」的空窗，并发下载时还会
+    // 误删另一个任务刚提交的文件。
     std::fs::rename(&temp_path, &path).map_err(|err| format!("完成{}缓存失败: {}", label, err))?;
+    temp_guard.disarm();
 
     Ok(path.to_string_lossy().to_string())
 }
@@ -238,15 +327,12 @@ pub fn get_song_cache_stats(app: AppHandle) -> Result<SongCacheStats, String> {
     song_cache_stats(&app)
 }
 
-/// song-audio 缓存 LRU 容量清理：目录总大小超上限时按 modified time 从最旧开始删，
-/// 直到回到上限以内。单个文件删除失败（被占用/权限不足）跳过继续，不影响下载主流程。
-/// 下载走「.download 临时文件 + rename」落盘，这里跳过 .download 后缀，
-/// 扫到的都是完整文件，不会误删进行中的下载。只管 song-audio，不碰 song-covers/bili-audio。
-fn enforce_song_audio_cache_limit(app: &AppHandle) {
-    let Ok(cache_dir) = song_audio_cache_dir(app) else {
-        return;
-    };
-    let Ok(entries) = std::fs::read_dir(&cache_dir) else {
+/// 缓存目录容量清理：目录总大小超上限时按 modified time 从最旧开始删，直到回到上限内。
+/// 单个文件删除失败（被占用/权限不足）跳过继续，不影响下载主流程。
+/// 命中缓存时会刷新 mtime（见 `touch_cache_file`），因此这里的“最旧”是真正的 LRU。
+/// 写入一律走「临时文件 + rename」，这里跳过 `.download` / `.tmp`，不会误删进行中的写入。
+pub(super) fn enforce_cache_limit(cache_dir: &Path, max_bytes: u64) {
+    let Ok(entries) = std::fs::read_dir(cache_dir) else {
         return; // 目录不存在视为缓存为空
     };
 
@@ -260,7 +346,7 @@ fn enforce_song_audio_cache_limit(app: &AppHandle) {
             continue;
         }
         let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) == Some("download") {
+        if is_temp_cache_file(&path) {
             continue;
         }
         let size = metadata.len();
@@ -269,20 +355,37 @@ fn enforce_song_audio_cache_limit(app: &AppHandle) {
         files.push((path, size, modified));
     }
 
-    if total_size <= SONG_AUDIO_CACHE_MAX_BYTES {
+    if total_size <= max_bytes {
         return;
     }
 
     // oldest first，从最旧开始淘汰
     files.sort_by_key(|&(_, _, modified)| modified);
     for (path, size, _) in files {
-        if total_size <= SONG_AUDIO_CACHE_MAX_BYTES {
+        if total_size <= max_bytes {
             break;
         }
         if std::fs::remove_file(&path).is_ok() {
             total_size = total_size.saturating_sub(size);
         }
     }
+}
+
+/// 写入中的临时文件（下载 / 封面落盘），不能被容量清理当成完整文件删掉。
+fn is_temp_cache_file(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|ext| ext.to_str()),
+        Some("download") | Some("tmp")
+    )
+}
+
+/// 命中缓存时刷新 mtime，让按时间淘汰成为真正的 LRU。
+/// 失败无所谓（被占用 / 无写权限），淘汰退化为 FIFO，不影响本次命中。
+pub(super) fn touch_cache_file(path: &Path) {
+    let Ok(file) = std::fs::File::options().write(true).open(path) else {
+        return;
+    };
+    let _ = file.set_modified(SystemTime::now());
 }
 
 #[tauri::command]
@@ -300,7 +403,7 @@ pub async fn cache_remote_audio(
         "歌曲音频",
     )
     .await?;
-    enforce_song_audio_cache_limit(&app);
+    enforce_cache_limit(&song_audio_cache_dir(&app)?, SONG_AUDIO_CACHE_MAX_BYTES);
     Ok(path)
 }
 
@@ -313,7 +416,7 @@ pub async fn cache_remote_image(
     url: String,
     cache_key: String,
 ) -> Result<String, String> {
-    cache_remote_file(
+    let path = cache_remote_file(
         url,
         cache_key,
         song_cover_cache_dir(&app)?,
@@ -321,7 +424,10 @@ pub async fn cache_remote_image(
         "jpg",
         "封面图片",
     )
-    .await
+    .await?;
+    // 封面缓存此前无上限，长期使用会无限增长（本地音乐的内嵌封面也落在这里）
+    enforce_cache_limit(&song_cover_cache_dir(&app)?, SONG_COVER_CACHE_MAX_BYTES);
+    Ok(path)
 }
 
 /// 只查缓存、不发起下载。
@@ -339,7 +445,13 @@ pub fn lookup_cached_media(
         "cover" => (song_cover_cache_dir(&app)?, COVER_CACHE_EXTS),
         other => return Err(format!("未知的媒体缓存类型: {}", other)),
     };
-    let key = normalize_cache_key(Some(cache_key), "");
+    // 查询侧不接受空 key：normalize_cache_key 在 key 为空时会回退到 md5("")（一个固定值），
+    // 所有空 key 会撞到同一个文件；而写入侧的回退是 md5(url)，两边永远对不上 —— 与其
+    // 静默返回错误结果，不如直接报错（前端目前总是传非空 key）。
+    let key = sanitize_cache_key(&cache_key);
+    if key.is_empty() {
+        return Err("缓存 key 无效：不能为空".to_string());
+    }
     Ok(find_cached_file(&cache_dir, &key, allowed)?.map(|path| path.to_string_lossy().to_string()))
 }
 

@@ -21,10 +21,15 @@ use tauri::{AppHandle, Emitter, Manager};
 const BILI_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const BILI_AUDIO_CACHE_DIR: &str = "bili-audio";
 const SONG_AUDIO_CACHE_DIR: &str = "song-audio";
-/// song-audio 音频缓存目录的 LRU 容量上限（字节），超限后从最旧文件开始淘汰。
-/// 当前固定 2 GiB，可按需直接调整此常量；如需用户可配，后续接 AppSettings。
-const SONG_AUDIO_CACHE_MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const SONG_COVER_CACHE_DIR: &str = "song-covers";
+/// 各缓存目录的容量上限（字节），超限后按修改时间从最旧开始淘汰。
+/// 命中缓存会刷新 mtime，因此是真正的 LRU（常用的不会被先删）。
+/// 当前固定值，可按需直接调整；如需用户可配，后续接 AppSettings。
+const SONG_AUDIO_CACHE_MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+/// 封面（含本地音乐内嵌封面落盘）体量小但数量多，单独给 512 MiB 上限。
+const SONG_COVER_CACHE_MAX_BYTES: u64 = 512 * 1024 * 1024;
+/// B站音频缓存与 songs 缓存分开计数，给 1 GiB 上限。
+const BILI_AUDIO_CACHE_MAX_BYTES: u64 = 1024 * 1024 * 1024;
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]

@@ -59,6 +59,21 @@ fn clear_download_cancel(task_id: &str) {
     }
 }
 
+/// 取消登记守卫：任何提前返回路径都会把 task_id 从取消表里摘掉。
+///
+/// 原先只在部分分支手动清理，HTTP 失败 / 建文件失败 / 读流出错等路径会漏，
+/// 结果是取消表条目永久残留（`cancel_download` 对旧 id 一直返回 true，
+/// 且这张静态 map 会随失败次数无限增长）。
+struct DownloadCancelGuard {
+    task_id: String,
+}
+
+impl Drop for DownloadCancelGuard {
+    fn drop(&mut self) {
+        clear_download_cancel(&self.task_id);
+    }
+}
+
 fn unique_final_download_path(path: PathBuf) -> PathBuf {
     if !path.exists() {
         return path;
@@ -94,13 +109,19 @@ pub async fn download_file(
     crate::outbound::assert_public_url(&url, "下载")?;
 
     let cancel_flag = register_download_cancel(&task_id);
+    let _cancel_guard = DownloadCancelGuard {
+        task_id: task_id.clone(),
+    };
     let path = safe_join_download_path(&directory, &file_name)?;
+    // 唯一临时名 + 守卫：重复下载同一文件时不会互相踩写，任何失败路径也会清掉残片
     let temp_path = path.with_extension(format!(
-        "{}.download",
+        "{}.{}.download",
         path.extension()
             .and_then(|ext| ext.to_str())
-            .unwrap_or("tmp")
+            .unwrap_or("tmp"),
+        unique_temp_suffix()
     ));
+    let mut temp_guard = TempFileGuard::new(temp_path.clone());
 
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
@@ -115,7 +136,6 @@ pub async fn download_file(
         .map_err(|err| format!("请求下载地址失败: {}", err))?;
 
     if !resp.status().is_success() {
-        clear_download_cancel(&task_id);
         return Err(format!("下载失败: HTTP {}", resp.status()));
     }
 
@@ -135,8 +155,6 @@ pub async fn download_file(
     {
         if cancel_flag.load(Ordering::SeqCst) {
             drop(file);
-            let _ = std::fs::remove_file(&temp_path);
-            clear_download_cancel(&task_id);
             return Err("下载已取消".to_string());
         }
         downloaded += chunk.len() as u64;
@@ -144,8 +162,6 @@ pub async fn download_file(
             .map_err(|err| format!("写入文件失败: {}", err))?;
         if downloaded > MAX_DOWNLOAD_SIZE {
             drop(file);
-            let _ = std::fs::remove_file(&temp_path);
-            clear_download_cancel(&task_id);
             return Err("文件过大,已超过 2GB 上限".to_string());
         }
 
@@ -178,8 +194,7 @@ pub async fn download_file(
         std::fs::remove_file(&final_path).map_err(|err| format!("覆盖旧文件失败: {}", err))?;
     }
     std::fs::rename(&temp_path, &final_path).map_err(|err| format!("完成下载文件失败: {}", err))?;
-
-    clear_download_cancel(&task_id);
+    temp_guard.disarm();
 
     // 下载目录可由用户改到任意位置，放行该文件以便播放已下载曲目。
     let _ = app.asset_protocol_scope().allow_file(&final_path);

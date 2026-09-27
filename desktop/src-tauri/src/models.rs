@@ -184,9 +184,16 @@ pub struct AudioFile {
     pub format: String,
     /// 文件大小（字节）
     pub size: u64,
-    /// Base64 编码的封面图片，格式 "data:image/png;base64,..."
+    /// Base64 编码的封面图片，格式 "data:image/png;base64,..."。
+    ///
+    /// 仅单文件查询（get_audio_info）会填充；整目录扫描（scan_directory）留空，
+    /// 否则一次 IPC 就要搬运整库封面的 base64。
     pub cover_data: Option<String>,
-    /// 内嵌歌词（LRC 格式）
+    /// 内嵌封面落盘后的文件路径（封面缓存目录），前端用 asset 协议显示。
+    ///
+    /// 封面以文件形式存在，持久化库里只留这个短路径，避免库文件随曲目数膨胀。
+    pub cover_path: Option<String>,
+    /// 内嵌歌词（LRC 格式）。同样只在单文件查询时填充。
     pub lyrics: Option<String>,
 }
 
