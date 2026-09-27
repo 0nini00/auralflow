@@ -28,7 +28,10 @@ import CryptoJS from "crypto-js";
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36 Edg/108.0.1462.54";
 const EAPI_KEY = "e82ckenh8dichen8";
-const NETEASE_EAPI_BATCH = "http://interface.music.163.com/eapi/batch";
+// eapi 批量入口。必须走 https：eapi 请求体虽然加密，但**响应是明文 JSON**，
+// 走 http 时链路上的任意节点都能篡改搜索/歌词/歌曲详情（应用会照单全收）。
+// 同一 host 同一路径，eapi 签名只包含 path 与 body，不受 scheme 影响。
+const NETEASE_EAPI_BATCH = "https://interface.music.163.com/eapi/batch";
 
 // ─── eapi 加密（前端直连网易云接口）───
 
@@ -88,7 +91,14 @@ async function weapiRequest(path: string, data: Record<string, unknown>): Promis
 
   const text = await resp.text();
   if (!text?.trim()) throw new Error("服务器返回空响应");
-  const json = JSON.parse(text);
+  let json: any;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    // 典型场景：被风控/登录失效时返回 HTML 错误页，直接 JSON.parse 只会抛 SyntaxError，
+    // 上层拿不到任何可用信息
+    throw new Error(`网易云 weapi 返回了非 JSON 响应（HTTP ${resp.status}）: ${text.slice(0, 120)}`);
+  }
   if (json.code !== 200) throw new Error(json.message ?? `code=${json.code}`);
   return json;
 }

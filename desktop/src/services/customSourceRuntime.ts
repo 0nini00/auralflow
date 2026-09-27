@@ -239,13 +239,22 @@ function toOldMusicInfo(music: MusicInfo): Record<string, unknown> {
   };
 }
 
+function responseRawBody(rawBody: unknown): string {
+  // 二进制响应必须给 base64：JSON.stringify(Uint8Array) 会变成 {"0":137,"1":80,...}
+  if (rawBody instanceof Uint8Array) return bytesToString(rawBody, 'base64');
+  if (typeof rawBody === 'string') return rawBody;
+  return JSON.stringify(rawBody);
+}
+
 function createRequestResponse(rawBody: unknown, status: number, statusText: string, headers: Record<string, string>) {
+  const bodyBytes = rawBody instanceof Uint8Array ? rawBody : undefined;
   return {
     statusCode: status,
     statusMessage: statusText,
     headers: { ...headers },
-    bytes: 0,
-    raw: typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody),
+    // 响应体字节数：二进制取真实长度，文本保持原有语义
+    bytes: bodyBytes ? bodyBytes.byteLength : 0,
+    raw: responseRawBody(rawBody),
     body: rawBody,
   };
 }
@@ -355,9 +364,25 @@ function createUtils() {
   };
 }
 
+interface HttpRequestOptions {
+  method?: string;
+  timeout?: number;
+  headers?: Record<string, string>;
+  body?: unknown;
+  form?: Record<string, string>;
+  formData?: Record<string, string>;
+  /** LX 兼容：'arraybuffer' / 'stream' 时回传二进制而不是文本 */
+  responseType?: string;
+}
+
+function wantsBinaryResponse(responseType: string | undefined): boolean {
+  const normalized = (responseType ?? '').toLowerCase();
+  return normalized === 'arraybuffer' || normalized === 'stream' || normalized === 'blob';
+}
+
 function runHttpRequest(
   url: string,
-  options: { method?: string; timeout?: number; headers?: Record<string, string>; body?: unknown; form?: Record<string, string>; formData?: Record<string, string> },
+  options: HttpRequestOptions,
   callback: (error: Error | null, response: unknown, body: unknown) => void,
 ): () => void {
   // 出站校验（含 SSRF 与重定向逐跳）在 Rust 侧 outbound.rs 统一完成，这里不再重复判定。
@@ -376,13 +401,22 @@ function runHttpRequest(
         body = new URLSearchParams(options.formData).toString();
       }
 
+      const binary = wantsBinaryResponse(options.responseType);
       const response = await outboundRequest(url, {
         method: options.method ?? 'GET',
         headers: options.headers,
         body,
         timeoutMs,
+        // 二进制响应必须让 Rust 侧回 base64：按 UTF-8 lossy 转文本会把字节改掉
+        responseType: binary ? 'base64' : 'text',
       });
       if (cancelled) return;
+      if (binary) {
+        // 脚本按 Buffer 使用（length / 下标 / utils.buffer.bufToString），Uint8Array 都满足
+        const bytes = toBytes(response.base64(), 'base64');
+        callback(null, createRequestResponse(bytes, response.status, response.statusText, response.headers), bytes);
+        return;
+      }
       const text = await response.text();
       let parsed: unknown = text;
       try {
@@ -488,6 +522,9 @@ function createRuntime(api: CustomSourceItem, options?: CreateRuntimeOptions): R
     // 因此这里不做正则黑名单——它只能挡住朴素写法，却让人误以为存在隔离。
     //
     // 真正的隔离需要独立 WebView 或 Worker 且不暴露 IPC，属于架构变更，尚未实施。
+    // LX 兼容音源脚本必须在运行时可执行，new Function 是这条路径的唯一实现；
+    // 沙箱取舍已在上方注释中明确。
+    // pi-lens-ignore: ts-function-constructor
     const runner = new Function(
       'lx',
       'window',
@@ -614,6 +651,10 @@ function getCachedRuntime(api: CustomSourceItem, onUpdateAlert?: UpdateAlertList
     // 命中缓存也接上本次传入的监听器：深度测试 prime 进来的 Runtime 没有监听器，
     // 后续取链期间的运行时 updateAlert 才不会继续被丢弃
     if (onUpdateAlert) cached.setUpdateAlertListener(onUpdateAlert);
+    // 命中后移到末尾：Map 的插入序就是淘汰序，不刷新的话超过 8 个音源时
+    // 常用的会被冷门音源挤掉，导致反复重新执行脚本（new Function + 网络初始化）
+    runtimeCache.delete(key);
+    runtimeCache.set(key, cached);
     return cached;
   }
   if (runtimeCache.size >= RUNTIME_CACHE_MAX) {

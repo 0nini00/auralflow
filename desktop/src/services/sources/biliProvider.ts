@@ -60,6 +60,9 @@ export function encWbi(params: Record<string, string | number | boolean>, imgKey
     ...params,
     wts: Math.round(Date.now() / 1000),
   };
+  // WBI 签名必须与服务端一致：服务端按 JS 默认排序（UTF-16 码元）比较 key，
+  // 改成 localeCompare/自定义比较器会算错签名，这里必须保持无比较器的 .sort()。
+  // pi-lens-ignore: no-sort-without-comparator
   const query = Object.keys(signedParams)
     .sort()
     .map((key) => `${encodeURIComponent(key)}=${encodeWbiValue(signedParams[key])}`)
@@ -212,11 +215,15 @@ async function fetchBiliMusicUrl(music: MusicInfo, quality?: string): Promise<st
   const rawUrl = await resolveBiliPlaybackUrl(bvid, aid, cid, referer, quality);
 
   const cookie = await getBiliCookie();
+  // 缓存 key 不能包含 playurl 返回的签名 URL：deadline / upsig / uparams / wts 每次
+  // 解析都会变，带上它们就等于每次都 miss —— B站音频会被反复整首重下，
+  // 缓存目录里堆满同一首歌的副本。同一 (bvid, cid, 请求音质) 的音频内容是稳定的。
+  const cacheKey = CryptoJS.MD5(`bili:${bvid}:${cid}:${quality ?? "default"}`).toString();
   const cachePath = await biliCacheAudio({
     url: rawUrl,
     referer,
     cookie: cookie || null,
-    cacheKey: CryptoJS.MD5(`${bvid}:${cid}:${rawUrl}`).toString(),
+    cacheKey,
   });
   return convertFileSrc(cachePath);
 }

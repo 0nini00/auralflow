@@ -54,7 +54,12 @@ function parseQQText(text: string): any {
   const start = trimmed.indexOf("{");
   const end = trimmed.lastIndexOf("}");
   if (start >= 0 && end > start) {
-    return JSON.parse(trimmed.slice(start, end + 1));
+    try {
+      return JSON.parse(trimmed.slice(start, end + 1));
+    } catch (jsonpError) {
+      // JSONP 外壳里并不是 JSON（典型：接口返回 HTML 错误页）：继续走到统一报错
+      jsonError = jsonpError;
+    }
   }
   const message = jsonError instanceof Error ? jsonError.message : String(jsonError);
   throw new Error(`QQ Music returned invalid JSON/JSONP: ${message}`);

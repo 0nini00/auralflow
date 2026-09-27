@@ -17,6 +17,13 @@ export interface OutboundRequestInit {
   headers?: Record<string, string>;
   body?: string;
   timeoutMs?: number;
+  /**
+   * 本次请求允许的最大响应体字节数（缺省为 Rust 侧的 16MiB 硬上限）。
+   *
+   * 只需响应头时（流探活）务必传一个小值：Rust 会按此上限流式读取并提前中止，
+   * 服务端忽略 Range 返回整个文件也不会被读进内存。
+   */
+  maxBytes?: number;
   /** `base64` 用于二进制响应（封面图等）；默认按文本解码。 */
   responseType?: "text" | "base64";
 }
@@ -49,6 +56,7 @@ export async function outboundRequest(
       headers: init.headers,
       body: init.body,
       timeoutMs: init.timeoutMs,
+      maxBytes: init.maxBytes,
       responseType: init.responseType,
     },
   });

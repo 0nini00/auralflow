@@ -83,6 +83,8 @@ export interface RustAudioFile {
   format: string;
   size: number;
   coverData?: string | null;
+  /** 封面在本地缓存中的文件路径（由 scan_directory/get_audio_info 落盘），前端用 convertFileSrc 显示 */
+  coverPath?: string | null;
   lyrics?: string | null;
 }
 
