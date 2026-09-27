@@ -183,12 +183,39 @@ function csrfToken(): string {
   return match?.[1] ?? "";
 }
 
+/**
+ * 把接口响应里的嵌套值收窄成按键可安全访问的字典。
+ *
+ * 网易云响应结构由服务端决定且各接口不同，这里不用 any，也不逐个属性断言：
+ * 在使用点把值收窄一次，再按需 String()/Number()/断言。非对象值统一退化为空字典，
+ * 调用处因此无需再判空。
+ */
+function asDict(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+}
+
+function parseWyJson(
+  text: string,
+  path: string,
+  status?: number,
+  statusText?: string,
+): Record<string, unknown> {
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    const statusPart = status != null ? `; status=${status} ${statusText ?? ""}` : "";
+    throw new Error(
+      `网易云接口返回了非 JSON 响应（${path}${statusPart}）: ${text.slice(0, 120)}`,
+    );
+  }
+}
+
 async function postWeapi(
   path: string,
   data: Record<string, unknown>,
   requestCookie: string,
   csrf = "",
-): Promise<Record<string, any>> {
+): Promise<Record<string, unknown>> {
   const { params, encSecKey } = weapi({
     ...data,
     csrf_token: csrf,
@@ -215,21 +242,21 @@ async function postWeapi(
   if (!text.trim()) {
     throw new Error(`网易云返回空响应: ${path}; status=${resp.status} ${resp.statusText}`);
   }
-  return JSON.parse(text) as Record<string, any>;
+  return parseWyJson(text, path, resp.status, resp.statusText);
 }
 
 async function weapiCall(
   path: string,
   data: Record<string, unknown>,
   options: WeapiRequestOptions = {},
-): Promise<Record<string, any>> {
+): Promise<Record<string, unknown>> {
   if (!cookie) throw new Error("未设置网易云 Cookie");
   if (!/MUSIC_U=/.test(cookie)) throw new Error("Cookie 中缺少 MUSIC_U，请复制已登录请求的 Cookie");
   const requestCookie = options.pcCookie ? buildNeteasePcCookie(cookie) : cookie;
   return postWeapi(path, data, requestCookie, csrfToken());
 }
 
-async function anonymousEapiPost(path: string, data: Record<string, unknown>): Promise<Record<string, any>> {
+async function anonymousEapiPost(path: string, data: Record<string, unknown>): Promise<Record<string, unknown>> {
   if (!path.startsWith("/api/")) {
     throw new Error(`网易云 eapi 路径必须以 /api/ 开头: ${path}`);
   }
@@ -256,7 +283,7 @@ async function anonymousEapiPost(path: string, data: Record<string, unknown>): P
     throw new Error(`网易云返回空响应: ${path}; status=${resp.status} ${resp.statusText}`);
   }
 
-  const body = JSON.parse(text) as Record<string, any>;
+  const body = parseWyJson(text, path, resp.status, resp.statusText);
   const responseCookie = extractSetCookie(resp.headers);
   if (responseCookie && typeof body.cookie !== "string") {
     body.cookie = responseCookie;
@@ -272,7 +299,7 @@ async function weapiPost(
   path: string,
   data: Record<string, unknown>,
   options?: WeapiRequestOptions,
-): Promise<Record<string, any>> {
+): Promise<Record<string, unknown>> {
   const json = await weapiCall(path, data, options);
   if (json.code !== 200) {
     // 登录态失效时抛统一文案，便于上层清会话而不是当成普通业务错误
@@ -311,7 +338,7 @@ export async function createWyQrLoginKey(): Promise<string> {
     throw new Error(String(body.message || `二维码 key 获取失败 code=${body.code}`));
   }
 
-  const key = String(body.unikey ?? body.data?.unikey ?? "").trim();
+  const key = String(body.unikey ?? asDict(body.data).unikey ?? "").trim();
   if (!key) throw new Error("网易云未返回二维码 key");
   return key;
 }
@@ -363,10 +390,10 @@ export async function checkAccount(): Promise<AccountInfo> {
   const body = await weapiPost("/w/nuser/account/get", {});
   assertMatchingWyLoginSession(body, body);
 
-  const account = body.account;
-  if (!account) throw new Error("Cookie 已过期或无效");
+  const account = asDict(body.account);
+  if (!body.account) throw new Error("Cookie 已过期或无效");
 
-  const profile = body.profile ?? {};
+  const profile = asDict(body.profile);
   const vipType = Number(account.vipType ?? profile.vipType ?? 0);
 
   return {
@@ -493,7 +520,7 @@ export function getWyTrackId(song: { source: string; id: string }): string | nul
 /** 每日歌曲推荐（需登录 Cookie） */
 export async function getDailyRecommend() {
   const body = await weapiPost("/v3/discovery/recommend/songs", {});
-  const tracks = (body.data?.dailySongs as any[]) ?? [];
+  const tracks = (asDict(body.data).dailySongs as any[]) ?? [];
   return tracks.map(mapWySong);
 }
 
@@ -509,8 +536,8 @@ export async function getPersonalFm() {
 /** 歌手详情：头像、简介、别名等 */
 export async function getArtistDetail(id: string) {
   const body = await weapiPost("/artist/head/info/get", { id });
-  const data = body.data ?? {};
-  const artist = data.artist ?? {};
+  const data = asDict(body.data);
+  const artist = asDict(data.artist);
   return {
     id: String(artist.id ?? id),
     name: String(artist.name ?? ""),
@@ -573,15 +600,19 @@ export async function getArtistAlbums(
 /** 专辑详情 + 曲目列表 */
 export async function getAlbumDetail(albumId: string) {
   const body = await weapiPost(`/v1/album/${albumId}`, {});
-  const album = body.album ?? {};
+  const album = asDict(body.album);
   const songs = (body.songs as any[]) ?? [];
+  const albumArtist = asDict(album.artist);
+  const albumArtists = Array.isArray(album.artists)
+    ? (album.artists as Array<Record<string, unknown>>)
+    : [];
   return {
     info: {
       id: String(album.id ?? albumId),
       name: String(album.name ?? ""),
       picUrl: String(album.picUrl ?? album.blurPicUrl ?? ""),
-      artist: String(album.artist?.name ?? album.artists?.[0]?.name ?? ""),
-      artistId: String(album.artist?.id ?? album.artists?.[0]?.id ?? ""),
+      artist: String(albumArtist.name ?? albumArtists[0]?.name ?? ""),
+      artistId: String(albumArtist.id ?? albumArtists[0]?.id ?? ""),
       publishTime: Number(album.publishTime ?? 0),
       trackCount: Number(album.size ?? songs.length),
       description: String(album.description ?? ""),

@@ -226,7 +226,7 @@ class PlayerEngine {
 
   seek(seconds: number): void {
     const duration = this.state.duration;
-    if (!isFinite(duration)) return;
+    if (!Number.isFinite(duration)) return;
     const clamped = Math.max(0, Math.min(seconds, duration));
     this.audio.currentTime = clamped;
     this.patchState({ currentTime: clamped });

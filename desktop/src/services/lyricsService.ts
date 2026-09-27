@@ -118,6 +118,9 @@ async function getLyricsForSingle(music: MusicInfo): Promise<LyricResponse> {
         return persisted;
       }
     } catch (error) {
+      // 持久化歌词缓存读失败按未命中处理，不影响本次取歌词；留痕以便区分
+      // “真的没歌词”与“缓存文件坏了/读不了”
+      console.error('[lyrics] 读取持久化歌词缓存失败，按未命中处理', error);
     }
 
     let result: LyricResponse;
@@ -153,7 +156,8 @@ async function getLyricsForSingle(music: MusicInfo): Promise<LyricResponse> {
           const lines = parseProviderLyrics(lyricResult);
           result = lines.length > 0 ? { lines } : await searchAndMatchLyrics(music);
         } catch (providerError) {
-          // 音源歌词接口抛错时不要直接失败：走网易云搜索匹配兜底
+          // 音源歌词接口抛错时不要直接失败：走网易云搜索匹配兜底（同时留痕）
+          console.error('[lyrics] 音源歌词接口失败，改走搜索匹配', providerError);
           result = await searchAndMatchLyrics(music);
         }
       }
@@ -168,6 +172,7 @@ async function getLyricsForSingle(music: MusicInfo): Promise<LyricResponse> {
     return result;
   } catch (error) {
     lyricsCache.delete(cacheKey);
+    console.error('[lyrics] 获取歌词失败', error);
     return { lines: [], error: '获取歌词失败' };
   }
 }
@@ -220,6 +225,8 @@ export async function getLyrics(
       // variant 已经足够好也可以停
       if (!isPrimary && quality >= 60) break;
     } catch (err) {
+      // 单个候选取词失败不影响其它候选：继续试下一个，但要留痕
+      console.error('[lyrics] 候选歌词获取失败', err);
     }
   }
 
@@ -252,12 +259,13 @@ function scoreLyricContentQuality(lines: LyricLine[]): number {
   const wordRatio = withWords / lines.length;
   score += Math.round(wordRatio * 40); // 逐字时间轴很值钱
 
-  const withTr = lines.filter((l) => !!(l.tr && l.tr.trim())).length;
+  const withTr = lines.filter((l) => l.tr?.trim()).length;
   if (withTr > 0) score += 10;
 
   // 时间轴覆盖：首尾跨度合理
   const times = lines.map((l) => l.time).filter((x) => Number.isFinite(x));
   if (times.length >= 2) {
+    // 注意：本项目 TS target 低于 ES2022，不要用 Array.prototype.at()
     const span = times[times.length - 1] - times[0];
     if (span >= 30 && span <= 600) score += 12;
     else if (span > 0) score += 4;
@@ -373,6 +381,8 @@ async function searchAndMatchLyrics(music: MusicInfo): Promise<LyricResponse> {
         // 已经非常优秀就提前停：高匹配 + 有逐字
         if (item.score >= 70 && scoreLyricContentQuality(lines) >= 50) break;
       } catch (err) {
+        // 某个候选拉歌词失败就试下一个（候选是有序的 top-N）
+        console.error('[lyrics] 候选歌词拉取失败', err);
       }
     }
 
@@ -390,6 +400,7 @@ async function searchAndMatchLyrics(music: MusicInfo): Promise<LyricResponse> {
     });
     return lines.length > 0 ? { lines } : { lines: [], error: '暂无歌词' };
   } catch (error) {
+    console.error('[lyrics] 匹配歌词失败', error);
     return { lines: [], error: '匹配歌词失败' };
   }
 }
