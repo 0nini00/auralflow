@@ -120,3 +120,37 @@ export function mergeWebdavHistory(
 ): MusicInfo[] {
   return mergeWebdavSongs(local, remote).slice(0, limit);
 }
+
+// ---------------------------------------------------------------------------
+// userList 条目归类（本地歌单 / 云端歌单引用）
+// ---------------------------------------------------------------------------
+
+/** 云端歌单（网易云 / QQ 音乐）的 id 恒为纯数字，可据此识别同步文件里的引用条目。 */
+export function isNumericPlaylistId(id: unknown): boolean {
+  const value = toTrimmedString(id);
+  return value.length > 0 && /^\d+$/.test(value);
+}
+
+/**
+ * 判定 WebDAV 同步文件 `userList` 里的一条记录是否为**本地歌单**。
+ *
+ * 背景：移动端会把云端歌单（网易云 / QQ / B站）也写进 `userList`，但只写引用
+ * （id + name，`list` 多为空，歌曲按需拉取）。桌面端若照单全收，这些引用就会被
+ * 物化成 0 首歌曲的“本地歌单”，随后又被上传回同步文件，污染双端数据。
+ *
+ * 判定规则（与移动端 `webdavSyncService` 解析分支保持一致）：
+ * - 纯数字 id ⇒ 云端歌单（即便是被污染成 `source: "local"` 的条目）；
+ * - 显式 `source` 非 `local` ⇒ 云端歌单；
+ * - 其余（无 source 的非数字 id / `source: "local"`）⇒ 本地歌单。
+ */
+export function isWebdavLocalPlaylistRef(entry: { id?: unknown; source?: unknown }): boolean {
+  if (isNumericPlaylistId(entry?.id)) return false;
+  const source = toTrimmedString(entry?.source).toLowerCase();
+  return !source || source === "local";
+}
+
+function toTrimmedString(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return "";
+}
