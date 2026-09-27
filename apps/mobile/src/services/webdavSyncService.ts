@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { MusicInfo } from "@lx/core";
+import { isWebdavLocalPlaylistRef, type MusicInfo } from "@lx/core";
 import { usePlaylistStore } from "../stores/playlistStore";
 import { useFavoritesStore } from "../stores/favoritesStore";
 import type { WyPlaylistInfo } from "./wyPlaylistService";
@@ -803,11 +803,11 @@ function parsePlaylistsSyncFile(text: string): {
     for (const [index, item] of userList.entries()) {
       if (!isObject(item)) continue;
       const remote = item as RemotePlaylistItem;
-      const rawSource = getString(remote.source);
-      // 桌面端/旧版数据可能不带 source 字段：网易云歌单 id 为纯数字，其余按本地歌单兜底，
-      // 避免桌面端本地歌单（playlist_xxx id）在移动端被误识别为网易云云端歌单。
-      const isLocal =
-        rawSource === "local" || (!rawSource && !/^\d+$/.test(getString(remote.id)));
+      // 本地/云端归类统一走 core 的判定（与桌面端同一套规则）：
+      // 纯数字 id 必为云端歌单，source 非 local 亦为云端，其余按本地兜底。
+      // 既避免桌面端本地歌单（playlist_xxx id）被误识别为网易云云端歌单，
+      // 也避免被旧版桌面端污染成 source:"local" 的云端引用回流成本地歌单。
+      const isLocal = isWebdavLocalPlaylistRef(remote);
       if (isLocal) {
         localPlaylists.push(remoteItemToLocalPlaylist(remote, index, fallbackTimestamp));
       } else {
