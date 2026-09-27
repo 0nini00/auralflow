@@ -70,6 +70,15 @@ interface PlayerStore {
 
 let volumePersistTimer: ReturnType<typeof setTimeout> | null = null;
 let activePlayRequestId = 0;
+/**
+ * 引擎当前“应当”播放的曲目 key。
+ *
+ * play() 解析播放地址期间，引擎还在推上一首的状态与进度；若直接落库会把刚写入的
+ * loading / error 逐帧覆盖（解析失败时表现为「点了没反应」，且 didPlayFailForTarget
+ * 判不出失败，队列索引不会回滚）。此时只放行目标曲目的推送，其余一律丢弃。
+ * null 表示引擎状态可直通（没有待接管的目标）。
+ */
+let engineTargetKey: string | null = null;
 
 // 切歌连点合并：切换进行中（解析/播放器加载）时重复点击只补跳一次，不重复解析。
 let switchStepQueue = createSwitchStepQueueState();
@@ -96,6 +105,15 @@ async function playAndDidFail(get: () => PlayerStore, music: MusicInfo): Promise
   return didPlayFailForTarget(get(), music);
 }
 
+/**
+ * 交给播放器引擎播放，并把该曲目登记为“引擎应当接管的目标”。
+ * 登记后引擎推上一首的状态会被丢弃，直到它真的加载了这首曲目。
+ */
+async function playThroughEngine(music: MusicInfo, url: string): Promise<void> {
+  engineTargetKey = buildPlayRequestKey(music);
+  await playerEngine.play(music, url);
+}
+
 async function invalidatePersistentPlaybackCache(
   original: MusicInfo,
   target: MusicInfo,
@@ -114,6 +132,7 @@ async function invalidatePersistentPlaybackCache(
 function invalidatePlayRequest() {
   activePlayRequestId += 1;
   inflightPlayRequest = null;
+  engineTargetKey = null;
 }
 
 function scheduleVolumePersist(volume: number) {
@@ -189,6 +208,16 @@ const syncEngineToStore = (set: any, get: any) => {
     const { isMuted, volume: storeVolume } = get() as PlayerStore;
     const prevStatus = previousEngineStatus;
     previousEngineStatus = engineState.status;
+
+    if (engineTargetKey != null) {
+      const engineKey = engineState.currentMusic
+        ? buildPlayRequestKey(engineState.currentMusic)
+        : "";
+      // 上一首的状态/进度推送：直接丢弃，不能覆盖本次请求写入的 loading / error
+      if (engineKey !== engineTargetKey) return;
+      // 引擎已真正接管目标曲目，恢复直通
+      engineTargetKey = null;
+    }
 
     set({
       status: engineState.status,
@@ -309,6 +338,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
       const requestId = activePlayRequestId + 1;
       activePlayRequestId = requestId;
+      // 从这一行到引擎真正加载本曲目之前，引擎推来的状态都属于上一首：全部屏蔽。
+      engineTargetKey = requestKey;
       set({ current: music, status: "loading", error: null, progress: 0, duration: 0 });
 
       const run = (async () => {
@@ -318,10 +349,10 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
           if ('isLocal' in music && music.isLocal && 'url' in music && music.url) {
             // 本地音乐直接使用已有的 URL
             if (requestId !== activePlayRequestId) return;
-            await playerEngine.play(music, music.url as string);
+            await playThroughEngine(music, music.url as string);
             if (requestId !== activePlayRequestId) return;
             useHistoryStore.getState().add(music);
-            preloadNext(get);
+            void preloadNext(get).catch(() => undefined);
             return;
           }
 
@@ -336,7 +367,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
             try {
               playedMusic = cachedTarget.music;
-              await playerEngine.play(cachedTarget.music, cachedTarget.url);
+              await playThroughEngine(cachedTarget.music, cachedTarget.url);
             } catch (cachedError) {
               invalidatePrefetchedTrack(music);
               if (cachedTarget.music.source !== music.source || cachedTarget.music.id !== music.id) {
@@ -354,7 +385,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
               }
 
               playedMusic = resolved.music;
-              await playerEngine.play(resolved.music, resolved.url);
+              await playThroughEngine(resolved.music, resolved.url);
             }
 
           } else {
@@ -371,7 +402,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
             try {
               playedMusic = resolved.music;
-              await playerEngine.play(resolved.music, resolved.url);
+              await playThroughEngine(resolved.music, resolved.url);
             } catch (playbackError) {
               if (!resolved.fromCache) throw playbackError;
 
@@ -379,13 +410,13 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
               const refreshed = await resolvePlaybackUrl(music, variants, undefined, { bypassCache: true });
               if (requestId !== activePlayRequestId) return;
               playedMusic = refreshed.music;
-              await playerEngine.play(refreshed.music, refreshed.url);
+              await playThroughEngine(refreshed.music, refreshed.url);
             }
 
           }
           if (requestId !== activePlayRequestId) return;
           useHistoryStore.getState().add(playedMusic);
-          preloadNext(get);
+          void preloadNext(get).catch(() => undefined);
         } catch (e) {
           if (requestId !== activePlayRequestId) return;
 
@@ -402,11 +433,11 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
                   const fallbackResolved = await resolvePlaybackUrl(candidate);
                   if (requestId !== activePlayRequestId) return;
                   if (fallbackResolved?.url) {
-                    await playerEngine.play(fallbackResolved.music, fallbackResolved.url);
+                    await playThroughEngine(fallbackResolved.music, fallbackResolved.url);
                     if (requestId !== activePlayRequestId) return;
                     set({ current: fallbackResolved.music });
                     useHistoryStore.getState().add(fallbackResolved.music);
-                    preloadNext(get);
+                    void preloadNext(get).catch(() => undefined);
                     debugLog(`[fallback] 跨源降级成功: ${music.name} -> QQ音乐: ${candidate.name} (${candidate.id})`);
                     return;
                   }

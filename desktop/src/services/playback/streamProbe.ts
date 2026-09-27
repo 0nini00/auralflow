@@ -14,7 +14,18 @@ export const PROBE_TIMEOUT_MS = 5_000;
 
 export type StreamProbeResult =
   | { ok: true; totalBytes?: number }
-  | { ok: false; reason: string };
+  /**
+   * `definitive = true`：服务端明确拒绝该资源（4xx），这个地址就是不能用。
+   * `definitive = false`：无法下结论（超时 / 网络抖动 / 5xx / 响应体超限），
+   * 不能据此判定地址不可用。
+   */
+  | { ok: false; reason: string; definitive: boolean };
+
+/** 探活只需要响应头：响应体限制在极小值，避免服务端忽略 Range 时拉整个文件。 */
+export const PROBE_BODY_LIMIT_BYTES = 2 * 1024;
+
+/** 只有这些状态码代表“这个 URL 确实拿不到资源”，其余一律不下定论。 */
+const DEFINITIVE_FAILURE_STATUS = new Set([403, 404, 410, 451]);
 
 /**
  * 从响应头读取完整资源字节数。
@@ -51,13 +62,22 @@ export async function probeStreamUrl(
       method: "GET",
       headers: { ...headers, Range: "bytes=0-0" },
       timeoutMs: PROBE_TIMEOUT_MS,
+      maxBytes: PROBE_BODY_LIMIT_BYTES,
     });
     if (response.ok) {
       const totalBytes = readTotalBytes(response.headers, true);
       return { ok: true, totalBytes };
     }
-    return { ok: false, reason: `HTTP ${response.status}` };
+    return {
+      ok: false,
+      reason: `HTTP ${response.status}`,
+      definitive: DEFINITIVE_FAILURE_STATUS.has(response.status),
+    };
   } catch (error) {
-    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+    return {
+      ok: false,
+      reason: error instanceof Error ? error.message : String(error),
+      definitive: false,
+    };
   }
 }

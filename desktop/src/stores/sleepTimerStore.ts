@@ -61,13 +61,19 @@ function startTick() {
   clearTick();
   tickHandle = setInterval(() => {
     const st = useSleepTimerStore.getState();
-    if (st.mode !== "timer") return;
+    if (st.mode !== "timer") {
+      // 定时已结束/被取消：停掉这个每秒空转的定时器，
+      // 否则用过一次定时后，整进程会一直留着一个 1s interval。
+      clearTick();
+      return;
+    }
     const player = usePlayerStore.getState();
     if (player.status !== "playing") return;
     const next = st.remainingSec - 1;
     if (next <= 0) {
       usePlayerStore.getState().pause();
       useSleepTimerStore.setState({ mode: "off", remainingSec: 0 });
+      clearTick();
     } else {
       useSleepTimerStore.setState({ remainingSec: next });
     }

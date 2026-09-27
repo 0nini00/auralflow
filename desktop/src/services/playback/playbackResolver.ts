@@ -24,10 +24,14 @@ export async function resolvePlaybackUrl(
 
 const PLAYBACK_RESOLVE_TOTAL_BUDGET_MS = 12_000;
 
+const STREAM_REFERERS: Record<string, string> = {
+  wy: 'https://music.163.com',
+  tx: 'https://y.qq.com',
+};
+
 /** 与移动端 buildStreamHeaders 同语义:wy/tx CDN 防盗链头。 */
 function buildStreamHeaders(source: string | undefined): Record<string, string> | undefined {
-  const referer =
-    source === 'wy' ? 'https://music.163.com' : source === 'tx' ? 'https://y.qq.com' : undefined;
+  const referer = source ? STREAM_REFERERS[source] : undefined;
   if (!referer) return undefined;
   return { Referer: referer };
 }
@@ -105,12 +109,15 @@ async function raceQualityTierLazy(
   // 第二步:主源不足(失败 / 超时 / 音质低于本轮期望),唤醒自定义源一起竞速取高音质。
   // 主源若已命中只是音质不足,直接带上它(避免同一首歌主源发两次请求);
   // 未命中(超时/失败)则重试一次,与自定义源并行。
-  const primaryRetry = primaryHit
-    ? Promise.resolve(primaryHit)
-    : primary.resolve(request).catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`${primary.id}: ${message}`);
-      });
+  let primaryRetry: Promise<PlaybackResolvedUrl>;
+  if (primaryHit) {
+    primaryRetry = Promise.resolve(primaryHit);
+  } else {
+    primaryRetry = primary.resolve(request).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`${primary.id}: ${message}`);
+    });
+  }
   const customAttempt = custom.resolve(request).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`${custom.id}: ${message}`);
@@ -158,6 +165,9 @@ async function resolvePlaybackUrlUncapped(
         return await prepareResolvedPlaybackMedia(music, cached, options.cacheMedia !== false);
       }
     } catch (error) {
+      // 缓存读失败按未命中处理，继续走网络解析；但不能完全静默，
+      // 否则缓存文件损坏/权限异常会退化成"每次都重新解析"而无任何线索。
+      debugLog(`[resolve] 读取持久化缓存失败，按未命中处理: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -194,12 +204,17 @@ async function resolvePlaybackUrlUncapped(
       // 明显短于期望时长(music.interval)则视为试听:不写缓存、不进播放器,降档重试。
       const probeHeaders = buildStreamHeaders(music.source);
       const probe = await probeStreamUrl(resolved.url, probeHeaders);
-      if (!probe.ok) {
+      if (!probe.ok && probe.definitive) {
+        // 服务端明确拒绝（403/404/410/451）：该地址确实拿不到资源，换下一档
         tierErrors.push(`探活失败(${probe.reason})`);
         continue;
       }
-      if (
-        probe.ok &&
+      if (!probe.ok) {
+        // 超时 / 网络抖动 / 5xx / 响应体超限都下不了结论。不能因为探活不确定就否掉
+        // 一个可能完全正常的地址：部分 CDN 忽略 Range 或对大文件响应慢，旧逻辑会让
+        // 高音质档位整体阵亡并静默降级。放行播放，由播放器错误回调兜底。
+        debugLog(`[resolve] ${music.name} 轮=${tier.join('+')} 探活无结论，仍采用该地址: ${probe.reason}`);
+      } else if (
         probe.totalBytes != null &&
         isPreviewStream({
           totalBytes: probe.totalBytes,
@@ -251,6 +266,9 @@ async function prepareResolvedPlaybackMedia(
   try {
     return await cacheResolvedPlaybackMedia(primary, resolved);
   } catch (error) {
+    // 媒体缓存（封面/音频落盘）失败不影响本次播放，仍用远端地址；
+    // 但要留痕，否则“缓存一直不命中”会没人发现。
+    debugLog(`[resolve] 媒体缓存处理失败，改用原地址: ${error instanceof Error ? error.message : String(error)}`);
     return resolved;
   }
 }

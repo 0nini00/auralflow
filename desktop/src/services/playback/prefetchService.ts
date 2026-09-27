@@ -76,7 +76,7 @@ function getNearbyTracks(
 }
 
 function isFreshEntry(entry: PlaybackPrefetchEntry | undefined, now: number): boolean {
-  return !!entry && now - entry.fetchedAt < PREFETCH_TTL_MS;
+  return entry != null && now - entry.fetchedAt < PREFETCH_TTL_MS;
 }
 
 function getLocalAudioUrl(music: MusicInfo): string | undefined {
@@ -144,9 +144,8 @@ async function prefetchTrack(
   try {
     entry.lyrics = await options.getLyrics(music);
   } catch (error) {
-    entry.error = entry.error
-      ? `${entry.error}\n${error instanceof Error ? error.message : String(error)}`
-      : error instanceof Error ? error.message : String(error);
+    const message = error instanceof Error ? error.message : String(error);
+    entry.error = entry.error ? `${entry.error}\n${message}` : message;
   }
 
   prefetchCache.set(key, entry);
