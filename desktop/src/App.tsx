@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
 import { Layout } from "./components/Layout/Layout";
 import { HomeView } from "./views/HomeView";
 import { SearchView } from "./views/SearchView";
@@ -18,6 +19,7 @@ import { AlbumDetailView } from "./views/AlbumDetailView";
 import { LyricWindowView } from "./views/LyricWindowView";
 import { LyricUnlockView } from "./views/LyricUnlockView";
 import { PactModal } from "./components/PactModal";
+import { LibraryDegradedNotice } from "./components/LibraryDegradedNotice";
 import { CursorEffect } from "./components/CursorEffect";
 import { DeepLinkHandler } from "./components/DeepLinkHandler";
 import { UpdateModal } from "./components/UpdateModal";
@@ -34,6 +36,7 @@ import { historyPersistence } from "./stores/historyStore";
 import { usePlayerStore, setPlaybackFailedAutoNext } from "./stores/playerStore";
 import { playerEngine } from "./services/playerEngine";
 import { normalizePauseOnExternalPlayback } from "./services/mediaInterruptionPolicy";
+import { flushLibraryPersistence } from "./stores/libraryPersistence";
 import { loadSettings } from "@lx/tauri-bridge";
 
 function MainApp() {
@@ -42,6 +45,34 @@ function MainApp() {
 
   const [cursorEffect, setCursorEffect] = useState<"off" | "trail">("off");
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+
+  // 退出前把 debounce 中的写盘落盘。
+  // 托盘退出走 Rust 的 app.exit(0)，进程会被直接结束；不 flush 就会丢掉退出前
+  // ≤300ms（debounce 窗口）内的收藏/歌单/历史修改。
+  useEffect(() => {
+    const flush = () => {
+      void flushLibraryPersistence();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    let unlisten: (() => void) | null = null;
+    let disposed = false;
+    void listen("app-before-quit", flush)
+      .then((fn) => {
+        if (disposed) fn();
+        else unlisten = fn;
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      unlisten?.();
+    };
+  }, []);
 
   useEffect(() => {
     const loadCursor = () => {
@@ -136,6 +167,7 @@ function MainApp() {
         </Routes>
       </BrowserRouter>
       <PactModal onAccepted={() => {}} />
+      <LibraryDegradedNotice />
       <CursorEffect mode={cursorEffect} />
       {updateInfo && (
         <UpdateModal info={updateInfo} onClose={() => setUpdateInfo(null)} />

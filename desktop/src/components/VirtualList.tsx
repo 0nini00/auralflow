@@ -14,6 +14,14 @@ interface VirtualListProps<T> {
   onScroll?: () => void;
   /** 可选：使用外层滚动容器，列表自身只负责撑开内容高度 */
   scrollRootSelector?: string;
+  /**
+   * 可选：行身份 key，默认用下标。
+   *
+   * 列表会被过滤/重排且行内有状态（展开的菜单、内联编辑）时传入，
+   * 例：`` `${item.id}:${index}` ``（不要只用 id：队列里允许同一首歌出现多次，
+   * 纯 id 会撞 key）。
+   */
+  getItemKey?: (item: T, index: number) => string | number;
 }
 
 /**
@@ -30,6 +38,7 @@ export function VirtualList<T>({
   scrollToKey,
   onScroll,
   scrollRootSelector,
+  getItemKey,
 }: VirtualListProps<T>) {
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportH, setViewportH] = useState(0);
@@ -132,7 +141,7 @@ export function VirtualList<T>({
           const index = start + i;
           return (
             <div
-              key={index}
+              key={getItemKey ? getItemKey(item, index) : index}
               style={{
                 position: "absolute",
                 top: index * rowHeight,

@@ -11,10 +11,13 @@ export interface LocalSong {
   duration: number;
   format: string;
   size: number;
-  cover_data?: string | null;
-  /** 内嵌歌词（LRC 格式），Rust 侧从 ID3 USLT / Vorbis LYRICS 读取 */
-  lyrics?: string | null;
   url?: string;
+  /**
+   * 封面地址（asset 协议的短路径）。
+   *
+   * 不再保存 base64：整库 base64 会把 library.json 撑到数百 MB 并常驻内存，
+   * Rust 侧已把内嵌封面落盘到封面缓存，这里只留路径。
+   */
   cover?: string;
   isLocal: boolean;
 }
@@ -29,10 +32,11 @@ function rustToLocalSong(file: RustAudioFile): LocalSong {
     duration: file.duration,
     format: file.format,
     size: file.size,
-    cover_data: file.coverData,
-    lyrics: file.lyrics,
     url: convertFileSrc(file.path),
-    cover: file.coverData ?? undefined,
+    // 优先用落盘封面（短路径，可持久化）；只有单文件接口才回传 base64 作兜底
+    cover: file.coverPath
+      ? convertFileSrc(file.coverPath)
+      : file.coverData ?? undefined,
     isLocal: true,
   };
 }
@@ -46,7 +50,7 @@ export class LocalMusicService {
         title: '选择音乐文件夹',
       });
       return selected as string | null;
-    } catch (error) {
+    } catch {
       return null;
     }
   }
@@ -66,7 +70,7 @@ export class LocalMusicService {
       });
       if (!selected) return [];
       return Array.isArray(selected) ? selected : [selected];
-    } catch (error) {
+    } catch {
       return [];
     }
   }
@@ -80,7 +84,7 @@ export class LocalMusicService {
     try {
       const audioFile = await getAudioInfo(path);
       return rustToLocalSong(audioFile);
-    } catch (error) {
+    } catch {
       return null;
     }
   }

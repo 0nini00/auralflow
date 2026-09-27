@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { X } from "lucide-react";
 import type { LocalSong } from "@/services/localMusicService";
 import {
@@ -42,9 +43,19 @@ export function MetadataEditModal({ song, onClose }: Props) {
 
   if (!song) return null;
 
+  // 与 Rust 侧 MAX_EMBEDDED_COVER_BYTES 保持一致：超限直接拦在前端，
+  // 免得把几十 MB 的 base64 也传一遍 IPC
+  const MAX_COVER_BYTES = 10 * 1024 * 1024;
+
   const handlePickCover = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.size > MAX_COVER_BYTES) {
+      setError(`封面文件过大（${(file.size / 1024 / 1024).toFixed(1)} MB，上限 10 MB）`);
+      e.target.value = "";
+      return;
+    }
+    setError("");
     const reader = new FileReader();
     reader.onload = () => setCoverData(reader.result as string);
     reader.readAsDataURL(file);
@@ -64,7 +75,10 @@ export function MetadataEditModal({ song, onClose }: Props) {
         title: refreshed.title,
         artist: refreshed.artist,
         album: refreshed.album,
-        cover: refreshed.coverData ?? undefined,
+        // 落盘封面路径优先（短且可持久化），base64 仅作兜底
+        cover: refreshed.coverPath
+          ? convertFileSrc(refreshed.coverPath)
+          : refreshed.coverData ?? undefined,
       });
       onClose();
     } catch (e) {

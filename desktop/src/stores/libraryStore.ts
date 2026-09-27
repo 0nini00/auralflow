@@ -109,11 +109,39 @@ export const useLibraryStore = create<LibraryStore>()((set, get) => ({
 
 attachLibraryPersistence<LibraryStore, { localSongs: LocalSong[]; scanPaths: string[] }>(useLibraryStore, {
   namespace: "library",
-  pick: (state) => ({ localSongs: state.localSongs, scanPaths: state.scanPaths }),
+  // 落盘前再过一道：即使载入的旧数据带着 base64，也不会再写回大文件
+  pick: (state) => ({
+    localSongs: stripLegacyCoverBlobs(state.localSongs),
+    scanPaths: state.scanPaths,
+  }),
   apply: (slice, set) =>
     set({
-      localSongs: slice.localSongs ?? [],
+      localSongs: stripLegacyCoverBlobs(slice.localSongs ?? []),
       scanPaths: slice.scanPaths ?? [],
     }),
   legacyLocalStorageKey: "library-storage",
 });
+
+/**
+ * 剔除历史版本持久化下来的大字段。
+ *
+ * 旧版本把内嵌封面 base64（cover_data，以及 cover 里的 data URL）和整库歌词一并写进
+ * library.json：一个几千首的库就是几百 MB 的 JSON，每次写盘全量重写、启动全量常驻内存。
+ * 这些内容都能从音频文件重新扫描得到（新版本会落成封面缓存里的短路径），直接丢弃。
+ */
+function stripLegacyCoverBlobs(songs: LocalSong[]): LocalSong[] {
+  let changed = false;
+  const cleaned = songs.map((raw) => {
+    const song = raw as LocalSong & { cover_data?: unknown; lyrics?: unknown };
+    const hasLegacyFields = song.cover_data !== undefined || song.lyrics !== undefined;
+    const hasInlineCover = typeof song.cover === "string" && song.cover.startsWith("data:");
+    if (!hasLegacyFields && !hasInlineCover) return raw;
+
+    changed = true;
+    const { cover_data: _coverData, lyrics: _lyrics, cover, ...rest } = song;
+    void _coverData;
+    void _lyrics;
+    return (hasInlineCover ? rest : { ...rest, cover }) as LocalSong;
+  });
+  return changed ? cleaned : songs;
+}
