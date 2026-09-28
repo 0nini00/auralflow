@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# 边界说明：
+# - JS 任务跑 node 22 与 24 两档。22 是 apps/mobile/package.json 里 engines 声明的下限，
+#   24 是当前开发机版本；两者都过才算符合声明的契约。
+# - Rust 任务必须跑在 windows runner：desktop/src-tauri/src/secret_store.rs 在非 Windows
+#   平台是编译期硬失败（有意设计——静默退回明文存储比编不过更糟），所以 linux runner 一定失败。
+# - 每一步都是本机用 `pnpm test:all` 同一批命令验证过的。
+
+jobs:
+  js:
+    name: JS（core 测试 / 双端类型检查 / 移动端 lint）
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: core 单元测试
+        run: pnpm test:core
+
+      - name: 双端类型检查 + 移动端 lint
+        run: pnpm check:all
+
+  rust:
+    name: Rust（cargo test，Windows）
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: cargo test
+        run: pnpm test:rust

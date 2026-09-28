@@ -1,7 +1,8 @@
 {
   "name": "auralflow",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
+  "packageManager": "pnpm@11.5.1",
   "scripts": {
     "core:typecheck": "pnpm --filter @lx/core typecheck",
     "core:test": "pnpm --filter @lx/core test",
@@ -16,6 +17,11 @@
     "desktop:typecheck": "pnpm --filter @auralflow/desktop typecheck",
     "desktop:tauri": "pnpm --filter @auralflow/desktop tauri",
     "desktop:tauri:dev": "pnpm --filter @auralflow/desktop tauri:dev",
-    "desktop:tauri:build": "pnpm --filter @auralflow/desktop tauri:build"
+    "desktop:tauri:build": "pnpm --filter @auralflow/desktop tauri:build",
+    "test:core": "pnpm --filter @lx/core test",
+    "test:rust": "cargo test --manifest-path desktop/src-tauri/Cargo.toml",
+    "check:all": "pnpm core:typecheck && pnpm desktop:typecheck && pnpm mobile:typecheck && pnpm mobile:lint",
+    "test:all": "pnpm check:all && pnpm test:core && pnpm test:rust",
+    "test": "pnpm test:all"
   }
 }
