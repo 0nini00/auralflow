@@ -1,7 +1,7 @@
 import type { MusicInfo } from '@lx/core';
 import { COVER_SIZE_LARGE, resizeCoverUrl } from '@lx/core';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { cacheRemoteAudio, cacheRemoteImage, lookupCachedMedia } from '@lx/tauri-bridge';
+import { cacheRemoteAudio, cacheRemoteImage, lookupCachedMedia, removeCachedMedia } from '@lx/tauri-bridge';
 import type { PlaybackResolvedUrl } from '@/services/playback/types';
 
 export const CACHEABLE_AUDIO_SOURCES = new Set<MusicInfo['source']>(['wy', 'tx']);
@@ -99,4 +99,22 @@ export async function cacheResolvedPlaybackMedia(
     url: cachedAudioUrl,
     music: musicWithCachedCover,
   };
+}
+
+/** 音质阶梯（与 @lx/core PlaybackQuality 一致），按曲失效时需遍历各档缓存 key。 */
+const AUDIO_CACHE_QUALITIES = ["128k", "192k", "320k", "flac", "flac24bit"] as const;
+
+/**
+ * 按曲删除磁盘上的全部音频缓存（各音质档），用于试听片段 / 坏链的定向失效。
+ *
+ * 必须存在的原因：`cachePlaybackAudio` 命中磁盘缓存就直接放本地文件、不再过探活；
+ * 只清持久化 URL 缓存不足以摆脱一个已落盘的试听片段——下次播放仍会命中它。
+ * Rust 侧只有整体清空（`clear_song_cache`），所以只能逐档 key 调用。
+ */
+export async function removeCachedAudioForMusic(music: MusicInfo): Promise<void> {
+  await Promise.all(
+    AUDIO_CACHE_QUALITIES.map((quality) =>
+      removeCachedMedia("audio", buildMediaCacheKey(music, `audio-${quality}`)).catch(() => false),
+    ),
+  );
 }

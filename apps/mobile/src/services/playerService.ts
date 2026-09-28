@@ -357,36 +357,40 @@ async function resolveSongUrl(
         // 防盗链 headers 统一按音源补齐：LX 自定义音源返回的也多为 wy/tx 官方 CDN 链接，
         // 缺 Referer 会直接 403（竞速版本初期的回归点）；其他源 CDN 无 Referer 要求，多带无害。
         const candidateHeaders = buildStreamHeaders(song.source);
-        // 死代理探活：仅对来自第三方自定义音源代理的结果做 1 字节探活，
-        // 官方网关直连 CDN 稳定可靠，跳过冗余探活省去一次全握手往返（节省 300~800ms 切歌延迟）。
-        if (racedResult.fromCustomSource) {
-          const probe = await probeStreamUrl(racedResult.url, candidateHeaders);
-          if (!probe.ok) {
-            // 带上地址来源（协议 + 主机，不含可能含 token 的路径与查询串）：
-            // 明文 http 被 Android 拦截、代理域名不可达等失败在错误文案上无法区分，
-            // 没有来源信息只能靠猜。
-            lastTierError = new Error(
-              `解析的播放地址不可用（${probe.reason}）[${describeUrlOrigin(racedResult.url)}]`,
-            );
-            continue;
-          }
-          // 试听判定：30s 试听与完整版同样返回 206，靠 Content-Range / Content-Length
-          // 估算流时长后与期望时长（song.interval）比对，是试听则本档作废继续降档。
-          if (
-            probe.ok &&
-            probe.totalBytes != null &&
-            isPreviewStream({
-              totalBytes: probe.totalBytes,
-              quality: racedResult.quality,
-              expectedDurationSeconds: song.interval,
-            })
-          ) {
-            const previewSeconds = estimateStreamDurationSeconds(probe.totalBytes, racedResult.quality);
-            lastTierError = new Error(
-              `解析到试听片段（约 ${Math.round(previewSeconds ?? 0)}s），已跳过并降档重试`,
-            );
-            continue;
-          }
+        // 探活：1 字节 Range 同时给出「地址是否真的可用」与「完整资源字节数」——后者是
+        // 试听判定的唯一数据来源（见 @lx/core stream-integrity），跳过探活等于放弃解析期试听判定。
+        // 两条通道都跑，但拒绝尺度不同：
+        // - 自定义音源：黑盒代理 TCP 握手成功后可能永不返数据（ExoPlayer 会无限缓冲、
+        //   进度永远 00:00 且无错误回调），因此任何探活失败都换下一档。
+        // - 网关直连 CDN：稳定可靠，只有服务端明确拒绝（4xx）才换档；超时 / 抖动 / 5xx
+        //   下不了结论，不能据此否掉一个可能正常的地址（部分 CDN 忽略 Range 或对大文件响应慢），
+        //   放行给播放器错误回调兜底。
+        const probe = await probeStreamUrl(racedResult.url, candidateHeaders);
+        if (!probe.ok && (racedResult.fromCustomSource || probe.definitive)) {
+          // 带上地址来源（协议 + 主机，不含可能含 token 的路径与查询串）：
+          // 明文 http 被 Android 拦截、代理域名不可达等失败在错误文案上无法区分，
+          // 没有来源信息只能靠猜。
+          lastTierError = new Error(
+            `解析的播放地址不可用（${probe.reason}）[${describeUrlOrigin(racedResult.url)}]`,
+          );
+          continue;
+        }
+        // 试听判定：30s 试听与完整版同样返回 206，靠 Content-Range / Content-Length
+        // 估算流时长后与期望时长（song.interval）比对，是试听则本档作废继续降档。
+        if (
+          probe.ok &&
+          probe.totalBytes != null &&
+          isPreviewStream({
+            totalBytes: probe.totalBytes,
+            quality: racedResult.quality,
+            expectedDurationSeconds: song.interval,
+          })
+        ) {
+          const previewSeconds = estimateStreamDurationSeconds(probe.totalBytes, racedResult.quality);
+          lastTierError = new Error(
+            `解析到试听片段（约 ${Math.round(previewSeconds ?? 0)}s），已跳过并降档重试`,
+          );
+          continue;
         }
         raced = racedResult;
         url = racedResult.url;

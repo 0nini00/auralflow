@@ -228,6 +228,14 @@ export function DownloadList({ downloads, downloading, failedDownloads = [], onN
               <Text style={[styles.downloadDetail, { color: palette.textSubtle }]} numberOfLines={1}>
                 {metadata.detailLabel}
               </Text>
+              {metadata.warningLabel ? (
+                <Text
+                  style={[styles.downloadDetail, { color: palette.danger }]}
+                  numberOfLines={2}
+                >
+                  {metadata.warningLabel}
+                </Text>
+              ) : null}
             </View>
             <View style={styles.downloadActions}>
               {/* 两个删除动作语义不同必须可见：移除记录=只清列表项保留文件；删除文件=连本地文件一起删 */}

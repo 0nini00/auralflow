@@ -1,5 +1,5 @@
 import { loadSettings } from "@lx/tauri-bridge";
-import { isNumericPlaylistId, isWebdavLocalPlaylistRef, type MusicInfo } from "@lx/core";
+import { CloudDataStaleError, CloudSyncRefusalError, isNumericPlaylistId, isWebdavLocalPlaylistRef, type MusicInfo } from "@lx/core";
 import { outboundRequest, type OutboundResponse } from "@/services/outboundHttp";
 import { useFavoritesStore } from "@/stores/favoritesStore";
 import { usePlaylistStore, type Playlist } from "@/stores/playlistStore";
@@ -227,13 +227,37 @@ function assertCloudNotStale(
 ): void {
   if (force) return;
   if (localItemCount <= 0) return;
+
+  // 云端 lastModified 未知（缺失 / 0 / 非数字 / 非法 JSON / 顶层不是对象）：
+  // 无法判断云端与本地哪个更新。fail-closed 中止，而不是静默放行「用状态未知的
+  // 云端数据覆盖本地」——放行等于允许丢数据。与移动端一致，由 force 放行。
   const remoteLm = extractRemoteLastModified(remoteText);
+  if (remoteLm == null) {
+    throw new CloudSyncRefusalError(
+      `云端${kind === "sources" ? "音源" : "歌单"}文件无法确定更新状态（lastModified 缺失或无法解析），` +
+        `无法判断云端与本地哪个更新，无法安全下载到本地约 ${localItemCount} 项。` +
+        `若确认以云端为准，请强制下载。`,
+    );
+  }
+
   const localMeta = readLocalMeta(kind);
-  if (remoteLm == null || localMeta == null) return;
+  if (localMeta == null) {
+    // 本地从无同步标记：首次同步，或 writeLocalMeta 曾被静默写失败。
+    // sources 的下载是整体替换（replaceAll），放行会丢掉本地独有音源 → 中止；
+    // playlists 的下载是加法合并，不丢本地实体 → 放行，避免每次全新安装都被拦。
+    if (kind === "sources") {
+      throw new CloudSyncRefusalError(
+        `本地没有音源同步标记，无法判断云端与本地哪个更新，无法安全下载到本地约 ${localItemCount} 项。` +
+          `若确认以云端为准，请强制下载。`,
+      );
+    }
+    return;
+  }
+
   if (remoteLm + 1000 < localMeta.lastModified) {
     const remoteAt = new Date(remoteLm).toLocaleString();
     const localAt = new Date(localMeta.lastModified).toLocaleString();
-    throw new Error(
+    throw new CloudDataStaleError(
       `云端数据较旧（云端 ${remoteAt}，本地标记 ${localAt}）。` +
         `下载将覆盖本地约 ${localItemCount} 项。若确认要用云端覆盖，请强制下载。`,
     );
@@ -636,6 +660,11 @@ export async function downloadSourcesSync(options?: { force?: boolean }): Promis
     writeLocalBackup("sources", localSources);
 
     const customSources = await parseUserApisSyncFile(text);
+    // 云端文件结构不符（data 缺失 / 为空 / 顶层数组等）会解析成 0 项；此处若整体替换
+    // 会把本地音源清空并写回持久化，随后上传成空。与移动端一致：0 项视为异常直接中止。
+    if (customSources.length === 0) {
+      throw new Error("云端音源缺少有效脚本内容，无法初始化");
+    }
     useCustomSourceStore.getState().replaceAll(customSources);
 
     const remoteLm = extractRemoteLastModified(text) ?? Date.now();
@@ -731,9 +760,9 @@ export function autoSyncPlaylistsOnce(): Promise<void> {
       try {
         await downloadPlaylistsSync({ allowMissing: true });
       } catch (error) {
-        // 云端较旧（本地更新）时跳过下载，继续上传本地结果收敛；其余错误照常抛出
-        const msg = error instanceof Error ? error.message : String(error);
-        if (!msg.includes("较旧") && !msg.includes("强制下载")) throw error;
+        // 只有「云端可证明较旧（本地更新）」这一种拒绝可以安全跳过下载、继续上传本地结果收敛。
+        // 其余拒绝（无法判定云端新旧、云端结构不符等）必须抛出——吞掉并上传本地视图会删掉云端独有数据。
+        if (!(error instanceof CloudDataStaleError)) throw error;
       }
       await uploadPlaylistsSync();
     } finally {

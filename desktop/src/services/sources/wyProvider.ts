@@ -12,6 +12,7 @@ import type {
   SearchType,
 } from "@lx/core";
 import { fetch } from "@tauri-apps/plugin-http";
+import { getPlaybackQualityRank, normalizePlaybackQuality, type PlaybackQuality } from "@lx/core";
 import { weapi } from "@/lib/crypto/weapi";
 import { getWyCookie } from "@/services/wyAccountService";
 import {
@@ -205,6 +206,49 @@ async function searchWyViaCloudSearch(keyword: string, type: SearchType, page = 
   return {};
 }
 
+// ─── 音质档位 ↔ wy level ──────────────────────────────────
+
+/**
+ * 音质标签 → wy `level`。与 5 档阶梯一一对应，**不降档**：请求哪档就发哪档的 level，
+ * 拿不到由竞速轮次表负责用更低的档位重试（否则用户选无损时会静默拿到 320k）。
+ * 用 `Record<PlaybackQuality, string>` 而非 `Record<string, string>` 配 `??` 兜底：
+ * 少一个档位时编译器直接报错，而不是静默退回某一档——历史上正是这样丢掉了
+ * `192k` 与 `flac24bit` 两个键。
+ */
+const WY_LEVEL_BY_QUALITY: Record<PlaybackQuality, string> = {
+  "128k": "standard",
+  "192k": "higher",
+  "320k": "exhigh",
+  flac: "lossless",
+  flac24bit: "hires",
+};
+
+/** 上表的反向索引：wy 响应里的 `level` → 音质标签。由同一处派生，避免两份映射漂移。 */
+const WY_QUALITY_BY_LEVEL: Record<string, PlaybackQuality> = Object.fromEntries(
+  (Object.entries(WY_LEVEL_BY_QUALITY) as Array<[PlaybackQuality, string]>).map(([quality, level]) => [
+    level,
+    quality,
+  ]),
+);
+
+/**
+ * wy 返回的 `level` 是否**明确低于**请求档位。
+ *
+ * 为什么需要拦：`MusicSource.getMusicUrl` 只能回传 URL，调用方 `builtinProviderBackend`
+ * 会把「请求的档位」直接当作标签，而 wy 对无权限歌曲会自行降级应答（响应里带真实 `level`）——
+ * 不拦的话 320k 的音源会被写进以 `flac24bit` 为 key 的持久化缓存。
+ * 拦下来返回 null，轮次表会用更低的档位重试，那时的标签才是诚实的。
+ *
+ * **fail-open**：`level` 缺失 / 非字符串 / 不在已知集合（如新版 `jyeffect` / `sky` / `jymaster`）
+ * 时一律放行——响应形状变化不该让本可播放的歌播不出来。
+ */
+function isWyLevelBelowRequested(level: unknown, requestedRank: number): boolean {
+  if (typeof level !== "string") return false;
+  const actual = WY_QUALITY_BY_LEVEL[level.trim().toLowerCase()];
+  if (!actual) return false;
+  return getPlaybackQualityRank(actual) < requestedRank;
+}
+
 // ─── Provider ──────────────────────────────────────────
 
 export const wyProvider: MusicSource = {
@@ -229,13 +273,11 @@ export const wyProvider: MusicSource = {
     const idNum = parseInt(music.id, 10);
     if (isNaN(idNum)) return null;
 
-    const levelMap: Record<string, string> = {
-      "128k": "standard",
-      "320k": "exhigh",
-      flac: "lossless",
-      hires: "hires",
-    };
-    const level = levelMap[quality] ?? "exhigh";
+    // 请求哪档就发哪档的 level（映射见文件顶部的 WY_LEVEL_BY_QUALITY 与反向索引）；
+    // 拿到更低的档位会由 isWyLevelBelowRequested 拒绝，交由轮次表用更低的档位诚实重试。
+    const requestedQuality = normalizePlaybackQuality(quality);
+    const level = WY_LEVEL_BY_QUALITY[requestedQuality];
+    const requestedRank = getPlaybackQualityRank(requestedQuality);
 
     // 1. 优先 weapi + Cookie（最可靠）
     try {
@@ -245,20 +287,27 @@ export const wyProvider: MusicSource = {
         level,
         encodeType: "flac",
       });
-      const url = body?.data?.[0]?.url as string | undefined;
-      if (url && url.length > 0) return url;
+      const entry = body?.data?.[0] as { url?: string; level?: unknown } | undefined;
+      const url = entry?.url;
+      if (url && url.length > 0 && !isWyLevelBelowRequested(entry?.level, requestedRank)) return url;
     } catch {
       // weapi 失败，回退 eapi
     }
 
     // 2. 回退 eapi（免登录，部分免费歌曲可用）
     try {
-      const br =
-        quality === "flac" || quality === "hires"
-          ? 999000
-          : quality === "320k"
-            ? 320000
-            : 128000;
+      // 旧 eapi 只有 br 一个维度，按 5 档阶梯一一映射；原实现用 else 兜底 128000，
+      // 导致请求 192k / flac24bit 时实际拿到 128k（选了最高档，听到的是最低档）。
+      // 旧接口没有区分无损与 Hi-Res 的 br，两者都请求 999000：向上请求不会降档，
+      // 也不发明未经验证的 br 值。降档由竞速轮次表负责。
+      const brMap: Record<PlaybackQuality, number> = {
+        "128k": 128000,
+        "192k": 192000,
+        "320k": 320000,
+        flac: 999000,
+        flac24bit: 999000,
+      };
+      const br = brMap[normalizePlaybackQuality(quality)];
       const resp = await fetch(
         `https://interface3.music.163.com/eapi/song/enhance/player/url`,
         {
@@ -272,8 +321,9 @@ export const wyProvider: MusicSource = {
         }
       );
       const json: any = await resp.json();
-      const url = json?.data?.[0]?.url as string | undefined;
-      if (url && url.length > 0) return url;
+      const entry = json?.data?.[0] as { url?: string; level?: unknown } | undefined;
+      const url = entry?.url;
+      if (url && url.length > 0 && !isWyLevelBelowRequested(entry?.level, requestedRank)) return url;
     } catch {
       // eapi 也失败
     }

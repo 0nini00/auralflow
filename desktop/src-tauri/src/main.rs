@@ -115,6 +115,8 @@ pub fn run() {
             commands::lookup_cached_media,
             commands::get_song_cache_stats,
             commands::clear_song_cache,
+            // 媒体缓存按 key 定向失效（试听片段 / 坏链）
+            commands::remove_cached_media,
             // 下载
             commands::download_file,
             commands::cancel_download,

@@ -8,6 +8,8 @@ export interface DownloadRowMetadata {
   titleMeta: string;
   statusLabel: string;
   detailLabel: string;
+  /** 后处理部分失败时的警告文案；无警告时不存在（移动端无 hover，文本要能直接读） */
+  warningLabel?: string;
 }
 
 interface DownloadingMetadataInput extends DownloadProgressInfo {
@@ -36,6 +38,7 @@ export function buildCompletedDownloadMetadata(item: DownloadedItem): DownloadRo
     titleMeta: `${getArtistName(item.song)} · ${quality}`,
     statusLabel: "已下载",
     detailLabel: `${getDownloadFileName(item.localPath)} · ${sizeLabel}`,
+    warningLabel: item.warning ? `标签或歌词未完全写入：${item.warning}` : undefined,
   };
 }
 

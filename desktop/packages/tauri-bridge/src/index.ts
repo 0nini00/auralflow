@@ -254,6 +254,14 @@ export async function lookupCachedMedia(
   return invoke<string | null>("lookup_cached_media", { kind, cacheKey });
 }
 
+/** 按 key 删除单条媒体缓存；返回是否真的删掉了文件 */
+export async function removeCachedMedia(
+  kind: "audio" | "cover",
+  cacheKey: string,
+): Promise<boolean> {
+  return invoke<boolean>("remove_cached_media", { kind, cacheKey });
+}
+
 /** 获取歌曲缓存占用大小 */
 export async function getSongCacheStats(): Promise<SongCacheStats> {
   return invoke<SongCacheStats>("get_song_cache_stats");

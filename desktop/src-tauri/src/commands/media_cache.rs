@@ -455,6 +455,36 @@ pub fn lookup_cached_media(
     Ok(find_cached_file(&cache_dir, &key, allowed)?.map(|path| path.to_string_lossy().to_string()))
 }
 
+/// 按 key 删除单条媒体缓存，返回是否真的删掉了文件。
+///
+/// 存在的理由：`clear_song_cache` 只能整体清空，而试听片段 / 坏链需要「按曲定向失效」——
+/// 只清前端 URL 缓存不够，磁盘上的音频文件还在，
+/// 而 `lookup_cached_media` 命中它就直接返回，下次播放仍会命中同一个试听片段。
+#[tauri::command]
+pub fn remove_cached_media(
+    app: AppHandle,
+    kind: String,
+    cache_key: String,
+) -> Result<bool, String> {
+    let (cache_dir, allowed) = match kind.as_str() {
+        "audio" => (song_audio_cache_dir(&app)?, AUDIO_CACHE_EXTS),
+        "cover" => (song_cover_cache_dir(&app)?, COVER_CACHE_EXTS),
+        other => return Err(format!("未知的媒体缓存类型: {}", other)),
+    };
+    let key = sanitize_cache_key(&cache_key);
+    if key.is_empty() {
+        return Err("缓存 key 无效：不能为空".to_string());
+    }
+    let Some(path) = find_cached_file(&cache_dir, &key, allowed)? else {
+        return Ok(false);
+    };
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(true),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(err) => Err(format!("删除媒体缓存失败: {}", err)),
+    }
+}
+
 #[tauri::command]
 pub fn clear_song_cache(app: AppHandle) -> Result<SongCacheStats, String> {
     crate::library::reset(&app, "cache")?;

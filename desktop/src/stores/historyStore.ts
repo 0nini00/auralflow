@@ -12,7 +12,13 @@ interface HistoryState {
   mergeAll: (songs: MusicInfo[]) => void;
 }
 
-const MAX_HISTORY = 200;
+/**
+ * 播放历史上限。**必须与移动端一致**（`apps/mobile/src/stores/historyStore.ts` 的
+ * `MAX_HISTORY_ITEMS` = 2000）：下载→合并→上传这条链会先按本地上限截断、再把结果写回云端，
+ * 所以本地上限只要比移动端小，一次桌面同步就会删掉只存在于云端的记录
+ * （曾是 200，最多可删掉 1800 条）。
+ */
+const MAX_HISTORY = 2000;
 
 function musicKey(music: MusicInfo): string {
   return `${music.source}:${music.id}`;

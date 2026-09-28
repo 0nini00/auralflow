@@ -76,7 +76,7 @@ interface DownloadActions {
   /** 继续已暂停的下载 */
   resumeDownload: (song: MusicInfo, quality?: DownloadQuality) => void;
   /** 新增一条已下载记录 */
-  addDownload: (song: MusicInfo, localPath: string, quality?: DownloadQuality) => Promise<void>;
+  addDownload: (song: MusicInfo, localPath: string, quality?: DownloadQuality, warnings?: string[]) => Promise<void>;
   /** 移除一条已下载记录（对齐 lx removeTask：只删记录不动文件，重新下载时按文件名约定秒完成） */
   removeDownloadRecord: (song: MusicInfo, quality?: DownloadQuality) => Promise<void>;
   /** 删除某条已下载记录并连同本地文件一起删除 */
@@ -172,17 +172,22 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
 
     let fileDownloaded = false;
     try {
+      // 后处理警告经回调带出：音频已落盘成功，这些失败只作为提示，不影响任务的完成判定。
+      let enhancerWarnings: string[] = [];
       const localPath = await downloadSong(
         song,
         (info) => {
           get().downloadProgress({ ...song, quality }, info);
         },
         quality,
+        (warnings) => {
+          enhancerWarnings = warnings;
+        },
       );
       fileDownloaded = true;
 
       // 下载完成：落入 downloads，移出 downloading
-      await get().addDownload(song, localPath, quality);
+      await get().addDownload(song, localPath, quality, enhancerWarnings);
       set((state) => ({
         downloading: state.downloading.filter((item) => downloadKey(item.song, item.quality) !== key),
         failedDownloads: state.failedDownloads.filter((item) => failedDownloadKey(item) !== key),
@@ -297,7 +302,12 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
     }));
   },
 
-  addDownload: async (song: MusicInfo, localPath: string, quality: DownloadQuality = "320k") => {
+  addDownload: async (
+    song: MusicInfo,
+    localPath: string,
+    quality: DownloadQuality = "320k",
+    warnings: string[] = [],
+  ) => {
     const key = downloadKey(song, quality);
     let fileSize = 0;
     try {
@@ -309,6 +319,7 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
       localPath,
       fileSize,
       downloadDate: Date.now(),
+      warning: warnings.length > 0 ? warnings.join("；") : undefined,
     };
     await queueDownloadsMutation(async () => {
       const nextDownloads = sortByDateDesc([

@@ -6,6 +6,7 @@ import { prefetchNearbyTracks, prefetchTracks, getPrefetchedTrack, invalidatePre
 import { selectCachedPlaybackTarget } from "@/services/playback/prefetchModel";
 import { getPlayModeState, type PlayModeId } from "@/services/playback/playModeControl";
 import { invalidateCachedPlaybackUrl } from "@/services/persistentCache";
+import { removeCachedAudioForMusic } from "@/services/mediaCache";
 import { debugLog, patchSettings } from "@lx/tauri-bridge";
 import { applySwitchStepRequest, createSwitchStepQueueState, finishSwitchStep } from "@lx/core";
 import { findTxVariants, describeCrossSourceFailure } from "@/services/playback/crossSourceFallbackService";
@@ -295,12 +296,13 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
   syncEngineToStore(set, get);
 
   // 试听兜底（与移动端一致）：解析期拿不到长度头的流式响应靠播放器实际时长判定。
-  // 判定即停播并失效持久化/预读缓存，下次重播强制重新解析（对齐失败即停哲学）。
+  // 判定即停播并失效持久化 / 预读 / 磁盘三层缓存，下次重播强制重新解析（对齐失败即停哲学）。
   playerEngine.onPreviewDetected((duration) => {
     const current = get().current;
     if (!current) return;
     void invalidatePersistentPlaybackCache(current, current);
     invalidatePrefetchedTrack(current);
+    void removeCachedAudioForMusic(current);
     playerEngine.pause();
     set({
       status: "error",

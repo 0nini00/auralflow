@@ -427,6 +427,37 @@ export async function deleteCachedAudio(entry: CachedAudioEntry): Promise<void> 
 }
 
 /**
+ * 按曲删除磁盘上的全部音频缓存（各音质档），用于试听片段 / 坏链的定向失效。
+ *
+ * 必须存在的原因：解析链先查磁盘音频文件、命中即直接返回（不经任何试听判定），
+ * 所以只清持久化 URL 缓存不足以摆脱一个已落盘的试听片段——下一次播放仍会命中它，
+ * 形成「命中 → 播放试听 → 播放期判定 → 只清 URL → 再命中」的死循环。
+ */
+export async function deleteCachedAudioForMusic(music: MusicInfo): Promise<void> {
+  const prefix = `${normalizeKeyPart(music.source)}-${normalizeKeyPart(music.id)}-`;
+  await initCacheDirectories();
+  try {
+    const dirEntries = await RNFS.readDir(AUDIO_CACHE_DIR);
+    for (const entry of dirEntries) {
+      if (!entry.isFile() || !entry.name.endsWith(".audio")) continue;
+      if (!entry.name.startsWith(prefix)) continue;
+      await RNFS.unlink(entry.path).catch(() => undefined);
+    }
+  } catch {
+    // 目录不存在或读取失败：没有可删的文件，索引清理照常进行
+  }
+  const index = await loadAudioCacheIndex();
+  let changed = false;
+  for (const key of Object.keys(index)) {
+    if (key.startsWith(prefix)) {
+      delete index[key];
+      changed = true;
+    }
+  }
+  if (changed) await saveAudioCacheIndex(index);
+}
+
+/**
  * 写缓存后延迟去抖触发容量上限清理，避免每次写入都遍历文件系统。
  */
 let enforceTimer: ReturnType<typeof setTimeout> | null = null;

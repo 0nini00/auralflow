@@ -12,6 +12,7 @@ import { SettingsCard } from "@/components/settings/SettingsCard";
 import { useWebdavStore } from "@/stores/webdavStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, touch, typography } from "@/theme/tokens";
+import { CloudSyncRefusalError } from "@lx/core";
 
 /**
  * WebDAV 同步设置页面。
@@ -126,7 +127,7 @@ export function WebDavSyncScreen() {
       await webdavDownloadPlaylists(force);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      if (!force && (detail.includes("较旧") || detail.includes("强制下载"))) {
+      if (!force && error instanceof CloudSyncRefusalError) {
         Alert.alert("云端数据较旧", `${detail}\n\n是否强制用云端数据合并本地？`, [
           { text: "取消", style: "cancel" },
           {
@@ -164,7 +165,7 @@ export function WebDavSyncScreen() {
       await webdavDownloadSources(force);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      if (!force && (detail.includes("较旧") || detail.includes("强制下载"))) {
+      if (!force && error instanceof CloudSyncRefusalError) {
         Alert.alert("云端数据较旧", `${detail}\n\n是否强制用云端覆盖本地音源？`, [
           { text: "取消", style: "cancel" },
           {

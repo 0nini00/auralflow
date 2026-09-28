@@ -1,4 +1,4 @@
-import { Download, FolderOpen, Play, RefreshCw, Trash2, XCircle } from 'lucide-react';
+import { AlertTriangle, Download, FolderOpen, Play, RefreshCw, Trash2, XCircle } from 'lucide-react';
 import { useEffect } from 'react';
 import { useDownloadStore, type DownloadTask } from '@/stores/downloadStore';
 import { usePlayerStore } from '@/stores/playerStore';
@@ -121,6 +121,11 @@ export function DownloadsView() {
                 <div className="af-download-meta">
                   <span>{task.fileName}</span>
                   <span>{formatBytes(task.downloaded)} / {formatBytes(task.total)}</span>
+                  {task.status === 'completed' && task.warning && (
+                    <span className="af-download-warning" title={task.warning}>
+                      <AlertTriangle size={12} /> 标签或歌词未完全写入
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -281,6 +286,13 @@ export function DownloadsView() {
           margin: 0;
           color: var(--af-text-secondary);
           font-size: 13px;
+        }
+
+        .af-download-warning {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          color: var(--af-error);
         }
 
         .af-download-status {

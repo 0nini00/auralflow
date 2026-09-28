@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { loadSettings, patchSettings } from "@lx/tauri-bridge";
+import { CloudSyncRefusalError } from "@lx/core";
 
 export function SyncSettingsSection() {
   const [webdavUrl, setWebdavUrl] = useState("");
@@ -93,7 +94,7 @@ export function SyncSettingsSection() {
         setSyncStatus("已从 WebDAV 下载音源");
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        if (msg.includes("云端数据较旧") || msg.includes("强制下载")) {
+        if (e instanceof CloudSyncRefusalError) {
           if (confirm(msg + "\n\n是否强制用云端覆盖本地？")) {
             await downloadSourcesSync({ force: true });
             setSyncStatus("已强制从 WebDAV 下载音源");
@@ -124,7 +125,7 @@ export function SyncSettingsSection() {
         setSyncStatus("已从 WebDAV 下载歌单和历史");
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        if (msg.includes("云端数据较旧") || msg.includes("强制下载")) {
+        if (e instanceof CloudSyncRefusalError) {
           if (confirm(msg + "\n\n是否强制用云端覆盖本地？")) {
             await downloadPlaylistsSync({ force: true });
             setSyncStatus("已强制从 WebDAV 下载歌单和历史");

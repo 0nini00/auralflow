@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { isWebdavLocalPlaylistRef, type MusicInfo } from "@lx/core";
+import { CloudDataStaleError, CloudSyncRefusalError, isWebdavLocalPlaylistRef, type MusicInfo } from "@lx/core";
 import { usePlaylistStore } from "../stores/playlistStore";
 import { useFavoritesStore } from "../stores/favoritesStore";
 import type { WyPlaylistInfo } from "./wyPlaylistService";
@@ -321,18 +321,32 @@ async function assertCloudNotStale(
     // 远端 lastModified 未知：无法判断云端是否比本地新。保守起见不再静默放行
     // “用未知的云端数据覆盖本地”，交由调用方决定——合并模式可继续（合并不覆盖本地数据），
     // 覆盖模式则中止；sources 无合并模式，直接中止，由 force 放行。
-    throw new Error(
+    // 注意：这里必须是 CloudSyncRefusalError（基类），不能是 CloudDataStaleError ——
+    // 自动同步只允许吞掉「云端可证明更旧」那一种拒绝，本分支必须能穿透上去；
+    // 设置页则靠本类弹出强制确认。
+    throw new CloudSyncRefusalError(
       `云端${kind === "playlists" ? "歌单" : "音源"}文件无法确定更新状态（lastModified 缺失或无法解析），` +
         `无法判断云端与本地哪个更新，无法安全地将云端数据下载覆盖到本地约 ${localItemCount} 项。` +
         `若确认以云端为准，请强制下载。`,
     );
   }
   const localMeta = await readLocalMeta(kind);
-  if (localMeta == null) return;
+  if (localMeta == null) {
+    // 本地从无同步标记：首次同步，或同步标记曾被静默写失败。
+    // sources 的下载是整体替换，放行会丢掉本地独有音源 → 中止（与桌面端一致）；
+    // playlists 的下载是加法合并，不丢本地实体 → 放行，避免每次全新安装都被拦。
+    if (kind === "sources") {
+      throw new CloudSyncRefusalError(
+        `本地没有音源同步标记，无法判断云端与本地哪个更新，无法安全下载到本地约 ${localItemCount} 项。` +
+          `若确认以云端为准，请强制下载。`,
+      );
+    }
+    return;
+  }
   if (remoteLm + 1000 < localMeta.lastModified) {
     const remoteAt = new Date(remoteLm).toLocaleString();
     const localAt = new Date(localMeta.lastModified).toLocaleString();
-    throw new Error(
+    throw new CloudDataStaleError(
       `云端数据较旧（云端 ${remoteAt}，本地标记 ${localAt}）。` +
         `继续下载将把云端较旧数据合并/覆盖到本地约 ${localItemCount} 项。若确认以云端为准，请强制下载。`,
     );
@@ -1091,9 +1105,9 @@ export function autoSyncPlaylistsOnce(): Promise<void> {
       try {
         await downloadPlaylistsSync({ allowMissing: true, merge: true });
       } catch (error) {
-        // 云端较旧（本地更新）时跳过下载，继续上传本地结果收敛；其余错误照常抛出
-        const msg = error instanceof Error ? error.message : String(error);
-        if (!msg.includes("较旧") && !msg.includes("强制下载")) throw error;
+        // 只有「云端可证明较旧（本地更新）」这一种拒绝可以安全跳过下载、继续上传本地结果收敛。
+        // 其余拒绝（无法判定云端新旧、云端结构不符等）必须抛出——吞掉并上传本地视图会删掉云端独有数据。
+        if (!(error instanceof CloudDataStaleError)) throw error;
       }
       await uploadPlaylistsSync();
     } finally {

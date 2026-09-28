@@ -26,6 +26,14 @@ fn is_blocked_v4(addr: Ipv4Addr) -> bool {
     let [a, b, ..] = addr.octets();
     // CGNAT 100.64.0.0/10 —— 标准库的 is_shared() 尚未 stable，手动判定。
     let is_cgnat = a == 100 && (64..=127).contains(&b);
+    // 下面四段标准库都没有对应判定，必须手动补齐：它们与 JS 侧
+    // `packages/core/src/outbound-host.ts:100-111` 一一对应。缺一段就会让桌面端
+    // 比移动端更宽松——同一套规则两份实现，宽松的那份是实际的攻击面。
+    // 四段都是不可路由地址，任何正常音源 CDN / WebDAV 都不会落在其中。
+    let is_this_network = a == 0; // 0.0.0.0/8（含 0.0.0.0 自身）
+    let is_ietf_protocol = a == 192 && b == 0; // 192.0.0.0/16
+    let is_benchmark = a == 198 && (b == 18 || b == 19); // 198.18.0.0/15
+    let is_reserved = a >= 240; // 240.0.0.0/4（含广播 255.255.255.255）
     addr.is_loopback()
         || addr.is_private()
         || addr.is_link_local()
@@ -34,6 +42,10 @@ fn is_blocked_v4(addr: Ipv4Addr) -> bool {
         || addr.is_broadcast()
         || addr.is_documentation()
         || is_cgnat
+        || is_this_network
+        || is_ietf_protocol
+        || is_benchmark
+        || is_reserved
 }
 
 fn is_blocked_ip(ip: IpAddr) -> bool {
@@ -242,4 +254,88 @@ pub async fn proxy_http_request(options: ProxyRequestOptions) -> Result<ProxyRes
         headers,
         body,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 这四段是补齐的：标准库没有对应判定，此前桌面端比移动端宽松。
+    /// 每段都给「边界内」与「边界外」两个样本，避免把网段写大或写小一位。
+    #[test]
+    fn blocks_reserved_ranges_std_lacks() {
+        for blocked in ["0.0.0.0", "0.0.0.1", "0.255.255.255"] {
+            assert!(is_blocked_v4(blocked.parse().unwrap()), "0.0.0.0/8 应拦截: {blocked}");
+        }
+        assert!(!is_blocked_v4("1.0.0.0".parse().unwrap()), "1.0.0.0 不在 0.0.0.0/8");
+
+        for blocked in ["192.0.0.0", "192.0.0.1", "192.0.255.255"] {
+            assert!(is_blocked_v4(blocked.parse().unwrap()), "192.0.0.0/16 应拦截: {blocked}");
+        }
+        assert!(!is_blocked_v4("192.1.0.0".parse().unwrap()), "192.1.0.0 不在 192.0.0.0/16");
+
+        for blocked in ["198.18.0.0", "198.18.0.1", "198.19.255.255"] {
+            assert!(is_blocked_v4(blocked.parse().unwrap()), "198.18.0.0/15 应拦截: {blocked}");
+        }
+        assert!(!is_blocked_v4("198.20.0.0".parse().unwrap()), "198.20.0.0 不在 198.18.0.0/15");
+
+        for blocked in ["240.0.0.0", "240.0.0.1", "255.255.255.255"] {
+            assert!(is_blocked_v4(blocked.parse().unwrap()), "240.0.0.0/4 应拦截: {blocked}");
+        }
+        // 223/8 既不在多播 224/4 也不在保留 240/4 内
+        assert!(!is_blocked_v4("223.255.255.255".parse().unwrap()));
+    }
+
+    /// 两端本来就一致的判定，钉住不回归。
+    #[test]
+    fn blocks_ranges_both_implementations_agreed_on() {
+        for blocked in [
+            "127.0.0.1",
+            "10.0.0.1",
+            "172.16.0.1",
+            "192.168.0.1",
+            "169.254.1.1",
+            "100.64.0.1",
+            "224.0.0.1",
+            "192.0.2.1",
+            "198.51.100.1",
+            "203.0.113.1",
+        ] {
+            assert!(is_blocked_v4(blocked.parse().unwrap()), "应拦截: {blocked}");
+        }
+        for allowed in ["8.8.8.8", "1.1.1.1", "203.0.114.1"] {
+            assert!(!is_blocked_v4(allowed.parse().unwrap()), "应放行: {allowed}");
+        }
+    }
+
+    /// IPv4-mapped 靠 `to_ipv4()` 落回同一张表，所以 0.0.0.0/8 补齐后这条自动成立。
+    /// 本测试专门钉住这个依赖关系——两处判定分别维护时最容易在这里漏判。
+    #[test]
+    fn mapped_ipv6_inherits_the_v4_blocklist() {
+        assert!(is_blocked_ip("::ffff:0.0.0.1".parse().unwrap()));
+        assert!(is_blocked_ip("::ffff:127.0.0.1".parse().unwrap()));
+        assert!(is_blocked_ip("::1".parse().unwrap()));
+        assert!(!is_blocked_ip("2606:4700:4700::1111".parse().unwrap()));
+    }
+
+    /// 端到端（只解析、不发请求）：这是所有运行时可配置出站请求的必经关口。
+    #[test]
+    fn assert_public_url_rejects_internal_and_non_http_targets() {
+        for rejected in [
+            "http://127.0.0.1/",
+            "http://0.0.0.1/",
+            "http://192.0.0.1/",
+            "http://198.18.0.1/",
+            "http://240.0.0.1/",
+            "http://[::ffff:0.0.0.1]/",
+            "http://localhost./",
+            "http://foo.local/",
+            "ftp://8.8.8.8/",
+        ] {
+            assert!(assert_public_url(rejected, "测试").is_err(), "应拒绝: {rejected}");
+        }
+        for accepted in ["http://8.8.8.8/", "https://example.com/path?q=1"] {
+            assert!(assert_public_url(accepted, "测试").is_ok(), "应放行: {accepted}");
+        }
+    }
 }

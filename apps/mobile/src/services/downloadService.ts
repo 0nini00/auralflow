@@ -78,6 +78,11 @@ export interface DownloadedItem {
   localPath: string;
   /** 下载文件大小，旧记录可能缺失。 */
   fileSize?: number;
+  /**
+   * 后处理（ID3 标签 / 封面 / 旁挂 .lrc）部分失败时的原因；下载本身已完成。
+   * 旧记录没有该字段，缺失即视为无警告。
+   */
+  warning?: string;
   /** 下载时间戳（ms） */
   downloadDate: number;
 }
@@ -107,6 +112,7 @@ interface QueueTask {
   song: MusicInfo;
   quality: DownloadQuality;
   onProgress?: (info: DownloadProgressInfo) => void;
+  onWarnings?: (warnings: string[]) => void;
   resolve: (path: string) => void;
   reject: (error: Error) => void;
 }
@@ -131,10 +137,11 @@ export function enqueueDownloadTask(
   song: MusicInfo,
   quality: DownloadQuality,
   onProgress?: (info: DownloadProgressInfo) => void,
+  onWarnings?: (warnings: string[]) => void,
 ): Promise<string> {
   const key = downloadJobKey(song, quality);
   return new Promise<string>((resolve, reject) => {
-    taskQueue.push({ key, song, quality, onProgress, resolve, reject });
+    taskQueue.push({ key, song, quality, onProgress, onWarnings, resolve, reject });
     void processDownloadQueue();
   });
 }
@@ -334,12 +341,14 @@ export async function getDownloadedPath(
  * @param song 歌曲信息
  * @param onProgress 下载进度回调（含实时速度）
  * @param quality 下载音质，默认 320k
+ * @param onWarnings 后处理（标签/封面/歌词）部分失败时的回调；下载本身已完成
  * @returns 本地 file:// 路径
  */
 export async function downloadSong(
   song: MusicInfo,
   onProgress?: (info: DownloadProgressInfo) => void,
   quality: DownloadQuality = "320k",
+  onWarnings?: (warnings: string[]) => void,
 ): Promise<string> {
   await ensureDownloadDirectory();
 
@@ -360,7 +369,7 @@ export async function downloadSong(
     }
   }
 
-  return enqueueDownloadTask(song, quality, onProgress);
+  return enqueueDownloadTask(song, quality, onProgress, onWarnings);
 }
 
 /**
@@ -497,8 +506,13 @@ async function downloadSongInternal(task: QueueTask): Promise<string> {
     }
     // 歌词只拉取一次：旁挂 .lrc 与嵌入 ID3 共用，避免两个函数各自请求一次网络
     const lyrics = await fetchSongLyrics(song).catch(() => [] as LyricLine[]);
-    await writeSidecarLyrics(song, finalFilePath, lyrics);
-    await enhanceDownloadedFile(song, finalFilePath, lyrics);
+    // 后处理是尽力而为：音频已完整落盘，失败不该让下载判为失败，但必须上报——
+    // 空 catch 会让「标签/歌词没写进去」对用户完全不可见（与桌面端 enhanceDownloadedFile 对称）。
+    const warnings: string[] = [
+      ...(await writeSidecarLyrics(song, finalFilePath, lyrics)),
+      ...(await enhanceDownloadedFile(song, finalFilePath, lyrics)),
+    ];
+    if (warnings.length > 0) task.onWarnings?.(warnings);
     return finalUri;
   } catch (error) {
     // 取消/暂停或出错时清理半成品文件（暂停续传依赖服务端 Accept-Ranges，失败则整文件重下）
@@ -559,12 +573,15 @@ async function writeSidecarLyrics(
   song: MusicInfo,
   audioFilePath: string,
   lyrics?: LyricLine[],
-): Promise<void> {
+): Promise<string[]> {
   try {
     const lrc = formatLyricsAsLrc(lyrics ?? []);
-    if (!lrc) return;
+    if (!lrc) return [];
     await RNFS.writeFile(sidecarLrcPath(audioFilePath), `${lrc}\n`, "utf8");
-  } catch {}
+    return [];
+  } catch (error) {
+    return [`写入旁挂歌词文件失败：${formatDownloadReason(error)}`];
+  }
 }
 
 /** 拉取封面字节（对齐桌面端 fetchCoverDataUrl），失败返回 undefined 不阻断下载。 */
@@ -597,13 +614,13 @@ async function enhanceDownloadedFile(
   song: MusicInfo,
   audioFilePath: string,
   lyrics?: LyricLine[],
-): Promise<void> {
-  if (song.isLocal) return;
+): Promise<string[]> {
+  if (song.isLocal) return [];
   const ext = audioFilePath.split(".").pop()?.toLowerCase() ?? "";
-  if (ext !== "mp3") return;
+  if (ext !== "mp3") return [];
   try {
     const stat = await RNFS.stat(audioFilePath);
-    if (Number(stat.size) > 25 * 1024 * 1024) return;
+    if (Number(stat.size) > 25 * 1024 * 1024) return [];
     const lrc = formatLyricsAsLrc(lyrics ?? []);
     const cover = await fetchCoverBytes(song);
 
@@ -617,7 +634,15 @@ async function enhanceDownloadedFile(
       lyrics: lrc || undefined,
     });
     await RNFS.writeFile(audioFilePath, bytesToBase64(tagged), "base64");
-  } catch {}
+    return [];
+  } catch (error) {
+    return [`写入内嵌标签失败：${formatDownloadReason(error)}`];
+  }
+}
+
+/** 把任意抛出物压成一行可展示的原因。 */
+function formatDownloadReason(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**

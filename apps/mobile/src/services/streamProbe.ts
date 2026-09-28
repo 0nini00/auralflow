@@ -16,7 +16,14 @@ export const PROBE_TIMEOUT_MS = 5_000;
 
 export type StreamProbeResult =
   | { ok: true; totalBytes?: number }
-  | { ok: false; reason: string };
+  /**
+   * `definitive = true`：服务端明确拒绝该资源（4xx），这个地址就是不能用。
+   * `definitive = false`：无法下结论（超时 / 网络抖动 / 5xx），不能据此判定地址不可用。
+   */
+  | { ok: false; reason: string; definitive: boolean };
+
+/** 只有这些状态码代表「这个 URL 确实拿不到资源」，其余一律不下定论。 */
+const DEFINITIVE_FAILURE_STATUS = new Set([403, 404, 410, 451]);
 
 /**
  * 从响应头读取完整资源字节数。
@@ -60,14 +67,25 @@ export async function probeStreamUrl(
       PROBE_TIMEOUT_MS,
     );
     // 2xx/206 均视为可用；3xx 重定向 fetch 已自动跟随；403/404/5xx 判死
+    // 2xx / 206 均视为可用；3xx 重定向 fetch 已自动跟随。
     if (response.status >= 200 && response.status < 300) {
       return { ok: true, totalBytes: readTotalBytes(response.headers, true) };
     }
-    return { ok: false, reason: `HTTP ${response.status}` };
+    // 只有这些状态码代表「这个地址确实拿不到资源」，其余不下定论：
+    // 调用方据此区分「换下一档」与「不否掉、放行给播放器兜底」。
+    return {
+      ok: false,
+      reason: `HTTP ${response.status}`,
+      definitive: DEFINITIVE_FAILURE_STATUS.has(response.status),
+    };
   } catch (error) {
     if (isTimeoutError(error)) {
-      return { ok: false, reason: `无响应（>${PROBE_TIMEOUT_MS / 1000}s）` };
+      return { ok: false, reason: `无响应（>${PROBE_TIMEOUT_MS / 1000}s）`, definitive: false };
     }
-    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+    return {
+      ok: false,
+      reason: error instanceof Error ? error.message : String(error),
+      definitive: false,
+    };
   }
 }

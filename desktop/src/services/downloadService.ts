@@ -148,30 +148,51 @@ export async function enhanceDownloadedFile(
   savedPath: string,
   directory: string,
   fileName: string,
-): Promise<void> {
+): Promise<string[]> {
+  // 后处理是「尽力而为」：音频文件此时已经落盘成功，任何一步失败都不该把任务判成失败
+  // （那会让用户以为整首歌没下下来）。但也不能静默吞掉——失败必须回报给调用方显示状态，
+  // 这是仓库既有的不变量：异步失败要么显式抛出、要么显示状态，不做静默 fallback。
+  const warnings: string[] = [];
+
   try {
     await setAudioMetadata(savedPath, {
       title: music.name || undefined,
       artist: music.singer || undefined,
       album: music.albumName || undefined,
     });
-  } catch {}
+  } catch (error) {
+    warnings.push(`写入音频标签失败：${formatReason(error)}`);
+  }
 
   try {
     const coverData = await fetchCoverDataUrl(music);
     if (coverData) await setAudioCover(savedPath, coverData);
-  } catch {}
+  } catch (error) {
+    warnings.push(`嵌入封面失败：${formatReason(error)}`);
+  }
 
   try {
     const lyric = await fetchRawLyric(music);
-    if (!lyric) return;
+    if (lyric) {
+      try {
+        await setAudioLyrics(savedPath, lyric);
+      } catch (error) {
+        warnings.push(`写入内嵌歌词失败：${formatReason(error)}`);
+      }
+      try {
+        await writeDownloadTextFile(directory, buildLrcFileName(fileName), `${lyric}\n`);
+      } catch (error) {
+        warnings.push(`写入歌词文件失败：${formatReason(error)}`);
+      }
+    }
+  } catch (error) {
+    warnings.push(`获取歌词失败：${formatReason(error)}`);
+  }
 
-    try {
-      await setAudioLyrics(savedPath, lyric);
-    } catch {}
+  return warnings;
+}
 
-    try {
-      await writeDownloadTextFile(directory, buildLrcFileName(fileName), `${lyric}\n`);
-    } catch {}
-  } catch {}
+/** 把任意抛出物压成一行可展示的原因。 */
+function formatReason(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

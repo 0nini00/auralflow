@@ -244,9 +244,26 @@ async function resolvePlaybackUrlUncapped(
         qualityPreference,
       });
       debugLog(`[resolve] 官方直连兜底成功 ${music.name} url=${resolved.url.slice(0, 60)}`);
-      const playable = await prepareResolvedPlaybackMedia(music, resolved, options.cacheMedia !== false);
-      void saveCachedPlaybackUrl(music, playable).catch(() => undefined);
-      return playable;
+      // 官方直连兜底同样要过试听判定：wy eapi 无 VIP 正是返回 30s 试听的场景
+      // （见 @lx/core stream-integrity 的说明），而这条路径不参与竞速、此前完全没做判定。
+      // 判定为试听则按失败处理，与档位循环的「试听即作废、不写缓存、不进播放器」语义一致。
+      const fallbackProbe = await probeStreamUrl(resolved.url, buildStreamHeaders(music.source));
+      if (
+        fallbackProbe.ok &&
+        fallbackProbe.totalBytes != null &&
+        isPreviewStream({
+          totalBytes: fallbackProbe.totalBytes,
+          quality: resolved.quality,
+          expectedDurationSeconds: music.interval,
+        })
+      ) {
+        const previewSeconds = estimateStreamDurationSeconds(fallbackProbe.totalBytes, resolved.quality);
+        tierErrors.push(`官方直连兜底解析到试听片段(约 ${Math.round(previewSeconds ?? 0)}s)`);
+      } else {
+        const playable = await prepareResolvedPlaybackMedia(music, resolved, options.cacheMedia !== false);
+        void saveCachedPlaybackUrl(music, playable).catch(() => undefined);
+        return playable;
+      }
     } catch (error) {
       tierErrors.push(`内置音源(官方直连兜底): ${error instanceof Error ? error.message : String(error)}`);
     }

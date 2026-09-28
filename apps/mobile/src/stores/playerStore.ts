@@ -1171,6 +1171,12 @@ export function setupPlayerListeners() {
       void TrackPlayer.pause().catch(() => {});
       void invalidateCachedPlaybackUrl(song).catch(() => undefined);
       invalidatePrefetchForSong(song);
+      // 磁盘音频缓存必须一起失效：解析链先查磁盘文件、命中即直接返回，不经任何试听判定。
+      // 只清 URL 缓存会留下死循环（命中 → 播放试听 → 判定 → 再命中）。用动态 import
+      // 避免 store ↔ service 的静态循环依赖，与本文件其它一次性清理的写法一致。
+      void import("@/services/cacheService")
+        .then(({ deleteCachedAudioForMusic }) => deleteCachedAudioForMusic(song))
+        .catch(() => undefined);
     }
   });
 

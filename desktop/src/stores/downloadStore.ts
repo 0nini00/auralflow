@@ -34,6 +34,8 @@ export interface DownloadTask {
   speed: number;
   quality?: string;
   error?: string;
+  /** 后处理（标签 / 封面 / 歌词）部分失败时的提示；下载本身已完成 */
+  warning?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -159,7 +161,7 @@ async function runOneTask(taskId: string, get: StoreGet, set: StoreSet) {
 
     const savedPath = await runDownloadTask(taskId, prepared.url, dir, prepared.fileName);
     if (cancelledTaskIds.has(taskId)) throw new Error('下载已取消');
-    await enhanceDownloadedFile(music, savedPath, dir, prepared.fileName);
+    const warnings = await enhanceDownloadedFile(music, savedPath, dir, prepared.fileName);
 
     set((state) => {
       const current = state.tasks.find((t) => t.id === taskId);
@@ -172,6 +174,7 @@ async function runOneTask(taskId: string, get: StoreGet, set: StoreSet) {
           progress: 100,
           speed: 0,
           error: undefined,
+          warning: warnings.length > 0 ? warnings.join('；') : undefined,
         }),
       };
     });
@@ -322,7 +325,17 @@ export const useDownloadStore = create<DownloadStore>()(
         }));
         try {
           await cancelDownloadTask(taskId);
-        } catch {}
+        } catch (error) {
+          // 取消失败必须落到终态：否则任务会永远停在「正在取消…」，既没有终态也无法重试。
+          // 仍标记为 cancelled（用户意图就是取消，本地也不会再继续写盘），但把原因显示出来。
+          set((state) => ({
+            tasks: patchTask(state.tasks, taskId, {
+              status: 'cancelled',
+              speed: 0,
+              error: `取消失败：${formatError(error)}`,
+            }),
+          }));
+        }
       },
 
       removeTask: (taskId) => {

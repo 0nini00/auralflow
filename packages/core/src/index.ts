@@ -9,6 +9,7 @@ export * from "./stream-integrity";
 export * from "./switch-step-queue";
 export * from "./outbound-host";
 export * from "./webdav-merge";
+export * from "./webdav-sync-error";
 export * from "./custom-source";
 export * from "./playlist-link";
 export * from "./history";
