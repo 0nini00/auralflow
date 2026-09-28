@@ -1,6 +1,6 @@
 # stores/
 
-全局状态层：~16 个 Zustand store，集中持有播放、歌单、收藏、历史、设置等状态；store 不含 React 逻辑，组件订阅、services 读写。
+全局状态层：12 个 Zustand store（同目录下另有 `libraryPersistence` / `libraryRefreshModel` / `playerSync` / `lyricSettingsSync` 四个非 store 的辅助模块），集中持有播放、歌单、收藏、历史、设置等状态；store 不含 React 逻辑，组件订阅、services 读写。
 
 ## Store 清单
 
@@ -33,6 +33,6 @@
 
 ## 设计约定
 
-- **数据流向**：services → store 直接读写；组件 → store 订阅；store 内不含 React 逻辑。
+- **数据流向**：services → store 直接读写；组件 → store 订阅；store 内不含 React 逻辑。反方向也存在：6 个 service 会 `import @/stores` 直接读写 store（`webdavSyncService`、`playlistTransferService`、`playback/playbackSnapshot`、`playback/customSourceBackend`、`customSourceRuntime`、`playback/playbackSnapshotModel`），所以这是**双向**关系，不是单向分层——详见 `desktop/src/SPEC.md`。
 - **敏感数据**：cookie 等不进 Zustand 持久化，由 settings 统一管理。
 - **窗口角色**：`App.tsx` 按 `getCurrentWindow().label` + `location.hash` 区分 main / lyric / lyric-unlock，各窗口订阅同一套 store。

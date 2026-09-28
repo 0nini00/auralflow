@@ -1,3 +1,12 @@
+---
+id: source-resolution
+type: module-design
+status: draft
+title: 音源解析与自定义源安全模型
+parent: auralflow-architecture
+references: [core, desktop, mobile]
+---
+
 # 自定义音源与网关设计
 
 本文记录 AuralFlow 音源解析的完整架构：从官方直连到网关、自定义源与 B 站的多层级关系，以及双端（桌面 / 移动）在沙箱执行、安全模型与版本管理上的实现差异。所有描述均与当前代码状态对齐。
@@ -72,6 +81,7 @@
 ### 3.4 关键约束
 
 - **backend 不跨档降级**：降级链由轮次表统一负责，否则用户选无损时首轮就可能拿到 128k。
+- **档位映射表必须穷尽，不留兜底**：把音质标签映射到各源自己的档位名 / 码率参数时，一律用 `Record<PlaybackQuality, …>` 配 `normalizePlaybackQuality(quality)` 取键，**不要** `Record<string, …>` 再配 `?? 默认档`——后者会把「表里缺这一档」变成一条合法的静默降级路径，编译器也帮不上忙。桌面 `wyProvider` 正是这样丢掉两个键：`levelMap` 缺 `192k` 与 `flac24bit`（两者都落到 `?? "exhigh"`，即选无损却请求 320k），还留了一个永远命中不了的死键 `hires`（`normalizePlaybackQuality` 已把该别名折成 `flac24bit`）；eapi 回退的 br 用 `else → 128000` 兜底，导致请求 `192k` / `flac24bit` 实际拿到 128k。移动端 `wyDirectProvider` 的 switch 同期是正确的——修法是让桌面端对齐它。映射一律一对一不降档：`128k→standard`、`192k→higher`、`320k→exhigh`、`flac→lossless`、`flac24bit→hires`（旧 eapi 的 br 无 Hi-Res 维度，`flac` 与 `flac24bit` 都向上请求 999000）。
 - **quality 一律是音质标签**：`320k` / `flac`，网关回传的 br 数字串（`320`/`740`/`999`）在 backend 出口归一化；持久化缓存 key 按标签匹配，不归一化则缓存永不命中。
 - **LX 自定义源不支持 192k**：运行时白名单只有 `128k/320k/flac/flac24bit`，该轮对自定义源快速失败，由网关通道承担。
 - **网关不做跨源替代**：wy 官方直连搜索结果由 mapper 写入 `gateway`（netease/曲目 id），天然可走网关；tx 曲目缺 `gateway` 元数据时网关直接失败，由自定义源用真实 songmid 解析（同名搜索转译已移除，见 §9）。
@@ -242,10 +252,10 @@ key = `id::SHA256(normalizeCustomSourceScript(script))`（移动端用 SHA256，
 
 ### 7.2 SSRF 双实现契约
 
-统一规则双端各实现一份：JS `@lx/core/outbound-host.ts`（书面定义）+ Rust `desktop/src-tauri/outbound.rs`。**两份实现手工同步，无自动化校验**，规则变更需人工逐条比对；各自带测试。
+统一规则双端各实现一份：JS `@lx/core/outbound-host.ts`（书面定义）+ Rust `desktop/src-tauri/outbound.rs`。**两份实现手工同步，没有自动校验一致性的机制**，规则变更需人工逐条比对；各自带测试——JS 侧 `outbound-host.test.ts` 20 例（拿 Node 的 WHATWG `URL` 做差分参照），Rust 侧 `outbound.rs` 的 4 个 `#[test]` 钉住四段不可路由网段与 IPv4-mapped 的继承关系（2026 复盘补上，此前该模块零测试）。
 
 - **host 抽取（自写 RFC 3986，不信 `URL` 实现）**：authority 终止于 `/` `?` `#` 或反斜杠（WHATWG/OkHttp 在 special scheme 下把 `\` 规范化为 `/`）；userinfo 取 authority 内**最后一个 `@`** 之前的部分；IDNA 句点变体（`。．｡`）归一为 `.`；百分号解码恰好一次（畸形序列/解码出分隔符即拒）；`inet_aton` 全形态还原（`2130706433`/`0177.0.0.1`/`0x7f.0.0.1`/`127.1`）；IPv6 支持 `::ffff:` 尾部点分 v4。形似 IPv4/IPv6 但解析失败一律按拒绝处理（fail-closed）。
-- **拦截范围（双端一致）**：localhost/`.localhost`/`.local`、回环/私有/链路本地/CGNAT(100.64/10)/未指定/多播/广播/文档示例地址，IPv4-mapped IPv6 还原后再判；**显式不做 DNS 解析后校验**（见 §7.3）。
+- **拦截范围（双端一致）**：localhost/`.localhost`/`.local`、回环/私有/链路本地/CGNAT(100.64/10)/未指定/多播/广播/文档示例地址、`0.0.0.0/8`、`192.0.0.0/16`、`198.18.0.0/15`、`240.0.0.0/4`，IPv4-mapped IPv6 还原后再判；**显式不做 DNS 解析后校验**（见 §7.3）。后四段是 2026 复盘时补进 Rust 侧的：标准库没有对应判定，此前只存在于 JS 侧，使桌面端比移动端宽松。
 - **桌面 `outbound.rs`（执行）**：固定白名单域名走 `@tauri-apps/plugin-http` 直连（静态 scope）；用户可配置的动态目标走 `proxy_http_request`，`assert_public_url` + `is_blocked_v4` + `guarded_redirect_policy`（每跳复用同一判定，≤10 跳），响应体上限 16MB，超时上限 60s。
 - **移动（执行）**：JS 侧直接用 `assertPublicOutboundUrl`（桥代理 `bridgeProxyFetch`、musicUrl 收口、WebDAV）。**重定向只能校验最终落地 URL**（OkHttp 恒跟随，见 §6.3）。WebDAV 额外强制 `https://`（`webdavUrlModel.assertHttpsWebdavUrl`，Basic 认证含明文凭证）。
 

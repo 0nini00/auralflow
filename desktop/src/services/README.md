@@ -1,6 +1,6 @@
 # services/
 
-业务逻辑层：承载播放引擎、源解析、账号、同步、缓存、下载等核心规则；直接读写 Zustand store，所有 IO 经 `@lx/tauri-bridge` 包装 Rust 命令，并消费 `@lx/core` 的跨平台能力。
+业务逻辑层：承载播放引擎、源解析、账号、同步、缓存、下载等核心规则；直接读写 Zustand store，系统级 IO 主要经 `@lx/tauri-bridge` 包装的 Rust 命令（但有 31 处直接 `import @tauri-apps/*`，见文末），并消费 `@lx/core` 的跨平台能力。
 
 ## 目录结构
 
@@ -48,4 +48,4 @@ services/
 
 ## 与 @lx/tauri-bridge 的关系
 
-所有文件系统、网络、窗口、通知等 IO 均经 `@lx/tauri-bridge` 的全类型 `invoke` 包装转发至 Rust 命令；services 不直接调用 Tauri 原生 API。
+`@lx/tauri-bridge` 是**部分** Tauri 命令的类型化包装，**不是唯一 IPC 路径、也不是强制关口**：`desktop/src` 有 31 处直接 `import @tauri-apps/*`（`plugin-http` 的静态白名单直连，以及 `plugin-dialog` / `plugin-fs` / `plugin-shell` 等），其中 4 处直接 `invoke`（`components/MetadataEditModal.tsx`、`services/appBackground.ts`、`services/outboundHttp.ts`、`utils/compression.ts`）。所以「新增 IO 必须走桥」这条规则在代码里并不成立——细节见 `desktop/src/SPEC.md` 与 `desktop/packages/tauri-bridge/SPEC.md`。
