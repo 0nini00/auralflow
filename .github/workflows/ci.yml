@@ -11,7 +11,8 @@ on:
 #   24 是当前开发机版本；两者都过才算符合声明的契约。
 # - Rust 任务必须跑在 windows runner：desktop/src-tauri/src/secret_store.rs 在非 Windows
 #   平台是编译期硬失败（有意设计——静默退回明文存储比编不过更糟），所以 linux runner 一定失败。
-# - 每一步都是本机用 `pnpm test:all` 同一批命令验证过的。
+# - 命令与 package.json 的脚本一致：js 任务用 `pnpm test:core` / `pnpm check:all`，
+#   rust 任务直接调 cargo（不装 Node/pnpm，见该步骤的注释）。
 
 jobs:
   js:
@@ -52,5 +53,7 @@ jobs:
         with:
           workspaces: desktop/src-tauri
 
+      # 与 package.json 的 `test:rust` 是同一条命令。这里直接调 cargo 而不经 pnpm：
+      # 本任务不安装 Node/pnpm（Rust 测试不需要 JS 工具链，装了也只是多一步）。
       - name: cargo test
-        run: pnpm test:rust
+        run: cargo test --manifest-path desktop/src-tauri/Cargo.toml
