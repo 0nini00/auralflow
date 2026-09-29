@@ -22,7 +22,7 @@ Rust 侧承担 WebView 做不到或不该做的事，经 Tauri IPC 暴露给前�
 
 **应用自更新**：`tauri-plugin-updater` 在 `main.rs` 注册，`tauri.conf.json` 的 `plugins.updater` 给出公钥、清单地址与 Windows `installMode: passive`。要点：
 
-- 检查与下载都读 GitHub Releases 上的静态清单 `latest.json`；**安装包签名强制校验、无法关闭**。清单里任何已列出的平台条目只要不完整，整份清单判废（症状是「检查更新失败」而不是「有新版本」）。
+- 检查与下载都读 GitHub Releases 上的静态清单，`plugins.updater.endpoints` **按顺序**试：第 1 条是镜像清单 `latest-mirror.json`（经 `https://gh-proxy.com/` 前缀代理；本机实测同一个安装包直连 GitHub 12 秒 0 字节、走镜像 7.6 MB/s），失败才用第 2 条 GitHub 直连 `latest.json` 兜底。两份清单同构、`signature` 逐字相同（同一份 `.sig`），唯一差别是安装包 URL 有没有镜像前缀，由 `build-release.ps1 -MirrorPrefix` 同时产出；镜像站是第三方、随时可能挂，所以直连那条**必须**留着，否则更新通道会永久失效。**安装包签名强制校验（ed25519）、无法关闭** → 镜像只能改变「从哪台机器取字节」，伪造不出能过校验的包。清单里任何已列出的平台条目只要不完整，整份清单判废（症状是「检查更新失败」而不是「有新版本」）。
 - Windows 上安装是**终态**：插件 `ShellExecuteW` 调起安装器后立即 `std::process::exit(0)`，因此前端必须自己把「安装中」画成终态，不能等 Promise 返回。
 - 装完**由安装器把应用重新拉起**：`restart_after_install` 默认 true，NSIS 传 `/R /ARGS`，`installer.nsi` 用 `nsis_tauri_utils::RunAsUser` 执行；该分支只在 silent / passive 模式下生效，所以 `installMode` 不能改成会要交互的 `basicUi`。
 - **updater 的检查与下载都在 Rust 侧发起，不受 `capabilities` 里 `plugin-http` 静态白名单约束**，只认 `plugins.updater.endpoints`。改这两处时别以为白名单能兜住。
