@@ -46,9 +46,8 @@
 | **搜索** | 关键词 → 分类（综合/单曲/歌手/专辑/歌单）→ 历史 → 建议 | `searchAll` 并发搜索；5 分类切换结果正确；搜索历史 get/add/remove/clear；`getSearchSuggestions` 联想词；`searchRequestSeqRef` + `requestId` 竞态保护 | 待验证 |
 | **歌单** | 网易歌单 CRUD → 本地歌单 CRUD → 收藏 → WebDAV 同步 | `playlistStore` 网易歌单 CRUD + `setWyPlaylistSubscribed`；`usePlaylistStore` 本地歌单 CRUD；收藏生效；`webdavSyncService.ts` 原生 fetch + lastModified 冲突 + `@lx/core` webdav-merge 合并（额外同步本地歌单） | 待验证 |
 | **下载** | 下载 → 进度 → 暂停/取消/恢复 → ID3 嵌入 → sidecar .lrc | `downloadStore` 串行 + `downloadService.ts`；进度 180ms 节流；暂停/取消/恢复生效；`id3TagWriter.ts` 纯 JS ID3v2.4 + APIC 封面 + USLT 歌词；sidecar .lrc 旁注 | 待验证 |
-| **缓存** | URL 缓存命中 → 磁盘 LRU → 预取暖 | `playbackUrlCache.ts` URL 缓存 6h/30min/1yr 命中；`cacheService.ts` 三层（内存 10min / 磁盘 LRU 100MB）；预取暖生效 | 待验证 |
-| **账号** | 网易 QR/Cookie 登录 → Bili Cookie → 登出 → 登录过期 | `wyQrLoginService.ts` getQrCodeKey/createWyQrCode/pollWyQrLoginStatus；网易 Cookie；`biliService` B 站 Cookie；登出生效；登录过期处理 | 待验证 |
-| **B 站** | 收藏夹 → 收藏 → DASH 音频 → 视频 | `biliService.getBiliCollectionSongs` favorite/season/series 三种；收藏；DASH 音频解析播放；`searchBiliVideos` 视频源 | 待验证 |
+| **缓存** | URL 缓存命中 → 磁盘 LRU → 预取暖 | `playbackUrlCache.ts` URL 缓存 6h/1yr 命中；`cacheService.ts` 三层（内存 10min / 磁盘 LRU 100MB）；预取暖生效 | 待验证 |
+| **账号** | 网易 QR/Cookie 登录 → 登出 → 登录过期 | `wyQrLoginService.ts` getQrCodeKey/createWyQrCode/pollWyQrLoginStatus；网易 Cookie；登出生效；登录过期处理 | 待验证 |
 | **日推/FM** | 日推加载 → 私人 FM → trash → 自动下一首 | `dailyRecommendMetaModel` 日推加载；`personalFmMetaModel` 私人 FM；trash 不喜欢；自动下一首推进 | 待验证 |
 | **本地音乐** | 扫描 → 播放 → 标签编辑 → 封面/歌词写回 | `LocalMusicModule` 778 行 MediaStore + jaudiotagger 扫描；本地路径播放；标签编辑；封面/歌词写回 | 待验证 |
 | **浮窗歌词** | 权限请求 → 显示 → 拖动 → 锁定 → 通知栏开关 | `canDrawOverlays` / `requestOverlayPermission` 权限请求；浮窗显示；拖动；锁定；通知栏开关切换 | 待验证 |

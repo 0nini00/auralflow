@@ -80,7 +80,7 @@ cargo check --manifest-path desktop/src-tauri/Cargo.toml
 1. **安装依赖**：`pnpm install`。
 2. **启动桌面端**：`pnpm desktop:tauri:dev`（首次会编译 Rust，请耐心等待）。
 3. **启动移动端**：先 `pnpm mobile:start`，再 `pnpm mobile:android`（需 USB 调试或模拟器已连接）。
-4. **配置账号**：进入设置页登录网易云（二维码）或 B站（Cookie）。
+4. **配置账号**：进入设置页登录网易云（桌面端二维码扫码，移动端粘贴 Cookie）。
 5. **配置音源**：内置 gdstudio 网关免 key 直接可用；可选在设置中添加自定义 lx 音源脚本作为兜底。
 6. **扫描本地音乐**（可选）：桌面端在本地音乐页选择目录扫描；移动端授予 `READ_MEDIA_AUDIO` 权限后扫描 MediaStore。
 7. **验证**：执行一次搜索，确认多音源聚合返回结果；播放一首歌验证解析链与缓存。

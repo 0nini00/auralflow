@@ -8,7 +8,7 @@
 | --- | --- | --- | --- | --- |
 | 内存预取 | 进程内 Map | 10min TTL | 下一首已解析的播放 URL / 歌词 / 封面 | TTL 过期 |
 | 磁盘音频文件 | RNFS 文件系统 | LRU 100MB，immutable | 音频文件、封面、歌词 | LRU（mtime 最旧优先） |
-| AsyncStorage URL 缓存 | AsyncStorage | 500 条；wy 6h / tx 30min / bili 1yr | 歌曲 → 播放 URL 映射 | 条数上限 + 源差异 TTL |
+| AsyncStorage URL 缓存 | AsyncStorage | 500 条；普通 6h / 本地 1yr | 歌曲 → 播放 URL 映射 | 条数上限 + TTL 差异 |
 
 ### 磁盘目录
 
@@ -28,7 +28,6 @@
 - **容量**：`MAX_PLAYBACK_URL_ENTRIES = 500`，超出按最旧条目淘汰。
 - **源差异 TTL**：
   - `PLAYBACK_URL_TTL_MS = 6h`（网易云 wy）
-  - `BILI_PLAYBACK_URL_TTL_MS = 30min`（B站，URL 易变）
   - `LOCAL_PLAYBACK_CACHE_TTL_MS = 1yr`（本地文件，几乎永不过期）
 - **写入**：`saveCachedPlaybackUrl` 通过 `writeQueue` **串行化写入**，避免并发写竞争 AsyncStorage。
 - **读取 probe-on-read**：命中缓存 URL 后并不直接信任，读取时会做探活（probe-on-read），死链 / 失效条目用 `invalidateCachedPlaybackUrl(song, quality)` 清除。
@@ -59,7 +58,6 @@
 
 - **底层**：`@d11/react-native-fast-image`（Glide 原生）`cache: FastImage.cacheControl.immutable` + `transition: FastImage.transition.fade`，提供原生内存 + 磁盘双层缓存，列表滚动重复渲染零异步开销。
 - **缩略图**：`resizeCoverUrl(uri, size)`（来自 `@lx/core`，`COVER_SIZE_THUMB`）按显示尺寸请求缩略图，省流量。
-- **B站防盗链 Referer-bypass**：B站图片有防盗链限制，FastImage 直接加载远程 URL 会携带 Referer 导致 403，必须先用 `RNFS.downloadFile` 下载到本地（不带 Referer）再以 `file://` 显示。
 - **2 重试 URL 变异**：远端加载失败时自动重试（重试会改 URL 强制 FastImage 重新请求，避免复用失败结果），重试后仍失败则回退到已下载的本地缓存文件。
 - **请求头**：仅对远端 URL 带浏览器 UA（部分图床 403 防护）；本地 `file://` 不带 headers，避免 Glide 按 key 混缓存。
 - **UI 集成**：`SongList` / `MiniPlayer` / `PlayerScreen` / 沉浸页封面均使用 `CachedImage`。
@@ -114,5 +112,5 @@ apps/mobile/src/
 ├── stores/
 │   └── playerStore.ts            # isPreviewDuration 试听判定 + 失效清理（1004 行）
 └── components/
-    └── CachedImage.tsx            # FastImage immutable + Glide + B站 Referer-bypass + 2 重试
+    └── CachedImage.tsx            # FastImage immutable + Glide + 2 重试
 ```

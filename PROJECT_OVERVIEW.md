@@ -21,10 +21,9 @@ flowchart TB
         C2[lyrics/ 解析 · 行定位 · 浮窗时钟]
         C3[playback-quality 质量排序唯一真相源]
         C4[stream-integrity 试听检测]
-        C5[bili-quality DASH 音质映射]
-        C6[webdav-merge 加法合并纯函数]
-        C7[outbound-host SSRF 守卫]
-        C8[mobile-api 网关 / history/ / recommendations/ 等]
+        C5[webdav-merge 加法合并纯函数]
+        C6[outbound-host SSRF 守卫]
+        C7[mobile-api 网关 / history/ / recommendations/ 等]
     end
 
     subgraph Desktop["@auralflow/desktop（desktop/）"]
@@ -39,7 +38,7 @@ flowchart TB
         M1[React Native 0.86 + React 19.2.3]
         M2[playerStore.ts 1162 行<br/>静音间隙技巧]
         M3[playbackService.ts<br/>RNTP 后台 PlaybackActiveTrackChanged]
-        M4[17 Zustand store<br/>Drawer > NativeStack > BottomTabs]
+        M4[16 Zustand store<br/>Drawer > NativeStack > BottomTabs]
         M5[Android 原生 15 Java + 2 Kotlin 2825 行<br/>11 个原生模块 + lx_bridge 脚本沙箱]
     end
 
@@ -61,7 +60,6 @@ flowchart TB
 | `lyrics/playbackSync.ts` | 61 | `findCurrentLyricLineIndex` 行定位唯一实现（lead 提前量 + 前进滞后带可配，首行前返回 -1）；移动端 `playerService.getCurrentLyricIndex` 已接入。桌面 `services/lyrics/playbackSync` 仍为其本地超集副本（词级进度、时钟外推），迁移待办 |
 | `lyrics/overlay-clock.ts` | 72 | 悬浮歌词时钟调度：由位置算出当前行与到下一行的毫秒延迟（原生浮窗自走，不依赖 JS 每行推词），并判定前台校准时机 |
 | `playback-quality.ts` | 168 | 质量排序唯一真相源，`raceForBestQuality` 800ms 升级窗口 |
-| `bili-quality.ts` | 129 | B站 DASH 音频流「id → 音质」映射唯一真相源（bandwidth 会波动，不可作判据）、FLAC 检测与按音质择优 |
 | `stream-integrity.ts` | 79 | 试听检测 |
 | `webdav-merge.ts` | 136 | 纯函数加法合并，删除不传播 |
 | `webdav-sync-error.ts` | 36 | WebDAV 同步拒绝的错误层级：`CloudSyncRefusalError`（设置页据此提示强制下载）与派生的 `CloudDataStaleError`（自动同步据此跳过下载、改上传本地收敛） |
@@ -77,7 +75,7 @@ flowchart TB
 
 `@lx/core` 独立于 UI 框架与平台运行时，**无构建步骤**（`main` / `types` 直接指向 `src/index.ts`）。播放队列、播放状态、缓存 IO、自定义音源运行时（桌面同 WebView 非沙箱执行、移动端隐藏 WebView）、平台网络请求仍由双端分别实现。跨源匹配与搜索结果合并去重曾位于 `sources/resolver.ts`，f91c469 判定其解析链不可达后删除，该职责现由双端各自实现。
 
-带自动化测试的是两侧，而非只有一个包：JS/TS 侧 `pnpm test:core`（vitest 3.2.4，7 个测试文件 69 例——`outbound-host` 20 / `webdav-merge` 11 / `overlay-clock` 10 / `bili-quality` 9 / `listen-threshold` 8 / `heartbeat-queue` 8 / `webdav-sync-error` 3）；Rust 侧 `pnpm test:rust`（10 个 `#[test]`：`secret_store.rs` 6 个 + `outbound.rs` 4 个——后者是 SSRF 守卫唯一的测试）。其中 `outbound-host.test.ts` 锚定「guard 判定的 host 必须等于真实请求的 host」这一不变量——用 Node 的 WHATWG `URL` 作参照物做差分断言；`webdav-sync-error.test.ts` 锚定同步拒绝的类型层级（两个错误类的 instanceof 关系），因为自动同步正是靠它决定吞掉哪一种拒绝。根目录 `pnpm test:all` 串起「双端类型检查 + 移动端 lint + 两侧测试」，`.github/workflows/ci.yml` 在 CI 里跑同一批命令（Rust 任务必须 windows runner：`secret_store.rs` 在非 Windows 平台是编译期硬失败）。**桌面端与移动端本身依赖真机运行时，没有任何测试文件**——它们的回归只有类型检查、lint 与真机手测。
+带自动化测试的是两侧，而非只有一个包：JS/TS 侧 `pnpm test:core`（vitest 3.2.4，7 个测试文件 74 例——`outbound-host` 20 / `webdav-merge` 17 / `overlay-clock` 10 / `removed-source` 8 / `listen-threshold` 8 / `heartbeat-queue` 8 / `webdav-sync-error` 3）；Rust 侧 `pnpm test:rust`（10 个 `#[test]`：`secret_store.rs` 6 个 + `outbound.rs` 4 个——后者是 SSRF 守卫唯一的测试）。其中 `outbound-host.test.ts` 锚定「guard 判定的 host 必须等于真实请求的 host」这一不变量——用 Node 的 WHATWG `URL` 作参照物做差分断言；`webdav-sync-error.test.ts` 锚定同步拒绝的类型层级（两个错误类的 instanceof 关系），因为自动同步正是靠它决定吞掉哪一种拒绝。根目录 `pnpm test:all` 串起「双端类型检查 + 移动端 lint + 两侧测试」，`.github/workflows/ci.yml` 在 CI 里跑同一批命令（Rust 任务必须 windows runner：`secret_store.rs` 在非 Windows 平台是编译期硬失败）。**桌面端与移动端本身依赖真机运行时，没有任何测试文件**——它们的回归只有类型检查、lint 与真机手测。
 
 ## 各端职责说明
 
@@ -87,10 +85,10 @@ Tauri v2 + React 18.3.1 + Vite 5，提供原生 OS 交互体验。
 
 | 层 | 职责 | 关键实现 |
 |---|---|---|
-| Rust 后端 | 系统级任务，34 IPC 命令 | `outbound.rs`（SSRF + 每跳验证 ≤10）、`lyric_window.rs`（792 行 独立透明窗口：锁定=鼠标穿透+150ms 光标轮询+悬停解锁小窗，置顶 1.5s 巡检 + token/epoch 防竞态）、`local_audio.rs`（walkdir + audiotags/lofty 双库）、`media_cache.rs`（三层：song-audio 2GiB 常量 LRU，covers/bili 不限）、`downloads.rs`（流式 + 取消 + 180ms 节流 + 2GiB 上限，完成后 audiotags 写标签、lofty 写词、旁挂 lrc）、`tray.rs` |
+| Rust 后端 | 系统级任务，34 IPC 命令 | `outbound.rs`（SSRF + 每跳验证 ≤10）、`lyric_window.rs`（792 行 独立透明窗口：锁定=鼠标穿透+150ms 光标轮询+悬停解锁小窗，置顶 1.5s 巡检 + token/epoch 防竞态）、`local_audio.rs`（walkdir + audiotags/lofty 双库）、`media_cache.rs`（两层：song-audio 2GiB 常量 LRU，covers 不限）、`downloads.rs`（流式 + 取消 + 180ms 节流 + 2GiB 上限，完成后 audiotags 写标签、lofty 写词、旁挂 lrc）、`tray.rs` |
 | React 前端 | UI 与业务 | `playerEngine.ts`（388 行 HTMLAudio + rAF + 500ms 纠偏 + 余弦淡入淡出 90/140ms fadeToken + 外部暂停 500ms 保护窗；进度不跨启动恢复，跨窗口由 `stores/playerSync.ts` 经 BroadcastChannel + Tauri 事件同步）、`customSourceRuntime.ts`（776 行 new Function 参数遮蔽，非沙箱——脚本在本 WebView 全权执行 + LRU(8) + HTTP 代理 Rust；能力白名单含 search/playlist）、`webdavSyncService.ts`（629 行 同步锁 + 冲突检测）、`wyAccountService.ts`（601 行 weapi/eapi——`wyProvider.ts` 内另有一份 eapiEncrypt——+ 扫码/Cookie 登录，Cookie 经 Rust DPAPI 加密落盘） |
-| 缓存 | 播放 URL / 歌词持久索引 | `persistentCache.ts`（URL 6h / B站 30min / 本地 365d / 歌词 30d / 空结果 7d，LRU 500/1000 条） |
-| 导航 | 13 路由 BrowserRouter v6 | 首页(index) / search / local / playlists / bili-collections / downloads / history / playlist/:id / artist/:id / album/:id / daily / fm / settings（library 仅重定向到收藏歌单） |
+| 缓存 | 播放 URL / 歌词持久索引 | `persistentCache.ts`（URL 6h / 本地 365d / 歌词 30d / 空结果 7d，LRU 500/1000 条） |
+| 导航 | 13 路由 BrowserRouter v6 | 首页(index) / search / library→收藏歌单重定向 / local / playlists / downloads / history / playlist/:id / artist/:id / album/:id / daily / fm / settings |
 | 视觉 | 玻璃拟态 | `--af-*` CSS 变量 + `backdrop-filter`、`ImmersiveLyricsOverlay`（纯 CSS/DOM 逐字卡拉 OK：clip-path/背景渐变） |
 | IPC 桥 | `@lx/tauri-bridge` 299 行 | 部分 Tauri 命令的类型化包装，**不是唯一 IPC 路径**：桌面前端另有 31 处直接 `import` `@tauri-apps/*`，其中 4 处（`components/MetadataEditModal.tsx`、`services/appBackground.ts`、`services/outboundHttp.ts`、`utils/compression.ts`）直接 `invoke` |
 
@@ -148,7 +146,7 @@ React Native 0.86 + React 19.2.3，面向 Android（minSdk 24）。
 
 ### 7. 播放地址解析链（双端）
 
-双端共用 `@lx/core` 的 `raceForBestQuality`（800ms 升级窗）与 `buildPlaybackQualityTiers` 分轮。桌面总预算 12s，参赛 backend 仅内置网关（gdstudio）与自定义音源两类，官方直连只剩 B站独立分支与最后兜底；移动端 12s 总预算内含 10s 竞速预算，网关内按音质高→低顺序尝试（防 gdstudio 并发限流）。wy 官方直连（`resolveWySongUrl`）为竞速全败后的最后保险。tx 的「同名搜索转译」已移除——gdstudio 搜索结果无 interval，时长校验失效会误配重录/同名曲；tx 取链依赖 `strMediaMid`（脚本拼 `M500{mid}.mp3` / `F000{mid}.flac`）。
+双端共用 `@lx/core` 的 `raceForBestQuality`（800ms 升级窗）与 `buildPlaybackQualityTiers` 分轮。桌面总预算 12s，参赛 backend 仅内置网关（gdstudio）与自定义音源两类，官方直连只剩竞速全败后的最后兜底；移动端 12s 总预算内含 10s 竞速预算，网关内按音质高→低顺序尝试（防 gdstudio 并发限流）。wy 官方直连（`resolveWySongUrl`）为竞速全败后的最后保险。tx 的「同名搜索转译」已移除——gdstudio 搜索结果无 interval，时长校验失效会误配重录/同名曲；tx 取链依赖 `strMediaMid`（脚本拼 `M500{mid}.mp3` / `F000{mid}.flac`）。
 
 **缓存命中不探活（实情，纠正此前「命中均带探活」的说法）**：三级缓存（预取 Map → 本地音频文件 → 持久 URL）的命中路径都**直接返回，不做探活也不做试听判定**——移动端 `playerService` 在磁盘音频文件命中时直接 `return`。这是刻意的（`file://` 命中不探活、离线可播）的代价是「一旦落盘就绕过所有解析期校验」，因此失效责任全在检测方。
 
@@ -157,11 +155,10 @@ React Native 0.86 + React 19.2.3，面向 Android（minSdk 24）。
 - **解析期覆盖所有竞速胜出路径**，包括网关结果与官方直连兜底——探活的 `totalBytes` 是解析期判定的唯一数据来源，跳过探活就等于放弃这一层。两端 `streamProbe` 同语义分三档：服务端明确拒绝（403/404/410/451）判死换档；超时 / 抖动 / 5xx 下不了结论、放行给播放器错误回调兜底；通过则做试听判定。**两端唯一的尺度差异是自定义音源**：移动端任何探活失败都换档（黑盒代理会 TCP 握手成功后永不返数据，ExoPlayer 表现为无限缓冲、进度永远 00:00 且无错误回调），桌面端只认明确拒绝——差异源自两端播放器行为不同，是有意保留的，不要「统一」掉。
 - **播放期兜底命中后必须同时失效三层缓存**：持久 URL 缓存、预取/预读缓存、**磁盘音频文件**。第三层不能省——它正是上面「命中不探活」的那一层，不删就形成死循环（磁盘命中 → 播放试听 → 判定 → 只清 URL → 再命中），用户只能手动清空整个音频缓存才能恢复。移动端用 `deleteCachedAudioForMusic`（按 `source-id-` 前缀扫目录 + 剪索引）；桌面端用 Rust 命令 `remove_cached_media(kind, cache_key)` 逐音质档删除——此前只有整体清空的 `clear_song_cache`，按 key 失效的能力是本次补的。
 
-B站：双端 WBI 签名算法同源（两份复制，需人工同步）；DASH 流按 bandwidth 取最高、无 codec 过滤；桌面取链后经 `bili_cache_audio` 落盘、以 asset 协议播放，移动端 URL + referer 直放不缓存。
 
 ## 对齐状态
 
-已对齐：wy / tx / bili + local 源、扫码 / Cookie 登录（扫码仅桌面；移动仅 Cookie 粘贴，网易云剪贴板一键读取 + MUSIC_U 检测）、日推、私人 FM、B站收藏、WebDAV、4 播放模式、淡入淡出、倍速、音效、5 级下载。
+已对齐：wy / tx + local 源、扫码 / Cookie 登录（扫码仅桌面；移动仅 Cookie 粘贴，网易云剪贴板一键读取 + MUSIC_U 检测）、日推、私人 FM、WebDAV、4 播放模式、淡入淡出、倍速、音效、5 级下载。
 
 差异为平台原生：
 

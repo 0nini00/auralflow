@@ -1,6 +1,6 @@
 # 歌单同步与收藏
 
-移动端歌单 / 收藏 / 历史的云端同步与本地管理。核心实现分布在 `src/services/webdavSyncService.ts`、`src/stores/playlistStore.ts`、`src/stores/webdavStore.ts`、`src/stores/biliAccountStore.ts`，合并算法为共享包 `@lx/core` 的 `webdav-merge.ts`（纯函数，可单测）。
+移动端歌单 / 收藏 / 历史的云端同步与本地管理。核心实现分布在 `src/services/webdavSyncService.ts`、`src/stores/playlistStore.ts`、`src/stores/webdavStore.ts`，合并算法为共享包 `@lx/core` 的 `webdav-merge.ts`（纯函数，可单测）。
 
 ## 1. WebDAV 同步架构
 
@@ -89,15 +89,6 @@ autoSyncPlaylistsOnce()
 | 收藏 | `auralflow.mobile.likedSongs` | AsyncStorage |
 
 登录态下网易云歌单随 `playlistStore` 写回 AsyncStorage；本地歌单与收藏有独立 key，与同步备份用的 `localStorage` 快照区分。
-
-## 7. B 站收藏同步（biliAccountStore）
-
-`src/stores/biliAccountStore.ts` 管理 B 站账号与收藏夹同步：
-
-- **收藏夹列表**：拉取当前账号可见的收藏夹并缓存。
-- **`collectionCache` LRU(20)**：模块级 `Map<string, MusicInfo[]>`，写入时删旧再 set，超出 `COLLECTION_CACHE_MAX = 20` 淘汰最久未用键，避免会话内无限增长；登出 / 切号时 `collectionCache.clear()`。
-- **可见性偏好持久化**：每个收藏夹的显隐偏好写入 AsyncStorage，启动时异步恢复。
-- **`autoShowNewCollections`**：默认 `false`，即新拉取的收藏夹**自动隐藏**，需用户手动开启才显示，避免收藏夹列表被噪声淹没。
 
 ## 同步流程总览
 

@@ -1,13 +1,12 @@
 # 账号登录实现
 
-移动端账号登录支持网易云、B站、QQ 音乐三个音源，登录态与凭据分别由对应的 service / store 管理，安全存储与加密下沉到 Android 原生模块。
+移动端账号登录支持网易云、QQ 音乐两个音源，登录态与凭据分别由对应的 service / store 管理，安全存储与加密下沉到 Android 原生模块。
 
 ## 概览
 
 | 音源 | 登录方式 | 验证接口 | Cookie | 状态 store |
 | --- | --- | --- | --- | --- |
 | 网易云 | Cookie 登录 + 二维码登录（type=3） | `weapi` `/weapi/w/nuser/account/get` | 需 `MUSIC_U` | `accountStore` |
-| B站 | Cookie 登录 | WBI 签名 `/x/web-interface/nav` | 管理完整 cookie | `biliAccountStore` |
 | QQ 音乐 | 无 cookie | `musicu.fcg`（`tmeLoginType=-1`） | 不需要 | 无独立账号 store |
 
 ## 网易云
@@ -37,14 +36,6 @@ type=3 为网易云音乐 App 扫码登录，区别于微信/QQ 扫码。流程�
 ### 过期处理
 
 网易服务器对失效 cookie 返回 `code` ∈ {`301`, `401`, `403`}，`validateWyCookie` 统一抛「Cookie 无效或已过期」/「登录已过期」，由 `accountStore` 触发登出清理（见下文「登出与过期」）。
-
-## B站
-
-### Cookie 登录 + WBI 签名
-
-- 用户粘贴 B站 cookie，`biliService` 用 `/x/web-interface/nav` 验证登录态：返回 `isLogin` 为假即抛「B站 Cookie 已过期或未登录」。
-- B站多数接口需 **WBI 签名**：从 `/x/web-interface/nav` 的 `wbi_img.img_url` / `sub_url` 提取 `img_key` / `sub_key`，按 WBI 算法对查询参数签名（`w_rid` + `wts`）。`biliService` 内置 WBI key 缓存（`WBI_KEY_TTL_MS = 12h`），过期或首次访问时刷新。
-- cookie 由 `biliAccountStore` 管理（见下文）。
 
 ## QQ 音乐
 
@@ -80,15 +71,9 @@ type=3 为网易云音乐 App 扫码登录，区别于微信/QQ 扫码。流程�
 - 动作：`login(cookie)` → `loginWithCookie` → `validateWyCookie` → 落库；`logout()` → `clearWyAccount()` + 清状态；`checkStatus()` → `checkLoginStatus()`，失效时自动清状态。
 - 登录成功后 `NeteaseAccountCard` 收起表单、`AccountInfo` 展示昵称 / 头像 / VIP 标识。
 
-### biliAccountStore（B站）
-
-- 状态：`account: BiliAccountInfo | null`、`playlists: BiliCollectionInfo[]`、`hiddenCollectionIds: string[]`、`autoShowNewCollections: boolean`。
-- `hiddenCollectionIds` / `autoShowNewCollections` 控制合集广场可见性（隐藏指定合集、是否自动展示新合集），偏好持久化到 AsyncStorage。
-
 ## 登出与过期
 
 - **网易云**：`clearWyAccount()` 清除 cookie / 用户信息；`accountStore.logout()` 调用它并重置 `isLoggedIn` / `user`。cookie 过期时 `checkLoginStatus` 自动清除登录态（auth-broken 检测：返回码 301/401/403 即判定失效，统一提示「登录已过期」）。
-- **B站**：`/x/web-interface/nav` 返回 `isLogin=false` 即判定 cookie 过期，抛错并由 UI 引导重新登录。
 - **QQ 音乐**：无登录态，无需登出。
 
 ## 核心文件
@@ -97,14 +82,11 @@ type=3 为网易云音乐 App 扫码登录，区别于微信/QQ 扫码。流程�
 apps/mobile/src/
 ├── services/
 │   ├── wyAccountService.ts        # 网易云登录 / 验证 / 清除
-│   ├── weapi.ts                    # weapi 加密（AES + 调用 CryptoModule 做 RSA NoPadding）
-│   └── biliService.ts              # B站 cookie 验证 / WBI 签名 / 合集
+│   └── weapi.ts                    # weapi 加密（AES + 调用 CryptoModule 做 RSA NoPadding）
 ├── stores/
-│   ├── accountStore.ts             # 网易云账号状态
-│   └── biliAccountStore.ts         # B站账号 / 合集可见性
+│   └── accountStore.ts             # 网易云账号状态
 ├── components/settings/
-│   ├── NeteaseAccountCard.tsx      # 网易云登录 UI（Cookie 表单）
-│   └── BiliAccountCard.tsx         # B站登录 UI
+│   └── NeteaseAccountCard.tsx      # 网易云登录 UI（Cookie 表单）
 └── screens/settings/
     └── AccountSettingsScreen.tsx   # 账号设置页入口
 ```

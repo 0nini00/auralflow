@@ -22,7 +22,7 @@ tags: [auralflow, mobile]
 
 共同目标见 `auralflow-goal`；共享纯逻辑见 `core`；音源解析与自定义源的完整设计见 `source-resolution`。
 
-**结构**：导航为 Drawer > NativeStack > BottomTabs（Library 另有 MaterialTopTabs），17 个 Zustand store，`screens/` 下含 `immersive/` 与 `settings/` 两个子域。
+**结构**：导航为 Drawer > NativeStack > BottomTabs（Library 另有 MaterialTopTabs），16 个 Zustand store，`screens/` 下含 `immersive/` 与 `settings/` 两个子域。
 
 ## 边界
 
@@ -31,7 +31,7 @@ tags: [auralflow, mobile]
 **禁止**：
 
 - 不依赖 `@lx/tauri-bridge`，也不 `import` 任何 `@tauri-apps/*`——桌面专属。移动端到原生的唯一通路是 `NativeModules`。
-- 不复制 `core` 已有的规则。已知技术债：B 站 WBI 签名算法与桌面端各有一份复制，需人工同步。
+- 不复制 `core` 已有的规则。
 - 不把 `core` 当 IO 层用——core 只给纯函数，网络、存储、文件都在移动端自己的 service 里。
 
 **约束强度**：移动端有 ESLint（`eslint.config.mjs`），但只开 `react-hooks/rules-of-hooks: error` 与 `react-hooks/exhaustive-deps: warn`，风格与未使用变量交给 `tsc --noEmit`。**没有测试脚本，也没有任何测试文件**——移动端逻辑的回归目前完全依赖真机手测，`docs/mobile-verification-baseline.md` 是这套手测的权威对照表。
@@ -43,3 +43,5 @@ tags: [auralflow, mobile]
 成因：旧版移动端按 `source === "local"` 归类而**不看 id**，把旧版桌面端上传的云端歌单引用（`source:"local"` + 纯数字 id）物化成了本地歌单；归类守卫修好后**已落盘的那批不会自己消失**，而合并规则「不丢本地独有项」会让它们永久留存、每次同步再传回云端，与桌面端的清洗形成乒乓。移动端自建的本地歌单 id 恒为 `local-<ts>-<8位>`，所以**纯数字 id 的本地歌单只可能来自这条污染路径**。
 
 两条约束：**只剔除本地 0 首的纯数字 id 条目**——有歌曲的保守保留并告警，那可能是用户真在用的歌单，删掉就是静默销毁用户数据；**先备份再丢弃**（AsyncStorage `auralflow.mobile.localPlaylists.scrub-backup`），清理是数据修复，但不能表现为静默销毁。
+
+来源已下线的历史条目则相反：收藏 / 播放历史 / 本地歌单歌曲在读盘后与同步合并后各跑一次 `core` 的 `dropRemovedSourceEntries`，直接丢弃、不备份（用户明确选择）。

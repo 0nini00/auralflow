@@ -12,11 +12,11 @@ tags: [auralflow, desktop, rust]
 Rust 侧承担 WebView 做不到或不该做的事，经 Tauri IPC 暴露给前端。四类：
 
 - **出站网络守卫**：出站请求的校验与执行。这是 `core/outbound-host.ts`（书面定义）的 Rust 实现，也是**真正实施拦截的那一份**——桌面端出站请求由 Rust 发出。对外只暴露三个入口：`assert_public_url`、`guarded_redirect_policy`（每跳复用同一判定，≤10 跳）、`proxy_http_request`。
-- **文件与媒体**：本地音乐扫描（walkdir + audiotags/lofty 双库读写标签与内嵌封面）、三层媒体缓存（song-audio 2GiB、song-covers 512MiB、bili-audio 1GiB；命中刷新 mtime，因此是真正的 LRU）、流式下载（可取消、180ms 进度节流、2GiB 上限，完成后写标签与旁挂 lrc）、原子写入、用户数据持久化。
+- **文件与媒体**：本地音乐扫描（walkdir + audiotags/lofty 双库读写标签与内嵌封面）、两层媒体缓存（song-audio 2GiB、song-covers 512MiB；命中刷新 mtime，因此是真正的 LRU）、流式下载（可取消、180ms 进度节流、2GiB 上限，完成后写标签与旁挂 lrc）、原子写入、用户数据持久化。
 - **窗口与系统集成**：独立透明歌词窗口（复用前端 dist，按窗口 label 路由；锁定 = 鼠标穿透 + 150ms 光标轮询 + 悬停解锁小窗，置顶 1.5s 巡检 + token/epoch 防竞态）、系统托盘、应用生命周期。
 - **凭据加密**：`secret_store.rs` 用 Windows DPAPI 按当前用户加密 Cookie 与 WebDAV 密码，密文以 `DPAPI:v1:<base64>` 存放，与明文可区分，因此历史明文文件无需迁移步骤；**仅支持 Windows，其他平台编译期失败**——静默退回明文会让「凭证已加密」变成假承诺。
 
-**结构**：`main.rs` 声明 9 个顶层模块（含 `commands`、`outbound`、`secret_store`、`tray`）。IPC 命令按领域拆成 `commands/` 下的 8 个子模块（settings / compression / media_cache / bili / downloads / local_audio / library / lyric_window），以 `mod { include!(...) }` 引入后由 `commands.rs` 统一 `pub use`，`main.rs` 继续按 `commands::<name>` 引用——因此**命令名、参数与返回值在拆分前后保持不变**。注意 `library` 与 `lyric_window` 各有两份文件：顶层的是领域逻辑与窗口生命周期，`commands/` 下的是命令面。
+**结构**：`main.rs` 声明 9 个顶层模块（含 `commands`、`outbound`、`secret_store`、`tray`）。IPC 命令按领域拆成 `commands/` 下的 7 个子模块（settings / compression / media_cache / downloads / local_audio / library / lyric_window），以 `mod { include!(...) }` 引入后由 `commands.rs` 统一 `pub use`，`main.rs` 继续按 `commands::<name>` 引用——因此**命令名、参数与返回值在拆分前后保持不变**。注意 `library` 与 `lyric_window` 各有两份文件：顶层的是领域逻辑与窗口生命周期，`commands/` 下的是命令面。
 
 窗口能力按最小权限分三套 capability：`main` / `lyric` / `lyric-unlock`。只有 `main` 带 `updater:default`（歌词窗不需要更新能力）。
 

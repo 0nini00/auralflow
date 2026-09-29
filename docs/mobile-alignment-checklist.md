@@ -33,7 +33,6 @@
 |---|---|---|---|
 | wy 网易云源搜索+播放 | 搜索网易云歌曲并播放 | `musicApi.ts` wyProvider 解析播放成功 | ✅ |
 | tx QQ 源搜索+播放 | 搜索 QQ 音乐歌曲并播放 | `txPlaylistService.ts` 解析播放成功 | ✅ |
-| bili B 站源搜索+播放 | 搜索 B 站音频并播放 | `biliService` DASH 音频解析播放成功 | ✅ |
 | local 本地源搜索+播放 | 扫描本地音乐并播放 | `LocalMusicModule` 778 行 MediaStore+jaudiotagger 扫描播放成功 | ✅ |
 | custom 自定义源搜索+播放 | 导入自定义源脚本后搜索+播放 | `customSourceRuntime.ts`（与桌面端对齐）解析播放成功 | ✅ |
 | 跨源模糊匹配 | 跨源搜索同名歌曲 | `@lx/core` resolver 0.85 阈值匹配 | ✅ |
@@ -41,7 +40,7 @@
 | CustomSourceContext 契约 | 自定义源接口调用 | `@lx/core` CustomSourceContext 契约一致 | ✅ |
 | kg 源（自定义源运行时） | customSourceRuntime 额外支持 kg | 额外支持 kg 解析 | ✅ |
 
-**小计：9 ✅**
+**小计：8 ✅**
 
 ---
 
@@ -91,14 +90,13 @@
 | 检查项 | 验证方法 | 预期结果 | 状态 |
 |---|---|---|---|
 | 关键词搜索 | 输入关键词搜索 | `searchAll("all",query)` 搜 wy+tx songs 再分别搜歌手/专辑/歌单 | ✅ |
-| 分类搜索 | 切换 Tab 综合/单曲/歌手/专辑/歌单 | `searchAll` type all\|wy\|tx\|bili 生效 | ✅ |
+| 分类搜索 | 切换 Tab 综合/单曲/歌手/专辑/歌单 | `searchAll` type all\|wy\|tx 生效 | ✅ |
 | 搜索历史 | 查看搜索历史 | UI 列表+清空 | ✅ |
 | 搜索建议 | 输入时联想词 | `searchSuggestionService.getSearchSuggestions` 联想词 | ✅ |
 | 竞态保护 | 快速连续搜索 | `searchRequestSeqRef` 自增序列号+requestId 早退（07-10 误判已修正） | ✅ |
 | 跨源去重合并 | 同名歌曲多源结果 | `songGroupModel.groupSongResults`+`mergeDuplicateSongs` 去重合并 | ✅ |
-| bili 视频搜索 | 搜索 B 站视频 | `searchBiliVideos` SearchSource 含 bili（⬆️ 移动反超） | ✅ |
 
-**小计：7 ✅**
+**小计：6 ✅**
 
 ---
 
@@ -157,32 +155,16 @@
 |---|---|---|---|
 | 网易云 QR 登录 | 扫码登录 | `wyQrLoginService` getQrCodeKey/createWyQrCode/pollWyQrLoginStatus 登录成功 | ✅ |
 | 网易云 Cookie | Cookie 登录 | NetEase cookie 持久化 | ✅ |
-| Bili Cookie | B 站 Cookie 登录 | `biliService` Cookie 持久化 | ✅ |
 | 登出 | 登出账号 | 清除登录状态与缓存 | ✅ |
 | 过期处理 | Cookie 过期 | 自动检测过期并提示重新登录 | ✅ |
 | 我的歌单 | 查看我歌单 | `playlistStore.setWyPlaylistSubscribed` 订阅歌单 | ✅ |
 | 收藏 | 收藏歌曲 | `favoritesStore`/`playlistStore.likedSongs` | ✅ |
 
-**小计：7 ✅**
-
----
-
-## 10. B 站
-
-| 检查项 | 验证方法 | 预期结果 | 状态 |
-|---|---|---|---|
-| 收藏夹 | 查看 B 站收藏夹 | `biliService.getBiliCollectionSongs` favorite/season/series 三种 | ✅ |
-| 收藏 | 收藏 B 站歌曲 | `biliService` 收藏到收藏夹 | ✅ |
-| DASH 音频 | 播放 B 站音频 | `biliService` DASH 音频流解析播放 | ✅ |
-| B 站视频 | 播放 B 站视频 | `biliService` 视频播放 | ✅ |
-| B 站独立详情页 | 进入合集详情 | `BiliCollectionDetailScreen` 独立详情页（⬆️ 移动反超） | ✅ |
-| 合集可见性 | 切换合集可见性 | `biliCollectionVisibilityModel` 生效 | ✅ |
-
 **小计：6 ✅**
 
 ---
 
-## 11. 日推 / FM
+## 10. 日推 / FM
 
 | 检查项 | 验证方法 | 预期结果 | 状态 |
 |---|---|---|---|
@@ -195,7 +177,7 @@
 
 ---
 
-## 12. 本地音乐
+## 11. 本地音乐
 
 | 检查项 | 验证方法 | 预期结果 | 状态 |
 |---|---|---|---|
@@ -209,7 +191,7 @@
 
 ---
 
-## 13. UI / UX
+## 12. UI / UX
 
 | 检查项 | 验证方法 | 预期结果 | 状态 |
 |---|---|---|---|
@@ -225,14 +207,14 @@
 | 氛围色 | 沉浸页背景 | 根据封面生成背景氛围色（移动独有） | ✅ |
 | 主题/强调色/背景图 | 切换主题 | `useThemeStore`（mobile） | ✅ |
 | 顶部栏 | 搜索/联想/主题切换 | `MobileHeader.tsx` 汉堡/搜索/联想/主题切换 | ✅ |
-| 曲库内嵌分区 | 曲库页 | `LibraryScreen` 内嵌 Local/History/Downloads/Bili 条件登录（移动独有） | ✅ |
+| 曲库内嵌分区 | 曲库页 | `LibraryScreen` 内嵌 Local/History/Downloads（移动独有） | ✅ |
 | 歌曲行操作 | 行 ⋯ 菜单 | `ActionMenuSheet` 下一首/加入队列/收藏/下载/分享/编辑/删除 | ✅ |
 
 **小计：14 ✅**
 
 ---
 
-## 14. 设置
+## 13. 设置
 
 | 检查项 | 验证方法 | 预期结果 | 状态 |
 |---|---|---|---|
@@ -251,13 +233,13 @@
 
 ---
 
-## 15. 导航
+## 14. 导航
 
 | 检查项 | 验证方法 | 预期结果 | 状态 |
 |---|---|---|---|
 | Drawer | 汉堡打开抽屉 | `MainDrawerNavigator` Drawer 默认关闭 front overlay，汉堡打开 | ✅ |
 | BottomTabs | 底部 Tab 切换 | BottomTabs 切换主页/曲库等 | ✅ |
-| MaterialTopTabs | 曲库顶部 Tab | `LibraryScreen` 内嵌 Local/History/Downloads/Bili 条件登录 | ✅ |
+| MaterialTopTabs | 曲库顶部 Tab | `LibraryScreen` 内嵌 Local/History/Downloads | ✅ |
 | NativeStack | 页面栈导航 | NativeStack 页面推入/返回 | ✅ |
 | deep link | auralflow:// 打开 | `parseMobileDeepLink`→`initialKeyword`（移动独有） | ✅ |
 | 分享 | 系统分享 Sheet | `Share.share` 系统分享（移动独有） | ✅ |
@@ -274,29 +256,28 @@
 | 模块 | ✅ 完成 | ⚠️ 部分 | ❌ 缺失 | 小计 |
 |---|---|---|---|---|
 | 1 播放引擎 | 13 | 0 | 0 | 13 |
-| 2 源解析 | 9 | 0 | 0 | 9 |
+| 2 源解析 | 8 | 0 | 0 | 8 |
 | 3 歌词 | 18 | 0 | 0 | 18 |
 | 4 歌单 | 5 | 0 | 0 | 5 |
-| 5 搜索 | 7 | 0 | 0 | 7 |
+| 5 搜索 | 6 | 0 | 0 | 6 |
 | 6 下载 | 6 | 0 | 0 | 6 |
 | 7 缓存 | 8 | 0 | 0 | 8 |
 | 8 WebDAV | 8 | 0 | 0 | 8 |
-| 9 账号 | 7 | 0 | 0 | 7 |
-| 10 B 站 | 6 | 0 | 0 | 6 |
-| 11 日推/FM | 4 | 0 | 0 | 4 |
-| 12 本地音乐 | 5 | 0 | 0 | 5 |
-| 13 UI/UX | 14 | 0 | 0 | 14 |
-| 14 设置 | 10 | 0 | 0 | 10 |
-| 15 导航 | 7 | 0 | 0 | 7 |
-| **合计** | **127** | **0** | **0** | **127** |
+| 9 账号 | 6 | 0 | 0 | 6 |
+| 10 日推/FM | 4 | 0 | 0 | 4 |
+| 11 本地音乐 | 5 | 0 | 0 | 5 |
+| 12 UI/UX | 14 | 0 | 0 | 14 |
+| 13 设置 | 10 | 0 | 0 | 10 |
+| 14 导航 | 7 | 0 | 0 | 7 |
+| **合计** | **118** | **0** | **0** | **118** |
 
 ### 对齐率
 
-- **✅ 完成：127/127 = 100%**
+- **✅ 完成：118/118 = 100%**
 
 ### 剩余工作
 
-- **核心功能全对齐**：覆盖检查清单的全部 15 个模块、127 项检查项均 ✅ 完成，无 ⚠️ 部分项、无 ❌ 缺失项。
+- **核心功能全对齐**：覆盖检查清单的全部 14 个模块、118 项检查项均 ✅ 完成，无 ⚠️ 部分项、无 ❌ 缺失项。
 - **差异为平台原生**：移动端与桌面端的差异均为平台特性驱动的独占能力，不纳入功能补齐范围：
   - 💻 桌面独有：浮动歌词窗口（Rust webview 753 行）、系统托盘、全局热键、Rust 文件操作、可变下载目录、cursor 光标特效、WebAudio EQ、无缝预加载（preloadAudio 暖缓存）、字体设置、运行态测试 UI、常驻侧栏、网格视图、虚拟列表、URL 地址栏同步。
   - 📱 移动独有：通知栏控制、TrackPlayer 后台播放、锁屏控件、deep link（auralflow://）、分享面板（Share.share）、MV 播放器（react-native-video）、首页 feed（homeFeedStore 600s TTL 按账号隔离）、Android 浮动歌词（WindowManager 浮窗拖动锁定穿透）、自动检查自定义源更新（24h）、沙盒下载目录、增量挂载列表（非 FlatList 60+100/批）、CachedImage（Glide）、PanResponder 手势、简繁转换（opencc-js）、触觉反馈（hapticLight）、旋转封面、下拉关闭、捏合缩放、歌词海报、PagerView 双页、KeepAwake、SecureStorage、后台下载音频、streamProbe、静音间隙前台服务。

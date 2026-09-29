@@ -15,7 +15,6 @@
 | downloadStore | — | 下载队列（2 并发） | zustand `persist` → `"download-storage"` |
 | themeStore | — | 主题 + accent CSS 变量 | zustand `persist` → `"af-theme"` |
 | wyAccountStore | — | 网易账号 | 非持久化（cookie 在 settings） |
-| biliAccountStore | — | B 站账号 | 非持久化（cookie 在 settings） |
 | discoveryStore | — | 日推 / FM | 非持久化 |
 | sleepTimerStore | — | 睡眠定时器 | 非持久化 |
 | lyricSettingsSync | — | 歌词设置跨窗口同步 | BroadcastChannel |
@@ -25,7 +24,7 @@
 
 - **libraryPersistence**：`attachLibraryPersistence` 订阅各 store → 300ms 防抖写 → 一次性 localStorage → Rust 迁移落盘到 `library/*.json`。覆盖 playlist / favorites / history / library / customSource 五类。
 - **zustand persist**：`downloadStore`（`"download-storage"`）、`themeStore`（`"af-theme"`）直接用 zustand 内建 persist 中间件。
-- **非持久化**：`playerStore` / `wyAccountStore` / `biliAccountStore` / `discoveryStore` / `sleepTimerStore` / `updateStore` 仅内存态（cookie 等敏感数据由 settings 侧管理）。
+- **非持久化**：`playerStore` / `wyAccountStore` / `discoveryStore` / `sleepTimerStore` / `updateStore` 仅内存态（cookie 等敏感数据由 settings 侧管理）。
 
 ## 跨窗口同步
 

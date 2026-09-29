@@ -13,12 +13,12 @@
 
 | 功能 | 桌面实现 | 移动实现 | 对齐状态 |
 |---|---|---|---|
-| 多源搜索 wy/tx | `searchMergedSources()` 按 type 并发 wy+tx | `searchAll("all",query)` 搜 wy+tx songs 再分别搜歌手/专辑/歌单 | ✅（⬆️ 移动多 bili 视频源） |
+| 多源搜索 wy/tx | `searchMergedSources()` 按 type 并发 wy+tx | `searchAll("all",query)` 搜 wy+tx songs 再分别搜歌手/专辑/歌单 | ✅ |
 | 跨源去重合并 | `groupSongResults()` 同名+同歌手+时长差≤6s 合并，保留多源 variant | `songGroupModel.groupSongResults`+`mergeDuplicateSongs` | ✅ |
 | 联想词 | `searchSuggestions.ts` 线上+本地合并 | `searchSuggestionService.getSearchSuggestions` | ✅ |
 | 搜索历史 | `searchHistory.ts` get/add/remove/clear | UI 列表+清空 | ✅ |
 | 竞态保护 | `searchRequestSeqRef` 自增序列号 | `searchRequestSeqRef`+requestId 早退 | ✅（07-10 误判已修正） |
-| 5 分类 Tab | 综合/单曲/歌手/专辑/歌单 | `searchAll` type all\|wy\|tx\|bili | ✅ |
+| 5 分类 Tab | 综合/单曲/歌手/专辑/歌单 | `searchAll` type all\|wy\|tx | ✅ |
 
 ### 歌单
 
@@ -109,7 +109,7 @@
 
 | 功能 | 桌面实现 | 移动实现 | 对齐状态 |
 |---|---|---|---|
-| URL 缓存 | `persistentCache.ts` playbackUrl TTL 其他 6h/bili 30min/local 1y MAX500 | `playbackUrlCache.ts`+AsyncStorage URL 缓存 6h/30min/1yr | ✅ |
+| URL 缓存 | `persistentCache.ts` playbackUrl TTL 其他 6h/local 1y MAX500 | `playbackUrlCache.ts`+AsyncStorage URL 缓存 6h/1yr | ✅ |
 | 歌词缓存 | 内存+持久化 | `cacheService.cacheLyrics` 磁盘层 | ✅ |
 | 音频文件缓存 | `mediaCache.ts` 三层 2GiB LRU | `cacheService.cacheAudioFile`+`isLocalFilePlayable` 三层 内存 10min/磁盘 LRU 100MB | ✅（07-10 误判已修正） |
 | 封面文件缓存 | `mediaCache.ts` `cacheRemoteImage` 落盘 | `cacheService.cacheCover`+`CachedImage`(fast-image+Glide) | ✅（07-10 误判已修正） |
@@ -146,7 +146,6 @@
 |---|---|---|---|
 | 网易云 QR 登录 | `wyAccountService.ts` 601 行 weapi/eapi 双通道+QR type=3+SVG 二维码+`loginStatus` 轮询 | 无扫码登录，`wyAccountService` Cookie 粘贴登录+`validateWyCookie` weapi 校验 | ❌（桌面多扫码登录；`wyQrLoginService` 为早期文档误记，代码中不存在） |
 | 网易云 Cookie | 网易云 Cookie | NetEase cookie | ✅ |
-| B 站登录 | `biliAccountService` settings.biliCookie | `biliService` Cookie | ✅ |
 | 我的歌单 | `wyAccountStore` setSubscribed | `playlistStore.setWyPlaylistSubscribed` | ✅ |
 | 收藏 | `favoritesStore` 喜欢列表 | `favoritesStore`/`playlistStore.likedSongs` | ✅ |
 | 歌单 CRUD | `wyAccountService` 歌单 CRUD | `playlistStore` 歌单 CRUD | ✅ |
@@ -157,14 +156,6 @@
 |---|---|---|---|
 | 主题/强调色/背景图 | `useThemeStore`（desktop） | `useThemeStore`（mobile） | ✅ |
 | 检查更新 | 有 | 有 | ✅ |
-
-### B 站
-
-| 功能 | 桌面实现 | 移动实现 | 对齐状态 |
-|---|---|---|---|
-| B 站收藏合集 | `getBiliCollectionSongs` favorite/season/series+`biliAccountStore` 可见性 | `biliService.getBiliCollectionSongs`+`biliCollectionVisibilityModel` | ✅ |
-| B 站合集可见性 | `biliAccountStore` 可见性 | `biliCollectionVisibilityModel` | ✅ |
-| B 站独立详情页 | 无独立详情页 | `BiliCollectionDetailScreen` | ✅（⬆️ 移动反超） |
 
 ---
 
@@ -274,8 +265,8 @@
 
 ## 五、对齐总结
 
-- **核心听歌路径（P0）全部对齐**：源解析（wy/tx/bili+local+custom）、播放引擎控制、4 播放模式、淡入淡出、倍速、音效、歌词系统、歌单、搜索、5 级下载+ID3、三层缓存、WebDAV 同步、账号登录（QR/Cookie）、日推、私人 FM、B 站收藏、历史、本地音乐、主题。
-- **移动端 P0 无缺口**，且在搜索多 bili 源、音质播放中实时切换、队列 UI、B 站独立详情页、WebDAV 本地歌单同步、沉浸控制条丰富度、倍速保持音高上反超桌面。
+- **核心听歌路径（P0）全部对齐**：源解析（wy/tx+local+custom）、播放引擎控制、4 播放模式、淡入淡出、倍速、音效、歌词系统、歌单、搜索、5 级下载+ID3、三层缓存、WebDAV 同步、账号登录（QR/Cookie）、日推、私人 FM、历史、本地音乐、主题。
+- **移动端 P0 无缺口**，且在音质播放中实时切换、队列 UI、WebDAV 本地歌单同步、沉浸控制条丰富度、倍速保持音高上反超桌面。
 - **平台独占能力不强制 1:1**：
   - 💻 桌面独有：浮动歌词窗口、系统托盘、全局热键、Rust 文件操作、可变下载目录、cursor 光标特效、WebAudio EQ、无缝预加载、字体设置、运行态测试 UI、常驻侧栏、网格视图、虚拟列表、URL 地址栏同步。
   - 📱 移动独有：通知栏控制、TrackPlayer 后台播放、锁屏控件、Deep Link、分享面板、MV 播放器、首页 feed、Android 浮动歌词、自动检查自定义源更新、沙盒下载目录、增量挂载列表、CachedImage、PanResponder 手势、简繁转换、触觉反馈、旋转封面、下拉关闭、捏合缩放、歌词海报、PagerView 双页、KeepAwake、SecureStorage、后台下载音频、streamProbe、静音间隙前台服务。

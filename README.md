@@ -61,7 +61,7 @@ Inspired by LX Music, AuralFlow delivers a seamless audio playback experience wi
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Audio Providers                          │
 │  - NetEase (wy): eapi/weapi   - QQ Music (tx): musicu/custom    │
-│  - Bilibili (bili): WBI/DASH  - Custom User API Scripts (LX)    │
+│  - Custom User API Scripts (LX)                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -70,7 +70,7 @@ Inspired by LX Music, AuralFlow delivers a seamless audio playback experience wi
 | Category | Capability | Desktop | Android |
 |---|---|---|---|
 | Search | Multi-source aggregated search with suggestion and deduplication | Supported | Supported |
-| Playlists | NetEase / QQ playlists, local playlists, Bilibili collections, favorites | Supported | Supported |
+| Playlists | NetEase / QQ playlists, local playlists, favorites | Supported | Supported |
 | Discovery | Daily recommendation, Private FM mode with prefetch, leaderboards | Supported | Supported |
 | Playback | Queue management, Play Next, 4 loop modes, playback rate, quality switch | Supported | Supported |
 | Fallback | Automatic NetEase to QQ Music fallback for tracks without rights | Supported | Supported |

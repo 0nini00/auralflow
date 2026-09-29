@@ -28,7 +28,7 @@ tags: [auralflow, desktop]
 **禁止**：
 
 - 不依赖 React Native 或任何移动端运行时。
-- **两端必须同答案的纯逻辑不得在桌面端复制**。已知技术债：`desktop/src/services/lyrics/playbackSync` 仍是 `core/lyrics/playbackSync` 的本地超集副本（多了词级进度与时钟外推），迁移未完成；B 站 WBI 签名算法在桌面与移动各有一份复制，需人工同步。
+- **两端必须同答案的纯逻辑不得在桌面端复制**。已知技术债：`desktop/src/services/lyrics/playbackSync` 仍是 `core/lyrics/playbackSync` 的本地超集副本（多了词级进度与时钟外推），迁移未完成。
 - Web 前端不做系统级 IO——除下述已知例外，一律经 IPC 转发。
 
 **已知边界瑕疵（实情）**：`@lx/tauri-bridge` 不是唯一 IPC 路径，也不是强制关口。`desktop/src` 有 31 处直接 `import` `@tauri-apps/*`，包括 `plugin-http` 的静态白名单直连，以及 4 处直接 `invoke`（`components/MetadataEditModal.tsx`、`services/appBackground.ts`、`services/outboundHttp.ts`、`utils/compression.ts`）。桥覆盖的是命令面的一部分，旁路是有意保留的——所以「新增 IO 必须走桥」这条规则在代码里并不成立。细节见 `tauri-bridge`。

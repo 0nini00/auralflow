@@ -9,13 +9,13 @@ references: [core, desktop, mobile]
 
 # 自定义音源与网关设计
 
-本文记录 AuralFlow 音源解析的完整架构：从官方直连到网关、自定义源与 B 站的多层级关系，以及双端（桌面 / 移动）在沙箱执行、安全模型与版本管理上的实现差异。所有描述均与当前代码状态对齐。
+本文记录 AuralFlow 音源解析的完整架构：从官方直连到网关与自定义源的多层级关系，以及双端（桌面 / 移动）在沙箱执行、安全模型与版本管理上的实现差异。所有描述均与当前代码状态对齐。
 
 ---
 
 ## 1. 设计目标
 
-1. **多源可用性**：单一音源不可用时仍能播放。官方接口、免 key 网关、用户自定义脚本、B 站四层叠加，互为兜底而非串行依赖。
+1. **多源可用性**：单一音源不可用时仍能播放。官方接口、免 key 网关、用户自定义脚本三层叠加，互为兜底而非串行依赖。
 2. **音质择优**：不因某条链路慢就降级到低音质。在有限时间窗口内并发竞速，优先返回更高音质的结果。
 3. **用户可扩展**：导入 LX Music 自定义音源脚本即可接入新平台，无需改代码、无需 API key。
 4. **安全可控**：用户脚本是主动安装的不可信代码；桌面端参数遮蔽明确宣告「这不是安全边界」，真正隔离（独立 Worker/WebView 且不暴露 IPC）未实施（见 §7）；所有出站 HTTP 统一经 SSRF 校验，桌面走 Rust、移动走 JS，两份实现契约一致（手工同步）。
@@ -32,9 +32,8 @@ references: [core, desktop, mobile]
 | 官方直连 | `wyProvider`（weapi/eapi 加密）、`txProvider`（musicu 接口） | 用平台官方协议直取播放 URL，作为所有竞速通道失败后的兜底，不参与竞速 | `sourceService.ts` 注册到 `SourceRegistry` |
 | gdstudio 网关 | 免 key 聚合网关（`music-api.gdstudio.xyz`，`types=search/url/lyric`） | 移动走 `@lx/core` 的 `createBuiltinMusicApiClient(fetchText)`；桌面独立实现（浏览器 fetch 优先、Tauri HTTP 兜底），网关搜索用于官方结果的元数据补充（`mergeSongSearchMetadata`）与兜底 | `packages/core/src/mobile-api.ts` / `desktop/src/services/builtinMusicApiClient.ts` |
 | LX 自定义源 | `lx` 对象契约 + 参数遮蔽执行 | 用户导入的 LX Music 脚本，经注入的 `lx` 对象（EVENT_NAMES/`send`/`on`/`request`/`utils`）与宿主交互 | `customSourceRuntime.ts`（桌面）/ `lx_bridge`（移动） |
-| B 站 | WBI 签名 + DASH 音频流 | 独立分支，无音质分层，不进竞速；需要 Referer 头 | `biliProvider.ts` / `biliService.ts` |
 
-**优先级语义**：网关与自定义源是**并发竞速**关系，不是先后兜底。官方直连是竞速全败后的最后兜底，B 站走独立分支。`MusicInfo.gateway` 标记内置 API 的真实来源与曲目 ID，是播放/歌词元数据，不构成独立 UI 来源标签——最终歌曲仍按 `wy` 或 `tx` 展示。
+**优先级语义**：网关与自定义源是**并发竞速**关系，不是先后兜底。官方直连是竞速全败后的最后兜底。`MusicInfo.gateway` 标记内置 API 的真实来源与曲目 ID，是播放/歌词元数据，不构成独立 UI 来源标签——最终歌曲仍按 `wy` 或 `tx` 展示。
 
 ---
 
@@ -46,7 +45,6 @@ references: [core, desktop, mobile]
 用户播放歌曲
   -> resolvePlaybackUrl
   -> 命中持久化缓存则直接返回
-  -> bili 走独立分支（无音质分层，不进竞速）
   -> 按轮次表逐轮竞速
   -> 所有轮次失败 -> 官方直连 provider 兜底（不参与竞速）
   -> 返回 PlaybackResolvedUrl 给播放引擎
@@ -111,7 +109,7 @@ VIP 歌曲、wy eapi 无 VIP、自定义音源脚本都可能返回 30s 试听 U
 ### 4.2 registry.ts — 源注册（无源轮转）
 
 - `packages/core/src/sources/registry.ts` 只有 `SourceRegistry`（register/unregister/get）；旧文档描述的 `SourceResolver` 源轮转、`DEFAULT_SOURCE_POLICY` 与 0.85 跨源匹配阈值在代码中不存在，已随旧设计移除。
-- 桌面 `sourceService.ts` 向 registry 注册 `wyProvider`/`txProvider`/`biliProvider`，供官方直连兜底（`builtinProviderBackend`）按 source 取用。
+- 桌面 `sourceService.ts` 向 registry 注册 `wyProvider`/`txProvider`，供官方直连兜底（`builtinProviderBackend`）按 source 取用。
 - 自定义源不进 registry、也不显示为新来源：它经 `customSourceBackend`（桌面）/ `playerService`（移动）作为独立竞速通道参与每轮解析（见 §3）。
 
 ### 4.3 lx 对象契约（双端实际注入）

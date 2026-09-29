@@ -19,7 +19,7 @@ tags: [auralflow, desktop]
 
 **它不是什么（最容易被误读的一点）**：`@lx/tauri-bridge` 不是唯一 IPC 路径，也不是强制关口。`desktop/src` 有 31 处直接 `import` `@tauri-apps/*`：
 
-- `plugin-http` 的静态白名单直连——`lyricsService.ts`、`sources/wyProvider.ts`、`sources/txProvider.ts`、`wyAccountService.ts`、`persistentCache.ts`、`mediaCache.ts`、`sources/biliProvider.ts`、`updateService.ts`、`builtinMusicApiClient.ts`、`search/searchSuggestions.ts`；
+- `plugin-http` 的静态白名单直连——`lyricsService.ts`、`sources/wyProvider.ts`、`sources/txProvider.ts`、`wyAccountService.ts`、`persistentCache.ts`、`mediaCache.ts`、`updateService.ts`、`builtinMusicApiClient.ts`、`search/searchSuggestions.ts`；
 - 4 处直接 `invoke`——`components/MetadataEditModal.tsx`、`services/appBackground.ts`、`services/outboundHttp.ts`、`utils/compression.ts`。
 
 因此 `desktop/src/services/README.md` 里「所有 IO 均经 `@lx/tauri-bridge`，services 不直接调用 Tauri 原生 API」的表述**与当前代码不符**，不要据此假设新增代码必须走桥。桥覆盖的是命令面的一部分；静态白名单直连与这些旁路 `invoke` 是有意保留的。

@@ -11,7 +11,6 @@
 | `/library` | （重定向） | 无独立视图，仅重定向到 `/playlist/favorites` |
 | `/local` | LocalMusicView | 本地音乐扫描 / 列表 / 网格 / 元数据编辑 |
 | `/playlists` | PlaylistsView | 歌单中心 |
-| `/bili-collections` | BiliCollectionsView | B 站收藏夹（登录 B 站后可见） |
 | `/downloads` | DownloadsView | 下载管理 |
 | `/history` | HistoryView | 播放历史 |
 | `/playlist/:id` | PlaylistDetailView | 歌单详情 |

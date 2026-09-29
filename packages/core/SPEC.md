@@ -11,9 +11,9 @@ tags: [auralflow, shared]
 
 `@lx/core` 是两端共享的唯一真相源层：凡是「两端必须给出相同答案」的规则都收敛在这里，而不是各端各写一份。它回答四类问题：
 
-- **播什么**：音质阶梯与轮次划分（`playback-quality`）、B 站 DASH 音质映射（`bili-quality`）、试听片段判定（`stream-integrity`）、连点合并（`switch-step-queue`）。
+- **播什么**：音质阶梯与轮次划分（`playback-quality`）、试听片段判定（`stream-integrity`）、连点合并（`switch-step-queue`）。
 - **唱到哪**：6 种歌词格式的归一化解析（`lyrics/parser`）、当前行定位（`lyrics/playbackSync`）、原生浮窗的自走时钟（`lyrics/overlay-clock`）。
-- **记什么**：入历史与打点阈值（`history/listen-threshold`）、心动模式缓冲推进（`recommendations/heartbeat-queue`）、WebDAV 加法合并与歌单归类（`webdav-merge`：`isWebdavLocalPlaylistRef` 判 `userList` 的一条记录是本地歌单还是云端歌单引用，`scrubSyncedCloudPlaylistRefs` 清理历史上被误物化成「本地歌单」的云端引用）与同步拒绝的错误层级（`webdav-sync-error`：`CloudSyncRefusalError` / `CloudDataStaleError`）。同步服务与设置页一律按类型判断该拒绝属于哪一种，不匹配错误文案。
+- **记什么**：入历史与打点阈值（`history/listen-threshold`）、心动模式缓冲推进（`recommendations/heartbeat-queue`）、WebDAV 加法合并与歌单归类（`webdav-merge`：`isWebdavLocalPlaylistRef` 判 `userList` 的一条记录是本地歌单还是云端歌单引用，`scrubSyncedCloudPlaylistRefs` 清理历史上被误物化成「本地歌单」的云端引用）与同步拒绝的错误层级（`webdav-sync-error`：`CloudSyncRefusalError` / `CloudDataStaleError`）。同步服务与设置页一律按类型判断该拒绝属于哪一种，不匹配错误文案。已下线来源的历史条目清理也在这一层（`removed-source`：`isRemovedSource` / `dropRemovedSourceEntries`，两端在读盘后与同步合并后调用，直接丢弃、不备份）。
 - **能不能连**：出站主机判定（`outbound-host`）、免 key 网关的客户端与响应映射（`mobile-api`）。
 
 音源与领域模型的契约（`sources/`）也在这里——`MusicSource` / `MusicInfo` / `Lyric` 的形状是两端共同的词汇表。

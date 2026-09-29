@@ -14,7 +14,7 @@
 |---|---|---|---|
 | 容器形态 | 侧边栏 240px + 内容区 + 底部播放栏的三段式窗口布局 | 底部 Tab（Home / Search / Library / Music）+ 抽屉式导航 | 🟢 平台原生 |
 | 主导航载体 | 常驻 `Sidebar.tsx` 240px 固定列 | `Drawer` > `NativeStack` > `BottomTabs` + `MaterialTopTabs`，抽屉默认关闭 front overlay 形态 | 🟢 平台原生 |
-| 曲库内嵌 | 独立页面（PlaylistsView / HistoryView / LocalMusicView / DownloadsView） | `LibraryScreen` 内嵌 Local / History / Downloads / Bili（Bili 条件登录） | 📱 移动独有 |
+| 曲库内嵌 | 独立页面（PlaylistsView / HistoryView / LocalMusicView / DownloadsView） | `LibraryScreen` 内嵌 Local / History / Downloads | 📱 移动独有 |
 | 迷你播放器 | 底部 `PlayerBar` 全宽常驻 | 迷你播放器嵌入底部 Tab 栏，`keyboardVisible` 时隐藏 | 📱 移动独有形态 |
 | 响应式 | 浏览器窗口缩放自适应 | 手机/平板竖横屏，Tab 栏 + 抽屉适配 | 🟢 平台原生 |
 
@@ -25,7 +25,7 @@
 | 维度 | 桌面端 | 移动端 | 差异性质 |
 |---|---|---|---|
 | 路由框架 | react-router v6 `BrowserRouter` | React Navigation v7 `Drawer` > `NativeStack` > `BottomTabs` + `MaterialTopTabs` | 🟢 平台原生 |
-| 路由数量 | 12 条路由：`/` `/search` `/local` `/playlists` `/downloads` `/history` `/playlist/:id` `/artist/:id` `/album/:id` `/daily` `/fm` `/settings` | 9 路由 `NativeStack`（设置等）+ BottomTabs 4 主 Tab + MaterialTopTabs（Library 内嵌 Local/History/Downloads/Bili） | 🟢 平台原生 |
+| 路由数量 | 12 条路由：`/` `/search` `/local` `/playlists` `/downloads` `/history` `/playlist/:id` `/artist/:id` `/album/:id` `/daily` `/fm` `/settings` | 9 路由 `NativeStack`（设置等）+ BottomTabs 4 主 Tab + MaterialTopTabs（Library 内嵌 Local/History/Downloads） | 🟢 平台原生 |
 | URL 同步 | `setSearchParams({q})` 写地址栏 | 无地址栏，用 deep link 初始关键词代替 | 💻 桌面独有 |
 | 顶部栏 | `Header.tsx` 搜索 / 联想 / 主题切换 / 前进后退 | `MobileHeader.tsx` 汉堡 / 搜索 / 联想 / 主题切换 | 🟢 平台原生 |
 | 导航栈修正 | 无（浏览器历史天然正确） | 栈形态修正器 `fixup`：mount + 450ms 各跑一次 `CommonActions.reset` 强制修正"打开 B 后退回 A"的残留页 bug | 📱 移动独有 |
@@ -97,7 +97,6 @@
 | 原生缓存 | 浏览器 HTTP 缓存 | Glide 原生缓存 | 📱 移动独有 |
 | 协议处理 | 无特殊处理 | http → https 转换 | 📱 移动独有 |
 | 缩略图 | 无 | `resizeCoverUrl` 缩略图按需加载 | 📱 移动独有 |
-| B 站封面 | 无特殊处理 | B 站 Referer-bypass，RNFS 预下载 + 2 重试 URL 变异 | 📱 移动独有 |
 
 ---
 
@@ -162,7 +161,7 @@
 | 歌词渲染 | 🟢 + 📱 多 | 桌面纯 CSS 渐变 vs 移动动态行高 + 累积偏移 + 相邻平滑/跨行即时 + 3s 暂停 + 捏合 |
 | 可视化技术 | 🟢 双端均无 analyser | 桌面 CSS 变量驱动 vs 移动 Animated useNativeDriver |
 | 列表渲染 | 🟢 + 📱 独有策略 | 普通 vs 增量挂载 60+100/批 |
-| 图片 | 🟢 + 📱 多 | 普通 img vs CachedImage Glide + http→https + resizeCoverUrl + B站 Referer-bypass |
+| 图片 | 🟢 + 📱 多 | 普通 img vs CachedImage Glide + http→https + resizeCoverUrl |
 | 设置 UI | 🟢 + 📱 修正器 | 单页 sticky 168px + 9 子视图 vs 9 路由 NativeStack + 栈形态修正器 |
 | 主题系统 | 🟢 + 💻 玻璃 | --af-* CSS 变量 + 玻璃 vs tokens + controlTokens + getThemePalette + 5 原语 |
 | 全屏 | 🟢 + 💻 所有权 | useNativeFullscreen 所有权追踪 vs modal presentation |

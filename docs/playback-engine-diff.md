@@ -175,7 +175,7 @@
 ### 5.2 桌面 — `playbackResolver.ts`
 
 - **总预算 12s**（`PLAYBACK_RESOLVE_TOTAL_BUDGET_MS = 12_000`）：竞速已压缩最坏等待，但个别网关/音源脚本卡死仍需兜底；超时抛错走错误分支，不再无限等。
-- **参赛通道 = 内置网关 + 自定义音源双 backend**；wy/tx 官方直连 provider 不参与竞速，只在两处出现：B 站歌源的独立解析分支（无音质分层、接口链路慢，提前单独解析不进竞速），以及竞速全败后的最后兜底（wy/tx 官方直连 provider，网关整条挂掉时不至于整首失败）。
+- **参赛通道 = 内置网关 + 自定义音源双 backend**；wy/tx 官方直连 provider 不参与竞速，只作为竞速全败后的最后兜底（网关整条挂掉时不至于整首失败）。
 - 每轮把该轮全部档位同时交给两个 backend，取音质最高的成功结果；该轮全败才进下一轮。
 - **胜出 URL 过 `streamProbe`**：1 字节 Range（`bytes=0-0`）探活，5s 超时；优先从 Content-Range 取完整字节数，分片响应不回退 Content-Length（1 字节分片若被当成完整大小，所有歌曲都会被误判试听）。探活失败或 `isPreviewStream` 判为试听 → 本轮作废，降档重试。
 
@@ -249,12 +249,11 @@
 | 层 | 目录 | 策略 |
 |---|---|---|
 | song-audio | `app_cache_dir/song-audio/` | LRU，上限 **2GiB**（`SONG_AUDIO_CACHE_MAX_BYTES`），超限按 mtime 从最旧删 |
-| bili-audio | `app_cache_dir/bili-audio/` | 独立目录，无 LRU 上限 |
 | song-covers | `app_cache_dir/song-covers/` | 封面缓存，无独立上限 |
 
 - **`lookup_cached_media` 纯探测无网络**：按 key + 扩展名白名单（audio: mp3/flac/m4a/...；cover: jpg/png/webp/...）在目录下找文件，找到返回路径，不发任何网络请求。
 - 音频下载经 Rust `reqwest`（挂 SSRF guarded client）。
-- `enforce_song_audio_cache_limit` 只管 song-audio，不碰 bili-audio/song-covers。
+- `enforce_song_audio_cache_limit` 只管 song-audio，不碰 song-covers。
 
 ### 9.2 移动 — 三层
 
@@ -264,7 +263,7 @@
 |---|---|---|
 | 内存预取 | JS Map | 10min TTL |
 | 磁盘 LRU | `RNFS.CachesDirectoryPath/auralflow/{audio,covers,lyrics}` | 上限 **100MB**，超限按 mtime LRU 删；封面/音频 immutable（URL 不变永不过期），歌词 30 天过期 |
-| AsyncStorage URL 缓存 | `auralflow:playback-url-cache:v2` | TTL：普通 6h / B站 30min / 本地 1 年；上限 500 条；带版本号 v2 |
+| AsyncStorage URL 缓存 | `auralflow:playback-url-cache:v2` | TTL：普通 6h / 本地 1 年；上限 500 条；带版本号 v2 |
 
 - `getCachedPlaybackUrl` 按音质降级链 + 多源变体（`variants`）查询，命中即返回（含 headers）。
 - `saveCachedPlaybackUrl` 双键写入（歌曲主键 + 解析真实源），扩大命中面。
@@ -276,7 +275,7 @@
 - **移动：AsyncStorage `auralflow:playback-snapshot:v1`**。保存触发：暂停（含快照清空）立即保存；结构性变化（currentSong/queue/currentIndex/shuffleHistory/模式/倍速/音量/FM 上下文）与进度（每跨过 10s 边界记一次）走 1.5s debounce（`SAVE_DEBOUNCE_MS`）；切后台时立即补存一次。
 - 恢复只还原队列/当前曲/模式/音量等，不自动播放；FM 上下文（`personalFm` 的 buffer）无法离线恢复，退化为 `queue`；**先恢复完再挂订阅**，避免恢复期间的启动写入（如音量恢复）把未恢复的默认状态覆盖到磁盘快照。
 
-**差异本质**：桌面音频缓存大（2GiB）且有独立 bili-audio 目录，移动端受存储约束只给 100MB；桌面 URL 缓存走 Tauri library（`persistentCache.ts`），移动端用 AsyncStorage；移动端多了内存预取层（10min）作为磁盘与网络之间的快层；移动端还持久化播放快照供重启恢复，桌面则完全没有进度持久化。
+**差异本质**：桌面音频缓存大（2GiB），移动端受存储约束只给 100MB；桌面 URL 缓存走 Tauri library（`persistentCache.ts`），移动端用 AsyncStorage；移动端多了内存预取层（10min）作为磁盘与网络之间的快层；移动端还持久化播放快照供重启恢复，桌面则完全没有进度持久化。
 
 ---
 

@@ -11,7 +11,7 @@ services/
 │             #       immersiveKeyboard playbackResolver playbackSnapshot playbackSnapshotModel
 │             #       playModeControl prefetchModel prefetchService streamProbe types
 ├── search/   # 搜索（5）：含 searchSuggestions（本地历史 + 网易云 suggest）
-├── sources/  # 源（6）：wyProvider txProvider biliProvider builtin customSource
+├── sources/  # 源：wyProvider txProvider（registry 注册；builtin / customSource backend 见 playback/）
 └── *.ts      # 22 个顶层服务
 ```
 
@@ -23,7 +23,6 @@ services/
 | 自定义源运行时 | `customSourceRuntime.ts` | 776 | LX 脚本 `new Function` 参数遮蔽（`fakeWindow = Object.create(null)` 无原型；**非安全边界**：可经 constructor 链取回真实 globalThis，静态正则黑名单已移除，真正隔离未实施）+ 宿主全局传 undefined + HTTP 代理 `outboundRequest`（Rust SSRF）+ LRU(8) `key=id::djb2a-hash` + `parseDesktopUserApiInfo` 头部 + `testCustomSourceDeep` 两阶段 init + `musicUrl`（wy 2034742057 林俊杰《江南》 / tx 0039MnYb0qxYhV）20s |
 | WebDAV 同步 | `webdavSyncService.ts` | 629 | 同步锁 `withSyncLock` + `lastModified` 冲突 `assertCloudNotStale` + 下载 merge / 上传 overwrite + localStorage 备份 + `/AuralFlow/` 写 / `/LX_Music/` 读回退 |
 | 网易账号 | `wyAccountService.ts` | 601 | weapi/eapi 双通道 + QR 登录（type=3 unikey → SVG 二维码 → 轮询 800/801/802/803）+ 歌单 CRUD + 日推/FM + `extractSetCookie`（`Headers.getSetCookie`） |
-| B 站账号 | `biliAccountService.ts` | 362 | WBI 签名 + 收藏夹 + DASH 音频 |
 | 歌词 | `lyricsService.ts` | 345 | 多源嵌入式 → provider `getLyric` → 搜索匹配 + `scoreLyricContentQuality` + 翻译合并 |
 | 二维码 | `qrCode.ts` | 237 | SVG 二维码生成 |
 | 私人 FM 队列 | `personalFmQueue.ts` | 223 | 私人 FM 队列 + dislike → trash |

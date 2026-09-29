@@ -32,7 +32,6 @@
 | **WebDAV 同步** | 前端 `withSyncLock` | `webdavSyncService`（约 1000 行；远端根 `/AuralFlow/`，读回退旧 `/LX_Music/`，上传只写新路径）+ `webdavStore` |
 | **账号** | Cookie + 二维码登录 | Cookie 粘贴登录（`NeteaseAccountCard`：剪贴板一键读取、掩码摘要、MUSIC_U 检测；无二维码扫码）+ 原生 SecureStorageModule（Keystore） |
 | **主题** | `themeStore`（亮 / 暗 / 跟随系统） | `themeStore`（同） |
-| **B 站** | biliService + biliAccountStore | `biliService`（约 800 行）+ `biliAccountStore`（LRU 收藏夹） |
 | **自定义音源** | 前端运行时 | `customSourceRuntime` + `CustomSourceScreen` |
 | **睡眠定时器** | `sleepTimerStore` | `sleepTimerStore` |
 | **沉浸式歌词** | `ImmersiveLyricsOverlay`（CSS） | `ImmersiveLyricsScreen`（Modal + PagerView） |

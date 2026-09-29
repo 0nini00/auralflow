@@ -27,7 +27,7 @@ tags: [auralflow, desktop]
 
 两条硬规则：**只有真的发现新版本才弹窗**——静默检查失败不打扰用户（网络抖动很常见），失败原因只在设置页显示；**安装是终态**——Rust 侧一调起安装器就 `exit(0)`，装完由安装器重新拉起应用，所以「安装中」必须由前端自己画出来，不能指望 `downloadAndInstall` 的 Promise 返回（细节见 `desktop-native`）。
 
-**路由**：BrowserRouter v6，14 个子路由（首页 index / search / library→收藏歌单重定向 / local / playlists / bili-collections / downloads / history / playlist/:id / artist/:id / album/:id / daily / fm / settings），外加通配重定向到首页。
+**路由**：BrowserRouter v6，13 个子路由（首页 index / search / library→收藏歌单重定向 / local / playlists / downloads / history / playlist/:id / artist/:id / album/:id / daily / fm / settings），外加通配重定向到首页。
 
 ## 边界
 
@@ -43,4 +43,4 @@ tags: [auralflow, desktop]
 
 **错误不得静默吞掉（本层的硬规则）**：`services` 里的异步失败要么显式抛出、要么转化成调用方能显示的状态，不允许空 `catch {}`。两类要分开处理：**操作失败**（下载、同步、取链）→ 抛错或让任务落到 failed 态；**后处理失败**（写 ID3 标签 / 嵌封面 / 写内联歌词与旁挂 `.lrc`）→ 音频文件此时已完整落盘，任务仍算 `completed`，但必须把原因作为 `warning` 回报到 `DownloadTask` 上并在下载页显示（`downloadService.enhanceDownloadedFile` 因此返回 `string[]`，而不是把下载判为失败——那会让用户以为整首歌没下下来）。刻意静默的只有纯清理动作：`stopDownload`、临时文件 unlink、批量删除。
 
-**持久化归属**（哪些状态会活过重启）：`playlist` / `favorites` / `history` / `library` / `customSources` 五类经 `stores/libraryPersistence.ts` 防抖落盘到 `library/*.json`（一次性 localStorage → Rust 迁移）；`downloadStore` 与 `themeStore` 用 zustand `persist`；`playerStore`、账号 store、`discoveryStore`、`sleepTimerStore` 仅内存态——Cookie 等敏感数据刻意不进 Zustand 持久化，由 settings 侧与 Rust 统一管理。
+**持久化归属**（哪些状态会活过重启）：`playlist` / `favorites` / `history` / `library` / `customSources` 五类经 `stores/libraryPersistence.ts` 防抖落盘到 `library/*.json`（一次性 localStorage → Rust 迁移）；`downloadStore` 与 `themeStore` 用 zustand `persist`；`playerStore`、账号 store、`discoveryStore`、`sleepTimerStore` 仅内存态——Cookie 等敏感数据刻意不进 Zustand 持久化，由 settings 侧与 Rust 统一管理。已下线来源的历史条目由 `core` 的 `dropRemovedSourceEntries` 在读盘后与同步合并后清理，直接丢弃不备份。

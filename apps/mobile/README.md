@@ -25,14 +25,14 @@ AuralFlow 的 Android 端，包名 `@auralflow/mobile`，基于 **React Native 0
 
 ## 功能列表
 
-- **发现与搜索**：首页信息流（推荐歌单 / 新歌 / 新碟 / 排行榜 / MV）、搜索（网易云 + QQ 音乐多源合并、联想、最近搜索、去重，歌单 / 歌手 / 专辑分类）、每日推荐、私人 FM（下一首预取，切歌秒开）、排行榜、歌单广场、B站合集（需登录 B站）。
+- **发现与搜索**：首页信息流（推荐歌单 / 新歌 / 新碟 / 排行榜 / MV）、搜索（网易云 + QQ 音乐多源合并、联想、最近搜索、去重，歌单 / 歌手 / 专辑分类）、每日推荐、私人 FM（下一首预取，切歌秒开）、排行榜、歌单广场。
 - **播放**：全屏沉浸播放器（封面页 / 歌词页 / 控制栏 / 更多菜单 / 评论 / 音质切换 / 睡眠定时）、迷你播放器（底部导航上方，封面 / 歌名 / 歌手 / 迷你歌词）、播放队列、下一首 / 稍后播放、播放模式（顺序 / 列表 / 单曲 / 随机去重）、倍速 0.5–2.0（原生 setRate，无独立变调）、音质切换（带原进度开播）、暂停续播（恢复快照进度 `playFromQueue(index, position)`）、通知栏控制、后台播放、系统媒体键 / 锁屏控制。
 - **歌词**：滚动跟随（用户滚动暂停 3 秒后恢复）、行级高亮（纯色 + 缩放动画；逐字卡拉 OK 为桌面端能力，数据层经 `@lx/core` 仍支持 YRC / QRC / KRC 解析）、译文、简繁转换；字号捏合缩放（歌词设置共 17 项，设置 UI 仅暴露译文 / 双色 / 字体 / 预览 4 项，其余用默认值）；Android 悬浮歌词窗（可拖动、可锁定、随播放滚动，显示当前行 + 下一行整行）；浮窗歌词。
 - **本地音乐**：MediaStore 扫描 + 文件选择导入；歌词内嵌（USLT）优先，回退同名 `.lrc` 旁挂（≤512KB）；封面 albumart URI 优先，回退 `folder.jpg` / `cover.jpg` sidecar；可写回标题 / 歌手 / 专辑 / 封面 / 歌词标签（Android 13+ `RecoverableSecurityException` 触发系统授权）；下载入库歌曲（`dl-` 前缀）不写回 MediaStore。
-- **缓存与下载**：封面 / 歌词 / 音频三级缓存（MD5 命名、音频为 source-id-quality.audio；immutable + LRU 100MB 按 mtime 淘汰（封面 / 音频），歌词 30 天过期；封面 / 歌词缓存于应用缓存目录，下载文件存持久沙盒目录）；串行下载队列（音质选择 128 / 192 / 320 / FLAC / Hi-Res、进度 / 速度、暂停 / 取消——暂停即删半成品、整曲重下，无断点续传；MP3 ≤25MB 手写 ID3v2.4 嵌标签（标题 / 歌手 / 专辑 / 封面 / USLT 歌词）+ 旁挂 `.lrc`；B站 DASH m4s 落盘为 `.m4a`）。
+- **缓存与下载**：封面 / 歌词 / 音频三级缓存（MD5 命名、音频为 source-id-quality.audio；immutable + LRU 100MB 按 mtime 淘汰（封面 / 音频），歌词 30 天过期；封面 / 歌词缓存于应用缓存目录，下载文件存持久沙盒目录）；串行下载队列（音质选择 128 / 192 / 320 / FLAC / Hi-Res、进度 / 速度、暂停 / 取消——暂停即删半成品、整曲重下，无断点续传；MP3 ≤25MB 手写 ID3v2.4 嵌标签（标题 / 歌手 / 专辑 / 封面 / USLT 歌词）+ 旁挂 `.lrc`）。
 - **数据**：播放历史分时间记录（今天 / 昨天 / 日期），31 天滚动；本地歌单、我喜欢（收藏）、下载管理；WebDAV 同步（与桌面端 / lx 互通：歌单收藏历史 + 自定义音源；远端根 `/AuralFlow/`，读回退旧 `/LX_Music/`，上传只写新路径；playlists.json v3 + user_apis.json v2；防较旧云端覆盖：lastModified 拦截 + 强制下载 + 本地备份；支持启动自动同步，先合并下载再上传）。
-- **账号与服务**：网易云（仅 Cookie 粘贴登录：剪贴板一键读取、掩码摘要显示、MUSIC_U 检测、weapi 校验，无二维码扫码）、B站（Cookie 粘贴登录）、QQ 音乐（无 cookie 直连）；Cookie 存原生 SecureStorageModule（Keystore AES-256-GCM，旧 AsyncStorage 自动迁移）。详见 [ACCOUNT_LOGIN.md](./ACCOUNT_LOGIN.md)。
-- **其它**：主题（动态 token）、B站视频 / MV、首页 feed、通知栏控制、浮窗歌词、deep link、分享、自动检查自定义源更新。
+- **账号与服务**：网易云（仅 Cookie 粘贴登录：剪贴板一键读取、掩码摘要显示、MUSIC_U 检测、weapi 校验，无二维码扫码）、QQ 音乐（无 cookie 直连）；Cookie 存原生 SecureStorageModule（Keystore AES-256-GCM，旧 AsyncStorage 自动迁移）。详见 [ACCOUNT_LOGIN.md](./ACCOUNT_LOGIN.md)。
+- **其它**：主题（动态 token）、MV、首页 feed、通知栏控制、浮窗歌词、deep link、分享、自动检查自定义源更新。
 
 ## 目录结构
 
@@ -49,8 +49,8 @@ apps/mobile/
     ├── screens/                 # 页面（37，含 immersive/ 全屏播放器 9、settings/ 设置二级页 8）
     │   ├── immersive/           # 全屏播放器子组件（封面页 / 控制栏 / 顶栏 / 更多菜单 / 传输栏 …）
     │   └── settings/            # 账号 / 播放 / 歌词 / 外观 / 音源 / 同步 / 数据 / 关于
-    ├── services/                # 服务层（95）：播放、下载、缓存、WebDAV、本地音乐、音源、历史、B站、账号…
-    ├── stores/                  # Zustand 状态层（15）：player / account / biliAccount / playlist / history …
+    ├── services/                # 服务层（108）：播放、下载、缓存、WebDAV、本地音乐、音源、历史、账号…
+    ├── stores/                  # Zustand 状态层（16）：player / account / playlist / history …
     ├── navigation/              # 根抽屉 / 底部 Tab / 设置栈（8）
     ├── player/
     │   └── playbackService.ts   # TrackPlayer 事件处理

@@ -1,6 +1,6 @@
 # AuralFlow 桌面端 vs 移动端 — 功能差异全景
 
-> **目的**：以 2026-07-11 双端源码取证后的当前状态为唯一真相源，逐功能模块给出桌面端与移动端的能力归类（🟢 共享 / 💻 桌面独有 / 📱 移动独有 / ⬆️ 移动反超）、实现方式与差异说明，作为架构对齐与差异取舍的权威依据。覆盖搜索 / 歌单 / 日推 / 私人 FM / 播放 / 歌词 / 本地音乐 / 缓存 / 下载 / 历史 / WebDAV / 账号 / 主题 / B 站 / MV / 首页 feed / 通知栏 / 浮窗歌词 / 托盘 / 热键 / 全屏 / 分享 / Deep Link 等全部功能模块。
+> **目的**：以 2026-07-11 双端源码取证后的当前状态为唯一真相源，逐功能模块给出桌面端与移动端的能力归类（🟢 共享 / 💻 桌面独有 / 📱 移动独有 / ⬆️ 移动反超）、实现方式与差异说明，作为架构对齐与差异取舍的权威依据。覆盖搜索 / 歌单 / 日推 / 私人 FM / 播放 / 歌词 / 本地音乐 / 缓存 / 下载 / 历史 / WebDAV / 账号 / 主题 / MV / 首页 feed / 通知栏 / 浮窗歌词 / 托盘 / 热键 / 全屏 / 分享 / Deep Link 等全部功能模块。
 >
 > **方法**：双端源码逐文件取证，已剔除 07-10 `playback-engine-diff.md` 中的误判（移动端实际具备 `playRequestId`+`inflightPlayRequests` 竞态保护与三层缓存），差异归类只标功能状态、不纠缠底层实现差异（实现差异见 `desktop-mobile-code-diff-2026-07-11.md`）。
 >
@@ -31,7 +31,6 @@
 | 竞态保护 | `searchRequestSeqRef` 自增序列号 | `searchRequestSeqRef` 自增序列号+`requestId` 早退 | 🟢 共享（07-10 误判已修正） |
 | URL/地址栏同步 | `setSearchParams({q})` 写地址栏 | 无地址栏，用 deepLink 初始关键词代替 | 💻 桌面独有（平台差异） |
 | 综合视图布局 | 突出最佳歌手/专辑/歌单+歌曲列表 | summaryGrid 数字卡片+分区预览 | 🟢 共享（布局差异合理） |
-| bili 视频源 | 无（仅 wy+tx） | 无搜索入口（`searchBiliVideos` 类型存在但 UI 恒传 all） | 🟢 共享（双端均无 bili 搜索） |
 
 ---
 
@@ -118,10 +117,10 @@
 
 | 功能模块 | 桌面端 | 移动端 | 差异性质 |
 |---|---|---|---|
-| URL 缓存 | `persistentCache.ts` playbackUrl（其他 6h/bili 30min/local 1y MAX500 条） | AsyncStorage URL 缓存 6h/30min/1yr | 🟢 共享 |
+| URL 缓存 | `persistentCache.ts` playbackUrl（其他 6h/local 1y MAX500 条） | AsyncStorage URL 缓存 6h/1yr | 🟢 共享 |
 | 歌词缓存 | 内存+持久化 | `cacheLyrics` 磁盘层，30 天过期 | 🟢 共享 |
 | 音频文件缓存 | Rust 三层目录：song-audio 2GiB 常量 LRU 按 mtime（经 Rust 桥落盘+`convertFileSrc`） | 磁盘 LRU 100MB（索引 AsyncStorage+对账）+内存 10min | 🟢 共享（07-10 误判已修正） |
-| 封面文件缓存 | `mediaCache.ts` `cacheRemoteImage` 落盘（song-covers/bili-audio 不限量） | `cacheCover` `CachedImage`(@d11/react-native-fast-image+Glide) | 🟢 共享（07-10 误判已修正） |
+| 封面文件缓存 | `mediaCache.ts` `cacheRemoteImage` 落盘（song-covers 不限量） | `cacheCover` `CachedImage`(@d11/react-native-fast-image+Glide) | 🟢 共享（07-10 误判已修正） |
 | 缓存统计 | `getSongCacheStats` audioCacheSize/coverCacheSize | 分类统计 | 🟢 共享 |
 | 缓存清理 | 分类清理+全部清理 | 分类清理+全部清理 | 🟢 共享 |
 | 后台下载音频 | 无 | `playerService` 解析成功后后台下载音频到缓存（仅 wy/tx） | 📱 移动独有 |
@@ -172,9 +171,6 @@
 |---|---|---|---|
 | 网易云登录 | 扫码+Cookie 粘贴双通道：`qrCode.ts` 自研二维码生成+`wyAccountService.ts` weapi/eapi QR 轮询（800 过期/801 待扫/802 已扫/803 成功）+`WyCookieLoginModal` Cookie 粘贴 | 仅 Cookie 粘贴（`NeteaseAccountCard` 剪贴板一键读取+掩码显示+MUSIC_U 检测；无扫码） | 🟢 共享（登录方式不同：桌面扫码+贴 Cookie/移动仅贴 Cookie） |
 | 网易云 Cookie | Cookie | NetEase cookie | 🟢 共享 |
-| B 站登录 | `biliAccountService` Cookie+`biliCookieRefreshService` refresh_token 自动续期（4 步 RSA-OAEP correspondPath） | `biliService` Cookie 粘贴（无自动续期） | 🟢 共享（桌面多续期） |
-| B 站收藏合集 | `getBiliCollectionSongs` 三路回退：收藏夹→合集→系列 | 同 `getBiliCollectionSongs` 三路回退 | 🟢 共享 |
-| B 站独立详情页 | 仅合集收藏 | `BiliCollectionDetailScreen` 独立详情页 | ⬆️ 移动反超 |
 | QQ 登录 | Cookie（tx-meta strMediaMid/albumMid/songId） | QQ cookieless | 🟢 共享（移动无 Cookie） |
 | 我的歌单 | `wyAccountStore` setSubscribed | `playlistStore.setWyPlaylistSubscribed` | 🟢 共享 |
 | 收藏 | `favoritesStore` 喜欢列表 | `favoritesStore`/`playlistStore.likedSongs` | 🟢 共享 |
@@ -194,19 +190,7 @@
 
 ---
 
-## 13. B 站
-
-| 功能模块 | 桌面端 | 移动端 | 差异性质 |
-|---|---|---|---|
-| B 站视频搜索 | 无 | 无入口（类型存在但 UI 恒传 all） | 🟢 共享（均无 bili 搜索） |
-| 取流播放 | 取链后 `biliCacheAudio` 落盘经 asset 协议播放（音频缓存 bili-audio 目录） | URL+Referer 直放不缓存 | 💻 桌面独有（音频落盘缓存） |
-| WBI 签名 | 算法逐字节同源 | 同左（两份独立复制维护） | 🟢 共享（双份复制） |
-| 合集收藏同步 | `biliAccountStore` BILI_COLLECTION_VISIBILITY | `biliAccountStore`+`biliCollectionVisibilityModel` | 🟢 共享 |
-| 独立详情页 | 无独立详情页 | `BiliCollectionDetailScreen` | ⬆️ 移动反超 |
-
----
-
-## 14. MV
+## 13. MV
 
 | 功能模块 | 桌面端 | 移动端 | 差异性质 |
 |---|---|---|---|
@@ -214,7 +198,7 @@
 
 ---
 
-## 15. 首页 Feed
+## 14. 首页 Feed
 
 | 功能模块 | 桌面端 | 移动端 | 差异性质 |
 |---|---|---|---|
@@ -223,7 +207,7 @@
 
 ---
 
-## 16. 通知栏 / 后台播放
+## 15. 通知栏 / 后台播放
 
 | 功能模块 | 桌面端 | 移动端 | 差异性质 |
 |---|---|---|---|
@@ -234,7 +218,7 @@
 
 ---
 
-## 17. 浮窗歌词
+## 16. 浮窗歌词
 
 | 功能模块 | 桌面端 | 移动端 | 差异性质 |
 |---|---|---|---|
@@ -245,7 +229,7 @@
 
 ---
 
-## 18. 托盘 / 热键
+## 17. 托盘 / 热键
 
 | 功能模块 | 桌面端 | 移动端 | 差异性质 |
 |---|---|---|---|
@@ -254,7 +238,7 @@
 
 ---
 
-## 19. 全屏
+## 18. 全屏
 
 | 功能模块 | 桌面端 | 移动端 | 差异性质 |
 |---|---|---|---|
@@ -264,7 +248,7 @@
 
 ---
 
-## 20. 分享 / Deep Link
+## 19. 分享 / Deep Link
 
 | 功能模块 | 桌面端 | 移动端 | 差异性质 |
 |---|---|---|---|
@@ -275,7 +259,7 @@
 
 ---
 
-## 21. 设置系统
+## 20. 设置系统
 
 | 功能模块 | 桌面端 | 移动端 | 差异性质 |
 |---|---|---|---|
@@ -295,7 +279,7 @@
 
 ---
 
-## 22. 自定义音源
+## 21. 自定义音源
 
 | 功能模块 | 桌面端 | 移动端 | 差异性质 |
 |---|---|---|---|
@@ -310,7 +294,7 @@
 
 ---
 
-## 23. HTTP 层 / SSRF 守卫
+## 22. HTTP 层 / SSRF 守卫
 
 | 功能模块 | 桌面端 | 移动端 | 差异性质 |
 |---|---|---|---|
@@ -319,21 +303,21 @@
 
 ---
 
-## 24. 导航
+## 23. 导航
 
 | 功能模块 | 桌面端 | 移动端 | 差异性质 |
 |---|---|---|---|
 | 路由 | BrowserRouter v6 12 路由 | React Navigation v7 Drawer>NativeStack>BottomTabs+MaterialTopTabs | 🟢 共享（层不同，见代码差异文档） |
 | 常驻侧栏 | Sidebar 常驻 | 移动 Drawer 默认关闭 front overlay | 💻 桌面独有（平台差异） |
-| 曲库内嵌 | 独立页面 | Library 内嵌 Local/History/Downloads/Bili 条件登录 | 📱 移动独有 |
+| 曲库内嵌 | 独立页面 | Library 内嵌 Local/History/Downloads | 📱 移动独有 |
 
 ---
 
-## 25. 状态管理
+## 24. 状态管理
 
 | 功能模块 | 桌面端 | 移动端 | 差异性质 |
 |---|---|---|---|
-| Store 框架 | Zustand ~16 store（playerStore 899 行） | Zustand 15 store（playerStore 1004 行/playlistStore 656 行/downloadStore 411 行/customSourceStore 372 行 24h/historyStore 234 行 2000/31 天/biliAccountStore 299 行/homeFeedStore 463 行 600s TTL） | 🟢 共享（框架对齐，store 数量/分布不同） |
+| Store 框架 | Zustand ~16 store（playerStore 899 行） | Zustand 16 store（playerStore 1004 行/playlistStore 656 行/downloadStore 411 行/customSourceStore 372 行 24h/historyStore 234 行 2000/31 天/homeFeedStore 463 行 600s TTL） | 🟢 共享（框架对齐，store 数量/分布不同） |
 | tauri-bridge | 零逻辑全类型桥 | 无 | 💻 桌面独有 |
 | 窗口多路复用 | main/lyric/lyric-unlock 多路复用 | 无 | 💻 桌面独有 |
 
@@ -342,16 +326,16 @@
 ## 汇总：状态归类
 
 ### 🟢 已对齐（核心功能，两端可完成同样任务）
-搜索聚合/去重/竞态保护、歌单 CRUD、每日推荐、私人 FM、4 播放模式、淡入淡出、倍速、音效、5 级下载、ID3 嵌入、歌词解析/译文/行进度/多源匹配/偏移校准、URL+歌词+音频+封面缓存、历史管理、WebDAV 同步/合并、网易云/B 站登录与收藏、主题/强调色/背景图、沉浸歌词、自定义音源运行时、SSRF 守卫。
+搜索聚合/去重/竞态保护、歌单 CRUD、每日推荐、私人 FM、4 播放模式、淡入淡出、倍速、音效、5 级下载、ID3 嵌入、歌词解析/译文/行进度/多源匹配/偏移校准、URL+歌词+音频+封面缓存、历史管理、WebDAV 同步/合并、网易云登录与收藏、主题/强调色/背景图、沉浸歌词、自定义音源运行时、SSRF 守卫。
 
 ### ⬆️ 移动端反超桌面端
-音质播放中实时切换、队列管理 UI、B 站独立详情页、WebDAV 本地歌单同步+启动自动同步、应用内 APK 更新安装、沉浸控制条更丰富（音量/音质/海报）、歌词海报/旋转封面/下拉关闭/捏合缩放/简繁转换。
+音质播放中实时切换、队列管理 UI、WebDAV 本地歌单同步+启动自动同步、应用内 APK 更新安装、沉浸控制条更丰富（音量/音质/海报）、歌词海报/旋转封面/下拉关闭/捏合缩放/简繁转换。
 
 ### 📱 移动独有（移动场景驱动，不纳入桌面补齐）
 通知栏歌词、TrackPlayer 后台、锁屏控制、Deep Link、系统分享、MV、首页 feed、Android 浮窗歌词、自动检查自定义源、沙盒下载、SecureStorage、KeepAwake、PagerView 双页、静音间隙前台服务。
 
 ### 💻 桌面独有（平台特性驱动，不纳入移动补齐）
-浮动歌词窗口/锁定解锁、系统托盘、窗口内快捷键、Rust 文件操作、可变下载目录、光标特效、WebAudio EQ、无缝预加载（预读 URL+歌词+封面）、逐字卡拉OK 渲染、B 站音频落盘缓存、沉浸歌词字体、运行态测试 UI、常驻侧栏、窗口多路复用。
+浮动歌词窗口/锁定解锁、系统托盘、窗口内快捷键、Rust 文件操作、可变下载目录、光标特效、WebAudio EQ、无缝预加载（预读 URL+歌词+封面）、逐字卡拉OK 渲染、沉浸歌词字体、运行态测试 UI、常驻侧栏、窗口多路复用。
 
 ### 已修正的 07-10 误判（以本表为准）
 - ~~移动端无竞态保护~~ → 实际有 `playRequestId`+`inflightPlayRequests` 去重。
