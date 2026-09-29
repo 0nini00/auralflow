@@ -140,9 +140,11 @@ React Native 0.86 + React 19.2.3，面向 Android（minSdk 24）。
 
 **防「用云端覆盖更新本地」的守卫是 fail-closed 的**：`assertCloudNotStale` 在无法确认云端更新时间（`lastModified` 缺失 / 无法解析）时中止，而不是静默放行；`sources` 因下载是整体替换（`replaceAll`），在本地缺少同步标记时同样中止；`playlists` 因下载是加法合并、不丢本地实体，此时放行以避免每次全新安装都被拦。云端解析出 0 项音源一律中止（否则会用空文件清空本地音源）。其余防线：本地备份 + PUT 成功后才写 meta。
 
+**歌单归类与残留清理**：同步文件 `userList` 里的一条记录是本地歌单还是云端歌单引用，由 `core` 的 `isWebdavLocalPlaylistRef` 判定（纯数字 id ⇒ 云端，即便是被旧版污染成 `source:"local"` 的条目）；历史上已被误物化成「本地歌单」的云端引用由 `scrubSyncedCloudPlaylistRefs` 清理，两端在读盘后与合并后各跑一次——0 首的剔除、有歌曲的保留并告警，且**先备份再丢弃**。
+
 **拒绝分两种，靠错误类型而不是文案区分**：`@lx/core` 的 `CloudSyncRefusalError`（设置页据此提示「强制下载」）与派生的 `CloudDataStaleError`（云端可证明更旧，本地为权威）。只有后者可以被自动同步吞掉并改为上传本地收敛；「无法判定云端新旧」等拒绝必须上抛——吞掉它们就变成覆盖式上传，删掉只存在于云端的实体。双端启动均自动同步（桌面由 `webdavAutoSyncPlaylists` 开关控制，移动端同名开关），自动同步失败只记 console，不呈现给用户。
 
-已知风险：WebDAV 密码桌面明文存 settings JSON、移动明文存 AsyncStorage（凭据加密目前仅覆盖网易云 Cookie——桌面 DPAPI、移动 Keystore AES-256-GCM）。
+已知风险：WebDAV 密码的落盘保护两端不一致——**桌面端**已由 `secret_store` 按 DPAPI 加密（`DPAPI:v1:<base64>`，直接读设置 JSON 只拿到密文）；**移动端**存在 `auralflow.mobile.webdavConfig`，`apps/mobile/src` 的 `saveWebdavConfig` 一带没有加密层（Android 原生层是否另行接管**未核实**）。
 
 ### 7. 播放地址解析链（双端）
 

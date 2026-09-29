@@ -5,6 +5,7 @@ import {
   isWebdavLocalPlaylistRef,
   mergeWebdavLocalPlaylists,
   mergeWebdavSongs,
+  scrubSyncedCloudPlaylistRefs,
   type WdLocalPlaylist,
 } from "./webdav-merge";
 import type { MusicInfo } from "./sources/types";
@@ -90,5 +91,82 @@ describe("mergeWebdavLocalPlaylists", () => {
   it("mergeWebdavSongs 按 source:id 去重且保持首次出现顺序", () => {
     const merged = mergeWebdavSongs([song("wy", "1"), song("tx", "1")], [song("wy", "1"), song("wy", "2")]);
     expect(merged.map((s) => `${s.source}:${s.id}`)).toEqual(["wy:1", "tx:1", "wy:2"]);
+  });
+});
+
+/**
+ * 清理被误物化的云端歌单引用。
+ *
+ * 背景：旧版移动端的归类逻辑是 `source === "local" ⇒ 本地`（不看 id），而旧版桌面端
+ * 又把云端歌单引用以 `source: "local"` + 纯数字 id 上传，于是这些引用被物化成本地歌单
+ * 并持久化。归类修好之后，**已落盘的那批不会自己消失**，也没有任何清理路径 ——
+ * 这个函数就是那道缺失的清理。
+ */
+describe("scrubSyncedCloudPlaylistRefs", () => {
+  const trueLocal = {
+    id: "playlist_1720000000000_ab12cd",
+    name: "我自己的精选",
+    songs: [song("wy", "1")],
+  };
+  const pollutedRef = { id: "889957174", name: "温水-o喜欢的音乐", songs: [] as MusicInfo[] };
+  const pollutedRefWithSongs = { id: "17853696222", name: "周杰伦", songs: [song("wy", "2")] };
+
+  it("剔除被旧版逻辑物化的云端歌单引用（纯数字 id + 0 首）", () => {
+    const { kept, dropped, suspicious } = scrubSyncedCloudPlaylistRefs([
+      trueLocal,
+      pollutedRef,
+      pollutedRefWithSongs,
+    ]);
+
+    expect(dropped.map((item) => item.id)).toEqual(["889957174"]);
+    expect(kept.map((item) => item.id)).toEqual([
+      "playlist_1720000000000_ab12cd",
+      "17853696222",
+    ]);
+    expect(kept).toContain(trueLocal);
+    expect(kept).toContain(pollutedRefWithSongs);
+  });
+
+  it("含歌曲的纯数字 id 条目保守保留并标记可疑（不静默删用户数据）", () => {
+    const { kept, dropped, suspicious } = scrubSyncedCloudPlaylistRefs([pollutedRefWithSongs]);
+
+    expect(dropped).toHaveLength(0);
+    expect(suspicious.map((item) => item.id)).toEqual(["17853696222"]);
+    expect(kept).toEqual([pollutedRefWithSongs]);
+  });
+
+  it("真本地歌单（桌面 playlist_ 与移动端 local- 两种前缀）一个都不动", () => {
+    const items = [
+      { id: "playlist_1720000000000_ab12cd", name: "来自桌面", songs: [] },
+      { id: "local-1758000000000-ab12cd34", name: "来自手机", songs: [] },
+    ];
+
+    const { kept, dropped, suspicious } = scrubSyncedCloudPlaylistRefs(items);
+
+    expect(kept).toEqual(items);
+    expect(dropped).toHaveLength(0);
+    expect(suspicious).toHaveLength(0);
+  });
+
+  it("已经干净时返回空结果，调用方可据此跳过备份与日志", () => {
+    const { kept, dropped, suspicious } = scrubSyncedCloudPlaylistRefs([trueLocal]);
+
+    expect(kept).toEqual([trueLocal]);
+    expect(dropped).toHaveLength(0);
+    expect(suspicious).toHaveLength(0);
+  });
+
+  it("空 / null / 缺字段输入不崩", () => {
+    expect(scrubSyncedCloudPlaylistRefs([])).toEqual({ kept: [], dropped: [], suspicious: [] });
+    expect(scrubSyncedCloudPlaylistRefs(null)).toEqual({ kept: [], dropped: [], suspicious: [] });
+    expect(scrubSyncedCloudPlaylistRefs(undefined).kept).toHaveLength(0);
+    // songs 字段缺失视为 0 首 ⇒ 纯数字 id 仍应被剔除
+    expect(scrubSyncedCloudPlaylistRefs([{ id: "123" }]).dropped).toHaveLength(1);
+  });
+
+  it("数组里的 null 条目不会被当成歌单保留", () => {
+    const { kept } = scrubSyncedCloudPlaylistRefs([null, { id: "playlist_x", name: "x", songs: [] }]);
+
+    expect(kept.map((item) => item.id)).toEqual(["playlist_x"]);
   });
 });

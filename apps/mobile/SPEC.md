@@ -37,3 +37,9 @@ tags: [auralflow, mobile]
 **约束强度**：移动端有 ESLint（`eslint.config.mjs`），但只开 `react-hooks/rules-of-hooks: error` 与 `react-hooks/exhaustive-deps: warn`，风格与未使用变量交给 `tsc --noEmit`。**没有测试脚本，也没有任何测试文件**——移动端逻辑的回归目前完全依赖真机手测，`docs/mobile-verification-baseline.md` 是这套手测的权威对照表。
 
 **下载后处理失败必须上报（与桌面端对称，本层硬规则）**：`services/downloadService.ts` 的 `enhanceDownloadedFile` 与 `writeSidecarLyrics` 返回 `string[]` 警告，经 `QueueTask.onWarnings` → `downloadSong` 第 4 个参数 → `store.addDownload(..., warnings)` → `DownloadedItem.warning` → `downloadListMetadataModel.warningLabel` → `DownloadList` 直接显示（移动端没有 hover，文本完整渲染、2 行截断，不塞进 tooltip）。两条约束：**不得抛错**——后处理失败时音频已完整落盘，抛错会让 store 走 catch 分支把下载判为失败；**「跳过」不算失败**——`isLocal` / 非 mp3 / 超过 25MB 三条提前返回都返回空数组。该文件另有 9 处空 `catch`（`stopDownload`、半成品 unlink、批量删除、质量偏好写入）是有意为之的尽力清理，不是缺陷，不要「顺手清理」它们。
+
+**本地歌单里的同步残留必须主动清理（本层的硬规则 + 一次性数据修复）**：`stores/playlistStore.ts` 在**读盘后**（`loadLocalPlaylists`）与**同步合并后**（`mergeFromSync`）各跑一次 `scrubSyncedCloudPlaylistRefs`（规则在 `core`，与桌面端共用，有单测）。
+
+成因：旧版移动端按 `source === "local"` 归类而**不看 id**，把旧版桌面端上传的云端歌单引用（`source:"local"` + 纯数字 id）物化成了本地歌单；归类守卫修好后**已落盘的那批不会自己消失**，而合并规则「不丢本地独有项」会让它们永久留存、每次同步再传回云端，与桌面端的清洗形成乒乓。移动端自建的本地歌单 id 恒为 `local-<ts>-<8位>`，所以**纯数字 id 的本地歌单只可能来自这条污染路径**。
+
+两条约束：**只剔除本地 0 首的纯数字 id 条目**——有歌曲的保守保留并告警，那可能是用户真在用的歌单，删掉就是静默销毁用户数据；**先备份再丢弃**（AsyncStorage `auralflow.mobile.localPlaylists.scrub-backup`），清理是数据修复，但不能表现为静默销毁。

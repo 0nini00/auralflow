@@ -5,6 +5,7 @@ import { getTxPlaylistDetail } from "../services/txPlaylistService";
 import {
   mergeWebdavCloudPlaylists,
   mergeWebdavLocalPlaylists,
+  scrubSyncedCloudPlaylistRefs,
   type MusicInfo,
 } from "@lx/core";
 import { useAccountStore } from "./accountStore";
@@ -89,6 +90,53 @@ const LOCAL_PLAYLISTS_KEY = "auralflow.mobile.localPlaylists";
 
 async function persistLocalPlaylists(localPlaylists: LocalPlaylist[]): Promise<void> {
   await AsyncStorage.setItem(LOCAL_PLAYLISTS_KEY, JSON.stringify(localPlaylists));
+}
+
+const LOCAL_PLAYLISTS_SCRUB_BACKUP_KEY = "auralflow.mobile.localPlaylists.scrub-backup";
+
+/** 把被清理掉的条目先备份再丢弃：这是数据修复，但绝不能表现为静默销毁。 */
+async function backupScrubbedLocalPlaylists(dropped: LocalPlaylist[]): Promise<void> {
+  try {
+    const raw = await AsyncStorage.getItem(LOCAL_PLAYLISTS_SCRUB_BACKUP_KEY);
+    const previous = raw ? ((JSON.parse(raw) as { dropped?: LocalPlaylist[] }).dropped ?? []) : [];
+    await AsyncStorage.setItem(
+      LOCAL_PLAYLISTS_SCRUB_BACKUP_KEY,
+      JSON.stringify({ savedAt: Date.now(), dropped: [...previous, ...dropped] }),
+    );
+  } catch (error) {
+    // 备份失败不阻断清理：被剔除的条目本地均为 0 首（纯引用），没有用户数据可丢
+    console.warn("[歌单] 备份被清理的本地歌单失败（清理仍会继续）", error);
+  }
+}
+
+/**
+ * 清理被误物化成本地歌单的云端歌单引用。
+ *
+ * 成因：旧版移动端按 `source === "local"` 归类（不看 id），而旧版桌面端把云端歌单引用以
+ * `source:"local"` + 纯数字 id 上传，于是这批引用被物化成本地歌单并落盘。归类守卫修好后
+ * **已落盘的那批不会自己消失**，合并又「不丢本地独有项」，于是永久留存并每次同步再传回
+ * 云端（与桌面端的清洗形成乒乓）。判定规则在 `@lx/core`，两端共用。
+ *
+ * 未发生清理时原样返回入参，调用方据此跳过多余的写盘。
+ */
+async function scrubLocalPlaylists(localPlaylists: LocalPlaylist[]): Promise<LocalPlaylist[]> {
+  const { kept, dropped, suspicious } = scrubSyncedCloudPlaylistRefs(localPlaylists);
+
+  if (suspicious.length > 0) {
+    console.warn(
+      "[歌单] 检测到疑似同步污染的本地歌单（纯数字 id 但含歌曲），已保留未删除：",
+      suspicious.map((playlist) => playlist.name),
+    );
+  }
+  if (dropped.length === 0) return localPlaylists;
+
+  await backupScrubbedLocalPlaylists(dropped);
+  console.warn(
+    `[歌单] 已清理 ${dropped.length} 个被 WebDAV 同步误导入的云端歌单（本地为 0 首）：` +
+      `${dropped.map((playlist) => playlist.name).join("、")}。` +
+      `原始数据已备份到 AsyncStorage:${LOCAL_PLAYLISTS_SCRUB_BACKUP_KEY}`,
+  );
+  return kept;
 }
 
 function parseLocalPlaylists(raw: string | null): LocalPlaylist[] {
@@ -276,7 +324,10 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
 
   loadLocalPlaylists: async () => {
     try {
-      const localPlaylists = await loadPersistedArray(LOCAL_PLAYLISTS_KEY, parseLocalPlaylists);
+      const loaded = await loadPersistedArray(LOCAL_PLAYLISTS_KEY, parseLocalPlaylists);
+      const localPlaylists = await scrubLocalPlaylists(loaded);
+      // 清理结果必须落盘：否则每次启动都要重做一遍，且脏数据会随下次同步再传回云端
+      if (localPlaylists !== loaded) await persistLocalPlaylists(localPlaylists);
       set({ localPlaylists, error: null });
     } catch (error) {
       const message = error instanceof Error ? error.message : "加载本地歌单失败";
@@ -518,11 +569,13 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
   mergeFromSync: async ({ cloudPlaylists, localPlaylists }) => {
     const current = get();
     const mergedLocal = mergeWebdavLocalPlaylists(current.localPlaylists, localPlaylists);
+    // 合并规则是「不丢本地独有项」，所以历史污染会一直活下来 —— 每次合并后都清一遍
+    const scrubbedLocal = await scrubLocalPlaylists(mergedLocal);
     const mergedCloud = mergeWebdavCloudPlaylists(current.playlists, cloudPlaylists);
-    await persistLocalPlaylists(mergedLocal);
+    await persistLocalPlaylists(scrubbedLocal);
     set({
       playlists: mergedCloud,
-      localPlaylists: mergedLocal,
+      localPlaylists: scrubbedLocal,
       error: null,
     });
   },

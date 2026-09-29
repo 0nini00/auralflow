@@ -149,6 +149,61 @@ export function isWebdavLocalPlaylistRef(entry: { id?: unknown; source?: unknown
   return !source || source === "local";
 }
 
+export interface PlaylistScrubResult<T> {
+  /** 保留的条目（顺序不变） */
+  kept: T[];
+  /** 剔除的云端歌单引用（调用方负责备份后再丢弃） */
+  dropped: T[];
+  /** 疑似污染但含歌曲、被保守保留的条目（调用方只告警，不删） */
+  suspicious: T[];
+}
+
+/**
+ * 清理被误物化成「本地歌单」的云端歌单引用。
+ *
+ * 历史成因：旧版移动端的归类是 `source === "local" ⇒ 本地`（不看 id），而旧版桌面端又把
+ * 云端歌单引用以 `source: "local"` + 纯数字 id 上传，于是这些引用被物化进本地歌单并落盘。
+ * 归类守卫（`isWebdavLocalPlaylistRef`）修好之后**只挡住新的**：已落盘的那批没有任何清理
+ * 路径 —— 读盘原样读回，合并又「不丢本地独有项」，于是永久留存并每次同步再传回云端，
+ * 与桌面端的清洗形成乒乓。这个函数就是那道缺失的清理，两端共用同一套规则。
+ *
+ * 规则：
+ * - `isWebdavLocalPlaylistRef` 判为本地 ⇒ 保留；
+ * - 否则（纯数字 id = 云端歌单特征）：**0 首** ⇒ 剔除；**有歌曲** ⇒ 保留并标为 `suspicious`，
+ *   因为那可能是用户真在用的歌单，删掉就是静默销毁用户数据。
+ *
+ * 纯函数：不备份、不打日志 —— 那是平台侧的事（桌面端写 localStorage，移动端写 AsyncStorage）。
+ */
+export function scrubSyncedCloudPlaylistRefs<
+  T extends { id?: unknown; source?: unknown; songs?: unknown[] },
+>(
+  playlists: readonly (T | null | undefined)[] | null | undefined,
+): PlaylistScrubResult<T> {
+  const kept: T[] = [];
+  const dropped: T[] = [];
+  const suspicious: T[] = [];
+
+  if (!Array.isArray(playlists) || playlists.length === 0) {
+    return { kept, dropped, suspicious };
+  }
+
+  for (const playlist of playlists) {
+    if (!playlist) continue;
+    if (isWebdavLocalPlaylistRef(playlist)) {
+      kept.push(playlist);
+      continue;
+    }
+    if ((playlist.songs?.length ?? 0) > 0) {
+      suspicious.push(playlist);
+      kept.push(playlist);
+      continue;
+    }
+    dropped.push(playlist);
+  }
+
+  return { kept, dropped, suspicious };
+}
+
 function toTrimmedString(value: unknown): string {
   if (typeof value === "string") return value.trim();
   if (typeof value === "number" && Number.isFinite(value)) return String(value);

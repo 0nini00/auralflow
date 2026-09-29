@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { isWebdavLocalPlaylistRef, mergeWebdavLocalPlaylists, type MusicInfo } from '@lx/core';
+import { mergeWebdavLocalPlaylists, scrubSyncedCloudPlaylistRefs, type MusicInfo } from '@lx/core';
 import { attachLibraryPersistence } from './libraryPersistence';
 
 export interface Playlist {
@@ -213,31 +213,15 @@ function backupDroppedPlaylists(dropped: Playlist[]): void {
 }
 
 /**
- * 剔除被 WebDAV 同步误导入的云端歌单（网易云 / QQ 歌单引用曾被物化成本地歌单，
- * 本地必然 0 首歌曲）。判定取最保守的组合：纯数字 id（云端歌单特征）且没有任何歌曲；
- * 带歌曲的数字 id 歌单不擅自删除，仅告警。被移除的数据先备份到 localStorage。
+ * 剔除被 WebDAV 同步误导入的云端歌单（网易云 / QQ 歌单引用曾被物化成本地歌单，本地必然 0 首歌曲）。
+ *
+ * 判定规则本身在 `@lx/core` 的 `scrubSyncedCloudPlaylistRefs`（两端共用同一套规则、有单测）；
+ * 这里只做平台侧的事：把被剔除的原始数据先备份到 localStorage，再告警。
  */
 export function scrubSyncedCloudPlaylists(playlists: Playlist[]): Playlist[] {
   if (!Array.isArray(playlists) || playlists.length === 0) return playlists ?? [];
 
-  const kept: Playlist[] = [];
-  const dropped: Playlist[] = [];
-  const suspicious: Playlist[] = [];
-
-  for (const playlist of playlists) {
-    if (!playlist) continue;
-    if (isWebdavLocalPlaylistRef(playlist)) {
-      kept.push(playlist);
-      continue;
-    }
-    // 纯数字 id ⇒ 云端歌单引用（网易云 / QQ）
-    if ((playlist.songs?.length ?? 0) > 0) {
-      suspicious.push(playlist);
-      kept.push(playlist);
-      continue;
-    }
-    dropped.push(playlist);
-  }
+  const { kept, dropped, suspicious } = scrubSyncedCloudPlaylistRefs(playlists);
 
   if (dropped.length === 0) {
     if (suspicious.length > 0) {
