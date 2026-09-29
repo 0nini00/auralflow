@@ -148,11 +148,15 @@ pnpm mobile:typecheck
 
 ### 生产打包
 
-构建桌面端 Windows 安装包（MSI 与便携版 EXE）：
+构建桌面端 Windows 安装包（NSIS 安装版 + 便携版 EXE）：
 
 ```bash
 pnpm desktop:tauri:build
 ```
+
+> 要**发布**而不只是构建，请用 `./desktop/build-release.ps1 -Publish`：它会注入更新签名私钥、
+> 生成应用内更新读取的 `latest.json` 清单，并把资产上传到 GitHub Release。只跑
+> `pnpm desktop:tauri:build` 不会更新发布通道。
 
 构建移动端 Android 安装包：
 

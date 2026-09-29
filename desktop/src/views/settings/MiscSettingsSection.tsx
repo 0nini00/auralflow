@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { loadSettings, patchSettings } from "@lx/tauri-bridge";
 import { SettingRow } from "./SettingRow";
 import { setPlaybackFailedAutoNext } from "../../stores/playerStore";
+import { checkForUpdate } from "@/services/updateService";
+import { useUpdateStore } from "../../stores/updateStore";
 
 export function MiscSettingsSection() {
   const [cursorEffect, setCursorEffect] = useState<"off" | "trail">("off");
@@ -47,13 +49,21 @@ export function MiscSettingsSection() {
   };
 
   const handleCheckUpdate = async () => {
-    setUpdateStatus("检查中...");
+    setUpdateStatus("检查中…");
     try {
-      const { checkForUpdates } = await import("@/services/updateService");
-      const info = await checkForUpdates();
-      setUpdateStatus(info ? `发现新版本 ${info.latestVersion}（当前 ${info.currentVersion}）` : "已是最新版本");
-    } catch (e) {
-      setUpdateStatus(e instanceof Error ? e.message : String(e));
+      const result = await checkForUpdate();
+      if (result.kind === "available") {
+        setUpdateStatus(`发现新版本 ${result.latestVersion}（当前 ${result.currentVersion}）`);
+        // 手动检查发现新版本就直接把弹窗打开，省得用户再去别处找入口
+        useUpdateStore.getState().setAvailable(result);
+      } else if (result.kind === "latest") {
+        setUpdateStatus(`已是最新版本（当前 ${result.currentVersion || "未知"}）`);
+      } else {
+        setUpdateStatus(`检查更新失败：${result.reason}`);
+      }
+    } catch (error) {
+      // checkForUpdate 契约上不抛错；留着兜底是为了将来改动不会把设置页整块打崩
+      setUpdateStatus(error instanceof Error ? error.message : String(error));
     }
   };
 

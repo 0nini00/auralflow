@@ -190,26 +190,215 @@
   cursor: not-allowed;
 }
 
-/* ── 更新弹窗 ── */
-.af-update-dialog {
-  max-width: 440px;
+/* ── 软件更新弹窗 ──
+   用 .af-dialog.af-update-dialog 提升特异性：.af-dialog 的 min-width:500px /
+   padding:32px 与这里冲突，而两份样式分处不同文件，靠加载顺序解决不可靠。 */
+.af-dialog-overlay.af-update-overlay {
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
 }
-.af-update-version {
-  margin: 0 0 8px;
-  font-size: 16px;
-  color: var(--af-text-primary);
+
+.af-dialog.af-update-dialog {
+  width: min(520px, calc(100vw - 48px));
+  min-width: 0;
+  max-width: 520px;
+  padding: 0;
+  margin: auto;
+  overflow: hidden;
 }
-.af-update-version strong {
-  color: var(--af-accent-primary);
+
+.af-update-hero {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 22px 22px 16px;
 }
-.af-update-arrow {
+
+.af-update-hero-badge {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--af-radius-md);
+  background: var(--af-accent-gradient);
+  color: var(--af-accent-text);
+  box-shadow: 0 4px 12px rgba(var(--af-accent-primary-rgb), 0.28);
+}
+
+.af-update-hero-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.af-dialog.af-update-dialog .af-update-hero-text h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.af-update-hero-text p {
+  margin: 2px 0 0;
   color: var(--af-text-tertiary);
-  margin: 0 6px;
+  font-size: 12px;
 }
-.af-update-name {
-  margin: 0 0 12px;
-  font-size: 13px;
+
+.af-update-versions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 22px 16px;
+}
+
+.af-update-chip {
+  padding: 4px 10px;
+  border: 1px solid var(--af-border-primary);
+  border-radius: 999px;
+  background: var(--af-bg-surface);
   color: var(--af-text-secondary);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.af-update-chip-new {
+  border-color: rgba(var(--af-accent-primary-rgb), 0.45);
+  background: rgba(var(--af-accent-primary-rgb), 0.14);
+  color: var(--af-accent-primary);
+  font-weight: 600;
+}
+
+.af-update-arrow {
+  flex: 0 0 auto;
+  color: var(--af-text-tertiary);
+}
+
+.af-update-notes {
+  padding: 0 22px 18px;
+}
+
+.af-update-notes-label {
+  margin-bottom: 8px;
+  color: var(--af-text-tertiary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.af-update-notes-body {
+  max-height: 220px;
+  overflow: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-md);
+  background: var(--af-bg-surface);
+  color: var(--af-text-secondary);
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.af-update-progress {
+  padding: 0 22px 18px;
+}
+
+.af-update-progress-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  color: var(--af-text-secondary);
+  font-size: 13px;
+}
+
+.af-update-progress-num {
+  color: var(--af-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.af-update-progress-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--af-bg-surface-pressed);
+  overflow: hidden;
+}
+
+.af-update-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--af-accent-gradient);
+  transition: width 0.25s ease;
+}
+
+/* 服务端没给 Content-Length 时退化成不确定进度条，而不是假装 0% */
+.af-update-progress-fill-indeterminate {
+  width: 40%;
+  animation: af-update-indeterminate 1.1s ease-in-out infinite;
+}
+
+@keyframes af-update-indeterminate {
+  0% {
+    margin-left: -40%;
+  }
+  100% {
+    margin-left: 100%;
+  }
+}
+
+.af-update-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 22px 18px;
+  padding: 10px 12px;
+  border-radius: var(--af-radius-md);
+  background: var(--af-info-bg);
+  color: var(--af-text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.af-update-error {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 22px 18px;
+  padding: 10px 12px;
+  border-radius: var(--af-radius-md);
+  background: var(--af-error-bg);
+  color: var(--af-error);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.af-update-error p {
+  margin: 0;
+  color: var(--af-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.af-update-link {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--af-accent-primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.af-update-link:hover {
+  text-decoration: underline;
+}
+
+.af-dialog.af-update-dialog .af-dialog-actions {
+  margin: 0;
+  padding: 0 22px 22px;
 }
 
 .af-custom-source-update-dialog {

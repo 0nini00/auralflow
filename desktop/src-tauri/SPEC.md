@@ -18,11 +18,21 @@ Rust 侧承担 WebView 做不到或不该做的事，经 Tauri IPC 暴露给前�
 
 **结构**：`main.rs` 声明 9 个顶层模块（含 `commands`、`outbound`、`secret_store`、`tray`）。IPC 命令按领域拆成 `commands/` 下的 8 个子模块（settings / compression / media_cache / bili / downloads / local_audio / library / lyric_window），以 `mod { include!(...) }` 引入后由 `commands.rs` 统一 `pub use`，`main.rs` 继续按 `commands::<name>` 引用——因此**命令名、参数与返回值在拆分前后保持不变**。注意 `library` 与 `lyric_window` 各有两份文件：顶层的是领域逻辑与窗口生命周期，`commands/` 下的是命令面。
 
-窗口能力按最小权限分三套 capability：`main` / `lyric` / `lyric-unlock`。
+窗口能力按最小权限分三套 capability：`main` / `lyric` / `lyric-unlock`。只有 `main` 带 `updater:default`（歌词窗不需要更新能力）。
+
+**应用自更新**：`tauri-plugin-updater` 在 `main.rs` 注册，`tauri.conf.json` 的 `plugins.updater` 给出公钥、清单地址与 Windows `installMode: passive`。要点：
+
+- 检查与下载都读 GitHub Releases 上的静态清单 `latest.json`；**安装包签名强制校验、无法关闭**。清单里任何已列出的平台条目只要不完整，整份清单判废（症状是「检查更新失败」而不是「有新版本」）。
+- Windows 上安装是**终态**：插件 `ShellExecuteW` 调起安装器后立即 `std::process::exit(0)`，因此前端必须自己把「安装中」画成终态，不能等 Promise 返回。
+- 装完**由安装器把应用重新拉起**：`restart_after_install` 默认 true，NSIS 传 `/R /ARGS`，`installer.nsi` 用 `nsis_tauri_utils::RunAsUser` 执行；该分支只在 silent / passive 模式下生效，所以 `installMode` 不能改成会要交互的 `basicUi`。
+- **updater 的检查与下载都在 Rust 侧发起，不受 `capabilities` 里 `plugin-http` 静态白名单约束**，只认 `plugins.updater.endpoints`。改这两处时别以为白名单能兜住。
+- 构建侧：`bundle.createUpdaterArtifacts: true`，构建时必须注入 `TAURI_SIGNING_PRIVATE_KEY[_PASSWORD]`。私钥与口令在 `F:\auralflow-secrets\`（`updater-signing.properties`），**丢失即再也无法向已安装的用户推送更新**。发布走 `desktop/build-release.ps1`。
+- **尚未真机验证**：下载 → 验签 → 静默安装 → 自动重开这条链路，目前只做完服务端核验（清单可抓、清单里的签名与安装包 `.sig` 逐字节一致、资产 URL 可下载），**客户端执行必须实机跑一次才算数**。第一版带更新器的是 0.4.0，之前的所有版本都不含更新器、只能手动装。
+- 新增依赖带进一份独立的 `reqwest 0.13`（项目自身用 0.12），crate 树里有**两份 reqwest**：只影响编译时间，不影响行为。同理，`windows` 已从 0.61 对齐到 0.62，避免两份并存。
 
 ## 边界
 
-**允许**：Tauri v2（`protocol-asset`、`tray-icon`）、reqwest、walkdir、audiotags/lofty、base64、Windows 系统 API。
+**允许**：Tauri v2（`protocol-asset`、`tray-icon`）、`tauri-plugin-updater`、reqwest、walkdir、audiotags/lofty、base64、Windows 系统 API。
 
 **禁止**：
 

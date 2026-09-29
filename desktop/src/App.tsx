@@ -24,7 +24,8 @@ import { CursorEffect } from "./components/CursorEffect";
 import { DeepLinkHandler } from "./components/DeepLinkHandler";
 import { UpdateModal } from "./components/UpdateModal";
 import { CustomSourceUpdateModal } from "./components/CustomSourceUpdateModal";
-import type { UpdateInfo } from "./services/updateService";
+import { checkForUpdate } from "./services/updateService";
+import { useUpdateStore } from "./stores/updateStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useNativeControls } from "./hooks/useNativeControls";
 import { setupPlayerSync } from "./stores/playerSync";
@@ -44,7 +45,7 @@ function MainApp() {
   useNativeControls();
 
   const [cursorEffect, setCursorEffect] = useState<"off" | "trail">("off");
-  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const setUpdateAvailable = useUpdateStore((s) => s.setAvailable);
 
   // 退出前把 debounce 中的写盘落盘。
   // 托盘退出走 Rust 的 app.exit(0)，进程会被直接结束；不 flush 就会丢掉退出前
@@ -89,11 +90,14 @@ function MainApp() {
     };
     loadCursor();
     window.addEventListener("af-cursor-change", loadCursor);
-    // 启动后延迟检查更新，避免阻塞首屏
+    // 启动后延迟检查更新，避免阻塞首屏。
+    // 只有确实发现新版本才弹窗：静默检查失败不该打扰用户（网络抖动很常见），
+    // 失败原因留给设置页的手动检查显示。
     const updateTimer = setTimeout(() => {
-      import("./services/updateService")
-        .then(({ checkForUpdates }) => checkForUpdates())
-        .then(setUpdateInfo)
+      checkForUpdate()
+        .then((result) => {
+          if (result.kind === "available") setUpdateAvailable(result);
+        })
         .catch(() => undefined);
     }, 3000);
     let customSourceUpdateTimer: number | undefined;
@@ -169,9 +173,7 @@ function MainApp() {
       <PactModal onAccepted={() => {}} />
       <LibraryDegradedNotice />
       <CursorEffect mode={cursorEffect} />
-      {updateInfo && (
-        <UpdateModal info={updateInfo} onClose={() => setUpdateInfo(null)} />
-      )}
+      <UpdateModal />
       <CustomSourceUpdateModal />
     </>
   );

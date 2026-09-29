@@ -16,12 +16,16 @@ tags: [auralflow, desktop]
 | 视图 | `views/` | 路由驱动的薄页面。只组合 hooks / store / service，不写业务规则；非首屏视图 `lazy import()`；设置页只挂载活动 section。 |
 | 组件 | `components/` | 可见界面与交互。从 store 订阅数据，不持业务逻辑；CSS 类名统一 `af-` 前缀，tooltip 用 `data-tooltip` 而不额外插 DOM 节点。 |
 | 状态 | `stores/` | Zustand store，只放状态与状态转换，不含 React 逻辑、不含业务规则。 |
-| 业务 | `services/` | 业务规则唯一的落脚点：播放引擎、源解析、账号、同步、缓存、下载、歌词。持模块单例状态，直接读写 store。 |
+| 业务 | `services/` | 业务规则唯一的落脚点：播放引擎、源解析、账号、同步、缓存、下载、歌词、应用自更新。持模块单例状态，直接读写 store。 |
 | 工具 | `lib/` | 纯函数与加密原语（weapi / eapi），无 React、无副作用、无 IO。 |
 
 另有 `hooks/`（复用逻辑）、`utils/`、`styles/`（`index.css` + 分层 CSS）、`assets/`。
 
 **跨窗口**：`App.tsx` 按 `getCurrentWindow().label` 与 `location.hash` 区分 main / lyric / lyric-unlock 三个窗口。三者订阅同一套 store，靠 `stores/playerSync.ts`（BroadcastChannel + Tauri 事件）与 `stores/lyricSettingsSync.ts` 保持一致。
+
+**应用自更新**：`services/updateService.ts`（三态检查 + 下载安装）↔ `stores/updateStore.ts`（待装版本）↔ `components/UpdateModal.tsx`（弹窗状态机：`idle → downloading → installing / failed`）。触发点是启动 3s 后的静默检查（`App.tsx`）与设置页「其他 → 软件更新」的手动检查。
+
+两条硬规则：**只有真的发现新版本才弹窗**——静默检查失败不打扰用户（网络抖动很常见），失败原因只在设置页显示；**安装是终态**——Rust 侧一调起安装器就 `exit(0)`，装完由安装器重新拉起应用，所以「安装中」必须由前端自己画出来，不能指望 `downloadAndInstall` 的 Promise 返回（细节见 `desktop-native`）。
 
 **路由**：BrowserRouter v6，14 个子路由（首页 index / search / library→收藏歌单重定向 / local / playlists / bili-collections / downloads / history / playlist/:id / artist/:id / album/:id / daily / fm / settings），外加通配重定向到首页。
 

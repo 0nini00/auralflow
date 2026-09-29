@@ -57,6 +57,10 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_deep_link::init())
+        // 应用内自更新（Tauri updater）。
+        // 检查/下载/验签/静默安装全部在 Rust 侧完成，因此不受 capabilities 里
+        // http:default 出站白名单的约束；前端只拿 downloadAndInstall 的进度事件。
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             // 音量混音器/任务栏显示正确的应用名与图标：
             // WebView2 进程默认显示 "Microsoft Edge WebView2"，显式设置 AUMID 后

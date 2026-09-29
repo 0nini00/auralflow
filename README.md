@@ -148,11 +148,16 @@ pnpm mobile:typecheck
 
 ### Build Release Artifacts
 
-Build desktop Windows installers (MSI and portable executable):
+Build desktop Windows installers (NSIS setup + portable executable):
 
 ```bash
 pnpm desktop:tauri:build
 ```
+
+> To **publish** a release (not just build), use `./desktop/build-release.ps1 -Publish`: it
+> injects the updater signing key, writes the `latest.json` manifest the in-app updater reads,
+> and uploads the assets to the GitHub release. Running `pnpm desktop:tauri:build` alone does
+> not update the release channel.
 
 Build mobile Android APKs:
 
