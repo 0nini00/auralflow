@@ -57,6 +57,27 @@ type InstallPhase = "idle" | "downloading" | "installing" | "handedOff" | "faile
 const COLLAPSED_NOTE_LINES = 6;
 const EXPANDED_NOTE_LINES = 80;
 
+/** 下载源：`mirror` = 内置加速镜像，`direct` = GitHub 直连 */
+type DownloadSource = "mirror" | "direct";
+
+/** 下载源文案：进度行后缀与失败日志共用一份，避免两处各写一套名字 */
+const DOWNLOAD_SOURCE_LABEL: Record<DownloadSource, string> = {
+  mirror: "加速镜像",
+  direct: "直连",
+};
+
+/**
+ * 依次尝试的下载源：加速镜像在前、GitHub 直连兜底。
+ * 原址不是 GitHub（或改写无意义）时两个地址完全相同，去重成一个并按直连处理。
+ */
+function buildDownloadSources(asset: ApkAsset): { url: string; source: DownloadSource }[] {
+  if (asset.url === asset.fallbackUrl) return [{ url: asset.url, source: "direct" }];
+  return [
+    { url: asset.url, source: "mirror" },
+    { url: asset.fallbackUrl, source: "direct" },
+  ];
+}
+
 function formatSize(bytes: number): string {
   if (bytes <= 0) return "";
   const mb = bytes / 1024 / 1024;
@@ -85,7 +106,10 @@ export function UpdateModal({ visible, info, onClose }: UpdateModalProps) {
   const [downloadedBytes, setDownloadedBytes] = useState(0);
   const [errorMessage, setErrorMessage] = useState("");
   const [notesExpanded, setNotesExpanded] = useState(false);
+  const [activeSource, setActiveSource] = useState<DownloadSource | null>(null);
   const jobIdRef = useRef<number | null>(null);
+  // 取消标志：downloadApk 在用户主动取消时静默 resolve，没有它就没法把「取消」和「下载成功」分开。
+  const cancelRequestedRef = useRef(false);
 
   const inAppInstallAvailable = isApkInstallSupported();
   const busy = phase === "downloading" || phase === "installing";
@@ -131,6 +155,8 @@ export function UpdateModal({ visible, info, onClose }: UpdateModalProps) {
     .join(" · ");
 
   const handleCancelDownload = () => {
+    // 先立标志再停任务：downloadApk 取消时静默 resolve，这个标志是唯一的「用户取消」信号。
+    cancelRequestedRef.current = true;
     cancelApkDownload(jobIdRef);
     setPhase("idle");
     setProgress(0);
@@ -138,8 +164,19 @@ export function UpdateModal({ visible, info, onClose }: UpdateModalProps) {
   };
 
   const handleClose = () => {
-    if (phase === "downloading") cancelApkDownload(jobIdRef);
+    if (phase === "downloading") {
+      // 关闭（含 Android 返回键）同样是取消：不置标志就会把这次取消当成「下载成功」。
+      cancelRequestedRef.current = true;
+      cancelApkDownload(jobIdRef);
+    }
     onClose();
+  };
+
+  /** 用户取消后回到 idle 态（不安装、不换源重试）；返回是否发生了取消 */
+  const abortIfCancelled = () => {
+    if (!cancelRequestedRef.current) return false;
+    setPhase("idle");
+    return true;
   };
 
   const startInAppInstall = async () => {
@@ -157,14 +194,39 @@ export function UpdateModal({ visible, info, onClose }: UpdateModalProps) {
       }
 
       if (!(await isApkDownloaded(path))) {
+        // 新一轮下载：先清掉上一轮的取消标志，否则会被误当成「这一轮也取消了」。
+        cancelRequestedRef.current = false;
         setPhase("downloading");
         setProgress(0);
         setDownloadedBytes(0);
-        await downloadApk(asset.url, path, jobIdRef, (p) => {
-          const total = p.contentLength > 0 ? p.contentLength : totalBytes;
-          setDownloadedBytes(p.bytesWritten);
-          setProgress(total > 0 ? Math.min(1, p.bytesWritten / total) : 0);
-        });
+
+        // 加速镜像优先，失败再回退 GitHub 直连；原址不是 GitHub 时两个候选会去重成一个。
+        const sources = buildDownloadSources(asset);
+        for (let index = 0; index < sources.length; index += 1) {
+          const candidate = sources[index];
+          // 上一个源失败后、切到下一个源之前：用户可能已经点了「取消下载」。
+          if (abortIfCancelled()) return;
+          setActiveSource(candidate.source);
+          try {
+            await downloadApk(candidate.url, path, jobIdRef, (p) => {
+              const total = p.contentLength > 0 ? p.contentLength : totalBytes;
+              setDownloadedBytes(p.bytesWritten);
+              setProgress(total > 0 ? Math.min(1, p.bytesWritten / total) : 0);
+            });
+            // downloadApk 被取消时是静默 resolve（不抛错），只能靠标志位区分
+            // 「用户取消」与「下载完成」，否则会接着去安装一个并不存在的文件。
+            if (abortIfCancelled()) return;
+            break;
+          } catch (error) {
+            if (abortIfCancelled()) return;
+            // 还有备用源：记下失败源与错误，换源再试；最后一个源也失败则交给外层失败态。
+            if (index === sources.length - 1) throw error;
+            console.warn(
+              `更新包下载失败，改用下一个下载源重试（失败源：${DOWNLOAD_SOURCE_LABEL[candidate.source]}）`,
+              error,
+            );
+          }
+        }
       }
 
       setPhase("installing");
@@ -323,7 +385,9 @@ export function UpdateModal({ visible, info, onClose }: UpdateModalProps) {
             {phase === "downloading" ? (
               <View style={styles.section} accessibilityLiveRegion="polite">
                 <View style={styles.progressMeta}>
-                  <Text style={[styles.progressLabel, { color: palette.text }]}>正在下载安装包…</Text>
+                  <Text style={[styles.progressLabel, { color: palette.text }]}>
+                    正在下载安装包…{activeSource ? `（${DOWNLOAD_SOURCE_LABEL[activeSource]}）` : ""}
+                  </Text>
                   <Text style={[styles.progressValue, { color: palette.textMuted }]}>
                     {totalBytes > 0
                       ? `${formatSize(downloadedBytes)} / ${formatSize(totalBytes)}`
@@ -382,6 +446,11 @@ export function UpdateModal({ visible, info, onClose }: UpdateModalProps) {
             ) : null}
 
             <View style={styles.actions}>
+              {phase === "idle" && asset && asset.url !== asset.fallbackUrl ? (
+                <Text style={[styles.sourceHint, { color: palette.textMuted }]}>
+                  下载源：加速镜像，失败自动改用直连
+                </Text>
+              ) : null}
               <Button
                 label={primaryLabel}
                 size="large"
@@ -520,6 +589,7 @@ const styles = StyleSheet.create({
   noticeText: { flex: 1, fontSize: typography.meta, lineHeight: 20 },
   actions: { gap: spacing.xs, alignItems: "stretch" },
   primaryButton: { alignSelf: "stretch" },
+  sourceHint: { fontSize: typography.caption, lineHeight: 16, textAlign: "center" },
   releaseLink: {
     alignItems: "center",
     justifyContent: "center",

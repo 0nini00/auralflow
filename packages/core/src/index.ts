@@ -9,6 +9,7 @@ export * from "./switch-step-queue";
 export * from "./outbound-host";
 export * from "./webdav-merge";
 export * from "./webdav-sync-error";
+export * from "./github-mirror";
 export * from "./release-notes";
 export * from "./removed-source";
 export * from "./custom-source";

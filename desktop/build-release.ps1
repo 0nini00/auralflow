@@ -1,7 +1,7 @@
 #requires -Version 7.0
 <#
 .SYNOPSIS
-    AuralFlow 桌面端发布：构建 → 签名 → 生成 latest.json → 暂存 dist →（可选）上传 Release。
+    AuralFlow 桌面端发布：构建 → 签名 → 生成 latest.json / latest-mirror.json → 暂存 dist →（可选）上传 Release。
 
 .DESCRIPTION
     把「构建能自动更新的安装包」这件事固化成一条命令，是因为它有几个容易漏的点，
@@ -9,10 +9,14 @@
 
       1. 构建时必须注入 updater 私钥，否则 createUpdaterArtifacts 直接构建失败；
       2. 必须产出并上传 `*-setup.exe.sig`，否则插件验签不过；
-      3. 必须上传 `latest.json`，且其中 `windows-x86_64.signature` 是 .sig 的**文件内容本身**
-         （Tauri 官方明确：路径或 URL 无效）；清单里任何一个已列出的平台条目不完整，
-         整份清单都会判废；
-      4. 清单里的 url 必须与 Release 上资产的实际文件名逐字一致。
+      3. 必须上传 `latest.json` 与 `latest-mirror.json`，且其中 `windows-x86_64.signature`
+         是 .sig 的**文件内容本身**（Tauri 官方明确：路径或 URL 无效）；清单里任何一个
+         已列出的平台条目不完整，整份清单都会判废；
+      4. 清单里的 url 必须与 Release 上资产的实际文件名逐字一致（两份清单的 url 指向同一个
+         setup.exe，差别只在有没有镜像前缀）；
+      5. 两份清单对应 tauri.conf.json 里 updater endpoints 的第 1、2 条：镜像清单在前（同一个
+         64 MB 安装包，直连 github.com 实测 12 秒 0 字节，走镜像 7.6 MB/s），直连清单在后。
+         镜像站是第三方、随时可能挂，所以**必须**保留直连那条兜底，只留镜像会让更新通道永久失效。
 
     私钥与口令存在 F:\auralflow-secrets\updater-signing.properties（与安卓签名库同目录）。
     该私钥一旦丢失，就再也无法向已安装的用户推送更新，务必备份。
@@ -22,6 +26,10 @@
 
 .PARAMETER Notes
     写进 latest.json 的英文/中文发布说明（会显示在应用的更新弹窗里）。
+
+.PARAMETER MirrorPrefix
+    latest-mirror.json 里 url 的前缀，用于前缀式加速镜像（形如 https://gh-proxy.com/<原始 github 地址>）。
+    默认值 https://gh-proxy.com/。显式传空字符串表示不启用镜像：镜像清单的 url 与直连地址相同。
 
 .PARAMETER Publish
     带上才会真的 `gh release create/upload`。默认只构建并暂存到 dist/。
@@ -33,6 +41,7 @@
 param(
     [string]$Version,
     [string]$Notes = "",
+    [string]$MirrorPrefix = "https://gh-proxy.com/",
     [switch]$Publish
 )
 
@@ -143,32 +152,57 @@ Copy-Item $setup.FullName (Join-Path $dist $assetSetup) -Force
 Copy-Item $portable (Join-Path $dist $assetPortable) -Force
 
 $url = "https://github.com/$repo/releases/download/v$Version/$assetSetup"
-$manifest = [ordered]@{
-    version   = $Version
-    notes     = $Notes
-    pub_date  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-    platforms = [ordered]@{
-        "windows-x86_64" = [ordered]@{
-            signature = $signature
-            url       = $url
-        }
-    }
-}
-$manifestPath = Join-Path $dist "latest.json"
-$manifest | ConvertTo-Json -Depth 6 | Set-Content -Path $manifestPath -Encoding utf8NoBOM
+# 前缀规范化：缺尾斜杠会拼成非法地址（与 packages/core/src/github-mirror.ts 的 TS 版行为一致）
+if ($MirrorPrefix -and -not $MirrorPrefix.EndsWith("/")) { $MirrorPrefix = "$MirrorPrefix/" }
 
-# 自检：清单必须是插件能接受的样子（半成品清单会被整份判废，症状是「检查更新失败」）
-$check = Get-Content $manifestPath -Raw | ConvertFrom-Json
-$entry = $check.platforms.'windows-x86_64'
-if (-not $check.version -or -not $entry.signature -or -not $entry.url) {
-    throw "latest.json 不完整：version/signature/url 三项都必须有"
+$mirrorUrl = "$MirrorPrefix$url"   # 前缀式代理：前缀为空时与直连地址相同（等于不启用镜像）
+$pubDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+
+# 两份清单同构、signature 逐字相同（同一份 .sig），差别只在 url 有没有镜像前缀：
+#   latest-mirror.json 对应 endpoints 第 1 条（默认走镜像，大文件才快）；
+#   latest.json        对应第 2 条（镜像站是第三方、随时可能挂，这条兜底保住更新通道）。
+function ConvertTo-ManifestJson([string]$setupUrl) {
+    return ([ordered]@{
+        version   = $Version
+        notes     = $Notes
+        pub_date  = $pubDate
+        platforms = [ordered]@{
+            "windows-x86_64" = [ordered]@{
+                signature = $signature
+                url       = $setupUrl
+            }
+        }
+    } | ConvertTo-Json -Depth 6)
+}
+
+$manifestPath = Join-Path $dist "latest.json"
+$mirrorManifestPath = Join-Path $dist "latest-mirror.json"
+ConvertTo-ManifestJson $url       | Set-Content -Path $manifestPath -Encoding utf8NoBOM
+ConvertTo-ManifestJson $mirrorUrl | Set-Content -Path $mirrorManifestPath -Encoding utf8NoBOM
+
+# 自检：两份清单都必须是插件能接受的样子（半成品清单会被整份判废，症状是「检查更新失败」）
+$manifestChecks = @(
+    @{ Name = "latest.json";        Path = $manifestPath;       Url = $url },
+    @{ Name = "latest-mirror.json"; Path = $mirrorManifestPath; Url = $mirrorUrl }
+)
+foreach ($manifestCheck in $manifestChecks) {
+    $parsed = Get-Content $manifestCheck.Path -Raw | ConvertFrom-Json
+    $entry = $parsed.platforms.'windows-x86_64'
+    if (-not $parsed.version -or -not $entry.signature -or -not $entry.url) {
+        throw "$($manifestCheck.Name) 不完整：version/signature/url 三项都必须有"
+    }
+    if ($parsed.version -ne $Version) { throw "$($manifestCheck.Name) 的 version 是 $($parsed.version)，期望 $Version" }
+    # 镜像清单的 url 必须逐字等于「镜像前缀 + 直连地址」，直连清单的必须等于直连地址本身
+    if ($entry.url -ne $manifestCheck.Url) { throw "$($manifestCheck.Name) 的 url 不对：$($entry.url)，期望 $($manifestCheck.Url)" }
+    # signature 必须逐字等于 .sig 文件内容；两份都查，顺带保证两份清单 signature 相同
+    if ($entry.signature -ne $signature) { throw "$($manifestCheck.Name) 的 signature 与 $sigPath 的内容不一致" }
 }
 if ($signature.Length -lt 64) { throw "签名看起来不合法（长度 $($signature.Length)）" }
-Write-Host "latest.json 自检通过 ✓"
+Write-Host "latest.json / latest-mirror.json 自检通过 ✓"
 
 Write-Host ""
 Write-Host "=== 产物 ===" -ForegroundColor Cyan
-foreach ($f in @($assetSetup, $assetPortable, "latest.json")) {
+foreach ($f in @($assetSetup, $assetPortable, "latest.json", "latest-mirror.json")) {
     $full = Join-Path $dist $f
     $size = [math]::Round((Get-Item $full).Length / 1MB, 2)
     $hash = (Get-FileHash $full -Algorithm SHA256).Hash
@@ -190,7 +224,7 @@ if ($Publish) {
     } else {
         Write-Host "Release $tag 已存在，直接覆盖上传资产"
     }
-    foreach ($f in @($assetSetup, $assetPortable, "latest.json")) {
+    foreach ($f in @($assetSetup, $assetPortable, "latest.json", "latest-mirror.json")) {
         & gh release upload $tag (Join-Path $dist $f) --repo $repo --clobber
         if ($LASTEXITCODE -ne 0) { throw "上传 $f 失败" }
     }

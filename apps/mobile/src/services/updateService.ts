@@ -4,6 +4,7 @@
  * 检查 GitHub Releases 是否有新版本，供 UpdateModal 展示。
  */
 
+import { toMirroredGithubUrl } from "@lx/core";
 import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
 import { CURRENT_VERSION } from "./mobileVersion";
 
@@ -23,6 +24,11 @@ export interface UpdateInfo {
 export interface ApkAsset {
   name: string;
   url: string;
+  /**
+   * GitHub 直连地址（未改写）。镜像不可用时按它重试——镜像站是第三方，随时可能挂，
+   * 而国内直连虽然慢，至少是官方来源。
+   */
+  fallbackUrl: string;
   /** 字节数 */
   size: number;
 }
@@ -76,7 +82,8 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
   const apkAssets: ApkAsset[] = rawAssets
     .map((asset) => ({
       name: String(asset.name ?? ""),
-      url: String(asset.browser_download_url ?? ""),
+      url: toMirroredGithubUrl(String(asset.browser_download_url ?? "")),
+      fallbackUrl: String(asset.browser_download_url ?? ""),
       size: typeof asset.size === "number" ? asset.size : 0,
     }))
     .filter((asset) => asset.name.toLowerCase().endsWith(".apk") && asset.url);
