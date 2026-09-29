@@ -14,6 +14,8 @@ export interface UpdateInfo {
   releaseUrl: string;
   releaseName: string;
   changelog: string;
+  /** 发布日期（GitHub `published_at` 原样保留，可能缺失） */
+  publishedAt?: string;
   /** Release 里的 APK 安装包资产（已过滤 exe/msi 等桌面端产物） */
   apkAssets: ApkAsset[];
 }
@@ -85,7 +87,8 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
     latestVersion: tagName,
     releaseUrl: htmlUrl,
     releaseName,
-    changelog: body.slice(0, 500),
+    publishedAt: typeof data.published_at === "string" ? data.published_at : undefined,
+    changelog: body.slice(0, 4000),
     apkAssets,
   };
 }
