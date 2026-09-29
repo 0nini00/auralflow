@@ -2,7 +2,6 @@ import {
   createNavigationContainerRef,
   StackActions,
 } from "@react-navigation/native";
-import type { BiliCollectionInfo } from "@/services/biliService";
 import type { SearchAlbumResult, SearchArtistResult } from "@/services/musicApi";
 import type { SearchFallbackDetailModel } from "@/services/searchFallbackDetailModel";
 import type { WyPlaylistInfo } from "@/services/wyPlaylistService";
@@ -121,10 +120,6 @@ export function openPlaylistDetailScreen(playlist: WyPlaylistInfo) {
 
 export function openLocalPlaylistDetailScreen(playlistId: string) {
   pushRoot("LocalPlaylistDetail", { playlistId });
-}
-
-export function openBiliCollectionDetailScreen(collection: BiliCollectionInfo) {
-  pushRoot("BiliCollectionDetail", { collection });
 }
 
 export function openLikedSongsScreen() {

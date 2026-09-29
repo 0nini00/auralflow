@@ -29,7 +29,7 @@ export async function fetchWithTimeout(
   // requestBuilder.header("Cookie", ...) 整体替换掉调用方手动设置的 Cookie 头。
   // 于是访问过 music.163.com 后系统 CookieJar 里的匿名 cookie 会顶掉 MUSIC_U，
   // 服务器按匿名会话响应（code=200 但 account 为空）。本项目所有需要 cookie 的请求
-  // （网易云 / B站 / QQ）都显式传 Cookie 头，不依赖 CookieJar，禁用它才是正确语义。
+  // （网易云 / QQ）都显式传 Cookie 头，不依赖 CookieJar，禁用它才是正确语义。
   const { credentials, ...rest } = init ?? {};
   try {
     return await fetch(url, {

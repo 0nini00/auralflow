@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { mergeWebdavLocalPlaylists, scrubSyncedCloudPlaylistRefs, type MusicInfo } from '@lx/core';
+import { dropRemovedSourceEntries, mergeWebdavLocalPlaylists, scrubSyncedCloudPlaylistRefs, type MusicInfo } from '@lx/core';
 import { attachLibraryPersistence } from './libraryPersistence';
 
 export interface Playlist {
@@ -190,8 +190,10 @@ export const usePlaylistStore = create<PlaylistStore>()((set, get) => ({
 
       mergeAll: (remotePlaylists) => {
         set((state) => ({
-          playlists: scrubSyncedCloudPlaylists(
-            mergeWebdavLocalPlaylists(state.playlists, remotePlaylists ?? []),
+          playlists: stripRemovedSourcesFromPlaylists(
+            scrubSyncedCloudPlaylists(
+              mergeWebdavLocalPlaylists(state.playlists, remotePlaylists ?? []),
+            ),
           ),
         }));
       },
@@ -210,6 +212,25 @@ function backupDroppedPlaylists(dropped: Playlist[]): void {
   } catch (err) {
     void err;
   }
+}
+
+/**
+ * 丢掉歌单里来源已被移除的歌曲（本版整体下线了 B 站）。歌单本身保留，只清掉点不动的行。
+ * 与 `scrubSyncedCloudPlaylists` 一样要在**读盘后**与**同步合并后**各跑一次，
+ * 否则最后一次同步会把云端那份旧数据再合并回来。
+ */
+function stripRemovedSourcesFromPlaylists(playlists: Playlist[]): Playlist[] {
+  let removed = 0;
+  const next = (playlists ?? []).map((playlist) => {
+    const { kept, dropped } = dropRemovedSourceEntries(playlist.songs ?? []);
+    if (dropped.length === 0) return playlist;
+    removed += dropped.length;
+    return { ...playlist, songs: kept };
+  });
+  if (removed > 0) {
+    console.warn(`[歌单] 已清理 ${removed} 首来源已下线的歌曲`);
+  }
+  return next;
 }
 
 /**
@@ -245,6 +266,6 @@ export function scrubSyncedCloudPlaylists(playlists: Playlist[]): Playlist[] {
 export const playlistPersistence = attachLibraryPersistence<PlaylistStore, { playlists: Playlist[] }>(usePlaylistStore, {
   namespace: 'playlists',
   pick: (state) => ({ playlists: state.playlists }),
-  apply: (slice, set) => set({ playlists: scrubSyncedCloudPlaylists(slice.playlists ?? []) }),
+  apply: (slice, set) => set({ playlists: stripRemovedSourcesFromPlaylists(scrubSyncedCloudPlaylists(slice.playlists ?? [])) }),
   legacyLocalStorageKey: 'playlist-storage',
 });

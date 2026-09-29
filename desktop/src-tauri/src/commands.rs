@@ -8,7 +8,7 @@
 
 use crate::config;
 use crate::models::*;
-use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE, CONTENT_TYPE, COOKIE, ORIGIN, REFERER, USER_AGENT};
+use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE, CONTENT_TYPE, USER_AGENT};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -18,8 +18,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime};
 use tauri::{AppHandle, Emitter, Manager};
 
-const BILI_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-const BILI_AUDIO_CACHE_DIR: &str = "bili-audio";
+const MEDIA_CACHE_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const SONG_AUDIO_CACHE_DIR: &str = "song-audio";
 const SONG_COVER_CACHE_DIR: &str = "song-covers";
 /// 各缓存目录的容量上限（字节），超限后按修改时间从最旧开始淘汰。
@@ -28,8 +27,6 @@ const SONG_COVER_CACHE_DIR: &str = "song-covers";
 const SONG_AUDIO_CACHE_MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 /// 封面（含本地音乐内嵌封面落盘）体量小但数量多，单独给 512 MiB 上限。
 const SONG_COVER_CACHE_MAX_BYTES: u64 = 512 * 1024 * 1024;
-/// B站音频缓存与 songs 缓存分开计数，给 1 GiB 上限。
-const BILI_AUDIO_CACHE_MAX_BYTES: u64 = 1024 * 1024 * 1024;
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -55,11 +52,6 @@ mod media_cache {
     include!("commands/media_cache.rs");
 }
 
-mod bili {
-    use super::*;
-    include!("commands/bili.rs");
-}
-
 mod downloads {
     use super::*;
     include!("commands/downloads.rs");
@@ -80,7 +72,6 @@ mod lyric_window {
     include!("commands/lyric_window.rs");
 }
 
-pub use bili::*;
 pub use compression::*;
 pub use downloads::*;
 pub use library::*;

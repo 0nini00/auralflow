@@ -18,9 +18,6 @@ export function buildMusicShareLink(music: MusicInfo): string | null {
     return `https://y.qq.com/n/ryqq/songDetail/${encodeURIComponent(music.id)}`;
   }
 
-  if (music.source === "bili") {
-    return `https://www.bilibili.com/video/${encodeURIComponent(music.id)}`;
-  }
 
   return null;
 }
@@ -43,7 +40,7 @@ export async function shareMusic(music: MusicInfo): Promise<void> {
   const { Share } = await import("react-native");
   const payload = buildMusicSharePayload(music);
 
-  // 有可用链接（wy/tx/bili 等）时走系统分享面板，失败也要提示用户。
+  // 有可用链接（wy/tx 等）时走系统分享面板，失败也要提示用户。
   if (payload.url) {
     try {
       await Share.share(payload);

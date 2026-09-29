@@ -7,7 +7,6 @@ import {
   type MusicInfo,
   type SourceTag,
 } from "@lx/core";
-import { resolveBiliSongUrl, searchBiliVideos } from "./biliService";
 import {
   getCachedResult,
   setCachedResult,
@@ -58,7 +57,7 @@ export interface SearchResults {
   playlists: SearchPlaylistResult[];
 }
 
-export type SearchSource = "all" | Extract<SourceTag, "wy" | "tx" | "bili">;
+export type SearchSource = "all" | Extract<SourceTag, "wy" | "tx">;
 
 export interface SongComment {
   id: string;
@@ -81,7 +80,7 @@ const SONG_COMMENT_RESOURCE_PREFIX = "R_SO_4_";
 
 /**
  * 拉取网易云歌曲评论（对齐 lx「评论」：头像/昵称/点赞/内容/时间）。
- * 仅网易云（wy）曲目有真实评论 ID，tx/bili/local 无数据则不调用。
+ * 仅网易云（wy）曲目有真实评论 ID，tx/local 无数据则不调用。
  */
 export async function fetchNeteaseComments(
   songId: string,
@@ -302,19 +301,6 @@ export async function searchAll(source: SearchSource, keyword: string): Promise<
   const cached = getCachedResult<SearchResults>(source, keyword, ALL_CACHE_NAMESPACE);
   if (cached) return cached;
 
-  // B站搜索：单独走 B站视频搜索接口
-  if (source === "bili") {
-    const biliSongs = await searchBiliVideos(keyword);
-    const finalResults: SearchResults = {
-      songs: biliSongs,
-      artists: [],
-      albums: [],
-      playlists: [],
-    };
-    setCachedResult(source, keyword, finalResults, ALL_CACHE_NAMESPACE);
-    return finalResults;
-  }
-
   // 综合搜索合并网易云与 QQ 音乐；单来源搜索只查询当前来源，避免来源切换后混入其他平台歌曲。
   const sources: Array<Extract<SourceTag, "wy" | "tx">> = source === "all" ? ["wy", "tx"] : [source];
   const songResults = await Promise.allSettled(
@@ -384,7 +370,7 @@ export async function searchAll(source: SearchSource, keyword: string): Promise<
 
   // 仅当至少有一个来源真正 fulfilled 时才写缓存：
   // 全部来源失败（网络/风控）时跳过缓存，避免“空结果”被当作真实的空结果缓存 5 分钟，
-  // 让 UI 仍能走网络错误路径并允许重试。注意 bili 分支为单源直调，走到写缓存处即该源已 fulfilled。
+  // 让 UI 仍能走网络错误路径并允许重试。注意单来源搜索为单源直调，走到写缓存处即该源已 fulfilled。
   if (anySourceFulfilled) {
     setCachedResult(source, keyword, finalResults, ALL_CACHE_NAMESPACE);
   }
@@ -475,7 +461,6 @@ export const STREAM_USER_AGENT =
 /**
  * wy/tx 音源 CDN 防盗链请求头：网易云 CDN 需 Referer: https://music.163.com，
  * 腾讯 CDN 需 Referer: https://y.qq.com，缺失时 CDN 返回 403。
- * B站音源由 biliService 返回专用 referer，不走此函数。
  */
 export function buildStreamHeaders(
   source: string | undefined,
@@ -546,7 +531,7 @@ async function fetchTxOfficialLyric(song: MusicInfo): Promise<OfficialLyricResul
 
 export async function fetchSongLyrics(song: MusicInfo): Promise<LyricLine[]> {
   // 官方直连优先（wy eapi / tx fcg），失败或无歌词再走内置音乐 API 网关；
-  // 其他源（bili 等）无官方歌词接口，直接走网关。local 由上层 getLyrics 处理。
+  // 其他源（tx 等）无官方歌词接口，直接走网关。local 由上层 getLyrics 处理。
   let lyricResult: { lyric?: string; tlyric?: string } | null = null;
   try {
     lyricResult =
@@ -588,12 +573,6 @@ function getPlaybackCandidates(song: MusicInfo): MusicInfo[] {
 }
 
 async function parseSingleUrl(song: MusicInfo, quality: string): Promise<{ url: string; quality: string }> {
-  // B站歌曲走专用解析流程
-  if (song.source === "bili") {
-    const result = await resolveBiliSongUrl(song);
-    // bili 无音质分层，按请求档位回填，避免竞速择优时被当成未知音质
-    return { url: result.url, quality };
-  }
   // wy / tx 等在线源：统一由内置音乐 API 网关解析播放地址（对齐 lx 分工：
   // 官方直连只负责搜索与歌单/封面/歌词元数据，播放与下载走内置音乐 API）。
   return await resolveSongUrl(song, quality);

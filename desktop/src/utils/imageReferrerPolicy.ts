@@ -1,13 +1,7 @@
 import { COVER_SIZE_THUMB, resizeCoverUrl } from "@lx/core";
 
-const BILI_IMAGE_HOSTS = ["biliimg.com", "hdslb.com"];
-
-function isBiliImageHost(host: string): boolean {
-  return BILI_IMAGE_HOSTS.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
-}
-
 /**
- * 归一化图片地址：补协议、B站图床升 https。
+ * 归一化图片地址：补协议。
  *
  * 这是**数据层**用法（写进 store / 传给缓存），不改写尺寸，避免把缩略图 URL
  * 当成原图存下来。显示时请改用 `toCoverSrc`。
@@ -18,11 +12,7 @@ export function normalizeImageUrl(src?: string | null): string {
 
   const normalized = value.startsWith("//") ? `https:${value}` : value;
   try {
-    const url = new URL(normalized);
-    if (isBiliImageHost(url.hostname) && url.protocol === "http:") {
-      url.protocol = "https:";
-    }
-    return url.toString();
+    return new URL(normalized).toString();
   } catch {
     return normalized;
   }
@@ -36,14 +26,4 @@ export function normalizeImageUrl(src?: string | null): string {
  */
 export function toCoverSrc(src?: string | null, size: number = COVER_SIZE_THUMB): string {
   return resizeCoverUrl(normalizeImageUrl(src), size);
-}
-
-export function getImageReferrerPolicy(src?: string | null): ReferrerPolicy | undefined {
-  if (!src) return undefined;
-  try {
-    const host = new URL(normalizeImageUrl(src), "https://placeholder.local").hostname;
-    return isBiliImageHost(host) ? "no-referrer" : undefined;
-  } catch {
-    return undefined;
-  }
 }

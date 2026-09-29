@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { MusicInfo } from "@lx/core";
+import { isRemovedSource, type MusicInfo } from "@lx/core";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   historySongKey,
@@ -17,6 +17,16 @@ const MAX_HISTORY_AGE_MS = 31 * 24 * 60 * 60 * 1000;
 // 启动 load* 未完成时用户即写入：串行化加载 + 写入，避免晚到的 load 回滚刚写入的记录。
 let historyLoadPromise: Promise<void> | null = null;
 let historyHydrated = false;
+
+/** 丢掉来源已被移除的历史条目（本版整体下线了 B 站）。 */
+function withoutRemovedSources(entries: HistoryEntry[]): HistoryEntry[] {
+  const kept = (entries ?? []).filter((entry) => !isRemovedSource(entry?.song?.source));
+  const removed = (entries?.length ?? 0) - kept.length;
+  if (removed > 0) {
+    console.warn(`[历史] 已清理 ${removed} 条来源已下线的历史条目`);
+  }
+  return kept;
+}
 
 async function ensureHistoryLoaded(get: () => HistoryStore): Promise<void> {
   if (!historyHydrated || historyLoadPromise) {
@@ -132,7 +142,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
               }));
           }
         }
-        const normalized = normalizeEntries(entries, Date.now());
+        const normalized = withoutRemovedSources(normalizeEntries(entries, Date.now()));
         const derived = derive(normalized);
         // 迁移/规整后一次性回写新格式（失败不影响内存态）。
         await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(normalized)).catch(() => undefined);
@@ -224,7 +234,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
             playedAt: timestamps?.[key] ?? now - index,
           };
         });
-      const normalized = normalizeEntries(entries, now);
+      const normalized = withoutRemovedSources(normalizeEntries(entries, now));
       const derived = derive(normalized);
       await AsyncStorage.multiSet([
         [HISTORY_KEY, JSON.stringify(normalized)],
@@ -255,7 +265,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
         // 同曲保留播放时间较新的条目（歌曲信息也随之来自较新记录）。
         if (!existing || entry.playedAt > existing.playedAt) merged.set(entry.key, entry);
       }
-      const normalized = normalizeEntries([...merged.values()], now);
+      const normalized = withoutRemovedSources(normalizeEntries([...merged.values()], now));
       const derived = derive(normalized);
       await AsyncStorage.multiSet([
         [HISTORY_KEY, JSON.stringify(normalized)],

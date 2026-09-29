@@ -3,6 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { WyPlaylistInfo } from "../services/wyPlaylistService";
 import { getTxPlaylistDetail } from "../services/txPlaylistService";
 import {
+  dropRemovedSourceEntries,
   mergeWebdavCloudPlaylists,
   mergeWebdavLocalPlaylists,
   scrubSyncedCloudPlaylistRefs,
@@ -128,7 +129,23 @@ async function scrubLocalPlaylists(localPlaylists: LocalPlaylist[]): Promise<Loc
       suspicious.map((playlist) => playlist.name),
     );
   }
-  if (dropped.length === 0) return localPlaylists;
+
+  // 顺手清掉歌单里来源已被移除的歌曲（本版整体下线了 B 站）：歌单保留，只清点不动的行。
+  let removedSongs = 0;
+  const stripped = kept.map((playlist) => {
+    const result = dropRemovedSourceEntries(playlist.songs ?? []);
+    if (result.dropped.length === 0) return playlist;
+    removedSongs += result.dropped.length;
+    return { ...playlist, songs: result.kept };
+  });
+  if (removedSongs > 0) {
+    console.warn(`[歌单] 已清理 ${removedSongs} 首来源已下线的歌曲`);
+  }
+
+  if (dropped.length === 0) {
+    // 没有歌单被剔除时，只有确实清掉了歌曲才需要写盘
+    return removedSongs > 0 ? stripped : localPlaylists;
+  }
 
   await backupScrubbedLocalPlaylists(dropped);
   console.warn(
@@ -136,7 +153,7 @@ async function scrubLocalPlaylists(localPlaylists: LocalPlaylist[]): Promise<Loc
       `${dropped.map((playlist) => playlist.name).join("、")}。` +
       `原始数据已备份到 AsyncStorage:${LOCAL_PLAYLISTS_SCRUB_BACKUP_KEY}`,
   );
-  return kept;
+  return stripped;
 }
 
 function parseLocalPlaylists(raw: string | null): LocalPlaylist[] {

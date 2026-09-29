@@ -39,7 +39,7 @@ export interface PlaybackActionButtonsProps {
 
 /**
  * 详情页 Hero 的「播放全部 / 随机播放 / 定位当前播放」三键组。
- * 统一 Album / Artist / Bili / Playlist / Local / Liked 六处原本各自实现的按钮样式，
+ * 统一 Album / Artist / Playlist / Local / Liked 五处原本各自实现的按钮样式，
  * 消除尺寸与颜色漂移。布局为可换行的 pill 按钮行，主行动撑满剩余空间。
  */
 export function PlaybackActionButtons({

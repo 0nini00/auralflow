@@ -20,7 +20,6 @@ import {
   openSearchScreen,
 } from "@/navigation/navigationRef";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { useBiliAccountStore } from "@/stores/biliAccountStore";
 import { PlayerBar } from "@/components/PlayerBar";
 import { MAIN_TAB_BAR_HEIGHT } from "@/navigation/tabLayout";
 import { usePlayerStore } from "@/stores/playerStore";
@@ -96,29 +95,15 @@ function DownloadsScreen() {
   );
 }
 
-function BiliScreen() {
-  const navigation = useNavigation<MaterialTopTabNavigationProp<LibraryTopTabParamList>>();
-  return (
-    <LibraryScreen
-      onNavigateToPlayer={openPlayerScreen}
-      activeSection="bili"
-      onSelectSection={(section) => navigation.navigate(sectionToTopTab(section))}
-    />
-  );
-}
-
-function sectionToTopTab(section: "local" | "history" | "downloads" | "bili"): keyof LibraryTopTabParamList {
+function sectionToTopTab(section: "local" | "history" | "downloads"): keyof LibraryTopTabParamList {
   return section === "local" ? "Local"
-    : section === "history" ? "History"
-      : section === "downloads" ? "Downloads" : "Bili";
+    : section === "history" ? "History" : "Downloads";
 }
 
 function LibraryTopTabs() {
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
-  // 收敛方案：B站未登录时隐藏「B站合集」Tab，登录/退出只在设置 → 账号与服务
-  const biliAccount = useBiliAccountStore((state) => state.account);
   const palette = useMemo(
     () => getThemePalette(getResolvedTheme(mode, systemTheme), accentColor),
     [mode, systemTheme, accentColor],
@@ -149,9 +134,6 @@ function LibraryTopTabs() {
       <TopTab.Screen name="Local" component={LocalScreen} options={{ tabBarLabel: "本地音乐" }} />
       <TopTab.Screen name="History" component={HistoryScreen} options={{ tabBarLabel: "播放历史" }} />
       <TopTab.Screen name="Downloads" component={DownloadsScreen} options={{ tabBarLabel: "下载" }} />
-      {biliAccount ? (
-        <TopTab.Screen name="Bili" component={BiliScreen} options={{ tabBarLabel: "B站合集" }} />
-      ) : null}
     </TopTab.Navigator>
   );
 }

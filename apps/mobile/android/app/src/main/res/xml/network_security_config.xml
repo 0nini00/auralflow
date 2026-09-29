@@ -12,7 +12,7 @@
   为什么不用域名白名单：lx 音源由用户自行导入，代理域名不可预知。
 
   安全影响：明文请求可被中间人窃听或篡改。本项目的账号类请求
-  （music.163.com / y.qq.com / bilibili / gdstudio）本身都是 https，
+  （music.163.com / y.qq.com / gdstudio）本身都是 https，
   Cookie 只会发往这些 https 域名，不受此项影响；受影响的主要是音频流本身。
 
   如需回滚：删除本文件，并移除 AndroidManifest.xml 中 application 标签上的

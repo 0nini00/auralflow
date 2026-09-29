@@ -1,6 +1,5 @@
 import type { NavigatorScreenParams } from "@react-navigation/native";
 import type { SearchAlbumResult, SearchArtistResult } from "@/services/musicApi";
-import type { BiliCollectionInfo } from "@/services/biliService";
 import type { WyPlaylistInfo } from "@/services/wyPlaylistService";
 import type { SearchFallbackDetailModel } from "@/services/searchFallbackDetailModel";
 import type { SearchDetailRoute } from "@/services/searchDetailNavigation";
@@ -18,12 +17,11 @@ export type MainTabParamList = {
   MyMusicTab: undefined;
 };
 
-/** 曲库内部 TopTab —— 收敛为来源型：本地音乐 / 播放历史 / 下载 / B站合集 */
+/** 曲库内部 TopTab —— 收敛为来源型：本地音乐 / 播放历史 / 下载 */
 export type LibraryTopTabParamList = {
   Local: undefined;
   History: undefined;
   Downloads: undefined;
-  Bili: undefined;
 };
 
 /**
@@ -64,7 +62,6 @@ export type RootStackParamList = {
   AlbumDetail: { album: SearchAlbumResult; parentArtist?: SearchArtistResult | null };
   PlaylistDetail: { playlist: WyPlaylistInfo };
   LocalPlaylistDetail: { playlistId: string };
-  BiliCollectionDetail: { collection: BiliCollectionInfo };
   LikedSongs: undefined;
   SearchFallbackDetail: { detail: SearchFallbackDetailModel };
   Leaderboard: undefined;

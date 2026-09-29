@@ -22,8 +22,7 @@
         { "url": "https://c.y.qq.com/*" },
         { "url": "https://y.qq.com/*" },
         { "url": "https://u.y.qq.com/*" },
-        { "url": "https://*.y.qq.com/*" },
-        { "url": "https://api.bilibili.com/*" }
+        { "url": "https://*.y.qq.com/*" }
       ]
     }
   ]

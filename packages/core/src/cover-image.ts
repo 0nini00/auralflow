@@ -14,7 +14,6 @@ export const COVER_SIZE_THUMB = 200;
 export const COVER_SIZE_LARGE = 500;
 
 const NETEASE_IMAGE_HOSTS = ["music.126.net", "126.net"];
-const BILI_IMAGE_HOSTS = ["hdslb.com", "biliimg.com"];
 
 function matchesHost(host: string, suffixes: string[]): boolean {
   return suffixes.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
@@ -24,7 +23,6 @@ function matchesHost(host: string, suffixes: string[]): boolean {
  * 按目标边长改写封面 URL。
  *
  * - 网易云：追加 `?param=WxH`（已带 param 时保持原样，尊重调用方显式指定）
- * - B站：追加 `@WwHh.webp` 后缀（已带 `@` 处理参数时保持原样）
  * - 其他图床：原样返回
  *
  * 用字符串拼接而非改写 URL 对象属性：RN 的 URL 类型把 pathname 标为只读，
@@ -53,13 +51,6 @@ export function resizeCoverUrl(rawUrl: string | null | undefined, size: number):
     return `${beforeHash}${separator}param=${size}y${size}${hash}`;
   }
 
-  if (matchesHost(host, BILI_IMAGE_HOSTS)) {
-    if (url.pathname.includes("@")) return value;
-    const queryIndex = beforeHash.indexOf("?");
-    const path = queryIndex >= 0 ? beforeHash.slice(0, queryIndex) : beforeHash;
-    const search = queryIndex >= 0 ? beforeHash.slice(queryIndex) : "";
-    return `${path}@${size}w_${size}h.webp${search}${hash}`;
-  }
 
   return value;
 }

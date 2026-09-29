@@ -148,7 +148,7 @@ function writeLocalBackup(kind: "sources" | "playlists", payload: unknown): void
 const CLOUD_PLAYLIST_REFS_KEY = "auralflow:webdav:cloudPlaylistRefs";
 
 /**
- * 云端歌单引用（网易云 / QQ / B站）透传存储。
+ * 云端歌单引用（网易云 / QQ）透传存储。
  *
  * 桌面端没有对应的云端歌单槽位，这些条目只是同步文件里的“引用”（歌曲按需拉取）。
  * 下载时收集、上传时原样写回，才能既不在本地凭空造出 0 首歌曲的假歌单，
@@ -548,7 +548,7 @@ interface ParsedPlaylistsSyncFile {
   favorites: MusicInfo[];
   playlists: Playlist[];
   history: MusicInfo[];
-  /** userList 里的云端歌单引用（网易云 / QQ / B站），原样透传不做本地化 */
+  /** userList 里的云端歌单引用（网易云 / QQ），原样透传不做本地化 */
   cloudRefs: RemotePlaylistItem[];
 }
 

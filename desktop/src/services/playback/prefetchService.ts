@@ -91,10 +91,6 @@ function getPlaybackVariants(music: MusicInfo): MusicInfo[] | undefined {
   return Array.isArray(variants) ? (variants as MusicInfo[]) : undefined;
 }
 
-function shouldPrefetchPlaybackUrl(music: MusicInfo): boolean {
-  return music.source !== 'bili';
-}
-
 function defaultPreloadCover(url: string): void {
   if (typeof Image === 'undefined') return;
   const image = new Image();
@@ -125,7 +121,7 @@ async function prefetchTrack(
         ...buildPlaybackPrefetchEntry(music, { url: localUrl, quality: 'local', music }, fetchedAt),
         coverUrl: entry.coverUrl,
       };
-    } else if (shouldPrefetchPlaybackUrl(music)) {
+    } else {
       const variants = getPlaybackVariants(music);
       const resolved = await options.resolvePlaybackUrl(music, variants, undefined, { cacheMedia: false });
       if (resolved?.url) {

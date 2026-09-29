@@ -20,7 +20,6 @@ export {
   openAlbumDetailScreen,
   openPlaylistDetailScreen,
   openLocalPlaylistDetailScreen,
-  openBiliCollectionDetailScreen,
   openLikedSongsScreen,
   openSearchFallbackDetailScreen,
   openDailyRecommendScreen,

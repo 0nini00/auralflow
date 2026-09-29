@@ -1,8 +1,8 @@
 /**
- * 应用 UI 展示内置平台来源：网易云（wy）、QQ 音乐（tx）、B站（bili）。
+ * 应用 UI 展示内置平台来源：网易云（wy）、QQ 音乐（tx）、本地（local）。
  * 自定义音源、API 网关是内部解析机制，不扩展 UI 来源数量。
  */
-export type SourceTag = "wy" | "tx" | "bili" | "local";
+export type SourceTag = "wy" | "tx" | "local";
 
 export type SearchType = "song" | "playlist" | "album" | "singer";
 

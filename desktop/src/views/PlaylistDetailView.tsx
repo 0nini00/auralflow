@@ -5,14 +5,13 @@ import { usePlaylistStore } from '@/stores/playlistStore';
 import { useFavoritesStore } from '@/stores/favoritesStore';
 import { usePlayerStore } from '@/stores/playerStore';
 import { useWyAccountStore } from '@/stores/wyAccountStore';
-import { useBiliAccountStore } from '@/stores/biliAccountStore';
 import { getSource } from '@/services/sources/sourceService';
 import { SongAddMenuButton } from '@/components/SongAddMenuButton';
 import { DownloadQualityButton } from '@/components/DownloadQualityButton';
 import { VirtualList } from '@/components/VirtualList';
 import { formatDuration } from '@/lib/utils';
 import { formatPlaylistSearchMeta } from '@/services/neteasePlaylistUtils';
-import { getImageReferrerPolicy, toCoverSrc } from '@/utils/imageReferrerPolicy';
+import { toCoverSrc } from '@/utils/imageReferrerPolicy';
 import type { MusicInfo, PlaylistInfo, SourceTag } from '@lx/core';
 import { COVER_SIZE_LARGE } from '@lx/core';
 import { ArrowLeft, Play, Shuffle, Trash2, Clock, Loader2, CornerDownRight, MoreHorizontal, Bookmark, BookmarkCheck, BookmarkX, RefreshCw, LocateFixed } from 'lucide-react';
@@ -43,11 +42,11 @@ export function PlaylistDetailView() {
   const [searchParams] = useSearchParams();
   const sourceParam = searchParams.get("source");
   const routePlaylist = (location.state as PlaylistRouteState | null)?.playlist;
-  const routePlaylistSource = routePlaylist?.source === "wy" || routePlaylist?.source === "tx" || routePlaylist?.source === "bili"
+  const routePlaylistSource = routePlaylist?.source === "wy" || routePlaylist?.source === "tx"
     ? routePlaylist.source
     : null;
-  const explicitRemoteSource: Extract<SourceTag, "wy" | "tx" | "bili"> | null =
-    sourceParam === "wy" || sourceParam === "tx" || sourceParam === "bili" ? sourceParam : routePlaylistSource;
+  const explicitRemoteSource: Extract<SourceTag, "wy" | "tx"> | null =
+    sourceParam === "wy" || sourceParam === "tx" ? sourceParam : routePlaylistSource;
 
   const {
     playlists,
@@ -67,16 +66,9 @@ export function PlaylistDetailView() {
   const wySetSubscribed = useWyAccountStore((s) => s.setSubscribed);
   const wyLoad = useWyAccountStore((s) => s.load);
   const wyAccount = useWyAccountStore((s) => s.account);
-  const biliPlaylists = useBiliAccountStore((s) => s.playlists);
-  const biliGetSongs = useBiliAccountStore((s) => s.getCollectionSongs);
-  const biliRefreshSongs = useBiliAccountStore((s) => s.refreshCollectionSongs);
   const [wySongs, setWySongs] = useState<MusicInfo[] | null>(null);
   const [wySongsLoading, setWySongsLoading] = useState(false);
   const [wySongsError, setWySongsError] = useState('');
-  const [biliSongs, setBiliSongs] = useState<MusicInfo[] | null>(null);
-  const [biliSongsLoading, setBiliSongsLoading] = useState(false);
-  const [biliSongsError, setBiliSongsError] = useState('');
-  const [biliRefreshing, setBiliRefreshing] = useState(false);
   const [wyActionPending, setWyActionPending] = useState(false);
   const [wyRefreshing, setWyRefreshing] = useState(false);
   const [remoteSongs, setRemoteSongs] = useState<MusicInfo[] | null>(null);
@@ -115,15 +107,12 @@ export function PlaylistDetailView() {
 
   // 尝试匹配网易云歌单
   const wyPlaylist = !explicitRemoteSource && !localPlaylist && id ? wyPlaylists.find(p => p.id === id) : null;
-  const biliPlaylist = explicitRemoteSource === "bili" && id
-    ? biliPlaylists.find((p) => p.id === id) ?? (routePlaylist?.source === "bili" ? routePlaylist : null)
-    : null;
   const fallbackRemoteSource: Extract<SourceTag, "wy"> | null =
     !explicitRemoteSource && !localPlaylist && !wyPlaylist && id && /^\d+$/.test(id) ? "wy" : null;
-  const remoteSource: Extract<SourceTag, "wy" | "tx" | "bili"> | null = explicitRemoteSource ?? fallbackRemoteSource;
+  const remoteSource: Extract<SourceTag, "wy" | "tx"> | null = explicitRemoteSource ?? fallbackRemoteSource;
 
   const remotePlaylistInfo = useMemo<PlaylistInfo | null>(() => {
-    if (!id || !remoteSource || remoteSource === "bili") return null;
+    if (!id || !remoteSource) return null;
     return {
       id,
       name: routePlaylist?.name || (remoteSource === "tx" ? "QQ 音乐歌单" : "网易云歌单"),
@@ -149,19 +138,6 @@ export function PlaylistDetailView() {
       .finally(() => { if (!cancelled) setWySongsLoading(false); });
     return () => { cancelled = true; };
   }, [wyPlaylist?.id]);
-
-  useEffect(() => {
-    if (!biliPlaylist?.id) return;
-    let cancelled = false;
-    setBiliSongsLoading(true);
-    setBiliSongsError('');
-    setBiliSongs(null);
-    biliGetSongs(biliPlaylist.id)
-      .then((songs) => { if (!cancelled) setBiliSongs(songs); })
-      .catch((error) => { if (!cancelled) setBiliSongsError(error instanceof Error ? error.message : String(error)); })
-      .finally(() => { if (!cancelled) setBiliSongsLoading(false); });
-    return () => { cancelled = true; };
-  }, [biliGetSongs, biliPlaylist?.id]);
 
   const loadRemotePlaylistSongs = (playlist: PlaylistInfo, refreshing = false) => {
     const provider = getSource(playlist.source);
@@ -216,9 +192,7 @@ export function PlaylistDetailView() {
     ? { ...localPlaylist, cover: (localPlaylist as any).cover ?? (localPlaylist as any).picUrl }
     : wyPlaylist
       ? { id: wyPlaylist.id, name: wyPlaylist.name, songs: wySongs ?? [], createdAt: 0, updatedAt: 0, description: wyPlaylist.author ? `by ${wyPlaylist.author}` : undefined, cover: wyPlaylist.picUrl }
-      : biliPlaylist
-        ? { id: biliPlaylist.id, name: biliPlaylist.name, songs: biliSongs ?? [], createdAt: 0, updatedAt: 0, description: biliPlaylist.author ? `by ${biliPlaylist.author}` : undefined, cover: biliPlaylist.picUrl }
-        : remotePlaylistInfo
+      : remotePlaylistInfo
         ? {
             id: remotePlaylistInfo.id,
             name: remotePlaylistInfo.name,
@@ -246,19 +220,19 @@ export function PlaylistDetailView() {
     };
   }, []);
 
-  if (wySongsError || biliSongsError || remoteSongsError) {
+  if (wySongsError || remoteSongsError) {
     return (
       <div className="af-playlist-detail-view">
         <div className="af-empty-state">
           <p>加载失败</p>
-          <span>{wySongsError || biliSongsError || remoteSongsError}</span>
+          <span>{wySongsError || remoteSongsError}</span>
           <button className="af-btn-secondary" onClick={() => remoteSource ? navigate(-1) : navigate('/playlists')} style={{ marginTop: 16 }}>返回</button>
         </div>
       </div>
     );
   }
 
-  if (!localPlaylist && !wyPlaylist && !biliPlaylist && !remotePlaylistInfo) {
+  if (!localPlaylist && !wyPlaylist && !remotePlaylistInfo) {
     return (
       <div className="af-playlist-detail-view">
         <div className="af-empty-state">
@@ -271,7 +245,6 @@ export function PlaylistDetailView() {
 
   const playlist = resolvedPlaylist!;
   const isWyPlaylist = !!wyPlaylist;
-  const isBiliPlaylist = !!biliPlaylist;
   const isRemotePlaylist = !!remotePlaylistInfo;
   const playlistCoverUrl = toCoverSrc(playlist.cover, COVER_SIZE_LARGE);
   const isWyOwned = isWyPlaylist && wyPlaylist!.subscribed === false;
@@ -287,7 +260,7 @@ export function PlaylistDetailView() {
   const remoteCollectLabel = remotePlaylistInfo?.source === "wy" ? "收藏到网易云账号" : "收藏到本地歌单";
   const remotePlaylistMeta = remotePlaylistInfo ? formatPlaylistSearchMeta(remotePlaylistInfo) : "--";
   const songs = playlist.songs;
-  const isSongsLoading = wySongsLoading || biliSongsLoading || remoteSongsLoading;
+  const isSongsLoading = wySongsLoading || remoteSongsLoading;
   const isPlayAllPending = pendingPlayAction === 'play-all';
   const isShufflePending = pendingPlayAction === 'shuffle';
 
@@ -397,18 +370,6 @@ export function PlaylistDetailView() {
       .finally(() => setWyRefreshing(false));
   };
 
-  const handleRefreshBili = () => {
-    if (!isBiliPlaylist) return;
-    setBiliRefreshing(true);
-    setBiliSongsError('');
-    biliRefreshSongs(playlist.id)
-      .then((songs) => setBiliSongs(songs))
-      .catch((error) => {
-        setBiliSongsError(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => setBiliRefreshing(false));
-  };
-
   const handleRefreshRemote = () => {
     if (!remotePlaylistInfo) return;
     void loadRemotePlaylistSongs(remotePlaylistInfo, true);
@@ -463,7 +424,7 @@ export function PlaylistDetailView() {
         <div className="af-playlist-detail-info">
           <div className="af-playlist-detail-cover">
             {playlistCoverUrl ? (
-              <img src={playlistCoverUrl} alt={playlist.name} referrerPolicy={getImageReferrerPolicy(playlistCoverUrl)} />
+              <img src={playlistCoverUrl} alt={playlist.name} />
             ) : (
               <div className="af-cover-placeholder">暂无封面</div>
             )}
@@ -477,16 +438,13 @@ export function PlaylistDetailView() {
             {isWyPlaylist && wyPlaylist && (
               <p className="af-playlist-description">by {wyPlaylist.author}{wyPlaylist.trackCount != null && ` · ${wyPlaylist.trackCount} 首`}</p>
             )}
-            {isBiliPlaylist && biliPlaylist && (
-              <p className="af-playlist-description">by {biliPlaylist.author || '哔哩哔哩'}{biliPlaylist.trackCount != null && ` · ${biliPlaylist.trackCount} 个视频`}</p>
-            )}
             {isRemotePlaylist && remotePlaylistInfo && (
               <p className="af-playlist-description">
                 {remotePlaylistInfo.author ? `by ${remotePlaylistInfo.author}` : remotePlaylistInfo.source.toUpperCase()}
                 {remotePlaylistMeta !== "--" && ` · ${remotePlaylistMeta}`}
               </p>
             )}
-            {!isWyPlaylist && !isBiliPlaylist && (
+            {!isWyPlaylist && (
               <p className="af-playlist-stats">
                 {songs.length} 首歌曲
                 {!isFavoritesPlaylist && playlist.createdAt > 0 && (
@@ -546,18 +504,7 @@ export function PlaylistDetailView() {
                   <span>{remoteRefreshing ? '刷新中' : '刷新'}</span>
                 </button>
               )}
-              {isBiliPlaylist && (
-                <button
-                  className="af-btn-secondary"
-                  onClick={handleRefreshBili}
-                  disabled={biliRefreshing || biliSongsLoading}
-                  title="重新从 B站拉取最新合集内容"
-                >
-                  <RefreshCw size={16} className={biliRefreshing ? 'af-spin' : ''} />
-                  <span>{biliRefreshing ? '刷新中' : '刷新'}</span>
-                </button>
-              )}
-              {isRemotePlaylist && remotePlaylistInfo && remotePlaylistInfo.source !== "bili" && (
+              {isRemotePlaylist && remotePlaylistInfo && (
                 <button
                   className="af-btn-secondary"
                   onClick={() => { void handleCollectRemotePlaylist(); }}
@@ -637,7 +584,7 @@ export function PlaylistDetailView() {
                     <div className="af-col-title">
                       <div className="af-song-cover">
                         {toCoverSrc(song.img) ? (
-                          <img src={toCoverSrc(song.img)} alt={song.name} referrerPolicy={getImageReferrerPolicy(song.img)} />
+                          <img src={toCoverSrc(song.img)} alt={song.name} />
                         ) : (
                           <div className="af-cover-placeholder">暂无封面</div>
                         )}
@@ -697,7 +644,7 @@ export function PlaylistDetailView() {
             <CornerDownRight size={14} />
             <span>下一首播放</span>
           </button>
-          {((!isWyPlaylist && !isBiliPlaylist && !isRemotePlaylist) || isWyOwned) && (
+          {((!isWyPlaylist && !isRemotePlaylist) || isWyOwned) && (
             <button
               className="af-menu-danger"
               onClick={() => { handleRemoveSong(openMenuIndex!); setOpenMenuIndex(null); }}

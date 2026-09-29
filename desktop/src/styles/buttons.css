@@ -119,7 +119,6 @@ button:focus-visible {
 }
 
 .af-back-btn,
-.af-bili-manage-button,
 .af-music-card-action-btn,
 .af-custom-source-icon-button,
 .af-fm-action-primary,
@@ -185,7 +184,6 @@ button:focus-visible {
 }
 
 .af-back-btn:hover:not(:disabled),
-.af-bili-manage-button:hover:not(:disabled),
 .af-music-card-action-btn:hover:not(:disabled),
 .af-custom-source-icon-button:hover:not(:disabled),
 .af-fm-action-primary:hover:not(:disabled),

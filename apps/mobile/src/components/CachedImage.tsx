@@ -3,7 +3,6 @@ import { View, StyleSheet, type StyleProp } from "react-native";
 import FastImage, { type ResizeMode, type ImageStyle } from "@d11/react-native-fast-image";
 import { COVER_SIZE_THUMB, resizeCoverUrl } from "@lx/core";
 import { cacheCover } from "@/services/cacheService";
-import { isBiliImageUrl } from "@/services/biliService";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 
 interface CachedImageProps {
@@ -29,7 +28,7 @@ const DEFAULT_HEADERS = {
  * 带缓存的图片组件（对齐 lx：FastImage/Glide 原生内存+磁盘双层缓存 + UA 请求头 + 失败重试）。
  *
  * 远端 URL 即时展示（首帧零磁盘往返），同时后台下载到本地缓存；
- * B站图床因防盗链限制必须先下载到本地再显示；
+ * 远端 URL 即时展示（首帧零磁盘往返），同时后台下载到本地缓存；
  * 远端加载失败时自动重试，重试后仍失败则回退到已下载的本地文件。
  *
  * 渲染内核为 @d11/react-native-fast-image：
@@ -52,7 +51,7 @@ export function CachedImage({ uri, style, resizeMode = "cover", fallback, native
     let mounted = true;
 
     // 网易云等图床常返回 http:// 链接，Android 9+ 默认禁止明文 HTTP（usesCleartextTraffic=false），
-    // 导致所有封面加载失败只剩占位图。统一升级为 https://（网易云/B站/腾讯图床均支持 https）。
+    // 导致所有封面加载失败只剩占位图。统一升级为 https://（网易云/腾讯图床均支持 https）。
     // 同时按显示尺寸向图床索取缩略图：原图常有数 MB，列表拉原图是首屏与滚动卡顿的主因。
     const safeUri = resizeCoverUrl(uri.replace(/^http:\/\//, "https://"), size);
     if (!safeUri) {
@@ -64,7 +63,7 @@ export function CachedImage({ uri, style, resizeMode = "cover", fallback, native
 
     let retries = 0;
     // 后台下载/命中本地缓存（cacheCover 自带先查盘再下载，带 UA header）：
-    // 非 B站不阻塞显示，仅用于离线回退与下次的本地命中
+    // 后台下载仅用于离线回退与下次的本地命中
     const localFilePromise = cacheCover(safeUri).catch(() => null);
 
     const applyLocal = (localPath: string | null) => {
@@ -92,22 +91,11 @@ export function CachedImage({ uri, style, resizeMode = "cover", fallback, native
       }
     };
 
-    // B站图床有防盗链：FastImage 直接加载远程 URL 会携带 Referer 导致 403，
-    // 必须等 RNFS 下载到本地（不带 Referer）后显示 file:// 路径。
-    // 其他图床立即显示远端 URL（Glide 内存缓存让重复进入零异步开销），
-    // 首帧不再等待任何磁盘 stat 往返。
-    if (isBiliImageUrl(safeUri)) {
-      setLoading(true);
-      setError(false);
-      void localFilePromise.then((localPath) => {
-        if (!mounted) return;
-        applyLocal(localPath);
-      });
-    } else {
-      setImageUri(safeUri);
-      setLoading(false);
-      setError(false);
-    }
+    // 远端 URL 立即显示（Glide 内存缓存让重复进入零异步开销），首帧不等待磁盘往返；
+    // 本地缓存文件仅用于远端加载失败后的回退。
+    setImageUri(safeUri);
+    setLoading(false);
+    setError(false);
 
     return () => {
       mounted = false;

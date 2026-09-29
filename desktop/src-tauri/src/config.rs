@@ -17,8 +17,6 @@ const CONFIG_FILE_NAME: &str = "auralflow_settings.json";
 fn credential_fields(settings: &mut AppSettings) -> Vec<&mut Option<String>> {
     vec![
         &mut settings.wy_cookie,
-        &mut settings.bili_cookie,
-        &mut settings.bili_refresh_token,
         &mut settings.webdav_password,
     ]
 }

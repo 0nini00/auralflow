@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { mergeWebdavSongs, type MusicInfo } from "@lx/core";
+import { dropRemovedSourceEntries, mergeWebdavSongs, type MusicInfo } from "@lx/core";
 
 import { healCorruptStorage } from "@/utils/storageSelfHeal";
 
@@ -17,6 +17,18 @@ const LEGACY_LIKED_SONGS_KEY = "auralflow.mobile.likedSongs";
 // 启动 load* 未完成时用户即写入：串行化加载 + 写入，避免晚到的 load 回滚刚写入的记录。
 let favoritesLoadPromise: Promise<void> | null = null;
 let favoritesHydrated = false;
+
+/**
+ * 丢掉来源已被移除的收藏条目（本版整体下线了 B 站）。已落盘的数据里仍可能有它们：
+ * 新版本里既没有 provider 也点不动，留着只会变成死行，并随 WebDAV 同步在两端来回传。
+ */
+function withoutRemovedSources(songs: MusicInfo[]): MusicInfo[] {
+  const { kept, dropped } = dropRemovedSourceEntries(songs ?? []);
+  if (dropped.length > 0) {
+    console.warn(`[收藏] 已清理 ${dropped.length} 条来源已下线的历史条目`);
+  }
+  return kept;
+}
 
 async function ensureFavoritesLoaded(get: () => FavoritesState): Promise<void> {
   if (!favoritesHydrated || favoritesLoadPromise) {
@@ -74,14 +86,14 @@ export const useFavoritesStore = create<FavoritesState>((set, get) => ({
           // 首次升级：把旧版网易云红心的本地列表迁移为收藏种子（旧键随后清除）
           const legacy = await AsyncStorage.getItem(LEGACY_LIKED_SONGS_KEY);
           if (legacy) {
-            const seeded = await parseFavorites(legacy).catch(() => []);
+            const seeded = withoutRemovedSources(await parseFavorites(legacy).catch(() => []));
             await persistFavorites(seeded);
             await AsyncStorage.removeItem(LEGACY_LIKED_SONGS_KEY).catch(() => undefined);
             set({ favorites: seeded, loaded: true });
             return;
           }
         }
-        const favorites = await parseFavorites(raw);
+        const favorites = withoutRemovedSources(await parseFavorites(raw));
         set({ favorites, loaded: true });
       } catch (error) {
         console.error("[favorites] 收藏数据损坏，已备份并重建空列表", error);
@@ -134,13 +146,14 @@ export const useFavoritesStore = create<FavoritesState>((set, get) => ({
 
   replaceAll: async (songs) => {
     await ensureFavoritesLoaded(get);
-    set({ favorites: songs });
-    void persistFavorites(songs);
+    const next = withoutRemovedSources(songs);
+    set({ favorites: next });
+    void persistFavorites(next);
   },
 
   mergeAll: async (songs) => {
     await ensureFavoritesLoaded(get);
-    const merged = mergeWebdavSongs(get().favorites, songs);
+    const merged = withoutRemovedSources(mergeWebdavSongs(get().favorites, songs));
     set({ favorites: merged });
     await persistFavorites(merged);
   },

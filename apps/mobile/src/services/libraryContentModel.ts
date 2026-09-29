@@ -14,19 +14,12 @@ export type LibraryContentModel =
       showClearHistory: false;
       showLocalScan: false;
       error: string | null;
-    }
-  | {
-      kind: "biliCollections";
-      showClearHistory: false;
-      showLocalScan: false;
-      error: null;
     };
 
 export type LibraryContentModelInput =
   | { section: "history"; historyCount: number }
   | { section: "local"; localLoading: boolean; localError: string | null }
-  | { section: "downloads"; downloadError: string | null }
-  | { section: "bili" };
+  | { section: "downloads"; downloadError: string | null };
 
 export function getLibraryContentModel(input: LibraryContentModelInput): LibraryContentModel {
   switch (input.section) {
@@ -55,13 +48,6 @@ export function getLibraryContentModel(input: LibraryContentModelInput): Library
         showLocalScan: false,
         error: input.downloadError,
       };
-    case "bili":
-      return {
-        kind: "biliCollections",
-        showClearHistory: false,
-        showLocalScan: false,
-        error: null,
-      };
   }
 }
 
@@ -85,7 +71,5 @@ export function buildLibraryContentModelInput({
       return { section, localLoading, localError };
     case "downloads":
       return { section, downloadError };
-    case "bili":
-      return { section };
   }
 }

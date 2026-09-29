@@ -1,7 +1,6 @@
 import type { MusicInfo } from "@lx/core";
-import { parseUrl, getLyrics, buildStreamHeaders, STREAM_USER_AGENT } from "./musicApi";
+import { parseUrl, getLyrics, buildStreamHeaders } from "./musicApi";
 import { resolveWySongUrl } from "./wyDirectProvider";
-import { resolveBiliSongUrl } from "./biliService";
 import { usePlayerStore } from "../stores/playerStore";
 import type { PlayMode } from "../stores/playerStore";
 import { startListeningSession } from "./listenTrackerService";
@@ -58,7 +57,7 @@ const RESOLVE_RACE_BUDGET_MS = 10_000;
 /**
  * 整条解析链的总预算帽（对齐桌面端 withResolveDeadline）。
  *
- * 内层各源/各 tier 有独立预算、串行叠加最坏会远超预期，bili 多级取链更是没有预算；
+ * 内层各源/各 tier 有独立预算、串行叠加最坏会远超预期；
  * 这里在 playSongCore 调用 resolveSongUrl 处再套一层 12s 总 race，先到先出：
  * 内层预算先触发就先退出，总帽只兜底，超时统一报「解析超时」。
  */
@@ -334,13 +333,6 @@ async function resolveSongUrl(
   let resolvedQuality: string | undefined;
   if (song.isLocal && song.url) {
     url = song.url;
-  } else if (song.source === "bili") {
-    const result = await resolveBiliSongUrl(song);
-    url = result.url;
-    headers = {
-      Referer: result.referer,
-      "User-Agent": STREAM_USER_AGENT,
-    };
   } else {
     // 分轮次竞速（用户要求 2026-08）：首轮把「不低于选定音质」的全部档位
     // 同时交给内置网关与自定义音源，取音质最高的成功结果；本轮全败才降下一档。
@@ -816,7 +808,7 @@ async function playSongCore(song: MusicInfo, startPosition?: number): Promise<vo
       lyrics: [],
     });
     // 1. 解析播放 URL（命中预读缓存时无需等待网络）。
-    // 整条解析链（内置降级链→自定义源兜底、bili 多级取链）统一套 12s 总预算帽：
+    // 整条解析链（内置降级链→自定义源兜底）统一套 12s 总预算帽：
     // 超时后迟到的解析结果不会再走到 play（await 已 reject）；
     // 未超时但迟到的旧意图（用户已改点其它歌曲）由下方 intent 序号拦截，
     // 避免十几秒后突然劫持播放；迟到的成功结果仍会静默写缓存，供下次命中。
@@ -849,7 +841,7 @@ async function playSongCore(song: MusicInfo, startPosition?: number): Promise<vo
         lyrics: [],
       });
     }
-    // 2. 播放（B站音源需要带 headers；startPosition 用于快照恢复续播）
+    // 2. 播放（远端音源需带防盗链 headers；startPosition 用于快照恢复续播）
     await play(effectiveSong, url, headers, startPosition);
     // 3. 启动听歌时长追踪（满足 2 分钟或 50% 播放条件才记入历史与打点，过期请求不启动）
     if (usePlayerStore.getState().currentSong === effectiveSong) {
@@ -886,7 +878,7 @@ async function playSongCore(song: MusicInfo, startPosition?: number): Promise<vo
 
 /**
  * 切换当前曲的播放音质：清缓存 → 按目标音质重解析 → 尽量从原进度续播。
- * 本地曲 / B站等不走音质阶梯的源会直接抛错。
+ * 本地曲等不走音质阶梯的源会直接抛错。
  */
 export async function switchCurrentPlaybackQuality(quality: string): Promise<void> {
   const store = usePlayerStore.getState();
@@ -896,9 +888,6 @@ export async function switchCurrentPlaybackQuality(quality: string): Promise<voi
   }
   if (currentSong.isLocal || currentSong.source === "local") {
     throw new Error("本地歌曲不支持切换在线音质");
-  }
-  if (currentSong.source === "bili") {
-    throw new Error("B站音源暂不支持手动切换音质");
   }
 
   // 失效旧音质的持久化 URL 缓存，确保切换后按新音质重新解析（对齐桌面端）

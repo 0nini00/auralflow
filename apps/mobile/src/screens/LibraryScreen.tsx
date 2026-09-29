@@ -6,7 +6,6 @@ import type { MusicInfo } from "@lx/core";
 import { useHistoryStore } from "@/stores/historyStore";
 import { useLocalMusicStore } from "@/stores/localMusicStore";
 import { useDownloadStore } from "@/stores/downloadStore";
-import { useBiliAccountStore } from "@/stores/biliAccountStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { playQueue } from "@/services/playerService";
 import { runPlaybackUiAction } from "@/services/playbackUiAction";
@@ -14,12 +13,10 @@ import { buildLibrarySongActions, buildLibrarySongDeleteRequest } from "@/servic
 import { SongList } from "@/components/SongList";
 import { DownloadList } from "@/components/DownloadList";
 import { HistorySection } from "@/components/HistorySection";
-import { BiliCollectionList } from "@/components/BiliCollectionList";
 import { ActionButton } from "@/components/ActionButton";
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
 import { ErrorState } from "@/components/ScreenState";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
-import { openBiliCollectionDetailScreen } from "@/navigation/navigationRef";
 import { type LibrarySection } from "@/services/librarySectionModel";
 import { pickImageFromGallery } from "@/services/imagePickerService";
 import { writeLocalMusicCover, writeLocalMusicLyrics, isDownloadedLocalSong } from "@/services/localMusicService";
@@ -63,8 +60,6 @@ export function LibraryScreen({
   // 下载期间每个进度 tick（约每 5%）都会 set 一次数组，
   // 在此整屏订阅会让曲库列表跟着反复 reconcile
 
-  // B站合集
-  const biliLoad = useBiliAccountStore((state) => state.load);
 
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [editingLocalSong, setEditingLocalSong] = useState<MusicInfo | null>(null);
@@ -79,10 +74,6 @@ export function LibraryScreen({
   useEffect(() => {
     loadDownloads();
   }, [loadDownloads]);
-
-  useEffect(() => {
-    biliLoad();
-  }, [biliLoad]);
 
   const activeSongs = useMemo<MusicInfo[]>(
     () => (activeSection === "history" ? history : activeSection === "local" ? localSongs : []),
@@ -240,8 +231,6 @@ export function LibraryScreen({
 
   const renderContent = () => {
     switch (contentModel.kind) {
-      case "biliCollections":
-        return <BiliCollectionList onCollectionPress={openBiliCollectionDetailScreen} />;
       case "downloads":
         return <LibraryDownloadsSection onNavigateToPlayer={onNavigateToPlayer} />;
       case "songList":
@@ -270,7 +259,7 @@ export function LibraryScreen({
   };
 
   // 本地曲库可达上千首：走虚拟化列表（SongList 本体即滚动容器），头部内容进 ListHeaderComponent；
-  // 历史/下载/B站合集等其余分支维持 ScreenScrollView 结构
+  // 历史/下载等其余分支维持 ScreenScrollView 结构
   const isLocalVirtualList = contentModel.kind === "songList" && contentModel.songSource === "local";
   const playbackErrorNode = (
     <PlaybackErrorState

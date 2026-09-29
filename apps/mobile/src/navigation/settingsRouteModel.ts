@@ -36,7 +36,7 @@ export interface SettingsCategory {
 }
 
 export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
-  { name: "Account", label: "账号与服务", description: "网易云与 B站账号", icon: "account" },
+  { name: "Account", label: "账号与服务", description: "网易云账号", icon: "account" },
   { name: "Playback", label: "播放", description: "在线播放与新建下载的默认音质与打断策略", icon: "playback" },
   { name: "Lyrics", label: "歌词", description: "沉浸歌词与悬浮歌词", icon: "lyrics" },
   { name: "Appearance", label: "外观", description: "主题、强调色与背景", icon: "appearance" },

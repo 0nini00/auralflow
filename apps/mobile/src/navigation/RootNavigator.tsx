@@ -9,7 +9,6 @@ import {
 import type { RootStackParamList } from "@/navigation/types";
 import { AlbumDetailScreen } from "@/screens/AlbumDetailScreen";
 import { ArtistDetailScreen } from "@/screens/ArtistDetailScreen";
-import { BiliCollectionDetailScreen } from "@/screens/BiliCollectionDetailScreen";
 import { DailyRecommendScreen } from "@/screens/DailyRecommendScreen";
 import { ImmersiveLyricsScreen } from "@/screens/ImmersiveLyricsScreen";
 import { LikedSongsScreen } from "@/screens/LikedSongsScreen";
@@ -116,16 +115,6 @@ export function RootNavigator() {
             onBack={() => navigation.goBack()}
             onNavigateToPlayer={openPlayerScreen}
             onOpenPlaylist={(playlistId) => openLocalPlaylistDetailScreen(playlistId)}
-          />
-        )}
-      </Stack.Screen>
-
-      <Stack.Screen name="BiliCollectionDetail">
-        {({ navigation, route }) => (
-          <BiliCollectionDetailScreen
-            collection={route.params.collection}
-            onBack={() => navigation.goBack()}
-            onNavigateToPlayer={openPlayerScreen}
           />
         )}
       </Stack.Screen>

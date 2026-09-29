@@ -1,4 +1,4 @@
-export type LibrarySection = "history" | "local" | "downloads" | "bili";
+export type LibrarySection = "history" | "local" | "downloads";
 
 export interface LibrarySectionHeader {
   title: string;
@@ -8,23 +8,20 @@ export interface LibrarySectionHeader {
 export type LibrarySectionHeaderInput =
   | { section: "history"; historyCount: number }
   | { section: "local"; localLoading: boolean; localSongCount: number }
-  | { section: "downloads"; downloadsLoading: boolean; downloadCount: number }
-  | { section: "bili"; hasBiliAccount: boolean; biliCollectionCount: number };
+  | { section: "downloads"; downloadsLoading: boolean; downloadCount: number };
 
-export const LIBRARY_SECTIONS: LibrarySection[] = ["local", "history", "downloads", "bili"];
+export const LIBRARY_SECTIONS: LibrarySection[] = ["local", "history", "downloads"];
 
 const SECTION_TITLES: Record<LibrarySection, string> = {
   history: "播放历史",
   local: "本地音乐",
   downloads: "下载管理",
-  bili: "B站合集",
 };
 
 const TAB_LABELS: Record<LibrarySection, string> = {
   history: "播放历史",
   local: "本地音乐",
   downloads: "下载",
-  bili: "B站合集",
 };
 
 export function getLibrarySectionTabLabel(section: LibrarySection, { count }: { count: number }): string {
@@ -48,15 +45,6 @@ export function getLibrarySectionHeader(input: LibrarySectionHeaderInput): Libra
           : input.localSongCount === 0
           ? "点击上方快捷入口扫描本地音乐"
           : `${input.localSongCount} 首本地歌曲`,
-      };
-    case "bili":
-      return {
-        title: SECTION_TITLES.bili,
-        caption: input.hasBiliAccount
-          ? input.biliCollectionCount === 0
-            ? "暂无可见合集"
-            : `${input.biliCollectionCount} 个合集`
-          : "粘贴 Cookie 登录后同步 B站合集",
       };
     case "downloads":
       return {

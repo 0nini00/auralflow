@@ -16,7 +16,6 @@ export interface SearchFallbackDetailModel {
 const SOURCE_LABELS: Record<string, string> = {
   wy: "网易云",
   tx: "QQ音乐",
-  bili: "B站",
   kw: "酷我",
   kg: "酷狗",
   mg: "咪咕",

@@ -8,14 +8,6 @@ export function SourcesSettingsSection({ model }: { model: SourcesSettingsModel 
     setCustomScriptText,
     customSourceStatus,
     customSourceAutoCheck,
-    biliCookieText,
-    setBiliCookieText,
-    biliCookieStatus,
-    biliCookiePending,
-    biliRefreshTokenText,
-    setBiliRefreshTokenText,
-    biliRefreshTokenStatus,
-    handleSaveBiliRefreshToken,
     customSources,
     removeSource,
     toggleSource,
@@ -24,11 +16,7 @@ export function SourcesSettingsSection({ model }: { model: SourcesSettingsModel 
     checkSourceUpdate,
     checkAllUpdates,
     toggleUpdateAlert,
-    biliAccount,
     handleCustomSourceAutoCheckToggle,
-    openBilibiliWeb,
-    handleSaveBiliCookie,
-    handleClearBiliCookie,
     handleImportCustomSourceFile,
     handleImportCustomSourceText,
     getUpdateStatusMessage,
@@ -40,81 +28,6 @@ export function SourcesSettingsSection({ model }: { model: SourcesSettingsModel 
   return (
 <section className="af-settings-section" id="sources">
   <h2 className="af-settings-section-title">音源</h2>
-  <div className="af-settings-group">
-    <label className="af-settings-label">B站账号（收藏合集）</label>
-    <p className="af-settings-hint" style={{ marginBottom: 10 }}>
-      浏览器打开 bilibili.com 并登录后，从开发者工具 Network 请求里复制完整 Cookie
-      （至少含 SESSDATA；建议同时含 DedeUserID、bili_jct、buvid3）。
-    </p>
-    <div style={{ marginBottom: 10 }}>
-      <button
-        type="button"
-        className="af-settings-small-button"
-        onClick={openBilibiliWeb}
-        disabled={biliCookiePending}
-      >
-        <ExternalLink size={14} />
-        打开 B站网页版
-      </button>
-    </div>
-    <textarea
-      className="af-settings-textarea af-custom-source-textarea"
-      value={biliCookieText}
-      onChange={(event) => setBiliCookieText(event.target.value)}
-      placeholder="SESSDATA=...; DedeUserID=...; bili_jct=...; buvid3=..."
-      spellCheck={false}
-    />
-    <div className="af-custom-source-toolbar">
-      <button
-        type="button"
-        className="af-settings-small-button"
-        onClick={() => { void handleSaveBiliCookie(); }}
-        disabled={biliCookiePending || !biliCookieText.trim()}
-      >
-        保存并验证 B站 Cookie
-      </button>
-      <button
-        type="button"
-        className="af-settings-small-button af-settings-danger-button"
-        onClick={() => { void handleClearBiliCookie(); }}
-        disabled={biliCookiePending}
-      >
-        退出 B站
-      </button>
-    </div>
-    {biliAccount && (
-      <p className="af-settings-hint">当前 B站账号：{biliAccount.nickname}</p>
-    )}
-    {biliCookieStatus && <p className="af-settings-hint">{biliCookieStatus}</p>}
-    <details style={{ marginTop: 10 }}>
-      <summary className="af-settings-hint" style={{ cursor: "pointer", userSelect: "none" }}>
-        Cookie 自动续期（可选，减少过期频率）
-      </summary>
-      <p className="af-settings-hint" style={{ marginTop: 8 }}>
-        填入浏览器 localStorage 里的 <code>ac_time_value</code>（即 refresh_token），
-        应用会在 Cookie 临近过期时自动续期，有效期可延长至约 6 个月。
-        获取方式：在 bilibili.com 页面打开控制台执行 <code>localStorage.getItem("ac_time_value")</code>。
-      </p>
-      <textarea
-        className="af-settings-textarea af-custom-source-textarea"
-        value={biliRefreshTokenText}
-        onChange={(event) => setBiliRefreshTokenText(event.target.value)}
-        placeholder="粘贴 ac_time_value / refresh_token..."
-        spellCheck={false}
-        style={{ marginTop: 6 }}
-      />
-      <div className="af-custom-source-toolbar">
-        <button
-          type="button"
-          className="af-settings-small-button"
-          onClick={() => { void handleSaveBiliRefreshToken(); }}
-        >
-          保存 refresh_token
-        </button>
-      </div>
-      {biliRefreshTokenStatus && <p className="af-settings-hint">{biliRefreshTokenStatus}</p>}
-    </details>
-  </div>
 
   <div className="af-settings-group">
     <label className="af-settings-label">自定义音源</label>

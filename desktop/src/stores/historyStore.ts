@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { mergeWebdavHistory, type MusicInfo } from "@lx/core";
+import { dropRemovedSourceEntries, mergeWebdavHistory, type MusicInfo } from "@lx/core";
 import { attachLibraryPersistence } from "./libraryPersistence";
 
 interface HistoryState {
@@ -24,6 +24,18 @@ function musicKey(music: MusicInfo): string {
   return `${music.source}:${music.id}`;
 }
 
+/**
+ * 丢掉来源已被移除的历史条目（本版整体下线了 B 站）。已落盘的数据里仍可能有它们：
+ * 新版本里既没有 provider 也点不动，留着只会变成死行，并随 WebDAV 同步在两端来回传。
+ */
+function withoutRemovedSources(songs: MusicInfo[]): MusicInfo[] {
+  const { kept, dropped } = dropRemovedSourceEntries(songs ?? []);
+  if (dropped.length > 0) {
+    console.warn(`[历史] 已清理 ${dropped.length} 条来源已下线的历史条目`);
+  }
+  return kept;
+}
+
 export const useHistoryStore = create<HistoryState>()((set) => ({
   history: [],
 
@@ -45,7 +57,7 @@ export const useHistoryStore = create<HistoryState>()((set) => ({
 
   mergeAll: (songs) => {
     set((state) => ({
-      history: mergeWebdavHistory(state.history, songs ?? [], MAX_HISTORY),
+      history: withoutRemovedSources(mergeWebdavHistory(state.history, songs ?? [], MAX_HISTORY)),
     }));
   },
 }));
@@ -53,5 +65,5 @@ export const useHistoryStore = create<HistoryState>()((set) => ({
 export const historyPersistence = attachLibraryPersistence<HistoryState, { history: MusicInfo[] }>(useHistoryStore, {
   namespace: "recent",
   pick: (state) => ({ history: state.history }),
-  apply: (slice, set) => set({ history: slice.history ?? [] }),
+  apply: (slice, set) => set({ history: withoutRemovedSources(slice.history ?? []) }),
 });

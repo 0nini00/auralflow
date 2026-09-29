@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { open as openUrl } from "@tauri-apps/plugin-shell";
 import {
   clearSongCache,
   getSongCacheStats,
@@ -12,15 +11,7 @@ import {
 import { useThemeStore } from "@/stores/themeStore";
 import { useHistoryStore } from "@/stores/historyStore";
 import { useCustomSourceStore } from "@/stores/customSourceStore";
-import { useBiliAccountStore } from "@/stores/biliAccountStore";
 import { broadcastLyricSettings } from "@/stores/lyricSettingsSync";
-import {
-  assertBiliCookieShape,
-  checkBiliAccount,
-  getBiliCookie,
-  setBiliCookie,
-} from "@/services/biliAccountService";
-import { saveBiliRefreshToken } from "@/services/biliCookieRefreshService";
 import { playerEngine } from "@/services/playerEngine";
 import { normalizePauseOnExternalPlayback } from "@/services/mediaInterruptionPolicy";
 import { clearPersistentCache } from "@/services/persistentCache";
@@ -96,11 +87,6 @@ const [pauseOnExternalPlayback, setPauseOnExternalPlayback] = useState(true);
 const [customScriptText, setCustomScriptText] = useState("");
 const [customSourceStatus, setCustomSourceStatus] = useState("");
 const [customSourceAutoCheck, setCustomSourceAutoCheck] = useState(true);
-const [biliCookieText, setBiliCookieText] = useState("");
-const [biliCookieStatus, setBiliCookieStatus] = useState("");
-const [biliCookiePending, setBiliCookiePending] = useState(false);
-const [biliRefreshTokenText, setBiliRefreshTokenText] = useState("");
-const [biliRefreshTokenStatus, setBiliRefreshTokenStatus] = useState("");
 const [immersiveLyricFontFamily, setImmersiveLyricFontFamily] = useState(DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
 const [songCacheStats, setSongCacheStats] = useState<SongCacheStats | null>(null);
 const [dataPending, setDataPending] = useState(false);
@@ -117,9 +103,6 @@ const {
   checkAllUpdates,
   toggleUpdateAlert,
 } = useCustomSourceStore();
-const biliAccount = useBiliAccountStore((s) => s.account);
-const biliLoad = useBiliAccountStore((s) => s.load);
-const biliLogout = useBiliAccountStore((s) => s.logout);
 
 const refreshSongCacheStats = async () => {
   const stats = await getSongCacheStats();
@@ -136,8 +119,6 @@ useEffect(() => {
     playerEngine.setPauseOnExternalPlayback(nextPauseOnExternalPlayback);
     setCustomSourceAutoCheck(settings.customSourceAutoCheck !== false);
     setAppBackgroundImagePath(settings.appBackgroundImagePath ?? "");
-    setBiliCookieText(settings.biliCookie ?? "");
-    setBiliRefreshTokenText(settings.biliRefreshToken ?? "");
     setImmersiveLyricFontFamily(settings.immersiveLyricFontFamily || DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
   }).catch((error) => {
     setDataStatus(`读取设置失败：${error instanceof Error ? error.message : String(error)}`);
@@ -221,94 +202,6 @@ const handleCustomSourceAutoCheckToggle = () => {
   patchSettings({ customSourceAutoCheck: next }).catch(() => {
     setCustomSourceAutoCheck(!next);
   });
-};
-
-const openBilibiliWeb = () => {
-  void openUrl("https://www.bilibili.com").catch(() => {
-    setBiliCookieStatus("无法打开浏览器，请手动访问 www.bilibili.com");
-  });
-};
-
-const handleSaveBiliCookie = async () => {
-  const raw = biliCookieText.trim();
-  if (!raw) {
-    setBiliCookieStatus("请先粘贴 B站 Cookie");
-    return;
-  }
-
-  try {
-    assertBiliCookieShape(raw);
-  } catch (error) {
-    setBiliCookieStatus(error instanceof Error ? error.message : String(error));
-    return;
-  }
-
-  const previousCookie = await getBiliCookie();
-  const previousState = {
-    account: useBiliAccountStore.getState().account,
-    playlists: useBiliAccountStore.getState().playlists,
-    isLoading: false,
-    isLoaded: useBiliAccountStore.getState().isLoaded,
-    error: useBiliAccountStore.getState().error,
-  };
-  const newCookie = setBiliCookie(raw);
-  setBiliCookiePending(true);
-  setBiliCookieStatus("验证中...");
-  try {
-    await patchSettings({ biliCookie: newCookie });
-    await biliLoad(newCookie);
-    const latest = useBiliAccountStore.getState();
-    if (!latest.account) throw new Error(latest.error || "B站 Cookie 验证失败");
-    setBiliCookieText(newCookie);
-    setBiliCookieStatus(`已同步：${latest.account.nickname}`);
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    let rolledBack = false;
-    if (previousCookie) {
-      try {
-        setBiliCookie(previousCookie);
-        await checkBiliAccount();
-        useBiliAccountStore.setState(previousState);
-        await patchSettings({ biliCookie: previousCookie || null });
-        rolledBack = true;
-      } catch {
-        setBiliCookie(newCookie);
-      }
-    }
-    if (rolledBack) {
-      setBiliCookieStatus(errorMsg);
-    } else if (previousCookie) {
-      setBiliCookieStatus(`新 Cookie 验证失败：${errorMsg}。旧 Cookie 也已失效，请检查后重新填写。`);
-    } else {
-      setBiliCookieStatus(`新 Cookie 验证失败：${errorMsg}`);
-    }
-  } finally {
-    setBiliCookiePending(false);
-  }
-};
-
-  const handleSaveBiliRefreshToken = async () => {
-    const trimmed = biliRefreshTokenText.trim();
-    try {
-      await saveBiliRefreshToken(trimmed);
-      setBiliRefreshTokenStatus(trimmed ? "已保存 refresh_token" : "已清除 refresh_token");
-    } catch (error) {
-      setBiliRefreshTokenStatus(`保存失败：${error instanceof Error ? error.message : String(error)}`);
-    }
-  };
-
-  const handleClearBiliCookie = async () => {
-  setBiliCookiePending(true);
-  setBiliCookieStatus("");
-  try {
-    await biliLogout();
-    setBiliCookieText("");
-    setBiliCookieStatus("已退出 B站账号");
-  } catch (error) {
-    setBiliCookieStatus(error instanceof Error ? error.message : String(error));
-  } finally {
-    setBiliCookiePending(false);
-  }
 };
 
 const patchImmersiveLyricStyle = (patch: {
@@ -413,16 +306,6 @@ const getCapabilityTitle = (source: typeof customSources[number]) => {
     setCustomSourceStatus,
     customSourceAutoCheck,
     setCustomSourceAutoCheck,
-    biliCookieText,
-    setBiliCookieText,
-    biliCookieStatus,
-    setBiliCookieStatus,
-    biliCookiePending,
-    setBiliCookiePending,
-    biliRefreshTokenText,
-    setBiliRefreshTokenText,
-    biliRefreshTokenStatus,
-    handleSaveBiliRefreshToken,
     immersiveLyricFontFamily,
     setImmersiveLyricFontFamily,
     songCacheStats,
@@ -441,18 +324,12 @@ const getCapabilityTitle = (source: typeof customSources[number]) => {
     checkSourceUpdate,
     checkAllUpdates,
     toggleUpdateAlert,
-    biliAccount,
-    biliLoad,
-    biliLogout,
     handleAccentColorTextChange,
     handleSelectAppBackground,
     handleClearAppBackground,
     patchPlaybackSetting,
     handlePauseOnExternalPlaybackChange,
     handleCustomSourceAutoCheckToggle,
-    openBilibiliWeb,
-    handleSaveBiliCookie,
-    handleClearBiliCookie,
     patchImmersiveLyricStyle,
     handleImmersiveLyricFontFamilyChange,
     handleImportCustomSourceFile,
@@ -499,14 +376,6 @@ export type SourcesSettingsModel = Pick<SettingsViewModel,
   | "setCustomScriptText"
   | "customSourceStatus"
   | "customSourceAutoCheck"
-  | "biliCookieText"
-  | "setBiliCookieText"
-  | "biliCookieStatus"
-  | "biliCookiePending"
-  | "biliRefreshTokenText"
-  | "setBiliRefreshTokenText"
-  | "biliRefreshTokenStatus"
-  | "handleSaveBiliRefreshToken"
   | "customSources"
   | "removeSource"
   | "toggleSource"
@@ -515,11 +384,7 @@ export type SourcesSettingsModel = Pick<SettingsViewModel,
   | "checkSourceUpdate"
   | "checkAllUpdates"
   | "toggleUpdateAlert"
-  | "biliAccount"
   | "handleCustomSourceAutoCheckToggle"
-  | "openBilibiliWeb"
-  | "handleSaveBiliCookie"
-  | "handleClearBiliCookie"
   | "handleImportCustomSourceFile"
   | "handleImportCustomSourceText"
   | "getUpdateStatusMessage"

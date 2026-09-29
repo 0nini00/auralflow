@@ -125,17 +125,7 @@ async function getLyricsForSingle(music: MusicInfo): Promise<LyricResponse> {
 
     let result: LyricResponse;
 
-    if (music.source === 'bili') {
-      // B站:先取视频 CC 字幕当歌词,无字幕再走外部兜底(LRC Lib → 网易搜索)
-      const provider = getSource('bili');
-      try {
-        const lyricResult = await provider?.getLyric(music);
-        const lines = lyricResult ? parseProviderLyrics(lyricResult) : [];
-        result = lines.length > 0 ? { lines } : await searchAndMatchLyrics(music);
-      } catch {
-        result = await searchAndMatchLyrics(music);
-      }
-    } else if (music.source === 'local') {
+    if (music.source === 'local') {
       if ('lyrics' in music && music.lyrics) {
         const lyricFormat = normalizeLyricFormat((music as { lyricFormat?: string }).lyricFormat);
         const lines = parseLyricSource({ type: lyricFormat, content: String(music.lyrics) });

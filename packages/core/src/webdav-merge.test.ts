@@ -34,8 +34,8 @@ describe("isNumericPlaylistId", () => {
 });
 
 describe("isWebdavLocalPlaylistRef", () => {
-  it("云端引用（纯数字 id，source 为 wy/tx/bili）判为云端", () => {
-    for (const source of ["wy", "tx", "bili", "netease", "qq"]) {
+  it("云端引用（纯数字 id，source 为 wy/tx）判为云端", () => {
+  for (const source of ["wy", "tx", "netease", "qq"]) {
       expect(isWebdavLocalPlaylistRef({ id: "5183457", source }), source).toBe(false);
     }
   });

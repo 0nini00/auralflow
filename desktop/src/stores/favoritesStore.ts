@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { mergeWebdavSongs, type MusicInfo } from "@lx/core";
+import { dropRemovedSourceEntries, mergeWebdavSongs, type MusicInfo } from "@lx/core";
 import { attachLibraryPersistence } from "./libraryPersistence";
 
 interface FavoritesState {
@@ -16,6 +16,18 @@ interface FavoritesState {
 
 function getMusicKey(music: MusicInfo): string {
   return `${music.source}:${music.id}`;
+}
+
+/**
+ * 丢掉来源已被移除的历史条目（本版整体下线了 B 站）。已落盘的数据里仍可能有它们：
+ * 新版本里既没有 provider 也点不动，留着只会变成死行，并随 WebDAV 同步在两端来回传。
+ */
+function withoutRemovedSources(songs: MusicInfo[]): MusicInfo[] {
+  const { kept, dropped } = dropRemovedSourceEntries(songs ?? []);
+  if (dropped.length > 0) {
+    console.warn(`[收藏] 已清理 ${dropped.length} 条来源已下线的历史条目`);
+  }
+  return kept;
 }
 
 export const useFavoritesStore = create<FavoritesState>()((set, get) => ({
@@ -65,7 +77,7 @@ export const useFavoritesStore = create<FavoritesState>()((set, get) => ({
 
   mergeAll: (songs) => {
     set((state) => ({
-      favorites: mergeWebdavSongs(state.favorites, songs ?? []),
+      favorites: withoutRemovedSources(mergeWebdavSongs(state.favorites, songs ?? [])),
     }));
   },
 }));
@@ -73,6 +85,6 @@ export const useFavoritesStore = create<FavoritesState>()((set, get) => ({
 export const favoritesPersistence = attachLibraryPersistence<FavoritesState, { favorites: MusicInfo[] }>(useFavoritesStore, {
   namespace: "favorites",
   pick: (state) => ({ favorites: state.favorites }),
-  apply: (slice, set) => set({ favorites: slice.favorites ?? [] }),
+  apply: (slice, set) => set({ favorites: withoutRemovedSources(slice.favorites ?? []) }),
   legacyLocalStorageKey: "auralflow-favorites",
 });

@@ -1,7 +1,6 @@
 import { SourceRegistry, type MusicSource, type SourceTag } from "@lx/core";
 import { wyProvider } from "./wyProvider";
 import { txProvider } from "./txProvider";
-import { biliProvider } from "./biliProvider";
 
 /**
  * 全局 SourceRegistry：注册内置音源 wy / tx。
@@ -16,7 +15,6 @@ export function registerSource(source: MusicSource): void {
 
 registerSource(wyProvider);
 registerSource(txProvider);
-registerSource(biliProvider);
 
 /**
  * 按 id 取内置音源。歌词、下载与播放的 builtin 通道都走这里。

@@ -77,7 +77,7 @@ export interface SongListProps {
  * 空闲后分批挂载」消除冷打开的同步渲染卡顿；行组件 memo + 稳定回调保证挂载完成后
  * 的切歌/选择等更新只重渲染受影响的行。
  *
- * virtualized 路径（FlatList）：长列表详情页（歌单/专辑/歌手/收藏/B站合集/本地曲库）
+ * virtualized 路径（FlatList）：长列表详情页（歌单/专辑/歌手/收藏/本地曲库）
  * 以 SongList 本体作为滚动容器，头部内容经 ListHeaderComponent 随列表滚动——
  * 只有可视区行在树上，几千首的歌单滚动也保持跟手（对齐 lx OnlineList 方案）。
  */
@@ -87,7 +87,6 @@ const MOUNT_BATCH_SIZE = 100;
 const SOURCE_LABELS: Record<string, string> = {
   wy: "网易云",
   tx: "QQ音乐",
-  bili: "B站",
   local: "本地",
 };
 

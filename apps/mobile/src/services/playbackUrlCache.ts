@@ -12,7 +12,6 @@ import type { MusicInfo } from "@lx/core";
 const STORAGE_KEY = "auralflow:playback-url-cache:v2";
 
 export const PLAYBACK_URL_TTL_MS = 6 * 60 * 60 * 1000;
-export const BILI_PLAYBACK_URL_TTL_MS = 30 * 60 * 1000;
 export const LOCAL_PLAYBACK_CACHE_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 
 const CACHE_VERSION = 2;
@@ -22,7 +21,7 @@ interface CachedPlaybackUrlEntry {
   url: string;
   music: MusicInfo;
   quality: string;
-  /** B站等需要带请求头的音源，缓存时一并保存以命中即播 */
+  /** 需要自定义请求头的音源，缓存时一并保存以命中即播 */
   headers?: Record<string, string>;
   cachedAt: number;
   expiresAt: number;
@@ -80,7 +79,6 @@ function getCacheKey(music: Pick<MusicInfo, "source" | "id">, quality: string): 
 
 function ttlFor(music: MusicInfo, url: string): number {
   if (url.startsWith("file://") || music.source === "local") return LOCAL_PLAYBACK_CACHE_TTL_MS;
-  if (music.source === "bili") return BILI_PLAYBACK_URL_TTL_MS;
   return PLAYBACK_URL_TTL_MS;
 }
 

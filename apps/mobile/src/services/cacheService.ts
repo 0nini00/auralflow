@@ -19,8 +19,8 @@ const COVER_CACHE_DIR = `${CACHE_DIR}/covers`;
 const LYRIC_CACHE_DIR = `${CACHE_DIR}/lyrics`;
 const AUDIO_CACHE_DIR = `${CACHE_DIR}/audio`;
 
-/** 仅这些音源的音质 URL 稳定可落盘缓存（对齐桌面端 CACHEABLE_AUDIO_SOURCES；移动端额外加 bili：预读下一首时后台整曲落盘，切歌即本地播放，下载失败静默由在线流兜底） */
-export const CACHEABLE_AUDIO_SOURCES = new Set<string>(["wy", "tx", "bili"]);
+/** 仅这些音源的音质 URL 稳定可落盘缓存（对齐桌面端 CACHEABLE_AUDIO_SOURCES；预读下一首时后台整曲落盘，切歌即本地播放，下载失败静默由在线流兜底） */
+export const CACHEABLE_AUDIO_SOURCES = new Set<string>(["wy", "tx"]);
 
 function normalizeKeyPart(value: unknown): string {
   return String(value ?? "")
@@ -135,7 +135,7 @@ export async function cacheCover(url: string): Promise<string | null> {
   if (!url) return null;
 
   // 缓存大图规格而非原图（对齐桌面端 cacheMusicCover）：图床原图常有数 MB，
-  // resizeCoverUrl 只对已知图床域名改写（网易云 ?param=NxN / B站 @Nw_Nh.webp），其他原样。
+  // resizeCoverUrl 只对已知图床域名改写（网易云 ?param=NxN），其他原样。
   const targetUrl = resizeCoverUrl(url, COVER_SIZE_LARGE);
 
   await initCacheDirectories();

@@ -57,9 +57,6 @@
           "url": "https://*.y.qq.com/*"
         },
         {
-          "url": "https://api.bilibili.com/*"
-        },
-        {
           "url": "https://api.github.com/*"
         },
         {

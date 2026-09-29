@@ -111,9 +111,6 @@ pub fn run() {
             commands::zlib_deflate,
             // 运行时可配置目标的出站代理（WebDAV / 自定义音源）
             outbound::proxy_http_request,
-            // B站 API
-            commands::bili_get_json,
-            commands::bili_cache_audio,
             commands::cache_remote_audio,
             commands::cache_remote_image,
             commands::lookup_cached_media,

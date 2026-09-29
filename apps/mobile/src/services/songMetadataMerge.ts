@@ -5,7 +5,7 @@ import type { MusicInfo } from "@lx/core";
  *
  * 参考桌面端 src/services/search/songMetadataMerge.ts 的实现思路，
  * 适配移动端 MusicInfo 数据结构：按「歌名 + 歌手 + 时长差」判定同一首歌，
- * 将来自不同来源（网易云 / QQ音乐 / B站 等）的同一首歌合并为一条，
+ * 将来自不同来源（网易云 / QQ音乐 等）的同一首歌合并为一条，
  * 并在 `variants` 中保留所有来源变体，便于 UI 展示多来源标签与回退解析。
  */
 

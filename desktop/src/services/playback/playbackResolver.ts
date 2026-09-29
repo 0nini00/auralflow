@@ -171,19 +171,6 @@ async function resolvePlaybackUrlUncapped(
     }
   }
 
-  // B 站解析无音质分层且接口链路较慢,提前单独解析,不进音质竞速。
-  if (music.source === 'bili' && getSource(music.source)) {
-    const resolved = await builtinProviderBackend.resolve({
-      primary: music,
-      variants: allVariants,
-      qualityPreference,
-    });
-    debugLog(`[resolve] B站独立解析成功 ${music.name} url=${resolved.url.slice(0, 60)}`);
-    const playable = await prepareResolvedPlaybackMedia(music, resolved, options.cacheMedia !== false);
-    void saveCachedPlaybackUrl(music, playable).catch(() => undefined);
-    return playable;
-  }
-
   // 懒切编排(对齐移动端 playerService):
   // 每轮先只跑内置音乐 API(主源),2.5s 内给出「达标音质」即定稿,自定义源零唤醒;
   // 主源失败 / 超时 / 音质不足本轮期望时才并行唤醒自定义源一起竞速兜底。

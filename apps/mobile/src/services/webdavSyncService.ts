@@ -461,9 +461,6 @@ function normalizeMusicSource(value: unknown): MusicInfo["source"] | null {
     case "tx":
     case "qq":
       return "tx";
-    case "bili":
-    case "bilibili":
-      return "bili";
     case "local":
       return "local";
     case "kg":

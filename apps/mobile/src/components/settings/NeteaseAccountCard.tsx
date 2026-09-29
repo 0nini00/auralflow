@@ -10,9 +10,9 @@ import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/theme
 import { radius, spacing, touch, typography } from "@/theme/tokens";
 
 /**
- * 网易云账号卡片（对齐 BiliAccountCard 交互）：
+ * 网易云账号卡片：
  * 点「登录」展开内嵌 Cookie 表单，验证成功后收起；
- * 进入页面时刷新登录状态，与 B站卡片行为一致。
+ * 进入页面时刷新登录状态。
  */
 export function NeteaseAccountCard() {
   const user = useAccountStore((state) => state.user);
@@ -48,7 +48,7 @@ export function NeteaseAccountCard() {
 
   // 进入页面只查一次：若把 loading 放进依赖，checkStatus 完成时置 loading=false 会再次
   // 触发本 effect → 无限循环，右侧按钮被无限转圈占住，「登录」键永不出现。
-  // 对齐 BiliAccountCard 的「查一次」守卫模式（它用 loaded 标志，这里用 ref 防重入）。
+  // 「查一次」守卫模式（用 ref 防重入）。
   const checkedRef = useRef(false);
 
   useEffect(() => {

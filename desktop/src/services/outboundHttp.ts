@@ -8,7 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
  * 无法预先列举。这类请求统一走 Rust 侧的 `proxy_http_request`，SSRF 判定与
  * 重定向逐跳校验都在那里完成（见 `src-tauri/src/outbound.rs`）。
  *
- * 固定的第三方 API（网易云 / QQ / B站 / gdstudio / GitHub）仍走 plugin-http，
+ * 固定的第三方 API（网易云 / QQ / gdstudio / GitHub）仍走 plugin-http，
  * 由静态白名单约束。
  */
 

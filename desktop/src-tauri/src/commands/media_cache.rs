@@ -20,14 +20,6 @@ pub(super) fn normalize_cache_key(value: Option<String>, fallback: &str) -> Stri
     }
 }
 
-pub(super) fn bili_audio_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(app
-        .path()
-        .app_cache_dir()
-        .map_err(|err| format!("获取 app_cache_dir 失败: {}", err))?
-        .join(BILI_AUDIO_CACHE_DIR))
-}
-
 fn song_audio_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app
         .path()
@@ -250,14 +242,14 @@ async fn cache_remote_file(
         .map_err(|err| format!("创建{}缓存目录失败: {}", label, err))?;
 
     let client = reqwest::Client::builder()
-        .user_agent(BILI_UA)
+        .user_agent(MEDIA_CACHE_UA)
         .redirect(crate::outbound::guarded_redirect_policy("媒体缓存"))
         .build()
         .map_err(|err| format!("创建{}下载客户端失败: {}", label, err))?;
 
     let mut response = client
         .get(url.clone())
-        .header(USER_AGENT, BILI_UA)
+        .header(USER_AGENT, MEDIA_CACHE_UA)
         .header(ACCEPT, "*/*")
         .header(ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9,en;q=0.8")
         .send()
@@ -309,8 +301,7 @@ async fn cache_remote_file(
 
 fn song_cache_stats(app: &AppHandle) -> Result<SongCacheStats, String> {
     let persistent_cache_size = path_size(&persistent_song_cache_path(app)?)?;
-    let audio_cache_size = path_size(&song_audio_cache_dir(app)?)?
-        .saturating_add(path_size(&bili_audio_cache_dir(app)?)?);
+    let audio_cache_size = path_size(&song_audio_cache_dir(app)?)?;
     let cover_cache_size = path_size(&song_cover_cache_dir(app)?)?;
     Ok(SongCacheStats {
         persistent_cache_size,
@@ -490,7 +481,6 @@ pub fn clear_song_cache(app: AppHandle) -> Result<SongCacheStats, String> {
     crate::library::reset(&app, "cache")?;
     for cache_dir in [
         song_audio_cache_dir(&app)?,
-        bili_audio_cache_dir(&app)?,
         song_cover_cache_dir(&app)?,
     ] {
         if cache_dir.exists() {

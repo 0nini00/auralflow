@@ -8,7 +8,7 @@ import { listen } from '@tauri-apps/api/event';
 import { subscribeLyricSettings } from '@/stores/lyricSettingsSync';
 import { toggleDesktopLyricFromPlayer } from '@/utils/desktopLyricToggle';
 import { getNextPlayMode, getPlayModeControl } from '@/services/playback/playModeControl';
-import { getImageReferrerPolicy, toCoverSrc } from '@/utils/imageReferrerPolicy';
+import { toCoverSrc } from '@/utils/imageReferrerPolicy';
 import { formatTime } from '@/utils/formatTime';
 import {
   Play,
@@ -204,7 +204,6 @@ export const PlayerBar: React.FC = () => {
                   src={coverUrl}
                   alt={currentTrack.name}
                   className="af-track-cover"
-                  referrerPolicy={getImageReferrerPolicy(coverUrl)}
                 />
               ) : (
                 <div className="af-track-cover-placeholder">

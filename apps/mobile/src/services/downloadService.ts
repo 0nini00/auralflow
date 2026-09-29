@@ -3,10 +3,8 @@ import RNFS from "react-native-fs";
 import type { LyricLine, MusicInfo } from "@lx/core";
 import { DEFAULT_QUALITY_UPGRADE_WINDOW_MS, estimateStreamDurationSeconds, isPreviewStream, raceForBestQuality } from "@lx/core";
 import { fetchSongLyrics, parseUrl, buildStreamHeaders } from "./musicApi";
-import { resolveBiliSongUrl } from "./biliService";
 import { resolveUrlWithCustomSource } from "./playerService";
 import { probeStreamUrl } from "./streamProbe";
-import { STREAM_USER_AGENT } from "./musicApi";
 
 import { embedId3Tag, type Id3Cover } from "./id3TagWriter";
 import { base64ToBytes, bytesToBase64 } from "@/utils/base64";
@@ -206,7 +204,6 @@ export function isDownloadPaused(song: MusicInfo, quality: DownloadQuality): boo
 
 /**
  * 根据音质推断文件扩展名：无损系列为 flac，其余为 mp3。
- * B站音源为 DASH m4s/m4a，单独处理。
  */
 function qualityExt(quality: DownloadQuality): string {
   if (quality === "flac" || quality === "flac24bit") return "flac";
@@ -220,7 +217,7 @@ function inferExtFromUrl(url: string): string | null {
   try {
     const ext = new URL(url).pathname.split(".").pop()?.toLowerCase() ?? "";
     if (/^(mp3|flac|m4a|m4s|aac|wav|ogg|opus)$/.test(ext)) {
-      // B站 DASH 流为 m4s，本地保存统一用 m4a 便于播放器识别
+      // DASH 流的 m4s 本地保存统一用 m4a 便于播放器识别
       return ext === "m4s" ? "m4a" : ext;
     }
   } catch {
@@ -273,7 +270,7 @@ function downloadFileUri(song: MusicInfo, quality: DownloadQuality = "320k"): st
 /**
  * 查找已存在的下载文件。
  *
- * 下载时若解析出的真实扩展名与按音质推断的不一致（如 B站 m4s→m4a），文件会以调整后的
+ * 下载时若解析出的真实扩展名与按音质推断的不一致，文件会以调整后的
  * 扩展名落盘；这里先查标准路径，再按文件名前缀扫描目录，避免把已下载文件当成未下载而重复下载。
  */
 async function findExistingDownloadFile(
@@ -400,22 +397,13 @@ async function downloadSongInternal(task: QueueTask): Promise<string> {
   }
 
   // 解析播放 URL（本地歌曲直接用其 url）
-  // B站音源需要附带 Referer / User-Agent 请求头，否则 CDN 会返回 403
-  // 非 B站音源根据 quality 调用高品质解析接口
+  // 解析播放 URL（本地歌曲直接用其 url）
+  // 非本地音源根据 quality 调用高品质解析接口
   let url: string;
   let headers: Record<string, string> | undefined;
   let resolvedExt: string | null = null;
   if (song.isLocal && song.url) {
     url = song.url;
-  } else if (song.source === "bili") {
-    const result = await resolveBiliSongUrl(song);
-    url = result.url;
-    headers = {
-      Referer: result.referer,
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    };
-    resolvedExt = inferExtFromUrl(url) ?? "m4a";
   } else {
     // 同档音质内并发竞速（与播放链路一致，用户要求 2026-08）：网关与自定义音源同时
     // 发起，谁先返回有效 URL 用谁；下载完成后 headers 用胜出方的防盗链配置。
