@@ -27,6 +27,13 @@ pub struct AppSettings {
     pub pause_on_external_playback: bool,
     /// 播放失败时是否自动跳到下一首（FM 模式不受影响，始终连播）
     pub playback_failed_auto_next: bool,
+    /// 跟随系统媒体控制（SMTC）：键盘媒体键 / 系统媒体浮层 / 锁屏控制
+    #[serde(default = "default_true")]
+    pub follow_system_media_control: bool,
+    /// 任务栏缩略图按钮与封面预览：悬停任务栏图标可上一首 / 播放暂停 / 下一首，
+    /// 并把窗口快照预览换成当前曲目封面（关闭时不安装窗口过程子类化钩子）
+    #[serde(default = "default_true")]
+    pub taskbar_thumbnails: bool,
     /// 网易云 Cookie
     pub wy_cookie: Option<String>,
     /// 桌面歌词窗口：是否始终置顶
@@ -112,6 +119,10 @@ impl Default for AppSettings {
             default_quality: "320k".to_string(),
             pause_on_external_playback: true,
             playback_failed_auto_next: false,
+            // 默认跟随：媒体键直接可用是用户预期，关掉才需要用户主动操作
+            follow_system_media_control: true,
+            // 默认开：悬停任务栏就能看到曲目封面是用户预期，关掉才需要用户主动操作
+            taskbar_thumbnails: true,
             wy_cookie: None,
             lyric_pinned: true,
             lyric_locked: false,

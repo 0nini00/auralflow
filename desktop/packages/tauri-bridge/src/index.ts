@@ -15,6 +15,10 @@ export interface RustAppSettings {
   defaultQuality: string;
   pauseOnExternalPlayback: boolean;
   playbackFailedAutoNext: boolean;
+  /** 跟随系统媒体控制（SMTC）：键盘媒体键 / 系统媒体浮层 / 锁屏控制 */
+  followSystemMediaControl: boolean;
+  /** 任务栏缩略图按钮与封面预览：悬停任务栏图标显示上一首 / 播放暂停 / 下一首与封面 */
+  taskbarThumbnails: boolean;
   wyCookie?: string | null;
   lyricPinned: boolean;
   lyricLocked: boolean;
@@ -137,6 +141,11 @@ export async function resetSettings(): Promise<RustAppSettings> {
 /** 追加一行诊断日志到 app_data_dir/debug.log（失败静默忽略） */
 export function debugLog(message: string): void {
   void invoke("debug_log", { message }).catch(() => undefined);
+}
+
+/** 用系统文件管理器打开运行日志目录（app_log_dir，与 tauri-plugin-log 落盘位置一致） */
+export async function openLogDir(): Promise<void> {
+  await invoke<void>("open_log_dir");
 }
 
 /** 扫描本地目录 */
@@ -320,4 +329,80 @@ export async function setLyricWindowLocked(
   lockSource?: string,
 ): Promise<boolean> {
   return invoke<boolean>("set_lyric_window_locked", { locked, lockEpoch, lockSource });
+}
+
+// ─── 系统媒体控制（SMTC） ────────────────────
+
+/** 系统媒体控制反向控制事件名（Rust 侧 src/smtc.rs 的同名常量必须一致） */
+export const SMTC_ACTION_EVENT = "smtc-action";
+
+/** 系统媒体控制能回传的动作 */
+export type SmtcActionName = "play" | "pause" | "stop" | "next" | "previous" | "seek";
+
+/** 系统媒体控制反向控制事件载荷（对应 Rust 的 `SmtcActionEvent`） */
+export interface SmtcActionEvent {
+  action: SmtcActionName;
+  /** seek 目标位置（秒），仅 action === "seek" 时存在 */
+  position?: number;
+}
+
+/** 推给系统的曲目信息（对应 Rust 的 `SmtcTrack`） */
+export interface SmtcTrackPayload {
+  /** playerStore.status：idle / loading / playing / paused / error */
+  status: string;
+  title: string;
+  artist: string;
+  album: string;
+  /** 总时长（秒） */
+  duration: number;
+  /** 当前播放位置（秒） */
+  position: number;
+  /** 本地封面缓存文件路径；缺失时系统侧只更新文字 */
+  coverPath?: string | null;
+}
+
+/** 应用「跟随系统媒体控制」开关（关闭时 Rust 侧清空并释放会话） */
+export async function smtcSetEnabled(enabled: boolean): Promise<void> {
+  await invoke<void>("smtc_set_enabled", { enabled });
+}
+
+/** 推送当前曲目 / 播放状态（切歌、暂停恢复、seek 后调用） */
+export async function smtcUpdateTrack(track: SmtcTrackPayload): Promise<void> {
+  await invoke<void>("smtc_update_track", { track });
+}
+
+/** 推送播放进度（Rust 侧按 ≥500ms 节流） */
+export async function smtcUpdateProgress(position: number, duration: number): Promise<void> {
+  await invoke<void>("smtc_update_progress", { position, duration });
+}
+
+// ─── 任务栏缩略图按钮与悬浮预览封面 ────────────────────
+
+/** 任务栏缩略图按钮点击事件名（Rust 侧 src/taskbar.rs 的同名常量必须一致） */
+export const TASKBAR_ACTION_EVENT = "taskbar-action";
+
+/** 任务栏缩略图按钮能回传的动作 */
+export type TaskbarActionName = "previous" | "playPause" | "next";
+
+/** 任务栏缩略图按钮点击事件载荷（对应 Rust 的 `TaskbarActionEvent`） */
+export interface TaskbarActionEvent {
+  action: TaskbarActionName;
+}
+
+/** 推给任务栏的播放快照（对应 Rust 的 `TaskbarTrack`） */
+export interface TaskbarTrackPayload {
+  /** playerStore.status：idle / loading / playing / paused / error */
+  status: string;
+  /** 本地封面缓存文件路径；缺失时悬浮预览保持系统默认 */
+  coverPath?: string | null;
+}
+
+/** 应用「任务栏缩略图按钮与封面预览」开关（关闭时 Rust 侧卸载窗口过程子类化钩子） */
+export async function taskbarSetEnabled(enabled: boolean): Promise<void> {
+  await invoke<void>("taskbar_set_enabled", { enabled });
+}
+
+/** 推送当前播放状态与封面（切歌、暂停恢复、封面落盘后调用） */
+export async function taskbarUpdateTrack(track: TaskbarTrackPayload): Promise<void> {
+  await invoke<void>("taskbar_update_track", { track });
 }

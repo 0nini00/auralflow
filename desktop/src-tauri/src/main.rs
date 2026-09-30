@@ -5,10 +5,13 @@ mod atomic_file;
 mod commands;
 mod config;
 mod library;
+mod logging;
 mod lyric_window;
 mod models;
 mod outbound;
 mod secret_store;
+mod smtc;
+mod taskbar;
 mod tray;
 
 /// 设置窗口 AppUserModelID：音量混音器/任务栏据此匹配快捷方式（应用名+图标），
@@ -62,6 +65,11 @@ pub fn run() {
         // http:default 出站白名单的约束；前端只拿 downloadAndInstall 的进度事件。
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            // 运行日志落盘（失败只记 stderr，不阻断启动）
+            match logging::init(app.handle()) {
+                Ok(dir) => logging::announce_log_dir(&dir),
+                Err(err) => eprintln!("[log] 初始化失败，本次运行不落盘: {}", err),
+            }
             // 音量混音器/任务栏显示正确的应用名与图标：
             // WebView2 进程默认显示 "Microsoft Edge WebView2"，显式设置 AUMID 后
             // 系统会按安装包的快捷方式（含图标）归属音量条目。
@@ -81,6 +89,12 @@ pub fn run() {
             }
             // 系统托盘
             let _ = tray::setup(app.handle());
+            // Windows 系统媒体控制（SMTC）：键盘媒体键 / 系统媒体浮层 / 锁屏控制。
+            // 会话必须绑在有 HWND 的主线程上，这里只排队；失败只记日志，不阻断启动。
+            smtc::setup(app.handle());
+            // Windows 任务栏缩略图按钮 / 悬浮预览封面：只做登记与准备，
+            // 真正的窗口过程子类化要等设置开关确认打开（taskbar::set_enabled）。
+            taskbar::setup(app.handle());
             // 注册深链 scheme（Windows 运行时写入注册表）
             #[cfg(target_os = "windows")]
             {
@@ -106,6 +120,7 @@ pub fn run() {
             commands::patch_settings,
             commands::reset_settings,
             commands::debug_log,
+            commands::open_log_dir,
             // 压缩/解压 fallback
             commands::zlib_inflate,
             commands::zlib_deflate,
@@ -118,6 +133,13 @@ pub fn run() {
             commands::clear_song_cache,
             // 媒体缓存按 key 定向失效（试听片段 / 坏链）
             commands::remove_cached_media,
+            // Windows 系统媒体控制（SMTC）
+            commands::smtc_set_enabled,
+            commands::smtc_update_track,
+            commands::smtc_update_progress,
+            // Windows 任务栏缩略图按钮与悬浮预览封面
+            commands::taskbar_set_enabled,
+            commands::taskbar_update_track,
             // 下载
             commands::download_file,
             commands::cancel_download,

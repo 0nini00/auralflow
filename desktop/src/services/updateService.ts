@@ -12,6 +12,7 @@
 
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { getVersion } from "@tauri-apps/api/app";
+import { logger } from "@/services/logger";
 
 /** 兜底跳转用：发布页 tag 地址 */
 const RELEASE_TAG_BASE = "https://github.com/0nini00/auralflow/releases/tag/v";
@@ -52,7 +53,11 @@ export interface UpdateProgress {
 /** 已检出、等待用户确认安装的更新；`installPendingUpdate` 消费它 */
 let pendingUpdate: Update | null = null;
 
-async function readCurrentVersion(): Promise<string> {
+/**
+ * 读取真实的应用版本。Tauri 侧读的是打包配置里的版本号（`tauri.conf.json` / `Cargo.toml`），
+ * 界面上不再自己写一份常量；设置页「关于」与更新检查共用这一个来源。
+ */
+export async function readAppVersion(): Promise<string> {
   try {
     return await getVersion();
   } catch {
@@ -72,7 +77,7 @@ function describeError(error: unknown): string {
  * 检查更新。永不抛错——失败作为 `kind: "failed"` 返回，由调用方决定怎么显示。
  */
 export async function checkForUpdate(): Promise<UpdateCheckResult> {
-  const currentVersion = await readCurrentVersion();
+  const currentVersion = await readAppVersion();
   try {
     const update = await check();
     if (!update) {
@@ -80,6 +85,7 @@ export async function checkForUpdate(): Promise<UpdateCheckResult> {
       return { kind: "latest", currentVersion };
     }
     pendingUpdate = update;
+    logger.info("[更新] 发现新版本", update.version);
     return {
       kind: "available",
       currentVersion: currentVersion || update.currentVersion,
@@ -90,7 +96,9 @@ export async function checkForUpdate(): Promise<UpdateCheckResult> {
     };
   } catch (error) {
     pendingUpdate = null;
-    return { kind: "failed", currentVersion, reason: describeError(error) };
+    const reason = describeError(error);
+    logger.warn("[更新] 检查更新失败", reason);
+    return { kind: "failed", currentVersion, reason };
   }
 }
 
@@ -110,21 +118,28 @@ export async function installPendingUpdate(
   if (!pendingUpdate) throw new Error("没有待安装的更新，请先检查更新");
   let downloaded = 0;
   let total: number | null = null;
-  await pendingUpdate.downloadAndInstall((event) => {
-    switch (event.event) {
-      case "Started":
-        total = event.data.contentLength ?? null;
-        onProgress({ downloaded: 0, total, readyToInstall: false });
-        break;
-      case "Progress":
-        downloaded += event.data.chunkLength;
-        onProgress({ downloaded, total, readyToInstall: false });
-        break;
-      case "Finished":
-        onProgress({ downloaded, total, readyToInstall: true });
-        break;
-      default:
-        break;
-    }
-  });
+  logger.info("[更新] 开始下载并安装", pendingUpdate.version);
+  try {
+    await pendingUpdate.downloadAndInstall((event) => {
+      switch (event.event) {
+        case "Started":
+          total = event.data.contentLength ?? null;
+          onProgress({ downloaded: 0, total, readyToInstall: false });
+          break;
+        case "Progress":
+          downloaded += event.data.chunkLength;
+          onProgress({ downloaded, total, readyToInstall: false });
+          break;
+        case "Finished":
+          onProgress({ downloaded, total, readyToInstall: true });
+          break;
+        default:
+          break;
+      }
+    });
+  } catch (error) {
+    // 失败原因只会出现在这个 catch 里（进度事件不带错误），必须落盘。
+    logger.error("[更新] 下载或安装失败", error);
+    throw error;
+  }
 }

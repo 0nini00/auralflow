@@ -1,4 +1,4 @@
-import { Home, Search, Settings, User, Music, ListMusic, Download, Calendar, Radio } from "lucide-react";
+import { BarChart3, Home, Search, Settings, User, Music, ListMusic, Download, Calendar, Radio } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useWyAccountStore } from "@/stores/wyAccountStore";
@@ -14,6 +14,7 @@ const navItems = [
   { to: "/playlists", icon: ListMusic, label: "歌单" },
   { to: "/downloads", icon: Download, label: "下载" },
   { to: "/local", icon: Music, label: "本地音乐" },
+  { to: "/stats", icon: BarChart3, label: "听歌统计" },
 ];
 
 export function Sidebar() {

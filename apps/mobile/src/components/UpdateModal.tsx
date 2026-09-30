@@ -25,6 +25,7 @@ import {
   isApkInstallSupported,
   openInstallPermissionSettings,
 } from "@/services/apkInstallService";
+import { logger } from "@/services/logger";
 import { withAlpha } from "@/services/themePaletteModel";
 import { pickApkAssetForDevice, type ApkAsset, type UpdateInfo } from "@/services/updateService";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
@@ -221,7 +222,7 @@ export function UpdateModal({ visible, info, onClose }: UpdateModalProps) {
             if (abortIfCancelled()) return;
             // 还有备用源：记下失败源与错误，换源再试；最后一个源也失败则交给外层失败态。
             if (index === sources.length - 1) throw error;
-            console.warn(
+            logger.warn(
               `更新包下载失败，改用下一个下载源重试（失败源：${DOWNLOAD_SOURCE_LABEL[candidate.source]}）`,
               error,
             );

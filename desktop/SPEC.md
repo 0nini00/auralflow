@@ -12,10 +12,10 @@ tags: [auralflow, desktop]
 桌面端是 AuralFlow 的功能先导端：新能力先在这里落地，移动端随后对齐。它是一个 Tauri v2 应用，由三块构成，各自的细节在子节点里：
 
 - **React 前端**（`desktop/src`）——界面、状态与业务规则。见 `desktop-frontend`。
-- **Rust 后端**（`desktop/src-tauri`）——系统级能力：文件与媒体、流式下载、出站 SSRF 守卫、托盘、独立歌词窗口、凭据加密。见 `desktop-native`。
+- **Rust 后端**（`desktop/src-tauri`）——系统级能力：文件与媒体、流式下载、出站 SSRF 守卫、托盘、独立歌词窗口、系统媒体控制（SMTC）、任务栏缩略图与悬浮预览、运行日志落盘、凭据加密。见 `desktop-native`。
 - **IPC 桥**（`desktop/packages/tauri-bridge`）——部分 Tauri 命令的类型化包装。见 `tauri-bridge`。
 
-端上独有的能力（相对移动端）：透明浮窗歌词窗口、系统托盘、窗口内快捷键、扫码登录、Rust 侧文件操作、可变下载目录、光标特效。这些由平台能力支撑，不是移动端的缺口。
+端上独有的能力（相对移动端）：透明浮窗歌词窗口、系统托盘、**系统媒体控制（SMTC：媒体键 / 系统媒体浮层 / 锁屏控制）**、**任务栏缩略图按钮与悬浮预览封面**、窗口内快捷键（keydown，自定义组合键仍未做，媒体键由 SMTC 承载）、扫码登录、Rust 侧文件操作、可变下载目录、光标特效。这些由平台能力支撑，不是移动端的缺口。
 
 共同目标见 `auralflow-goal`；两端共享的纯逻辑见 `core`；音源解析见 `source-resolution`。
 

@@ -10,6 +10,7 @@ import {
 import { outboundRequest } from '@/services/outboundHttp';
 import { resolvePlaybackUrl } from '@/services/playback/playbackResolver';
 import { getSource } from '@/services/sources/sourceService';
+import { logger } from '@/services/logger';
 
 export interface PreparedDownload {
   url: string;
@@ -153,6 +154,12 @@ export async function enhanceDownloadedFile(
   // （那会让用户以为整首歌没下下来）。但也不能静默吞掉——失败必须回报给调用方显示状态，
   // 这是仓库既有的不变量：异步失败要么显式抛出、要么显示状态，不做静默 fallback。
   const warnings: string[] = [];
+  // 后处理失败既回报给调用方显示状态（warnings），也写进运行日志：用户在设置页点
+  // 「打开日志目录」就能看到原因，而不是只有界面上的一句话。
+  const reportWarning = (reason: string) => {
+    logger.warn(`[下载] ${reason}`);
+    warnings.push(reason);
+  };
 
   try {
     await setAudioMetadata(savedPath, {
@@ -161,14 +168,14 @@ export async function enhanceDownloadedFile(
       album: music.albumName || undefined,
     });
   } catch (error) {
-    warnings.push(`写入音频标签失败：${formatReason(error)}`);
+    reportWarning(`写入音频标签失败：${formatReason(error)}`);
   }
 
   try {
     const coverData = await fetchCoverDataUrl(music);
     if (coverData) await setAudioCover(savedPath, coverData);
   } catch (error) {
-    warnings.push(`嵌入封面失败：${formatReason(error)}`);
+    reportWarning(`嵌入封面失败：${formatReason(error)}`);
   }
 
   try {
@@ -177,16 +184,16 @@ export async function enhanceDownloadedFile(
       try {
         await setAudioLyrics(savedPath, lyric);
       } catch (error) {
-        warnings.push(`写入内嵌歌词失败：${formatReason(error)}`);
+        reportWarning(`写入内嵌歌词失败：${formatReason(error)}`);
       }
       try {
         await writeDownloadTextFile(directory, buildLrcFileName(fileName), `${lyric}\n`);
       } catch (error) {
-        warnings.push(`写入歌词文件失败：${formatReason(error)}`);
+        reportWarning(`写入歌词文件失败：${formatReason(error)}`);
       }
     }
   } catch (error) {
-    warnings.push(`获取歌词失败：${formatReason(error)}`);
+    reportWarning(`获取歌词失败：${formatReason(error)}`);
   }
 
   return warnings;

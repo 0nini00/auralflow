@@ -62,6 +62,22 @@ async function cacheMusicCover(music: MusicInfo): Promise<MusicInfo> {
   return { ...music, picUrl: remoteUrl, img: remoteUrl };
 }
 
+/**
+ * 查询已落盘的封面缓存路径（只查缓存，不触发下载），供系统媒体控制推封面用。
+ *
+ * 刻意不看曲目当前的 picUrl：命中缓存时它已经被换成本地 asset 地址，
+ * 但缓存 key 只由 source/id 决定，因此照样能查到同一个文件。
+ * 未命中（含本地音乐）返回 null —— 此时系统侧只更新文字。
+ */
+export async function lookupCachedCoverPath(music: MusicInfo): Promise<string | null> {
+  try {
+    return await lookupCachedMedia("cover", buildMediaCacheKey(music, "cover"));
+  } catch {
+    // 查缓存失败不影响播放，按「没有封面」处理
+    return null;
+  }
+}
+
 async function cachePlaybackAudio(music: MusicInfo, resolved: PlaybackResolvedUrl): Promise<string> {
   if (!CACHEABLE_AUDIO_SOURCES.has(music.source) || !isHttpUrl(resolved.url)) {
     return resolved.url;

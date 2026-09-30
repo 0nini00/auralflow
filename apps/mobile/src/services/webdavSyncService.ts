@@ -5,7 +5,7 @@ import { useFavoritesStore } from "../stores/favoritesStore";
 import type { WyPlaylistInfo } from "./wyPlaylistService";
 import type { LocalPlaylist } from "./localPlaylistModel";
 import { useHistoryStore } from "../stores/historyStore";
-import type { HistoryEntry } from "./historyGroupModel";
+import { hasRealPlayedAt, type HistoryEntry } from "./historyGroupModel";
 import { useCustomSourceStore, type CustomSourceItem } from "../stores/customSourceStore";
 import { parseDesktopUserApiInfo } from "./customSourceRuntime";
 import { atobSafe, btoaSafe } from "../utils/base64";
@@ -14,6 +14,7 @@ import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
 import { getSecureItem, removeSecureItem, setSecureItem } from "@/services/secureStorageService";
 import { migrateLegacySecret } from "@/services/secureStorageMigrationModel";
 import { assertHttpsWebdavUrl } from "@/services/webdavUrlModel";
+import { logger } from "@/services/logger";
 
 /**
  * 移动端 WebDAV 同步服务。
@@ -99,6 +100,11 @@ interface PlaylistsSyncFile {
 interface PlayHistorySyncItem {
   id: string;
   musicInfo: MusicInfo;
+  /**
+   * 真实播放时间戳（毫秒）。**0 表示时间未知**：本地只有合成占位时间（云端原本就没带时间、
+   * 或旧格式数据从没记过时间）时只写 0，绝不用占位值冒充真实播放时间——与桌面端
+   * `buildPlayHistorySync`（`desktop/src/services/webdavSyncService.ts:498`）口径一致。
+   */
   playedAt: number;
   playTime: number;
   maxTime: number;
@@ -283,7 +289,7 @@ async function writeLocalMeta(kind: SyncKind, meta: LocalSyncMeta): Promise<void
   try {
     await AsyncStorage.setItem(META_PREFIX + kind, JSON.stringify(meta));
   } catch (error) {
-    console.warn(`保存 WebDAV ${kind} 元数据失败`, error);
+    logger.warn(`保存 WebDAV ${kind} 元数据失败`, error);
   }
 }
 
@@ -294,7 +300,7 @@ async function writeLocalBackup(kind: SyncKind, payload: unknown): Promise<void>
       JSON.stringify({ savedAt: Date.now(), payload }),
     );
   } catch (error) {
-    console.warn(`保存 WebDAV ${kind} 本地备份失败`, error);
+    logger.warn(`保存 WebDAV ${kind} 本地备份失败`, error);
   }
 }
 
@@ -527,18 +533,24 @@ function toMusicList(value: unknown): MusicInfo[] {
 // ---------------------------------------------------------------------------
 
 function buildPlayHistorySync(entries: HistoryEntry[]): PlayHistorySyncItem[] {
-  // 使用分时间记录的条目（含真实 playedAt）：跨天多次播放会各保留一条，对齐 lx。
+  // 使用分时间记录的条目：跨天多次播放会各保留一条，对齐 lx。
+  // 只有**真实**播放时间才写出；合成占位时间写 0（未知哨兵，与桌面端同一口径），
+  // 否则本地占位值会被当成真实播放时间回写云端，并在两端互相污染。
   return entries
     .filter((entry) => entry.song?.id)
-    .map((entry) => ({
-      id: `${entry.key}_${entry.playedAt}`,
-      musicInfo: entry.song,
-      playedAt: entry.playedAt,
-      playTime: 0,
-      maxTime: entry.song.interval ?? 0,
-      listId: null,
-      source: "List" as const,
-    }));
+    .map((entry) => {
+      const playedAt = hasRealPlayedAt(entry) ? entry.playedAt : 0;
+      return {
+        // 时间未知的条目 id 不带时间后缀（同桌面端），避免出现 `_0` 这种像时间戳的尾巴。
+        id: playedAt > 0 ? `${entry.key}_${playedAt}` : entry.key,
+        musicInfo: entry.song,
+        playedAt,
+        playTime: 0,
+        maxTime: entry.song.interval ?? 0,
+        listId: null,
+        source: "List" as const,
+      };
+    });
 }
 
 async function buildPlaylistsSyncFile(): Promise<PlaylistsSyncFile> {
@@ -594,16 +606,15 @@ function parsePlayHistory(value: unknown): {
   const timestamps: Record<string, number> = {};
   if (!Array.isArray(value)) return { history, timestamps };
   for (const item of value) {
-    if (isObject(item) && "musicInfo" in item) {
-      const music = toMusicInfo(item.musicInfo);
-      if (!music) continue;
-      history.push(music);
-      const playedAt = getNumber(item.playedAt, 0);
-      if (playedAt > 0) timestamps[`${music.source}:${music.id}`] = playedAt;
-    } else {
-      const music = toMusicInfo(item);
-      if (music) history.push(music);
-    }
+    // 两种方言都收：桌面端写的 `{ musicInfo, playedAt }` 包装条目，以及旧版/裸 `MusicInfo`。
+    const music = isObject(item) && "musicInfo" in item ? toMusicInfo(item.musicInfo) : toMusicInfo(item);
+    if (!music) continue;
+    history.push(music);
+    // 只认正的有限数（0 = 未知哨兵）：缺失 / 0 / 非法值都算「时间未知」，与桌面端
+    // `parsePlayHistory`（`desktop/src/services/webdavSyncService.ts:558`）同口径。
+    // 这里不合成任何时间——本地要不要补内部占位时间由 historyStore 决定并打标记。
+    const playedAt = isObject(item) ? getNumber(item.playedAt, 0) : 0;
+    if (playedAt > 0) timestamps[`${music.source}:${music.id}`] = playedAt;
   }
   return { history, timestamps };
 }
@@ -651,7 +662,7 @@ async function rememberCloudSongs(songsByKey: Map<string, MusicInfo[]>): Promise
     }
     await AsyncStorage.setItem(CLOUD_SONGS_CACHE_KEY, JSON.stringify(payload));
   } catch (error) {
-    console.warn("保存 WebDAV 云端歌曲缓存失败", error);
+    logger.warn("保存 WebDAV 云端歌曲缓存失败", error);
   }
 }
 
@@ -692,7 +703,7 @@ export async function forgetCloudSongs(source: string, id: string): Promise<void
     }
     await AsyncStorage.setItem(CLOUD_SONGS_CACHE_KEY, JSON.stringify(payload));
   } catch (error) {
-    console.warn("保存 WebDAV 云端歌曲缓存失败", error);
+    logger.warn("保存 WebDAV 云端歌曲缓存失败", error);
   }
 }
 
@@ -1132,7 +1143,7 @@ export async function testSync(): Promise<string> {
         return formatWriteFailure("写入", putResp.status, putResp.statusText);
       }
       await webdavRequest(cfg, probePath(), { method: "DELETE" }).catch((error) => {
-        console.warn("清理 WebDAV 探测文件失败", error);
+        logger.warn("清理 WebDAV 探测文件失败", error);
       });
       return "连接正常";
     });

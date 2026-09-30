@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Cloud,
   Database,
@@ -17,6 +17,7 @@ import { PlaybackSettingsSection } from "@/views/settings/PlaybackSettingsSectio
 import { SourcesSettingsSection } from "@/views/settings/SourcesSettingsSection";
 import { SyncSettingsSection } from "@/views/settings/SyncSettingsSection";
 import { useSettingsViewModel } from "@/views/useSettingsViewModel";
+import { readAppVersion } from "@/services/updateService";
 
 type SettingsSectionId =
   | "appearance"
@@ -41,8 +42,22 @@ const SETTINGS_NAV = [
 
 export function SettingsView() {
   const [activeSection, setActiveSection] = useState<SettingsSectionId>("appearance");
+  /** 真实版本号从 Tauri 侧读（updateService 已封装同一来源）；拿不到就显示「未知」，不再硬编码。 */
+  const [appVersion, setAppVersion] = useState("");
   const model = useSettingsViewModel();
   const getActiveSettingsSection = (id: SettingsSectionId) => activeSection === id;
+
+  useEffect(() => {
+    let disposed = false;
+    readAppVersion()
+      .then((version) => {
+        if (!disposed) setAppVersion(version);
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+    };
+  }, []);
 
   return (
     <div className="af-settings-view af-animate-slide-in">
@@ -99,7 +114,7 @@ export function SettingsView() {
             <img src={logoImg} alt="AuralFlow" />
           </div>
           <h3 className="af-settings-about-title">AuralFlow</h3>
-          <p className="af-settings-about-version">版本 0.1.0</p>
+          <p className="af-settings-about-version">{appVersion ? `版本 ${appVersion}` : "版本 未知"}</p>
           <p className="af-settings-about-description">
             现代化的跨平台音乐播放器，基于 Tauri + React 构建。
           </p>

@@ -30,7 +30,7 @@ flowchart TB
         D1[React 18.3.1 前端<br/>13 路由 BrowserRouter v6<br/>12 Zustand store]
         D2[playerEngine.ts 388 行<br/>HTMLAudio + rAF + 余弦淡入淡出]
         D3[customSourceRuntime.ts 776 行<br/>new Function 参数遮蔽（非沙箱）+ LRU(8) + HTTP 代理]
-        D4[Rust 后端 18 文件 3311 行<br/>35 IPC 命令]
+        D4[Rust 后端 23 文件 5297 行<br/>39 IPC 命令]
         D5["@lx/tauri-bridge IPC 桥 345 行"]
     end
 
@@ -85,7 +85,7 @@ Tauri v2 + React 18.3.1 + Vite 5，提供原生 OS 交互体验。
 
 | 层 | 职责 | 关键实现 |
 |---|---|---|
-| Rust 后端 | 系统级任务，34 IPC 命令 | `outbound.rs`（SSRF + 每跳验证 ≤10）、`lyric_window.rs`（792 行 独立透明窗口：锁定=鼠标穿透+150ms 光标轮询+悬停解锁小窗，置顶 1.5s 巡检 + token/epoch 防竞态）、`local_audio.rs`（walkdir + audiotags/lofty 双库）、`media_cache.rs`（两层：song-audio 2GiB 常量 LRU，covers 不限）、`downloads.rs`（流式 + 取消 + 180ms 节流 + 2GiB 上限，完成后 audiotags 写标签、lofty 写词、旁挂 lrc）、`tray.rs` |
+| Rust 后端 | 系统级任务，39 IPC 命令 | `outbound.rs`（SSRF + 每跳验证 ≤10）、`lyric_window.rs`（792 行 独立透明窗口：锁定=鼠标穿透+150ms 光标轮询+悬停解锁小窗，置顶 1.5s 巡检 + token/epoch 防竞态）、`local_audio.rs`（walkdir + audiotags/lofty 双库）、`media_cache.rs`（两层：song-audio 2GiB 常量 LRU，covers 不限）、`downloads.rs`（流式 + 取消 + 180ms 节流 + 2GiB 上限，完成后 audiotags 写标签、lofty 写词、旁挂 lrc）、`tray.rs`、`logging.rs`（`tauri-plugin-log` 落盘到 `app_log_dir()`，2 MiB×3 轮转）、`smtc.rs`（Windows 系统媒体控制：媒体键 / 媒体浮层 / 锁屏，封面走内存流）、`taskbar.rs`（任务栏缩略图三按钮 + DWM 悬浮预览封面，`SetWindowSubclass` 子类化，全程 fail-soft） |
 | React 前端 | UI 与业务 | `playerEngine.ts`（388 行 HTMLAudio + rAF + 500ms 纠偏 + 余弦淡入淡出 90/140ms fadeToken + 外部暂停 500ms 保护窗；进度不跨启动恢复，跨窗口由 `stores/playerSync.ts` 经 BroadcastChannel + Tauri 事件同步）、`customSourceRuntime.ts`（776 行 new Function 参数遮蔽，非沙箱——脚本在本 WebView 全权执行 + LRU(8) + HTTP 代理 Rust；能力白名单含 search/playlist）、`webdavSyncService.ts`（629 行 同步锁 + 冲突检测）、`wyAccountService.ts`（601 行 weapi/eapi——`wyProvider.ts` 内另有一份 eapiEncrypt——+ 扫码/Cookie 登录，Cookie 经 Rust DPAPI 加密落盘） |
 | 缓存 | 播放 URL / 歌词持久索引 | `persistentCache.ts`（URL 6h / 本地 365d / 歌词 30d / 空结果 7d，LRU 500/1000 条） |
 | 导航 | 13 路由 BrowserRouter v6 | 首页(index) / search / library→收藏歌单重定向 / local / playlists / downloads / history / playlist/:id / artist/:id / album/:id / daily / fm / settings |
@@ -164,7 +164,7 @@ React Native 0.86 + React 19.2.3，面向 Android（minSdk 24）。
 
 | 端 | 差异能力 |
 |---|---|
-| 桌面 | 浮动歌词窗口 / 托盘 / 窗口内快捷键（keydown，无全局热键插件）/ 扫码登录 / Rust 文件操作 / 可变下载目录 / cursor 特效 |
+| 桌面 | 浮动歌词窗口 / 托盘 / 系统媒体控制（SMTC：媒体键、系统媒体浮层、锁屏控制）/ 任务栏缩略图按钮与悬浮预览封面 / 窗口内快捷键（keydown，自定义组合键未做）/ 扫码登录 / Rust 文件操作 / 可变下载目录 / cursor 特效 |
 | 移动 | 通知栏 / TrackPlayer 后台 / 锁屏 / deep link / 分享 / MV / 首页 feed / Android 浮窗歌词 / 自动检查自定义源 |
 
 ## 常用命令

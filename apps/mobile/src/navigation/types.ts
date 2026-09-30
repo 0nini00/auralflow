@@ -69,6 +69,7 @@ export type RootStackParamList = {
   FollowedArtists: undefined;
   SubscribedAlbums: undefined;
   SimilarSongs: { songId: string; songName: string };
+  ListeningStats: undefined;
 };
 
 declare global {

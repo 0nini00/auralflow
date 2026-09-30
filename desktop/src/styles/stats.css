@@ -1,0 +1,225 @@
+/* ============================================================
+   听歌统计（StatsView）
+   数字卡片 + 纯 CSS 条形榜，不引入任何图表库。
+   ============================================================ */
+
+.af-stats-view {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 900px;
+}
+
+.af-stats-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.af-stats-head .af-heading-1 {
+  margin-bottom: 0;
+}
+
+/* ---------- 数字卡片 ---------- */
+
+.af-stats-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 16px;
+}
+
+.af-stats-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 20px;
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-lg);
+  background: var(--af-bg-surface);
+}
+
+.af-stats-card-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--af-text-tertiary);
+  font-size: var(--af-font-size-sm);
+  font-weight: var(--af-font-weight-medium);
+}
+
+.af-stats-card-value {
+  color: var(--af-text-primary);
+  font-size: var(--af-font-size-2xl);
+  font-weight: var(--af-font-weight-bold);
+  letter-spacing: -0.01em;
+}
+
+.af-stats-card-note {
+  color: var(--af-text-tertiary);
+  font-size: var(--af-font-size-xs);
+  line-height: var(--af-line-height-normal);
+}
+
+/* 时长未知的卡片只换警示色与边框，不做实心填充：和别的卡片保持同一视觉档位 */
+.af-stats-card-warn {
+  border-color: rgba(245, 158, 11, 0.42);
+}
+
+.af-stats-card-warn .af-stats-card-label,
+.af-stats-card-warn .af-stats-card-value {
+  color: var(--af-warning);
+}
+
+/* ---------- 诚实提示：历史缺少播放时间 ---------- */
+
+.af-stats-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-md);
+  background: var(--af-warning-bg);
+  color: var(--af-text-secondary);
+  font-size: var(--af-font-size-sm);
+  line-height: var(--af-line-height-normal);
+}
+
+.af-stats-notice svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--af-warning);
+}
+
+/* ---------- 榜单 / 趋势面板 ---------- */
+
+.af-stats-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-lg);
+  background: var(--af-bg-page);
+}
+
+.af-stats-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--af-text-primary);
+  font-size: var(--af-font-size-lg);
+  font-weight: var(--af-font-weight-semibold);
+}
+
+.af-stats-panel-title svg {
+  color: var(--af-accent-primary);
+}
+
+.af-stats-panel-note,
+.af-stats-panel-empty {
+  margin: 0;
+  color: var(--af-text-tertiary);
+  font-size: var(--af-font-size-sm);
+  line-height: var(--af-line-height-normal);
+}
+
+.af-stats-rank-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.af-stats-rank-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.af-stats-rank-index {
+  flex: 0 0 24px;
+  padding-top: 2px;
+  color: var(--af-text-quaternary);
+  font-size: var(--af-font-size-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* 趋势区的序号位放 `MM-DD`，比一位名次宽 */
+.af-stats-rank-index-day {
+  flex-basis: 46px;
+}
+
+.af-stats-rank-body {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.af-stats-rank-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.af-stats-rank-name {
+  overflow: hidden;
+  color: var(--af-text-primary);
+  font-size: var(--af-font-size-base);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-stats-rank-value {
+  flex: 0 0 auto;
+  color: var(--af-text-secondary);
+  font-size: var(--af-font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.af-stats-rank-sub {
+  overflow: hidden;
+  color: var(--af-text-tertiary);
+  font-size: var(--af-font-size-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- 条形本体 ---------- */
+
+.af-stats-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--af-radius-full);
+  background: var(--af-bg-overlay);
+}
+
+.af-stats-bar-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--af-accent-gradient);
+  transition: width var(--af-transition-slow);
+}
+
+/* ---------- 有背景图时的半透明处理（与 .af-card 同口径） ---------- */
+
+.af-app-has-background .af-stats-card,
+.af-app-has-background .af-stats-panel {
+  border-color: rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(8px);
+}
+
+[data-theme="dark"] .af-app-has-background .af-stats-card,
+[data-theme="dark"] .af-app-has-background .af-stats-panel {
+  border-color: rgba(226, 232, 240, 0.12);
+  background: rgba(15, 23, 42, 0.16);
+}

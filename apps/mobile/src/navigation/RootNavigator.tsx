@@ -12,6 +12,7 @@ import { ArtistDetailScreen } from "@/screens/ArtistDetailScreen";
 import { DailyRecommendScreen } from "@/screens/DailyRecommendScreen";
 import { ImmersiveLyricsScreen } from "@/screens/ImmersiveLyricsScreen";
 import { LikedSongsScreen } from "@/screens/LikedSongsScreen";
+import { ListeningStatsScreen } from "@/screens/ListeningStatsScreen";
 import { LocalPlaylistDetailScreen } from "@/screens/LocalPlaylistDetailScreen";
 import { PersonalFmScreen } from "@/screens/PersonalFmScreen";
 import { MvPlayerScreen } from "@/screens/MvPlayerScreen";
@@ -165,6 +166,11 @@ export function RootNavigator() {
             songName={route.params.songName}
             onBack={() => navigation.goBack()}
           />
+        )}
+      </Stack.Screen>
+      <Stack.Screen name="ListeningStats">
+        {({ navigation }) => (
+          <ListeningStatsScreen onBack={() => navigation.goBack()} />
         )}
       </Stack.Screen>
     </Stack.Navigator>

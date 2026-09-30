@@ -3,11 +3,12 @@ import { CloudDataStaleError, CloudSyncRefusalError, isNumericPlaylistId, isWebd
 import { outboundRequest, type OutboundResponse } from "@/services/outboundHttp";
 import { useFavoritesStore } from "@/stores/favoritesStore";
 import { usePlaylistStore, type Playlist } from "@/stores/playlistStore";
-import { useHistoryStore } from "@/stores/historyStore";
+import { musicKey, useHistoryStore } from "@/stores/historyStore";
 import { useWyAccountStore } from "@/stores/wyAccountStore";
 import { useCustomSourceStore, type CustomSourceItem } from "@/stores/customSourceStore";
 import { parseDesktopUserApiInfo } from "@/services/customSourceRuntime";
 import { inflateBytes } from "@/utils/compression";
+import { logger } from "@/services/logger";
 
 const PROBE_FILE = "auralflow-probe.txt";
 const USER_APIS_FILE = "user_apis.json";
@@ -76,6 +77,10 @@ interface PlaylistsSyncFile {
 interface PlayHistorySyncItem {
   id: string;
   musicInfo: MusicInfo;
+  /**
+   * 真实播放时间戳（毫秒）。**0 表示时间未知**：旧桌面历史没有时间戳时只能写 0，
+   * 绝不用 `now - index` 之类的假值冒充（移动端解析按 `playedAt > 0` 过滤，0 与缺失等价）。
+   */
   playedAt: number;
   playTime: number;
   maxTime: number;
@@ -490,19 +495,26 @@ async function parseUserApisSyncFile(text: string): Promise<CustomSourceItem[]> 
   return sources.filter((source): source is CustomSourceItem => source != null);
 }
 
-function buildPlayHistorySync(history: MusicInfo[]): PlayHistorySyncItem[] {
-  const now = Date.now();
+function buildPlayHistorySync(
+  history: MusicInfo[],
+  playedAtByKey: Record<string, number>,
+): PlayHistorySyncItem[] {
   return history
     .filter((music) => music?.id)
-    .map((music, index) => ({
-      id: `${music.source}_${music.id}_${now - index}`,
-      musicInfo: music,
-      playedAt: now - index,
-      playTime: 0,
-      maxTime: music.interval ?? 0,
-      listId: null,
-      source: "List",
-    }));
+    .map((music) => {
+      // 只写真实记录过的播放时间；没有就写 0（未知），不编造时间。
+      const recorded = playedAtByKey[musicKey(music)];
+      const playedAt = typeof recorded === "number" && Number.isFinite(recorded) && recorded > 0 ? recorded : 0;
+      return {
+        id: playedAt > 0 ? `${music.source}_${music.id}_${playedAt}` : `${music.source}_${music.id}`,
+        musicInfo: music,
+        playedAt,
+        playTime: 0,
+        maxTime: music.interval ?? 0,
+        listId: null,
+        source: "List",
+      } satisfies PlayHistorySyncItem;
+    });
 }
 
 function buildPlaylistsSyncFile(): PlaylistsSyncFile {
@@ -530,24 +542,44 @@ function buildPlaylistsSyncFile(): PlaylistsSyncFile {
         ...cloudRefs,
       ],
     },
-    playHistory: buildPlayHistorySync(useHistoryStore.getState().history),
+    playHistory: buildPlayHistorySync(
+      useHistoryStore.getState().history,
+      useHistoryStore.getState().playedAtByKey,
+    ),
   };
 }
 
-function parsePlayHistory(value: unknown): MusicInfo[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => {
-      if (isObject(item) && "musicInfo" in item) return toMusicInfo(item.musicInfo);
-      return toMusicInfo(item);
-    })
-    .filter((music): music is MusicInfo => music != null);
+interface ParsedPlayHistory {
+  history: MusicInfo[];
+  /** 云端条目**真实带了**的播放时间戳（键 = `${source}:${id}`）；缺失 / 0 / 非法的条目不进表 */
+  playedAtByKey: Record<string, number>;
+}
+
+function parsePlayHistory(value: unknown): ParsedPlayHistory {
+  const history: MusicInfo[] = [];
+  const playedAtByKey: Record<string, number> = {};
+  if (!Array.isArray(value)) return { history, playedAtByKey };
+
+  for (const item of value) {
+    const music = isObject(item) && "musicInfo" in item ? toMusicInfo(item.musicInfo) : toMusicInfo(item);
+    if (!music) continue;
+    history.push(music);
+
+    // 只认正的有限数：0 是「时间未知」哨兵，字段缺失也不补值。
+    const playedAt = isObject(item) ? item.playedAt : undefined;
+    if (typeof playedAt === "number" && Number.isFinite(playedAt) && playedAt > 0) {
+      playedAtByKey[musicKey(music)] = playedAt;
+    }
+  }
+  return { history, playedAtByKey };
 }
 
 interface ParsedPlaylistsSyncFile {
   favorites: MusicInfo[];
   playlists: Playlist[];
   history: MusicInfo[];
+  /** 云端历史里带回来的真实播放时间戳（键 = `${source}:${id}`），供 historyStore 合并 */
+  historyPlayedAt: Record<string, number>;
   /** userList 里的云端歌单引用（网易云 / QQ），原样透传不做本地化 */
   cloudRefs: RemotePlaylistItem[];
 }
@@ -601,8 +633,10 @@ function parsePlaylistsSyncFile(text: string): ParsedPlaylistsSyncFile {
     }
   }
 
-  const history = parsePlayHistory(payload.playHistory ?? data.playHistory ?? payload.history ?? data.history);
-  return { favorites, playlists, history, cloudRefs };
+  const { history, playedAtByKey: historyPlayedAt } = parsePlayHistory(
+    payload.playHistory ?? data.playHistory ?? payload.history ?? data.history,
+  );
+  return { favorites, playlists, history, historyPlayedAt, cloudRefs };
 }
 
 /** 上传自定义音源到 WebDAV（覆盖远端 user_apis.json）。 */
@@ -735,7 +769,7 @@ export async function downloadPlaylistsSync(options?: { force?: boolean; allowMi
     // 合并而非覆盖：本地与远端收藏/歌单/历史并集,保留双端数据不丢失。
     useFavoritesStore.getState().mergeAll(parsed.favorites);
     usePlaylistStore.getState().mergeAll(parsed.playlists);
-    useHistoryStore.getState().mergeAll(parsed.history);
+    useHistoryStore.getState().mergeAll(parsed.history, parsed.historyPlayedAt);
 
     const remoteLm = extractRemoteLastModified(text) ?? Date.now();
     writeLocalMeta("playlists", {
@@ -787,7 +821,7 @@ export async function testSync(): Promise<string> {
         return formatWriteFailure("写入", putResp.status, putResp.statusText);
       }
       await webdavRequest(cfg, probePath(), { method: "DELETE" }).catch((error) => {
-        console.warn("清理 WebDAV 探测文件失败", error);
+        logger.warn("清理 WebDAV 探测文件失败", error);
       });
       return "连接正常";
     });

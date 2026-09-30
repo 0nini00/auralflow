@@ -1,7 +1,8 @@
 export type LibraryQuickActionType =
   | "openLikedPlaylist"
   | "openFollowedArtists"
-  | "openSubscribedAlbums";
+  | "openSubscribedAlbums"
+  | "openListeningStats";
 
 export interface LibraryQuickAction {
   action: LibraryQuickActionType;
@@ -39,6 +40,12 @@ export function buildLibraryQuickActions(input: BuildLibraryQuickActionsInput): 
       title: "收藏专辑",
       subtitle: input.isWyLoggedIn ? "网易云收藏列表" : "登录网易云查看",
       disabled: !input.isWyLoggedIn,
+    },
+    {
+      action: "openListeningStats",
+      title: "听歌统计",
+      subtitle: "总时长、Top 歌曲与听歌趋势",
+      disabled: false,
     },
   ];
 }

@@ -12,7 +12,7 @@ services/
 │             #       playModeControl prefetchModel prefetchService streamProbe types
 ├── search/   # 搜索（5）：含 searchSuggestions（本地历史 + 网易云 suggest）
 ├── sources/  # 源：wyProvider txProvider（registry 注册；builtin / customSource backend 见 playback/）
-└── *.ts      # 22 个顶层服务
+└── *.ts      # 23 个顶层服务
 ```
 
 ## 核心服务清单

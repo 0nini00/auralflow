@@ -13,10 +13,10 @@ Rust 侧承担 WebView 做不到或不该做的事，经 Tauri IPC 暴露给前�
 
 - **出站网络守卫**：出站请求的校验与执行。这是 `core/outbound-host.ts`（书面定义）的 Rust 实现，也是**真正实施拦截的那一份**——桌面端出站请求由 Rust 发出。对外只暴露三个入口：`assert_public_url`、`guarded_redirect_policy`（每跳复用同一判定，≤10 跳）、`proxy_http_request`。
 - **文件与媒体**：本地音乐扫描（walkdir + audiotags/lofty 双库读写标签与内嵌封面）、两层媒体缓存（song-audio 2GiB、song-covers 512MiB；命中刷新 mtime，因此是真正的 LRU）、流式下载（可取消、180ms 进度节流、2GiB 上限，完成后写标签与旁挂 lrc）、原子写入、用户数据持久化。
-- **窗口与系统集成**：独立透明歌词窗口（复用前端 dist，按窗口 label 路由；锁定 = 鼠标穿透 + 150ms 光标轮询 + 悬停解锁小窗，置顶 1.5s 巡检 + token/epoch 防竞态）、系统托盘、应用生命周期。
+- **窗口与系统集成**：独立透明歌词窗口（复用前端 dist，按窗口 label 路由；锁定 = 鼠标穿透 + 150ms 光标轮询 + 悬停解锁小窗，置顶 1.5s 巡检 + token/epoch 防竞态）、系统托盘、应用生命周期，以及两项 Windows 专属集成：**系统媒体控制（SMTC）**（键盘媒体键 / 系统媒体浮层 / 锁屏控制；封面走内存流，进度推送节流 ≥500ms；会话绑主窗口 HWND，初始化失败只记日志）与**任务栏缩略图按钮 + 悬浮预览封面**（`SetWindowSubclass` 子类化窗口过程，未处理消息原样交 `DefSubclassProc`；封面经 WIC 解码成 DIB 位图）。两者都 fail-soft、各有设置开关且默认开。
 - **凭据加密**：`secret_store.rs` 用 Windows DPAPI 按当前用户加密 Cookie 与 WebDAV 密码，密文以 `DPAPI:v1:<base64>` 存放，与明文可区分，因此历史明文文件无需迁移步骤；**仅支持 Windows，其他平台编译期失败**——静默退回明文会让「凭证已加密」变成假承诺。
-
-**结构**：`main.rs` 声明 9 个顶层模块（含 `commands`、`outbound`、`secret_store`、`tray`）。IPC 命令按领域拆成 `commands/` 下的 7 个子模块（settings / compression / media_cache / downloads / local_audio / library / lyric_window），以 `mod { include!(...) }` 引入后由 `commands.rs` 统一 `pub use`，`main.rs` 继续按 `commands::<name>` 引用——因此**命令名、参数与返回值在拆分前后保持不变**。注意 `library` 与 `lyric_window` 各有两份文件：顶层的是领域逻辑与窗口生命周期，`commands/` 下的是命令面。
+- **运行日志**：`logging.rs` 用 `tauri-plugin-log` 把日志落盘到 `app_log_dir()`（Windows：`%LOCALAPPDATA%\cn.chenle.auralflow\logs`）：单文件 2 MiB 轮转、最多留 3 个文件，release 记 `info` 起（前端 `console.warn/error` 经 `@tauri-apps/plugin-log` 转发进同一文件，不静默丢）。初始化 fail-soft：拿不到目录/建不了文件只打 stderr，绝不阻断启动。设置页「打开日志目录」走 `open_log_dir` 命令，失败只记日志。
+**结构**：`main.rs` 声明 12 个顶层模块（含 `commands`、`logging`、`outbound`、`secret_store`、`smtc`、`taskbar`、`tray`）。IPC 命令按领域拆成 `commands/` 下的 10 个子模块（settings / compression / media_cache / downloads / local_audio / library / lyric_window / logging / smtc / taskbar），以 `mod { include!(...) }` 引入后由 `commands.rs` 统一 `pub use`，`main.rs` 继续按 `commands::<name>` 引用——因此**命令名、参数与返回值在拆分前后保持不变**。注意 `library`、`lyric_window`、`logging`、`smtc`、`taskbar` 各有两份文件：顶层放领域逻辑与窗口生命周期，`commands/` 下放命令面。当前注册 39 条 IPC 命令。
 
 窗口能力按最小权限分三套 capability：`main` / `lyric` / `lyric-unlock`。只有 `main` 带 `updater:default`（歌词窗不需要更新能力）。
 
@@ -32,7 +32,7 @@ Rust 侧承担 WebView 做不到或不该做的事，经 Tauri IPC 暴露给前�
 
 ## 边界
 
-**允许**：Tauri v2（`protocol-asset`、`tray-icon`）、`tauri-plugin-updater`、reqwest、walkdir、audiotags/lofty、base64、Windows 系统 API。
+**允许**：Tauri v2（`protocol-asset`、`tray-icon`）、`tauri-plugin-updater`、`tauri-plugin-log`、reqwest、walkdir、audiotags/lofty、base64、Windows 系统 API。
 
 **禁止**：
 
@@ -44,4 +44,4 @@ Rust 侧承担 WebView 做不到或不该做的事，经 Tauri IPC 暴露给前�
 
 **两处与 JS 侧有意保留的差异**（都不构成 SSRF 面）：`http:example.com` 这类缺 `://` 的写法 JS 直接拒、Rust 交给 WHATWG 归一化后照常校验 host；「形似 IPv4 但解析失败」的 fail-closed 只在 JS 侧实现——Rust 侧该情形经 `reqwest::Url` 归一化后只可能落到公开 IP。
 
-**测试现状**：`outbound.rs` 有 4 个 `#[test]`（四段不可路由网段 + IPv4-mapped 继承关系 + `assert_public_url` 端到端），`secret_store.rs` 有 6 个；两者都由根目录 `pnpm test:rust` 执行，CI 在 windows runner 上跑同一命令——**不再是「有测试而无人运行」**。缺口是跨语言一致性没有测试：JS 侧 20 例与 Rust 侧 4 例各测各的，没有任何一处断言「同一批 URL 两边结论相同」，所以本节的「两端一致」目前仍然只是人工维护的声明。
+**测试现状**：`pnpm test:rust` 现有 36 个 `#[test]`，分布在 `outbound.rs`（不可路由网段 + IPv4-mapped 继承 + `assert_public_url` 端到端）、`secret_store.rs`、`logging.rs`（轮转上限与归档份数、落盘级别、启动横幅）、`smtc.rs` 与 `taskbar.rs`（状态映射、进度节流、时间轴换算、按钮/字形映射与几何等纯逻辑），CI 在 windows runner 上跑同一命令——**不再是「有测试而无人运行」**。缺口是跨语言一致性没有测试：JS 侧与 Rust 侧的出站判定各测各的，没有任何一处断言「同一批 URL 两边结论相同」，所以本节的「两端一致」目前仍然只是人工维护的声明。

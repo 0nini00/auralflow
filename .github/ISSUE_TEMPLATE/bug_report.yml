@@ -1,0 +1,178 @@
+name: 缺陷报告 / Bug report
+description: 报告一个可复现的问题（请务必带上日志）
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提交前请先看 [常见问题（FAQ）](https://github.com/0nini00/auralflow/blob/main/docs/FAQ.md)：
+        SmartScreen / 杀软误报、更新下载慢或失败、WebDAV 同步被拒、点不动的历史条目、逐字歌词、后台保活等问题上面都有答案。
+
+        **日志是定位问题的最关键信息**，下面的「日志」字段是必填项。
+
+  - type: markdown
+    attributes:
+      value: |
+        ## 版本
+
+  - type: input
+    id: desktop-version
+    attributes:
+      label: 桌面端版本
+      description: 在应用内「设置 → 关于」里可以看出版本号；没有使用桌面端就填「未使用」。
+      placeholder: 0.5.2
+    validations:
+      required: true
+
+  - type: input
+    id: mobile-version
+    attributes:
+      label: 移动端版本
+      description: 在应用内「设置 → 关于 → 当前版本」里可以看到；没有使用移动端就填「未使用」。有构建号（versionCode）也一并写上，例如 `0.5.2 (7)`。
+      placeholder: 0.5.2 (7)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 出现问题的平台
+      options:
+        - 桌面端（Windows）
+        - 移动端（Android）
+        - 两端都有
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ## 问题描述
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: 问题概述
+      description: 一句话说清发生了什么。
+      placeholder: 播放某些歌曲时提示播放失败，但同一首歌昨天还能播。
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 请写清每一步操作，越具体越好；说明问题是否每次都能复现。
+      placeholder: |
+        1. 打开应用，进入「搜索」
+        2. 搜索「……」
+        3. 点第 3 条结果播放
+        4. 约 5 秒后提示播放失败
+        复现概率：必现 / 偶尔 / 只出现过一次
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 你以为会发生什么？
+      placeholder: 应该正常播放，并加载歌词。
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 实际发生了什么？有报错原文请原样贴出，不要改写。
+      placeholder: |
+        弹窗提示：……
+        控制台/界面上的报错原文：
+        ……
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ## 日志
+
+  - type: input
+    id: desktop-log-path
+    attributes:
+      label: 桌面端日志路径或内容
+      description: |
+        日志目录（Windows）：`%LOCALAPPDATA%\cn.chenle.auralflow\logs`，里面的当前日志文件是 `auralflow.log`
+        （单个文件超过 2 MiB 会归档，磁盘上最多保留 3 份）。应用内「设置 → 其他 → 运行日志 → 打开日志目录」可以直接打开它。
+        请在这里填写日志文件的完整路径；不方便贴文件时，把相关的日志内容直接粘贴到下一个字段。
+        没有使用桌面端就填「未使用」。
+      placeholder: C:\Users\你\AppData\Local\cn.chenle.auralflow\logs\auralflow.log
+    validations:
+      required: true
+
+  - type: textarea
+    id: desktop-log-content
+    attributes:
+      label: 桌面端日志内容
+      description: 把与问题相关的日志片段粘贴到这里（注意去掉 Cookie、WebDAV 密码等隐私信息）。
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: mobile-log
+    attributes:
+      label: 移动端日志或界面报错
+      description: |
+        移动端日志会落盘到应用私有目录的 `logs/app-YYYY-MM-DD.log`（Android 完整路径形如
+        `/data/data/cn.chenle.auralflow.mobile/files/logs/app-2026-07-03.log`）。目录路径在应用内
+        「设置 → 存储与数据 → 运行日志」里显示（那里还有「清理日志」按钮；单个文件上限 1 MiB、超限截断，只保留最近 7 天）。
+        取文件：`adb shell run-as cn.chenle.auralflow.mobile cat files/logs/app-<日期>.log`；不方便取文件就把相关日志行粘贴到这里，
+        并附上界面上的报错原文。没有使用移动端就填「未使用」。
+      render: text
+      placeholder: |
+        未使用移动端
+        —— 或者 ——
+        界面提示原文：……
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ## 环境信息（可选但很有用）
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: 运行环境
+      description: 系统版本、设备型号、网络环境等。涉及网络问题（更新、WebDAV、播放失败）时请说明是否使用了代理/VPN。
+      placeholder: |
+        - 系统：Windows 11 24H2 / Android 14（MIUI…）
+        - 设备：……
+        - 网络：家用宽带，未使用代理 / 使用 VPN …
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 补充信息
+      description: 截图、录屏、额外的线索都可以放在这里。
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已阅读 FAQ，并在其中搜索过关键词。
+          required: true
+        - label: 我已填上两端各自的版本号，并附上日志（路径或内容）。
+          required: true
+        - label: 我已确认日志中不包含我的账号密码、Cookie、WebDAV 密码等隐私信息。
+          required: true

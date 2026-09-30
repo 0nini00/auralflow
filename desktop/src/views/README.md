@@ -13,6 +13,7 @@
 | `/playlists` | PlaylistsView | 歌单中心 |
 | `/downloads` | DownloadsView | 下载管理 |
 | `/history` | HistoryView | 播放历史 |
+| `/stats` | StatsView | 听歌统计：总时长 / 次数 / Top 歌曲 / Top 歌手 / 按天趋势（纯 CSS 条形） |
 | `/playlist/:id` | PlaylistDetailView | 歌单详情 |
 | `/artist/:id` | ArtistDetailView | 歌手详情 |
 | `/album/:id` | AlbumDetailView | 专辑详情 |

@@ -72,10 +72,28 @@ mod lyric_window {
     include!("commands/lyric_window.rs");
 }
 
+mod logging {
+    use super::*;
+    include!("commands/logging.rs");
+}
+
+mod smtc {
+    use super::*;
+    include!("commands/smtc.rs");
+}
+
+mod taskbar {
+    use super::*;
+    include!("commands/taskbar.rs");
+}
+
 pub use compression::*;
 pub use downloads::*;
 pub use library::*;
 pub use local_audio::*;
+pub use logging::*;
 pub use lyric_window::*;
 pub use media_cache::*;
 pub use settings::*;
+pub use smtc::*;
+pub use taskbar::*;

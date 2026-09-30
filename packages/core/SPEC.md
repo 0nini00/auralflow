@@ -14,6 +14,7 @@ tags: [auralflow, shared]
 - **播什么**：音质阶梯与轮次划分（`playback-quality`）、试听片段判定（`stream-integrity`）、连点合并（`switch-step-queue`）。
 - **唱到哪**：6 种歌词格式的归一化解析（`lyrics/parser`）、当前行定位（`lyrics/playbackSync`）、原生浮窗的自走时钟（`lyrics/overlay-clock`）。
 - **记什么**：入历史与打点阈值（`history/listen-threshold`）、心动模式缓冲推进（`recommendations/heartbeat-queue`）、WebDAV 加法合并与歌单归类（`webdav-merge`：`isWebdavLocalPlaylistRef` 判 `userList` 的一条记录是本地歌单还是云端歌单引用，`scrubSyncedCloudPlaylistRefs` 清理历史上被误物化成「本地歌单」的云端引用）与同步拒绝的错误层级（`webdav-sync-error`：`CloudSyncRefusalError` / `CloudDataStaleError`）。同步服务与设置页一律按类型判断该拒绝属于哪一种，不匹配错误文案。已下线来源的历史条目清理也在这一层（`removed-source`：`isRemovedSource` / `dropRemovedSourceEntries`，两端在读盘后与同步合并后调用，直接丢弃、不备份）。
+- **算了什么**：听歌统计聚合（`stats/aggregate`：`aggregateListeningStats` 把历史归一成总时长/次数、Top 歌曲与歌手、按天趋势）。两端历史形状不同（桌面是去重的 `MusicInfo[]` + 侧挂播放时间表，移动是 `HistoryEntry{key,song,playedAt}`），所以由各端 store 先产出统一的 `{song, playedAt?}[]` 再调用；**时间未知的条目只进总数与榜单、不进趋势**，两端都不允许伪造播放时间。
 - **更新与发布相关**：发布说明清洗（`release-notes`：`summarizeReleaseNotes` 把 GitHub 发布正文降成纯文本摘要，丢表格/分隔线/代码块）与 GitHub 加速镜像地址改写（`github-mirror`：`GITHUB_MIRROR_PREFIX` / `isMirrorableGithubUrl` / `toMirroredGithubUrl`，刻意手写解析而不用 `new URL`——RN 的 polyfill 不完整）。两端各自接线：移动端镜像失败回退直连，桌面端的镜像/直连双清单由 `desktop/build-release.ps1` 产出。
 - **能不能连**：出站主机判定（`outbound-host`）、免 key 网关的客户端与响应映射（`mobile-api`）。
 

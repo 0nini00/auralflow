@@ -26,6 +26,12 @@ AuralFlow is a full-featured, cross-platform music streaming and local audio pla
 
 Inspired by LX Music, AuralFlow delivers a seamless audio playback experience with real-time synchronized karaoke lyrics, unified multi-source search, automatic cross-source copyright fallback, bi-directional WebDAV library synchronization, and deep Android background playback resilience.
 
+## Having trouble?
+
+- **Read the [FAQ](docs/FAQ.md) first** — install warnings, slow or failing updates, WebDAV sync refusals, lyrics and background-playback issues are all covered there.
+
+- Still stuck? **Open an issue with your logs attached**: desktop logs live in `%LOCALAPPDATA%\cn.chenle.auralflow\logs` (the settings page has an "open log directory" button). Mobile logs are written to the app's private `logs/app-YYYY-MM-DD.log` (Settings → Storage & data → Runtime logs shows the path and offers a "clear logs" action).
+
 ## Highlights
 
 - **Shared Domain Core (`@lx/core`)**: Domain models, playback resolution race logic, stream probe validation, and lyric clock interpolation algorithms are centralized and verified by unit tests.

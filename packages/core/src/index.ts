@@ -15,4 +15,5 @@ export * from "./removed-source";
 export * from "./custom-source";
 export * from "./playlist-link";
 export * from "./history";
+export * from "./stats/aggregate";
 export * from "./recommendations";

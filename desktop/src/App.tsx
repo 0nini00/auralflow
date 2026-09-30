@@ -10,6 +10,7 @@ import { LocalMusicView } from "./views/LocalMusicView";
 import { PlaylistsView } from "./views/PlaylistsView";
 import { DownloadsView } from "./views/DownloadsView";
 import { HistoryView } from "./views/HistoryView";
+import { StatsView } from "./views/StatsView";
 import { PlaylistDetailView } from "./views/PlaylistDetailView";
 import { DailyRecommendView } from "./views/DailyRecommendView";
 import { PersonalFmView } from "./views/PersonalFmView";
@@ -27,6 +28,8 @@ import { checkForUpdate } from "./services/updateService";
 import { useUpdateStore } from "./stores/updateStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useNativeControls } from "./hooks/useNativeControls";
+import { setupSystemMediaControls } from "./services/smtcService";
+import { setupTaskbarThumbnails } from "./services/taskbarService";
 import { setupPlayerSync } from "./stores/playerSync";
 import { detectWindowRoleFromParts, type AppWindowRole } from "./utils/windowRole";
 import { customSourcePersistence, useCustomSourceStore } from "./stores/customSourceStore";
@@ -35,6 +38,7 @@ import { playlistPersistence } from "./stores/playlistStore";
 import { historyPersistence } from "./stores/historyStore";
 import { usePlayerStore, setPlaybackFailedAutoNext } from "./stores/playerStore";
 import { playerEngine } from "./services/playerEngine";
+import { logger } from "./services/logger";
 import { normalizePauseOnExternalPlayback } from "./services/mediaInterruptionPolicy";
 import { flushLibraryPersistence } from "./stores/libraryPersistence";
 import { loadSettings } from "@lx/tauri-bridge";
@@ -42,6 +46,12 @@ import { loadSettings } from "@lx/tauri-bridge";
 function MainApp() {
   useKeyboardShortcuts();
   useNativeControls();
+
+  // 系统媒体控制（SMTC）：媒体键 / 系统媒体浮层 / 锁屏控制。只在主窗口挂载。
+  useEffect(() => setupSystemMediaControls(), []);
+
+  // 任务栏缩略图按钮与悬浮预览封面。只在主窗口挂载。
+  useEffect(() => setupTaskbarThumbnails(), []);
 
   const [cursorEffect, setCursorEffect] = useState<"off" | "trail">("off");
   const setUpdateAvailable = useUpdateStore((s) => s.setAvailable);
@@ -127,7 +137,7 @@ function MainApp() {
           void import("./services/webdavSyncService")
             .then(({ autoSyncPlaylistsOnce }) => autoSyncPlaylistsOnce())
             .catch((error) => {
-              console.warn("[WebDAV 自动同步] 启动同步失败", error);
+              logger.warn("[WebDAV 自动同步] 启动同步失败", error);
             });
         }, 4000);
       })
@@ -158,6 +168,7 @@ function MainApp() {
             <Route path="playlists" element={<PlaylistsView />} />
             <Route path="downloads" element={<DownloadsView />} />
             <Route path="history" element={<HistoryView />} />
+            <Route path="stats" element={<StatsView />} />
             <Route path="playlist/:id" element={<PlaylistDetailView />} />
             <Route path="artist/:id" element={<ArtistDetailView />} />
             <Route path="album/:id" element={<AlbumDetailView />} />

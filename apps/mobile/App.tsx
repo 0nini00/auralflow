@@ -27,6 +27,7 @@ import { initPlaybackSnapshotPersistence } from "@/services/playbackSnapshot";
 import { autoCleanCache } from "@/services/cacheService";
 import { consumeLastJSError } from "@/services/globalErrorCapture";
 import { checkForUpdates, type UpdateInfo } from "@/services/updateService";
+import { logger } from "@/services/logger";
 import { setupPlayerListeners } from "@/stores/playerStore";
 import { canRunStartupNetworkTasks } from "@/services/startupPolicy";
 import { useAccountStore } from "@/stores/accountStore";
@@ -214,7 +215,7 @@ export default function App() {
         if (info.hasUpdate) setUpdateInfo(info);
       })
       .catch((error) => {
-        console.error("[启动更新] 检查更新失败", error);
+        logger.error("[启动更新] 检查更新失败", error);
       });
   }, [pactAccepted]);
 
@@ -313,7 +314,7 @@ export default function App() {
     if (!canRunStartupNetworkTasks(pactAccepted) || !customSourcesLoaded) return;
     const timer = setTimeout(() => {
       void useCustomSourceStore.getState().checkStartupUpdates().catch((error) => {
-        console.error("[自定义音源] 启动更新检查失败", error);
+        logger.error("[自定义音源] 启动更新检查失败", error);
       });
     }, 4500);
     return () => clearTimeout(timer);

@@ -2,6 +2,7 @@ import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import RNFS from "react-native-fs";
 import { healCorruptStorage } from "@/utils/storageSelfHeal";
+import { logger } from "@/services/logger";
 import {
   checkCustomSourceUpdate,
   parseDesktopUserApiInfo,
@@ -189,7 +190,7 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
     } catch (error) {
       // 数据损坏（写入中断/磁盘坏块）会让解析持续失败且音源脚本不可再生：
       // 备份坏串到 *.corrupt 后重建空列表，绝不静默丢弃且无痕迹
-      console.error("[customSource] 音源数据损坏，已备份并重建空列表", error);
+      logger.error("[customSource] 音源数据损坏，已备份并重建空列表", error);
       await healCorruptStorage(STORAGE_KEY, raw);
       set({ sources: [], customSourceAutoCheck: true, loaded: true });
     }

@@ -126,6 +126,11 @@ export function openLikedSongsScreen() {
   navigateStackScreen("LikedSongs");
 }
 
+/** 听歌统计（我的页入口）：聚合本地播放历史，见 screens/ListeningStatsScreen。 */
+export function openListeningStatsScreen() {
+  navigateStackScreen("ListeningStats");
+}
+
 export function openSearchFallbackDetailScreen(detail: SearchFallbackDetailModel) {
   pushRoot("SearchFallbackDetail", { detail });
 }

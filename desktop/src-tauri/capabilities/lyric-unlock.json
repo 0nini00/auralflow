@@ -4,6 +4,7 @@
   "description": "Desktop lyric unlock button window capabilities (minimal).",
   "windows": ["lyric-unlock"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "log:default"
   ]
 }

@@ -10,8 +10,30 @@ export interface HistoryEntry {
   /** 去重键：source:id */
   key: string;
   song: MusicInfo;
-  /** 最近一次播放时间戳（毫秒） */
+  /**
+   * 本地时间基准（毫秒）：分组 / 31 天滚动窗口 / 同日去重 / 排序都用它。
+   *
+   * **它不一定等于真实播放时间**：云端条目没带时间、或旧格式落盘数据没有时间戳时，
+   * 为了让条目不掉出 31 天窗口会就地补一个占位时间，此时 `playedAtSynthetic = true`。
+   */
   playedAt: number;
+  /**
+   * `playedAt` 是否为**合成占位时间**（即「时间未知」）：
+   * - `true`：只用于本地分组/排序/滚动窗口。统计按时间未知处理（不进按天趋势），
+   *   WebDAV 导出一律写 `playedAt: 0`（与桌面端一致的未知哨兵），绝不冒充真实播放时间；
+   * - 缺失：真实记录过的播放时间（升级前落盘的数据没有标记，按本地既有数据原样保留）。
+   */
+  playedAtSynthetic?: boolean;
+}
+
+/**
+ * 该条目是否带**真实**播放时间。
+ * 合成占位时间与非法值（非有限数 / `<= 0`）都算「时间未知」，与桌面端
+ * `isUsablePlayedAt`（`desktop/src/stores/historyStore.ts:65`）以及 core
+ * `aggregateListeningStats` 的 `toPositiveTimestamp`（`packages/core/src/stats/aggregate.ts:140`）同口径。
+ */
+export function hasRealPlayedAt(entry: HistoryEntry): boolean {
+  return entry.playedAtSynthetic !== true && Number.isFinite(entry.playedAt) && entry.playedAt > 0;
 }
 
 export interface HistoryGroup {

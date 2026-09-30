@@ -1,7 +1,8 @@
 import { create } from "zustand";
-import { isRemovedSource, type MusicInfo } from "@lx/core";
+import { isRemovedSource, type HistoryPlayEntry, type MusicInfo } from "@lx/core";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
+  hasRealPlayedAt,
   historySongKey,
   isSameDay,
   type HistoryEntry,
@@ -43,10 +44,19 @@ export interface HistoryState {
   entries: HistoryEntry[];
   /** 派生数组：全部歌曲（顺序同 entries），兼容既有消费方（播放/统计/WebDAV）。 */
   history: MusicInfo[];
-  /** 歌曲 key（source:id）→ 最近一次播放时间戳，供 WebDAV 同步保留真实播放时间。 */
+  /**
+   * 歌曲 key（source:id）→ **真实**播放时间戳；键只覆盖确实记过时间的条目
+   * （口径同桌面端 `playedAtByKey`）。合成占位时间不进这张表。
+   */
   historyTimestamps: Record<string, number>;
   loading: boolean;
   error: string | null;
+  /**
+   * 统计适配数组（派生）：条目配上**真实**播放时间；合成占位时间的条目不设 `playedAt`
+   * （时间未知）。口径同桌面端 `statsEntries`（`desktop/src/stores/historyStore.ts:134`）：
+   * 只进总数 / 总时长 / 榜单，不进按天趋势。
+   */
+  statsEntries: HistoryPlayEntry[];
 }
 
 interface HistoryActions {
@@ -54,9 +64,15 @@ interface HistoryActions {
   addToHistory: (song: MusicInfo) => Promise<void>;
   clearHistory: () => Promise<void>;
   removeFromHistory: (songId: string, source: string, dayStart?: number) => Promise<void>;
-  /** WebDAV 同步覆盖：用远端历史替换本地播放历史。 */
+  /**
+   * WebDAV 同步覆盖：用远端历史替换本地播放历史。
+   * `timestamps` 只含云端**真实带回来**的时间戳；缺键的条目按「时间未知」处理，不补假值。
+   */
   replaceAllHistory: (history: MusicInfo[], timestamps?: Record<string, number>) => Promise<void>;
-  /** WebDAV 同步合并：本地与远端历史并集，同曲保留播放时间较新的条目。 */
+  /**
+   * WebDAV 同步合并：本地与远端历史并集，同曲优先保留真实播放时间，其次取时间较新的条目。
+   * `timestamps` 同上，只含云端真实带回来的时间戳。
+   */
   mergeHistory: (history: MusicInfo[], timestamps?: Record<string, number>) => Promise<void>;
 }
 
@@ -67,27 +83,65 @@ function isHistoryEntry(value: unknown): value is HistoryEntry {
   const item = value as { song?: unknown; playedAt?: unknown };
   return item.song != null && typeof item.playedAt === "number";
 }
+/** 可用的**真实**播放时间戳：正的有限毫秒数（0 / 负数 / NaN / 非数字一律算「时间未知」）。 */
+function isUsableTimestamp(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
 
-/** 旧格式迁移 + 通用条目规整：过滤无 id、清理超期、按时间倒序、截断上限。 */
+/** 同曲条目取舍：真实播放时间优先于合成占位时间，两者同类时取时间较新的那一条。 */
+function isBetterEntry(candidate: HistoryEntry, incumbent: HistoryEntry): boolean {
+  const candidateReal = hasRealPlayedAt(candidate);
+  const incumbentReal = hasRealPlayedAt(incumbent);
+  if (candidateReal !== incumbentReal) return candidateReal;
+  return candidate.playedAt > incumbent.playedAt;
+}
+
+/**
+ * 旧格式迁移 + 通用条目规整：过滤无 id、清理超期、按时间倒序、截断上限，
+ * 并把合成时间标记收敛成严格的 `true` / 缺失（落盘数据被改坏时不至于把垃圾值当真）。
+ *
+ * 排序与 31 天窗口仍用 `playedAt`（含合成占位时间）——时间未知的条目不会因此掉出窗口；
+ * 「这个时间是不是真的」由 `playedAtSynthetic` 单独回答，两者不混用。
+ */
 function normalizeEntries(entries: HistoryEntry[], now: number): HistoryEntry[] {
   return entries
     .filter((entry) => entry.song?.id && now - entry.playedAt <= MAX_HISTORY_AGE_MS)
+    .map((entry) =>
+      entry.playedAtSynthetic === true
+        ? { key: entry.key, song: entry.song, playedAt: entry.playedAt, playedAtSynthetic: true }
+        : { key: entry.key, song: entry.song, playedAt: entry.playedAt },
+    )
     .sort((a, b) => b.playedAt - a.playedAt)
     .slice(0, MAX_HISTORY_ITEMS);
 }
 
-/** 由条目派生 history / historyTimestamps。 */
+/**
+ * 由条目派生 history / historyTimestamps / statsEntries。
+ *
+ * `historyTimestamps` 只收**真实**播放时间（同桌面端 `playedAtByKey`）：合成占位时间不进
+ * 这张表，否则它会被 `mergeHistory` 当成「已知播放时间」传播到别的条目乃至云端。
+ *
+ * `statsEntries` 是 core 统计的入参：合成占位时间的条目**不带 `playedAt`**（时间未知），
+ * 只进总数 / 总时长 / 榜单，不进按天趋势。
+ */
 function derive(entries: HistoryEntry[]): {
   history: MusicInfo[];
   historyTimestamps: Record<string, number>;
+  statsEntries: HistoryPlayEntry[];
 } {
   const history: MusicInfo[] = [];
   const historyTimestamps: Record<string, number> = {};
+  const statsEntries: HistoryPlayEntry[] = [];
   for (const entry of entries) {
     history.push(entry.song);
-    historyTimestamps[entry.key] = entry.playedAt;
+    if (hasRealPlayedAt(entry)) {
+      historyTimestamps[entry.key] = entry.playedAt;
+      statsEntries.push({ song: entry.song, playedAt: entry.playedAt });
+    } else {
+      statsEntries.push({ song: entry.song });
+    }
   }
-  return { history, historyTimestamps };
+  return { history, historyTimestamps, statsEntries };
 }
 
 function parseTimestamps(raw: string | null): Record<string, number> {
@@ -97,8 +151,9 @@ function parseTimestamps(raw: string | null): Record<string, number> {
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       const result: Record<string, number> = {};
       for (const [key, value] of Object.entries(parsed)) {
-        // 只保留合法数值，避免损坏/异常值泄漏到同步文件的 playedAt
-        if (typeof value === "number" && Number.isFinite(value)) result[key] = value;
+        // 这张表只存真实播放时间：0 / 负数 / 损坏值都按「时间未知」丢弃，
+        // 避免未知哨兵或异常值被当成真实时间泄漏进同步文件。
+        if (isUsableTimestamp(value)) result[key] = value;
       }
       return result;
     }
@@ -112,6 +167,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
   entries: [],
   history: [],
   historyTimestamps: {},
+  statsEntries: [],
   loading: false,
   error: null,
 
@@ -135,11 +191,14 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
             const now = Date.now();
             entries = (parsed as MusicInfo[])
               .filter((music) => music?.id)
-              .map((song, index) => ({
-                key: historySongKey(song),
-                song,
-                playedAt: timestamps[historySongKey(song)] ?? now - index,
-              }));
+              .map((song, index): HistoryEntry => {
+                const key = historySongKey(song);
+                const recorded = timestamps[key];
+                // sidecar 里有真实播放时间就用；没有（旧数据从没记过时间）才补占位时间并标为合成。
+                return isUsableTimestamp(recorded)
+                  ? { key, song, playedAt: recorded }
+                  : { key, song, playedAt: now - index, playedAtSynthetic: true };
+              });
           }
         }
         const normalized = withoutRemovedSources(normalizeEntries(entries, Date.now()));
@@ -194,7 +253,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
   clearHistory: async () => {
     try {
       await AsyncStorage.multiRemove([HISTORY_KEY, HISTORY_TIMESTAMPS_KEY]);
-      set({ entries: [], history: [], historyTimestamps: {} });
+      set({ entries: [], history: [], historyTimestamps: {}, statsEntries: [] });
     } catch (error) {
       throw error;
     }
@@ -224,15 +283,16 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
     try {
       await ensureHistoryLoaded(get);
       const now = Date.now();
-      const entries = history
+      const entries: HistoryEntry[] = history
         .filter((music) => music?.id)
         .map((song, index) => {
           const key = historySongKey(song);
-          return {
-            key,
-            song,
-            playedAt: timestamps?.[key] ?? now - index,
-          };
+          const recorded = timestamps?.[key];
+          // 云端带了真实播放时间就用；没有（0 / 缺失 / 非法）时只补一个本地占位时间供分组与
+          // 31 天窗口使用，并标为合成——统计按时间未知、回传云端写 0，绝不冒充真实时间。
+          return isUsableTimestamp(recorded)
+            ? { key, song, playedAt: recorded }
+            : { key, song, playedAt: now - index, playedAtSynthetic: true };
         });
       const normalized = withoutRemovedSources(normalizeEntries(entries, now));
       const derived = derive(normalized);
@@ -252,18 +312,29 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
       // 时间戳取两侧较新值：远端同步文件可能早于本地最近播放，避免时间回退。
       const mergedTimestamps: Record<string, number> = { ...historyTimestamps };
       for (const [key, value] of Object.entries(timestamps ?? {})) {
+        // 只接受云端**真实带回来**的合法时间：0 / 负数 / 非法值一律按「时间未知」忽略。
+        if (!isUsableTimestamp(value)) continue;
         mergedTimestamps[key] = Math.max(mergedTimestamps[key] ?? 0, value);
       }
       const merged = new Map<string, HistoryEntry>();
       for (const song of history) {
         if (!song?.id) continue;
         const key = historySongKey(song);
-        merged.set(key, { key, song, playedAt: mergedTimestamps[key] ?? now });
+        const recorded = mergedTimestamps[key];
+        // 云端没带真实时间（或只带了未知哨兵）时不编造：沿用本地内部时间基准维持分组与
+        // 31 天窗口，但显式标为合成——统计按时间未知处理、回传云端写 0。
+        merged.set(
+          key,
+          isUsableTimestamp(recorded)
+            ? { key, song, playedAt: recorded }
+            : { key, song, playedAt: now, playedAtSynthetic: true },
+        );
       }
       for (const entry of current) {
         const existing = merged.get(entry.key);
-        // 同曲保留播放时间较新的条目（歌曲信息也随之来自较新记录）。
-        if (!existing || entry.playedAt > existing.playedAt) merged.set(entry.key, entry);
+        // 同曲保留较优条目：真实时间优先于合成占位时间（本地旧数据不因下载被降级成未知），
+        // 同类时取时间较新的条目，歌曲信息随之来自较新记录。
+        if (!existing || isBetterEntry(entry, existing)) merged.set(entry.key, entry);
       }
       const normalized = withoutRemovedSources(normalizeEntries([...merged.values()], now));
       const derived = derive(normalized);

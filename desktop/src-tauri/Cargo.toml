@@ -1,6 +1,6 @@
 [package]
 name = "auralflow"
-version = "0.5.2"
+version = "0.6.0"
 description = "AuralFlow Desktop (Tauri + React)"
 authors = ["chenle"]
 edition = "2021"
@@ -30,6 +30,8 @@ flate2 = "1"
 reqwest = { version = "0.12", features = ["gzip"] }
 # ── 应用内自更新 ──
 tauri-plugin-updater = "2.13.0"
+# ── 运行日志落盘 ──
+tauri-plugin-log = "2"
 
 # ── 凭证加密（DPAPI）──
 # 版本跟随 Tauri 已引入的传递依赖，避免多份 windows crate 同时编译。
@@ -38,4 +40,22 @@ tauri-plugin-updater = "2.13.0"
 windows = { version = "0.62", features = [
   "Win32_Foundation",
   "Win32_Security_Cryptography",
+  # ── 系统媒体控制（SMTC，src/smtc.rs）──
+  # SMTC 的类与枚举在 Windows.Media 命名空间（Media_Playback 用不到），
+  # 事件是 Windows.Foundation.TypedEventHandler，封面走 Storage.Streams 的内存流，
+  # 会话本身由 WinRT 互操作接口 ISystemMediaTransportControlsInterop 绑定主窗口。
+  "Foundation",
+  "Media",
+  "Storage_Streams",
+  "Win32_System_WinRT",
+  # ── 任务栏缩略图按钮与悬浮预览（src/taskbar.rs）──
+  # GDI 画图标位图、WIC 解码封面、Dwm 设 iconic 预览、Shell 挂缩略图按钮；
+  # SetWindowSubclass 在 windows crate 里属 UI::Controls（不在 UI::Shell）。
+  "Win32_Graphics_Dwm",
+  "Win32_Graphics_Gdi",
+  "Win32_Graphics_Imaging",
+  "Win32_System_Com",
+  "Win32_UI_Controls",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
 ] }

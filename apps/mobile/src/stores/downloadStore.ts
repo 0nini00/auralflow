@@ -18,6 +18,7 @@ import {
 } from "@/services/downloadService";
 import { usePlaybackSettingsStore } from "@/stores/playbackSettingsStore";
 import { hapticSuccess } from "@/services/hapticService";
+import { logger } from "@/services/logger";
 
 /** 重新导出音质类型，供组件使用 */
 export type { DownloadQuality };
@@ -218,6 +219,8 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
         }));
         return { status: "cancelled" };
       }
+      // 落盘留证：失败原因此刻只在内存态与 UI 里，重启即丢（下载失败是用户最常报的问题）
+      logger.warn(`下载失败：${song.name}（${quality}）`, message);
       // 失败：移出 downloading，并记录错误
       set((state) => ({
         downloading: state.downloading.filter((item) => downloadKey(item.song, item.quality) !== key),

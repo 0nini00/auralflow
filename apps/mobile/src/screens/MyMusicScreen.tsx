@@ -29,6 +29,7 @@ import { usePlaylistStore } from "@/stores/playlistStore";
 import {
   openFollowedArtistsScreen,
   openLikedSongsScreen,
+  openListeningStatsScreen,
   openLocalPlaylistDetailScreen,
   openPlaylistDetailScreen,
   openSubscribedAlbumsScreen,
@@ -158,6 +159,9 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
         return;
       case "openSubscribedAlbums":
         openSubscribedAlbumsScreen();
+        return;
+      case "openListeningStats":
+        openListeningStatsScreen();
         return;
     }
   };
