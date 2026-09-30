@@ -11,8 +11,9 @@
   z-index: 1000;
 }
 
-/* 封面主色氛围：--af-artwork-rgb 由 useArtworkAmbience 注入，
-   取色失败时变量不存在，fallback 回主题强调色，观感退化而不是失效。 */
+/* 封面主色氛围：--af-ambience-rgb 由 useArtworkAmbience 注入（受设置页「从封面取色」与
+   作用范围控制），--af-ambience-alpha 来自「氛围光强度」。取不到封面主色或关闭取色时
+   变量不存在，fallback 回主题强调色与默认浓度，观感退化而不是失效。 */
 .af-player-bar::before {
   content: "";
   position: absolute;
@@ -21,7 +22,7 @@
   pointer-events: none;
   background: linear-gradient(
     120deg,
-    rgba(var(--af-artwork-rgb, var(--af-accent-primary-rgb)), 0.16),
+    rgba(var(--af-ambience-rgb, var(--af-accent-primary-rgb)), var(--af-ambience-alpha)),
     transparent 42%
   );
   transition: background var(--af-transition-base);
@@ -1185,7 +1186,7 @@
   background:
     radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.18), transparent 38%),
     rgba(var(--af-immersive-artwork-rgb), 0.82);
-  color: var(--af-text-on-accent);
+  color: var(--af-artwork-on-color, var(--af-text-on-accent));
   box-shadow: 0 14px 34px rgba(var(--af-immersive-artwork-rgb), 0.28);
 }
 

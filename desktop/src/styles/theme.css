@@ -17,21 +17,16 @@
   --af-text-secondary: #475569;
   --af-text-tertiary: #94a3b8;
   --af-text-quaternary: #cbd5e1;
-  --af-text-on-accent: #ffffff;
-
-  /* Accent Colors */
-  --af-accent-primary: #3bd877;
-  --af-accent-primary-rgb: 59, 216, 119;
-  --af-accent-secondary: #4fdc85;
-  --af-accent-hover: #35c26b;
-  --af-accent-gradient: linear-gradient(135deg, #3bd877 0%, #4fdc85 100%);
-  --af-accent-gradient-hover: linear-gradient(135deg, #35c26b 0%, #3bd877 100%);
-  --af-accent-text: #ffffff;
+  /*
+    强调色系变量（--af-accent-*、--af-border-focus、--af-text-on-accent）全部由
+    themeStore.applyAppearance 在启动时写入，默认值只在那一边维护一份；
+    这里只留旧 token --af-accent-text 的别名（值 = 按强调色亮度取的黑/白文字色）。
+  */
+  --af-accent-text: var(--af-text-on-accent);
 
   /* Border System - Light mode clean borders */
   --af-border-primary: #e2e8f0;
   --af-border-secondary: #f1f5f9;
-  --af-border-focus: rgba(59, 216, 119, 0.4);
   --af-border-accent: var(--af-accent-primary);
 
   /* Shadow System - Subtle depth */
@@ -75,21 +70,10 @@
   --af-text-secondary: #cbd5e1;
   --af-text-tertiary: #64748b;
   --af-text-quaternary: #475569;
-  --af-text-on-accent: #ffffff;
-
-  /* Accent Colors */
-  --af-accent-primary: #3bd877;
-  --af-accent-primary-rgb: 59, 216, 119;
-  --af-accent-secondary: #5edf8f;
-  --af-accent-hover: #33ba66;
-  --af-accent-gradient: linear-gradient(135deg, #3bd877 0%, #5edf8f 100%);
-  --af-accent-gradient-hover: linear-gradient(135deg, #33ba66 0%, #3bd877 100%);
-  --af-accent-text: #ffffff;
 
   /* Border System - Dark mode borders */
   --af-border-primary: #334155;
   --af-border-secondary: #1e293b;
-  --af-border-focus: rgba(59, 216, 119, 0.5);
   --af-border-accent: var(--af-accent-primary);
 
   /* Shadow System - Dark mode depth */

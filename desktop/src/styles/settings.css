@@ -156,21 +156,16 @@
   font-size: var(--af-font-size-sm);
 }
 
-.af-app-background-picker {
-  display: flex;
-  align-items: stretch;
-  gap: 14px;
-}
-
-.af-app-background-preview {
+/* 背景图片的小预览：显示在设置行右侧控件位 */
+.af-appearance-background-thumb {
   display: flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  width: 132px;
-  min-height: 82px;
+  width: 54px;
+  height: 34px;
   border: 1px solid var(--af-border-secondary);
-  border-radius: var(--af-radius-md);
+  border-radius: var(--af-radius-sm);
   background: var(--af-bg-surface);
   background-repeat: no-repeat;
   background-size: cover;
@@ -179,36 +174,9 @@
   overflow: hidden;
 }
 
-.af-app-background-preview.af-has-image {
+.af-appearance-background-thumb.af-has-image {
+  border-color: var(--af-border-primary);
   background-color: #0f172a;
-}
-
-.af-app-background-meta {
-  min-width: 0;
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  justify-content: center;
-}
-
-.af-app-background-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.af-app-background-path {
-  max-width: 100%;
-  margin-top: 9px;
-  padding: 8px 10px;
-  border: 1px solid var(--af-border-secondary);
-  border-radius: var(--af-radius-sm);
-  background: var(--af-bg-surface);
-  color: var(--af-text-secondary);
-  font-size: var(--af-font-size-xs);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .af-settings-error {
@@ -265,45 +233,114 @@
   margin-top: 2px;
 }
 
-.af-settings-radio-group {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-}
-
-.af-settings-radio-option {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 16px;
-  background: var(--af-bg-surface);
-  border: 2px solid var(--af-border-secondary);
-  border-radius: var(--af-radius-md);
-  color: var(--af-text-secondary);
-  cursor: pointer;
-  transition: all var(--af-transition-base);
-  font-size: var(--af-font-size-sm);
-  font-weight: var(--af-font-weight-medium);
-}
-
-.af-settings-radio-option:hover {
-  background: var(--af-bg-surface-hover);
-  border-color: var(--af-border-primary);
-}
-
-.af-settings-radio-active {
-  background: var(--af-bg-elevated);
-  border-color: var(--af-accent-primary);
-  color: var(--af-accent-primary);
-  box-shadow: 0 0 0 3px rgba(var(--af-accent-primary-rgb), 0.1);
-}
-
-.af-appearance-row {
+/* ── 外观设置：强调色选择器（预设色板 + 任意取色 + hex 输入 + 实时预览） ── */
+.af-appearance-accent-editor {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
+  gap: 12px;
+  padding: 0 16px 14px;
+}
+
+.af-appearance-preset-list {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.af-appearance-preset {
+  width: 26px;
+  height: 26px;
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  border-radius: var(--af-radius-sm);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+  cursor: pointer;
+  transition: transform var(--af-transition-fast), box-shadow var(--af-transition-fast);
+}
+
+.af-appearance-preset:hover {
+  transform: translateY(-1px);
+}
+
+/* 选中态只在色块外描一圈强调色，不把色块本身涂成强调色 */
+.af-appearance-preset.af-active {
+  box-shadow: 0 0 0 2px var(--af-bg-elevated), 0 0 0 3px var(--af-accent-primary);
+}
+
+[data-theme="dark"] .af-appearance-preset {
+  border-color: rgba(248, 250, 252, 0.2);
+}
+
+.af-appearance-accent-inputs {
+  display: flex;
+  align-items: center;
   gap: 10px;
+}
+
+.af-appearance-accent-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* 实时预览：底色与文字色都直接读当前 CSS 变量，所以黑/白文字决策在预览里就能看到 */
+.af-appearance-preview-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: var(--af-radius-full);
+  background: var(--af-accent-primary);
+  color: var(--af-text-on-accent);
+  font-size: var(--af-font-size-sm);
+  font-weight: var(--af-font-weight-semibold);
+  white-space: nowrap;
+}
+
+.af-appearance-preview-note {
+  color: var(--af-text-tertiary);
+  font-size: var(--af-font-size-xs);
+}
+
+/* ── 外观设置：滑块行与页脚 ── */
+.af-appearance-range {
+  width: 168px;
+  flex: 0 0 auto;
+}
+
+.af-appearance-value {
+  min-width: 48px;
+  color: var(--af-text-tertiary);
+  font-size: var(--af-font-size-xs);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.af-appearance-select {
+  min-width: 200px;
+}
+
+.af-appearance-reset,
+.af-appearance-cancel {
+  flex: 0 0 auto;
+}
+
+/* 卡片内的说明文字与设置行左对齐 */
+.af-appearance-note {
+  margin: 0 16px 10px;
+}
+
+.af-appearance-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.af-appearance-footer .af-appearance-note {
+  margin: 0;
 }
 
 .af-appearance-color-picker {
@@ -371,30 +408,6 @@
   border-color: rgba(248, 250, 252, 0.18);
 }
 
-.af-immersive-lyric-style-grid {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr);
-  gap: 12px;
-}
-
-.af-immersive-lyric-style-control {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border: 1px solid var(--af-border-secondary);
-  border-radius: var(--af-radius-md);
-  background: var(--af-bg-surface);
-  color: var(--af-text-secondary);
-  font-size: var(--af-font-size-sm);
-}
-
-.af-immersive-lyric-style-control > span {
-  color: var(--af-text-primary);
-  font-weight: var(--af-font-weight-medium);
-}
-
 .af-immersive-lyric-style-preview {
   margin-top: 12px;
   padding: 16px 18px;
@@ -427,6 +440,11 @@
 .af-settings-select:hover {
   border-color: var(--af-border-primary);
   background: var(--af-bg-surface-hover);
+}
+
+/* 主界面背景图的路径可能很长：这一节的设置行提示允许换行，不撑破行 */
+.af-appearance-section .af-setting-row-hint {
+  overflow-wrap: anywhere;
 }
 
 .af-settings-select:focus {
@@ -943,7 +961,7 @@
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  color: white;
+  color: var(--af-text-on-accent);
   font-size: 14px;
   font-weight: bold;
 }
@@ -1293,7 +1311,6 @@
   }
 
   .af-lyric-settings-grid,
-  .af-immersive-lyric-style-grid,
   .af-lyric-color-grid {
     grid-template-columns: 1fr;
   }

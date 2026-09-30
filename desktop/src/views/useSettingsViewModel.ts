@@ -45,6 +45,13 @@ export const IMMERSIVE_LYRIC_FONT_OPTIONS = [
   },
 ];
 
+/** 把 hex 输入框的草稿归一成 `#rrggbb`；非法输入返回 null（用于回滚）。 */
+function normalizeAccentInput(value: string): string | null {
+  const trimmed = value.trim();
+  if (!HEX_COLOR_PATTERN.test(trimmed)) return null;
+  return trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+}
+
 export function formatByteSize(bytes: number | null): string {
   if (bytes == null) return "计算中...";
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
@@ -67,9 +74,22 @@ const {
   setTheme,
   setAccentColor,
   resetAccentColor,
+  artworkAmbienceEnabled,
+  artworkAmbienceIntensity,
+  artworkAmbienceScope,
+  backgroundBlur,
+  backgroundBrightness,
+  backgroundMaskOpacity,
+  gradientBackgroundEnabled,
+  gradientBackgroundFollowArtwork,
+  patchAppearance,
+  resetAppearance,
+  previewAccentColor,
 } = useThemeStore();
 const [accentColorInput, setAccentColorInput] = useState(accentColor.toUpperCase());
-const isAccentColorInputValid = HEX_COLOR_PATTERN.test(accentColorInput.trim());
+const normalizedAccentInput = normalizeAccentInput(accentColorInput);
+const isAccentColorInputValid = normalizedAccentInput !== null;
+const isAccentColorInputDirty = normalizedAccentInput !== null && normalizedAccentInput.toLowerCase() !== accentColor;
 const [appBackgroundImagePath, setAppBackgroundImagePath] = useState("");
 const [appBackgroundStatus, setAppBackgroundStatus] = useState("");
 const appBackgroundPreviewUrl = toAppBackgroundImageUrl(appBackgroundImagePath);
@@ -135,12 +155,25 @@ useEffect(() => {
   setAccentColorInput(accentColor.toUpperCase());
 }, [accentColor]);
 
+// 组件卸载（例如切到别的设置分类）时，把还没提交的实时预览刷回存档值
+useEffect(() => () => {
+  previewAccentColor(useThemeStore.getState().accentColor);
+}, [previewAccentColor]);
+
+// 输入时只预览（不落盘）、回车或失焦提交、Esc 或非法输入回滚到存档值
 const handleAccentColorTextChange = (nextValue: string) => {
   setAccentColorInput(nextValue);
-  const trimmed = nextValue.trim();
-  if (!HEX_COLOR_PATTERN.test(trimmed)) return;
-  const normalized = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
-  setAccentColor(normalized);
+  previewAccentColor(normalizeAccentInput(nextValue) ?? accentColor);
+};
+
+const handleAccentColorTextCommit = () => {
+  if (normalizedAccentInput) setAccentColor(normalizedAccentInput);
+  else handleAccentColorTextCancel();
+};
+
+const handleAccentColorTextCancel = () => {
+  previewAccentColor(accentColor);
+  setAccentColorInput(accentColor.toUpperCase());
 };
 
 const handleSelectAppBackground = async () => {
@@ -289,9 +322,20 @@ const getCapabilityTitle = (source: typeof customSources[number]) => {
     setTheme,
     setAccentColor,
     resetAccentColor,
+    artworkAmbienceEnabled,
+    artworkAmbienceIntensity,
+    artworkAmbienceScope,
+    backgroundBlur,
+    backgroundBrightness,
+    backgroundMaskOpacity,
+    gradientBackgroundEnabled,
+    gradientBackgroundFollowArtwork,
+    patchAppearance,
+    resetAppearance,
+    previewAccentColor,
     accentColorInput,
-    setAccentColorInput,
     isAccentColorInputValid,
+    isAccentColorInputDirty,
     appBackgroundImagePath,
     setAppBackgroundImagePath,
     appBackgroundStatus,
@@ -325,6 +369,8 @@ const getCapabilityTitle = (source: typeof customSources[number]) => {
     checkAllUpdates,
     toggleUpdateAlert,
     handleAccentColorTextChange,
+    handleAccentColorTextCommit,
+    handleAccentColorTextCancel,
     handleSelectAppBackground,
     handleClearAppBackground,
     patchPlaybackSetting,
@@ -350,13 +396,25 @@ export type AppearanceSettingsModel = Pick<SettingsViewModel,
   | "setTheme"
   | "setAccentColor"
   | "resetAccentColor"
+  | "artworkAmbienceEnabled"
+  | "artworkAmbienceIntensity"
+  | "artworkAmbienceScope"
+  | "backgroundBlur"
+  | "backgroundBrightness"
+  | "backgroundMaskOpacity"
+  | "gradientBackgroundEnabled"
+  | "gradientBackgroundFollowArtwork"
+  | "patchAppearance"
+  | "resetAppearance"
   | "accentColorInput"
-  | "setAccentColorInput"
   | "isAccentColorInputValid"
+  | "isAccentColorInputDirty"
   | "appBackgroundImagePath"
   | "appBackgroundStatus"
   | "appBackgroundPreviewUrl"
   | "handleAccentColorTextChange"
+  | "handleAccentColorTextCommit"
+  | "handleAccentColorTextCancel"
   | "handleSelectAppBackground"
   | "handleClearAppBackground"
   | "immersiveLyricFontFamily"

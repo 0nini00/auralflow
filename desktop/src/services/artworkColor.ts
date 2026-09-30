@@ -18,12 +18,20 @@ const MAX_LUMINANCE = 232;
 const MIN_SATURATION = 18;
 
 export interface ArtworkPalette {
-  /** `r, g, b` 形式，方便在 CSS 里用 rgb(var(--x) / alpha) */
+  /** `r, g, b` 形式，方便在 CSS 里用 rgba(var(--x), alpha) */
   rgb: string;
+  /** 白/黑前景色，供以主色为实心底的控件（沉浸页播放键）上的图标使用 */
+  onColor: string;
 }
 
 function toPalette(r: number, g: number, b: number): ArtworkPalette {
-  return { rgb: `${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}` };
+  const rounded = [r, g, b].map((channel) => Math.round(channel));
+  const luminance = 0.2126 * rounded[0] + 0.7152 * rounded[1] + 0.0722 * rounded[2];
+  return {
+    rgb: rounded.join(", "),
+    // 底色固定是压在深色沉浸页上的 0.82 alpha 主色，用亮度阈值分白字/深字即可
+    onColor: luminance >= 150 ? "#0f172a" : "#ffffff",
+  };
 }
 
 /** 控件可读性的最低亮度（0-255 加权亮度公式）。 */
@@ -151,14 +159,31 @@ export async function extractArtworkPalette(imageUrl: string): Promise<ArtworkPa
   return null;
 }
 
-const ARTWORK_RGB_VAR = '--af-artwork-rgb';
+/** 沉浸歌词页的环境色：player.css 里的 --af-immersive-artwork-rgb 由它回退而来 */
+const IMMERSIVE_RGB_VAR = '--af-artwork-rgb';
+/** 播放条氛围光，以及新渐变背景「跟随封面色」取色用的主色 */
+const AMBIENCE_RGB_VAR = '--af-ambience-rgb';
+/** 沉浸页实心播放键上的前景色 */
+const ARTWORK_ON_COLOR_VAR = '--af-artwork-on-color';
 
-/** 写入 / 清除封面主色变量。传 null 时移除，CSS 侧自动回退到强调色。 */
-export function applyArtworkPalette(palette: ArtworkPalette | null): void {
+export interface ArtworkPaletteTargets {
+  /** 播放条氛围光是否用封面色 */
+  ambience: boolean;
+  /** 沉浸歌词页是否用封面色（作用范围选「仅播放条」时为 false，页面回退强调色） */
+  immersive: boolean;
+}
+
+/**
+ * 写入封面主色变量。palette 为 null（无封面 / 取色失败）或某个区域被作用范围排除时，
+ * 对应变量被移除，CSS 侧的 fallback 回到主题强调色，观感退化而不是失效。
+ */
+export function applyArtworkPalette(palette: ArtworkPalette | null, targets: ArtworkPaletteTargets): void {
   const root = document.documentElement;
-  if (palette) {
-    root.style.setProperty(ARTWORK_RGB_VAR, palette.rgb);
-  } else {
-    root.style.removeProperty(ARTWORK_RGB_VAR);
-  }
+  const writeTriplet = (name: string, value: string | null) => {
+    if (value) root.style.setProperty(name, value);
+    else root.style.removeProperty(name);
+  };
+  writeTriplet(AMBIENCE_RGB_VAR, targets.ambience && palette ? palette.rgb : null);
+  writeTriplet(IMMERSIVE_RGB_VAR, targets.immersive && palette ? palette.rgb : null);
+  writeTriplet(ARTWORK_ON_COLOR_VAR, targets.immersive && palette ? palette.onColor : null);
 }
