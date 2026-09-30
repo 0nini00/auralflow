@@ -81,11 +81,18 @@ export function HomeScreen({ onNavigateToSearch, onNavigateToFm, onNavigateToHis
     const result = await runPlaybackUiAction(() => playQueue(songs, index));
     if (!result.ok) { setPlaybackError(result.message); return; }
   };
+  // 每日推荐 / 私人 FM 完全依赖网易云账号：未登录时不产出这两个快捷入口
+  // （连入口带文案一起不渲染，不再对未登录用户做"登录后可用"的宣传）。
+  // 「我喜欢 / 收藏」是本地功能，不在其列。
   const quickActions = [
     { id: "search", label: "搜索", icon: <Search size={18} color={palette.background} /> },
     { id: "history", label: "播放历史", icon: <Clock3 size={18} color={palette.background} /> },
-    { id: "daily", label: "每日推荐", icon: <CalendarDays size={18} color={palette.background} /> },
-    { id: "fm", label: "私人 FM", icon: <Radio size={18} color={palette.background} /> },
+    ...(isLoggedIn
+      ? [
+          { id: "daily", label: "每日推荐", icon: <CalendarDays size={18} color={palette.background} /> },
+          { id: "fm", label: "私人 FM", icon: <Radio size={18} color={palette.background} /> },
+        ]
+      : []),
     { id: "leaderboard", label: "排行榜", icon: <Trophy size={18} color={palette.background} /> },
     { id: "square", label: "歌单广场", icon: <LayoutGrid size={18} color={palette.background} /> },
   ];

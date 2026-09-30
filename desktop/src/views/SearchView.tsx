@@ -254,7 +254,6 @@ export function SearchView() {
   const importPlaylist = usePlaylistStore((s) => s.importPlaylist);
   const updatePlaylistCover = usePlaylistStore((s) => s.updatePlaylistCover);
   const wyAccount = useWyAccountStore((s) => s.account);
-  const wyLoad = useWyAccountStore((s) => s.load);
   const wyPlaylists = useWyAccountStore((s) => s.playlists);
   const wySetSubscribed = useWyAccountStore((s) => s.setSubscribed);
   const wyCollectedIds = useMemo(() => new Set(wyPlaylists.map((p) => p.id)), [wyPlaylists]);
@@ -456,9 +455,6 @@ export function SearchView() {
     setActionStatus("");
     try {
       if (playlist.source === "wy") {
-        if (!wyAccount) {
-          await wyLoad();
-        }
         await wySetSubscribed(playlist.id, true);
         setActionStatus("已收藏到网易云账号");
         return;
@@ -769,6 +765,8 @@ export function SearchView() {
                   : overviewPlaylist.source === "wy"
                     ? "收藏到网易云账号"
                     : "收藏到本地歌单";
+                // 未登录网易云时隐藏「收藏到网易云账号」按钮；tx 等来源是收藏到本地歌单，与登录无关
+                const canCollect = overviewPlaylist.source !== "wy" || !!wyAccount;
                 return (
                   <div
                     key={playlistKey}
@@ -799,17 +797,19 @@ export function SearchView() {
                       </div>
                     </div>
                     <div className="af-result-actions" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        className="af-action-btn"
-                        onClick={() => { void handleCollectPlaylist(overviewPlaylist); }}
-                        disabled={busyPlaylistKey === playlistKey || isCollected}
-                        title={collectTitle}
-                        aria-label={collectTitle}
-                      >
-                        {isCollected
-                          ? <BookmarkCheck size={16} />
-                          : <Bookmark size={16} />}
-                      </button>
+                      {canCollect && (
+                        <button
+                          className="af-action-btn"
+                          onClick={() => { void handleCollectPlaylist(overviewPlaylist); }}
+                          disabled={busyPlaylistKey === playlistKey || isCollected}
+                          title={collectTitle}
+                          aria-label={collectTitle}
+                        >
+                          {isCollected
+                            ? <BookmarkCheck size={16} />
+                            : <Bookmark size={16} />}
+                        </button>
+                      )}
                       <span
                         className="af-search-open-text"
                         onClick={() => navigate(buildPlaylistDetailPath(overviewPlaylist), { state: { playlist: overviewPlaylist } })}
@@ -923,6 +923,8 @@ export function SearchView() {
                   : playlist.source === "wy"
                     ? "收藏到网易云账号"
                     : "收藏到本地歌单";
+                // 未登录网易云时隐藏「收藏到网易云账号」按钮；tx 等来源是收藏到本地歌单，与登录无关
+                const canCollect = playlist.source !== "wy" || !!wyAccount;
                 return (
                   <li
                     key={playlistKey}
@@ -942,17 +944,19 @@ export function SearchView() {
                     </div>
                     <div className="af-result-duration af-result-playlist-meta">{formatPlaylistSearchMeta(playlist)}</div>
                     <div className="af-result-actions" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        className="af-action-btn"
-                        onClick={() => { void handleCollectPlaylist(playlist); }}
-                        disabled={busyPlaylistKey === playlistKey || isCollected}
-                        title={collectTitle}
-                        aria-label={collectTitle}
-                      >
-                        {isCollected
-                          ? <BookmarkCheck size={16} />
-                          : <Bookmark size={16} />}
-                      </button>
+                      {canCollect && (
+                        <button
+                          className="af-action-btn"
+                          onClick={() => { void handleCollectPlaylist(playlist); }}
+                          disabled={busyPlaylistKey === playlistKey || isCollected}
+                          title={collectTitle}
+                          aria-label={collectTitle}
+                        >
+                          {isCollected
+                            ? <BookmarkCheck size={16} />
+                            : <Bookmark size={16} />}
+                        </button>
+                      )}
                       <span
                         className="af-search-open-text"
                         onClick={() => navigate(buildPlaylistDetailPath(playlist), { state: { playlist } })}

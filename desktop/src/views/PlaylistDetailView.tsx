@@ -64,7 +64,6 @@ export function PlaylistDetailView() {
   const wyRefreshSongs = useWyAccountStore((s) => s.refreshPlaylistSongs);
   const wyRemoveTracks = useWyAccountStore((s) => s.removeTracks);
   const wySetSubscribed = useWyAccountStore((s) => s.setSubscribed);
-  const wyLoad = useWyAccountStore((s) => s.load);
   const wyAccount = useWyAccountStore((s) => s.account);
   const [wySongs, setWySongs] = useState<MusicInfo[] | null>(null);
   const [wySongsLoading, setWySongsLoading] = useState(false);
@@ -258,6 +257,9 @@ export function PlaylistDetailView() {
     : false;
   const isRemoteCollected = isRemoteWyCollected || isRemoteTxCollected;
   const remoteCollectLabel = remotePlaylistInfo?.source === "wy" ? "收藏到网易云账号" : "收藏到本地歌单";
+
+  // 未登录网易云时不显示「收藏到网易云账号」这类需要账号的操作；tx 等来源是收藏到本地歌单，与登录无关
+  const remoteCollectNeedsWyAccount = remotePlaylistInfo?.source === "wy";
   const remotePlaylistMeta = remotePlaylistInfo ? formatPlaylistSearchMeta(remotePlaylistInfo) : "--";
   const songs = playlist.songs;
   const isSongsLoading = wySongsLoading || remoteSongsLoading;
@@ -381,9 +383,6 @@ export function PlaylistDetailView() {
     setActionStatus('');
     try {
       if (remotePlaylistInfo.source === "wy") {
-        if (!wyAccount) {
-          await wyLoad();
-        }
         await wySetSubscribed(remotePlaylistInfo.id, true);
         setActionStatus("已收藏到网易云账号");
         return;
@@ -504,7 +503,7 @@ export function PlaylistDetailView() {
                   <span>{remoteRefreshing ? '刷新中' : '刷新'}</span>
                 </button>
               )}
-              {isRemotePlaylist && remotePlaylistInfo && (
+              {isRemotePlaylist && remotePlaylistInfo && (!remoteCollectNeedsWyAccount || !!wyAccount) && (
                 <button
                   className="af-btn-secondary"
                   onClick={() => { void handleCollectRemotePlaylist(); }}

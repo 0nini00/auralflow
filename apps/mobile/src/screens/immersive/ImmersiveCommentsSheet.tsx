@@ -169,10 +169,7 @@ export function ImmersiveCommentsSheet({
   const handleSendComment = async () => {
     const content = inputText.trim();
     if (!content || !songId || sending) return;
-    if (!isLoggedIn) {
-      Alert.alert("未登录", "请在「设置 → 账号与服务」中登录网易云账号后再评论");
-      return;
-    }
+    // 输入栏只在已登录时渲染：这里不必再处理未登录分支
     const submittedSongId = songId;
     setSending(true);
     try {
@@ -265,23 +262,22 @@ export function ImmersiveCommentsSheet({
             />
           )}
 
-          {/* 评论输入栏：仅网易云曲目且已登录时展示 */}
-          {songId ? (
+          {/* 评论输入栏：网易云曲目且已登录才渲染（未登录不展示需要账号的操作，也不留"登录后可评论"文案） */}
+          {songId && isLoggedIn ? (
             <View style={[styles.inputBar, { borderTopColor: palette.border, backgroundColor: palette.surface }]}>
               <TextInput
                 style={[styles.input, { backgroundColor: palette.surfaceMuted, color: palette.text }]}
                 value={inputText}
                 onChangeText={setInputText}
-                placeholder={isLoggedIn ? "说点什么…" : "登录后可评论"}
+                placeholder="说点什么…"
                 placeholderTextColor={palette.textSubtle}
                 multiline
                 maxLength={500}
-                editable={isLoggedIn}
                 onSubmitEditing={() => void handleSendComment()}
               />
               <Pressable
                 onPress={() => void handleSendComment()}
-                disabled={!isLoggedIn || sending || !inputText.trim()}
+                disabled={sending || !inputText.trim()}
                 hitSlop={6}
                 accessibilityRole="button"
                 accessibilityLabel="发送评论"
@@ -289,7 +285,7 @@ export function ImmersiveCommentsSheet({
                 {sending ? (
                   <ActivityIndicator color={palette.primary} size="small" />
                 ) : (
-                  <Send size={20} color={isLoggedIn && inputText.trim() ? palette.primary : palette.textSubtle} />
+                  <Send size={20} color={inputText.trim() ? palette.primary : palette.textSubtle} />
                 )}
               </Pressable>
             </View>

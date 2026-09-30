@@ -275,7 +275,7 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
           <AccountInfo />
         </View>
 
-        <SectionHeader title="我的" description="我喜欢的、本地与网易云歌单。" style={styles.section} />
+        <SectionHeader title="我的" description={isLoggedIn ? "我喜欢的、本地与网易云歌单。" : "我喜欢的与本地歌单。"} style={styles.section} />
 
         <View style={styles.quickActions}>
           {quickActions.map((action) => (
@@ -284,7 +284,6 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
               title={action.title}
               subtitle={action.subtitle}
               coverUri={action.coverUri}
-              disabled={action.disabled}
               grow
               onPress={() => handleQuickAction(action.action)}
             />
@@ -332,12 +331,13 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
           />
         </View>
 
-        {wyPlaylistGroups.map((group) => (
+        {/* 网易云歌单分组（含分组表头）整组依赖网易云账号：未登录时不渲染；本地歌单区不受影响 */}
+        {isLoggedIn ? wyPlaylistGroups.map((group) => (
           <View key={group.key} style={styles.playlistGroup}>
             <SectionHeader
               title={group.title}
               description={`${group.count} 个`}
-              action={group.key === "owned" && isLoggedIn ? (
+              action={group.key === "owned" ? (
                 <View style={styles.playlistHeaderActions}>
                   <ActionButton
                     small
@@ -361,7 +361,7 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
               emptyText={group.emptyText}
             />
           </View>
-        ))}
+        )) : null}
 
         <Modal
           visible={showCreateLocalPlaylistModal}

@@ -276,6 +276,7 @@ export function PlaylistsView() {
         </div>
       </section>
 
+      {wyAccount ? (
       <section className="af-playlist-section">
         <div className="af-section-heading">
           <div>
@@ -362,6 +363,7 @@ export function PlaylistsView() {
           </>
         )}
       </section>
+      ) : null}
 
       <section className="af-playlist-section">
         <div className="af-section-heading">

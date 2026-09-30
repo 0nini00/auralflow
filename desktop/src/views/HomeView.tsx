@@ -1,5 +1,6 @@
 import { Play, Radio, Search } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { useWyAccountStore } from "@/stores/wyAccountStore";
 import { MusicCard } from "@/components/MusicCard";
 import { SectionHeader } from "@/components/SectionHeader";
 import { SongAddMenuButton } from "@/components/SongAddMenuButton";
@@ -10,6 +11,8 @@ import { useHistoryStore } from "@/stores/historyStore";
 export function HomeView() {
   const navigate = useNavigate();
   const recent = useHistoryStore((s) => s.history);
+  // 未登录网易云时不渲染依赖账号的入口（私人 FM / 每日推荐由网易云账号提供）
+  const account = useWyAccountStore((s) => s.account);
   const playQueue = usePlayerStore((s) => s.playQueue);
   const recentPreview = recent.slice(0, 10);
 
@@ -19,13 +22,15 @@ export function HomeView() {
         <div className="af-home-hero-copy">
           <span className="af-home-eyebrow">AuralFlow</span>
           <h1 className="af-heading-1">发现音乐</h1>
-          <p className="af-text-body">从搜索、本地曲库和私人 FM 开始，把想听的歌快速接到播放队列里。</p>
+          <p className="af-text-body">从搜索和本地曲库开始，把想听的歌快速接到播放队列里。</p>
         </div>
         <div className="af-home-hero-actions">
-          <button type="button" className="af-home-primary-action" onClick={() => navigate("/fm")}>
-            <Radio size={18} />
-            私人 FM
-          </button>
+          {account ? (
+            <button type="button" className="af-home-primary-action" onClick={() => navigate("/fm")}>
+              <Radio size={18} />
+              私人 FM
+            </button>
+          ) : null}
           <button type="button" className="af-home-secondary-action" onClick={() => navigate("/search")}>
             <Search size={18} />
             搜索音乐

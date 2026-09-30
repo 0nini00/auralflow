@@ -43,11 +43,13 @@ export function SongAddMenuButton({
   const addSongToPlaylist = usePlaylistStore((s) => s.addSongToPlaylist);
   const addFavorite = useFavoritesStore((s) => s.addFavorite);
   const isFavorite = useFavoritesStore((s) => s.isFavorite(song));
+  const wyAccount = useWyAccountStore((s) => s.account);
   const wyPlaylists = useWyAccountStore((s) => s.playlists);
   const wyAddTracks = useWyAccountStore((s) => s.addTracks);
 
   const ownedWyPlaylists = wyPlaylists.filter((playlist) => !playlist.subscribed);
-  const canAddToWyPlaylist = song.source === "wy";
+  // 加入网易云自建歌单需要网易云账号，未登录时不显示该区块（本地歌单与「我的喜欢」不受影响）
+  const canAddToWyPlaylist = song.source === "wy" && !!wyAccount;
 
   const close = () => {
     setOpen(false);

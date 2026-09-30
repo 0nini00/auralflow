@@ -80,6 +80,9 @@ export function PlaylistDetailScreen({
     (state) => state.fetchPlaylistDetail
   );
   const deleteWyPlaylist = usePlaylistStore((state) => state.deleteWyPlaylist);
+  // 网易云登录态：未登录时不渲染任何"写入云端歌单"的操作（收藏歌单 / 移除歌曲 / 删除歌单），
+  // 本地收藏、下载、批量操作等本地能力不受影响。
+  const isLoggedIn = useAccountStore((state) => state.isLoggedIn);
   const playNextInQueue = usePlayerStore((state) => state.playNextInQueue);
   const downloadSong = useDownloadStore((state) => state.downloadSong);
 
@@ -154,7 +157,8 @@ export function PlaylistDetailScreen({
   const detailActions = buildPlaylistDetailActions(songs.length, {
     source: displayPlaylist.source,
   });
-  const canRemoveSongs = canRemoveSongsFromPlaylistDetail({
+  // 移除歌曲 = 写回网易云云端歌单，需要账号：未登录时不展示删除入口（本地收藏/下载照旧）
+  const canRemoveSongs = isLoggedIn && canRemoveSongsFromPlaylistDetail({
     source: displayPlaylist.source,
     subscribed: displayPlaylist.subscribed,
   });
@@ -398,8 +402,8 @@ export function PlaylistDetailScreen({
                       onPress={handleToggleWySubscribe}
                     />
                   ) : null}
-                  {/* 收藏歌单属于他人创建，"删除"只对自建歌单有意义 */}
-                  {!canSubscribeWyPlaylist ? (
+                  {/* 收藏歌单属于他人创建，"删除"只对自建歌单有意义；未登录（无账号可删）时整项不渲染 */}
+                  {isLoggedIn && !canSubscribeWyPlaylist ? (
                     <ActionButton
                       shrink
                       small
