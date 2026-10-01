@@ -19,7 +19,7 @@
 | `/album/:id` | AlbumDetailView | 专辑详情 |
 | `/daily` | DailyRecommendView | 每日推荐 |
 | `/fm` | PersonalFmView | 私人 FM |
-| `/settings` | SettingsView | 单页 sticky 168px 导航 + 8 个子视图 `useState` 切换，仅活动 section 挂载 |
+| `/settings` | SettingsView | 顶部标签栏（8 个分区，横向可滚动、吸顶，`←/→`/`Home`/`End` 可切换）+ 仅活动 section 挂载 |
 
 ## settings/ 子视图（8 个）
 

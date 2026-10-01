@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Cloud,
   Database,
@@ -8,6 +8,7 @@ import {
   Palette,
   Settings2,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import logoImg from "@/assets/logo.png";
 import { DesktopLyricSettingsSection } from "@/views/settings/DesktopLyricSettingsSection";
 import { AppearanceSettingsSection } from "@/views/settings/AppearanceSettingsSection";
@@ -29,7 +30,14 @@ type SettingsSectionId =
   | "misc"
   | "about";
 
-const SETTINGS_NAV = [
+interface SettingsTab {
+  id: SettingsSectionId;
+  label: string;
+  icon: LucideIcon;
+}
+
+/** 顶部标签栏的分类顺序即 Tab 顺序 */
+const SETTINGS_TABS: SettingsTab[] = [
   { id: "appearance", label: "外观", icon: Palette },
   { id: "playback", label: "播放", icon: Music2 },
   { id: "sources", label: "音源", icon: Settings2 },
@@ -44,6 +52,8 @@ export function SettingsView() {
   const [activeSection, setActiveSection] = useState<SettingsSectionId>("appearance");
   /** 真实版本号从 Tauri 侧读（updateService 已封装同一来源）；拿不到就显示「未知」，不再硬编码。 */
   const [appVersion, setAppVersion] = useState("");
+  /** Tab 按钮引用：方向键切换后把焦点落到新选中的 Tab 上 */
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const model = useSettingsViewModel();
   const getActiveSettingsSection = (id: SettingsSectionId) => activeSection === id;
 
@@ -59,6 +69,32 @@ export function SettingsView() {
     };
   }, []);
 
+  /** 左右方向键在 Tab 间循环移动，Home / End 直达首尾；移动即选中，与点击行为一致 */
+  const handleTabKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const currentIndex = SETTINGS_TABS.findIndex((tab) => tab.id === activeSection);
+    const lastIndex = SETTINGS_TABS.length - 1;
+    let nextIndex: number;
+    switch (event.key) {
+      case "ArrowRight":
+        nextIndex = currentIndex < 0 || currentIndex === lastIndex ? 0 : currentIndex + 1;
+        break;
+      case "ArrowLeft":
+        nextIndex = currentIndex <= 0 ? lastIndex : currentIndex - 1;
+        break;
+      case "Home":
+        nextIndex = 0;
+        break;
+      case "End":
+        nextIndex = lastIndex;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    setActiveSection(SETTINGS_TABS[nextIndex].id);
+    tabRefs.current[nextIndex]?.focus();
+  };
+
   return (
     <div className="af-settings-view af-animate-slide-in">
       <div className="af-settings-page-head">
@@ -68,25 +104,43 @@ export function SettingsView() {
         </div>
       </div>
 
-      <div className="af-settings-shell">
-        <nav className="af-settings-nav" aria-label="设置分类">
-          {SETTINGS_NAV.map(({ id, label, icon: Icon }) => (
+      <div
+        className="af-settings-tabs"
+        role="tablist"
+        aria-label="设置分类"
+        onKeyDown={handleTabKeyDown}
+      >
+        {SETTINGS_TABS.map(({ id, label, icon: Icon }, index) => {
+          const isActive = activeSection === id;
+          return (
             <button
               key={id}
+              ref={(node) => {
+                tabRefs.current[index] = node;
+              }}
               type="button"
-              className={`af-settings-nav-link ${activeSection === id ? "af-active" : ""}`}
-              onClick={() => setActiveSection(id as SettingsSectionId)}
-              aria-current={activeSection === id ? "page" : undefined}
+              role="tab"
+              id={`af-settings-tab-${id}`}
+              className={`af-settings-tab ${isActive ? "af-active" : ""}`}
+              aria-selected={isActive}
+              aria-controls="af-settings-panel"
+              tabIndex={isActive ? 0 : -1}
+              onClick={() => setActiveSection(id)}
             >
               <Icon size={16} />
               <span>{label}</span>
             </button>
-          ))}
-        </nav>
+          );
+        })}
+      </div>
 
-        <div className="af-settings-content">
-          <div className="af-settings-panel">
-
+      <div
+        key={activeSection}
+        className="af-settings-panel"
+        id="af-settings-panel"
+        role="tabpanel"
+        aria-labelledby={`af-settings-tab-${activeSection}`}
+      >
       {getActiveSettingsSection("appearance") && <AppearanceSettingsSection model={model} />}
 
       {getActiveSettingsSection("playback") && <PlaybackSettingsSection model={model} />}
@@ -121,8 +175,6 @@ export function SettingsView() {
         </div>
       </section>
       )}
-          </div>
-        </div>
       </div>
     </div>
   );

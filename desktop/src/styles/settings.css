@@ -21,67 +21,103 @@
   font-size: var(--af-font-size-sm);
 }
 
-.af-settings-shell {
-  display: grid;
-  grid-template-columns: 168px minmax(0, 1fr);
-  align-items: start;
-  gap: 24px;
-}
-
-.af-settings-nav {
+/* ── 顶部分类标签栏：一排横向 Tab，放不下时横向滚动 ──
+   sticky 挂在 .af-content-scroll 的滚动区里，滚动下面的设置内容时标签栏保持可见；
+   只占内容列宽，不向内容卡片边缘溢出，所以不必和滚动容器的内边距对齐。 */
+.af-settings-tabs {
   position: sticky;
   top: 0;
+  z-index: 2;
   display: flex;
-  flex-direction: column;
+  align-items: stretch;
   gap: 4px;
-  padding: 8px;
-  border: 1px solid var(--af-border-secondary);
-  border-radius: var(--af-radius-md);
-  background: var(--af-bg-surface);
+  margin-bottom: 20px;
+  padding-top: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  border-bottom: 1px solid var(--af-border-secondary);
+  /* 半透明 + 模糊：普通主题下等同于页面底色，有背景图时也不会糊成一条实心带 */
+  background: color-mix(in srgb, var(--af-bg-page) 92%, transparent);
+  backdrop-filter: blur(10px);
 }
 
-.af-settings-nav-link {
-  display: flex;
+.af-settings-tabs::-webkit-scrollbar {
+  height: 4px;
+}
+
+.af-settings-tabs::-webkit-scrollbar-thumb {
+  background: var(--af-border-primary);
+  border-radius: 999px;
+}
+
+/* 标签文字不换行、不省略：空间不够时由标签栏横向滚动来容纳 */
+.af-settings-tab {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-height: 34px;
-  padding: 0 10px;
+  gap: 6px;
+  flex: 0 0 auto;
+  min-height: 38px;
+  padding: 0 12px;
   border: 0;
-  border-radius: var(--af-radius-sm);
+  border-bottom: 2px solid transparent;
+  border-radius: var(--af-radius-sm) var(--af-radius-sm) 0 0;
   background: transparent;
   color: var(--af-text-secondary);
   cursor: pointer;
-  font-size: var(--af-font-size-sm);
   font: inherit;
-  text-decoration: none;
-  transition: all var(--af-transition-base);
+  font-size: var(--af-font-size-sm);
+  font-weight: var(--af-font-weight-medium);
+  white-space: nowrap;
+  transition: color var(--af-transition-fast), background var(--af-transition-fast);
 }
 
-.af-settings-nav-link:hover,
-.af-settings-nav-link.af-active {
+.af-settings-tab:hover {
   background: var(--af-bg-surface-hover);
   color: var(--af-text-primary);
 }
 
-.af-settings-nav-link.af-active {
-  box-shadow: inset 3px 0 0 var(--af-accent-primary);
+/* 选中态：强调色文字 + 细下划线，不做实心填充 */
+.af-settings-tab.af-active {
+  color: var(--af-accent-primary);
+  border-bottom-color: var(--af-accent-primary);
 }
 
-.af-settings-nav-link svg {
+.af-settings-tab:focus-visible {
+  outline: 2px solid var(--af-accent-primary);
+  outline-offset: -2px;
+}
+
+.af-settings-tab svg {
   flex-shrink: 0;
 }
 
-.af-settings-content {
-  min-width: 0;
+/* 切换 Tab 时内容轻微淡入 */
+@keyframes af-settings-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .af-settings-panel {
   min-width: 0;
+  animation: af-settings-panel-in 180ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .af-settings-panel {
+    animation: none;
+  }
 }
 
 .af-settings-section {
   margin-bottom: 0;
-  scroll-margin-top: 18px;
+  scroll-margin-top: 56px;
 }
 
 .af-settings-section-title {
@@ -1290,20 +1326,6 @@
 }
 
 @media (max-width: 720px) {
-  .af-settings-shell {
-    grid-template-columns: 1fr;
-  }
-
-  .af-settings-nav {
-    position: static;
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .af-settings-nav-link {
-    justify-content: center;
-  }
-
   .af-lyric-settings-heading,
   .af-settings-row {
     flex-direction: column;
