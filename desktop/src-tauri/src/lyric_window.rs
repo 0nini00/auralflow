@@ -20,7 +20,9 @@ const LYRIC_UNLOCK_LABEL: &str = "lyric-unlock";
 /// WebView2 要求同一用户数据目录的所有实例使用相同的浏览器附加参数，
 /// 否则第二个 WebView2 环境（歌词窗/解锁按钮窗）会静默创建失败，
 /// 表现为"点击桌面歌词无反应"。
-const ADDITIONAL_BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --app-user-model-id=cn.chenle.auralflow";
+/// 末尾三个开关关掉「被遮挡/后台」时的渲染节流：Chromium 对最小化或被完全遮挡的
+/// 窗口会暂停渲染，恢复时可能只画出黑帧，要再操作一下才刷新。
+const ADDITIONAL_BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --app-user-model-id=cn.chenle.auralflow";
 const PERSIST_DEBOUNCE_MS: u64 = 300;
 const DEFAULT_WIDTH: f64 = 380.0;
 const DEFAULT_HEIGHT: f64 = 76.0;

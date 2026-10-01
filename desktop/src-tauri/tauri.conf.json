@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "AuralFlow",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "identifier": "cn.chenle.auralflow",
   "build": {
     "beforeDevCommand": "pnpm run dev",
@@ -20,7 +20,7 @@
         "minHeight": 600,
         "center": true,
         "decorations": false,
-        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --app-user-model-id=cn.chenle.auralflow",
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --app-user-model-id=cn.chenle.auralflow",
         "visible": false
       }
     ],

@@ -14,10 +14,17 @@ mod smtc;
 mod taskbar;
 mod tray;
 
-/// 设置窗口 AppUserModelID：音量混音器/任务栏据此匹配快捷方式（应用名+图标），
-/// 否则 WebView2 进程显示为 "Microsoft Edge WebView2" 默认图标。
+/// 应用 AUMID：必须与 tauri.conf.json 的 identifier、主窗口 additionalBrowserArgs 里的
+/// `--app-user-model-id`、以及安装器写入快捷方式的 AUMID 保持一致——音量合成器/任务栏
+/// 按 AUMID 匹配「同名快捷方式」来取应用名与图标，对不上就退回默认占位图标。
 #[cfg(target_os = "windows")]
-unsafe fn set_app_user_model_id(hwnd: isize, app_id: &str) {
+const APP_USER_MODEL_ID: &str = "cn.chenle.auralflow";
+
+/// 设置进程级 AppUserModelID：所有窗口（含歌词窗）与 WebView2 子进程由此归入同一个条目。
+/// 必须在创建任何窗口之前调用：窗口一旦生成，之后再改 AUMID 不会重新归类。
+/// 失败只降级记日志——退回系统默认标识，不影响其它功能。
+#[cfg(target_os = "windows")]
+fn set_app_user_model_id(app_id: &str) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
     let wide: Vec<u16> = std::ffi::OsStr::new(app_id)
         .encode_wide()
@@ -27,13 +34,78 @@ unsafe fn set_app_user_model_id(hwnd: isize, app_id: &str) {
     extern "system" {
         fn SetCurrentProcessExplicitAppUserModelID(appid: *const u16) -> i32;
     }
-    // 进程级设置即可：所有窗口（含歌词窗）统一归属
-    let _ = SetCurrentProcessExplicitAppUserModelID(wide.as_ptr());
-    let _ = hwnd;
+    // 返回 HRESULT：负数即失败
+    let hr = unsafe { SetCurrentProcessExplicitAppUserModelID(wide.as_ptr()) };
+    if hr < 0 {
+        return Err(format!(
+            "SetCurrentProcessExplicitAppUserModelID({}) 返回 0x{:08X}",
+            app_id, hr as u32
+        ));
+    }
+    Ok(())
+}
+
+/// 给主窗口补上「大图标」（WM_SETICON / ICON_BIG）：
+/// 框架只设了 ICON_SMALL，窗口类也没有登记图标，因此 WM_GETICON(ICON_BIG) 与
+/// GetClassLongPtr(GCLP_HICON) 都是 0——只认窗口图标的老式界面（音量合成器）
+/// 会把它画成空白。图标取自自身 exe 的资源（打包时按 bundle.icon 写入），
+/// 不依赖外部文件，便携运行同样有效。
+#[cfg(target_os = "windows")]
+fn set_main_window_big_icon(window: &tauri::WebviewWindow) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use std::ptr::null_mut;
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+    use windows::Win32::UI::Shell::ExtractIconExW;
+    use windows::Win32::UI::WindowsAndMessaging::{SendMessageW, HICON, ICON_BIG, WM_SETICON};
+
+    let raw = window
+        .hwnd()
+        .map_err(|err| format!("取窗口句柄失败: {}", err))?;
+    let exe = std::env::current_exe().map_err(|err| format!("取 exe 路径失败: {}", err))?;
+    let wide: Vec<u16> = exe
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+
+    let mut big = HICON(null_mut());
+    let count = unsafe {
+        ExtractIconExW(
+            PCWSTR(wide.as_ptr()),
+            0,
+            Some(&mut big as *mut HICON),
+            None,
+            1,
+        )
+    };
+    // 取不到图标时返回 (UINT)-1；句柄为空同样视为失败
+    if count == 0 || count == u32::MAX || big.0.is_null() {
+        return Err("exe 资源里没有可用图标".to_string());
+    }
+    // 句柄交给窗口长期持有（系统只在使用期间引用它），随进程结束释放，这里不 DestroyIcon。
+    let _ = unsafe {
+        SendMessageW(
+            HWND(raw.0),
+            WM_SETICON,
+            Some(WPARAM(ICON_BIG as usize)),
+            Some(LPARAM(big.0 as isize)),
+        )
+    };
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 音量合成器/任务栏显示正确的应用名与图标：WebView2 进程默认归类为
+    // "Microsoft Edge WebView2"，必须在创建任何窗口之前显式设置 AUMID（见函数注释）。
+    #[cfg(target_os = "windows")]
+    if let Err(err) = set_app_user_model_id(APP_USER_MODEL_ID) {
+        eprintln!(
+            "[app] 设置 AppUserModelID 失败，音量合成器/任务栏将退回默认图标: {}",
+            err
+        );
+    }
     let result = tauri::Builder::default()
         // 单实例锁：重复启动时聚焦已有主窗口，而不是开一个新进程新窗口。
         // argv 透传给深链处理（与正常启动一致）。
@@ -70,20 +142,15 @@ pub fn run() {
                 Ok(dir) => logging::announce_log_dir(&dir),
                 Err(err) => eprintln!("[log] 初始化失败，本次运行不落盘: {}", err),
             }
-            // 音量混音器/任务栏显示正确的应用名与图标：
-            // WebView2 进程默认显示 "Microsoft Edge WebView2"，显式设置 AUMID 后
-            // 系统会按安装包的快捷方式（含图标）归属音量条目。
+            // 音量合成器/任务栏图标：框架只设了 ICON_SMALL，这里补上 ICON_BIG。
+            // 失败只记日志降级——图标缺失不影响其它功能。
             #[cfg(target_os = "windows")]
             {
                 use tauri::Manager;
-                let hwnd = app
-                    .get_webview_window("main")
-                    .and_then(|w| w.hwnd().ok())
-                    .map(|h| h.0 as isize)
-                    .unwrap_or(0);
-                if hwnd != 0 {
-                    unsafe {
-                        set_app_user_model_id(hwnd, "cn.chenle.auralflow");
+                use tauri_plugin_log::log;
+                if let Some(main) = app.get_webview_window("main") {
+                    if let Err(err) = set_main_window_big_icon(&main) {
+                        log::warn!("[app] 设置主窗口大图标失败，音量合成器可能显示空白图标: {}", err);
                     }
                 }
             }
