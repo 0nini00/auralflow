@@ -46,12 +46,14 @@ export function Sidebar() {
       </div>
 
       <nav className="af-sidebar-nav" aria-label="主导航">
-        {navItems.map((item) => (
-          <NavLink key={item.to} to={item.to} className="af-sidebar-link" end={item.to === "/"}>
-            <item.icon size={20} strokeWidth={2} />
-            <span>{item.label}</span>
-          </NavLink>
-        ))}
+        {navItems
+          .filter((item) => !item.requiresAccount || account)
+          .map((item) => (
+            <NavLink key={item.to} to={item.to} className="af-sidebar-link" end={item.to === "/"}>
+              <item.icon size={20} strokeWidth={2} />
+              <span>{item.label}</span>
+            </NavLink>
+          ))}
       </nav>
 
       <div className="af-sidebar-footer">
