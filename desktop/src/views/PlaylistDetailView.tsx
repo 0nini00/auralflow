@@ -6,15 +6,14 @@ import { useFavoritesStore } from '@/stores/favoritesStore';
 import { usePlayerStore } from '@/stores/playerStore';
 import { useWyAccountStore } from '@/stores/wyAccountStore';
 import { getSource } from '@/services/sources/sourceService';
-import { SongAddMenuButton } from '@/components/SongAddMenuButton';
-import { DownloadQualityButton } from '@/components/DownloadQualityButton';
+import { SongAddMenu } from '@/components/SongAddMenuButton';
+import { DownloadQualityMenu } from '@/components/DownloadQualityButton';
 import { VirtualList } from '@/components/VirtualList';
 import { formatDuration } from '@/lib/utils';
 import { formatPlaylistSearchMeta } from '@/services/neteasePlaylistUtils';
-import { toCoverSrc } from '@/utils/imageReferrerPolicy';
+import { DETAIL_COVER_CSS_SIZE, ROW_COVER_CSS_SIZE, coverSrc } from '@/utils/imageReferrerPolicy';
 import type { MusicInfo, PlaylistInfo, SourceTag } from '@lx/core';
-import { COVER_SIZE_LARGE } from '@lx/core';
-import { ArrowLeft, Play, Shuffle, Trash2, Clock, Loader2, CornerDownRight, MoreHorizontal, Bookmark, BookmarkCheck, BookmarkX, RefreshCw, LocateFixed } from 'lucide-react';
+import { ArrowLeft, Play, Shuffle, Trash2, Clock, Loader2, CornerDownRight, MoreHorizontal, Bookmark, BookmarkCheck, BookmarkX, RefreshCw, LocateFixed, ListPlus, Download } from 'lucide-react';
 
 /** Fisher-Yates 均匀洗牌 */
 function fisherYatesShuffle<T>(arr: T[]): T[] {
@@ -78,12 +77,17 @@ export function PlaylistDetailView() {
   const [pendingPlayAction, setPendingPlayAction] = useState<PendingPlayAction>(null);
   const [openMenuIndex, setOpenMenuIndex] = useState<number | null>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const [addMenu, setAddMenu] = useState<{ song: MusicInfo; anchor: HTMLElement } | null>(null);
+  const [downloadMenu, setDownloadMenu] = useState<{ song: MusicInfo; anchor: HTMLElement } | null>(null);
   const [locateScrollIndex, setLocateScrollIndex] = useState<number | undefined>(undefined);
   const [locateScrollKey, setLocateScrollKey] = useState(0);
   const [locatedSongIndex, setLocatedSongIndex] = useState<number | null>(null);
   const locateHighlightTimerRef = useRef<number | null>(null);
 
-  const { playQueue, playNext, current: currentTrack } = usePlayerStore();
+  // 逐字段订阅：播放进度每帧推送一次，整表订阅会让整个列表跟着每帧重渲染
+  const playQueue = usePlayerStore((s) => s.playQueue);
+  const playNext = usePlayerStore((s) => s.playNext);
+  const currentTrack = usePlayerStore((s) => s.current);
 
   const isFavoritesPlaylist = !explicitRemoteSource && id === 'favorites';
   const localPlaylist = !explicitRemoteSource && isFavoritesPlaylist
@@ -245,7 +249,7 @@ export function PlaylistDetailView() {
   const playlist = resolvedPlaylist!;
   const isWyPlaylist = !!wyPlaylist;
   const isRemotePlaylist = !!remotePlaylistInfo;
-  const playlistCoverUrl = toCoverSrc(playlist.cover, COVER_SIZE_LARGE);
+  const playlistCoverUrl = coverSrc(playlist.cover, DETAIL_COVER_CSS_SIZE);
   const isWyOwned = isWyPlaylist && wyPlaylist!.subscribed === false;
   const isWySubscribed = isWyPlaylist && wyPlaylist!.subscribed === true;
   const remotePlaylistCollectionMarker = remotePlaylistInfo ? buildImportedPlaylistMarker(remotePlaylistInfo) : null;
@@ -567,8 +571,13 @@ export function PlaylistDetailView() {
               scrollToIndex={locateScrollIndex}
               scrollToKey={locateScrollKey}
               scrollRootSelector=".af-content-scroll"
-              onScroll={() => setOpenMenuIndex(null)}
+              onScroll={() => {
+                setOpenMenuIndex(null);
+                setAddMenu(null);
+                setDownloadMenu(null);
+              }}
               renderItem={(song, index) => {
+                const songCoverUrl = coverSrc(song.img, ROW_COVER_CSS_SIZE);
                 const isCurrentSong = currentSongIndex === index;
                 const isLocatedSong = locatedSongIndex === index;
 
@@ -582,8 +591,8 @@ export function PlaylistDetailView() {
 
                     <div className="af-col-title">
                       <div className="af-song-cover">
-                        {toCoverSrc(song.img) ? (
-                          <img src={toCoverSrc(song.img)} alt={song.name} />
+                        {songCoverUrl ? (
+                          <img src={songCoverUrl} alt={song.name} />
                         ) : (
                           <div className="af-cover-placeholder">暂无封面</div>
                         )}
@@ -603,16 +612,32 @@ export function PlaylistDetailView() {
                       >
                         <Play size={14} fill="currentColor" />
                       </button>
-                      <SongAddMenuButton
-                        song={song}
-                        iconSize={14}
+                      <button
+                        className="af-action-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setAddMenu({ song, anchor: e.currentTarget });
+                        }}
                         title="添加到我的喜欢或歌单"
-                      />
-                      <DownloadQualityButton
-                        song={song}
-                        iconSize={14}
+                        aria-label="添加到我的喜欢或歌单"
+                        aria-haspopup="menu"
+                        aria-expanded={addMenu?.song === song}
+                      >
+                        <ListPlus size={14} />
+                      </button>
+                      <button
+                        className="af-action-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDownloadMenu({ song, anchor: e.currentTarget });
+                        }}
                         title="下载"
-                      />
+                        aria-label="下载"
+                        aria-haspopup="menu"
+                        aria-expanded={downloadMenu?.song === song}
+                      >
+                        <Download size={14} />
+                      </button>
                       <button
                         className="af-action-btn"
                         onClick={(e) => {
@@ -632,6 +657,24 @@ export function PlaylistDetailView() {
           </>
         )}
       </div>
+
+      {addMenu && (
+        <SongAddMenu
+          key={`${addMenu.song.source}:${addMenu.song.id}`}
+          song={addMenu.song}
+          anchor={addMenu.anchor}
+          onClose={() => setAddMenu(null)}
+        />
+      )}
+
+      {downloadMenu && (
+        <DownloadQualityMenu
+          key={`${downloadMenu.song.source}:${downloadMenu.song.id}`}
+          song={downloadMenu.song}
+          anchor={downloadMenu.anchor}
+          onClose={() => setDownloadMenu(null)}
+        />
+      )}
 
       {openMenuIndex != null && menuPos && songs[openMenuIndex] && createPortal(
         <div

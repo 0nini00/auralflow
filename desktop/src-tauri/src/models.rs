@@ -93,6 +93,17 @@ pub struct AppSettings {
     pub lyric_window_width: Option<f64>,
     /// 桌面歌词窗口：上次的高
     pub lyric_window_height: Option<f64>,
+    /// 主窗口：上次的 x（逻辑像素）。None=居中默认位置
+    pub main_window_x: Option<f64>,
+    /// 主窗口：上次的 y
+    pub main_window_y: Option<f64>,
+    /// 主窗口：上次的宽
+    pub main_window_width: Option<f64>,
+    /// 主窗口：上次的高
+    pub main_window_height: Option<f64>,
+    /// 主窗口：上次退出时是否最大化。最大化时尺寸/位置记的是系统矩形，所以形状由这个开关决定
+    #[serde(default)]
+    pub main_window_maximized: bool,
     /// 用户协议是否已同意
     pub pact_accepted: bool,
     /// 鼠标特效: "off" / "trail"
@@ -154,6 +165,11 @@ impl Default for AppSettings {
             lyric_window_y: None,
             lyric_window_width: None,
             lyric_window_height: None,
+            main_window_x: None,
+            main_window_y: None,
+            main_window_width: None,
+            main_window_height: None,
+            main_window_maximized: false,
             pact_accepted: false,
             cursor_effect: "off".to_string(),
             webdav_url: None,

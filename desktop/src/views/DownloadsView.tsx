@@ -2,6 +2,7 @@ import { AlertTriangle, Download, FolderOpen, Play, RefreshCw, Trash2, XCircle }
 import { useEffect } from 'react';
 import { useDownloadStore, type DownloadTask } from '@/stores/downloadStore';
 import { usePlayerStore } from '@/stores/playerStore';
+import { PLAYER_COVER_CSS_SIZE, coverSrc } from '@/utils/imageReferrerPolicy';
 
 function formatBytes(bytes?: number): string {
   if (!bytes || bytes <= 0) return '--';
@@ -99,7 +100,7 @@ export function DownloadsView() {
             <div key={task.id} className={`af-download-item af-download-${task.status}`}>
               <div className="af-download-cover">
                 {task.music.img || task.music.picUrl ? (
-                  <img src={task.music.img || task.music.picUrl} alt={task.music.name} />
+                  <img src={coverSrc(task.music.img || task.music.picUrl, PLAYER_COVER_CSS_SIZE)} alt={task.music.name} />
                 ) : (
                   <Download size={22} />
                 )}

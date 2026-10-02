@@ -10,6 +10,7 @@ import { SongAddMenuButton } from "@/components/SongAddMenuButton";
 import { DownloadQualityButton } from "@/components/DownloadQualityButton";
 import { formatDuration } from "@/lib/utils";
 import type { MusicInfo } from "@lx/core";
+import { DETAIL_COVER_CSS_SIZE, ROW_COVER_CSS_SIZE, coverSrc } from "@/utils/imageReferrerPolicy";
 import { ArrowLeft, Play, Shuffle, Clock, Disc3, Loader2 } from "lucide-react";
 
 interface AlbumInfoFull {
@@ -122,7 +123,7 @@ export function AlbumDetailView() {
         <div className="af-playlist-detail-info">
           <div className="af-playlist-detail-cover">
             {info.picUrl ? (
-              <img src={info.picUrl} alt={info.name} />
+              <img src={coverSrc(info.picUrl, DETAIL_COVER_CSS_SIZE)} alt={info.name} />
             ) : (
               <div className="af-cover-placeholder"><Disc3 size={64} /></div>
             )}
@@ -227,7 +228,7 @@ export function AlbumDetailView() {
                   <div className="af-col-index">{index + 1}</div>
                   <div className="af-col-title">
                     <div className="af-song-cover">
-                      {song.img ? <img src={song.img} alt={song.name} /> : <div className="af-cover-placeholder">暂无封面</div>}
+                      {song.img ? <img src={coverSrc(song.img, ROW_COVER_CSS_SIZE)} alt={song.name} /> : <div className="af-cover-placeholder">暂无封面</div>}
                     </div>
                     <span>{song.name}</span>
                   </div>

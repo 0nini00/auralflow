@@ -5,6 +5,7 @@ import { useWyAccountStore } from '@/stores/wyAccountStore';
 import { usePlayerStore } from '@/stores/playerStore';
 import { SongAddMenuButton } from '@/components/SongAddMenuButton';
 import type { MusicInfo } from '@lx/core';
+import { DETAIL_COVER_CSS_SIZE, coverSrc } from '@/utils/imageReferrerPolicy';
 import { Radio, Play, Pause, SkipForward, ThumbsDown, Loader2, Music } from 'lucide-react';
 
 export function PersonalFmView() {
@@ -226,7 +227,7 @@ export function PersonalFmView() {
       <div className="af-fm-stage">
         <div className="af-fm-cover">
           {current.img ? (
-            <img src={current.img} alt={current.name} />
+            <img src={coverSrc(current.img, DETAIL_COVER_CSS_SIZE)} alt={current.name} />
           ) : (
             <div className="af-cover-placeholder"><Music size={64} /></div>
           )}

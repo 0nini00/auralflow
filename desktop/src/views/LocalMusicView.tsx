@@ -3,6 +3,7 @@ import { useLibraryStore } from '@/stores/libraryStore';
 import { usePlayerStore } from '@/stores/playerStore';
 import { LocalMusicService, type LocalSong } from '@/services/localMusicService';
 import { MetadataEditModal } from '@/components/MetadataEditModal';
+import { VirtualList } from '@/components/VirtualList';
 import { formatDuration } from '@/lib/utils';
 import { Play, Pause, Music2, Clock, ListMusic, Grid3x3, Plus, FolderOpen, Trash2, Edit2, RefreshCw } from 'lucide-react';
 
@@ -10,7 +11,11 @@ type ViewMode = 'list' | 'grid';
 
 export function LocalMusicView() {
   const { localSongs, addSongs, removeSong, isScanning, setScanning, addScanPath, scanPaths, refreshLibrary } = useLibraryStore();
-  const { current: currentTrack, status, playQueue, togglePlay } = usePlayerStore();
+  // 逐字段订阅：播放进度每帧推送一次，整表订阅会让整个列表跟着每帧重渲染
+  const currentTrack = usePlayerStore((s) => s.current);
+  const status = usePlayerStore((s) => s.status);
+  const playQueue = usePlayerStore((s) => s.playQueue);
+  const togglePlay = usePlayerStore((s) => s.togglePlay);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [editingSong, setEditingSong] = useState<LocalSong | null>(null);
 
@@ -219,62 +224,69 @@ export function LocalMusicView() {
 
             {/* Table Body */}
             <div className="af-local-list-body">
-              {localSongs.map((track, index) => {
-                const isCurrent = currentTrack?.id === track.id && currentTrack?.source === 'local';
+              {/* 定高行 52px：本地库可能上千首，只挂可见区 + overscan */}
+              <VirtualList
+                items={localSongs}
+                rowHeight={52}
+                className="af-local-list-virtual"
+                scrollRootSelector=".af-local-content"
+                getItemKey={(track) => track.id}
+                renderItem={(track, index) => {
+                  const isCurrent = currentTrack?.id === track.id && currentTrack?.source === 'local';
 
-                return (
-                  <div
-                    key={track.id}
-                    className={`af-local-list-row ${isCurrent ? 'af-current' : ''}`}
-                    onClick={() => handleTrackClick(track)}
-                    title="单击播放"
-                  >
-                    <div className="af-col-index">
-                      {isCurrent && isPlaying ? (
-                        <div className="af-music-bars">
-                          <span className="af-bar"></span>
-                          <span className="af-bar"></span>
-                          <span className="af-bar"></span>
-                        </div>
-                      ) : (
-                        <>
-                          <span className="af-track-number">{index + 1}</span>
-                          <Play size={14} fill="currentColor" className="af-play-icon" />
-                        </>
-                      )}
+                  return (
+                    <div
+                      className={`af-local-list-row ${isCurrent ? 'af-current' : ''}`}
+                      onClick={() => handleTrackClick(track)}
+                      title="单击播放"
+                    >
+                      <div className="af-col-index">
+                        {isCurrent && isPlaying ? (
+                          <div className="af-music-bars">
+                            <span className="af-bar"></span>
+                            <span className="af-bar"></span>
+                            <span className="af-bar"></span>
+                          </div>
+                        ) : (
+                          <>
+                            <span className="af-track-number">{index + 1}</span>
+                            <Play size={14} fill="currentColor" className="af-play-icon" />
+                          </>
+                        )}
+                      </div>
+
+                      <div className="af-col-title">
+                        <span className={isCurrent ? 'af-text-accent' : ''}>{track.title}</span>
+                      </div>
+
+                      <div className="af-col-artist">{track.artist}</div>
+
+                      <div className="af-col-album">{track.album || '-'}</div>
+
+                      <div className="af-col-duration">{formatDuration(track.duration)}</div>
+
+                      <div className="af-col-actions">
+                        <button
+                          className="af-action-btn"
+                          onClick={(e) => handleEditTrack(track, e)}
+                          aria-label="编辑元数据"
+                          title="编辑元数据"
+                        >
+                          <Edit2 size={14} />
+                        </button>
+                        <button
+                          className="af-action-btn af-delete-btn"
+                          onClick={(e) => handleRemoveTrack(track.id, e)}
+                          aria-label="移除"
+                          title="从列表中移除"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </div>
-
-                    <div className="af-col-title">
-                      <span className={isCurrent ? 'af-text-accent' : ''}>{track.title}</span>
-                    </div>
-
-                    <div className="af-col-artist">{track.artist}</div>
-
-                    <div className="af-col-album">{track.album || '-'}</div>
-
-                    <div className="af-col-duration">{formatDuration(track.duration)}</div>
-
-                    <div className="af-col-actions">
-                      <button
-                        className="af-action-btn"
-                        onClick={(e) => handleEditTrack(track, e)}
-                        aria-label="编辑元数据"
-                        title="编辑元数据"
-                      >
-                        <Edit2 size={14} />
-                      </button>
-                      <button
-                        className="af-action-btn af-delete-btn"
-                        onClick={(e) => handleRemoveTrack(track.id, e)}
-                        aria-label="移除"
-                        title="从列表中移除"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                }}
+              />
             </div>
           </div>
         ) : (
@@ -501,6 +513,8 @@ export function LocalMusicView() {
           grid-template-columns: 40px 2fr 1.5fr 1.5fr 80px 84px;
           gap: 16px;
           padding: 10px 16px;
+          /* 定高行：虚拟列表按 52px 定位（上下内边距 20 + 操作按钮 32） */
+          height: 52px;
           border-radius: var(--af-radius-md);
           cursor: pointer;
           transition: background 0.2s;

@@ -8,7 +8,7 @@ import { listen } from '@tauri-apps/api/event';
 import { subscribeLyricSettings } from '@/stores/lyricSettingsSync';
 import { toggleDesktopLyricFromPlayer } from '@/utils/desktopLyricToggle';
 import { getNextPlayMode, getPlayModeControl } from '@/services/playback/playModeControl';
-import { toCoverSrc } from '@/utils/imageReferrerPolicy';
+import { PLAYER_COVER_CSS_SIZE, coverSrc } from '@/utils/imageReferrerPolicy';
 import { formatTime } from '@/utils/formatTime';
 import {
   Play,
@@ -153,7 +153,7 @@ export const PlayerBar: React.FC = () => {
 
   if (!currentTrack) return null;
 
-  const coverUrl = toCoverSrc(currentTrack.img || currentTrack.picUrl || '');
+  const coverUrl = coverSrc(currentTrack.img || currentTrack.picUrl || '', PLAYER_COVER_CSS_SIZE);
   const lyricButtonLabel = lyricOpen
     ? lyricLocked
       ? '解锁桌面歌词'

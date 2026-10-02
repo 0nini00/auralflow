@@ -7,6 +7,7 @@ import { usePlayerStore } from '@/stores/playerStore';
 import { SongAddMenuButton } from '@/components/SongAddMenuButton';
 import { DownloadQualityButton } from '@/components/DownloadQualityButton';
 import { formatDuration } from '@/lib/utils';
+import { DETAIL_COVER_CSS_SIZE, coverSrc } from '@/utils/imageReferrerPolicy';
 import { Calendar, Play, Shuffle, RefreshCw, Clock, Loader2 } from 'lucide-react';
 
 type PendingPlayAction = 'play-all' | 'shuffle' | `track:${number}` | null;
@@ -39,7 +40,7 @@ export function DailyRecommendView() {
   const [pendingPlayAction, setPendingPlayAction] = useState<PendingPlayAction>(null);
   const isPlayAllPending = pendingPlayAction === 'play-all';
   const isShufflePending = pendingPlayAction === 'shuffle';
-  const dailyCoverUrl = daily[0]?.img || daily[0]?.picUrl || "";
+  const dailyCoverUrl = coverSrc(daily[0]?.img || daily[0]?.picUrl || "", DETAIL_COVER_CSS_SIZE);
   const today = (() => {
     const date = new Date();
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;

@@ -1,5 +1,5 @@
 import type { MusicInfo } from '@lx/core';
-import { COVER_SIZE_LARGE, resizeCoverUrl } from '@lx/core';
+import { COVER_TIER_IMMERSIVE, resizeCoverUrl } from '@lx/core';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { cacheRemoteAudio, cacheRemoteImage, lookupCachedMedia, removeCachedMedia } from '@lx/tauri-bridge';
 import type { PlaybackResolvedUrl } from '@/services/playback/types';
@@ -44,7 +44,10 @@ async function cacheMusicCover(music: MusicInfo): Promise<MusicInfo> {
   if (!isHttpUrl(coverUrl)) return music;
 
   // 缓存播放器用的大图而非原图：图床原图常有数 MB，实测缓存里出现过 4MB 的样本。
-  const remoteUrl = resizeCoverUrl(coverUrl, COVER_SIZE_LARGE);
+  // 尺寸刻意不跟着显示场景变：缓存 key 只由 source/id 决定（见 buildMediaCacheKey），
+  // 按场景分级会让播放条、沉浸页、系统媒体控制互相看不见对方落盘的图。
+  // 600 是沉浸页封面的档位，也是所有展示位里最大的那个。
+  const remoteUrl = resizeCoverUrl(coverUrl, COVER_TIER_IMMERSIVE);
   const cacheKey = buildMediaCacheKey(music, 'cover');
 
   try {

@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { usePlayerStore } from '@/stores/playerStore';
 import { useThemeStore } from '@/stores/themeStore';
 import { applyArtworkPalette, extractArtworkPalette } from '@/services/artworkColor';
-import { toCoverSrc } from '@/utils/imageReferrerPolicy';
+import { CARD_COVER_CSS_SIZE, coverSrc } from '@/utils/imageReferrerPolicy';
 
 /**
  * 当前播放封面的主色 -> 氛围光变量：
@@ -19,7 +19,9 @@ export function useArtworkAmbience(): void {
   const current = usePlayerStore((state) => state.current);
   const artworkAmbienceEnabled = useThemeStore((state) => state.artworkAmbienceEnabled);
   const artworkAmbienceScope = useThemeStore((state) => state.artworkAmbienceScope);
-  const coverUrl = current ? toCoverSrc(current.img || current.picUrl || '') : '';
+  // 刻意与列表卡片刻度取同一档：同一张封面在列表与取色之间共用一次加载，
+  // 单独为取色降一档反而会多出一次下载，切歌时更慢。
+  const coverUrl = current ? coverSrc(current.img || current.picUrl || '', CARD_COVER_CSS_SIZE) : '';
 
   useEffect(() => {
     const targets = {

@@ -13,6 +13,7 @@ mod secret_store;
 mod smtc;
 mod taskbar;
 mod tray;
+mod window_state;
 
 /// 应用 AUMID：必须与 tauri.conf.json 的 identifier、主窗口 additionalBrowserArgs 里的
 /// `--app-user-model-id`、以及安装器写入快捷方式的 AUMID 保持一致——音量合成器/任务栏
@@ -154,6 +155,9 @@ pub fn run() {
                     }
                 }
             }
+            // 主窗口几何持久化：恢复上次的尺寸/位置/最大化状态，之后监听变化落盘。
+            // 失败只记日志——窗口照旧按 tauri.conf.json 的默认尺寸居中显示。
+            window_state::attach(app.handle());
             // 系统托盘
             let _ = tray::setup(app.handle());
             // Windows 系统媒体控制（SMTC）：键盘媒体键 / 系统媒体浮层 / 锁屏控制。

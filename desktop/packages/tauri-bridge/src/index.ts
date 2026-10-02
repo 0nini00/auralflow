@@ -48,6 +48,13 @@ export interface RustAppSettings {
   lyricWindowY?: number | null;
   lyricWindowWidth?: number | null;
   lyricWindowHeight?: number | null;
+  /** 主窗口：上次的 x（逻辑像素）。null=居中默认位置 */
+  mainWindowX?: number | null;
+  mainWindowY?: number | null;
+  mainWindowWidth?: number | null;
+  mainWindowHeight?: number | null;
+  /** 主窗口：上次退出时是否最大化 */
+  mainWindowMaximized: boolean;
   pactAccepted: boolean;
   cursorEffect: string;
   webdavUrl?: string | null;

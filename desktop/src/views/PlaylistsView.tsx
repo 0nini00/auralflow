@@ -7,7 +7,7 @@ import { useWyAccountStore } from '@/stores/wyAccountStore';
 import { exportPlaylists, importPlaylists } from '@/services/playlistTransferService';
 import { fetchPlaylistSongsFromLink } from '@/services/playlistLinkImportService';
 import { parsePlaylistLink } from '@lx/core';
-import { toCoverSrc } from '@/utils/imageReferrerPolicy';
+import { CARD_COVER_CSS_SIZE, ROW_COVER_CSS_SIZE, coverSrc } from '@/utils/imageReferrerPolicy';
 import {
   Plus,
   Music,
@@ -52,8 +52,8 @@ export function PlaylistsView() {
   const myWyPlaylists = wyPlaylists.filter((p) => !p.subscribed);
   const collectedWyPlaylists = wyPlaylists.filter((p) => p.subscribed);
   const totalPlaylistCount = 2 + wyPlaylists.length + playlists.length;
-  const firstFavoriteCover = favorites[0]?.img || favorites[0]?.picUrl || "";
-  const firstHistoryCover = history[0]?.img || history[0]?.picUrl || "";
+  const firstFavoriteCover = coverSrc(favorites[0]?.img || favorites[0]?.picUrl || "", ROW_COVER_CSS_SIZE);
+  const firstHistoryCover = coverSrc(history[0]?.img || history[0]?.picUrl || "", ROW_COVER_CSS_SIZE);
 
   useEffect(() => {
     if (!showCreateDialog && !showImportLinkDialog) return;
@@ -556,7 +556,7 @@ export function PlaylistsView() {
 }
 
 function PlaylistCover({ src, name, cloud = false }: { src?: string; name: string; cloud?: boolean }) {
-  const imageSrc = toCoverSrc(src);
+  const imageSrc = coverSrc(src, CARD_COVER_CSS_SIZE);
   return (
     <div className="af-playlist-cover">
       {imageSrc ? (

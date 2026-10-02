@@ -4,7 +4,7 @@ import { useWyAccountStore } from "@/stores/wyAccountStore";
 import { MusicCard } from "@/components/MusicCard";
 import { SectionHeader } from "@/components/SectionHeader";
 import { SongAddMenuButton } from "@/components/SongAddMenuButton";
-import { toCoverSrc } from "@/utils/imageReferrerPolicy";
+import { CARD_COVER_CSS_SIZE, coverSrc } from "@/utils/imageReferrerPolicy";
 import { usePlayerStore } from "@/stores/playerStore";
 import { useHistoryStore } from "@/stores/historyStore";
 
@@ -64,7 +64,7 @@ export function HomeView() {
                 key={`${track.source}:${track.id}`}
                 title={track.name}
                 subtitle={`${track.singer}${track.albumName ? ` / ${track.albumName}` : ""}`}
-                coverUrl={toCoverSrc(track.img || track.picUrl)}
+                coverUrl={coverSrc(track.img || track.picUrl, CARD_COVER_CSS_SIZE)}
                 onPlay={() => { void playQueue(recent, index); }}
                 actions={
                   <SongAddMenuButton

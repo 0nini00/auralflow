@@ -33,8 +33,7 @@ import { usePlayerStore } from '@/stores/playerStore';
 import { formatTime } from '@/utils/formatTime';
 import { buildMusicShareText } from '@/utils/shareLink';
 import { toggleDesktopLyricFromPlayer } from '@/utils/desktopLyricToggle';
-import { COVER_SIZE_LARGE } from '@lx/core';
-import { toCoverSrc } from '@/utils/imageReferrerPolicy';
+import { IMMERSIVE_COVER_CSS_SIZE, coverSrc } from '@/utils/imageReferrerPolicy';
 import { getLyricWindowState, isLyricWindowOpen, loadSettings, patchSettings } from '@lx/tauri-bridge';
 import { listen } from '@tauri-apps/api/event';
 
@@ -101,7 +100,7 @@ export function ImmersiveLyricsOverlay({
   const [scrubProgress, setScrubProgress] = useState(0);
   const queueItemRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const isPlaying = status === 'playing';
-  const coverUrl = toCoverSrc(currentTrack?.img || currentTrack?.picUrl || '', COVER_SIZE_LARGE);
+  const coverUrl = coverSrc(currentTrack?.img || currentTrack?.picUrl || '', IMMERSIVE_COVER_CSS_SIZE);
   const playModeControl = getPlayModeControl({ repeatMode, isShuffle });
   const lyricProgress = useInterpolatedPlaybackProgress({ status, progress, progressSampledAt, duration, playbackRate });
   const { lyrics, currentLine: currentLyricIndex } = useLyrics(currentTrack, lyricProgress, manualOffsetMs / 1000);
