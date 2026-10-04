@@ -31,6 +31,8 @@ export function DesktopLyricSettingsSection() {
   const [singleLine, setSingleLine] = useState(false);
   const [maxLineNum, setMaxLineNum] = useState(2);
   const [showTranslation, setShowTranslation] = useState(true);
+  const [showRomanization, setShowRomanization] = useState(false);
+  const [showRuby, setShowRuby] = useState(false);
   const [align, setAlign] = useState("center");
   const [lineGap, setLineGap] = useState(8);
   const [fontWeight, setFontWeight] = useState(700);
@@ -58,6 +60,8 @@ export function DesktopLyricSettingsSection() {
         setSingleLine(s.lyricSingleLine);
         setMaxLineNum(s.lyricMaxLineNum || 2);
         setShowTranslation(s.lyricShowTranslation);
+        setShowRomanization(s.lyricShowRomanization === true);
+        setShowRuby(s.lyricShowRuby === true);
         setAlign(s.lyricAlign || "center");
         setLineGap(s.lyricLineGap ?? 8);
         setFontWeight(s.lyricFontWeight ?? 700);
@@ -82,6 +86,8 @@ export function DesktopLyricSettingsSection() {
   }, []);
 
   useEffect(() => subscribeLyricSettings((patch) => {
+    if (typeof patch.lyricShowRomanization === "boolean") setShowRomanization(patch.lyricShowRomanization);
+    if (typeof patch.lyricShowRuby === "boolean") setShowRuby(patch.lyricShowRuby);
     if (typeof patch.lyricPinned === "boolean") setPinned(patch.lyricPinned);
     if (typeof patch.lyricShowTranslation === "boolean") setShowTranslation(patch.lyricShowTranslation);
     if (typeof patch.lyricAnimationIntensity === "string") {
@@ -154,6 +160,19 @@ export function DesktopLyricSettingsSection() {
   const handleShowTranslationChange = async (next: boolean) => {
     setShowTranslation(next);
     await patchLyricSetting({ lyricShowTranslation: next });
+  };
+
+  const handleReadingChange = async (key: "lyricShowRomanization" | "lyricShowRuby", value: boolean) => {
+    setStatus("");
+    const patch = { [key]: value };
+    try {
+      await patchSettings(patch);
+      if (key === "lyricShowRomanization") setShowRomanization(value);
+      else setShowRuby(value);
+      broadcastLyricSettings(patch);
+    } catch (error) {
+      setStatus(`保存读音设置失败：${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
   const handleAlignChange = async (next: string) => {
@@ -231,6 +250,8 @@ export function DesktopLyricSettingsSection() {
       lyricSingleLine: false,
       lyricMaxLineNum: 2,
       lyricShowTranslation: true,
+      lyricShowRomanization: false,
+      lyricShowRuby: false,
       lyricAlign: "center",
       lyricLineGap: 8,
       lyricFontWeight: 700,
@@ -250,6 +271,8 @@ export function DesktopLyricSettingsSection() {
     setSingleLine(patch.lyricSingleLine);
     setMaxLineNum(patch.lyricMaxLineNum);
     setShowTranslation(patch.lyricShowTranslation);
+    setShowRomanization(patch.lyricShowRomanization);
+    setShowRuby(patch.lyricShowRuby);
     setAlign(patch.lyricAlign);
     setLineGap(patch.lyricLineGap);
     setFontWeight(patch.lyricFontWeight);
@@ -361,6 +384,14 @@ export function DesktopLyricSettingsSection() {
               checked={showTranslation}
               onChange={(e) => handleShowTranslationChange(e.target.checked)}
             />
+          </SettingRow>
+          <SettingRow label="显示罗马音" hint="同时影响沉浸式及桌面歌词；仅显示歌词源已有罗马音，不自动生成">
+            <input type="checkbox" className="af-switch" role="switch" aria-label="显示罗马音"
+              checked={showRomanization} onChange={(e) => handleReadingChange("lyricShowRomanization", e.target.checked)} />
+          </SettingRow>
+          <SettingRow label="显示注音" hint="同时影响沉浸式及桌面歌词；仅显示明确 ruby/rt 注音，不自动生成">
+            <input type="checkbox" className="af-switch" role="switch" aria-label="显示注音"
+              checked={showRuby} onChange={(e) => handleReadingChange("lyricShowRuby", e.target.checked)} />
           </SettingRow>
           <SettingRow label="悬停隐藏" hint="鼠标不在歌词窗口上时淡化隐藏">
             <input

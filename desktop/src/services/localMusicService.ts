@@ -1,6 +1,7 @@
+import type { MusicInfo, ReplayGainInfo } from '@lx/core';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import { scanDirectory, getAudioInfo, type RustAudioFile } from '@lx/tauri-bridge';
+import { scanDirectory, getAudioInfo, getAudioReplayGain, type RustAudioFile } from '@lx/tauri-bridge';
 
 export interface LocalSong {
   id: string;
@@ -20,6 +21,14 @@ export interface LocalSong {
    */
   cover?: string;
   isLocal: boolean;
+  replayGain?: ReplayGainInfo;
+  replayGainError?: string;
+  embeddedLyrics?: string;
+  /** 手动应用到本机的覆盖项，不代表已经写回音频文件。 */
+  lyricsOverride?: string;
+  lyricsTranslationOverride?: string;
+  lyricsRomanizationOverride?: string;
+  coverOverride?: string;
 }
 
 function rustToLocalSong(file: RustAudioFile): LocalSong {
@@ -38,6 +47,34 @@ function rustToLocalSong(file: RustAudioFile): LocalSong {
       ? convertFileSrc(file.coverPath)
       : file.coverData ?? undefined,
     isLocal: true,
+    replayGain: file.replayGain ? { gainDb: file.replayGain.gainDb, peak: file.replayGain.peak ?? undefined } : undefined,
+    embeddedLyrics: file.lyrics ?? undefined,
+  };
+}
+
+export function getLocalSongCover(song: LocalSong): string | undefined {
+  return song.coverOverride ?? song.cover;
+}
+
+export function localSongToMusicInfo(song: LocalSong): MusicInfo {
+  const cover = getLocalSongCover(song);
+  return {
+    id: song.id,
+    name: song.title,
+    singer: song.artist,
+    albumName: song.album,
+    source: 'local',
+    isLocal: true,
+    localPath: song.path,
+    interval: song.duration,
+    url: song.url || convertFileSrc(song.path),
+    picUrl: cover,
+    img: cover,
+    localLyrics: song.lyricsOverride ?? song.embeddedLyrics,
+    localLyricsTranslation: song.lyricsTranslationOverride,
+    localLyricsRomanization: song.lyricsRomanizationOverride,
+    replayGain: song.replayGain,
+    replayGainError: song.replayGainError,
   };
 }
 
@@ -105,5 +142,18 @@ export class LocalMusicService {
       'mp3', 'flac', 'wav', 'aac', 'm4a',
       'ogg', 'opus', 'wma', 'ape', 'aiff',
     ];
+  }
+}
+
+/** 标签故障只禁用此曲的增益并带回原因，不让它伪装成成功或阻止正常解码。 */
+export async function readLocalReplayGain(music: MusicInfo): Promise<MusicInfo> {
+  if (music.source !== 'local' || !music.isLocal || !music.localPath) return music;
+  try {
+    const tag = await getAudioReplayGain(music.localPath);
+    return { ...music, replayGain: tag ? { gainDb: tag.gainDb, peak: tag.peak ?? undefined } : undefined, replayGainError: undefined };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.warn('[ReplayGain] 本地标签读取失败，保持原音量', reason);
+    return { ...music, replayGain: undefined, replayGainError: reason };
   }
 }

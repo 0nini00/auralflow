@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { usePlayerStore } from '@/stores/playerStore';
 import { useInterpolatedPlaybackProgress } from '@/hooks/useInterpolatedPlaybackProgress';
 import { useSleepTimerStore } from '@/stores/sleepTimerStore';
@@ -70,6 +70,12 @@ export const PlayerBar: React.FC = () => {
   const [immersiveLyricsOpen, setImmersiveLyricsOpen] = useState(false);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubProgress, setScrubProgress] = useState(0);
+  const scrub = useRef<{ trackKey: string; value: number; changed: boolean } | null>(null);
+  const trackKey = currentTrack ? `${currentTrack.source}:${currentTrack.id}` : '';
+  useEffect(() => {
+    // 保留旧手势身份直到抬起/取消，不能把仍在移动的指针当成新歌键盘seek。
+    setIsScrubbing(false);
+  }, [trackKey]);
   // 拖动期间用本地值显示，避免 rAF 进度回写顶回去导致拖不动
   const displayTime = isScrubbing ? scrubProgress : currentTime;
 
@@ -109,22 +115,33 @@ export const PlayerBar: React.FC = () => {
   };
 
   const handleScrubStart = () => {
+    scrub.current = { trackKey, value: currentTime, changed: false };
+    setScrubProgress(currentTime);
     setIsScrubbing(true);
   };
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const time = parseFloat(e.target.value);
-    if (isScrubbing) {
+    const time = Number(e.target.value);
+    if (!Number.isFinite(time)) return;
+    if (scrub.current) {
+      if (scrub.current.trackKey !== trackKey) return;
+      scrub.current.value = time;
+      scrub.current.changed = true;
       setScrubProgress(time);
       return;
     }
     setProgress(time);
   };
 
-  const handleScrubEnd = () => {
-    if (!isScrubbing) return;
+  const cancelScrub = () => {
+    scrub.current = null;
     setIsScrubbing(false);
-    setProgress(scrubProgress);
+  };
+
+  const handleScrubEnd = () => {
+    const draft = scrub.current;
+    cancelScrub();
+    if (draft?.changed && draft.trackKey === trackKey) setProgress(draft.value);
   };
 
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -179,7 +196,8 @@ export const PlayerBar: React.FC = () => {
                 onChange={handleSeek}
                 onPointerDown={handleScrubStart}
                 onPointerUp={handleScrubEnd}
-                onPointerCancel={handleScrubEnd}
+                onPointerCancel={cancelScrub}
+                onBlur={cancelScrub}
                 className="af-progress-input"
                 aria-label="进度"
               />

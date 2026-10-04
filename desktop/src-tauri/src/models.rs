@@ -21,6 +21,8 @@ pub struct AppSettings {
     pub theme: String,
     /// 音量 (0-100)
     pub volume: u32,
+    /// 本地 ReplayGain 标签补偿，默认关闭。
+    pub replay_gain_enabled: bool,
     /// 默认音质: "128k" / "320k" / "flac"
     pub default_quality: String,
     /// 其他媒体开始播放时，是否接受系统/浏览器触发的自动暂停
@@ -52,6 +54,8 @@ pub struct AppSettings {
     pub lyric_max_line_num: u32,
     /// 桌面歌词窗口：是否显示歌词翻译
     pub lyric_show_translation: bool,
+    pub lyric_show_romanization: bool,
+    pub lyric_show_ruby: bool,
     /// 桌面歌词窗口：文本对齐 left / center / right
     pub lyric_align: String,
     /// 桌面歌词窗口：两行歌词间距（px）
@@ -127,6 +131,7 @@ impl Default for AppSettings {
         Self {
             theme: "dark".to_string(),
             volume: 80,
+            replay_gain_enabled: false,
             default_quality: "320k".to_string(),
             pause_on_external_playback: true,
             playback_failed_auto_next: false,
@@ -143,6 +148,8 @@ impl Default for AppSettings {
             lyric_single_line: false,
             lyric_max_line_num: 2,
             lyric_show_translation: true,
+            lyric_show_romanization: false,
+            lyric_show_ruby: false,
             lyric_align: "center".to_string(),
             lyric_line_gap: 8,
             lyric_font_weight: 700,
@@ -185,6 +192,13 @@ impl Default for AppSettings {
 // 本地音频文件模型（沿用原 main.rs 中的 AudioFile，更丰富）
 // ============================================================
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioReplayGain {
+    pub gain_db: f64,
+    pub peak: Option<f64>,
+}
+
 /// 本地音频文件 — 包含完整元数据、封面 Base64、内嵌歌词
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -216,9 +230,35 @@ pub struct AudioFile {
     pub cover_path: Option<String>,
     /// 内嵌歌词（LRC 格式）。同样只在单文件查询时填充。
     pub lyrics: Option<String>,
+    pub replay_gain: Option<AudioReplayGain>,
 }
 
 /// 支持的音频格式扩展名
 pub const SUPPORTED_FORMATS: &[&str] = &[
     "mp3", "flac", "wav", "aac", "m4a", "ogg", "opus", "wma", "ape", "aiff",
 ];
+
+#[cfg(test)]
+mod desktop_media_settings_tests {
+    use super::*;
+
+    #[test]
+    fn new_media_features_default_off() {
+        let settings = serde_json::to_value(AppSettings::default()).unwrap();
+        assert_eq!(settings["replayGainEnabled"], false);
+        assert_eq!(settings["lyricShowRomanization"], false);
+        assert_eq!(settings["lyricShowRuby"], false);
+    }
+
+    #[test]
+    fn audio_file_preserves_replay_gain_contract() {
+        let file: AudioFile = serde_json::from_value(serde_json::json!({
+            "id":"1", "path":"song.flac", "title":"song", "artist":"artist", "album":"album",
+            "duration":10, "format":"flac", "size":100,
+            "replayGain":{"gainDb":-6.0,"peak":0.8}
+        })).unwrap();
+        let value = serde_json::to_value(file).unwrap();
+        assert_eq!(value["replayGain"]["gainDb"], -6.0);
+        assert_eq!(value["replayGain"]["peak"], 0.8);
+    }
+}

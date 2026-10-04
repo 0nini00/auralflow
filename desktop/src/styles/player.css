@@ -288,13 +288,17 @@
   margin: 0;
 }
 
+/* 沉浸式播放：单一全窗表面，封面与歌词共享可用高度。 */
 .af-immersive-lyrics {
-  --af-immersive-bg: #f8fafc;
-  --af-immersive-panel: rgba(255, 255, 255, 0.76);
-  --af-immersive-control-surface: rgba(248, 250, 252, 0.5);
-  --af-immersive-control-border: rgba(148, 163, 184, 0.12);
-  --af-immersive-control-shadow: 0 18px 42px rgba(15, 23, 42, 0.08);
-  --af-immersive-button-surface: rgba(255, 255, 255, 0.26);
+  --af-immersive-bg: #143031;
+  --af-immersive-ink: #f2f5eb;
+  --af-immersive-muted: rgba(229, 241, 229, 0.74);
+  --af-immersive-control-ink: color-mix(in srgb, rgb(var(--af-immersive-artwork-rgb)) 30%, #edf4e5);
+  --af-immersive-control-focus: #edf4e5;
+  --af-text-primary: var(--af-immersive-ink);
+  --af-text-secondary: var(--af-immersive-muted);
+  --af-text-tertiary: rgba(229, 241, 229, 0.6);
+  --af-immersive-gutter: clamp(24px, 4.5vw, 72px);
   position: fixed;
   inset: 0;
   z-index: 1800;
@@ -303,76 +307,12 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.98)),
-    var(--af-immersive-bg);
-  color: var(--af-text-primary);
+  color: var(--af-immersive-ink);
+  background: #163335;
   isolation: isolate;
 }
 
-[data-theme="dark"] .af-immersive-lyrics {
-  --af-immersive-bg: #07111f;
-  --af-immersive-panel: rgba(15, 23, 42, 0.72);
-  --af-immersive-control-surface: rgba(15, 23, 42, 0.46);
-  --af-immersive-control-border: rgba(148, 163, 184, 0.12);
-  --af-immersive-control-shadow: 0 18px 42px rgba(0, 0, 0, 0.24);
-  --af-immersive-button-surface: rgba(255, 255, 255, 0.06);
-  background:
-    linear-gradient(180deg, rgba(5, 12, 22, 0.92), rgba(8, 13, 24, 0.98)),
-    var(--af-immersive-bg);
-}
-
-.af-immersive-visualizer-scrolling {
-  --af-text-primary: #f8fafc;
-  --af-text-secondary: rgba(226, 232, 240, 0.78);
-  --af-text-tertiary: rgba(203, 213, 225, 0.6);
-  --af-border-secondary: rgba(226, 232, 240, 0.16);
-  --af-bg-surface: rgba(15, 23, 42, 0.38);
-  --af-immersive-panel: rgba(15, 23, 42, 0.54);
-  --af-immersive-control-surface: rgba(15, 23, 42, 0.46);
-  --af-immersive-control-border: rgba(226, 232, 240, 0.14);
-  --af-immersive-button-surface: rgba(255, 255, 255, 0.08);
-  color: #f8fafc;
-}
-
-.af-immersive-visualizer-scrolling {
-  --af-immersive-bg: #151719;
-  background:
-    radial-gradient(circle at 24% 48%, rgba(255, 255, 255, 0.08), transparent 34%),
-    /* 封面取色驱动的环境色：随换歌变化，--af-immersive-artwork-rgb 已在根容器注入并带回退 */
-    radial-gradient(ellipse at 70% 20%, rgba(var(--af-immersive-artwork-rgb), 0.22), transparent 52%),
-    radial-gradient(ellipse at 18% 82%, rgba(var(--af-immersive-artwork-rgb), 0.16), transparent 58%),
-    linear-gradient(110deg, rgba(12, 18, 20, 0.82), rgba(43, 32, 38, 0.62) 48%, rgba(14, 24, 28, 0.8)),
-    #151719;
-}
-
-.af-immersive-visualizer-scrolling .af-immersive-noise {
-  background:
-    linear-gradient(90deg, rgba(var(--af-immersive-artwork-rgb), 0.14), transparent 26%, transparent 72%, rgba(var(--af-immersive-artwork-rgb), 0.1)),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 34%, rgba(0, 0, 0, 0.12));
-}
-
-/* 真噪点纹理：内联 SVG feTurbulence 生成随机颗粒，soft-light 叠加在渐变伪装层之上。
-   data URI 中 SVG 已做 %3C/%3E/%23 编码，160px 平铺控制颗粒密度 */
-.af-immersive-visualizer-scrolling .af-immersive-noise::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='af-noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23af-noise)'/%3E%3C/svg%3E");
-  background-repeat: repeat;
-  opacity: 0.04;
-  mix-blend-mode: soft-light;
-  pointer-events: none;
-}
-
-.af-immersive-visualizer-scrolling .af-immersive-cover-glow {
-  inset: -20%;
-  opacity: 0.5;
-  filter: blur(78px) saturate(1.45) contrast(1.04);
-  transform: scale(1.14);
-}
-
-/* 换歌取色过渡：取色变量变化后，新增的环境色层通过 opacity 过渡淡入（避免渐变本体无法 transition） */
+/* 低饱和环境色与模糊封面组成一层整体背景，浅/暗主题使用同一阅读表面。 */
 .af-immersive-lyrics::before {
   content: '';
   position: absolute;
@@ -380,22 +320,20 @@
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(ellipse at 72% 18%, rgba(var(--af-immersive-artwork-rgb), 0.16), transparent 55%),
-    radial-gradient(ellipse at 20% 84%, rgba(var(--af-immersive-artwork-rgb), 0.12), transparent 60%);
-  opacity: 1;
-  /* 环境色层过渡时长随动画强度缩放（增强更快、柔和更慢） */
-  transition: opacity calc(0.8s / var(--af-immersive-anim-scale, 1)) ease;
+    linear-gradient(105deg, rgba(7, 29, 35, 0.57), rgba(12, 35, 34, 0.32) 58%, rgba(15, 39, 35, 0.25)),
+    linear-gradient(0deg, rgba(9, 24, 27, 0.12), transparent 35%);
 }
 
 .af-immersive-cover-glow {
   position: absolute;
-  inset: -12%;
+  inset: -18%;
   z-index: -3;
   background-position: center;
   background-size: cover;
-  opacity: 0.18;
-  filter: blur(52px) saturate(1.18);
+  filter: blur(80px) saturate(0.7);
   transform: scale(1.08);
+  opacity: 0.82;
+  pointer-events: none;
 }
 
 .af-immersive-noise {
@@ -403,190 +341,248 @@
   inset: 0;
   z-index: -2;
   pointer-events: none;
-  background:
-    linear-gradient(90deg, rgba(var(--af-immersive-artwork-rgb), 0.1), transparent 24%, transparent 76%, rgba(59, 130, 246, 0.06)),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.24), transparent 38%, rgba(148, 163, 184, 0.1));
+  background: linear-gradient(110deg,
+    color-mix(in srgb, rgb(var(--af-immersive-artwork-rgb)) 34%, #15363a) 0%,
+    color-mix(in srgb, rgb(var(--af-immersive-artwork-rgb)) 74%, #294c42) 100%);
+  opacity: 0.65;
 }
 
-[data-theme="dark"] .af-immersive-noise {
-  background:
-    linear-gradient(90deg, rgba(var(--af-immersive-artwork-rgb), 0.12), transparent 24%, transparent 76%, rgba(59, 130, 246, 0.1)),
-    linear-gradient(180deg, rgba(148, 163, 184, 0.08), transparent 38%, rgba(15, 23, 42, 0.2));
+.af-immersive-topbar {
+  flex: 0 0 60px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 22px;
 }
 
-[data-theme="dark"] .af-immersive-visualizer-scrolling .af-immersive-noise {
-  background:
-    linear-gradient(90deg, rgba(var(--af-immersive-artwork-rgb), 0.14), transparent 26%, transparent 72%, rgba(var(--af-immersive-artwork-rgb), 0.1)),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 34%, rgba(0, 0, 0, 0.12));
-}
-
-
-
-
-
-.af-immersive-heading {
-  flex: 0 0 auto;
-  width: min(900px, calc(100vw - 48px));
-  margin: 0 auto;
-  padding: calc(var(--af-window-titlebar-height, 34px) + 8px) 0 0;
-  text-align: center;
-  animation: afImmersiveMetaFadeIn 0.35s ease both;
-}
-
-.af-immersive-heading-title,
-.af-immersive-heading-artist {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.af-immersive-heading-title {
-  color: rgba(248, 250, 252, 0.96);
-  font-size: clamp(22px, 2vw, 30px);
-  font-weight: 820;
-  line-height: 1.25;
-  letter-spacing: 0.01em;
-}
-
-.af-immersive-heading-artist {
-  margin-top: 6px;
-  color: rgba(226, 232, 240, 0.72);
-  font-size: clamp(15px, 1.25vw, 19px);
-  font-weight: 620;
-  line-height: 1.25;
-}
-
-.af-immersive-stage {
+.af-immersive-stage.af-showcase-layout {
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
+  width: 100%;
   display: grid;
-  grid-template-columns: minmax(260px, 0.86fr) minmax(360px, 1.14fr);
-  gap: clamp(28px, 7vw, 96px);
-  align-items: center;
-  width: min(1120px, calc(100vw - 96px));
-  margin: 0 auto;
-  padding: 10px 0 24px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: stretch;
+  gap: clamp(24px, 4vw, 72px);
+  padding: 12px var(--af-immersive-gutter) 34px;
 }
-
-.af-immersive-native-fullscreen .af-immersive-heading {
-  padding-top: 18px;
-}
-
-
-
 
 .af-immersive-cover-section {
-  min-width: 0;
+  --af-immersive-cover-size: min(31vw, 470px, calc(100dvh - 326px));
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 18px;
-  transform: translateY(clamp(14px, 4vh, 42px));
-}
-
-.af-immersive-cover {
-  width: min(36vw, 420px);
-  min-width: 240px;
-  aspect-ratio: 1;
-  border-radius: 8px;
-  overflow: hidden;
-  background: var(--af-bg-surface);
-  box-shadow:
-    0 28px 70px rgba(15, 23, 42, 0.18),
-    /* 取色驱动的外辉光：随封面主色变化 */
-    0 0 90px rgba(var(--af-immersive-artwork-rgb), 0.22);
-  transition: box-shadow 0.8s ease;
-}
-
-/* 播放态封面呼吸律动：缓慢缩放+辉光强弱，暂停时静止 */
-@keyframes afImmersiveCoverBreath {
-  0%, 100% { transform: scale(1); filter: brightness(1); }
-  50% { transform: scale(1.02); filter: brightness(1.06); }
-}
-
-/* 呼吸时长随动画强度系数调制：增强(1.25)≈3.2s、标准(1)4s、柔和(0.55)≈7.3s */
-.af-playing .af-immersive-cover,
-.af-immersive-playing .af-immersive-cover {
-  animation: afImmersiveCoverBreath calc(4s / var(--af-immersive-anim-scale, 1)) ease-in-out infinite;
-}
-
-/* 柔和档：直接禁用呼吸动画（与 prefers-reduced-motion 同等处理） */
-.af-immersive-lyrics[data-anim-intensity='reduced'] .af-immersive-cover {
-  animation: none;
-}
-
-.af-immersive-cover {
-  will-change: transform;
-}
-
-[data-theme="dark"] .af-immersive-cover {
-  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.42);
-}
-
-.af-immersive-cover img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.af-immersive-cover-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
   justify-content: center;
-  color: var(--af-text-on-accent);
-  background: var(--af-accent-gradient);
-  font-size: 22px;
-  font-weight: 800;
-  letter-spacing: 0;
-}
-
-/* 换歌时 meta 容器随 key 重挂载，重播淡入（不引起布局抖动，仅 opacity+轻微上移） */
-@keyframes afImmersiveMetaFadeIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-
-.af-immersive-lyric-section {
-  height: min(52vh, 520px);
-  min-height: 340px;
   min-width: 0;
-  display: flex;
-}
-
-.af-immersive-visualizer-scrolling .af-showcase-layout {
-  --af-immersive-showcase-size: min(37.5vw, 450px);
-  width: min(1090px, calc(100vw - 96px));
-  grid-template-columns: minmax(300px, 450px) minmax(420px, 550px);
-  justify-content: center;
-  align-items: start;
-  gap: clamp(48px, 7vw, 92px);
-  padding: 10px 0 24px;
-}
-
-.af-immersive-native-fullscreen.af-immersive-visualizer-scrolling .af-showcase-layout {
-  --af-immersive-showcase-size: min(30vw, 430px);
-}
-
-.af-immersive-visualizer-scrolling .af-immersive-cover {
-  width: var(--af-immersive-showcase-size);
-  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.34);
-}
-
-.af-immersive-visualizer-scrolling .af-immersive-lyric-section {
-  height: var(--af-immersive-showcase-size);
   min-height: 0;
-  align-items: stretch;
-  transform: translateY(clamp(14px, 4vh, 42px));
+  padding-bottom: 6px;
 }
 
+.af-immersive-cover {
+  width: var(--af-immersive-cover-size);
+  height: var(--af-immersive-cover-size);
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 5px;
+  background: rgba(8, 24, 28, 0.28);
+  box-shadow: 0 12px 32px rgba(3, 18, 19, 0.17), 0 2px 5px rgba(3, 18, 19, 0.13);
+}
 
+.af-immersive-cover img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.af-immersive-cover-placeholder {
+  height: 100%; display: flex; align-items: center; justify-content: center;
+  color: var(--af-immersive-muted); font-size: 22px; letter-spacing: 0.04em;
+}
 
+.af-immersive-heading {
+  width: var(--af-immersive-cover-size);
+  min-width: 0;
+  margin-top: 24px;
+  padding: 0 2px;
+  text-align: left;
+}
+.af-immersive-heading-title,
+.af-immersive-heading-artist,
+.af-immersive-heading-album { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.af-immersive-heading-title { font-size: clamp(21px, 2vw, 29px); font-weight: 600; line-height: 1.45; letter-spacing: 0.015em; }
+.af-immersive-heading-artist { margin-top: 7px; font-size: 15px; line-height: 1.6; font-weight: 400; color: var(--af-immersive-muted); }
+.af-immersive-heading-album { margin-top: 2px; font-size: 13px; line-height: 1.6; color: rgba(229, 241, 229, 0.6); }
 
+.af-immersive-lyric-section { display: flex; min-width: 0; min-height: 0; height: 100%; padding: 0 10px; overflow: hidden; }
+
+/* 一条可拖动进度线，下方为时间/播放/辅助操作三个区域。 */
+.af-immersive-controls {
+  flex: 0 0 96px;
+  height: 96px;
+  position: relative;
+  padding: 0 24px 12px;
+  color: var(--af-immersive-control-ink);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.af-immersive-progress-row { height: 24px; width: calc(100% + 48px); margin: 0 -24px; display: flex; align-items: center; }
+.af-immersive-progress-track { position: relative; height: 1px; width: 100%; background: rgba(224, 242, 230, 0.18); }
+.af-immersive-progress-fill {
+  position: absolute; left: 0; top: -0.5px; height: 2px;
+  width: var(--af-immersive-progress, 0%);
+  background: linear-gradient(90deg, rgba(227, 243, 228, 0.24), var(--af-immersive-control-ink));
+  pointer-events: none;
+}
+.af-immersive-progress-track input,
+.af-immersive-volume-track input { position: absolute; margin: 0; inset: auto 0; top: 50%; transform: translateY(-50%); width: 100%; height: 24px; opacity: 0; cursor: pointer; z-index: 1; }
+.af-immersive-progress-track:focus-within { outline: 2px solid var(--af-immersive-control-focus); outline-offset: 5px; }
+.af-immersive-control-row { display: grid; grid-template-columns: minmax(100px, 1fr) auto minmax(176px, 1fr); align-items: center; gap: 20px; height: 60px; min-width: 0; }
+.af-immersive-time-group { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-variant-numeric: tabular-nums; line-height: 1.35; }
+.af-immersive-time-current { font-size: 19px; font-weight: 400; letter-spacing: 0.025em; }
+.af-immersive-time-total { font-size: 12px; font-weight: 400; opacity: 0.72; margin-top: 1px; }
+.af-immersive-control-center,
+.af-immersive-control-right { display: flex; align-items: center; min-width: 0; gap: 8px; }
+.af-immersive-control-center { justify-content: center; opacity: 1; transition: opacity 150ms ease; }
+.af-immersive-control-right { justify-content: flex-end; }
+.af-immersive-volume-track { flex: 0 0 58px; width: 58px; height: 2px; position: relative; background: rgba(224, 242, 230, 0.2); margin-right: 8px; }
+.af-immersive-volume-fill { width: var(--af-immersive-volume, 0%); height: 100%; background: var(--af-immersive-control-ink); pointer-events: none; }
+.af-immersive-volume-track:focus-within { outline: 2px solid var(--af-immersive-control-focus); outline-offset: 5px; }
+.af-immersive-icon-btn,
+.af-immersive-play-btn,
+.af-immersive-close { width: 40px; height: 40px; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 6px; color: var(--af-immersive-control-ink); background: transparent; box-shadow: none; cursor: pointer; transition: background 150ms ease, color 150ms ease; }
+.af-immersive-icon-btn svg, .af-immersive-close svg { stroke-width: 1.5; }
+.af-immersive-play-btn { width: 46px; height: 46px; }
+.af-immersive-play-btn svg { width: 25px; height: 25px; stroke-width: 1.4; }
+.af-immersive-icon-btn span { font-size: 16px; font-weight: 500; }
+.af-immersive-icon-btn:hover,
+.af-immersive-play-btn:hover,
+.af-immersive-close:hover { background: rgba(233, 246, 230, 0.09); color: #fff; }
+.af-immersive-icon-btn.af-active { color: #f2f8e9; }
+.af-immersive-icon-btn:focus-visible,
+.af-immersive-play-btn:focus-visible,
+.af-immersive-close:focus-visible { outline: 2px solid var(--af-immersive-control-focus); outline-offset: 2px; }
+
+@media (hover: hover) and (pointer: fine) {
+  .af-immersive-controls .af-immersive-control-center { opacity: 0; }
+  .af-immersive-controls:hover .af-immersive-control-center,
+  .af-immersive-controls:focus-within .af-immersive-control-center,
+  .af-immersive-controls[data-panel-open='true'] .af-immersive-control-center { opacity: 1; }
+}
+
+.af-immersive-popover-backdrop { position: fixed; inset: 0; z-index: 1; background: transparent; }
+.af-immersive-menu-anchor { position: relative; }
+.af-immersive-popover {
+  position: absolute; bottom: calc(100% + 18px); right: 0; z-index: 3;
+  min-width: 176px; padding: 10px;
+  border: 1px solid rgba(230, 242, 227, 0.16); border-radius: 12px;
+  background: rgba(21, 42, 41, 0.97); color: #f2f5eb;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(22px);
+}
+.af-immersive-lyrics-panel > button { width: 100%; min-height: 38px; border: 0; border-radius: 6px; color: rgba(237, 246, 233, 0.82); background: transparent; font: inherit; text-align: left; padding: 8px 12px; cursor: pointer; }
+.af-immersive-popover button:not(.af-immersive-queue-play):hover { background: rgba(233, 246, 230, 0.08); }
+.af-immersive-lyrics-panel button.af-active { color: #fff; background: rgba(233,246,230,.12); box-shadow: inset 2px 0 var(--af-immersive-control-ink); }
+.af-immersive-popover button:focus-visible,
+.af-immersive-popover select:focus-visible { outline: 2px solid var(--af-immersive-control-focus); outline-offset: 2px; }
+.af-immersive-more-panel { width: min(286px, calc(100vw - 32px)); padding: 8px; }
+.af-immersive-more-grid { display: flex; flex-direction: column; gap: 3px; }
+.af-immersive-more-action,
+.af-immersive-more-speed {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 46px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #edf4e5;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+}
+.af-immersive-more-action { cursor: pointer; transition: background 150ms ease; }
+.af-immersive-more-action > svg,
+.af-immersive-more-speed > svg { stroke-width: 1.5; color: var(--af-immersive-control-ink); }
+.af-immersive-more-action > svg:last-child:not(:first-child) { opacity: 0.55; }
+.af-immersive-more-action > span,
+.af-immersive-more-speed > span { white-space: nowrap; }
+.af-immersive-more-speed { min-height: 50px; }
+.af-immersive-more-speed select {
+  width: 76px;
+  height: 32px;
+  padding: 4px 7px;
+  border: 1px solid rgba(233, 246, 230, 0.16);
+  border-radius: 6px;
+  color: #edf4e5;
+  background: #24423f;
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.af-immersive-more-speed + .af-immersive-more-action {
+  border-top: 1px solid rgba(233, 246, 230, 0.08);
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.af-immersive-status,
+.af-immersive-share-status { position: absolute; bottom: calc(100% + 14px); left: 24px; z-index: 4; max-width: min(600px, calc(100vw - 48px)); font-size: 12px; padding: 9px 12px; border-radius: 8px; background: rgba(16,34,33,.95); color: #f2f5eb; }
+.af-immersive-status { color: #ffe1a6; }
+.af-immersive-queue-panel { width: min(390px, calc(100vw - 48px)); right: -96px; padding: 12px; }
+.af-immersive-queue-header { display: flex; justify-content: space-between; align-items: center; padding: 7px 6px 13px; border-bottom: 1px solid rgba(233,246,230,.12); }
+.af-immersive-queue-header strong { font-size: 14px; font-weight: 600; }
+.af-immersive-queue-header > span { color: rgba(237,246,233,.6); font-size: 12px; }
+.af-immersive-queue-list { max-height: min(48vh, 400px); overflow: auto; padding-top: 8px; scrollbar-width: thin; }
+.af-immersive-queue-item { display: flex; align-items: center; border-radius: 8px; gap: 6px; }
+.af-immersive-queue-item:hover, .af-immersive-queue-item.af-playing { background: rgba(233,246,230,.08); }
+.af-immersive-queue-play { display: flex; align-items: center; min-width: 0; flex: 1; text-align: left; gap: 10px; padding: 10px 6px; color: #edf4e5; background: transparent; border: 0; cursor: pointer; }
+.af-immersive-queue-index { flex: 0 0 22px; text-align: center; color: rgba(237,246,233,.5); font-size: 11px; font-variant-numeric: tabular-nums; }
+.af-immersive-queue-info { display: flex; flex-direction: column; min-width: 0; gap: 4px; }
+.af-immersive-queue-info strong, .af-immersive-queue-info span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.af-immersive-queue-info strong { font-size: 13px; font-weight: 500; }
+.af-immersive-queue-info span { font-size: 11px; color: rgba(237,246,233,.6); }
+.af-immersive-queue-remove { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex: 0 0 auto; border: 0; border-radius: 6px; background: transparent; color: rgba(237,246,233,.65); cursor: pointer; }
+.af-immersive-queue-remove:hover { color: #ffb5ac; }
+
+@media (max-width: 1000px), (max-height: 650px) {
+  .af-immersive-topbar { flex-basis: 52px; padding: 6px 16px; }
+  .af-immersive-stage.af-showcase-layout { padding-top: 8px; padding-bottom: 18px; gap: 22px; }
+  .af-immersive-cover-section { --af-immersive-cover-size: min(31vw, calc(100dvh - 278px)); }
+  .af-immersive-heading { margin-top: 18px; }
+  .af-immersive-heading-title { font-size: 21px; }
+  .af-immersive-control-row { gap: 8px; }
+  .af-immersive-control-center { gap: 4px; }
+  .af-immersive-volume-track { flex-basis: 44px; width: 44px; margin-right: 4px; }
+}
+@media (max-width: 759px) {
+  .af-immersive-stage.af-showcase-layout { display: flex; flex-direction: column; padding: 0 24px 12px; gap: 12px; }
+  .af-immersive-cover-section { flex: 0 0 auto; align-items: flex-start; padding: 0 6px; }
+  .af-immersive-cover-section .af-immersive-cover { display: none; }
+  .af-immersive-heading { width: 100%; margin: 0; }
+  .af-immersive-heading-title { font-size: 19px; }
+  .af-immersive-heading-artist { display: inline; font-size: 12px; }
+  .af-immersive-heading-album { display: inline; margin-left: 10px; font-size: 12px; }
+  .af-immersive-lyric-section { flex: 1; padding: 0; }
+  .af-immersive-controls { padding-inline: 16px; }
+  .af-immersive-progress-row { width: calc(100% + 32px); margin-inline: -16px; }
+  .af-immersive-control-row { grid-template-columns: minmax(48px, 1fr) auto minmax(128px, 1fr); gap: 4px; }
+  .af-immersive-control-center, .af-immersive-control-right { gap: 0; }
+  .af-immersive-volume-track { display: none; }
+  .af-immersive-icon-btn { width: 34px; }
+  .af-immersive-play-btn { width: 38px; }
+  .af-immersive-time-current { font-size: 16px; }
+  .af-immersive-queue-panel { right: -68px; }
+}
+@media (max-width: 440px) {
+  .af-immersive-controls { height: 132px; flex-basis: 132px; }
+  .af-immersive-control-row { grid-template-columns: 1fr 1fr; height: 96px; }
+  .af-immersive-control-center { grid-column: 1 / -1; grid-row: 2; }
+  .af-immersive-control-right { grid-column: 2; grid-row: 1; }
+  .af-immersive-controls .af-immersive-control-center { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .af-immersive-lyrics *, .af-immersive-lyrics *::before, .af-immersive-lyrics *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
 
 .af-poster-lyrics-visualizer {
   position: relative;
@@ -731,609 +727,6 @@
   }
 }
 
-.af-immersive-controls {
-  --af-immersive-control-rest-bg: transparent;
-  --af-immersive-control-rest-border: transparent;
-  --af-immersive-control-hover-bg: rgba(255, 255, 255, 0.1);
-  --af-immersive-control-hover-border: rgba(248, 250, 252, 0.12);
-  --af-immersive-control-active-bg: rgba(var(--af-accent-primary-rgb), 0.14);
-  --af-immersive-control-active-border: rgba(var(--af-accent-primary-rgb), 0.18);
-  --af-immersive-control-focus: rgba(var(--af-accent-primary-rgb), 0.58);
-  flex: 0 0 auto;
-  position: relative;
-  padding: 14px clamp(24px, 5vw, 64px) 22px;
-  border-top: 0;
-  background:
-    linear-gradient(
-      180deg,
-      transparent 0%,
-      color-mix(in srgb, var(--af-immersive-bg) 38%, transparent) 28%,
-      color-mix(in srgb, var(--af-immersive-bg) 62%, transparent) 100%
-    );
-  backdrop-filter: blur(14px);
-}
-
-[data-theme="dark"] .af-immersive-controls {
-  --af-immersive-control-hover-bg: rgba(255, 255, 255, 0.075);
-  --af-immersive-control-hover-border: rgba(248, 250, 252, 0.1);
-  background:
-    linear-gradient(
-      180deg,
-      transparent 0%,
-      color-mix(in srgb, var(--af-immersive-bg) 44%, transparent) 28%,
-      color-mix(in srgb, var(--af-immersive-bg) 68%, transparent) 100%
-    );
-}
-
-/* 控制栏隐藏时的恢复按钮必须有可见表面，避免浅色背景下不可见 */
-
-
-
-.af-immersive-status {
-  margin: 0 auto 10px;
-  width: min(720px, 100%);
-  color: var(--af-warning);
-  font-size: 12px;
-  text-align: center;
-}
-
-.af-immersive-popover-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 1;
-  background: transparent;
-}
-
-.af-immersive-menu-anchor {
-  position: relative;
-  display: inline-flex;
-}
-
-.af-immersive-menu,
-.af-immersive-queue-panel {
-  --af-immersive-popover-text-primary: #0f172a;
-  --af-immersive-popover-text-secondary: #475569;
-  --af-immersive-popover-text-tertiary: #64748b;
-  --af-immersive-artwork-rgb: var(--af-artwork-rgb, var(--af-accent-primary-rgb));
-  position: absolute;
-  z-index: 3;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 8px;
-  background: rgba(var(--af-immersive-artwork-rgb), 0.34);
-  color: var(--af-immersive-popover-text-primary);
-  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
-  backdrop-filter: blur(22px);
-}
-
-[data-theme="dark"] .af-immersive-menu,
-[data-theme="dark"] .af-immersive-queue-panel {
-  --af-immersive-popover-text-primary: #f8fafc;
-  --af-immersive-popover-text-secondary: rgba(226, 232, 240, 0.78);
-  --af-immersive-popover-text-tertiary: rgba(203, 213, 225, 0.62);
-  background: rgba(var(--af-immersive-artwork-rgb), 0.42);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.36);
-}
-
-.af-immersive-visualizer-scrolling .af-immersive-menu,
-.af-immersive-visualizer-scrolling .af-immersive-queue-panel {
-  --af-immersive-popover-text-primary: #f8fafc;
-  --af-immersive-popover-text-secondary: rgba(226, 232, 240, 0.8);
-  --af-immersive-popover-text-tertiary: rgba(203, 213, 225, 0.64);
-  border-color: rgba(248, 250, 252, 0.16);
-  background: rgba(var(--af-immersive-artwork-rgb), 0.46);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.38);
-}
-
-.af-immersive-menu {
-  bottom: calc(100% + 10px);
-  left: 50%;
-  display: flex;
-  min-width: 104px;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px;
-  transform: translateX(-50%);
-}
-
-.af-immersive-menu button {
-  height: 34px;
-  padding: 0 12px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--af-text-secondary);
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 700;
-  text-align: left;
-  white-space: nowrap;
-  transition: background var(--af-transition-fast), border-color var(--af-transition-fast), color var(--af-transition-fast);
-}
-
-.af-immersive-menu button:hover,
-.af-immersive-menu button.af-active {
-  border-color: rgba(var(--af-accent-primary-rgb), 0.28);
-  background: rgba(var(--af-accent-primary-rgb), 0.11);
-  color: var(--af-accent-primary);
-}
-
-.af-immersive-queue-panel {
-  right: clamp(24px, 5vw, 64px);
-  bottom: calc(100% - 4px);
-  width: min(420px, calc(100vw - 32px));
-  max-height: min(56vh, 520px);
-  padding: 12px;
-}
-
-.af-immersive-queue-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 4px 4px 10px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
-}
-
-.af-immersive-queue-header strong {
-  color: var(--af-immersive-popover-text-primary);
-  font-size: 14px;
-}
-
-.af-immersive-queue-header span {
-  color: var(--af-immersive-popover-text-tertiary);
-  font-size: 12px;
-}
-
-.af-immersive-queue-list {
-  display: flex;
-  max-height: calc(min(56vh, 520px) - 58px);
-  flex-direction: column;
-  gap: 2px;
-  overflow-y: auto;
-  overflow-x: hidden;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  padding-top: 8px;
-}
-
-.af-immersive-queue-list::-webkit-scrollbar {
-  display: none;
-}
-
-.af-immersive-queue-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  padding: 9px 10px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--af-text-primary);
-  cursor: pointer;
-  text-align: left;
-  transition: background var(--af-transition-fast), border-color var(--af-transition-fast), color var(--af-transition-fast);
-}
-
-.af-immersive-queue-item:hover,
-.af-immersive-queue-item.af-playing {
-  border-color: rgba(var(--af-accent-primary-rgb), 0.24);
-  background: rgba(var(--af-accent-primary-rgb), 0.1);
-}
-
-.af-immersive-queue-remove {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--af-immersive-popover-text-tertiary);
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity var(--af-transition-fast), background var(--af-transition-fast), color var(--af-transition-fast);
-}
-
-
-.af-immersive-queue-item:hover .af-immersive-queue-remove,
-.af-immersive-queue-remove:focus-visible {
-  opacity: 1;
-}
-
-.af-immersive-queue-remove:hover {
-  background: rgba(239, 68, 68, 0.14);
-  color: #ef4444;
-}
-.af-immersive-queue-item.af-playing {
-  border-color: rgba(var(--af-accent-primary-rgb), 0.24);
-  background: rgba(var(--af-accent-primary-rgb), 0.1);
-}
-
-.af-immersive-queue-index {
-  width: 26px;
-  flex: 0 0 auto;
-  color: var(--af-immersive-popover-text-tertiary);
-  font-size: 12px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-
-.af-immersive-queue-info {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.af-immersive-queue-info strong,
-.af-immersive-queue-info span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.af-immersive-queue-info strong {
-  color: var(--af-immersive-popover-text-primary);
-  font-size: 13px;
-}
-
-.af-immersive-queue-info span {
-  color: var(--af-immersive-popover-text-secondary);
-  font-size: 12px;
-}
-
-.af-immersive-progress-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: min(920px, 100%);
-  margin: 0 auto 14px;
-}
-
-.af-immersive-progress-row span {
-  width: 46px;
-  color: var(--af-text-secondary);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-}
-
-.af-immersive-progress-track,
-.af-immersive-volume-track {
-  position: relative;
-  background: rgba(148, 163, 184, 0.18);
-  border-radius: 999px;
-  cursor: pointer;
-}
-
-.af-immersive-progress-track {
-  flex: 1;
-  height: 6px;
-}
-
-.af-immersive-volume-track {
-  width: 86px;
-  height: 4px;
-}
-
-.af-immersive-progress-fill,
-.af-immersive-volume-fill {
-  height: 100%;
-  border-radius: inherit;
-  pointer-events: none;
-}
-
-.af-immersive-progress-fill {
-  width: var(--af-immersive-progress, 0%);
-  /* 封面取色驱动，与背景环境色同源；加同色辉光增强层次 */
-  background: rgb(var(--af-immersive-artwork-rgb));
-  box-shadow: 0 0 10px rgba(var(--af-immersive-artwork-rgb), 0.45);
-}
-
-.af-immersive-volume-fill {
-  width: var(--af-immersive-volume, 0%);
-  background: rgb(var(--af-immersive-artwork-rgb));
-}
-
-.af-immersive-progress-track input,
-.af-immersive-volume-track input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-
-.af-immersive-control-row {
-  display: flex;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-  width: max-content;
-  max-width: min(920px, 100%);
-  margin: 0 auto;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-  backdrop-filter: none;
-}
-
-.af-immersive-control-group {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  backdrop-filter: none;
-}
-
-[data-theme="dark"] .af-immersive-control-group {
-  background: transparent;
-  box-shadow: none;
-}
-
-.af-immersive-transport-group {
-  gap: 6px;
-  width: max-content;
-}
-
-/* 传输主按钮（上一首/下一首/播放模式）改用封面取色，与背景环境色呼应 */
-.af-immersive-transport-group .af-immersive-icon-btn {
-  color: rgb(var(--af-immersive-artwork-rgb));
-}
-
-/* 暗色主题下取色偏暗时补偿亮度与饱和度，保证可读性 */
-[data-theme="dark"] .af-immersive-transport-group .af-immersive-icon-btn {
-  color: rgb(var(--af-immersive-artwork-rgb));
-  filter: brightness(1.35) saturate(1.15);
-}
-
-.af-immersive-control-left,
-.af-immersive-control-center,
-.af-immersive-control-right {
-  position: relative;
-  z-index: 2;
-}
-
-.af-immersive-control-group.af-popover-open {
-  z-index: 90;
-}
-
-.af-immersive-icon-btn,
-.af-immersive-play-btn {
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: background var(--af-transition-fast), border-color var(--af-transition-fast), color var(--af-transition-fast), box-shadow var(--af-transition-fast), transform var(--af-transition-fast);
-}
-
-/* 与底部 PlayerBar .af-control-btn 对齐：默认无底、无描边，仅图标本身 */
-.af-immersive-icon-btn {
-  min-width: 40px;
-  height: 40px;
-  padding: 0 8px;
-  border: 1px solid transparent;
-  border-radius: var(--af-button-radius);
-  background: transparent;
-  color: var(--af-text-secondary);
-  box-shadow: none;
-}
-
-[data-theme="dark"] .af-immersive-icon-btn {
-  background: transparent;
-  color: var(--af-text-primary);
-}
-
-.af-immersive-icon-btn:hover {
-  border-color: transparent;
-  background: var(--af-bg-hover);
-  color: var(--af-text-primary);
-}
-
-[data-theme="dark"] .af-immersive-icon-btn:hover {
-  background: var(--af-bg-hover);
-  color: var(--af-text-primary);
-}
-
-.af-immersive-icon-btn.af-active {
-  border-color: transparent;
-  background: transparent;
-  color: rgb(var(--af-immersive-artwork-rgb));
-}
-
-.af-immersive-icon-btn.af-active:hover {
-  background: var(--af-bg-hover);
-  color: rgb(var(--af-immersive-artwork-rgb));
-}
-
-.af-immersive-icon-btn span {
-  font-size: 17px;
-  font-weight: 800;
-  line-height: 1;
-  letter-spacing: 0;
-}
-
-.af-immersive-speed-btn {
-  gap: 4px;
-}
-
-.af-immersive-speed-label,
-.af-immersive-share-status {
-  font-size: 11px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.af-immersive-play-btn {
-  width: 58px;
-  height: 58px;
-  border-radius: 999px;
-  border-color: rgba(var(--af-immersive-artwork-rgb), 0.18);
-  background:
-    radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.18), transparent 38%),
-    rgba(var(--af-immersive-artwork-rgb), 0.82);
-  color: var(--af-artwork-on-color, var(--af-text-on-accent));
-  box-shadow: 0 14px 34px rgba(var(--af-immersive-artwork-rgb), 0.28);
-}
-
-.af-immersive-play-btn:hover {
-  border-color: rgba(var(--af-immersive-artwork-rgb), 0.28);
-  background:
-    radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.22), transparent 38%),
-    rgba(var(--af-immersive-artwork-rgb), 0.9);
-  transform: translateY(-1px);
-  box-shadow: 0 18px 38px rgba(var(--af-immersive-artwork-rgb), 0.32);
-}
-
-.af-immersive-icon-btn:focus-visible,
-.af-immersive-play-btn:focus-visible {
-  outline: 2px solid var(--af-immersive-control-focus, rgba(var(--af-accent-primary-rgb), 0.58));
-  outline-offset: 2px;
-}
-
-.af-immersive-play-btn:active,
-.af-immersive-icon-btn:active {
-  transform: scale(0.96);
-}
-
-@media (max-width: 900px) {
-  .af-immersive-stage {
-    width: min(100vw - 40px, 720px);
-    grid-template-columns: 1fr;
-    gap: 20px;
-    align-items: stretch;
-    padding-top: 8px;
-  }
-
-  .af-immersive-visualizer-scrolling .af-showcase-layout {
-    width: min(100vw - 40px, 760px);
-    grid-template-columns: 1fr;
-    gap: 24px;
-    padding-top: 58px;
-  }
-
-  .af-immersive-cover-section {
-    flex-direction: row;
-    justify-content: center;
-  }
-
-  .af-immersive-cover {
-    width: 128px;
-    min-width: 128px;
-  }
-
-  .af-immersive-visualizer-scrolling .af-immersive-cover {
-    width: min(44vw, 260px);
-    min-width: 172px;
-  }
-
-  .af-immersive-lyric-section {
-    height: 44vh;
-    min-height: 300px;
-  }
-
-  .af-immersive-visualizer-scrolling .af-immersive-lyric-section {
-    height: 46vh;
-    min-height: 330px;
-  }
-
-  .af-poster-reference-panel {
-    min-height: 320px;
-    gap: 30px;
-  }
-
-  .af-immersive-control-row {
-    grid-template-columns: 1fr;
-    width: min(720px, 100%);
-    gap: 10px;
-  }
-
-  .af-immersive-control-group {
-    flex-wrap: wrap;
-  }
-
-  .af-immersive-control-left,
-  .af-immersive-control-right,
-  .af-immersive-control-center {
-    justify-content: center;
-  }
-
-  .af-immersive-transport-group {
-    justify-self: center;
-  }
-}
-
-@media (max-width: 560px) {
-  .af-immersive-stage {
-    width: calc(100vw - 28px);
-  }
-
-  .af-immersive-visualizer-scrolling .af-showcase-layout {
-    width: calc(100vw - 28px);
-    padding-top: 58px;
-    gap: 16px;
-  }
-
-  .af-immersive-cover-section {
-    display: none;
-  }
-
-  .af-immersive-lyric-section {
-    height: 52vh;
-    min-height: 300px;
-  }
-
-  .af-poster-lyrics-visualizer {
-    justify-content: flex-start;
-  }
-
-  .af-immersive-controls {
-    padding: 14px;
-  }
-
-  .af-immersive-volume-track {
-    width: 96px;
-  }
-
-  .af-immersive-queue-panel {
-    right: 14px;
-    width: calc(100vw - 28px);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .af-immersive-icon-btn,
-  .af-immersive-play-btn,
-  .af-immersive-menu button {
-    transition: none;
-    animation: none;
-    transform: none;
-    filter: none;
-  }
-
-  /* 封面呼吸律动同样让位于减少动效偏好 */
-  .af-playing .af-immersive-cover,
-  .af-immersive-playing .af-immersive-cover,
-  .af-immersive-lyrics[data-anim-intensity='reduced'] .af-immersive-cover {
-    animation: none;
-  }
-
-}
-
 @media (max-width: 768px) {
   .af-player-bar {
     min-height: 80px;
@@ -1465,13 +858,13 @@
 
 .af-scrolling-lyric-line {
   width: 100%;
-  padding: clamp(10px, 1.6vh, 18px) 12px;
-  color: rgba(248, 250, 252, 0.3);
+  padding: clamp(13px, 2.3vh, 24px) 10px;
+  color: rgba(236, 245, 232, 0.63);
   font-family: var(--af-immersive-lyric-font-family, "Inter", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif);
-  text-align: center;
-  transform: scale(0.92);
-  transform-origin: center;
-  opacity: 0.48;
+  text-align: left;
+  transform: none;
+  transform-origin: left center;
+  opacity: 0.7;
   transition:
     color calc(220ms / var(--af-immersive-anim-scale, 1)) ease,
     opacity calc(220ms / var(--af-immersive-anim-scale, 1)) ease,
@@ -1480,14 +873,14 @@
 
 .af-scrolling-lyric-line.af-active {
   opacity: 1;
-  transform: scale(1.04);
+  transform: none;
 }
 
 .af-scrolling-lyric-primary {
   display: inline;
-  font-size: clamp(18px, 1.85vw, 26px);
-  font-weight: 580;
-  line-height: 1.36;
+  font-size: clamp(20px, 2vw, 29px);
+  font-weight: 500;
+  line-height: 1.55;
   overflow-wrap: anywhere;
 }
 
@@ -1497,20 +890,20 @@
     90deg,
     rgba(248, 250, 252, 0.98) 0%,
     rgba(248, 250, 252, 0.98) var(--af-scrolling-lyric-progress, 0%),
-    rgba(248, 250, 252, 0.46) var(--af-scrolling-lyric-progress, 0%),
-    rgba(248, 250, 252, 0.46) 100%
+    rgba(240, 247, 235, 0.76) var(--af-scrolling-lyric-progress, 0%),
+    rgba(240, 247, 235, 0.76) 100%
   );
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  font-size: clamp(25px, 2.65vw, 36px);
-  font-weight: 800;
-  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.24));
+  font-size: clamp(24px, 2.6vw, 37px);
+  font-weight: 650;
+  filter: none;
 }
 
 .af-scrolling-lyric-translation {
-  margin-top: 5px;
-  color: rgba(226, 232, 240, 0.48);
+  margin-top: 8px;
+  color: rgba(226, 240, 225, 0.62);
   font-size: clamp(12px, 1.05vw, 16px);
   font-weight: 520;
   line-height: 1.32;
@@ -1527,8 +920,8 @@
 }
 
 .af-scrolling-karaoke-word-base {
-  color: rgba(248, 250, 252, 0.46);
-  -webkit-text-fill-color: rgba(248, 250, 252, 0.46);
+  color: rgba(240, 247, 235, 0.76);
+  -webkit-text-fill-color: rgba(240, 247, 235, 0.76);
 }
 
 .af-scrolling-karaoke-word-fill {

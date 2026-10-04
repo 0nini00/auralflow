@@ -1,3 +1,4 @@
+import { LyricText, LyricRomanization } from './LyricAnnotations';
 import type { CSSProperties } from 'react';
 import { calculateLyricLineProgress } from '@/services/lyrics/playbackSync';
 import type { LyricLine, LyricWord } from '@/services/lyricsService';
@@ -15,16 +16,17 @@ function perWordProgressPercent(line: LyricLine, currentTime: number): number[] 
 }
 
 /** 渲染单个卡拉OK 字：两层 span 叠加，上层用 clip-path 按进度裁剪出高亮色。 */
-function renderKaraokeWord(word: LyricWord, progress: number, key: number) {
+function renderKaraokeWord(word: LyricWord, progress: number, key: number, showRuby: boolean) {
   const pct = Math.min(100, Math.max(0, Math.round(progress * 1000) / 10));
   return (
     <span key={key} className="af-poster-karaoke-word">
-      <span className="af-poster-karaoke-word-base">{word.text}</span>
+      <span className="af-poster-karaoke-word-base"><LyricText {...word} showRuby={showRuby} /></span>
       <span
         className="af-poster-karaoke-word-fill"
+        aria-hidden="true"
         style={{ clipPath: `inset(0 ${100 - pct}% 0 0)` } as CSSProperties}
       >
-        {word.text}
+        <LyricText {...word} showRuby={showRuby} />
       </span>
     </span>
   );
@@ -37,6 +39,8 @@ export function PosterLyricsVisualizer({
   currentTime,
   isPlaying,
   showTranslation,
+  showRomanization = false,
+  showRuby = false,
 }: PlayerVisualizerProps) {
   const currentLine = currentLyricIndex >= 0 ? lyrics[currentLyricIndex] : undefined;
   const primaryLyric = getLyricDisplayText(currentLine);
@@ -67,9 +71,10 @@ export function PosterLyricsVisualizer({
             }
           >
             {karaokeProgress && karaokeWords
-              ? karaokeWords.map((word, i) => renderKaraokeWord(word, karaokeProgress[i], i))
-              : primaryLyric}
+              ? karaokeWords.map((word, i) => renderKaraokeWord(word, karaokeProgress[i], i, showRuby))
+              : <LyricText {...currentLine} text={primaryLyric} showRuby={showRuby} />}
           </strong>
+          <LyricRomanization text={currentLine?.roma} show={showRomanization} />
           {secondaryLyric && <span className="af-poster-secondary-lyric">{secondaryLyric}</span>}
         </div>
       </div>

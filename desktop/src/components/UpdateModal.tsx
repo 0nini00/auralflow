@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Download, Loader2, Sparkles, X } from "lucide-react";
 import { open } from "@tauri-apps/plugin-shell";
+import { useDialogFocus } from "@/hooks/useDialogFocus";
 import { useUpdateStore } from "@/stores/updateStore";
 import { flushLibraryPersistence } from "@/stores/libraryPersistence";
 import { installPendingUpdate, type UpdateProgress } from "@/services/updateService";
@@ -39,6 +40,7 @@ export function UpdateModal() {
   const setAvailable = useUpdateStore((s) => s.setAvailable);
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const latestVersion = info?.latestVersion;
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   const busy = phase.kind === "downloading" || phase.kind === "installing";
 
@@ -47,20 +49,12 @@ export function UpdateModal() {
     setPhase({ kind: "idle" });
   }, [latestVersion]);
 
-  useEffect(() => {
-    if (!info || busy) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setAvailable(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [info, busy, setAvailable]);
-
-  if (!info) return null;
-
   const close = () => {
     if (!busy) setAvailable(null);
   };
+  useDialogFocus({ open: !!info, containerRef: dialogRef, onClose: close, closeOnEscape: !busy });
+
+  if (!info) return null;
 
   const handleInstall = async () => {
     setPhase({ kind: "downloading", downloaded: 0, total: null });
@@ -106,6 +100,8 @@ export function UpdateModal() {
   return (
     <div className="af-dialog-overlay af-update-overlay" onClick={close}>
       <div
+        ref={dialogRef}
+        aria-busy={busy}
         className="af-dialog af-update-dialog"
         role="dialog"
         aria-modal="true"

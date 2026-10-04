@@ -1,0 +1,9 @@
+{
+  "baseline": 0.1401042782223836,
+  "attenuated": 0.0706635189504012,
+  "muted": 0,
+  "boosted": 0.281801510251698,
+  "expectedGain": 1.9952623149688795,
+  "onlinePosition": 0.064651,
+  "onlineUsesDirectElement": true
+}

@@ -493,3 +493,22 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* 有可用内容时的非阻塞反馈：不使用空页面的大段留白。 */
+.af-page-feedback {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 12px 0;
+  padding: 12px 16px;
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-md);
+  background: var(--af-bg-elevated);
+  color: var(--af-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.af-page-feedback > p { margin: 0; color: var(--af-text-primary); font-size: 13px; font-weight: 600; }
+.af-page-feedback > span { flex: 1 1 240px; overflow-wrap: anywhere; }
+.af-page-feedback > button { margin-left: auto; flex: 0 0 auto; }

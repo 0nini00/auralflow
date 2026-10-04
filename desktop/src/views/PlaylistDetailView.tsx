@@ -1,5 +1,5 @@
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { usePlaylistStore } from '@/stores/playlistStore';
 import { useFavoritesStore } from '@/stores/favoritesStore';
@@ -23,6 +23,13 @@ function fisherYatesShuffle<T>(arr: T[]): T[] {
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
+}
+
+interface PlaylistSongsRequest {
+  identity: string;
+  status: 'loading' | 'ready' | 'error';
+  songs: MusicInfo[] | null;
+  error: string;
 }
 
 interface PlaylistRouteState {
@@ -64,15 +71,9 @@ export function PlaylistDetailView() {
   const wyRemoveTracks = useWyAccountStore((s) => s.removeTracks);
   const wySetSubscribed = useWyAccountStore((s) => s.setSubscribed);
   const wyAccount = useWyAccountStore((s) => s.account);
-  const [wySongs, setWySongs] = useState<MusicInfo[] | null>(null);
-  const [wySongsLoading, setWySongsLoading] = useState(false);
-  const [wySongsError, setWySongsError] = useState('');
+  const [songsRequest, setSongsRequest] = useState<PlaylistSongsRequest | null>(null);
+  const songsRequestSeq = useRef(0);
   const [wyActionPending, setWyActionPending] = useState(false);
-  const [wyRefreshing, setWyRefreshing] = useState(false);
-  const [remoteSongs, setRemoteSongs] = useState<MusicInfo[] | null>(null);
-  const [remoteSongsLoading, setRemoteSongsLoading] = useState(false);
-  const [remoteSongsError, setRemoteSongsError] = useState('');
-  const [remoteRefreshing, setRemoteRefreshing] = useState(false);
   const [actionStatus, setActionStatus] = useState('');
   const [pendingPlayAction, setPendingPlayAction] = useState<PendingPlayAction>(null);
   const [openMenuIndex, setOpenMenuIndex] = useState<number | null>(null);
@@ -128,78 +129,74 @@ export function PlaylistDetailView() {
     };
   }, [id, remoteSource, routePlaylist]);
 
-  // 异步加载网易云歌单歌曲
-  useEffect(() => {
-    if (!wyPlaylist) return;
-    let cancelled = false;
-    setWySongsLoading(true);
-    setWySongsError('');
-    setWySongs(null);
-    wyGetSongs(wyPlaylist.id)
-      .then(songs => { if (!cancelled) setWySongs(songs); })
-      .catch(e => { if (!cancelled) setWySongsError(e instanceof Error ? e.message : String(e)); })
-      .finally(() => { if (!cancelled) setWySongsLoading(false); });
-    return () => { cancelled = true; };
-  }, [wyPlaylist?.id]);
+  const wyPlaylistId = wyPlaylist?.id;
+  const requestIdentity = JSON.stringify([
+    localPlaylist ? 'local' : wyPlaylist ? 'account' : remoteSource,
+    id,
+    wyAccount?.uid ?? null,
+  ]);
+  const isAsyncPlaylist = Boolean(wyPlaylist || remotePlaylistInfo);
 
-  const loadRemotePlaylistSongs = (playlist: PlaylistInfo, refreshing = false) => {
-    const provider = getSource(playlist.source);
-    if (!provider) {
-      setRemoteSongsError("未找到对应音源");
-      return Promise.resolve();
+  // 初载、刷新共用一个请求状态；来源/账号/ID 切换和新请求都会使旧响应失效。
+  const loadPlaylistSongs = useCallback(async (refresh = false) => {
+    if (!wyPlaylistId && !remotePlaylistInfo) return;
+    const requestId = ++songsRequestSeq.current;
+    setSongsRequest((previous) => ({
+      identity: requestIdentity,
+      status: 'loading',
+      songs: refresh && previous?.identity === requestIdentity ? previous.songs : null,
+      error: '',
+    }));
+    try {
+      const fetchSongs = () => {
+        if (wyPlaylistId) return refresh ? wyRefreshSongs(wyPlaylistId) : wyGetSongs(wyPlaylistId);
+        const provider = getSource(remotePlaylistInfo!.source);
+        if (!provider) throw new Error('未找到对应音源');
+        return provider.getPlaylistDetail(remotePlaylistInfo!);
+      };
+      const songs = await fetchSongs();
+      if (requestId !== songsRequestSeq.current) return;
+      setSongsRequest({ identity: requestIdentity, status: 'ready', songs, error: '' });
+    } catch (error) {
+      if (requestId !== songsRequestSeq.current) return;
+      setSongsRequest((previous) => ({
+        identity: requestIdentity,
+        status: 'error',
+        songs: previous?.songs ?? null,
+        error: error instanceof Error ? error.message : String(error),
+      }));
     }
-    if (refreshing) {
-      setRemoteRefreshing(true);
-    } else {
-      setRemoteSongsLoading(true);
-      setRemoteSongs(null);
-    }
-    setRemoteSongsError('');
-    return provider.getPlaylistDetail(playlist)
-      .then((songs) => setRemoteSongs(songs))
-      .catch((err) => {
-        setRemoteSongsError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => {
-        if (refreshing) {
-          setRemoteRefreshing(false);
-        } else {
-          setRemoteSongsLoading(false);
-        }
-      });
-  };
+  }, [requestIdentity, wyPlaylistId, remotePlaylistInfo, wyGetSongs, wyRefreshSongs]);
 
   useEffect(() => {
-    if (!remotePlaylistInfo) return;
-    let cancelled = false;
-    const provider = getSource(remotePlaylistInfo.source);
-    if (!provider) {
-      setRemoteSongsError("未找到对应音源");
-      setRemoteSongs([]);
-      return;
-    }
-    setRemoteSongsLoading(true);
-    setRemoteSongsError('');
-    setRemoteSongs(null);
-    provider.getPlaylistDetail(remotePlaylistInfo)
-      .then((songs) => { if (!cancelled) setRemoteSongs(songs); })
-      .catch((err) => {
-        if (!cancelled) setRemoteSongsError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => { if (!cancelled) setRemoteSongsLoading(false); });
-    return () => { cancelled = true; };
-  }, [remotePlaylistInfo?.id, remotePlaylistInfo?.source]);
+    setActionStatus('');
+    setOpenMenuIndex(null);
+    setAddMenu(null);
+    setDownloadMenu(null);
+    setLocateScrollIndex(undefined);
+    setLocatedSongIndex(null);
+    void loadPlaylistSongs();
+    return () => { songsRequestSeq.current += 1; };
+  }, [loadPlaylistSongs]);
+
+  // render 也按身份取值，不能在新路由 effect 执行前短暂展示旧歌单。
+  const activeRequest = songsRequest?.identity === requestIdentity ? songsRequest : null;
+  const loadedSongs = activeRequest?.songs ?? [];
+  const songsError = activeRequest?.error ?? '';
+  const isSongsLoading = isAsyncPlaylist && (!activeRequest || (activeRequest.status === 'loading' && activeRequest.songs === null));
+  const isRefreshing = activeRequest?.status === 'loading' && activeRequest.songs !== null;
+  const handleRefreshSongs = () => { void loadPlaylistSongs(true); };
 
   // 最终展示的歌单数据
   const resolvedPlaylist = localPlaylist
     ? { ...localPlaylist, cover: (localPlaylist as any).cover ?? (localPlaylist as any).picUrl }
     : wyPlaylist
-      ? { id: wyPlaylist.id, name: wyPlaylist.name, songs: wySongs ?? [], createdAt: 0, updatedAt: 0, description: wyPlaylist.author ? `by ${wyPlaylist.author}` : undefined, cover: wyPlaylist.picUrl }
+      ? { id: wyPlaylist.id, name: wyPlaylist.name, songs: loadedSongs, createdAt: 0, updatedAt: 0, description: wyPlaylist.author ? `by ${wyPlaylist.author}` : undefined, cover: wyPlaylist.picUrl }
       : remotePlaylistInfo
         ? {
             id: remotePlaylistInfo.id,
             name: remotePlaylistInfo.name,
-            songs: remoteSongs ?? [],
+            songs: loadedSongs,
             createdAt: 0,
             updatedAt: 0,
             description: remotePlaylistInfo.desc || (remotePlaylistInfo.author ? `by ${remotePlaylistInfo.author}` : undefined),
@@ -223,12 +220,13 @@ export function PlaylistDetailView() {
     };
   }, []);
 
-  if (wySongsError || remoteSongsError) {
+  if (songsError && activeRequest?.songs === null) {
     return (
       <div className="af-playlist-detail-view">
         <div className="af-empty-state">
           <p>加载失败</p>
-          <span>{wySongsError || remoteSongsError}</span>
+          <span>{songsError}</span>
+          <button type="button" className="af-btn-primary" onClick={handleRefreshSongs} style={{ marginTop: 16 }}>重试</button>
           <button className="af-btn-secondary" onClick={() => remoteSource ? navigate(-1) : navigate('/playlists')} style={{ marginTop: 16 }}>返回</button>
         </div>
       </div>
@@ -266,7 +264,6 @@ export function PlaylistDetailView() {
   const remoteCollectNeedsWyAccount = remotePlaylistInfo?.source === "wy";
   const remotePlaylistMeta = remotePlaylistInfo ? formatPlaylistSearchMeta(remotePlaylistInfo) : "--";
   const songs = playlist.songs;
-  const isSongsLoading = wySongsLoading || remoteSongsLoading;
   const isPlayAllPending = pendingPlayAction === 'play-all';
   const isShufflePending = pendingPlayAction === 'shuffle';
 
@@ -337,7 +334,10 @@ export function PlaylistDetailView() {
       setWyActionPending(true);
       wyRemoveTracks(playlist.id, [song])
         .then(() => {
-          setWySongs((prev) => prev ? prev.filter((_, i) => i !== index) : prev);
+          setSongsRequest((previous) => previous?.identity === requestIdentity ? {
+          ...previous,
+          songs: previous.songs?.filter((item) => item.source !== song.source || item.id !== song.id) ?? null,
+        } : previous);
           setActionStatus('已从网易云歌单移除');
         })
         .catch((err) => {
@@ -364,23 +364,6 @@ export function PlaylistDetailView() {
       .finally(() => setWyActionPending(false));
   };
 
-  const handleRefreshWy = () => {
-    if (!isWyPlaylist) return;
-    setWyRefreshing(true);
-    setWySongsError('');
-    wyRefreshSongs(playlist.id)
-      .then((songs) => setWySongs(songs))
-      .catch((err) => {
-        setWySongsError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => setWyRefreshing(false));
-  };
-
-  const handleRefreshRemote = () => {
-    if (!remotePlaylistInfo) return;
-    void loadRemotePlaylistSongs(remotePlaylistInfo, true);
-  };
-
   const handleCollectRemotePlaylist = async () => {
     if (!remotePlaylistInfo || isRemoteCollected) return;
     setWyActionPending(true);
@@ -402,7 +385,7 @@ export function PlaylistDetailView() {
 
         const provider = getSource("tx");
         if (!provider) throw new Error("未找到 QQ 音乐源");
-        const detailSongs = remoteSongs ?? await provider.getPlaylistDetail(remotePlaylistInfo);
+        const detailSongs = activeRequest?.songs ?? await provider.getPlaylistDetail(remotePlaylistInfo);
         const description = [remotePlaylistInfo.desc, marker].filter(Boolean).join('\n');
         const created = importPlaylist(remotePlaylistInfo.name, description || marker, detailSongs);
         if (remotePlaylistInfo.picUrl) {
@@ -435,6 +418,13 @@ export function PlaylistDetailView() {
 
           <div className="af-playlist-detail-meta">
             <h1>{playlist.name}</h1>
+            {songsError && (
+              <div className="af-page-feedback" role="status">
+                <strong>刷新失败</strong>
+                <span>{songsError}</span>
+                <button type="button" className="af-btn-secondary" onClick={handleRefreshSongs}>重试</button>
+              </div>
+            )}
             {!isFavoritesPlaylist && !isWyPlaylist && playlist.description && (
               <p className="af-playlist-description">{playlist.description}</p>
             )}
@@ -485,26 +475,15 @@ export function PlaylistDetailView() {
                 <LocateFixed size={16} />
                 <span>定位</span>
               </button>
-              {isWyPlaylist && (
+              {isAsyncPlaylist && (
                 <button
                   className="af-btn-secondary"
-                  onClick={handleRefreshWy}
-                  disabled={wyRefreshing || wySongsLoading}
-                  title="重新从网易云拉取最新歌单内容"
+                  onClick={handleRefreshSongs}
+                  disabled={isRefreshing || isSongsLoading}
+                  title={isWyPlaylist ? "重新从网易云拉取最新歌单内容" : "重新拉取最新歌单内容"}
                 >
-                  <RefreshCw size={16} className={wyRefreshing ? 'af-spin' : ''} />
-                  <span>{wyRefreshing ? '刷新中' : '刷新'}</span>
-                </button>
-              )}
-              {isRemotePlaylist && (
-                <button
-                  className="af-btn-secondary"
-                  onClick={handleRefreshRemote}
-                  disabled={remoteRefreshing || remoteSongsLoading}
-                  title="重新拉取最新歌单内容"
-                >
-                  <RefreshCw size={16} className={remoteRefreshing ? 'af-spin' : ''} />
-                  <span>{remoteRefreshing ? '刷新中' : '刷新'}</span>
+                  <RefreshCw size={16} className={isRefreshing ? 'af-spin' : ''} />
+                  <span>{isRefreshing ? '刷新中' : '刷新'}</span>
                 </button>
               )}
               {isRemotePlaylist && remotePlaylistInfo && (!remoteCollectNeedsWyAccount || !!wyAccount) && (
@@ -551,7 +530,8 @@ export function PlaylistDetailView() {
         ) : songs.length === 0 ? (
           <div className="af-empty-state">
             <p>歌单是空的</p>
-            <span>从搜索或其他地方添加歌曲</span>
+            <span>{isAsyncPlaylist ? '该歌单暂未返回歌曲，可以稍后重试。' : '从搜索或其他地方添加歌曲'}</span>
+            {isAsyncPlaylist && <button type="button" className="af-btn-secondary" onClick={handleRefreshSongs}>重试</button>}
           </div>
         ) : (
           <>

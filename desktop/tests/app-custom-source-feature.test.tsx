@@ -54,7 +54,7 @@ vi.mock("@/stores/favoritesStore", () => ({ favoritesPersistence: { ready: Promi
 vi.mock("@/stores/playlistStore", () => ({ playlistPersistence: { ready: Promise.resolve() } }));
 vi.mock("@/stores/historyStore", () => ({ historyPersistence: { ready: Promise.resolve() } }));
 vi.mock("@/stores/playerStore", () => ({ usePlayerStore: { getState: () => ({ setVolume: vi.fn() }) }, setPlaybackFailedAutoNext: vi.fn() }));
-vi.mock("@/services/playerEngine", () => ({ playerEngine: { setPauseOnExternalPlayback: vi.fn() } }));
+vi.mock("@/services/playerEngine", () => ({ playerEngine: { setPauseOnExternalPlayback: vi.fn(), setReplayGainEnabled: vi.fn() } }));
 vi.mock("@/services/logger", () => ({ logger: { warn: vi.fn() } }));
 vi.mock("@/stores/libraryPersistence", () => ({ flushLibraryPersistence: vi.fn() }));
 vi.mock("@/services/webdavSyncService", () => ({ autoSyncPlaylistsOnce: dependencies.autoSyncPlaylistsOnce }));

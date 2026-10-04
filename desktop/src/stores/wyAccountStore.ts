@@ -39,15 +39,29 @@ interface WyAccountState {
   setSubscribed: (playlistId: string, subscribe: boolean) => Promise<void>;
 }
 
-const playlistCache = new Map<string, MusicInfo[]>();
-const playlistRequestCache = new Map<string, Promise<MusicInfo[]>>();
+function createAccountGeneration() {
+  return {
+    playlistCache: new Map<string, MusicInfo[]>(),
+    playlistRequestCache: new Map<string, Promise<MusicInfo[]>>(),
+  };
+}
 
-function clearPlaylistCaches() {
-  playlistCache.clear();
-  playlistRequestCache.clear();
+// 世代由对象身份标识；相同 uid 退出后重新登录也不能复用上一会话。
+let accountGeneration = createAccountGeneration();
+
+function beginAccountGeneration() {
+  accountGeneration = createAccountGeneration();
+  return accountGeneration;
+}
+
+function clearPlaylistCaches(generation: ReturnType<typeof createAccountGeneration>) {
+  generation.playlistCache.clear();
+  generation.playlistRequestCache.clear();
 }
 
 function fetchAndCachePlaylistSongs(id: string, force = false): Promise<MusicInfo[]> {
+  const generation = accountGeneration;
+  const { playlistCache, playlistRequestCache } = generation;
   if (!force) {
     const cached = playlistCache.get(id);
     if (cached) return Promise.resolve(cached);
@@ -62,7 +76,7 @@ function fetchAndCachePlaylistSongs(id: string, force = false): Promise<MusicInf
   let request: Promise<MusicInfo[]>;
   request = getPlaylistDetail(id)
     .then((songs) => {
-      if (playlistRequestCache.get(id) === request) {
+      if (generation === accountGeneration && playlistRequestCache.get(id) === request) {
         playlistCache.set(id, songs);
       }
       return songs;
@@ -94,27 +108,30 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
   error: "",
 
   load: async (cookieStr) => {
+    // 在任何 await 之前隔离旧请求，同时撤下与待验证 Cookie 不再匹配的身份和列表。
+    const generation = beginAccountGeneration();
+    set({ account: null, playlists: [], isLoading: true, error: "" });
     try {
       const cookie = cookieStr ?? (await getWyCookie());
+      if (generation !== accountGeneration) return;
       if (!cookie) {
-        clearPlaylistCaches();
         set({ isLoaded: true, isLoading: false, playlists: [], account: null, error: "" });
         return;
       }
 
       setWyCookie(cookie);
-      set({ isLoading: true, error: "" });
 
       // 先校验账号：成功就先落 account，避免歌单接口挂了把整登录态清掉
       const account = await checkAccount();
+      if (generation !== accountGeneration) return;
       set({ account });
 
       try {
         const playlists = await getUserPlaylists(account.uid);
-        clearPlaylistCaches();
+        if (generation !== accountGeneration) return;
         set({ playlists, isLoaded: true, isLoading: false, error: "" });
       } catch (playlistError) {
-        clearPlaylistCaches();
+        if (generation !== accountGeneration) return;
         set({
           playlists: [],
           isLoaded: true,
@@ -124,11 +141,12 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
         });
       }
     } catch (e) {
+      if (generation !== accountGeneration) return;
       const msg = e instanceof Error ? e.message : String(e);
       const authBroken =
         /过期|无效|不一致|未设置网易云|缺少 MUSIC_U|请重新登录|请重新填写 Cookie/.test(msg);
 
-      clearPlaylistCaches();
+      clearPlaylistCaches(generation);
       if (authBroken) {
         // 失效 Cookie 不要继续留在内存/设置里，否则下次启动会反复失败
         setWyCookie("");
@@ -147,15 +165,18 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
   },
 
   refreshPlaylists: async () => {
+    const generation = accountGeneration;
     const account = get().account;
     if (!account || get().isLoading) return;
 
     set({ isLoading: true, error: "" });
     try {
       const playlists = await getUserPlaylists(account.uid);
-      clearPlaylistCaches();
+      if (generation !== accountGeneration) return;
+      clearPlaylistCaches(generation);
       set({ playlists, isLoaded: true, isLoading: false, error: "" });
     } catch (error) {
+      if (generation !== accountGeneration) return;
       set({
         isLoading: false,
         isLoaded: true,
@@ -165,9 +186,10 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
   },
 
   logout: async () => {
-    await patchSettings({ wyCookie: null });
+    const previous = get();
+    const previousCookie = getWyCookie();
+    const generation = beginAccountGeneration();
     setWyCookie("");
-    clearPlaylistCaches();
     set({
       account: null,
       playlists: [],
@@ -175,6 +197,24 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
       isLoaded: true,
       error: "",
     });
+    try {
+      await patchSettings({ wyCookie: null });
+    } catch (error) {
+      const cookie = await previousCookie;
+      if (generation === accountGeneration) {
+        // 只回滚身份；注销前及注销期间的请求、缓存都不能随之复活。
+        beginAccountGeneration();
+        setWyCookie(cookie);
+        set({
+          account: previous.account,
+          playlists: previous.playlists,
+          isLoading: false,
+          isLoaded: previous.isLoaded,
+          error: previous.error,
+        });
+      }
+      throw error;
+    }
   },
 
   getPlaylistSongs: async (id: string) => {
@@ -182,8 +222,6 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
   },
 
   preloadPlaylistSongs: (id: string) => {
-    if (playlistCache.has(id) || playlistRequestCache.has(id)) return;
-
     void fetchAndCachePlaylistSongs(id).catch(() => {
       // 预热失败不改 UI；正式进入详情页时仍会走可见错误路径。
     });
@@ -194,6 +232,8 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
   },
 
   addTracks: async (playlistId, songs) => {
+    const generation = accountGeneration;
+    const { playlistCache } = generation;
     const target = get().playlists.find((p) => p.id === playlistId);
     if (target?.subscribed) throw new Error("收藏歌单不支持添加歌曲");
 
@@ -201,6 +241,7 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
     if (trackIds.length === 0) throw new Error("当前只支持添加网易云歌曲到网易云歌单");
 
     await addPlaylistTracks(playlistId, trackIds);
+    if (generation !== accountGeneration) return;
 
     // 本地缓存：把新歌前置去重
     const cached = playlistCache.get(playlistId);
@@ -225,6 +266,8 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
   },
 
   removeTracks: async (playlistId, songs) => {
+    const generation = accountGeneration;
+    const { playlistCache } = generation;
     const target = get().playlists.find((p) => p.id === playlistId);
     if (target?.subscribed) throw new Error("收藏歌单不支持删除歌曲");
 
@@ -232,6 +275,7 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
     if (trackIds.length === 0) throw new Error("缺少网易云歌曲 ID");
 
     await removePlaylistTracks(playlistId, trackIds);
+    if (generation !== accountGeneration) return;
 
     const removed = new Set(trackIds);
     const cached = playlistCache.get(playlistId);
@@ -254,6 +298,8 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
   },
 
   setSubscribed: async (playlistId, subscribe) => {
+    const generation = accountGeneration;
+    const { playlistCache, playlistRequestCache } = generation;
     if (!subscribe) {
       const target = get().playlists.find((p) => p.id === playlistId);
       if (target && target.subscribed === false) {
@@ -262,6 +308,7 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
     }
 
     await subscribePlaylist(playlistId, subscribe);
+    if (generation !== accountGeneration) return;
 
     if (!subscribe) {
       // 取消收藏：从列表移除并清缓存
@@ -274,6 +321,7 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
       if (account) {
         try {
           const playlists = await getUserPlaylists(account.uid);
+          if (generation !== accountGeneration) return;
           set({ playlists });
         } catch {
           // 刷新失败不抛出，操作本身已成功

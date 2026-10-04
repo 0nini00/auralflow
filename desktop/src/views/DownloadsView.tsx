@@ -17,6 +17,8 @@ function formatBytes(bytes?: number): string {
 }
 
 function statusText(task: DownloadTask): string {
+  if (task.cancelRequested) return '正在取消，等待下载确认…';
+  if (task.status === 'processing') return '后处理中 · 封面/歌词/标签';
 
   if (task.status === 'queued') return '排队中';
 
@@ -122,6 +124,7 @@ export function DownloadsView() {
                 <div className="af-download-meta">
                   <span>{task.fileName}</span>
                   <span>{formatBytes(task.downloaded)} / {formatBytes(task.total)}</span>
+                  {task.error && task.status === 'downloading' && <span role="alert">{task.error}</span>}
                   {task.status === 'completed' && task.warning && (
                     <span className="af-download-warning" title={task.warning}>
                       <AlertTriangle size={12} /> 标签或歌词未完全写入
@@ -150,6 +153,7 @@ export function DownloadsView() {
                     onClick={() => { void cancelTask(task.id); }}
 
                     title="取消下载"
+                    disabled={task.cancelRequested}
 
                   >
 

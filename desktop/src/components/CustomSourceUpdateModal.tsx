@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useDialogFocus } from "@/hooks/useDialogFocus";
 import { ExternalLink } from "lucide-react";
 import { open } from "@tauri-apps/plugin-shell";
 import { useCustomSourceStore, type CustomSourceItem } from "@/stores/customSourceStore";
@@ -50,6 +51,7 @@ function getUpdateLog(source: CustomSourceItem): string {
 }
 
 export function CustomSourceUpdateModal() {
+  const dialogRef = useRef<HTMLDivElement>(null);
   const sources = useCustomSourceStore((state) => state.sources);
   const featureEnabled = useCustomSourceStore((state) => state.featureEnabled);
   const featureReady = useCustomSourceStore((state) => state.featureReady);
@@ -90,12 +92,9 @@ export function CustomSourceUpdateModal() {
     [dismissedKeys, requestedSourceId, sources, featureEnabled, featureReady],
   );
 
-  if (!source) return null;
-
-  const dismissKey = buildDismissKey(source);
-  const updateLog = getUpdateLog(source);
-
   const handleClose = () => {
+    if (!source) return;
+    const dismissKey = buildDismissKey(source);
     setRequestedSourceId(null);
     setDismissedKeys((prev) => {
       const next = new Set(prev);
@@ -104,6 +103,11 @@ export function CustomSourceUpdateModal() {
       return next;
     });
   };
+
+  useDialogFocus({ open: !!source, containerRef: dialogRef, onClose: handleClose });
+
+  if (!source) return null;
+  const updateLog = getUpdateLog(source);
 
   const handleOpenUpdateUrl = () => {
     if (!source.updateUrl) {
@@ -117,13 +121,17 @@ export function CustomSourceUpdateModal() {
   return (
     <div className="af-dialog-overlay af-custom-source-update-overlay" onClick={handleClose}>
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="af-custom-source-update-title"
         className="af-dialog af-custom-source-update-dialog"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="af-custom-source-update-bar" />
 
         <div className="af-dialog-body af-custom-source-update-body">
-          <p className="af-custom-source-update-heading">
+          <p id="af-custom-source-update-title" className="af-custom-source-update-heading">
             自定义源【{source.name}】发现新版本：
           </p>
           <div className="af-custom-source-update-log">{updateLog}</div>

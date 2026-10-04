@@ -12,6 +12,7 @@ import { invoke } from "@tauri-apps/api/core";
 export interface RustAppSettings {
   theme: string;
   volume: number;
+  replayGainEnabled: boolean;
   defaultQuality: string;
   pauseOnExternalPlayback: boolean;
   playbackFailedAutoNext: boolean;
@@ -28,6 +29,8 @@ export interface RustAppSettings {
   lyricSingleLine: boolean;
   lyricMaxLineNum: number;
   lyricShowTranslation: boolean;
+  lyricShowRomanization: boolean;
+  lyricShowRuby: boolean;
   lyricAlign: string;
   lyricLineGap: number;
   lyricFontWeight: number;
@@ -95,6 +98,7 @@ export interface RustAudioFile {
   /** 封面在本地缓存中的文件路径（由 scan_directory/get_audio_info 落盘），前端用 convertFileSrc 显示 */
   coverPath?: string | null;
   lyrics?: string | null;
+  replayGain?: { gainDb: number; peak?: number | null } | null;
 }
 
 export interface RustDownloadProgressEvent {
@@ -412,4 +416,14 @@ export async function taskbarSetEnabled(enabled: boolean): Promise<void> {
 /** 推送当前播放状态与封面（切歌、暂停恢复、封面落盘后调用） */
 export async function taskbarUpdateTrack(track: TaskbarTrackPayload): Promise<void> {
   await invoke<void>("taskbar_update_track", { track });
+}
+
+/** 只读取本地 ReplayGain 文本标签，不搬运封面或歌词。 */
+export async function getAudioReplayGain(path: string): Promise<{ gainDb: number; peak?: number | null } | null> {
+  return invoke("get_audio_replay_gain", { path });
+}
+
+/** 保存用户选定的封面原始字节，独立于可清理的自动缓存。 */
+export async function saveManualCover(dataUrl: string): Promise<string> {
+  return invoke("save_manual_cover", { dataUrl });
 }

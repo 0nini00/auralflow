@@ -9,6 +9,8 @@ export interface LyricSettingsPatch {
   lyricSingleLine?: boolean;
   lyricMaxLineNum?: number;
   lyricShowTranslation?: boolean;
+  lyricShowRomanization?: boolean;
+  lyricShowRuby?: boolean;
   lyricAlign?: string;
   lyricLineGap?: number;
   lyricFontWeight?: number;

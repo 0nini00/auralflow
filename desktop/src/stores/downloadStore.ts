@@ -15,7 +15,7 @@ import {
   cancelDownloadTask,
 } from '@/services/downloadService';
 
-export type DownloadStatus = 'queued' | 'resolving' | 'downloading' | 'completed' | 'failed' | 'cancelled';
+export type DownloadStatus = 'queued' | 'resolving' | 'downloading' | 'processing' | 'completed' | 'failed' | 'cancelled';
 export type { DownloadQuality };
 
 /** Max parallel resolve+download jobs */
@@ -34,6 +34,8 @@ export interface DownloadTask {
   speed: number;
   quality?: string;
   error?: string;
+  /** 取消请求已发出；只有原生下载的实际结束才能确认取消。 */
+  cancelRequested?: boolean;
   /** 后处理（标签 / 封面 / 歌词）部分失败时的提示；下载本身已完成 */
   warning?: string;
   createdAt: number;
@@ -72,6 +74,21 @@ function patchTask(
   return tasks.map((task) => (
     task.id === taskId ? { ...task, ...patch, updatedAt: Date.now() } : task
   ));
+}
+
+/** 原生完成事件和命令返回都只确认文件落盘，不代表后处理成功。 */
+function markTransferCompleted(tasks: DownloadTask[], taskId: string, savedPath: string, total?: number): DownloadTask[] {
+  const current = tasks.find((task) => task.id === taskId);
+  if (!current || (current.status !== 'downloading' && current.status !== 'processing' && current.status !== 'completed')) return tasks;
+  if (current.status !== 'downloading') {
+    // IPC 事件可能迟于命令返回，只补传输计数，不能回退阶段或清除后处理警告。
+    return total === undefined ? tasks : patchTask(tasks, taskId, { downloaded: total, total });
+  }
+  return patchTask(tasks, taskId, {
+    status: 'processing', savedPath, progress: 100, speed: 0,
+    downloaded: total ?? current.downloaded, total: total ?? current.total,
+    cancelRequested: false, error: undefined,
+  });
 }
 
 function normalizeDownloadQuality(quality?: string): DownloadQuality | undefined {
@@ -149,7 +166,9 @@ async function runOneTask(taskId: string, get: StoreGet, set: StoreSet) {
   try {
     if (cancelledTaskIds.has(taskId)) throw new Error('下载已取消');
     const prepared = await prepareDownload(music, normalizeDownloadQuality(quality));
-    if (cancelledTaskIds.has(taskId)) throw new Error('下载已取消');
+    if (cancelledTaskIds.has(taskId) || !get().tasks.some((item) => item.id === taskId && item.status === 'resolving')) {
+      throw new Error('下载已取消');
+    }
 
     set((state) => ({
       tasks: patchTask(state.tasks, taskId, {
@@ -160,13 +179,15 @@ async function runOneTask(taskId: string, get: StoreGet, set: StoreSet) {
     }));
 
     const savedPath = await runDownloadTask(taskId, prepared.url, dir, prepared.fileName);
-    if (cancelledTaskIds.has(taskId)) throw new Error('下载已取消');
-    const warnings = await enhanceDownloadedFile(music, savedPath, dir, prepared.fileName);
+    if (!get().tasks.some((item) => item.id === taskId)) return;
+    set((state) => ({ tasks: markTransferCompleted(state.tasks, taskId, savedPath) }));
+    // 文件已落盘；后处理异常不能把可用文件伪装成下载失败，必须作为警告显示。
+    const warnings = await enhanceDownloadedFile(music, savedPath, dir, prepared.fileName)
+      .catch((error: unknown) => [`后处理失败：${formatError(error)}`]);
 
     set((state) => {
       const current = state.tasks.find((t) => t.id === taskId);
-      if (current?.status === 'cancelled') return state;
-      if (current?.status === 'completed' && current.savedPath) return state;
+      if (!current || current.status !== 'processing') return state;
       return {
         tasks: patchTask(state.tasks, taskId, {
           status: 'completed',
@@ -179,15 +200,16 @@ async function runOneTask(taskId: string, get: StoreGet, set: StoreSet) {
       };
     });
   } catch (error) {
-    const cancelled = cancelledTaskIds.has(taskId) || isCancelledError(error);
+    const cancelled = isCancelledError(error);
     set((state) => {
       const current = state.tasks.find((t) => t.id === taskId);
-      if (current?.status === 'completed') return state;
+      if (!current || current.status === 'completed' || current.status === 'cancelled') return state;
       return {
         tasks: patchTask(state.tasks, taskId, {
           status: cancelled ? 'cancelled' : 'failed',
           speed: 0,
           error: cancelled ? '已取消' : formatError(error),
+          cancelRequested: false,
         }),
       };
     });
@@ -224,7 +246,7 @@ export const useDownloadStore = create<DownloadStore>()(
           const payload = event.payload;
           set((state) => {
             const current = state.tasks.find((t) => t.id === payload.taskId);
-            if (!current || current.status === 'cancelled' || current.status === 'completed' || current.status === 'failed') {
+            if (!current || current.status !== 'downloading') {
               return state;
             }
             return {
@@ -241,21 +263,9 @@ export const useDownloadStore = create<DownloadStore>()(
 
         await listen<RustDownloadCompletedEvent>('download-completed', (event) => {
           const payload = event.payload;
-          set((state) => {
-            const current = state.tasks.find((t) => t.id === payload.taskId);
-            if (!current || current.status === 'cancelled') return state;
-            return {
-              tasks: patchTask(state.tasks, payload.taskId, {
-                status: 'completed',
-                progress: 100,
-                downloaded: payload.total,
-                total: payload.total,
-                speed: 0,
-                savedPath: payload.savedPath,
-                error: undefined,
-              }),
-            };
-          });
+          set((state) => ({
+            tasks: markTransferCompleted(state.tasks, payload.taskId, payload.savedPath, payload.total),
+          }));
         });
       },
 
@@ -270,7 +280,7 @@ export const useDownloadStore = create<DownloadStore>()(
           (task) => (
             task.music.id === music.id &&
             task.music.source === music.source &&
-            (task.status === 'queued' || task.status === 'resolving' || task.status === 'downloading') &&
+            (task.status === 'queued' || task.status === 'resolving' || task.status === 'downloading' || task.status === 'processing') &&
             (!quality || task.quality === quality)
           ),
         );
@@ -298,43 +308,39 @@ export const useDownloadStore = create<DownloadStore>()(
 
       retryTask: async (taskId) => {
         const task = get().tasks.find((item) => item.id === taskId);
-        if (!task) return;
+        if (!task || (task.status !== 'failed' && task.status !== 'cancelled')) return;
         cancelledTaskIds.delete(taskId);
         set((state) => ({ tasks: state.tasks.filter((item) => item.id !== taskId) }));
         await get().addDownload(task.music, normalizeDownloadQuality(task.quality));
       },
 
       cancelTask: async (taskId) => {
-        const task = get().tasks.find((t) => t.id === taskId);
-        if (!task) return;
-        if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') return;
-
-        cancelledTaskIds.add(taskId);
-
-        if (task.status === 'queued') {
+        const task = get().tasks.find((item) => item.id === taskId);
+        if (!task || task.cancelRequested) return;
+        if (task.status === 'queued' || task.status === 'resolving') {
+          // 地址解析没有原生下载句柄；阻止它启动后续下载即可。
+          if (task.status === 'resolving') cancelledTaskIds.add(taskId);
           set((state) => ({
-            tasks: patchTask(state.tasks, taskId, { status: 'cancelled', speed: 0, error: '已取消' }),
+            tasks: patchTask(state.tasks, taskId, { status: 'cancelled', speed: 0, error: '已取消', cancelRequested: false }),
           }));
-          cancelledTaskIds.delete(taskId);
           schedulePump(get, set);
           return;
         }
+        if (task.status !== 'downloading') return;
 
-        set((state) => ({
-          tasks: patchTask(state.tasks, taskId, { speed: 0, error: '正在取消…' }),
-        }));
+        set((state) => ({ tasks: patchTask(state.tasks, taskId, { cancelRequested: true, error: undefined }) }));
         try {
-          await cancelDownloadTask(taskId);
+          // true 只表示取消标志已登记，false 表示原生句柄不存在；二者均不证明文件已停止下载。
+          const accepted = await cancelDownloadTask(taskId);
+          if (!accepted) throw new Error('未找到可取消的原生下载任务，请等待下载状态更新或重试取消');
         } catch (error) {
-          // 取消失败必须落到终态：否则任务会永远停在「正在取消…」，既没有终态也无法重试。
-          // 仍标记为 cancelled（用户意图就是取消，本地也不会再继续写盘），但把原因显示出来。
-          set((state) => ({
-            tasks: patchTask(state.tasks, taskId, {
-              status: 'cancelled',
-              speed: 0,
-              error: `取消失败：${formatError(error)}`,
-            }),
-          }));
+          set((state) => {
+            const current = state.tasks.find((item) => item.id === taskId);
+            if (current?.status !== 'downloading') return state;
+            return { tasks: patchTask(state.tasks, taskId, {
+              cancelRequested: false, error: `取消失败：${formatError(error)}`,
+            }) };
+          });
         }
       },
 
@@ -369,11 +375,16 @@ export const useDownloadStore = create<DownloadStore>()(
       name: 'download-storage',
       partialize: (state) => ({
         downloadDir: state.downloadDir,
-        tasks: state.tasks.map((task) => (
-          task.status === 'downloading' || task.status === 'resolving' || task.status === 'queued'
-            ? { ...task, status: 'failed' as const, speed: 0, error: '应用关闭，下载已中断' }
-            : task
-        )),
+        tasks: state.tasks.map((task) => {
+          if (task.status === 'processing') {
+            return { ...task, status: 'completed' as const, cancelRequested: false,
+              warning: '应用关闭，文件已下载，但封面/歌词/标签后处理未完成' };
+          }
+          if (task.status === 'downloading' || task.status === 'resolving' || task.status === 'queued') {
+            return { ...task, status: 'failed' as const, cancelRequested: false, speed: 0, error: '应用关闭，下载已中断' };
+          }
+          return task;
+        }),
       }),
     },
   ),

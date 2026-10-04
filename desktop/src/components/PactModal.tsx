@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useDialogFocus } from "@/hooks/useDialogFocus";
 import { loadSettings, patchSettings } from "@lx/tauri-bridge";
 
 interface Props {
@@ -6,6 +7,7 @@ interface Props {
 }
 
 export function PactModal({ onAccepted }: Props) {
+  const dialogRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
   const [checking, setChecking] = useState(true);
 
@@ -28,12 +30,14 @@ export function PactModal({ onAccepted }: Props) {
     onAccepted();
   };
 
+  useDialogFocus({ open: !checking && visible, containerRef: dialogRef, closeOnEscape: false });
+
   if (checking || !visible) return null;
 
   return (
     <div className="af-dialog-overlay af-pact-overlay">
-      <div className="af-dialog af-pact-dialog">
-        <h2>使用须知</h2>
+      <div ref={dialogRef} className="af-dialog af-pact-dialog" role="dialog" aria-modal="true" aria-labelledby="af-pact-title">
+        <h2 id="af-pact-title">使用须知</h2>
         <div className="af-pact-body">
           <p>AuralFlow 是一个基于 Tauri + React 的多源音乐播放器，仅供学习交流使用。</p>
           <ul>

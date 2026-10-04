@@ -31,6 +31,12 @@ export interface TxTrackMeta {
   songId?: string;
 }
 
+/** 文件中已有的 ReplayGain 标签，不表示应用分析过实际响度。 */
+export interface ReplayGainInfo {
+  gainDb: number;
+  peak?: number;
+}
+
 export interface MusicInfo {
   id: string;
   name: string;
@@ -49,8 +55,16 @@ export interface MusicInfo {
   url?: string;
   /** 标记为本地音乐（PlayerBar/LibraryView 使用） */
   isLocal?: boolean;
+  /** 桌面本地文件路径，仅用于读取本地标签，不作为网络地址。 */
+  localPath?: string;
   /** 移动端应用内管理的本地歌词文本，不表示已写回音频文件 */
   localLyrics?: string;
+  localLyricsTranslation?: string;
+  localLyricsRomanization?: string;
+  /** 本地歌曲已有的曲目级 ReplayGain 标签。 */
+  replayGain?: ReplayGainInfo;
+  /** 标签读取失败时显式展示，不代表音频本身不可播放。 */
+  replayGainError?: string;
   /** 网易云关联 MV 的稳定标识，不包含临时播放地址 */
   mvId?: string;
   /** 内置音乐 API 解析元数据；source 仍保持 wy/tx/local 作为 UI 来源 */

@@ -8,7 +8,7 @@ import {
 import type { AppWindowRole } from "@/utils/windowRole";
 
 const CHANNEL_NAME = "auralflow-player-sync";
-/** Tauri event fallback when BroadcastChannel is unavailable across webviews */
+/** 状态快照使用双通道；控制动作只走 Tauri，避免一次点击被执行两次。 */
 const TAURI_EVENT = "auralflow-player-sync";
 
 type SyncMessage =
@@ -39,11 +39,17 @@ function handleAction(action: "play-pause" | "next" | "prev") {
 }
 
 function postSyncMessage(channel: BroadcastChannel | null, message: SyncMessage) {
+  if (message.type === "action") {
+    void emit(TAURI_EVENT, message).catch((error) => {
+      console.error('[player-sync] 歌词控制动作发送失败', error);
+    });
+    return;
+  }
   try {
     channel?.postMessage(message);
   } catch (err) {
   }
-  // Dual channel: also emit via Tauri for cross-webview reliability
+  // 状态消息保留双通道，提高跨 WebView 到达可靠性；动作不在此发送。
   void emit(TAURI_EVENT, message).catch(() => undefined);
 }
 
@@ -61,7 +67,8 @@ function setupMainWindow(channel: BroadcastChannel | null) {
   };
 
   channel?.addEventListener("message", (event) => {
-    onMessage(event.data as SyncMessage);
+    const message = event.data as SyncMessage;
+    if (message?.type === "request-state") onMessage(message);
   });
 
   let unlistenTauri: UnlistenFn | null = null;

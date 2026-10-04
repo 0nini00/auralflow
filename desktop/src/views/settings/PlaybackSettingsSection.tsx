@@ -1,3 +1,4 @@
+import { ReplayGainSettings } from "@/components/settings/ReplayGainSettings";
 import { Pause, Volume2 } from "lucide-react";
 import type { PlaybackSettingsModel } from "../useSettingsViewModel";
 import { SettingRow } from "./SettingRow";
@@ -58,6 +59,7 @@ export function PlaybackSettingsSection({ model }: { model: PlaybackSettingsMode
     </SettingRow>
   </div>
 
+  <ReplayGainSettings />
 </section>
   );
 }

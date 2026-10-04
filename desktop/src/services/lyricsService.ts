@@ -2,6 +2,7 @@ import {
   detectLyricSourceType,
   mergeMissingLines,
   mergeTranslation,
+  mergeRomanization,
   parseLyricSource,
   type LyricLine,
   type LyricResponse,
@@ -34,12 +35,25 @@ function parseEmbeddedLyrics(content: string): LyricLine[] {
   });
 }
 
+/** 手动/本地词是当前歌曲的权威输入，绝不写入自动匹配缓存。 */
+export function getLocalLyricsOverride(music: MusicInfo): LyricResponse | null {
+  if (music.localLyrics === undefined) return null;
+  // 空白字符串表示用户主动清空，仍是权威覆盖，不能回退到自动歌词。
+  if (!music.localLyrics.trim()) return { lines: [] };
+  const lines = mergeRomanization(
+    mergeTranslation(parseEmbeddedLyrics(music.localLyrics), music.localLyricsTranslation),
+    music.localLyricsRomanization,
+  );
+  return lines.length ? { lines } : { lines: [], error: '本地歌词无法解析' };
+}
+
 function parseProviderLyrics(lyricResult: {
   lyric?: string;
   yrc?: string;
   qrc?: string;
   krc?: string;
   tlyric?: string;
+  romaLyric?: string;
 }): LyricLine[] {
   let lines: LyricLine[] = [];
   if (lyricResult.yrc) {
@@ -54,7 +68,7 @@ function parseProviderLyrics(lyricResult: {
   } else if (lyricResult.lyric) {
     lines = parseLyricSource({ type: 'auto', content: lyricResult.lyric });
   }
-  return mergeTranslation(lines, lyricResult.tlyric);
+  return mergeRomanization(mergeTranslation(lines, lyricResult.tlyric), lyricResult.romaLyric);
 }
 
 async function fetchNeteaseJson(url: string): Promise<any> {
@@ -102,6 +116,9 @@ function dedupeMusicCandidates(list: MusicInfo[]): MusicInfo[] {
 
 /** 单曲拉取（不含跨 variant 回退）；结果写入该曲自己的缓存键。 */
 async function getLyricsForSingle(music: MusicInfo): Promise<LyricResponse> {
+  const override = getLocalLyricsOverride(music);
+  if (override) return override;
+
   if (!music.id) {
     return { lines: [], error: '歌曲信息不完整' };
   }
@@ -129,9 +146,6 @@ async function getLyricsForSingle(music: MusicInfo): Promise<LyricResponse> {
       if ('lyrics' in music && music.lyrics) {
         const lyricFormat = normalizeLyricFormat((music as { lyricFormat?: string }).lyricFormat);
         const lines = parseLyricSource({ type: lyricFormat, content: String(music.lyrics) });
-        result = lines.length > 0 ? { lines } : { lines: [], error: '暂无歌词' };
-      } else if ('localLyrics' in music && (music as { localLyrics?: string }).localLyrics) {
-        const lines = parseEmbeddedLyrics(String((music as { localLyrics?: string }).localLyrics));
         result = lines.length > 0 ? { lines } : { lines: [], error: '暂无歌词' };
       } else {
         result = await searchAndMatchLyrics(music);
@@ -177,6 +191,9 @@ export async function getLyrics(
   music: MusicInfo,
   variants?: MusicInfo[],
 ): Promise<LyricResponse> {
+  const override = getLocalLyricsOverride(music);
+  if (override) return override;
+
   if (!music.id) {
     return { lines: [], error: '歌曲信息不完整' };
   }
@@ -360,6 +377,7 @@ async function searchAndMatchLyrics(music: MusicInfo): Promise<LyricResponse> {
           lyric: lyricData.lrc?.lyric,
           yrc: lyricData.yrc?.lyric,
           tlyric: lyricData.tlyric?.lyric,
+      romaLyric: lyricData.romalrc?.lyric ?? lyricData.yromalrc?.lyric,
         });
         if (lines.length === 0) continue;
 
@@ -387,6 +405,7 @@ async function searchAndMatchLyrics(music: MusicInfo): Promise<LyricResponse> {
       lyric: lyricData.lrc?.lyric,
       yrc: lyricData.yrc?.lyric,
       tlyric: lyricData.tlyric?.lyric,
+      romaLyric: lyricData.romalrc?.lyric ?? lyricData.yromalrc?.lyric,
     });
     return lines.length > 0 ? { lines } : { lines: [], error: '暂无歌词' };
   } catch (error) {

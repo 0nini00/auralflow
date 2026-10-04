@@ -490,3 +490,55 @@ pub fn clear_song_cache(app: AppHandle) -> Result<SongCacheStats, String> {
     }
     song_cache_stats(&app)
 }
+
+
+/// 用户明确选择的封面属于资料，不参与自动缓存淘汰或清空。
+#[tauri::command]
+pub fn save_manual_cover(app: AppHandle, data_url: String) -> Result<String, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("manual-covers");
+    write_manual_cover(&dir, &data_url).map(|path| path.to_string_lossy().into_owned())
+}
+
+fn write_manual_cover(dir: &Path, data_url: &str) -> Result<PathBuf, String> {
+    use base64::Engine;
+    const MAX_BYTES: usize = 10 * 1024 * 1024;
+    let (header, encoded) = data_url.split_once(',').ok_or("封面必须是图片Data URL")?;
+    let (extension, prefix): (&str, &[u8]) = match header {
+        "data:image/png;base64" => ("png", b"\x89PNG\r\n\x1a\n"),
+        "data:image/jpeg;base64" => ("jpg", b"\xff\xd8\xff"),
+        "data:image/gif;base64" => ("gif", b"GIF8"),
+        "data:image/bmp;base64" => ("bmp", b"BM"),
+        "data:image/webp;base64" => ("webp", b"RIFF"),
+        _ => return Err("不支持的封面图片类型".into()),
+    };
+    if encoded.len() > (MAX_BYTES + 2) / 3 * 4 { return Err("封面超过10MB".into()); }
+    let bytes = base64::engine::general_purpose::STANDARD.decode(encoded).map_err(|e| format!("封面解码失败: {}", e))?;
+    if bytes.len() > MAX_BYTES || !bytes.starts_with(prefix)
+        || (extension == "webp" && bytes.get(8..12) != Some(b"WEBP")) {
+        return Err("封面内容或大小无效".into());
+    }
+    std::fs::create_dir_all(dir).map_err(|e| format!("创建封面资料目录失败: {}", e))?;
+    let name = format!("{:x}.{}", md5::compute(&bytes), extension);
+    let output = dir.join(&name);
+    let temporary = dir.join(format!("{}.{}.tmp", name, unique_temp_suffix()));
+    let mut guard = TempFileGuard::new(temporary.clone());
+    let mut file = std::fs::File::create(&temporary).map_err(|e| e.to_string())?;
+    file.write_all(&bytes).map_err(|e| e.to_string())?;
+    file.sync_all().map_err(|e| e.to_string())?;
+    drop(file);
+    std::fs::rename(&temporary, &output).map_err(|e| format!("保存手动封面失败: {}", e))?;
+    guard.disarm();
+    Ok(output)
+}
+
+#[cfg(test)]
+mod manual_cover_tests {
+    use super::*;
+    #[test]
+    fn rejects_active_content_and_wrong_image_magic() {
+        let dir = std::env::temp_dir().join(format!("auralflow-manual-cover-{}", unique_temp_suffix()));
+        assert!(write_manual_cover(&dir, "data:image/svg+xml;base64,PHN2Zy8+").is_err());
+        assert!(write_manual_cover(&dir, "data:image/png;base64,bm90IGEgcG5n").is_err());
+        assert!(!dir.exists());
+    }
+}

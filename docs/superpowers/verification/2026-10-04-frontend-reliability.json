@@ -1,0 +1,15 @@
+{
+  "scope": "desktop frontend reliability",
+  "desktopTests": 389,
+  "coreTests": 131,
+  "typecheck": "passed",
+  "mobileLint": {
+    "errors": 0,
+    "existingWarnings": 2
+  },
+  "desktopBuild": "passed",
+  "browserSmoke": "passed; immersive preview with demo data, multiple viewport sizes and interactive menus",
+  "review": "identified lifecycle and focus issues repaired and re-reviewed",
+  "realAccountOrDownloadE2E": "not run",
+  "gitCommit": "not requested; no commit"
+}

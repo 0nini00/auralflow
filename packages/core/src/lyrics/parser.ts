@@ -1,5 +1,11 @@
+import { normalizeRubyLine, type LyricRubySegment } from './annotations';
+export type { LyricRubySegment } from './annotations';
+
 export interface LyricWord {
   text: string;
+  /** 仅来源明确标记的读音，不自动生成。 */
+  reading?: string;
+  ruby?: LyricRubySegment[];
   /** 绝对开始时间（秒） */
   start: number;
   /** 持续时长（秒） */
@@ -13,6 +19,10 @@ export interface LyricLine {
   words?: LyricWord[];
   /** 译文行 */
   tr?: string;
+  /** 独立罗马音轨按时间对齐后的行。 */
+  roma?: string;
+  /** 完整有序注音片段，连接 text 等于本行 text。 */
+  ruby?: LyricRubySegment[];
 }
 
 export interface LyricResponse {
@@ -40,7 +50,7 @@ function parseTimestamp(minute: string, second: string, fraction = '0'): number 
 }
 
 function sortLines(lines: LyricLine[]): LyricLine[] {
-  return lines.sort((a, b) => a.time - b.time);
+  return lines.map(normalizeRubyLine).sort((a, b) => a.time - b.time);
 }
 
 function stripInlineTimeTags(value: string): string {
@@ -323,7 +333,7 @@ export function parseVtt(vtt: string): LyricLine[] {
     if (timingIndex < 0) continue;
     const timing = timingRe.exec(lines[timingIndex]);
     if (!timing) continue;
-    const text = lines.slice(timingIndex + 1).join(' ').replace(/<[^>]+>/g, '').trim();
+    const text = lines.slice(timingIndex + 1).join(' ').replace(/<(?!\/?(?:ruby|rt|rb|rp)(?:\s|>))[^>]+>/gi, '').trim();
     if (!text) continue;
     result.push({ time: parseVttTimestamp(timing[1]), text });
   }
@@ -419,4 +429,22 @@ export function mergeMissingLines(primaryLines: LyricLine[], fallbackLines: Lyri
     if (!found) merged.push(fallback);
   }
   return sortLines(merged);
+}
+
+/** 仅合并独立罗马音轨；不从原文的同时间多行推断读音。 */
+export function mergeRomanization(lines: LyricLine[], romaLyric?: string): LyricLine[] {
+  if (!romaLyric?.trim()) return lines;
+  const readings = parseLyricSource({ type: 'auto', content: romaLyric });
+  return lines.map(line => {
+    let nearest: LyricLine | undefined;
+    let distance = STRICT_LINE_TIME_TOLERANCE_MS + 1;
+    for (const reading of readings) {
+      const drift = Math.abs(Math.round(reading.time * 1000) - Math.round(line.time * 1000));
+      if (drift <= STRICT_LINE_TIME_TOLERANCE_MS && drift < distance) {
+        nearest = reading;
+        distance = drift;
+      }
+    }
+    return nearest ? { ...line, roma: nearest.text } : line;
+  });
 }

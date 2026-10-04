@@ -11,7 +11,6 @@ import { formatDuration } from "@/lib/utils";
 import { formatPlaylistSearchMeta } from "@/services/neteasePlaylistUtils";
 import { ROW_COVER_CSS_SIZE, coverSrc } from "@/utils/imageReferrerPolicy";
 import {
-  countSearchResults,
   createEmptySearchResult,
   mergeSearchResultInto,
   SEARCH_ALL_TYPES,
@@ -24,7 +23,7 @@ import {
   recordSearchKeyword,
   type SearchSuggestion,
 } from "@/services/search/searchSuggestions";
-import type { MusicInfo, PlaylistInfo, ArtistInfo, AlbumInfo, SearchResult, SearchType } from "@lx/core";
+import type { MusicInfo, PlaylistInfo, ArtistInfo, AlbumInfo, SearchResult } from "@lx/core";
 import {
   getSearchHistory,
   addSearchHistory,
@@ -143,14 +142,24 @@ function buildImportedPlaylistMarker(playlist: PlaylistInfo): string {
   return `[af-imported-playlist:${playlist.source}:${playlist.id}]`;
 }
 
+type BrowseSearchType = (typeof SEARCH_ALL_TYPES)[number];
+interface SearchCategoryStatus {
+  type: BrowseSearchType;
+  succeeded: number;
+  errors: string[];
+}
+interface CategorizedSearchResult extends SearchResult {
+  categories: SearchCategoryStatus[];
+}
+
 async function searchAllSources(
   keyword: string,
-  type: SearchType,
-): Promise<SearchResult> {
+  type: BrowseSearchType,
+): Promise<SearchCategoryStatus & { result: SearchResult }> {
   const providers = [registry.get("wy"), registry.get("tx")]
     .filter((provider) => provider?.supportedSearchTypes.includes(type));
   const settled = await Promise.allSettled(
-    providers.map((provider) => provider!.search(keyword, type, 1)),
+    providers.map((provider) => Promise.resolve().then(() => provider!.search(keyword, type, 1))),
   );
   const result: SearchResult = { songs: [], playlists: [], artists: [], albums: [] };
   const seen = new Set<string>();
@@ -191,42 +200,21 @@ async function searchAllSources(
     }
   }
 
-  const totalCount =
-    (result.songs?.length ?? 0) +
-    (result.playlists?.length ?? 0) +
-    (result.artists?.length ?? 0) +
-    (result.albums?.length ?? 0);
-
-  if (totalCount === 0 && errors.length > 0) {
-    throw new Error(errors.join("；"));
-  }
-
-  return result;
+  if (providers.length === 0) errors.push("该分类暂无可用音源");
+  return { type, result, errors, succeeded: settled.filter((item) => item.status === "fulfilled").length };
 }
 
-async function searchMergedSources(
-  keyword: string,
-): Promise<{ result: SearchResult; warnings: string[] }> {
+async function searchMergedSources(keyword: string): Promise<CategorizedSearchResult> {
+  const categories = await Promise.all(SEARCH_ALL_TYPES.map((type) => searchAllSources(keyword, type)));
+  if (categories.every((category) => category.succeeded === 0)) {
+    throw new Error(categories.flatMap((category) => category.errors).join("；"));
+  }
   const result = createEmptySearchResult();
-  const errors: string[] = [];
-  const settled = await Promise.allSettled(
-    SEARCH_ALL_TYPES.map((type) => searchAllSources(keyword, type)),
-  );
-
-  for (const item of settled) {
-    if (item.status === "rejected") {
-      errors.push(item.reason instanceof Error ? item.reason.message : String(item.reason));
-      continue;
-    }
-    mergeSearchResultInto(result, item.value);
-  }
-
-  if (countSearchResults(result) === 0 && errors.length > 0) {
-    throw new Error(errors.join("；"));
-  }
-
-  // 有结果时把部分音源失败作为 warnings，不整页失败
-  return { result, warnings: countSearchResults(result) > 0 ? errors : [] };
+  for (const category of categories) mergeSearchResultInto(result, category.result);
+  return {
+    ...result,
+    categories: categories.map(({ type, succeeded, errors }) => ({ type, succeeded, errors })),
+  };
 }
 
 export function SearchView() {
@@ -245,6 +233,7 @@ export function SearchView() {
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [onlineSuggestions, setOnlineSuggestions] = useState<SearchSuggestion[]>([]);
   const [searchError, setSearchError] = useState("");
+  const [searchCategories, setSearchCategories] = useState<SearchCategoryStatus[]>([]);
 
   const [actionStatus, setActionStatus] = useState("");
 
@@ -292,7 +281,8 @@ export function SearchView() {
 
     if (options?.preferCache) {
       const cached = searchResultCache.get(searchKey);
-      if (cached) {
+      // 旧缓存没有分类状态时重新查询，不能将未完成的分类伪装为成功空结果。
+      if (cached && "categories" in cached.result) {
         const restoredFilter = isResultFilter(cached.activeFilter) ? cached.activeFilter : "overview";
         searchRequestSeqRef.current += 1;
         lastStartedSearchKeyRef.current = searchKey;
@@ -306,6 +296,7 @@ export function SearchView() {
         setSearched(true);
         setSearchError("");
         setActiveResultFilter(restoredFilter);
+        setSearchCategories((cached.result as CategorizedSearchResult).categories);
         applySearchResult(cached.result);
         return;
       }
@@ -336,6 +327,7 @@ export function SearchView() {
     setSearched(true);
 
     setSearchError("");
+    setSearchCategories([]);
 
     setSongResults([]);
 
@@ -344,15 +336,14 @@ export function SearchView() {
     setAlbumResults([]);
 
     try {
-      const { result: res, warnings } = await searchMergedSources(trimmed);
+      const res = await searchMergedSources(trimmed);
       if (requestId !== searchRequestSeqRef.current) return;
       searchResultCache.set(searchKey, {
         result: res,
         activeFilter: activeResultFilterRef.current,
       });
       applySearchResult(res);
-      // 部分音源失败：有结果时用轻提示，不挡列表
-      setSearchError(warnings.length > 0 ? `部分音源未返回：${warnings[0]}` : "");
+      setSearchCategories(res.categories);
     } catch (error) {
       if (requestId !== searchRequestSeqRef.current) return;
       setSearchError(error instanceof Error ? error.message : String(error));
@@ -516,6 +507,12 @@ export function SearchView() {
   const activeResultFilterLabel =
     SEARCH_RESULT_FILTERS.find((filter) => filter.id === activeResultFilter)?.label ?? "相关内容";
   const visibleResultCount = resultFilterCounts[activeResultFilter];
+  const selectedCategories = searchCategories.filter((category) =>
+    activeResultFilter === "overview" || category.type === (activeResultFilter === "artist" ? "singer" : activeResultFilter),
+  );
+  const categoryErrors = selectedCategories.flatMap((category) => category.errors);
+  const categoryFailed = selectedCategories.length > 0 && selectedCategories.every((category) => category.succeeded === 0);
+  const retrySearch = () => { void handleSearch(lastStartedSearchKeyRef.current ?? query); };
   const showOverview = activeResultFilter === "overview";
   const showArtistResults = activeResultFilter === "artist";
   const showAlbumResults = activeResultFilter === "album";
@@ -689,13 +686,23 @@ export function SearchView() {
         <div className="af-empty-state">
           <p>搜索失败</p>
           <span>{searchError}</span>
+          <button type="button" className="af-btn-secondary" onClick={retrySearch}>重试</button>
         </div>
       )}
 
-      {!loading && searched && !searchError && visibleResultCount === 0 && (
+      {!loading && !searchError && categoryErrors.length > 0 && (
+        <div className="af-page-feedback" role="status">
+          <strong>{categoryFailed ? `${activeResultFilterLabel}搜索失败` : "部分搜索结果加载失败"}</strong>
+          <span>{categoryErrors.join("；")}</span>
+          <button type="button" className="af-btn-secondary" onClick={retrySearch}>重试</button>
+        </div>
+      )}
+
+      {!loading && searched && !searchError && categoryErrors.length === 0 && visibleResultCount === 0 && (
         <div className="af-empty-state">
           <p>{activeResultFilter === "overview" ? "没有找到相关内容" : `没有找到${activeResultFilterLabel}`}</p>
           <span>可以换个关键词试试</span>
+          <button type="button" className="af-btn-secondary" onClick={retrySearch}>重试</button>
         </div>
       )}
 

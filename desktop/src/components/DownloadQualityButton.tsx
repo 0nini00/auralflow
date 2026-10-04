@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { Download, Headphones } from "lucide-react";
@@ -46,19 +46,18 @@ function getMenuPosition(target: HTMLElement) {
  * 长列表整表共用一个实例即可，不必每行各建一份状态与 store 订阅。
  */
 export function DownloadQualityMenu({ song, anchor, onClose }: DownloadQualityMenuProps) {
+  const menuId = useId();
   const [position] = useState(() => getMenuPosition(anchor));
   const [pendingQuality, setPendingQuality] = useState<DownloadQuality | null>(null);
   const [error, setError] = useState("");
   const menuRef = useRef<HTMLDivElement | null>(null);
   const onCloseRef = useRef(onClose);
-  const anchorRef = useRef(anchor);
   const songKey = `${song.source}:${song.id}`;
   const addDownload = useDownloadStore((s) => s.addDownload);
 
   useEffect(() => {
     onCloseRef.current = onClose;
-    anchorRef.current = anchor;
-  }, [anchor, onClose]);
+  }, [onClose]);
 
   useEffect(() => {
     setPendingQuality(null);
@@ -66,16 +65,23 @@ export function DownloadQualityMenu({ song, anchor, onClose }: DownloadQualityMe
   }, [songKey]);
 
   useEffect(() => {
-    // role="menu"：打开即把焦点交给首个可用项，Esc 关闭并把焦点交还触发按钮
+    // 归属由实际 anchor 声明，同时覆盖按钮封装与列表共享的受控菜单入口。
+    const previousControls = anchor.getAttribute("aria-controls");
+    anchor.setAttribute("aria-controls", previousControls ? `${previousControls} ${menuId}` : menuId);
+    // 先声明归属，再聚焦 portal，父弹窗才能将菜单纳入同一 Tab 序列。
     menuRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       onCloseRef.current();
-      anchorRef.current.focus();
+      anchor.focus();
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      if (previousControls === null) anchor.removeAttribute("aria-controls");
+      else anchor.setAttribute("aria-controls", previousControls);
+    };
+  }, [anchor, menuId]);
 
   const close = () => {
     setError("");
@@ -101,6 +107,7 @@ export function DownloadQualityMenu({ song, anchor, onClose }: DownloadQualityMe
       <div className="af-add-menu-backdrop" onClick={close} aria-hidden="true" />
       <div
         ref={menuRef}
+        id={menuId}
         className="af-dropdown-menu af-add-menu"
         role="menu"
         style={{ position: "fixed", top: position.top, left: position.left, width: MENU_WIDTH, zIndex: 9999 }}

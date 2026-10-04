@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import type { MusicInfo } from "@lx/core";
-import { getLyrics, type LyricLine } from "@/services/lyricsService";
+import { getLyrics, getLocalLyricsOverride, type LyricLine } from "@/services/lyricsService";
 import { findCurrentLyricLine } from "@/services/lyrics/playbackSync";
 
 export type { LyricLine };
@@ -52,6 +52,14 @@ export function useLyrics(music: MusicInfo | null, progress: number, offsetSec =
       return;
     }
 
+    const override = getLocalLyricsOverride(music);
+    if (override) {
+      setLyrics(override.lines);
+      setError(override.error ?? null);
+      setIsLoading(false);
+      return;
+    }
+
     let cancelled = false;
     const cachedLyrics = readCachedLyrics(music);
     if (cachedLyrics) {
@@ -98,7 +106,13 @@ export function useLyrics(music: MusicInfo | null, progress: number, offsetSec =
     return () => {
       cancelled = true;
     };
-  }, [music?.id, music?.source]);
+  }, [
+    music?.id,
+    music?.source,
+    music?.localLyrics,
+    music?.localLyricsTranslation,
+    music?.localLyricsRomanization,
+  ]);
 
   // 同步计算当前行，不经过 state（避免额外渲染延迟）
   const currentLine = useMemo(() => {

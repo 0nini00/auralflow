@@ -18,6 +18,7 @@ export function PersonalFmView() {
   const fmLoading = useDiscoveryStore((s) => s.fmLoading);
   const fmError = useDiscoveryStore((s) => s.fmError);
   const loadFm = useDiscoveryStore((s) => s.loadFm);
+  const resetFm = useDiscoveryStore((s) => s.fmReset);
   const fmNext = useDiscoveryStore((s) => s.fmNext);
   const fmDislike = useDiscoveryStore((s) => s.fmDislike);
 
@@ -31,6 +32,8 @@ export function PersonalFmView() {
 
   const [acting, setActing] = useState(false);
   const autoStartPending = useRef(false);
+  const initializedAccount = useRef<string | null | undefined>(undefined);
+  const accountUid = account?.uid ?? null;
 
   /** 拉下一首并播放；解析失败则继续跳，避免卡死链 */
   const playFmTrackWithFallback = async (first?: MusicInfo | null) => {
@@ -59,24 +62,25 @@ export function PersonalFmView() {
   );
   const hasExternalCurrent = Boolean(current && !currentIsFmTrack);
 
-  // 进入页面只准备推荐队列，不打断当前正在播放的普通歌曲。
+  // loading/空队列是请求结果，不是新的初始化事件；账号变化使旧队列请求失效。
   useEffect(() => {
-    if (!account) return;
-    if (fmQueue.length === 0 && !fmLoading) {
-      void loadFm();
-    }
-  }, [account, fmLoading, fmQueue.length, loadFm]);
+    if (!isWyLoaded || initializedAccount.current === accountUid) return;
+    if (initializedAccount.current !== undefined) resetFm();
+    initializedAccount.current = accountUid;
+    if (accountUid) void loadFm();
+  }, [accountUid, isWyLoaded, loadFm, resetFm]);
 
   // 如果当前已经是 FM 队列里的歌，只 soft 挂上 FM 模式，不要 stop 打断播放。
   useEffect(() => {
-    if (account && currentIsFmTrack && !fmMode) {
+    if (account && currentIsFmTrack && !fmMode && useDiscoveryStore.getState().fmQueue === fmQueue) {
       enterFmMode({ soft: true });
     }
-  }, [account, currentIsFmTrack, enterFmMode, fmMode]);
+  }, [accountUid, currentIsFmTrack, enterFmMode, fmMode, fmQueue]);
 
   // 没有当前播放时才自动起播；已有普通歌曲播放时等待用户显式开始。
   useEffect(() => {
-    if (!account || current || fmQueue.length === 0 || autoStartPending.current) return;
+    if (!accountUid || current || fmQueue.length === 0 || autoStartPending.current) return;
+    if (useDiscoveryStore.getState().fmQueue !== fmQueue) return;
 
     autoStartPending.current = true;
     void (async () => {
@@ -87,7 +91,7 @@ export function PersonalFmView() {
         autoStartPending.current = false;
       }
     })();
-  }, [account, current, enterFmMode, fmQueue.length]);
+  }, [accountUid, current, enterFmMode, fmQueue]);
 
   if (!isWyLoaded) {
     return (
@@ -164,7 +168,19 @@ export function PersonalFmView() {
     );
   }
 
-  if (fmQueue.length === 0 || !current) {
+  if (!fmLoading && fmQueue.length === 0) {
+    return (
+      <div className="af-fm-view">
+        <div className="af-empty-state">
+          <p>暂无推荐</p>
+          <span>暂时没有可用的私人 FM 曲目，请稍后重试。</span>
+          <button type="button" className="af-btn-primary" onClick={() => loadFm(true)}>重试</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (fmLoading || !current) {
     return (
       <div className="af-fm-view">
         <div className="af-empty-state">

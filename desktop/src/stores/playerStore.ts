@@ -1,3 +1,6 @@
+import { readLocalReplayGain } from "@/services/localMusicService";
+import { useLibraryStore } from "./libraryStore";
+import { createLocalPlaybackLookup, synchronizeLocalQueue } from "@/services/localPlaybackMetadata";
 import { create } from "zustand";
 import type { MusicInfo } from "@lx/core";
 import { playerEngine } from "@/services/playerEngine";
@@ -136,6 +139,7 @@ function invalidatePlayRequest() {
   activePlayRequestId += 1;
   inflightPlayRequest = null;
   engineTargetKey = null;
+  switchStepQueue = createSwitchStepQueueState();
 }
 
 function scheduleVolumePersist(volume: number) {
@@ -202,12 +206,21 @@ export function setPlaybackFailedAutoNext(value: unknown) {
   playbackFailedAutoNext = value === true;
 }
 
+const getLocalPlaybackMusic = createLocalPlaybackLookup(() => useLibraryStore.getState().localSongs);
+
 const syncEngineToStore = (set: any, get: any) => {
   /** Previous engine status: detect mid-play error vs resolve failure */
   let previousEngineStatus: PlayerStore["status"] | "idle" = "idle";
   let autoSkipTimer: ReturnType<typeof setTimeout> | null = null;
 
   playerEngine.subscribe((engineState) => {
+    if (engineState.currentMusic?.isLocal) {
+      const latest = getLocalPlaybackMusic(engineState.currentMusic);
+      if (latest !== engineState.currentMusic) {
+        playerEngine.updateCurrentMusic(latest);
+        return;
+      }
+    }
     const { isMuted, volume: storeVolume } = get() as PlayerStore;
     const prevStatus = previousEngineStatus;
     previousEngineStatus = engineState.status;
@@ -361,9 +374,17 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
           let playedMusic = music;
           // 检查是否为本地音乐
           if ('isLocal' in music && music.isLocal && 'url' in music && music.url) {
-            // 本地音乐直接使用已有的 URL
+            let localMusic = getLocalPlaybackMusic(music);
+            if (playerEngine.getReplayGainState().enabled && localMusic.localPath) {
+              localMusic = await readLocalReplayGain(localMusic);
+              if (requestId !== activePlayRequestId) return;
+              useLibraryStore.getState().updateSong(localMusic.id, {
+                replayGain: localMusic.replayGain, replayGainError: localMusic.replayGainError,
+              });
+              localMusic = getLocalPlaybackMusic(localMusic);
+            }
             if (requestId !== activePlayRequestId) return;
-            await playThroughEngine(music, music.url as string);
+            await playThroughEngine(localMusic, music.url as string);
             if (requestId !== activePlayRequestId) return;
             useHistoryStore.getState().add(music);
             void preloadNext(get).catch(() => undefined);
@@ -639,10 +660,21 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
     },
 
     pause: () => {
+      const { status, current } = get();
+      invalidatePlayRequest();
       playerEngine.pause();
+      if (status === "loading") {
+        set({ status: "paused", current, progress: 0, duration: 0, progressSampledAt: Date.now(), error: null });
+      }
     },
 
     resume: () => {
+      const current = get().current;
+      const loaded = playerEngine.getState().currentMusic;
+      if (current && (!loaded || buildPlayRequestKey(current) !== buildPlayRequestKey(loaded))) {
+        void get().play(current).catch(() => undefined);
+        return;
+      }
       playerEngine.resume();
     },
 
@@ -980,4 +1012,16 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
       set({ fmMode: false });
     },
   };
+});
+
+
+// 保存本机资料后立即更新播放条/歌词与既有队列；实际音频保持原位置。
+useLibraryStore.subscribe((state, previous) => {
+  if (state.localSongs === previous.localSongs) return;
+  const player = usePlayerStore.getState();
+  const current = player.current ? getLocalPlaybackMusic(player.current) : null;
+  const queue = synchronizeLocalQueue(player.queue, getLocalPlaybackMusic);
+  if (current === player.current && queue === player.queue) return;
+  usePlayerStore.setState({ current, queue });
+  if (current && current !== player.current) playerEngine.updateCurrentMusic(current);
 });

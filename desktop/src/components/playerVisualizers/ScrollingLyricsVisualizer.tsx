@@ -1,3 +1,4 @@
+import { LyricText, LyricRomanization } from './LyricAnnotations';
 import type { CSSProperties } from 'react';
 import { useLyricAutoScroll } from '@/hooks/useLyricAutoScroll';
 import { calculateLyricLineProgress } from '@/services/lyrics/playbackSync';
@@ -11,17 +12,18 @@ function getWordProgress(word: LyricWord, currentTime: number): number {
   return (currentTime - word.start) / word.dur;
 }
 
-function renderKaraokeWord(word: LyricWord, currentTime: number, key: number) {
+function renderKaraokeWord(word: LyricWord, currentTime: number, key: number, showRuby: boolean) {
   const progress = getWordProgress(word, currentTime);
   const percent = Math.min(100, Math.max(0, Math.round(progress * 1000) / 10));
   return (
     <span key={key} className="af-scrolling-karaoke-word">
-      <span className="af-scrolling-karaoke-word-base">{word.text}</span>
+      <span className="af-scrolling-karaoke-word-base"><LyricText {...word} showRuby={showRuby} /></span>
       <span
         className="af-scrolling-karaoke-word-fill"
+        aria-hidden="true"
         style={{ clipPath: `inset(0 ${100 - percent}% 0 0)` }}
       >
-        {word.text}
+        <LyricText {...word} showRuby={showRuby} />
       </span>
     </span>
   );
@@ -39,13 +41,15 @@ export function ScrollingLyricsVisualizer({
   currentTime,
   isPlaying,
   showTranslation,
+  showRomanization = false,
+  showRuby = false,
   layoutKey,
 }: PlayerVisualizerProps) {
   const trackKey = `${currentTrack?.source ?? ''}:${currentTrack?.id ?? ''}`;
   const bindings = useLyricAutoScroll({
     currentLineIndex: currentLyricIndex,
     contentKey: buildContentKey(trackKey, lyrics),
-    layoutKey: `${layoutKey}:${lyrics.length}`,
+    layoutKey: `${layoutKey}:${lyrics.length}:${showRuby}:${showRomanization}`,
     isPlaying,
   });
 
@@ -85,9 +89,10 @@ export function ScrollingLyricsVisualizer({
               style={{ '--af-scrolling-lyric-progress': lineProgressPercent } as CSSProperties}
             >
               {karaokeWords
-                ? karaokeWords.map((word, wordIndex) => renderKaraokeWord(word, currentTime, wordIndex))
-                : getLyricDisplayText(line)}
+                ? karaokeWords.map((word, wordIndex) => renderKaraokeWord(word, currentTime, wordIndex, showRuby))
+                : <LyricText {...line} text={getLyricDisplayText(line)} showRuby={showRuby} />}
             </div>
+            <LyricRomanization text={line.roma} show={showRomanization} />
             {showTranslation && line.tr && (
               <div className="af-scrolling-lyric-translation">{line.tr}</div>
             )}

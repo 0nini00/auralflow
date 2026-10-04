@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useDialogFocus } from '@/hooks/useDialogFocus';
 import { usePlaylistStore } from '@/stores/playlistStore';
 import { useFavoritesStore } from '@/stores/favoritesStore';
 import { useHistoryStore } from '@/stores/historyStore';
@@ -48,6 +49,25 @@ export function PlaylistsView() {
   const [importLink, setImportLink] = useState('');
   const [importLinkName, setImportLinkName] = useState('');
   const [importLinkBusy, setImportLinkBusy] = useState(false);
+  const importRequest = useRef<symbol | null>(null);
+  const createDialogRef = useRef<HTMLDivElement>(null);
+  const importDialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => () => { importRequest.current = null; }, []);
+
+  const closeCreateDialog = () => {
+    setShowCreateDialog(false);
+    setEditingPlaylist(null);
+  };
+
+  const closeImportLinkDialog = () => {
+    importRequest.current = null;
+    setImportLinkBusy(false);
+    setShowImportLinkDialog(false);
+  };
+
+  useDialogFocus({ open: showCreateDialog, containerRef: createDialogRef, onClose: closeCreateDialog });
+  useDialogFocus({ open: showImportLinkDialog, containerRef: importDialogRef, onClose: closeImportLinkDialog });
 
   const myWyPlaylists = wyPlaylists.filter((p) => !p.subscribed);
   const collectedWyPlaylists = wyPlaylists.filter((p) => p.subscribed);
@@ -121,21 +141,27 @@ export function PlaylistsView() {
   };
 
   const handleImportLink = async () => {
-    if (importLinkBusy) return;
+    if (importRequest.current) return;
+    const request = Symbol('playlist-link-import');
+    importRequest.current = request;
     setImportLinkBusy(true);
     try {
       const { songs } = await fetchPlaylistSongsFromLink(importLink);
+      if (importRequest.current !== request) return;
       const name = importLinkName.trim() || '导入的歌单';
       const playlist = importPlaylist(name, undefined, songs);
       setTransferStatus(`已从链接导入「${name}」（${songs.length} 首）`);
-      setShowImportLinkDialog(false);
+      closeImportLinkDialog();
       setImportLink('');
       setImportLinkName('');
       void navigate(`/playlist/${playlist.id}`);
     } catch (error) {
-      setTransferStatus(error instanceof Error ? error.message : String(error));
+      if (importRequest.current === request) setTransferStatus(error instanceof Error ? error.message : String(error));
     } finally {
-      setImportLinkBusy(false);
+      if (importRequest.current === request) {
+        importRequest.current = null;
+        setImportLinkBusy(false);
+      }
     }
   };
 
@@ -381,9 +407,11 @@ export function PlaylistsView() {
                 key={playlist.id}
                 className="af-playlist-card"
               >
-                <div
+                <Link
                   className="af-playlist-cover-wrap"
-                  onClick={() => navigate(`/playlist/${playlist.id}`)}
+                  to={`/playlist/${playlist.id}`}
+                  aria-label={`打开歌单 ${playlist.name}`}
+                  style={{ display: 'block', color: 'inherit', textDecoration: 'none' }}
                 >
                   <PlaylistCover src={playlist.cover} name={playlist.name} />
                   <div className="af-playlist-overlay">
@@ -391,14 +419,13 @@ export function PlaylistsView() {
                       <Music size={22} />
                     </span>
                   </div>
-                </div>
+                </Link>
 
                 <div className="af-playlist-info af-local-playlist-info">
-                  <h3
-                    className="af-playlist-name"
-                    onClick={() => navigate(`/playlist/${playlist.id}`)}
-                  >
-                    {playlist.name}
+                  <h3 className="af-playlist-name">
+                    <Link to={`/playlist/${playlist.id}`} style={{ color: 'inherit', textDecoration: 'none' }}>
+                      {playlist.name}
+                    </Link>
                   </h3>
                   <p className="af-playlist-meta">
                     {playlist.songs.length} 首 · {formatDate(playlist.updatedAt)}
@@ -450,8 +477,9 @@ export function PlaylistsView() {
       </section>
 
       {(showCreateDialog) && (
-        <div className="af-dialog-overlay" onClick={() => { setShowCreateDialog(false); setEditingPlaylist(null); }}>
-          <div className="af-dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="af-dialog-overlay" onClick={closeCreateDialog}>
+          <div ref={createDialogRef} className="af-dialog" role="dialog" aria-modal={true}
+            aria-label={editingPlaylist ? '编辑歌单' : '创建歌单'} onClick={(e) => e.stopPropagation()}>
             <h2>{editingPlaylist ? '编辑歌单' : '创建歌单'}</h2>
             <div className="af-dialog-body">
               <div className="af-form-group">
@@ -481,7 +509,7 @@ export function PlaylistsView() {
             <div className="af-dialog-actions">
               <button
                 className="af-btn-secondary"
-                onClick={() => { setShowCreateDialog(false); setEditingPlaylist(null); }}
+                onClick={closeCreateDialog}
               >
                 取消
               </button>
@@ -499,8 +527,9 @@ export function PlaylistsView() {
       {(showImportLinkDialog) && (() => {
         const parsed = importLink.trim() ? parsePlaylistLink(importLink) : null;
         return (
-          <div className="af-dialog-overlay" onClick={() => setShowImportLinkDialog(false)}>
-            <div className="af-dialog" onClick={(e) => e.stopPropagation()}>
+          <div className="af-dialog-overlay" onClick={closeImportLinkDialog}>
+            <div ref={importDialogRef} className="af-dialog" role="dialog" aria-modal={true}
+              aria-label="从链接导入歌单" onClick={(e) => e.stopPropagation()}>
               <h2>从链接导入歌单</h2>
               <div className="af-dialog-body">
                 <div className="af-form-group">
@@ -536,7 +565,7 @@ export function PlaylistsView() {
                 </div>
               </div>
               <div className="af-dialog-actions">
-                <button className="af-btn-secondary" onClick={() => setShowImportLinkDialog(false)}>
+                <button className="af-btn-secondary" onClick={closeImportLinkDialog}>
                   取消
                 </button>
                 <button

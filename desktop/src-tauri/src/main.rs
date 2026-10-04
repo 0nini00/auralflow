@@ -199,6 +199,7 @@ pub fn run() {
             outbound::proxy_http_request,
             commands::cache_remote_audio,
             commands::cache_remote_image,
+            commands::save_manual_cover,
             commands::lookup_cached_media,
             commands::get_song_cache_stats,
             commands::clear_song_cache,
@@ -218,6 +219,7 @@ pub fn run() {
             // 本地音频
             commands::scan_directory,
             commands::get_audio_info,
+            commands::get_audio_replay_gain,
             commands::set_audio_metadata,
             commands::set_audio_cover,
             commands::set_audio_lyrics,

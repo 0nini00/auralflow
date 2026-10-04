@@ -1,4 +1,5 @@
 import type { MusicInfo } from "@lx/core";
+import { calculateReplayGain, LocalReplayGainOutput, type ReplayGainState } from "./replayGain";
 import { isPreviewDuration } from "@lx/core";
 import {
   normalizePauseOnExternalPlayback,
@@ -30,7 +31,11 @@ type EndedListener = () => void;
 type PreviewListener = (duration: number) => void;
 
 class PlayerEngine {
-  private audio = new Audio();
+  private readonly directAudio = new Audio();
+  private audio = this.directAudio;
+  private localOutput: LocalReplayGainOutput | null = null;
+  private replayGainEnabled = false;
+  private loadVersion = 0;
   private preloadAudio: HTMLAudioElement | null = null;
   private preloadedUrl: string | null = null;
   private state: PlayerEngineState = {
@@ -57,10 +62,19 @@ class PlayerEngine {
   private internalPauseGuardUntil = 0;
 
   constructor() {
-    this.audio.volume = this.state.volume;
-    this.audio.playbackRate = this.state.playbackRate;
+    this.bindAudioEvents(this.audio);
+  }
 
-    this.audio.addEventListener("loadedmetadata", () => {
+  private bindAudioEvents(audio: HTMLAudioElement): void {
+    const on = (event: string, listener: () => void) => {
+      audio.addEventListener(event, () => {
+        if (audio === this.audio) listener();
+      });
+    };
+    audio.volume = this.state.volume;
+    audio.playbackRate = this.state.playbackRate;
+
+    on("loadedmetadata", () => {
       const duration = this.audio.duration || 0;
       this.patchState({ duration });
       // 试听兜底：解析期拿不到长度头的流式响应靠播放器实际时长判定（见 @lx/core stream-integrity）
@@ -73,16 +87,16 @@ class PlayerEngine {
       }
     });
 
-    this.audio.addEventListener("timeupdate", () => {
+    on("timeupdate", () => {
       this.patchState({ currentTime: this.audio.currentTime || 0 });
     });
 
-    this.audio.addEventListener("play", () => {
+    on("play", () => {
       this.startProgressLoop();
       this.patchState({ status: "playing", currentTime: this.audio.currentTime || 0 });
     });
 
-    this.audio.addEventListener("pause", () => {
+    on("pause", () => {
       const wasPlayingBeforePause = this.state.status === "playing";
       this.stopProgressLoop();
       if (shouldResumeAfterExternalPause({
@@ -106,13 +120,13 @@ class PlayerEngine {
       }
     });
 
-    this.audio.addEventListener("ended", () => {
+    on("ended", () => {
       this.stopProgressLoop();
       this.patchState({ status: "idle", currentTime: 0 });
       this.endedListeners.forEach((l) => l());
     });
 
-    this.audio.addEventListener("error", () => {
+    on("error", () => {
       const error = this.audio.error
         ? `播放失败（code: ${this.audio.error.code}）`
         : "播放失败";
@@ -148,11 +162,54 @@ class PlayerEngine {
     this.pauseOnExternalPlayback = normalizePauseOnExternalPlayback(value);
   }
 
+  getReplayGainState(): ReplayGainState {
+    return calculateReplayGain(this.replayGainEnabled, this.state.currentMusic);
+  }
+
+  setReplayGainEnabled(enabled: boolean): void {
+    this.replayGainEnabled = enabled === true;
+    this.localOutput?.setGain(this.getReplayGainState().gain);
+    this.patchState({});
+  }
+
+  /** 曲库资料变化只更新元信息，不能重新启动歌曲或重置进度。 */
+  updateCurrentMusic(music: MusicInfo): void {
+    const current = this.state.currentMusic;
+    if (!current || current.id !== music.id || current.source !== music.source) return;
+    this.localOutput?.setGain(calculateReplayGain(this.replayGainEnabled, music).gain);
+    this.patchState({ currentMusic: music });
+  }
+
+  private async selectAudio(music: MusicInfo): Promise<HTMLAudioElement> {
+    if (!music.isLocal || music.source !== "local") return this.directAudio;
+    if (!this.localOutput) {
+      this.localOutput = new LocalReplayGainOutput();
+      this.bindAudioEvents(this.localOutput.audio);
+    }
+    await this.localOutput.ready();
+    return this.localOutput.audio;
+  }
+
   async load(music: MusicInfo, url: string, assertPlaybackAllowed?: () => void): Promise<void> {
+    const version = ++this.loadVersion;
+    const assertCurrent = () => { if (version !== this.loadVersion) throw new Error("播放加载已被更新的操作取消"); };
     assertPlaybackAllowed?.();
     await this.fadeOut();
-    // 淡出会让出执行权，源地址尚未交给媒体元素前必须重新确认许可。
+    // 本地增益输出初始化可能让出执行权；源交给媒体元素前再次确认许可。
+    assertCurrent();
+    const nextAudio = await this.selectAudio(music);
+    assertCurrent();
     assertPlaybackAllowed?.();
+    if (nextAudio !== this.audio) {
+      const previous = this.audio;
+      this.audio = nextAudio;
+      previous.pause();
+      previous.removeAttribute("src");
+      previous.load();
+    }
+    this.audio.volume = this.state.volume;
+    this.audio.playbackRate = this.state.playbackRate;
+    this.localOutput?.setGain(calculateReplayGain(this.replayGainEnabled, music).gain);
     this.patchState({
       currentMusic: music,
       currentUrl: url,
@@ -168,19 +225,24 @@ class PlayerEngine {
   }
 
   async play(music: MusicInfo, url: string, assertPlaybackAllowed?: () => void): Promise<void> {
+    const version = this.loadVersion + 1;
     try {
       await this.load(music, url, assertPlaybackAllowed);
+      if (version !== this.loadVersion) throw new Error("播放加载已被更新的操作取消");
       assertPlaybackAllowed?.();
       await this.audio.play();
     } catch (error) {
-      this.cancelFade();
-      this.audio.volume = this.state.volume;
+      if (version === this.loadVersion) {
+        this.cancelFade();
+        this.audio.volume = this.state.volume;
+      }
       throw error;
     }
-    void this.fadeIn();
+    if (version === this.loadVersion) void this.fadeIn();
   }
 
   pause(): void {
+    this.loadVersion += 1;
     this.cancelFade();
     this.audio.volume = this.state.volume;
     this.markInternalPause();
@@ -211,6 +273,7 @@ class PlayerEngine {
   }
 
   stop(): void {
+    this.loadVersion += 1;
     this.stopProgressLoop();
     this.cancelFade();
     this.markInternalPause();

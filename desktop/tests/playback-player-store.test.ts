@@ -4,7 +4,7 @@ import type { PlaybackPrefetchEntry } from '../src/services/playback/prefetchMod
 const fixture = vi.hoisted(() => ({
   state: { featureEnabled: true, featureReady: true, sources: [] },
   persistence: { ready: Promise.resolve() },
-  play: vi.fn(), pause: vi.fn(), stop: vi.fn(), resolve: vi.fn(), cached: vi.fn(), history: vi.fn(),
+  play: vi.fn(), pause: vi.fn(), stop: vi.fn(), resume: vi.fn(), getEngineState: vi.fn(), resolve: vi.fn(), cached: vi.fn(), history: vi.fn(),
 }));
 vi.mock('../src/stores/customSourceStore', async () => {
   const { createCustomSourceAccess } = await import('../src/services/customSourceAccess');
@@ -15,7 +15,7 @@ vi.mock('../src/stores/customSourceStore', async () => {
   };
 });
 vi.mock('../src/services/playerEngine', () => ({ playerEngine: {
-  play: fixture.play, pause: fixture.pause, stop: fixture.stop,
+  play: fixture.play, pause: fixture.pause, stop: fixture.stop, resume: fixture.resume, getState: fixture.getEngineState,
   subscribe: vi.fn(), onEnded: vi.fn(), onPreviewDetected: vi.fn(),
 } }));
 vi.mock('../src/services/playback/playbackResolver', () => ({ resolvePlaybackUrl: fixture.resolve }));
@@ -26,7 +26,7 @@ vi.mock('../src/services/playback/crossSourceFallbackService', () => ({ findTxVa
 vi.mock('../src/stores/historyStore', () => ({ useHistoryStore: { getState: () => ({ add: fixture.history }) } }));
 vi.mock('../src/stores/sleepTimerStore', () => ({ useSleepTimerStore: { getState: () => ({ mode: 'off' }) } }));
 vi.mock('../src/stores/discoveryStore', () => ({ useDiscoveryStore: { getState: () => ({ fmQueue: [], fmIndex: 0 }) } }));
-vi.mock('@lx/tauri-bridge', () => ({ debugLog: vi.fn(), patchSettings: vi.fn() }));
+vi.mock('@lx/tauri-bridge', () => ({ libraryLoad: vi.fn().mockResolvedValue(null), librarySave: vi.fn().mockResolvedValue(undefined), debugLog: vi.fn(), patchSettings: vi.fn() }));
 const music = { id: '1', source: 'wy', name: '歌曲', singer: '歌手' } as MusicInfo;
 function resolved(backend = 'customSource') {
   return { music, backend, url: `https://audio/${backend}`, quality: '128k', trace: [], resolverName: backend };
@@ -52,6 +52,7 @@ beforeEach(() => {
   fixture.state.featureReady = true;
   fixture.persistence.ready = Promise.resolve();
   fixture.play.mockResolvedValue(undefined);
+  fixture.getEngineState.mockReturnValue({ currentMusic: null });
   fixture.resolve.mockResolvedValue(resolved('builtinNetease'));
 });
 describe('playerStore LX 快路径及在途结果', () => {
@@ -131,4 +132,26 @@ describe('playerStore LX 快路径及在途结果', () => {
     expect(fixture.stop).not.toHaveBeenCalled();
     expect(fixture.play).toHaveBeenCalledTimes(1);
   });
+});
+it('解析过程中暂停会作废请求，不在结果回来后自行播放', async () => {
+  const pending = deferred<ReturnType<typeof resolved>>();
+  fixture.resolve.mockReturnValue(pending.promise);
+  const { usePlayerStore } = await load();
+  const playing = usePlayerStore.getState().play(music);
+  await Promise.resolve();
+  usePlayerStore.getState().pause();
+  pending.resolve(resolved('builtinNetease'));
+  await playing;
+  expect(fixture.play).not.toHaveBeenCalled();
+  expect(usePlayerStore.getState().status).toBe('paused');
+  expect(usePlayerStore.getState().current?.id).toBe(music.id);
+});
+
+it('暂停尚未加载的歌曲后恢复，应重新解析目标而不是恢复旧流', async () => {
+  const { usePlayerStore } = await load();
+  usePlayerStore.setState({ status: 'paused', current: music });
+  usePlayerStore.getState().resume();
+  await vi.waitFor(() => expect(fixture.play).toHaveBeenCalledTimes(1));
+  expect(fixture.resolve).toHaveBeenCalled();
+  expect(fixture.resume).not.toHaveBeenCalled();
 });

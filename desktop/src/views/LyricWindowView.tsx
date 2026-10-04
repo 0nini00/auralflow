@@ -1,3 +1,5 @@
+import { LyricText, LyricRomanization } from '@/components/playerVisualizers/LyricAnnotations';
+import type { LyricLine } from '@lx/core';
 /**
  * 桌面歌词独立窗口的视图。
  * 透明背景 + 居中两行歌词 + 简易 mini 控件。
@@ -32,7 +34,8 @@ export function LyricWindowView() {
 
   const lyricProgress = useInterpolatedPlaybackProgress({ status, progress, progressSampledAt, duration, playbackRate });
   const [manualOffsetMs, setManualOffsetMs] = useState(0);
-  const { lyrics, currentLine } = useLyrics(current, lyricProgress, manualOffsetMs / 1000);
+  const lyricTime = lyricProgress + manualOffsetMs / 1000;
+  const { lyrics, currentLine } = useLyrics(current, lyricTime);
   const isPlaying = status === "playing";
 
   // 持久化：置顶状态 + 字号
@@ -44,6 +47,8 @@ export function LyricWindowView() {
   const [singleLine, setSingleLine] = useState(false);
   const [maxLineNum, setMaxLineNum] = useState(2);
   const [showTranslation, setShowTranslation] = useState(true);
+  const [showRomanization, setShowRomanization] = useState(false);
+  const [showRuby, setShowRuby] = useState(false);
   const [align, setAlign] = useState("center");
   const [lineGap, setLineGap] = useState(8);
   const [fontWeight, setFontWeight] = useState(700);
@@ -71,6 +76,8 @@ export function LyricWindowView() {
         setSingleLine(s.lyricSingleLine);
         setMaxLineNum(s.lyricMaxLineNum || 2);
         setShowTranslation(s.lyricShowTranslation);
+        setShowRomanization(s.lyricShowRomanization === true);
+        setShowRuby(s.lyricShowRuby === true);
         setAlign(s.lyricAlign || "center");
         setLineGap(s.lyricLineGap ?? 8);
         setFontWeight(s.lyricFontWeight ?? 700);
@@ -96,6 +103,8 @@ export function LyricWindowView() {
 
     const unsubscribeLyricSettings = subscribeLyricSettings((patch) => {
       if (disposed) return;
+      if (typeof patch.lyricShowRomanization === "boolean") setShowRomanization(patch.lyricShowRomanization);
+      if (typeof patch.lyricShowRuby === "boolean") setShowRuby(patch.lyricShowRuby);
       if (typeof patch.lyricPinned === "boolean") setPinned(patch.lyricPinned);
       if (typeof patch.lyricLocked === "boolean") setLocked(patch.lyricLocked);
       if (typeof patch.lyricPauseHide === "boolean") setPauseHide(patch.lyricPauseHide);
@@ -137,7 +146,7 @@ export function LyricWindowView() {
     singleLine,
     maxLineNum,
     showTranslation,
-    currentTime: lyricProgress,
+    currentTime: lyricTime,
   });
 
   useEffect(() => {
@@ -233,12 +242,15 @@ export function LyricWindowView() {
           transform: `translate(${textPositionX}%, ${textPositionY}%)`,
         }}
       >
-        {displayLines.map((line) =>
+        {displayLines.map((line, index) =>
           line.role === "current" && line.words?.length ? (
             <KaraokeLine
               key={line.key}
               line={line}
-              progress={lyricProgress + manualOffsetMs / 1000}
+              sourceLine={lyrics[Math.min(lyrics.length - 1, Math.max(0, currentLine)) + index]}
+              showRomanization={showRomanization}
+              showRuby={showRuby}
+              progress={lyricTime}
               align={align}
               activeColor={activeColor}
               enableAnimation={enableAnimation}
@@ -250,6 +262,9 @@ export function LyricWindowView() {
             <LyricLineText
               key={line.key}
               line={line}
+              sourceLine={lyrics[Math.min(lyrics.length - 1, Math.max(0, currentLine)) + index]}
+              showRomanization={showRomanization}
+              showRuby={showRuby}
               align={align}
               activeColor={activeColor}
               nextColor={nextColor}
@@ -595,6 +610,9 @@ export function LyricWindowView() {
 
 interface LyricLineTextProps {
   line: DesktopLyricDisplayLine;
+  sourceLine?: LyricLine;
+  showRomanization: boolean;
+  showRuby: boolean;
   align: string;
   activeColor: string;
   nextColor: string;
@@ -606,6 +624,9 @@ interface LyricLineTextProps {
 
 function LyricLineText({
   line,
+  sourceLine,
+  showRomanization,
+  showRuby,
   align,
   activeColor,
   nextColor,
@@ -635,13 +656,15 @@ function LyricLineText({
         "--af-lyric-active-color": activeColor,
         "--af-lyric-line-progress": lineProgress,
         color: isCurrent ? activeColor : nextColor,
+        "--af-ruby-color": isCurrent ? activeColor : nextColor,
         fontSize: `${size}px`,
         fontWeight: isCurrent ? fontWeight : 500,
         textAlign: align as "left" | "center" | "right",
         textShadow,
       } as CSSProperties}
     >
-      <span className="af-lyric-line-main">{line.text}</span>
+      <span className="af-lyric-line-main"><LyricText text={line.text} ruby={sourceLine?.ruby} showRuby={showRuby} /></span>
+      <LyricRomanization text={sourceLine?.roma} show={showRomanization} />
       {line.translation && (
         <span className="af-lyric-line-translation">{line.translation}</span>
       )}
@@ -651,6 +674,9 @@ function LyricLineText({
 
 interface KaraokeLineProps {
   line: DesktopLyricDisplayLine;
+  sourceLine?: LyricLine;
+  showRomanization: boolean;
+  showRuby: boolean;
   /** 当前行播放进度（秒，已含手动偏移） */
   progress: number;
   align: string;
@@ -669,6 +695,9 @@ function getWordAbsoluteStart(lineStart: number, wordStart: number) {
 /** 当前行的逐字卡拉OK 渲染：外层结构复用 LyricLineText 的当前行样式 */
 const KaraokeLine = memo(function KaraokeLine({
   line,
+  sourceLine,
+  showRomanization,
+  showRuby,
   progress,
   align,
   activeColor,
@@ -694,6 +723,7 @@ const KaraokeLine = memo(function KaraokeLine({
         "--af-lyric-active-color": activeColor,
         "--af-lyric-line-progress": lineProgress,
         color: activeColor,
+        "--af-ruby-color": activeColor,
         fontSize: `${fontSize}px`,
         fontWeight,
         textAlign: align as "left" | "center" | "right",
@@ -708,14 +738,14 @@ const KaraokeLine = memo(function KaraokeLine({
             if (progress >= end) {
               return (
                 <span key={index} className="af-lyric-karaoke-word af-lyric-karaoke-word-sung">
-                  {word.text}
+                  <LyricText {...word} showRuby={showRuby} />
                 </span>
               );
             }
             if (progress < start) {
               return (
                 <span key={index} className="af-lyric-karaoke-word">
-                  {word.text}
+                  <LyricText {...word} showRuby={showRuby} />
                 </span>
               );
             }
@@ -727,14 +757,15 @@ const KaraokeLine = memo(function KaraokeLine({
                 className="af-lyric-karaoke-word af-lyric-karaoke-word-active"
                 style={{ "--af-lyric-word-progress": wordPercent } as CSSProperties}
               >
-                {word.text}
+                <LyricText {...word} showRuby={showRuby} />
               </span>
             );
           })}
         </span>
       ) : (
-        <span className="af-lyric-line-main">{line.text}</span>
+        <span className="af-lyric-line-main"><LyricText text={line.text} ruby={sourceLine?.ruby} showRuby={showRuby} /></span>
       )}
+      <LyricRomanization text={sourceLine?.roma} show={showRomanization} />
       {line.translation && (
         <span className="af-lyric-line-translation">{line.translation}</span>
       )}

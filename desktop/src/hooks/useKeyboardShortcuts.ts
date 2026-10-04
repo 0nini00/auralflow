@@ -1,21 +1,26 @@
 import { useEffect } from "react";
 import { usePlayerStore } from "@/stores/playerStore";
 
-/** 焦点在可编辑区域时不抢快捷键（输入框 / 下拉 / contentEditable） */
-function isEditableKeyboardTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
-    return true;
-  }
-  if (target instanceof HTMLSelectElement) return true;
-  if (target.isContentEditable) return true;
-  return Boolean(target.closest("input, textarea, select, [contenteditable=''], [contenteditable='true']"));
+/** 原生控件和 ARIA 交互组件保留自己的键盘语义，包括内部图标等后代。 */
+function isInteractiveKeyboardTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest([
+    'input', 'textarea', 'select', 'button', 'a[href]', 'summary',
+    '[contenteditable]:not([contenteditable="false"])', '[tabindex]:not([tabindex="-1"])',
+    '[role="button"]', '[role="link"]', '[role="tab"]', '[role="menuitem"]',
+    '[role="menuitemcheckbox"]', '[role="menuitemradio"]', '[role="option"]',
+    '[role="combobox"]', '[role="textbox"]', '[role="searchbox"]', '[role="listbox"]',
+    '[role="slider"]', '[role="spinbutton"]', '[role="checkbox"]', '[role="radio"]',
+    '[role="switch"]', '[role="treeitem"]', '[role="gridcell"]',
+  ].join(', ')));
 }
 
 export function useKeyboardShortcuts() {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (isEditableKeyboardTarget(e.target)) return;
+      if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
+      if (isInteractiveKeyboardTarget(e.target)) return;
+      if (document.querySelector('dialog[open], [role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]')) return;
       // 沉浸式播放页打开时放弃全局快捷键：空格/方向键在沉浸页内
       // 误触会暂停/拖动进度，导致退出后迷你栏进度看起来“不同步”。
       if (document.querySelector(".af-immersive-lyrics")) return;

@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import { createPortal } from "react-dom";
-import { Check, Cloud, Heart, ListMusic, ListPlus } from "lucide-react";
+import { Check, ChevronRight, Cloud, Heart, ListMusic, ListPlus } from "lucide-react";
 import type { MusicInfo } from "@lx/core";
 import { useFavoritesStore } from "@/stores/favoritesStore";
 import { usePlaylistStore } from "@/stores/playlistStore";
@@ -12,6 +12,8 @@ interface SongAddMenuButtonProps {
   className?: string;
   iconSize?: number;
   title?: string;
+  /** 可选菜单行文字；不传时保留列表中的图标按钮。 */
+  label?: string;
 }
 
 export interface SongAddMenuProps {
@@ -40,18 +42,17 @@ function getMenuPosition(target: HTMLElement) {
  * 长列表整表共用一个实例即可，不必每行各建一份状态与 store 订阅。
  */
 export function SongAddMenu({ song, anchor, onClose }: SongAddMenuProps) {
+  const menuId = useId();
   const [position] = useState(() => getMenuPosition(anchor));
   const [pendingWyPlaylistId, setPendingWyPlaylistId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const menuRef = useRef<HTMLDivElement | null>(null);
   const onCloseRef = useRef(onClose);
-  const anchorRef = useRef(anchor);
   const songKey = `${song.source}:${song.id}`;
 
   useEffect(() => {
     onCloseRef.current = onClose;
-    anchorRef.current = anchor;
-  }, [anchor, onClose]);
+  }, [onClose]);
 
   useEffect(() => {
     setPendingWyPlaylistId(null);
@@ -59,16 +60,23 @@ export function SongAddMenu({ song, anchor, onClose }: SongAddMenuProps) {
   }, [songKey]);
 
   useEffect(() => {
-    // role="menu"：打开即把焦点交给首个可用项，Esc 关闭并把焦点交还触发按钮
+    // 归属由实际 anchor 声明，同时覆盖按钮封装与列表共享的受控菜单入口。
+    const previousControls = anchor.getAttribute("aria-controls");
+    anchor.setAttribute("aria-controls", previousControls ? `${previousControls} ${menuId}` : menuId);
+    // 先声明归属，再聚焦 portal，父弹窗才能将菜单纳入同一 Tab 序列。
     menuRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       onCloseRef.current();
-      anchorRef.current.focus();
+      anchor.focus();
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      if (previousControls === null) anchor.removeAttribute("aria-controls");
+      else anchor.setAttribute("aria-controls", previousControls);
+    };
+  }, [anchor, menuId]);
 
   const playlists = usePlaylistStore((s) => s.playlists);
   const addSongToPlaylist = usePlaylistStore((s) => s.addSongToPlaylist);
@@ -118,6 +126,7 @@ export function SongAddMenu({ song, anchor, onClose }: SongAddMenuProps) {
       <div className="af-add-menu-backdrop" onClick={close} aria-hidden="true" />
       <div
         ref={menuRef}
+        id={menuId}
         className="af-dropdown-menu af-add-menu"
         role="menu"
         style={{ position: "fixed", top: position.top, left: position.left, width: MENU_WIDTH, zIndex: 9999 }}
@@ -178,6 +187,7 @@ export function SongAddMenuButton({
   className = "af-action-btn",
   iconSize = 16,
   title = "添加到",
+  label,
 }: SongAddMenuButtonProps) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
 
@@ -194,11 +204,12 @@ export function SongAddMenuButton({
         className={className}
         onClick={handleToggle}
         data-tooltip={title}
-        aria-label={title}
+        aria-label={label ?? title}
         aria-haspopup="menu"
         aria-expanded={anchor != null}
       >
         <ListPlus size={iconSize} />
+        {label && <><span>{label}</span><ChevronRight size={15} aria-hidden="true" /></>}
       </button>
 
       {anchor && (
