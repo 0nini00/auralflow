@@ -144,6 +144,14 @@ if (!(mobileVersionCodeValue instanceof Number)
 }
 def mobileVersionCode = mobileVersionCodeValue.intValue()
 
+// RN 的默认 JS 输入不包含 JSON 或 workspace 外部源码，版本更新可能误复用旧 HBC。
+// 显式跟踪实际导入的 package.json 与 @lx/core，让增量 release 与当前源码一致。
+tasks.withType(com.facebook.react.tasks.BundleHermesCTask).configureEach {
+    inputs.file(mobilePackageFile).withPropertyName("auralflowMobilePackage")
+    inputs.dir(rootProject.file("../../../packages/core/src")).withPropertyName("auralflowSharedCore")
+}
+
+
 android {
     ndkVersion = rootProject.ext.ndkVersion
     buildToolsVersion = rootProject.ext.buildToolsVersion
