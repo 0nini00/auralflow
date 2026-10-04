@@ -4,6 +4,11 @@ import { openCustomSourceUpdateModal } from "@/components/CustomSourceUpdateModa
 
 export function SourcesSettingsSection({ model }: { model: SourcesSettingsModel }) {
   const {
+    featureEnabled,
+    featureReady,
+    customSourceFeaturePending,
+    customSourceFeatureError,
+    handleCustomSourceFeatureChange,
     customScriptText,
     setCustomScriptText,
     customSourceStatus,
@@ -29,6 +34,28 @@ export function SourcesSettingsSection({ model }: { model: SourcesSettingsModel 
 <section className="af-settings-section" id="sources">
   <h2 className="af-settings-section-title">音源</h2>
 
+  <div className="af-settings-group">
+    <label className="af-settings-checkbox-label" htmlFor="custom-source-feature-enabled">
+      <input
+        id="custom-source-feature-enabled"
+        type="checkbox"
+        checked={featureEnabled}
+        disabled={!featureReady || customSourceFeaturePending}
+        onChange={(event) => { void handleCustomSourceFeatureChange(event.target.checked); }}
+        aria-describedby="custom-source-feature-hint"
+      />
+      启用 LX 自定义音源
+    </label>
+    <p className="af-settings-hint" id="custom-source-feature-hint">
+      关闭后保留已导入的音源和设置；内置音源与本地播放不受影响。
+    </p>
+    {!featureReady && !customSourceFeatureError && <p className="af-settings-hint" role="status">正在恢复 LX 自定义音源设置...</p>}
+    {customSourceFeaturePending && <p className="af-settings-hint" role="status">正在保存 LX 自定义音源开关...</p>}
+    {customSourceFeatureError && <p className="af-settings-hint" role="alert">{customSourceFeatureError}</p>}
+  </div>
+
+  {featureReady && featureEnabled && (
+    <>
   <div className="af-settings-group">
     <label className="af-settings-label">自定义音源</label>
     <div className="af-settings-input-group">
@@ -207,6 +234,8 @@ export function SourcesSettingsSection({ model }: { model: SourcesSettingsModel 
           </div>
         )}
       </div>
+    </>
+  )}
 </section>
   );
 }

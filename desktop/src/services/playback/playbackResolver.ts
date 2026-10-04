@@ -10,6 +10,8 @@ import type { PlaybackBackendId, PlaybackResolvedUrl } from './types';
 import { getSource } from '@/services/sources/sourceService';
 import { getCachedPlaybackUrl, saveCachedPlaybackUrl } from '@/services/persistentCache';
 import { cacheResolvedPlaybackMedia } from '@/services/mediaCache';
+import { customSourceAccess, customSourcePersistence, useCustomSourceStore } from '@/stores/customSourceStore';
+import { CustomSourceDisabledError, type CustomSourceOperation } from '@/services/customSourceAccess';
 
 export async function resolvePlaybackUrl(
   music: MusicInfo,
@@ -19,7 +21,11 @@ export async function resolvePlaybackUrl(
 ): Promise<PlaybackResolvedUrl> {
   // 解析链总预算:并发竞速已大幅压缩最坏等待,但个别网关/音源脚本卡死时
   // 仍需兜底;12s 内未出结果直接抛错走错误分支,不再无限等。
-  return withResolveDeadline(resolvePlaybackUrlUncapped(music, variants, preferredQuality, options));
+  if (!useCustomSourceStore.getState().featureReady) await customSourcePersistence.ready;
+  const operation = useCustomSourceStore.getState().featureEnabled ? customSourceAccess.capture() : undefined;
+  const resolved = await withResolveDeadline(resolvePlaybackUrlUncapped(music, variants, preferredQuality, options, operation));
+  getCustomSourceOperation(resolved, operation);
+  return resolved;
 }
 
 const PLAYBACK_RESOLVE_TOTAL_BUDGET_MS = 12_000;
@@ -97,6 +103,7 @@ async function raceQualityTierLazy(
   primary: { id: PlaybackBackendId; resolve: (request: import('./types').PlaybackRequest) => Promise<PlaybackResolvedUrl> },
   custom: { id: PlaybackBackendId; resolve: (request: import('./types').PlaybackRequest) => Promise<PlaybackResolvedUrl> },
   request: import('./types').PlaybackRequest,
+  operation?: CustomSourceOperation,
 ): Promise<PlaybackResolvedUrl> {
   const targetRank = getPlaybackQualityRank(request.qualityPreference[0]);
 
@@ -105,6 +112,9 @@ async function raceQualityTierLazy(
   if (primaryHit && getPlaybackQualityRank(primaryHit.quality) >= targetRank) {
     return primaryHit;
   }
+
+  // 禁用或本次解析所属生命周期已失效时，LX 根本不进入候选集。
+  if (!operation?.isActive()) return primaryHit ?? primary.resolve(request);
 
   // 第二步:主源不足(失败 / 超时 / 音质低于本轮期望),唤醒自定义源一起竞速取高音质。
   // 主源若已命中只是音质不足,直接带上它(避免同一首歌主源发两次请求);
@@ -142,6 +152,7 @@ async function resolvePlaybackUrlUncapped(
   variants?: MusicInfo[],
   preferredQuality?: string,
   options: { bypassCache?: boolean; cacheMedia?: boolean } = {},
+  operation?: CustomSourceOperation,
 ): Promise<PlaybackResolvedUrl> {
   const settings = await loadSettings();
   const qualityFloor = preferredQuality ?? settings.defaultQuality;
@@ -162,7 +173,7 @@ async function resolvePlaybackUrlUncapped(
       // 音频已落盘时升级为本地文件,避免命中过期 URL。
       if (cached) {
         debugLog(`[resolve] 命中持久化缓存 ${music.name} url=${cached.url.slice(0, 60)}`);
-        return await prepareResolvedPlaybackMedia(music, cached, options.cacheMedia !== false);
+        return await prepareResolvedPlaybackMedia(music, cached, options.cacheMedia !== false, operation);
       }
     } catch (error) {
       // 缓存读失败按未命中处理，继续走网络解析；但不能完全静默，
@@ -184,7 +195,8 @@ async function resolvePlaybackUrlUncapped(
       qualityPreference: tier,
     };
     try {
-      const resolved = await raceQualityTierLazy(builtinPrimary, customBackend, request);
+      const resolved = await raceQualityTierLazy(builtinPrimary, customBackend, request, operation);
+      getCustomSourceOperation(resolved, operation);
       debugLog(`[resolve] 命中 ${music.name} 轮=${tier.join('+')} 命中=${resolved.quality} backend=${resolved.backend} url=${resolved.url.slice(0, 60)}`);
       // 试听片段判定(与移动端同语义,见 @lx/core stream-integrity):
       // 30s 试听与完整版同样返回 206,靠 Content-Range / Content-Length 估算流时长,
@@ -213,8 +225,10 @@ async function resolvePlaybackUrlUncapped(
         tierErrors.push(`解析到试听片段(约 ${Math.round(previewSeconds ?? 0)}s)`);
         continue;
       }
-      const playable = await prepareResolvedPlaybackMedia(music, resolved, options.cacheMedia !== false);
-      void saveCachedPlaybackUrl(music, playable).catch(() => undefined);
+      const playable = await prepareResolvedPlaybackMedia(music, resolved, options.cacheMedia !== false, operation);
+      void saveCachedPlaybackUrl(music, playable, Date.now(), operation).catch((error) => {
+        debugLog(`[resolve] 播放地址缓存未提交: ${error instanceof Error ? error.message : String(error)}`);
+      });
       return playable;
     } catch (error) {
       tierErrors.push(error instanceof Error ? error.message : String(error));
@@ -247,8 +261,10 @@ async function resolvePlaybackUrlUncapped(
         const previewSeconds = estimateStreamDurationSeconds(fallbackProbe.totalBytes, resolved.quality);
         tierErrors.push(`官方直连兜底解析到试听片段(约 ${Math.round(previewSeconds ?? 0)}s)`);
       } else {
-        const playable = await prepareResolvedPlaybackMedia(music, resolved, options.cacheMedia !== false);
-        void saveCachedPlaybackUrl(music, playable).catch(() => undefined);
+        const playable = await prepareResolvedPlaybackMedia(music, resolved, options.cacheMedia !== false, operation);
+        void saveCachedPlaybackUrl(music, playable, Date.now(), operation).catch((error) => {
+          debugLog(`[resolve] 播放地址缓存未提交: ${error instanceof Error ? error.message : String(error)}`);
+        });
         return playable;
       }
     } catch (error) {
@@ -261,15 +277,31 @@ async function resolvePlaybackUrlUncapped(
   throw new Error(message);
 }
 
+function getCustomSourceOperation(
+  resolved: PlaybackResolvedUrl,
+  operation?: CustomSourceOperation,
+): CustomSourceOperation | undefined {
+  if (resolved.backend !== 'customSource') return undefined;
+  if (!operation) throw new CustomSourceDisabledError();
+  operation.assertActive();
+  return operation;
+}
+
 async function prepareResolvedPlaybackMedia(
   primary: MusicInfo,
   resolved: PlaybackResolvedUrl,
   cacheMedia: boolean,
+  operation?: CustomSourceOperation,
 ): Promise<PlaybackResolvedUrl> {
+  const access = getCustomSourceOperation(resolved, operation);
   if (!cacheMedia) return resolved;
   try {
-    return await cacheResolvedPlaybackMedia(primary, resolved);
+    const cached = await cacheResolvedPlaybackMedia(primary, resolved, access);
+    access?.assertActive();
+    return cached;
   } catch (error) {
+    // 生命周期失效不能被媒体缓存的网络失败回退吞掉。
+    access?.assertActive();
     // 媒体缓存（封面/音频落盘）失败不影响本次播放，仍用远端地址；
     // 但要留痕，否则“缓存一直不命中”会没人发现。
     debugLog(`[resolve] 媒体缓存处理失败，改用原地址: ${error instanceof Error ? error.message : String(error)}`);

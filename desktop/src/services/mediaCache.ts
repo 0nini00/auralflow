@@ -2,7 +2,8 @@ import type { MusicInfo } from '@lx/core';
 import { COVER_TIER_IMMERSIVE, resizeCoverUrl } from '@lx/core';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { cacheRemoteAudio, cacheRemoteImage, lookupCachedMedia, removeCachedMedia } from '@lx/tauri-bridge';
-import type { PlaybackResolvedUrl } from '@/services/playback/types';
+import type { CustomSourceOperation } from '@/services/customSourceAccess';
+import type { PlaybackBackendId, PlaybackResolvedUrl } from '@/services/playback/types';
 
 export const CACHEABLE_AUDIO_SOURCES = new Set<MusicInfo['source']>(['wy', 'tx']);
 
@@ -39,7 +40,7 @@ function mergeResolvedMusic(primary: MusicInfo, resolved: MusicInfo): MusicInfo 
   };
 }
 
-async function cacheMusicCover(music: MusicInfo): Promise<MusicInfo> {
+async function cacheMusicCover(music: MusicInfo, operation?: CustomSourceOperation): Promise<MusicInfo> {
   const coverUrl = getCoverUrl(music);
   if (!isHttpUrl(coverUrl)) return music;
 
@@ -50,14 +51,16 @@ async function cacheMusicCover(music: MusicInfo): Promise<MusicInfo> {
   const remoteUrl = resizeCoverUrl(coverUrl, COVER_TIER_IMMERSIVE);
   const cacheKey = buildMediaCacheKey(music, 'cover');
 
+  let cached: string | null = null;
   try {
-    const cached = await lookupCachedMedia('cover', cacheKey);
-    if (cached) {
-      const localCoverUrl = convertFileSrc(cached);
-      return { ...music, picUrl: localCoverUrl, img: localCoverUrl };
-    }
+    cached = await lookupCachedMedia('cover', cacheKey);
   } catch {
     // 查缓存失败不影响播放，继续用远端地址
+  }
+  operation?.assertActive();
+  if (cached) {
+    const localCoverUrl = convertFileSrc(cached);
+    return { ...music, picUrl: localCoverUrl, img: localCoverUrl };
   }
 
   // 未命中：不等下载，后台落盘供下次使用
@@ -81,20 +84,27 @@ export async function lookupCachedCoverPath(music: MusicInfo): Promise<string | 
   }
 }
 
-async function cachePlaybackAudio(music: MusicInfo, resolved: PlaybackResolvedUrl): Promise<string> {
+async function cachePlaybackAudio(
+  music: MusicInfo,
+  resolved: PlaybackResolvedUrl,
+  operation?: CustomSourceOperation,
+): Promise<string> {
   if (!CACHEABLE_AUDIO_SOURCES.has(music.source) || !isHttpUrl(resolved.url)) {
     return resolved.url;
   }
 
-  const cacheKey = buildMediaCacheKey(music, `audio-${resolved.quality}`);
+  const cacheKey = buildMediaCacheKey(music, `audio-${resolved.backend}-${resolved.quality}`);
 
+  let cached: string | null = null;
   try {
-    // 已落盘：直接放本地文件，秒开且离线可用
-    const cached = await lookupCachedMedia('audio', cacheKey);
-    if (cached) return convertFileSrc(cached);
+    // 新 key 按 backend 分区；旧 key 来源不明，不复用也不主动删除。
+    cached = await lookupCachedMedia('audio', cacheKey);
   } catch {
     // 查缓存失败就按未命中处理
   }
+  // 查询是异步的，失效后既不能返回本地文件，也不能发起新的原生下载。
+  operation?.assertActive();
+  if (cached) return convertFileSrc(cached);
 
   // 未落盘：立即用远端地址播放，后台下载供下次使用。
   // 这里绝不能 await —— 等整首歌下载完再播放会让每次切歌卡住十几秒。
@@ -105,13 +115,20 @@ async function cachePlaybackAudio(music: MusicInfo, resolved: PlaybackResolvedUr
 export async function cacheResolvedPlaybackMedia(
   primary: MusicInfo,
   resolved: PlaybackResolvedUrl,
+  operation?: CustomSourceOperation,
 ): Promise<PlaybackResolvedUrl> {
+  if (resolved.backend === 'customSource' && !operation) {
+    throw new Error('LX 媒体缓存缺少操作令牌');
+  }
+  const access = resolved.backend === 'customSource' ? operation : undefined;
+  access?.assertActive();
   const targetMusic = mergeResolvedMusic(primary, resolved.music ?? primary);
   // 封面与音频互不依赖，并行处理；两者都只查缓存，不阻塞在下载上。
   const [musicWithCachedCover, cachedAudioUrl] = await Promise.all([
-    cacheMusicCover(targetMusic),
-    cachePlaybackAudio(targetMusic, resolved),
+    cacheMusicCover(targetMusic, access),
+    cachePlaybackAudio(targetMusic, resolved, access),
   ]);
+  access?.assertActive();
 
   return {
     ...resolved,
@@ -121,6 +138,7 @@ export async function cacheResolvedPlaybackMedia(
 }
 
 /** 音质阶梯（与 @lx/core PlaybackQuality 一致），按曲失效时需遍历各档缓存 key。 */
+const AUDIO_CACHE_BACKENDS: readonly PlaybackBackendId[] = ['builtinNetease', 'builtinProvider', 'customSource'];
 const AUDIO_CACHE_QUALITIES = ["128k", "192k", "320k", "flac", "flac24bit"] as const;
 
 /**
@@ -132,8 +150,8 @@ const AUDIO_CACHE_QUALITIES = ["128k", "192k", "320k", "flac", "flac24bit"] as c
  */
 export async function removeCachedAudioForMusic(music: MusicInfo): Promise<void> {
   await Promise.all(
-    AUDIO_CACHE_QUALITIES.map((quality) =>
-      removeCachedMedia("audio", buildMediaCacheKey(music, `audio-${quality}`)).catch(() => false),
-    ),
+    AUDIO_CACHE_BACKENDS.flatMap((backend) => AUDIO_CACHE_QUALITIES.map((quality) =>
+      removeCachedMedia("audio", buildMediaCacheKey(music, `audio-${backend}-${quality}`)).catch(() => false),
+    )),
   );
 }

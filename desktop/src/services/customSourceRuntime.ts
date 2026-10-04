@@ -10,6 +10,7 @@ import {
 } from '@lx/core';
 import type { CustomSourceItem, CustomSourceSourceInfo } from '@/stores/customSourceStore';
 import { outboundRequest } from '@/services/outboundHttp';
+import { awaitCustomSourceOperation, CustomSourceDisabledError, type CustomSourceOperation } from '@/services/customSourceAccess';
 import { deflateBytes, inflateBytes, zlibFormatFromOptions } from '@/utils/compression';
 
 export interface DesktopUserApiHeaderInfo {
@@ -40,6 +41,8 @@ interface RuntimeRequestResult {
 }
 
 interface RuntimeInstance {
+  operation: CustomSourceOperation;
+  dispose: () => void;
   init: Promise<RuntimeInitResult>;
   request: (data: RuntimeRequestPayload) => Promise<RuntimeRequestResult>;
   getUpdateAlert: () => CustomSourceUpdateAlert | undefined;
@@ -167,7 +170,8 @@ function getRemoteScriptUrl(api: CustomSourceItem): string | null {
   }
 }
 
-async function fetchRemoteScript(url: string): Promise<string> {
+async function fetchRemoteScript(url: string, operation: CustomSourceOperation): Promise<string> {
+  operation.assertActive();
   const response = await outboundRequest(url, {
     method: 'GET',
     headers: {
@@ -182,11 +186,12 @@ async function fetchRemoteScript(url: string): Promise<string> {
   return text;
 }
 
-export async function checkCustomSourceRemoteUpdate(api: CustomSourceItem): Promise<CustomSourceUpdateAlert | undefined> {
+export async function checkCustomSourceRemoteUpdate(api: CustomSourceItem, operation: CustomSourceOperation): Promise<CustomSourceUpdateAlert | undefined> {
   const updateUrl = getRemoteScriptUrl(api);
   if (!updateUrl) return undefined;
 
-  const remoteScript = await fetchRemoteScript(updateUrl);
+  operation.assertActive();
+  const remoteScript = await awaitCustomSourceOperation(operation, fetchRemoteScript(updateUrl, operation));
   const localInfo = parseDesktopUserApiInfo(api.script);
   const remoteInfo = parseDesktopUserApiInfo(remoteScript);
   const localVersion = normalizeCustomSourceVersion(api.version || localInfo.version);
@@ -384,7 +389,9 @@ function runHttpRequest(
   url: string,
   options: HttpRequestOptions,
   callback: (error: Error | null, response: unknown, body: unknown) => void,
+  operation: CustomSourceOperation,
 ): () => void {
+  operation.assertActive();
   // 出站校验（含 SSRF 与重定向逐跳）在 Rust 侧 outbound.rs 统一完成，这里不再重复判定。
   // 代价：请求发出后无法真正中止，cancel 只丢弃回调。
   let cancelled = false;
@@ -410,7 +417,7 @@ function runHttpRequest(
         // 二进制响应必须让 Rust 侧回 base64：按 UTF-8 lossy 转文本会把字节改掉
         responseType: binary ? 'base64' : 'text',
       });
-      if (cancelled) return;
+      if (cancelled || !operation.isActive()) return;
       if (binary) {
         // 脚本按 Buffer 使用（length / 下标 / utils.buffer.bufToString），Uint8Array 都满足
         const bytes = toBytes(response.base64(), 'base64');
@@ -418,6 +425,7 @@ function runHttpRequest(
         return;
       }
       const text = await response.text();
+      if (cancelled || !operation.isActive()) return;
       let parsed: unknown = text;
       try {
         parsed = JSON.parse(text);
@@ -426,7 +434,7 @@ function runHttpRequest(
       }
       callback(null, createRequestResponse(parsed, response.status, response.statusText, response.headers), parsed);
     } catch (error) {
-      if (cancelled) return;
+      if (cancelled || !operation.isActive()) return;
       callback(error instanceof Error ? error : new Error(String(error)), null, null);
     }
   })();
@@ -436,7 +444,18 @@ function runHttpRequest(
   };
 }
 
-function createRuntime(api: CustomSourceItem, options?: CreateRuntimeOptions): RuntimeInstance {
+function createRuntime(api: CustomSourceItem, parentOperation: CustomSourceOperation, options?: CreateRuntimeOptions): RuntimeInstance {
+  parentOperation.assertActive();
+  const controller = new AbortController();
+  const operation: CustomSourceOperation = {
+    signal: controller.signal,
+    isActive: () => !controller.signal.aborted && parentOperation.isActive(),
+    assertActive: () => {
+      if (controller.signal.aborted) throw new CustomSourceDisabledError();
+      parentOperation.assertActive();
+    },
+  };
+  let initTimer: number | undefined;
   let requestHandler: ((payload: RuntimeRequestPayload) => Promise<unknown>) | null = null;
   let finishInit: (value: RuntimeInitResult) => void = () => undefined;
   let failInit: (error: Error) => void = () => undefined;
@@ -449,23 +468,40 @@ function createRuntime(api: CustomSourceItem, options?: CreateRuntimeOptions): R
     failInit = reject;
   });
 
+  const dispose = () => {
+    if (controller.signal.aborted) return;
+    controller.abort();
+    parentOperation.signal.removeEventListener('abort', dispose);
+    if (initTimer !== undefined) window.clearTimeout(initTimer);
+    requestHandler = null;
+    updateAlertListener = undefined;
+    if (!initSettled) {
+      initSettled = true;
+      failInit(new CustomSourceDisabledError());
+    }
+  };
+  parentOperation.signal.addEventListener('abort', dispose, { once: true });
+
   const lx = {
     EVENT_NAMES,
     request(url: string, options: any = {}, callback: (error: Error | null, response: unknown, body: unknown) => void) {
-      return runHttpRequest(url, options, callback);
+      return runHttpRequest(url, options, callback, operation);
     },
     send(eventName: string, data?: unknown) {
       return new Promise<void>((resolve, reject) => {
+        if (!operation.isActive()) { reject(new CustomSourceDisabledError()); return; }
         if (eventName === EVENT_NAMES.inited) {
           if (initSettled) {
             reject(new Error('Script is inited'));
             return;
           }
           initSettled = true;
+          if (initTimer !== undefined) window.clearTimeout(initTimer);
           try {
             finishInit({ sources: normalizeInitSources(data), updateAlert });
             resolve();
           } catch (error) {
+            failInit(error instanceof Error ? error : new Error(String(error)));
             reject(error);
           }
           return;
@@ -487,6 +523,7 @@ function createRuntime(api: CustomSourceItem, options?: CreateRuntimeOptions): R
       });
     },
     on(eventName: string, handler: (payload: RuntimeRequestPayload) => Promise<unknown>) {
+      if (!operation.isActive()) return Promise.reject(new CustomSourceDisabledError());
       if (eventName !== EVENT_NAMES.request) return Promise.reject(new Error(`The event is not supported: ${eventName}`));
       requestHandler = handler;
       return Promise.resolve();
@@ -568,7 +605,7 @@ function createRuntime(api: CustomSourceItem, options?: CreateRuntimeOptions): R
     failInit(error instanceof Error ? error : new Error(String(error)));
   }
 
-  window.setTimeout(() => {
+  if (!initSettled) initTimer = window.setTimeout(() => {
     if (!initSettled) {
       initSettled = true;
       failInit(new Error('自定义音源初始化超时，脚本没有调用 lx.send(lx.EVENT_NAMES.inited, ...)'));
@@ -576,32 +613,39 @@ function createRuntime(api: CustomSourceItem, options?: CreateRuntimeOptions): R
   }, INIT_TIMEOUT_MS);
 
   return {
+    operation,
+    dispose,
     init,
     getUpdateAlert() {
       return updateAlert;
     },
     waitForUpdateAlert(timeoutMs) {
+      operation.assertActive();
       if (updateAlert) return Promise.resolve(updateAlert);
-      return new Promise((resolve) => {
+      const pending = new Promise<CustomSourceUpdateAlert | undefined>((resolve) => {
         let settled = false;
         const finish = (alert: CustomSourceUpdateAlert | undefined) => {
           if (settled) return;
           settled = true;
           updateAlertWaiters.delete(finish);
+          operation.signal.removeEventListener('abort', onAbort);
           window.clearTimeout(timer);
           resolve(alert);
         };
+        const onAbort = () => finish(undefined);
         const timer = window.setTimeout(() => finish(undefined), Math.max(0, timeoutMs));
         updateAlertWaiters.add(finish);
+        operation.signal.addEventListener('abort', onAbort, { once: true });
       });
+      return awaitCustomSourceOperation(operation, pending);
     },
     setUpdateAlertListener(listener) {
       updateAlertListener = listener;
     },
     async request(data) {
-      await init;
+      await awaitCustomSourceOperation(operation, init);
       if (!requestHandler) throw new Error('Request event is not defined');
-      const response = await requestHandler({ source: data.source, action: data.action, info: data.info });
+      const response = await awaitCustomSourceOperation(operation, requestHandler({ source: data.source, action: data.action, info: data.info }));
       if (data.action === 'musicUrl') {
         if (typeof response !== 'string' || response.length > 2048 || !/^https?:/.test(response)) {
           throw new Error('自定义音源没有返回可播放 URL');
@@ -644,10 +688,11 @@ function getCacheKey(api: CustomSourceItem): string {
   return `${api.id}::${hashScript(api.script)}`;
 }
 
-function getCachedRuntime(api: CustomSourceItem, onUpdateAlert?: UpdateAlertListener): RuntimeInstance {
+function getCachedRuntime(api: CustomSourceItem, operation: CustomSourceOperation, onUpdateAlert?: UpdateAlertListener): RuntimeInstance {
+  operation.assertActive();
   const key = getCacheKey(api);
   const cached = runtimeCache.get(key);
-  if (cached) {
+  if (cached?.operation.isActive()) {
     // 命中缓存也接上本次传入的监听器：深度测试 prime 进来的 Runtime 没有监听器，
     // 后续取链期间的运行时 updateAlert 才不会继续被丢弃
     if (onUpdateAlert) cached.setUpdateAlertListener(onUpdateAlert);
@@ -661,10 +706,14 @@ function getCachedRuntime(api: CustomSourceItem, onUpdateAlert?: UpdateAlertList
     const oldest = runtimeCache.keys().next().value;
     if (oldest !== undefined) runtimeCache.delete(oldest);
   }
-  const runtime = createRuntime(api, { onUpdateAlert });
+  cached?.dispose();
+  const runtime = createRuntime(api, operation, { onUpdateAlert });
   runtimeCache.set(key, runtime);
   // 初始化失败时从缓存中移除，下次重试
-  runtime.init.catch(() => runtimeCache.delete(key));
+  runtime.init.catch(() => {
+    if (runtimeCache.get(key) === runtime) runtimeCache.delete(key);
+    runtime.dispose();
+  });
   return runtime;
 }
 
@@ -672,13 +721,21 @@ function getCachedRuntime(api: CustomSourceItem, onUpdateAlert?: UpdateAlertList
 export function invalidateRuntimeCache(apiId: string): void {
   for (const key of runtimeCache.keys()) {
     if (key.startsWith(`${apiId}::`)) {
+      runtimeCache.get(key)?.dispose();
       runtimeCache.delete(key);
     }
   }
 }
 
+/** 释放应用管理的运行时；不承诺终止脚本逃逸后创建的任意副作用。 */
+export function invalidateAllRuntimeCaches(): void {
+  for (const runtime of runtimeCache.values()) runtime.dispose();
+  runtimeCache.clear();
+}
+
 /** 把已初始化的 Runtime 放回缓存（深度测试复用，避免重复执行脚本） */
 function primeRuntimeCache(api: CustomSourceItem, runtime: RuntimeInstance): void {
+  runtime.operation.assertActive();
   const key = getCacheKey(api);
   if (runtimeCache.size >= RUNTIME_CACHE_MAX) {
     const oldest = runtimeCache.keys().next().value;
@@ -687,13 +744,18 @@ function primeRuntimeCache(api: CustomSourceItem, runtime: RuntimeInstance): voi
   runtimeCache.set(key, runtime);
 }
 
-export async function testCustomSource(api: CustomSourceItem, updateAlertWaitMs = TEST_UPDATE_ALERT_WAIT_MS): Promise<RuntimeInitResult> {
-  // 测试时强制重建，不走缓存
+export async function testCustomSource(api: CustomSourceItem, operation: CustomSourceOperation, updateAlertWaitMs = TEST_UPDATE_ALERT_WAIT_MS): Promise<RuntimeInitResult> {
+  operation.assertActive();
   invalidateRuntimeCache(api.id);
-  const runtime = createRuntime(api);
-  const result = await runtime.init;
-  const updateAlert = result.updateAlert ?? await runtime.waitForUpdateAlert(updateAlertWaitMs);
-  return { ...result, updateAlert };
+  const runtime = createRuntime(api, operation);
+  try {
+    const result = await awaitCustomSourceOperation(operation, runtime.init);
+    const updateAlert = result.updateAlert ?? await runtime.waitForUpdateAlert(updateAlertWaitMs);
+    operation.assertActive();
+    return { ...result, updateAlert };
+  } finally {
+    runtime.dispose();
+  }
 }
 
 // ─── 深度测试：真实取链 ────────────────────────────────────────
@@ -736,15 +798,18 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: 
   });
 }
 
-export async function testCustomSourceDeep(api: CustomSourceItem, updateAlertWaitMs = TEST_UPDATE_ALERT_WAIT_MS): Promise<DeepTestResult> {
+export async function testCustomSourceDeep(api: CustomSourceItem, operation: CustomSourceOperation, updateAlertWaitMs = TEST_UPDATE_ALERT_WAIT_MS): Promise<DeepTestResult> {
+  operation.assertActive();
   // 阶段一：复用现有 init 流程
   invalidateRuntimeCache(api.id);
-  const runtime = createRuntime(api);
+  const runtime = createRuntime(api, operation);
   let initResult: RuntimeInitResult;
   try {
-    initResult = await runtime.init;
+    initResult = await awaitCustomSourceOperation(operation, runtime.init);
     initResult = { ...initResult, updateAlert: initResult.updateAlert ?? await runtime.waitForUpdateAlert(updateAlertWaitMs) };
   } catch (error) {
+    runtime.dispose();
+    operation.assertActive();
     return { ok: false, message: `初始化失败：${error instanceof Error ? error.message : String(error)}`, sources: undefined, updateAlert: undefined };
   }
 
@@ -752,6 +817,8 @@ export async function testCustomSourceDeep(api: CustomSourceItem, updateAlertWai
   const sources = initResult.sources ?? {};
   const pickSource = (['wy', 'tx'] as const).find((name) => sources[name]?.actions.includes('musicUrl'));
   if (!pickSource) {
+    runtime.dispose();
+    operation.assertActive();
     return { ok: true, message: '初始化正常；未声明 musicUrl，仅验证初始化', sources, updateAlert: initResult.updateAlert };
   }
 
@@ -772,22 +839,27 @@ export async function testCustomSourceDeep(api: CustomSourceItem, updateAlertWai
   primeRuntimeCache(api, runtime);
   try {
     const result = await withTimeout(
-      requestCustomSourceMusicUrl(api, music, quality),
+      requestCustomSourceMusicUrl(api, music, quality, operation),
       DEEP_TEST_TIMEOUT_MS,
       `取链测试超时（超过 ${DEEP_TEST_TIMEOUT_MS / 1000}s 未返回播放地址）`,
     );
+    operation.assertActive();
     if (!/^https?:\/\//.test(result.url)) throw new Error(`未返回可播放 URL：${result.url.slice(0, 128)}`);
     return { ok: true, message: `初始化正常；取链测试通过（${pickSource} ${result.quality || quality}）`, sources: result.sources ?? sources, updateAlert: initResult.updateAlert };
   } catch (error) {
+    runtime.dispose();
+    operation.assertActive();
     const reason = error instanceof Error ? error.message : String(error);
     return { ok: false, message: `初始化正常；取链测试失败：${reason}`, sources, updateAlert: initResult.updateAlert };
   }
 }
 
-export async function checkCustomSourceUpdate(api: CustomSourceItem): Promise<RuntimeInitResult> {
-  const result = await testCustomSource(api, CHECK_UPDATE_ALERT_WAIT_MS);
+export async function checkCustomSourceUpdate(api: CustomSourceItem, operation: CustomSourceOperation): Promise<RuntimeInitResult> {
+  operation.assertActive();
+  const result = await testCustomSource(api, operation, CHECK_UPDATE_ALERT_WAIT_MS);
   if (result.updateAlert) return result;
-  const remoteAlert = await checkCustomSourceRemoteUpdate(api);
+  const remoteAlert = await checkCustomSourceRemoteUpdate(api, operation);
+  operation.assertActive();
   return { ...result, updateAlert: remoteAlert };
 }
 
@@ -795,10 +867,12 @@ export async function requestCustomSourceMusicUrl(
   api: CustomSourceItem,
   music: MusicInfo,
   quality: string,
+  operation: CustomSourceOperation,
   onUpdateAlert?: UpdateAlertListener,
 ): Promise<{ url: string; quality: string; sources?: Record<string, CustomSourceSourceInfo> }> {
-  const runtime = getCachedRuntime(api, onUpdateAlert);
-  const initResult = await runtime.init;
+  operation.assertActive();
+  const runtime = getCachedRuntime(api, operation, onUpdateAlert);
+  const initResult = await awaitCustomSourceOperation(operation, runtime.init);
   const sourceInfo = initResult.sources?.[music.source];
   if (!sourceInfo?.actions.includes('musicUrl')) throw new Error(`音源不支持 ${music.source} 的播放链接解析`);
   if (sourceInfo.qualitys.length && !sourceInfo.qualitys.includes(quality)) throw new Error(`音源不支持 ${quality} 音质`);
@@ -811,6 +885,7 @@ export async function requestCustomSourceMusicUrl(
       musicInfo: toOldMusicInfo(music),
     },
   });
+  operation.assertActive();
   const data = result.data as { url?: string; type?: string };
   if (!data.url) throw new Error('自定义音源没有返回可播放 URL');
   return { url: data.url, quality: data.type || quality, sources: initResult.sources };

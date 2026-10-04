@@ -38,6 +38,9 @@ jobs:
       - name: core 单元测试
         run: pnpm test:core
 
+      - name: 桌面功能单元测试
+        run: pnpm test:desktop
+
       - name: 双端类型检查 + 移动端 lint
         run: pnpm check:all
 

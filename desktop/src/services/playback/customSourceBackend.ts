@@ -1,5 +1,5 @@
 import { normalizePlaybackQuality } from '@lx/core';
-import { useCustomSourceStore } from '@/stores/customSourceStore';
+import { customSourceAccess, customSourcePersistence, useCustomSourceStore } from '@/stores/customSourceStore';
 import { requestCustomSourceMusicUrl } from '@/services/customSourceRuntime';
 import type { PlaybackAttempt, PlaybackBackend, PlaybackRequest, PlaybackResolvedUrl } from './types';
 
@@ -25,6 +25,8 @@ export const customSourceBackend: PlaybackBackend = {
    * 第一轮就可能拿到 128k。
    */
   async resolve(request: PlaybackRequest): Promise<PlaybackResolvedUrl> {
+    if (!useCustomSourceStore.getState().featureReady) await customSourcePersistence.ready;
+    const operation = customSourceAccess.capture();
     const customSources = useCustomSourceStore.getState().sources.filter((source) => source.enabled);
     if (!customSources.length) {
       throw new Error('当前备用播放方式为自定义音源,但尚未导入或启用任何 LX Music 自定义音源');
@@ -43,13 +45,16 @@ export const customSourceBackend: PlaybackBackend = {
         const sourceAttempt = (async () => {
           const errors: string[] = [];
           for (const quality of qualities) {
+            operation.assertActive();
             try {
               // 运行时上浮:正常播放取链期间脚本 send updateAlert 且无 waiter 等待时回调,
               // 写入 store 让全局更新弹窗(updateStatus === 'available')能感知;
               // 手动测试/检查更新路径走 waitForUpdateAlert 自行消费,不会重复上报
-              const result = await requestCustomSourceMusicUrl(api, music, quality, (alert) => {
+              const result = await requestCustomSourceMusicUrl(api, music, quality, operation, (alert) => {
+                operation.assertActive();
                 useCustomSourceStore.getState().applyRuntimeUpdateAlert(api.id, alert);
               });
+              operation.assertActive();
               return {
                 apiName: api.name,
                 music,
@@ -57,6 +62,7 @@ export const customSourceBackend: PlaybackBackend = {
                 url: result.url,
               };
             } catch (error) {
+              operation.assertActive();
               errors.push(`${quality}: ${compactError(error)}`);
               trace.push({
                 backend: 'customSource',
@@ -72,6 +78,7 @@ export const customSourceBackend: PlaybackBackend = {
         })();
 
         const hit = await withBudget(sourceAttempt, PRIMARY_BUDGET_MS);
+        operation.assertActive();
         if (hit && normalizePlaybackQuality(hit.quality) === normalizePlaybackQuality(targetQuality)) {
           // 该源在预算内给出本轮最高档 → 定稿,不再试后面的源。
           trace.push({

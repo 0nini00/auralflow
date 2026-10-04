@@ -51,11 +51,19 @@ function getUpdateLog(source: CustomSourceItem): string {
 
 export function CustomSourceUpdateModal() {
   const sources = useCustomSourceStore((state) => state.sources);
+  const featureEnabled = useCustomSourceStore((state) => state.featureEnabled);
+  const featureReady = useCustomSourceStore((state) => state.featureReady);
   const [requestedSourceId, setRequestedSourceId] = useState<string | null>(null);
   const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(() => loadDismissedKeys());
 
   useEffect(() => {
+    if (!featureEnabled || !featureReady) setRequestedSourceId(null);
+  }, [featureEnabled, featureReady]);
+
+  useEffect(() => {
     const handleOpen = (event: Event) => {
+      const state = useCustomSourceStore.getState();
+      if (!state.featureEnabled || !state.featureReady) return;
       const sourceId = (event as CustomEvent<OpenCustomSourceUpdateModalDetail>).detail?.sourceId;
       if (sourceId) setRequestedSourceId(sourceId);
     };
@@ -66,6 +74,7 @@ export function CustomSourceUpdateModal() {
 
   const source = useMemo(
     () => {
+      if (!featureEnabled || !featureReady) return undefined;
       const requestedSource = requestedSourceId
         ? sources.find((item) => item.id === requestedSourceId && item.updateStatus === "available")
         : undefined;
@@ -78,7 +87,7 @@ export function CustomSourceUpdateModal() {
         return false;
       });
     },
-    [dismissedKeys, requestedSourceId, sources],
+    [dismissedKeys, requestedSourceId, sources, featureEnabled, featureReady],
   );
 
   if (!source) return null;

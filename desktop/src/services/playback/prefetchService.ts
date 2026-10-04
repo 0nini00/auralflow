@@ -1,6 +1,7 @@
 import type { MusicInfo } from '@lx/core';
 import { getLyrics, type LyricResponse } from '@/services/lyricsService';
 import { playerEngine } from '@/services/playerEngine';
+import { customSourceAccess, customSourcePersistence, useCustomSourceStore } from '@/stores/customSourceStore';
 import { resolvePlaybackUrl } from './playbackResolver';
 import {
   buildPlaybackPrefetchEntry,
@@ -102,9 +103,11 @@ async function prefetchTrack(
   music: MusicInfo,
   options: Required<Pick<PrefetchNearbyTracksOptions, 'resolvePlaybackUrl' | 'getLyrics' | 'preloadUrl' | 'preloadCoverUrl' | 'now'>>,
 ): Promise<void> {
+  if (!useCustomSourceStore.getState().featureReady) await customSourcePersistence.ready;
+  const accessVersion = customSourceAccess.version;
   const fetchedAt = options.now();
   const key = getTrackKey(music);
-  if (isFreshEntry(prefetchCache.get(key), fetchedAt)) return;
+  if (isFreshEntry(getPrefetchedTrack(music), fetchedAt)) return;
 
   let entry: PlaybackPrefetchEntry = {
     ...buildPlaybackPrefetchEntry(music, null, fetchedAt),
@@ -125,9 +128,14 @@ async function prefetchTrack(
       const variants = getPlaybackVariants(music);
       const resolved = await options.resolvePlaybackUrl(music, variants, undefined, { cacheMedia: false });
       if (resolved?.url) {
+        // 同一 source 的链接也可能来自 LX，不能用 source 推断权限。
+        if (resolved.backend === 'customSource' && (
+          !useCustomSourceStore.getState().featureEnabled || customSourceAccess.version !== accessVersion
+        )) return;
         entry = {
           ...entry,
           ...buildPlaybackPrefetchEntry(music, resolved, fetchedAt),
+          customSourceVersion: resolved.backend === 'customSource' ? accessVersion : undefined,
           coverUrl: entry.coverUrl,
         };
       }
@@ -144,6 +152,9 @@ async function prefetchTrack(
     entry.error = entry.error ? `${entry.error}\n${message}` : message;
   }
 
+  // 失效操作的空结果也不能占住 TTL，阻止重新开启后的新预取。
+  if (!entry.url && customSourceAccess.version !== accessVersion) return;
+  if (!isEntryAccessible(entry)) return;
   prefetchCache.set(key, entry);
 }
 
@@ -192,8 +203,20 @@ export async function prefetchTracks(musicList: MusicInfo[]): Promise<void> {
   await Promise.all(musicList.map((music) => prefetchTrack(music, dependencies)));
 }
 
+function isEntryAccessible(entry: PlaybackPrefetchEntry): boolean {
+  if (entry.backend !== 'customSource') return true;
+  const state = useCustomSourceStore.getState();
+  return state.featureReady && state.featureEnabled && entry.customSourceVersion === customSourceAccess.version;
+}
+
 export function getPrefetchedTrack(music: MusicInfo): PlaybackPrefetchEntry | undefined {
-  return prefetchCache.get(getTrackKey(music));
+  const key = getTrackKey(music);
+  const entry = prefetchCache.get(key);
+  if (entry && !isEntryAccessible(entry)) {
+    prefetchCache.delete(key);
+    return undefined;
+  }
+  return entry;
 }
 
 export function clearPlaybackPrefetchCache(): void {

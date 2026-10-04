@@ -1,8 +1,12 @@
 import { useEffect, useState } from "react";
 import { loadSettings, patchSettings } from "@lx/tauri-bridge";
 import { CloudSyncRefusalError } from "@lx/core";
+import { useCustomSourceStore } from "@/stores/customSourceStore";
 
 export function SyncSettingsSection() {
+  const featureEnabled = useCustomSourceStore((state) => state.featureEnabled);
+  const featureReady = useCustomSourceStore((state) => state.featureReady);
+  const sourcesSyncEnabled = featureReady && featureEnabled;
   const [webdavUrl, setWebdavUrl] = useState("");
   const [webdavUser, setWebdavUser] = useState("");
   const [webdavPass, setWebdavPass] = useState("");
@@ -194,11 +198,18 @@ export function SyncSettingsSection() {
       <div className="af-settings-group">
         <div className="af-input-group" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button type="button" className="af-settings-small-button" onClick={handleTest} disabled={syncBusy}>测试连接</button>
-          <button type="button" className="af-settings-small-button" onClick={handleUploadSources} disabled={syncBusy}>上传音源</button>
-          <button type="button" className="af-settings-small-button" onClick={handleDownloadSources} disabled={syncBusy}>下载音源</button>
+          <button type="button" className="af-settings-small-button" onClick={handleUploadSources} disabled={syncBusy || !sourcesSyncEnabled}>上传音源</button>
+          <button type="button" className="af-settings-small-button" onClick={handleDownloadSources} disabled={syncBusy || !sourcesSyncEnabled}>下载音源</button>
           <button type="button" className="af-settings-small-button" onClick={handleUploadPlaylists} disabled={syncBusy}>上传歌单历史</button>
           <button type="button" className="af-settings-small-button" onClick={handleDownloadPlaylists} disabled={syncBusy}>下载歌单历史</button>
         </div>
+        {!sourcesSyncEnabled && (
+          <p className="af-settings-hint">
+            {!featureReady
+              ? "正在恢复 LX 自定义音源状态，音源上传和下载暂不可用；歌单和历史同步不受影响。"
+              : "LX 自定义音源已停用，音源上传和下载已暂停；本地及云端音源数据保留，歌单和历史同步不受影响。已发送的远端请求无法撤回。"}
+          </p>
+        )}
         {syncStatus && <p className="af-settings-hint">{syncBusy ? "同步中：" : ""}{syncStatus}</p>}
       </div>
     </section>

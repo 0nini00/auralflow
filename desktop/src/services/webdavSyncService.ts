@@ -5,7 +5,8 @@ import { useFavoritesStore } from "@/stores/favoritesStore";
 import { usePlaylistStore, type Playlist } from "@/stores/playlistStore";
 import { musicKey, useHistoryStore } from "@/stores/historyStore";
 import { useWyAccountStore } from "@/stores/wyAccountStore";
-import { useCustomSourceStore, type CustomSourceItem } from "@/stores/customSourceStore";
+import { customSourceAccess, customSourcePersistence, useCustomSourceStore, type CustomSourceItem } from "@/stores/customSourceStore";
+import { awaitCustomSourceOperation, type CustomSourceOperation } from "@/services/customSourceAccess";
 import { parseDesktopUserApiInfo } from "@/services/customSourceRuntime";
 import { inflateBytes } from "@/utils/compression";
 import { logger } from "@/services/logger";
@@ -95,20 +96,26 @@ type WebdavRequestInit = {
 };
 
 
-/** Serialize all WebDAV ops so double-clicks cannot race PUT/GET. */
-let syncInFlight: Promise<unknown> | null = null;
+/** 音源文件与普通同步互不阻塞；同类请求仍串行，防止远端覆盖竞态。 */
+const syncInFlight = new Map<"sources" | "general", Promise<unknown>>();
 
-async function withSyncLock<T>(label: string, fn: () => Promise<T>): Promise<T> {
-  if (syncInFlight) {
+async function withSyncLock<T>(
+  label: string,
+  fn: () => Promise<T>,
+  operation?: CustomSourceOperation,
+): Promise<T> {
+  operation?.assertActive();
+  const scope = operation ? "sources" : "general";
+  if (syncInFlight.has(scope)) {
     throw new Error(`WebDAV 正在同步中（${label}），请稍后再试`);
   }
   const run = (async () => fn())();
-  syncInFlight = run;
-  try {
-    return await run;
-  } finally {
-    if (syncInFlight === run) syncInFlight = null;
-  }
+  syncInFlight.set(scope, run);
+  const completed = run.finally(() => {
+    if (syncInFlight.get(scope) === run) syncInFlight.delete(scope);
+  });
+  // 关闭只取消应用侧等待。原请求结束前保留音源锁，避免重开后两个 PUT 互相覆盖。
+  return operation ? awaitCustomSourceOperation(operation, completed) : completed;
 }
 
 const LOCAL_META_PREFIX = "auralflow:webdav:localMeta:";
@@ -326,45 +333,56 @@ function formatWriteFailure(action: string, status: number, statusText: string):
   return `${action}失败: HTTP ${status} ${statusText}`;
 }
 
-async function webdavRequest(cfg: WebdavConfig, path: string, init: WebdavRequestInit): Promise<OutboundResponse> {
-  return outboundRequest(buildUrl(cfg, path), {
+// 出站代理不支持 AbortSignal：令牌只阻止后续步骤，已发送的远端请求无法撤回。
+// 歌单和连接测试不传音源令牌，保持各自的同步行为。
+async function webdavRequest(
+  cfg: WebdavConfig,
+  path: string,
+  init: WebdavRequestInit,
+  operation?: CustomSourceOperation,
+): Promise<OutboundResponse> {
+  operation?.assertActive();
+  const response = await outboundRequest(buildUrl(cfg, path), {
     ...init,
     headers: {
       Authorization: authHeader(cfg),
       ...(init.headers ?? {}),
     },
   });
+  operation?.assertActive();
+  return response;
 }
 
-async function readWebdavText(cfg: WebdavConfig, path: string): Promise<string | null> {
-  const resp = await webdavRequest(cfg, path, { method: "GET" });
+async function readWebdavText(cfg: WebdavConfig, path: string, operation?: CustomSourceOperation): Promise<string | null> {
+  const resp = await webdavRequest(cfg, path, { method: "GET" }, operation);
   if (resp.status === 404 || resp.status === 409) return null;
   if (!resp.ok) {
     throw new Error(`下载失败: HTTP ${resp.status} ${resp.statusText}`);
   }
   const text = await resp.text();
+  operation?.assertActive();
   return text.trim() ? text : null;
 }
 
-async function remotePathExists(cfg: WebdavConfig, path: string): Promise<boolean> {
+async function remotePathExists(cfg: WebdavConfig, path: string, operation?: CustomSourceOperation): Promise<boolean> {
   const resp = await webdavRequest(cfg, path, {
     method: "PROPFIND",
     headers: { Depth: "0" },
-  });
+  }, operation);
   if (resp.ok) return true;
   if (resp.status === 404 || resp.status === 409) return false;
   throw new Error(formatWriteFailure("检查", resp.status, resp.statusText));
 }
 
-async function ensureRemoteDirectory(cfg: WebdavConfig, path: string): Promise<void> {
+async function ensureRemoteDirectory(cfg: WebdavConfig, path: string, operation?: CustomSourceOperation): Promise<void> {
   const segments = normalizeRemotePath(path).split("/").filter(Boolean);
   let currentPath = "";
 
   for (const segment of segments) {
     currentPath = joinRemotePath(currentPath, segment);
-    if (await remotePathExists(cfg, currentPath)) continue;
+    if (await remotePathExists(cfg, currentPath, operation)) continue;
 
-    const resp = await webdavRequest(cfg, currentPath, { method: "MKCOL" });
+    const resp = await webdavRequest(cfg, currentPath, { method: "MKCOL" }, operation);
     if (!resp.ok && resp.status !== 405) {
       throw new Error(formatWriteFailure("创建目录", resp.status, resp.statusText));
     }
@@ -641,21 +659,26 @@ function parsePlaylistsSyncFile(text: string): ParsedPlaylistsSyncFile {
 
 /** 上传自定义音源到 WebDAV（覆盖远端 user_apis.json）。 */
 export async function uploadSourcesSync(): Promise<void> {
+  await customSourcePersistence.ready;
+  const operation = customSourceAccess.capture();
   return withSyncLock("上传音源", async () => {
     const cfg = await getConfig();
+    operation.assertActive();
     if (!cfg) throw new Error("请先在设置中填写 WebDAV 地址");
 
-    await ensureRemoteDirectory(cfg, REMOTE_ROOT_PATH);
+    await ensureRemoteDirectory(cfg, REMOTE_ROOT_PATH, operation);
 
     const sources = useCustomSourceStore.getState().sources;
     const body = buildUserApisSyncFile(sources);
     const sourcesLm = body.lastModified ?? Date.now();
 
+    operation.assertActive();
     const resp = await webdavRequest(cfg, userApisPath(), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body, null, 2),
-    });
+    }, operation);
+    operation.assertActive();
     if (!resp.ok) {
       throw new Error(formatWriteFailure("上传音源", resp.status, resp.statusText));
     }
@@ -664,49 +687,60 @@ export async function uploadSourcesSync(): Promise<void> {
       lastModified: sourcesLm,
       itemCount: sources.length,
     });
-  });
+  }, operation);
 }
 
 /** 读同步文件：优先新路径 /AuralFlow/，404/409 时回退旧 /LX_Music/（迁移）。 */
 async function readSyncFileWithLegacyFallback(
   cfg: WebdavConfig,
   fileName: (root?: string) => string,
+  operation?: CustomSourceOperation,
 ): Promise<string | null> {
-  const primary = await readWebdavText(cfg, fileName());
+  const primary = await readWebdavText(cfg, fileName(), operation);
   if (primary != null) return primary;
   try {
-    return await readWebdavText(cfg, fileName(LEGACY_REMOTE_ROOT_PATH));
+    return await readWebdavText(cfg, fileName(LEGACY_REMOTE_ROOT_PATH), operation);
   } catch {
+    // 迁移读取的兼容逻辑不能把已失效的音源操作吞成“云端无文件”。
+    operation?.assertActive();
     return null;
   }
 }
 
 export async function downloadSourcesSync(options?: { force?: boolean }): Promise<void> {
+  await customSourcePersistence.ready;
+  const operation = customSourceAccess.capture();
   return withSyncLock("下载音源", async () => {
     const cfg = await getConfig();
+    operation.assertActive();
     if (!cfg) throw new Error("请先在设置中填写 WebDAV 地址");
 
-    const text = await readSyncFileWithLegacyFallback(cfg, userApisPath);
+    const text = await readSyncFileWithLegacyFallback(cfg, userApisPath, operation);
+    operation.assertActive();
     if (!text) throw new Error("云端没有音源文件");
 
     const localSources = useCustomSourceStore.getState().sources;
     assertCloudNotStale("sources", text, localSources.length, options?.force);
-    writeLocalBackup("sources", localSources);
 
     const customSources = await parseUserApisSyncFile(text);
+    operation.assertActive();
     // 云端文件结构不符（data 缺失 / 为空 / 顶层数组等）会解析成 0 项；此处若整体替换
     // 会把本地音源清空并写回持久化，随后上传成空。与移动端一致：0 项视为异常直接中止。
     if (customSources.length === 0) {
       throw new Error("云端音源缺少有效脚本内容，无法初始化");
     }
+    // 解析可能异步解压；确认操作仍有效后才备份和替换，关闭期间不写本地数据。
+    writeLocalBackup("sources", localSources);
+    operation.assertActive();
     useCustomSourceStore.getState().replaceAll(customSources);
 
+    operation.assertActive();
     const remoteLm = extractRemoteLastModified(text) ?? Date.now();
     writeLocalMeta("sources", {
       lastModified: remoteLm,
       itemCount: customSources.length,
     });
-  });
+  }, operation);
 }
 
 export async function uploadPlaylistsSync(): Promise<void> {

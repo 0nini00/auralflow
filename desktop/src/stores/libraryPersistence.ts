@@ -16,6 +16,8 @@ interface AttachOptions<T, S> {
   namespace: LibraryNamespace;
   /** 从 store state 抽取要持久化的子集 */
   pick: (state: T) => S;
+  /** 忽略不影响持久化数据的瞬态变化，例如加载状态。 */
+  shouldPersist?: (state: T, previous: T) => boolean;
   /** 将盘上的 S 合并回 store state */
   apply: (slice: S, set: (partial: Partial<T>) => void) => void;
   /** 旧 localStorage key —— 用于一次性迁移；可选 */
@@ -39,6 +41,8 @@ function defaultExtractLegacy<S>(parsed: unknown): S | null {
 export interface LibraryPersistenceController {
   /** 启动后等候首次加载完成；UI 可在 hydrate 后再渲染 */
   ready: Promise<void>;
+  /** ready 表示加载结束；失败时不可用空状态继续写盘。 */
+  readonly loadError: Error | null;
   /** 立刻写盘，跳过 debounce */
   flush: () => Promise<void>;
 }
@@ -119,17 +123,14 @@ export function attachLibraryPersistence<T, S>(
    * 此时内存里是空数据，若继续写盘就会把用户数据整个覆盖掉；
    * 宁可本轮不写，也不能用「读失败后的空状态」落盘。
    */
-  let loadFailed = false;
+  let loadError: Error | null = null;
   let resolveReady: () => void = () => undefined;
   const ready = new Promise<void>((resolve) => {
     resolveReady = resolve;
   });
 
-  const writeNow = async () => {
-    if (timer) {
-      clearTimeout(timer);
-      timer = null;
-    }
+  const writePending = async () => {
+    if (loadError) throw loadError;
     if (pending == null) return;
     const snapshot = pending;
     pending = null;
@@ -138,21 +139,37 @@ export function attachLibraryPersistence<T, S>(
     } catch (err) {
       // 必须留痕：用户数据（收藏/歌单/历史）静默不落盘比报错更难排查
       console.error(`[library] 写入 ${namespace} 失败`, err);
+      // 不覆盖等待期间产生的新快照；手动重试或退出 flush 可再次提交。
+      if (pending == null) pending = snapshot;
+      throw err;
     }
   };
 
+  let writeQueue: Promise<void> = Promise.resolve();
+  const writeNow = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    // 按命名空间串行提交；上一调用的错误已被记录/返回，不让失败阻塞新快照。
+    const write = writeQueue.catch(() => undefined).then(writePending);
+    writeQueue = write;
+    return write;
+  };
+
   const schedule = (slice: S) => {
-    if (loadFailed) return;
+    if (loadError) return;
     pending = slice;
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
-      void writeNow();
+      // 定时自动保存没有调用方，错误已由 writeNow 记录；显式 flush 仍向 UI 拒绝。
+      void writeNow().catch(() => undefined);
     }, debounceMs);
   };
 
   // 订阅状态变化
-  api.subscribe((state) => {
-    if (suppressed) return;
+  api.subscribe((state, previous) => {
+    if (suppressed || (opts.shouldPersist && !opts.shouldPersist(state, previous))) return;
     schedule(pick(state));
   });
 
@@ -190,7 +207,7 @@ export function attachLibraryPersistence<T, S>(
         }
       }
     } catch (err) {
-      loadFailed = true;
+      loadError = err instanceof Error ? err : new Error(String(err));
       markNamespaceDegraded(namespace);
       console.error(
         `[library] 加载 ${namespace} 失败：已停用本命名空间的写盘，避免用空数据覆盖磁盘上的用户数据`,
@@ -203,6 +220,7 @@ export function attachLibraryPersistence<T, S>(
 
   const controller: LibraryPersistenceController = {
     ready,
+    get loadError() { return loadError; },
     flush: writeNow,
   };
   persistenceControllers.add(controller);

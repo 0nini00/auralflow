@@ -43,6 +43,8 @@ import { normalizePauseOnExternalPlayback } from "./services/mediaInterruptionPo
 import { flushLibraryPersistence } from "./stores/libraryPersistence";
 import { loadSettings } from "@lx/tauri-bridge";
 
+const CUSTOM_SOURCE_UPDATE_CHECK_DELAY_MS = 4500;
+
 function MainApp() {
   useKeyboardShortcuts();
   useNativeControls();
@@ -55,6 +57,8 @@ function MainApp() {
 
   const [cursorEffect, setCursorEffect] = useState<"off" | "trail">("off");
   const setUpdateAvailable = useUpdateStore((s) => s.setAvailable);
+  const featureEnabled = useCustomSourceStore((state) => state.featureEnabled);
+  const featureReady = useCustomSourceStore((state) => state.featureReady);
 
   // 退出前把 debounce 中的写盘落盘。
   // 托盘退出走 Rust 的 app.exit(0)，进程会被直接结束；不 flush 就会丢掉退出前
@@ -109,17 +113,8 @@ function MainApp() {
         })
         .catch(() => undefined);
     }, 3000);
-    let customSourceUpdateTimer: number | undefined;
     let autoSyncTimer: number | undefined;
     let disposed = false;
-    Promise.all([loadSettings(), customSourcePersistence.ready])
-      .then(([s]) => {
-        if (disposed || !s.customSourceAutoCheck) return;
-        customSourceUpdateTimer = window.setTimeout(() => {
-          void useCustomSourceStore.getState().checkAllUpdates();
-        }, 4500);
-      })
-      .catch(() => undefined);
 
     // 启动时自动同步歌单历史：
     // 必须等本地曲库（收藏/歌单/历史）hydrate 完成后才能开始，否则会把空数据当成本地全集
@@ -146,14 +141,36 @@ function MainApp() {
       disposed = true;
       window.removeEventListener("af-cursor-change", loadCursor);
       clearTimeout(updateTimer);
-      if (customSourceUpdateTimer != null) {
-        window.clearTimeout(customSourceUpdateTimer);
-      }
       if (autoSyncTimer != null) {
         window.clearTimeout(autoSyncTimer);
       }
     };
   }, []);
+
+  // 音源检查随总开关独立启停，不重新执行应用更新或曲库自动同步。
+  useEffect(() => {
+    if (!featureEnabled || !featureReady) return;
+    let disposed = false;
+    let timer: number | undefined;
+    Promise.all([loadSettings(), customSourcePersistence.ready])
+      .then(([settings]) => {
+        if (disposed || !settings.customSourceAutoCheck) return;
+        timer = window.setTimeout(() => {
+          const state = useCustomSourceStore.getState();
+          if (disposed || !state.featureEnabled || !state.featureReady) return;
+          void state.checkAllUpdates().catch((error) => {
+            logger.warn("[LX 自动检查] 音源更新检查失败", error);
+          });
+        }, CUSTOM_SOURCE_UPDATE_CHECK_DELAY_MS);
+      })
+      .catch((error) => {
+        logger.warn("[LX 自动检查] 读取设置失败", error);
+      });
+    return () => {
+      disposed = true;
+      if (timer != null) window.clearTimeout(timer);
+    };
+  }, [featureEnabled, featureReady]);
 
   return (
     <>

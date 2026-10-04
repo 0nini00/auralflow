@@ -106,6 +106,8 @@ const [defaultQuality, setDefaultQuality] = useState("320k");
 const [pauseOnExternalPlayback, setPauseOnExternalPlayback] = useState(true);
 const [customScriptText, setCustomScriptText] = useState("");
 const [customSourceStatus, setCustomSourceStatus] = useState("");
+const [customSourceFeaturePending, setCustomSourceFeaturePending] = useState(false);
+const [customSourceFeatureError, setCustomSourceFeatureError] = useState("");
 const [customSourceAutoCheck, setCustomSourceAutoCheck] = useState(true);
 const [immersiveLyricFontFamily, setImmersiveLyricFontFamily] = useState(DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
 const [songCacheStats, setSongCacheStats] = useState<SongCacheStats | null>(null);
@@ -113,6 +115,10 @@ const [dataPending, setDataPending] = useState(false);
 const [dataStatus, setDataStatus] = useState("");
 const {
   sources: customSources,
+  featureEnabled,
+  featureReady,
+  featureLoadError,
+  setFeatureEnabled,
   importScript,
   importFromFile,
   removeSource,
@@ -226,6 +232,18 @@ const handlePauseOnExternalPlaybackChange = async (next: boolean) => {
   } catch (error) {
     setPauseOnExternalPlayback(previous);
     playerEngine.setPauseOnExternalPlayback(previous);
+  }
+};
+
+const handleCustomSourceFeatureChange = async (enabled: boolean) => {
+  setCustomSourceFeaturePending(true);
+  setCustomSourceFeatureError("");
+  try {
+    await setFeatureEnabled(enabled);
+  } catch (error) {
+    setCustomSourceFeatureError(`保存 LX 自定义音源开关失败：${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    setCustomSourceFeaturePending(false);
   }
 };
 
@@ -344,6 +362,11 @@ const getCapabilityTitle = (source: typeof customSources[number]) => {
     setDefaultQuality,
     pauseOnExternalPlayback,
     setPauseOnExternalPlayback,
+    featureEnabled,
+    featureReady,
+    customSourceFeaturePending,
+    customSourceFeatureError: customSourceFeatureError || featureLoadError || "",
+    handleCustomSourceFeatureChange,
     customScriptText,
     setCustomScriptText,
     customSourceStatus,
@@ -430,6 +453,11 @@ export type PlaybackSettingsModel = Pick<SettingsViewModel,
 >;
 
 export type SourcesSettingsModel = Pick<SettingsViewModel,
+  | "featureEnabled"
+  | "featureReady"
+  | "customSourceFeaturePending"
+  | "customSourceFeatureError"
+  | "handleCustomSourceFeatureChange"
   | "customScriptText"
   | "setCustomScriptText"
   | "customSourceStatus"

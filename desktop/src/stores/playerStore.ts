@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { MusicInfo } from "@lx/core";
 import { playerEngine } from "@/services/playerEngine";
-import { resolvePlaybackUrl } from "@/services/playback/playbackResolver";
+import { resolvePlaybackUrl, type PlaybackBackendId } from "@/services/playback/playbackResolver";
 import { prefetchNearbyTracks, prefetchTracks, getPrefetchedTrack, invalidatePrefetchedTrack } from "@/services/playback/prefetchService";
 import { selectCachedPlaybackTarget } from "@/services/playback/prefetchModel";
 import { getPlayModeState, type PlayModeId } from "@/services/playback/playModeControl";
@@ -13,6 +13,8 @@ import { findTxVariants, describeCrossSourceFailure } from "@/services/playback/
 import { useHistoryStore } from "./historyStore";
 import { useSleepTimerStore } from "./sleepTimerStore";
 import { useDiscoveryStore } from "./discoveryStore";
+import { customSourceAccess, customSourcePersistence, useCustomSourceStore } from "./customSourceStore";
+import { CustomSourceDisabledError, type CustomSourceOperation } from "@/services/customSourceAccess";
 
 export type RepeatMode = "off" | "all" | "one";
 
@@ -110,9 +112,9 @@ async function playAndDidFail(get: () => PlayerStore, music: MusicInfo): Promise
  * 交给播放器引擎播放，并把该曲目登记为“引擎应当接管的目标”。
  * 登记后引擎推上一首的状态会被丢弃，直到它真的加载了这首曲目。
  */
-async function playThroughEngine(music: MusicInfo, url: string): Promise<void> {
+async function playThroughEngine(music: MusicInfo, url: string, assertPlaybackAllowed?: () => void): Promise<void> {
   engineTargetKey = buildPlayRequestKey(music);
-  await playerEngine.play(music, url);
+  await playerEngine.play(music, url, assertPlaybackAllowed);
 }
 
 async function invalidatePersistentPlaybackCache(
@@ -345,6 +347,16 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
       set({ current: music, status: "loading", error: null, progress: 0, duration: 0 });
 
       const run = (async () => {
+        let operation: CustomSourceOperation | undefined;
+        const playResolved = (resolved: { music: MusicInfo; url: string; backend?: PlaybackBackendId }) => {
+          // 同一原始令牌同时覆盖解析返回和引擎内部淡出、起播的异步边界。
+          const assertPlaybackAllowed = resolved.backend === 'customSource' ? () => {
+            if (!operation) throw new CustomSourceDisabledError();
+            operation.assertActive();
+          } : undefined;
+          assertPlaybackAllowed?.();
+          return playThroughEngine(resolved.music, resolved.url, assertPlaybackAllowed);
+        };
         try {
           let playedMusic = music;
           // 检查是否为本地音乐
@@ -358,10 +370,19 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
             return;
           }
 
+          if (!useCustomSourceStore.getState().featureReady) await customSourcePersistence.ready;
+          if (requestId !== activePlayRequestId) return;
+          operation = useCustomSourceStore.getState().featureEnabled ? customSourceAccess.capture() : undefined;
+
           // 优先使用预加载缓存，命中则跳过网络解析
 
           const variants = Array.isArray((music as any).variants) ? (music as any).variants as MusicInfo[] : undefined;
-          const cachedTarget = selectCachedPlaybackTarget(music, getPrefetchedTrack(music));
+          let cachedTarget = selectCachedPlaybackTarget(music, getPrefetchedTrack(music));
+          if (cachedTarget?.backend === 'customSource' && (
+            !operation?.isActive() || cachedTarget.customSourceVersion !== customSourceAccess.version
+          )) {
+            cachedTarget = null;
+          }
 
           if (cachedTarget) {
 
@@ -369,7 +390,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
             try {
               playedMusic = cachedTarget.music;
-              await playThroughEngine(cachedTarget.music, cachedTarget.url);
+              await playResolved(cachedTarget);
             } catch (cachedError) {
               invalidatePrefetchedTrack(music);
               if (cachedTarget.music.source !== music.source || cachedTarget.music.id !== music.id) {
@@ -387,7 +408,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
               }
 
               playedMusic = resolved.music;
-              await playThroughEngine(resolved.music, resolved.url);
+              await playResolved(resolved);
             }
 
           } else {
@@ -404,7 +425,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
             try {
               playedMusic = resolved.music;
-              await playThroughEngine(resolved.music, resolved.url);
+              await playResolved(resolved);
             } catch (playbackError) {
               if (!resolved.fromCache) throw playbackError;
 
@@ -412,7 +433,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
               const refreshed = await resolvePlaybackUrl(music, variants, undefined, { bypassCache: true });
               if (requestId !== activePlayRequestId) return;
               playedMusic = refreshed.music;
-              await playThroughEngine(refreshed.music, refreshed.url);
+              await playResolved(refreshed);
             }
 
           }
@@ -435,7 +456,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
                   const fallbackResolved = await resolvePlaybackUrl(candidate);
                   if (requestId !== activePlayRequestId) return;
                   if (fallbackResolved?.url) {
-                    await playThroughEngine(fallbackResolved.music, fallbackResolved.url);
+                    await playResolved(fallbackResolved);
                     if (requestId !== activePlayRequestId) return;
                     set({ current: fallbackResolved.music });
                     useHistoryStore.getState().add(fallbackResolved.music);

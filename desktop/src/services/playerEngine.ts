@@ -148,8 +148,11 @@ class PlayerEngine {
     this.pauseOnExternalPlayback = normalizePauseOnExternalPlayback(value);
   }
 
-  async load(music: MusicInfo, url: string): Promise<void> {
+  async load(music: MusicInfo, url: string, assertPlaybackAllowed?: () => void): Promise<void> {
+    assertPlaybackAllowed?.();
     await this.fadeOut();
+    // 淡出会让出执行权，源地址尚未交给媒体元素前必须重新确认许可。
+    assertPlaybackAllowed?.();
     this.patchState({
       currentMusic: music,
       currentUrl: url,
@@ -164,9 +167,10 @@ class PlayerEngine {
     this.audio.load();
   }
 
-  async play(music: MusicInfo, url: string): Promise<void> {
-    await this.load(music, url);
+  async play(music: MusicInfo, url: string, assertPlaybackAllowed?: () => void): Promise<void> {
     try {
+      await this.load(music, url, assertPlaybackAllowed);
+      assertPlaybackAllowed?.();
       await this.audio.play();
     } catch (error) {
       this.cancelFade();

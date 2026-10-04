@@ -1,5 +1,7 @@
 import type { LyricResponse, MusicInfo } from '@lx/core';
 import { libraryLoad, libraryReset, librarySave } from '@lx/tauri-bridge';
+import { customSourceAccess, customSourcePersistence, useCustomSourceStore } from '@/stores/customSourceStore';
+import type { CustomSourceOperation } from '@/services/customSourceAccess';
 import type { PlaybackBackendId, PlaybackResolvedUrl } from '@/services/playback/types';
 
 const CACHE_NAMESPACE = 'cache';
@@ -107,13 +109,20 @@ function pruneRecord<T extends { cachedAt: number }>(
     });
 }
 
-async function saveCache(cache: PersistentCacheState, now = Date.now()): Promise<void> {
-  pruneRecord(cache.playbackUrls, MAX_PLAYBACK_URL_ENTRIES, now);
-  pruneRecord(cache.lyrics, MAX_LYRIC_ENTRIES, now);
-
+async function saveCache(
+  cache: PersistentCacheState,
+  now = Date.now(),
+  commit?: () => void,
+): Promise<void> {
   writeQueue = writeQueue
     .catch(() => undefined)
-    .then(() => librarySave(CACHE_NAMESPACE, cache));
+    .then(() => {
+      // 排队期间开关可能变化，校验与内存写入必须在同一提交点执行。
+      commit?.();
+      pruneRecord(cache.playbackUrls, MAX_PLAYBACK_URL_ENTRIES, now);
+      pruneRecord(cache.lyrics, MAX_LYRIC_ENTRIES, now);
+      return librarySave(CACHE_NAMESPACE, cache);
+    });
   await writeQueue;
 }
 
@@ -165,6 +174,8 @@ export async function getCachedPlaybackUrl(
   variants: MusicInfo[] = [primary],
   now = Date.now(),
 ): Promise<PlaybackResolvedUrl | null> {
+  if (!useCustomSourceStore.getState().featureReady) await customSourcePersistence.ready;
+  const accessVersion = customSourceAccess.version;
   const cache = await loadCache();
   const candidates = variants.length ? variants : [primary];
 
@@ -173,6 +184,9 @@ export async function getCachedPlaybackUrl(
       const key = getPlaybackUrlCacheKey(music, quality);
       const entry = cache.playbackUrls[key];
       if (!entry) continue;
+      if (entry.backend === 'customSource' && (
+        !useCustomSourceStore.getState().featureEnabled || customSourceAccess.version !== accessVersion
+      )) continue;
       if (!isLocalCachedPlaybackUrl(entry.url) && entry.expiresAt <= now) {
         delete cache.playbackUrls[key];
         void saveCache(cache, now);
@@ -204,8 +218,15 @@ export async function saveCachedPlaybackUrl(
   primary: MusicInfo,
   resolved: PlaybackResolvedUrl,
   now = Date.now(),
+  operation?: CustomSourceOperation,
 ): Promise<void> {
+  if (resolved.backend === 'customSource' && !operation) {
+    throw new Error('LX 播放地址缓存缺少操作令牌');
+  }
+  const access = resolved.backend === 'customSource' ? operation : undefined;
+  access?.assertActive();
   const cache = await loadCache();
+  access?.assertActive();
   const entry: CachedPlaybackUrlEntry = {
     url: resolved.url,
     music: resolved.music,
@@ -220,9 +241,11 @@ export async function saveCachedPlaybackUrl(
     ),
   };
 
-  cache.playbackUrls[getPlaybackUrlCacheKey(primary, entry.quality)] = entry;
-  cache.playbackUrls[getPlaybackUrlCacheKey(resolved.music, entry.quality)] = entry;
-  await saveCache(cache, now);
+  await saveCache(cache, now, () => {
+    access?.assertActive();
+    cache.playbackUrls[getPlaybackUrlCacheKey(primary, entry.quality)] = entry;
+    cache.playbackUrls[getPlaybackUrlCacheKey(resolved.music, entry.quality)] = entry;
+  });
 }
 
 export async function invalidateCachedPlaybackUrl(
