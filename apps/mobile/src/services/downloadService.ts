@@ -95,29 +95,42 @@ export interface DownloadProgressInfo {
   speed: number;
 }
 
-/** 进行中的下载任务句柄，用于取消/暂停/继续 */
-interface ActiveJob {
-  jobId: number;
-  /** 已写入的字节数，用于暂停后续传 */
-  bytesWritten: number;
+/** 持久化完成与取消共用任务状态，提交后不再接受取消。 */
+export interface DownloadCompletion {
+  isActive: () => boolean;
+  commit: () => void;
 }
 
-const activeJobs = new Map<string, ActiveJob>();
+type CompleteDownload = (path: string, completion: DownloadCompletion) => Promise<void>;
+type InterruptionReason = "paused" | "cancelled";
 
-/** 串行下载队列（对齐 lx：一个任务完成后再下载下一个，避免并发抢带宽）。 */
+export class DownloadInterruptedError extends Error {
+  constructor(readonly reason: InterruptionReason) {
+    super(reason === "paused" ? "已暂停" : "已取消");
+    this.name = "DownloadInterruptedError";
+  }
+}
+
+/** 每次尝试独占状态；同一歌曲的重试不能复用旧任务的取消或原生句柄。 */
 interface QueueTask {
   key: string;
   song: MusicInfo;
   quality: DownloadQuality;
+  state: "active" | "completed" | InterruptionReason;
+  jobId?: number;
+  filePath?: string;
+  interrupted: Promise<void>;
+  interrupt: () => void;
   onProgress?: (info: DownloadProgressInfo) => void;
   onWarnings?: (warnings: string[]) => void;
+  onComplete?: CompleteDownload;
   resolve: (path: string) => void;
   reject: (error: Error) => void;
 }
 
+const downloadTasks = new Set<QueueTask>();
 const taskQueue: QueueTask[] = [];
-let isQueueProcessing = false;
-let pausedKeys = new Set<string>();
+let currentTask: QueueTask | undefined;
 
 function songKey(song: MusicInfo): string {
   return `${song.source}:${song.id}`;
@@ -127,79 +140,127 @@ function downloadJobKey(song: MusicInfo, quality: DownloadQuality): string {
   return `${songKey(song)}:${quality}`;
 }
 
-/**
- * 串行下载入口：把任务加入队列，等待前序任务完成后再真正下载。
- * 返回的 Promise 在任务真正完成时 resolve（被取消/暂停时 reject）。
- */
+function assertTaskActive(task: QueueTask): void {
+  if (task.state === "active") return;
+  throw new DownloadInterruptedError(task.state === "paused" ? "paused" : "cancelled");
+}
+
+/** 取链等只读请求可提前退出；原生写入和持久化必须等实际结束再清理。 */
+function waitForTask<T>(task: QueueTask, promise: Promise<T>): Promise<T> {
+  return Promise.race([
+    promise,
+    task.interrupted.then(() => {
+      throw new DownloadInterruptedError(task.state === "paused" ? "paused" : "cancelled");
+    }),
+  ]);
+}
+
+function interruptTask(task: QueueTask, reason: InterruptionReason): boolean {
+  if (task.state === "completed" || task.state === "cancelled") return false;
+  task.state = reason;
+  task.interrupt();
+  if (task.jobId !== undefined) RNFS.stopDownload(task.jobId);
+  const index = taskQueue.indexOf(task);
+  if (index >= 0) {
+    taskQueue.splice(index, 1);
+    task.reject(new DownloadInterruptedError(reason));
+  }
+  if (reason === "cancelled" && task !== currentTask) downloadTasks.delete(task);
+  return true;
+}
+
+/** 从入队前到记录提交后均可定位任务；新任务等待旧任务停止写入、完成清理。 */
 export function enqueueDownloadTask(
   song: MusicInfo,
   quality: DownloadQuality,
   onProgress?: (info: DownloadProgressInfo) => void,
   onWarnings?: (warnings: string[]) => void,
+  onComplete?: CompleteDownload,
 ): Promise<string> {
   const key = downloadJobKey(song, quality);
+  for (const previous of downloadTasks) {
+    if (previous.key === key && previous.state === "paused" && previous !== currentTask) {
+      downloadTasks.delete(previous);
+    }
+  }
   return new Promise<string>((resolve, reject) => {
-    taskQueue.push({ key, song, quality, onProgress, onWarnings, resolve, reject });
+    let interrupt!: () => void;
+    const interrupted = new Promise<void>((notify) => { interrupt = notify; });
+    const task: QueueTask = {
+      key, song, quality, state: "active", interrupted, interrupt,
+      onProgress, onWarnings, onComplete, resolve, reject,
+    };
+    downloadTasks.add(task);
+    taskQueue.push(task);
     void processDownloadQueue();
   });
 }
 
-/** 从队列移除某个任务（取消/暂停时调用）。返回 true 表示仍在排队未开始。 */
 export function dequeueDownloadTask(key: string): boolean {
-  const index = taskQueue.findIndex((task) => task.key === key);
-  if (index < 0) return false;
-  const [task] = taskQueue.splice(index, 1);
-  task.reject(new Error("已取消"));
-  return true;
+  const task = taskQueue.find((item) => item.key === key);
+  return task ? interruptTask(task, "cancelled") : false;
 }
 
 async function processDownloadQueue(): Promise<void> {
-  if (isQueueProcessing) return;
-  isQueueProcessing = true;
-  try {
-    while (taskQueue.length > 0) {
-      const task = taskQueue.shift()!;
+  if (currentTask) return;
+  while (taskQueue.length > 0) {
+    const task = taskQueue.shift()!;
+    currentTask = task;
+    let fileReady = false;
+    try {
+      const path = await downloadSongInternal(task);
+      fileReady = true;
+      const completion: DownloadCompletion = {
+        isActive: () => task.state === "active",
+        commit: () => {
+          assertTaskActive(task);
+          task.state = "completed";
+        },
+      };
+      assertTaskActive(task);
+      await task.onComplete?.(path, completion);
+      if (task.state !== "completed") completion.commit();
+      task.resolve(path);
+    } catch (error) {
       try {
-        const path = await downloadSongInternal(task);
-        task.resolve(path);
-      } catch (error) {
-        task.reject(error instanceof Error ? error : new Error(String(error)));
+        // 普通记录保存失败保留完整音频；取消、暂停和下载失败则清理本次写入。
+        if (task.filePath && (!fileReady || error instanceof DownloadInterruptedError)) {
+          await removeDownloadedByPath(task.filePath);
+        }
+      } catch (cleanupError) {
+        error = new Error(`清理下载文件失败：${formatDownloadReason(cleanupError)}`);
       }
+      task.reject(error instanceof Error ? error : new Error(String(error)));
+    } finally {
+      const hasReplacement = Array.from(downloadTasks).some((item) => item !== task && item.key === task.key);
+      if (task.state !== "paused" || hasReplacement) downloadTasks.delete(task);
+      currentTask = undefined;
     }
-  } finally {
-    isQueueProcessing = false;
   }
 }
 
-/** 暂停：停止当前任务的网络写入（RNFS stopDownload），并标记为可续传。 */
+/** 暂停与取消共享停止路径；继续时整曲重新下载，不保留可被误认的半成品。 */
 export function pauseDownload(song: MusicInfo, quality: DownloadQuality): boolean {
   const key = downloadJobKey(song, quality);
-  if (dequeueDownloadTask(key)) {
-    // 排队未开始的任务直接出队，按暂停处理
-    pausedKeys.add(key);
-    return true;
+  let paused = false;
+  for (const task of downloadTasks) {
+    if (task.key === key && interruptTask(task, "paused")) paused = true;
   }
-  const job = activeJobs.get(key);
-  if (!job) return false;
-  pausedKeys.add(key);
-  try {
-    RNFS.stopDownload(job.jobId);
-  } catch {}
-  activeJobs.delete(key);
-  return true;
+  return paused;
 }
 
-/**
- * 继续：标记任务可续传（不清除 pausedKeys——由 downloadSongInternal 读取续传点后清理，
- * 避免 store.resumeDownload 先清标记再入队时，downloadSong 把半成品文件误判为已完成）。
- */
 export function resumeDownload(song: MusicInfo, quality: DownloadQuality): boolean {
-  return pausedKeys.has(downloadJobKey(song, quality));
+  return isDownloadPaused(song, quality);
 }
 
-/** 任务是否处于暂停状态。 */
 export function isDownloadPaused(song: MusicInfo, quality: DownloadQuality): boolean {
-  return pausedKeys.has(downloadJobKey(song, quality));
+  const key = downloadJobKey(song, quality);
+  // 旧暂停任务可能仍在等待原生停止，只有最新尝试决定是否可以继续。
+  let paused = false;
+  for (const task of downloadTasks) {
+    if (task.key === key) paused = task.state === "paused";
+  }
+  return paused;
 }
 
 /**
@@ -215,8 +276,9 @@ function qualityExt(quality: DownloadQuality): string {
  */
 function inferExtFromUrl(url: string): string | null {
   try {
-    const ext = new URL(url).pathname.split(".").pop()?.toLowerCase() ?? "";
-    if (/^(mp3|flac|m4a|m4s|aac|wav|ogg|opus)$/.test(ext)) {
+    const pathname = new URL(url).pathname;
+    const ext = pathname.split(".").pop()?.toLowerCase() ?? "";
+    if (isAudioFileName(pathname)) {
       // DASH 流的 m4s 本地保存统一用 m4a 便于播放器识别
       return ext === "m4s" ? "m4a" : ext;
     }
@@ -224,6 +286,10 @@ function inferExtFromUrl(url: string): string | null {
     // 忽略非法 URL
   }
   return null;
+}
+
+function isAudioFileName(name: string): boolean {
+  return /\.(mp3|flac|m4a|m4s|aac|wav|ogg|opus)$/i.test(name);
 }
 
 function downloadFileName(song: MusicInfo, quality: DownloadQuality = "320k"): string {
@@ -283,7 +349,7 @@ async function findExistingDownloadFile(
     const prefix = `${song.source}-${song.id}-${quality}.`;
     const entries = await RNFS.readDir(DOWNLOAD_DIR);
     for (const entry of entries) {
-      if (entry.isFile() && entry.name.startsWith(prefix)) return entry.path;
+      if (entry.isFile() && entry.name.startsWith(prefix) && isAudioFileName(entry.name)) return entry.path;
     }
   } catch {}
   return null;
@@ -341,62 +407,33 @@ export async function getDownloadedPath(
  * @param onWarnings 后处理（标签/封面/歌词）部分失败时的回调；下载本身已完成
  * @returns 本地 file:// 路径
  */
-export async function downloadSong(
+export function downloadSong(
   song: MusicInfo,
   onProgress?: (info: DownloadProgressInfo) => void,
   quality: DownloadQuality = "320k",
   onWarnings?: (warnings: string[]) => void,
+  onComplete?: CompleteDownload,
 ): Promise<string> {
-  await ensureDownloadDirectory();
-
-  // 暂停后继续：半成品文件是续传起点，不能按「已下载」短路
-  const isResuming = isDownloadPaused(song, quality);
-  if (!isResuming) {
-    // 若已存在则直接返回，避免重复下载（含扩展名被调整过的历史文件）
-    const existingPath = await findExistingDownloadFile(song, quality);
-    if (existingPath) {
-      const stat = await RNFS.stat(existingPath);
-      onProgress?.({
-        progress: 1,
-        bytesWritten: Number(stat.size) || 0,
-        contentLength: Number(stat.size) || 0,
-        speed: 0,
-      });
-      return `file://${existingPath}`;
-    }
-  }
-
-  return enqueueDownloadTask(song, quality, onProgress, onWarnings);
+  return enqueueDownloadTask(song, quality, onProgress, onWarnings, onComplete);
 }
 
-/**
- * 真正执行单个下载任务（由串行队列 processDownloadQueue 调用）。
- */
 async function downloadSongInternal(task: QueueTask): Promise<string> {
   const { song, quality, onProgress } = task;
-  const key = task.key;
+  assertTaskActive(task);
+  await ensureDownloadDirectory();
+  assertTaskActive(task);
 
-  // 暂停后继续：RNFS 的 stopDownload 后重新 downloadFile 无法真正断点续传（fresh 请求会从头覆盖），
-  // 对齐 lx 的 resumeTask 行为——直接删除半成品、整曲重新下载，保证文件完整性与可播放性。
-  const isResuming = isDownloadPaused(song, quality);
-  const filePath = downloadFilePath(song, quality);
-  if (isResuming) {
-    // 清理暂停残留的半成品（标准路径 + 调整过扩展名的变体）
-    await safeUnlink(filePath);
-    try {
-      const prefix = `${song.source}-${song.id}-${quality}.`;
-      const entries = await RNFS.readDir(DOWNLOAD_DIR);
-      for (const entry of entries) {
-        if (entry.isFile() && entry.name.startsWith(prefix)) {
-          await safeUnlink(entry.path);
-        }
-      }
-    } catch {}
-    // 续传点已消费，清除暂停标记（若再次失败则按普通失败清理，不残留半成品）
-    pausedKeys.delete(key);
+  // 文件命中也必须排队：旧任务清理完成前，非空文件仍可能只是半成品。
+  const existingPath = await findExistingDownloadFile(song, quality);
+  assertTaskActive(task);
+  if (existingPath) {
+    const stat = await RNFS.stat(existingPath);
+    assertTaskActive(task);
+    onProgress?.({ progress: 1, bytesWritten: Number(stat.size), contentLength: Number(stat.size), speed: 0 });
+    return `file://${existingPath}`;
   }
+  const filePath = downloadFilePath(song, quality);
 
-  // 解析播放 URL（本地歌曲直接用其 url）
   // 解析播放 URL（本地歌曲直接用其 url）
   // 非本地音源根据 quality 调用高品质解析接口
   let url: string;
@@ -408,14 +445,16 @@ async function downloadSongInternal(task: QueueTask): Promise<string> {
     // 同档音质内并发竞速（与播放链路一致，用户要求 2026-08）：网关与自定义音源同时
     // 发起，谁先返回有效 URL 用谁；下载完成后 headers 用胜出方的防盗链配置。
     try {
-      const raced = await raceDownloadUrl(song, quality);
+      const raced = await waitForTask(task, raceDownloadUrl(song, quality));
+      assertTaskActive(task);
       url = raced.url;
       // 防盗链 headers 统一按音源补齐：自定义源返回的也多为 wy/tx 官方 CDN 链接，
       // 缺 Referer 会 403；其他源 CDN 无 Referer 要求，多带无害（与播放链路保持一致）。
       headers = buildStreamHeaders(song.source);
       // 死代理探活：与播放链路同策略，避免下载写入死链后无限等待。下载是用户显式
       // 指定音质且不降档，探不通直接报错，让用户换源或换音质重试。
-      const probe = await probeStreamUrl(url, headers);
+      const probe = await waitForTask(task, probeStreamUrl(url, headers));
+      assertTaskActive(task);
       if (!probe.ok) {
         throw new Error(`下载地址不可用（${probe.reason}），请重试或更换音源`);
       }
@@ -457,6 +496,8 @@ async function downloadSongInternal(task: QueueTask): Promise<string> {
   let lastSampleAt = Date.now();
   let currentSpeed = 0;
 
+  assertTaskActive(task);
+  task.filePath = finalFilePath;
   const download = RNFS.downloadFile({
     fromUrl: url,
     toFile: finalFilePath,
@@ -465,6 +506,7 @@ async function downloadSongInternal(task: QueueTask): Promise<string> {
     progressDivider: 5,
     headers,
     progress: (event) => {
+      if (task.state !== "active") return;
       const now = Date.now();
       const deltaTime = now - lastSampleAt;
       const deltaBytes = event.bytesWritten - lastBytes;
@@ -483,77 +525,37 @@ async function downloadSongInternal(task: QueueTask): Promise<string> {
     },
   });
 
-  activeJobs.set(key, { jobId: download.jobId, bytesWritten: 0 });
-
+  task.jobId = download.jobId;
+  let result;
   try {
-    const result = await download.promise;
-    if (result.statusCode !== 200 && result.statusCode !== 206) {
-      // 清理失败文件
-      await safeUnlink(finalFilePath);
-      throw new Error(`下载失败，请重试或更换音源`);
-    }
-    // 歌词只拉取一次：旁挂 .lrc 与嵌入 ID3 共用，避免两个函数各自请求一次网络
-    const lyrics = await fetchSongLyrics(song).catch(() => [] as LyricLine[]);
-    // 后处理是尽力而为：音频已完整落盘，失败不该让下载判为失败，但必须上报——
-    // 空 catch 会让「标签/歌词没写进去」对用户完全不可见（与桌面端 enhanceDownloadedFile 对称）。
-    const warnings: string[] = [
-      ...(await writeSidecarLyrics(song, finalFilePath, lyrics)),
-      ...(await enhanceDownloadedFile(song, finalFilePath, lyrics)),
-    ];
-    if (warnings.length > 0) task.onWarnings?.(warnings);
-    return finalUri;
+    result = await download.promise;
   } catch (error) {
-    // 取消/暂停或出错时清理半成品文件（暂停续传依赖服务端 Accept-Ranges，失败则整文件重下）
-    if (!isDownloadPaused(song, quality)) {
-      await safeUnlink(finalFilePath);
-    }
+    assertTaskActive(task);
     throw error;
   } finally {
-    activeJobs.delete(key);
+    task.jobId = undefined;
   }
+  assertTaskActive(task);
+  if (result.statusCode !== 200 && result.statusCode !== 206) {
+    throw new Error("下载失败，请重试或更换音源");
+  }
+  const lyrics = await waitForTask(task, fetchSongLyrics(song).catch(() => [] as LyricLine[]));
+  assertTaskActive(task);
+  const warnings = await writeSidecarLyrics(song, finalFilePath, lyrics);
+  assertTaskActive(task);
+  warnings.push(...await enhanceDownloadedFile(song, finalFilePath, lyrics));
+  assertTaskActive(task);
+  if (warnings.length > 0) task.onWarnings?.(warnings);
+  return finalUri;
 }
 
-/**
- * 取消指定歌曲的下载任务
- *
- * 同时处理：排队中未开始的任务（直接出队）、进行中的任务（停止网络写入）。
- *
- * @returns 是否成功取消
- */
+/** 取消排队、解析、原生写入、后处理及持久化中的匹配任务。 */
 export function cancelDownload(song: MusicInfo, quality?: DownloadQuality): boolean {
-  const keys = quality
-    ? [downloadJobKey(song, quality)]
-    : Array.from(new Set([
-        ...activeJobs.keys(),
-        ...taskQueue.map((task) => task.key),
-      ])).filter((key) => key.startsWith(`${songKey(song)}:`));
   let cancelled = false;
-
-  for (const key of keys) {
-    if (dequeueDownloadTask(key)) {
-      cancelled = true;
-      continue;
-    }
-    const wasPaused = pausedKeys.delete(key);
-    const job = activeJobs.get(key);
-    if (job) {
-      try {
-        RNFS.stopDownload(job.jobId);
-      } catch {}
-      activeJobs.delete(key);
-      cancelled = true;
-      // 取消进行中任务：RNFS stopDownload 后由 downloadSongInternal 的 catch 清理半成品
-      continue;
-    }
-    if (wasPaused) {
-      // 取消已暂停任务：主动清理暂停时残留的半成品文件（异步，不阻塞取消返回）
-      cancelled = true;
-      const keyQuality = key.split(":").pop() as DownloadQuality;
-      const songOfKey = { source: key.split(":")[0]!, id: key.split(":")[1]! } as MusicInfo;
-      void removeDownloadedFile(songOfKey, keyQuality).catch(() => undefined);
-    }
+  for (const task of downloadTasks) {
+    if (songKey(task.song) !== songKey(song) || (quality && task.quality !== quality)) continue;
+    if (interruptTask(task, "cancelled")) cancelled = true;
   }
-
   return cancelled;
 }
 
@@ -637,45 +639,30 @@ function formatDownloadReason(error: unknown): string {
  * 取消所有下载任务（排队中 + 进行中）
  */
 export function cancelAllDownloads(): void {
-  while (taskQueue.length > 0) {
-    const task = taskQueue.shift()!;
-    task.reject(new Error("已取消"));
-  }
-  for (const [, job] of activeJobs) {
-    try {
-      RNFS.stopDownload(job.jobId);
-    } catch {}
-  }
-  activeJobs.clear();
-  pausedKeys.clear();
+  for (const task of downloadTasks) interruptTask(task, "cancelled");
 }
 
-/**
- * 删除已下载文件（按歌曲 + 音质；不传音质默认 320k）
- */
+/** 删除该音质的音频变体及其旁挂歌词，不触碰其他音质。 */
 export async function removeDownloadedFile(
   song: MusicInfo,
   quality: DownloadQuality = "320k",
 ): Promise<void> {
-  // 按文件名前缀扫描删除该音质的所有扩展名变体，避免调整过扩展名的残留文件。
-  await safeUnlink(downloadFilePath(song, quality));
-  try {
-    const prefix = `${song.source}-${song.id}-${quality}.`;
-    const entries = await RNFS.readDir(DOWNLOAD_DIR);
-    for (const entry of entries) {
-      if (entry.isFile() && entry.name.startsWith(prefix)) {
-        await safeUnlink(entry.path);
-      }
+  await removeDownloadedByPath(downloadFilePath(song, quality));
+  if (!(await RNFS.exists(DOWNLOAD_DIR))) return;
+  const prefix = `${song.source}-${song.id}-${quality}.`;
+  const entries = await RNFS.readDir(DOWNLOAD_DIR);
+  for (const entry of entries) {
+    if (entry.isFile() && entry.name.startsWith(prefix) && isAudioFileName(entry.name)) {
+      await removeDownloadedByPath(entry.path);
     }
-  } catch {}
+  }
 }
 
-/**
- * 删除指定路径的已下载文件
- */
+/** 音频和同名歌词共同删除；失败向上传递，避免伪装清理成功。 */
 export async function removeDownloadedByPath(localPath: string): Promise<void> {
   const filePath = localPath.startsWith("file://") ? localPath.slice("file://".length) : localPath;
-  await safeUnlink(filePath);
+  await unlinkIfExists(sidecarLrcPath(filePath));
+  await unlinkIfExists(filePath);
 }
 
 export async function getDownloadedFileSize(localPath: string): Promise<number> {
@@ -758,13 +745,8 @@ export async function saveDownloads(items: DownloadedItem[]): Promise<void> {
   }
 }
 
-async function safeUnlink(filePath: string): Promise<void> {
-  try {
-    const exists = await RNFS.exists(filePath);
-    if (exists) {
-      await RNFS.unlink(filePath);
-    }
-  } catch {}
+async function unlinkIfExists(filePath: string): Promise<void> {
+  if (await RNFS.exists(filePath)) await RNFS.unlink(filePath);
 }
 
 /**

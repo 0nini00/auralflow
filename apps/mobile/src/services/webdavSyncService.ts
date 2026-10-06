@@ -327,9 +327,7 @@ async function assertCloudNotStale(
     // 远端 lastModified 未知：无法判断云端是否比本地新。保守起见不再静默放行
     // “用未知的云端数据覆盖本地”，交由调用方决定——合并模式可继续（合并不覆盖本地数据），
     // 覆盖模式则中止；sources 无合并模式，直接中止，由 force 放行。
-    // 注意：这里必须是 CloudSyncRefusalError（基类），不能是 CloudDataStaleError ——
-    // 自动同步只允许吞掉「云端可证明更旧」那一种拒绝，本分支必须能穿透上去；
-    // 设置页则靠本类弹出强制确认。
+    // 未知时间不等于云端较旧；设置页按拒绝类型弹出强制确认。
     throw new CloudSyncRefusalError(
       `云端${kind === "playlists" ? "歌单" : "音源"}文件无法确定更新状态（lastModified 缺失或无法解析），` +
         `无法判断云端与本地哪个更新，无法安全地将云端数据下载覆盖到本地约 ${localItemCount} 项。` +
@@ -340,7 +338,7 @@ async function assertCloudNotStale(
   if (localMeta == null) {
     // 本地从无同步标记：首次同步，或同步标记曾被静默写失败。
     // sources 的下载是整体替换，放行会丢掉本地独有音源 → 中止（与桌面端一致）；
-    // playlists 的下载是加法合并，不丢本地实体 → 放行，避免每次全新安装都被拦。
+    // playlists 保留既有首次覆盖下载规则；有本地标记时仍检查新旧。
     if (kind === "sources") {
       throw new CloudSyncRefusalError(
         `本地没有音源同步标记，无法判断云端与本地哪个更新，无法安全下载到本地约 ${localItemCount} 项。` +
@@ -354,7 +352,7 @@ async function assertCloudNotStale(
     const localAt = new Date(localMeta.lastModified).toLocaleString();
     throw new CloudDataStaleError(
       `云端数据较旧（云端 ${remoteAt}，本地标记 ${localAt}）。` +
-        `继续下载将把云端较旧数据合并/覆盖到本地约 ${localItemCount} 项。若确认以云端为准，请强制下载。`,
+        `继续下载将把云端较旧数据覆盖到本地约 ${localItemCount} 项。若确认以云端为准，请强制下载。`,
     );
   }
 }
@@ -800,7 +798,16 @@ function parsePlaylistsSyncFile(text: string): {
   } catch {
     throw new Error("云端歌单文件已损坏或不是有效的 JSON");
   }
+  if (!isObject(payload) || ("data" in payload && !isObject(payload.data))) {
+    throw new Error("云端歌单文件结构无效，未执行合并或覆盖");
+  }
   const data = isObject(payload.data) ? payload.data : payload;
+  // 时间未知的旧格式可以合并，但不能把不认识的结构当作空备份再上传覆盖。
+  const listKeys = ["loveList", "favorites", "defaultList", "userList", "playlists"];
+  const presentLists = listKeys.filter(key => key in data);
+  if (presentLists.length === 0 || presentLists.some(key => !Array.isArray(data[key]))) {
+    throw new Error("云端歌单文件格式无效：缺少有效的歌曲或歌单列表");
+  }
   const favorites = toMusicList(data.loveList ?? data.favorites);
   const playlists: WyPlaylistInfo[] = [];
   const localPlaylists: LocalPlaylist[] = [];
@@ -962,11 +969,7 @@ async function readSyncFileWithLegacyFallback(
 ): Promise<string | null> {
   const primary = await readWebdavText(cfg, fileName());
   if (primary != null) return primary;
-  try {
-    return await readWebdavText(cfg, fileName(LEGACY_REMOTE_ROOT_PATH));
-  } catch {
-    return null;
-  }
+  return readWebdavText(cfg, fileName(LEGACY_REMOTE_ROOT_PATH));
 }
 
 export async function downloadSourcesSync(options?: { force?: boolean }): Promise<void> {
@@ -1044,7 +1047,7 @@ export async function uploadPlaylistsSync(): Promise<void> {
  * 从 WebDAV 下载收藏、歌单和播放历史。
  *
  * 与桌面端语义对齐：默认合并（本地与云端并集，不丢本地独有项）；
- * merge=false 时用云端整体替换本地；force=true 跳过“云端较旧”拦截。
+ * merge=false 时用云端整体替换本地并检查新旧；force=true 跳过覆盖下载的保护。
  */
 export async function downloadPlaylistsSync(options?: {
   allowMissing?: boolean;
@@ -1061,15 +1064,18 @@ export async function downloadPlaylistsSync(options?: {
       throw new Error("云端没有歌单文件");
     }
 
-    // 对齐桌面端：下载前用本地 lastModified 标记拦截“云端旧于本地”的覆盖
-    const localStore = usePlaylistStore.getState();
-    const historyStore = useHistoryStore.getState();
-    const totalLocal =
-      useFavoritesStore.getState().favorites.length +
-      localStore.playlists.length +
-      localStore.localPlaylists.length +
-      historyStore.entries.length;
-    await assertCloudNotStale("playlists", text, totalLocal, options?.force);
+    const shouldMerge = options?.merge ?? true;
+    // 文件较旧也可能含有本地缺失的数据；并集合并不应受整份文件的新旧判定阻断。
+    if (!shouldMerge) {
+      const localStore = usePlaylistStore.getState();
+      const historyStore = useHistoryStore.getState();
+      const totalLocal =
+        useFavoritesStore.getState().favorites.length +
+        localStore.playlists.length +
+        localStore.localPlaylists.length +
+        historyStore.entries.length;
+      await assertCloudNotStale("playlists", text, totalLocal, options?.force);
+    }
 
     const {
       favorites,
@@ -1083,7 +1089,6 @@ export async function downloadPlaylistsSync(options?: {
 
     const playlistStore = usePlaylistStore.getState();
     const favoritesStore = useFavoritesStore.getState();
-    const shouldMerge = options?.merge ?? true;
     if (shouldMerge) {
       await favoritesStore.mergeAll(favorites);
       await playlistStore.mergeFromSync({
@@ -1110,13 +1115,7 @@ export function autoSyncPlaylistsOnce(): Promise<void> {
   if (autoPlaylistsSyncPromise) return autoPlaylistsSyncPromise;
   autoPlaylistsSyncPromise = (async () => {
     try {
-      try {
-        await downloadPlaylistsSync({ allowMissing: true, merge: true });
-      } catch (error) {
-        // 只有「云端可证明较旧（本地更新）」这一种拒绝可以安全跳过下载、继续上传本地结果收敛。
-        // 其余拒绝（无法判定云端新旧、云端结构不符等）必须抛出——吞掉并上传本地视图会删掉云端独有数据。
-        if (!(error instanceof CloudDataStaleError)) throw error;
-      }
+      await downloadPlaylistsSync({ allowMissing: true, merge: true });
       await uploadPlaylistsSync();
     } finally {
       // 单飞防并发重入，但完成后必须重置——否则首次失败（如启动时离线）

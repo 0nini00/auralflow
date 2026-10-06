@@ -10,7 +10,8 @@
     "start": "react-native start",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src App.tsx",
-    "postinstall": "node apply-track-player-patch.js"
+    "postinstall": "node apply-track-player-patch.js",
+    "test": "node --test --test-timeout=60000 tests/*.test.cjs"
   },
   "dependencies": {
     "@d11/react-native-fast-image": "^8.13.0",

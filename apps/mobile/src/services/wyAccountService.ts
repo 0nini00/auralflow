@@ -24,18 +24,83 @@ export interface WyUserInfo {
   vipType?: number;
 }
 
-/**
- * 保存网易云 Cookie
- */
-export async function saveWyCookie(cookie: string): Promise<void> {
+interface WyLoginStatus {
+  isLoggedIn: boolean;
+  user: WyUserInfo | null;
+}
+
+export type WyAccountRequest<T> = Promise<T> & {
+  isCurrent: () => boolean;
+};
+
+type AccountOperation = WyAccountRequest<WyLoginStatus> & {
+  kind: "check" | "login" | "logout";
+  pending: boolean;
+};
+
+// 操作对象的身份就是唯一世代；store 只消费 isCurrent，不维护另一份序号。
+let currentOperation: AccountOperation | null = null;
+let storageQueue: Promise<void> = Promise.resolve();
+
+class WyAccountSupersededError extends Error {
+  constructor() {
+    super("账号操作已被后续操作取代");
+    this.name = "WyAccountSupersededError";
+  }
+}
+
+function startAccountOperation(
+  kind: AccountOperation["kind"],
+  run: (assertCurrent: () => void) => Promise<WyLoginStatus>,
+): AccountOperation {
+  const isCurrent = () => currentOperation === operation;
+  const assertCurrent = () => {
+    if (!isCurrent()) throw new WyAccountSupersededError();
+  };
+  const result = Promise.resolve()
+    .then(() => run(assertCurrent))
+    .then((status) => {
+      assertCurrent();
+      return status;
+    })
+    .finally(() => { operation.pending = false; });
+  const operation: AccountOperation = Object.assign(result, { kind, pending: true, isCurrent });
+  currentOperation = operation;
+  return operation;
+}
+
+function mapAccountRequest<T>(
+  request: WyAccountRequest<WyLoginStatus>,
+  select: (status: WyLoginStatus) => T,
+): WyAccountRequest<T> {
+  return Object.assign(request.then(select), { isCurrent: request.isCurrent });
+}
+
+function withAccountStorage<T>(action: () => Promise<T>): Promise<T> {
+  const result = storageQueue.then(action);
+  // 失败仅释放队列；原始 result 仍将错误交给调用方，不能伪装为网络降级。
+  storageQueue = result.then(() => undefined, () => undefined);
+  return result;
+}
+
+function persistCurrentAccount(
+  assertCurrent: () => void,
+  write: () => Promise<void>,
+): Promise<void> {
+  return withAccountStorage(async () => {
+    assertCurrent();
+    // 已交给原生层的写入无法取消：整组完成后才允许下一组读写进入。
+    await write();
+    assertCurrent();
+  });
+}
+
+async function saveWyCookie(cookie: string): Promise<void> {
   await setSecureItem(WY_SECURE_COOKIE_KEY, cookie);
   await AsyncStorage.removeItem(WY_COOKIE_KEY);
 }
 
-/**
- * 获取网易云 Cookie，并在首次升级时从旧明文存储迁移。
- */
-export async function getWyCookie(): Promise<string | null> {
+async function readWyCookie(): Promise<string | null> {
   return migrateLegacySecret({
     readSecure: () => getSecureItem(WY_SECURE_COOKIE_KEY),
     readLegacy: () => AsyncStorage.getItem(WY_COOKIE_KEY),
@@ -44,35 +109,42 @@ export async function getWyCookie(): Promise<string | null> {
   });
 }
 
-/**
- * 保存用户信息
- */
-export async function saveWyUser(user: WyUserInfo): Promise<void> {
+/** 迁移也会写凭证，必须与退出和登录使用同一存储队列。 */
+export function getWyCookie(): Promise<string | null> {
+  return withAccountStorage(readWyCookie);
+}
+
+async function saveWyUser(user: WyUserInfo): Promise<void> {
   await AsyncStorage.setItem(WY_USER_KEY, JSON.stringify(user));
 }
 
-/**
- * 获取用户信息
- */
-export async function getWyUser(): Promise<WyUserInfo | null> {
+async function readWyUser(): Promise<WyUserInfo | null> {
   const data = await AsyncStorage.getItem(WY_USER_KEY);
   if (!data) return null;
   try {
     return JSON.parse(data) as WyUserInfo;
   } catch {
-    // 数据损坏（写入中断/版本变更）会让 checkLoginStatus 每次都抛错，
-    // 登录卡片永久「状态检查失败」。清掉损坏键自愈，视为未登录。
-    await AsyncStorage.removeItem(WY_USER_KEY).catch(() => undefined);
+    await AsyncStorage.removeItem(WY_USER_KEY);
     return null;
   }
 }
 
-/**
- * 清除登录信息
- */
-export async function clearWyAccount(): Promise<void> {
+export function getWyUser(): Promise<WyUserInfo | null> {
+  return withAccountStorage(readWyUser);
+}
+
+async function removeWyAccount(): Promise<void> {
   await removeSecureItem(WY_SECURE_COOKIE_KEY);
   await AsyncStorage.multiRemove([WY_COOKIE_KEY, WY_USER_KEY]);
+}
+
+/** 退出立刻更换世代；已排队的清除先于后续登录提交完成。 */
+export function clearWyAccount(): WyAccountRequest<void> {
+  const request = startAccountOperation("logout", async () => {
+    await withAccountStorage(removeWyAccount);
+    return { isLoggedIn: false, user: null };
+  });
+  return mapAccountRequest(request, () => undefined);
 }
 
 function parseWyUserFromAccountResponse(data: any): WyUserInfo | null {
@@ -109,7 +181,7 @@ function parseCookieFromHeaders(setCookieHeader: string | null): string | null {
  * POST https://music.163.com/weapi/w/nuser/account/get，body 为 params/encSecKey 表单。
  * 明文直连 /api/nuser/account/get 拿不到账号数据，导致 Cookie/扫码登录全部失败。
  */
-export async function validateWyCookie(rawCookie: string): Promise<WyUserInfo | null> {
+export async function validateWyCookie(rawCookie: string): Promise<WyUserInfo> {
   const trimmedCookie = normalizeWyCookie(rawCookie);
   if (!/MUSIC_U=/.test(trimmedCookie)) {
     throw new Error("Cookie 中缺少 MUSIC_U，请复制登录后请求的完整 Cookie");
@@ -174,58 +246,53 @@ export async function validateWyCookie(rawCookie: string): Promise<WyUserInfo | 
   return user;
 }
 
-/**
- * Cookie 登录
- */
-export async function loginWithCookie(rawCookie: string): Promise<WyUserInfo> {
-  const cookie = normalizeWyCookie(rawCookie);
-  const user = await validateWyCookie(cookie);
-  if (!user) {
-    throw new Error("Cookie 无效或已过期");
-  }
-
-  await saveWyCookie(cookie);
-  await saveWyUser(user);
-
-  return user;
+/** Cookie 登录：网络校验可并行，凭证和资料必须作为一组提交。 */
+export function loginWithCookie(rawCookie: string): WyAccountRequest<WyUserInfo> {
+  const request = startAccountOperation("login", async (assertCurrent) => {
+    const cookie = normalizeWyCookie(rawCookie);
+    const user = await validateWyCookie(cookie);
+    await persistCurrentAccount(assertCurrent, async () => {
+      await saveWyCookie(cookie);
+      await saveWyUser(user);
+    });
+    return { isLoggedIn: true, user };
+  });
+  return mapAccountRequest(request, (status) => status.user!);
 }
 
 /**
- * 检查登录状态。
- * 运行期校验 Cookie 是否仍有效（此前校验被注释，过期后永远显示已登录）。
- * 仅在服务端明确拒绝（WyAuthExpiredError：301/401/403/匿名会话）时判定过期
- * 并清理登录态；网络异常/超时保持现有登录态，避免弱网下误清。
+ * 同一世代仅接受最新校验；登录/退出期间的校验共用该操作结果，
+ * 不校验正在被替换的旧凭证，也不使显式账号操作失效。
  */
-export async function checkLoginStatus(): Promise<{
-  isLoggedIn: boolean;
-  user: WyUserInfo | null;
-}> {
-  const cookie = await getWyCookie();
-  const user = await getWyUser();
-
-  if (!cookie || !user) {
-    return { isLoggedIn: false, user: null };
+export function checkLoginStatus(): WyAccountRequest<WyLoginStatus> {
+  if (currentOperation?.pending && currentOperation.kind !== "check") {
+    return currentOperation;
   }
+  return startAccountOperation("check", async (assertCurrent) => {
+    const { cookie, user } = await withAccountStorage(async () => {
+      assertCurrent();
+      return { cookie: await readWyCookie(), user: await readWyUser() };
+    });
+    assertCurrent();
+    if (!cookie || !user) return { isLoggedIn: false, user: null };
 
-  try {
-    const validUser = await validateWyCookie(cookie);
-    if (!validUser) {
-      // validateWyCookie 失败时抛错，正常不会返回 null；防御性视为过期
-      await clearWyAccount();
-      return { isLoggedIn: false, user: null };
+    let validUser: WyUserInfo;
+    try {
+      validUser = await validateWyCookie(cookie);
+    } catch (error) {
+      assertCurrent();
+      if (error instanceof WyAuthExpiredError) {
+        await persistCurrentAccount(assertCurrent, removeWyAccount);
+        return { isLoggedIn: false, user: null };
+      }
+      // 仅当前账号的网络校验失败时保留本地登录态；存储错误不走此分支。
+      return { isLoggedIn: true, user };
     }
-    // 以服务端返回的最新资料为准（昵称/头像可能已变更）
+    assertCurrent();
     if (validUser.userId !== user.userId || validUser.nickname !== user.nickname) {
-      await saveWyUser(validUser);
+      await persistCurrentAccount(assertCurrent, () => saveWyUser(validUser));
       return { isLoggedIn: true, user: validUser };
     }
     return { isLoggedIn: true, user };
-  } catch (error) {
-    if (error instanceof WyAuthExpiredError) {
-      await clearWyAccount();
-      return { isLoggedIn: false, user: null };
-    }
-    // 网络异常：无法确认过期，维持本地登录态
-    return { isLoggedIn: true, user };
-  }
+  });
 }

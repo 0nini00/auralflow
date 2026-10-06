@@ -21,8 +21,9 @@
     "test:core": "pnpm --filter @lx/core test",
     "test:rust": "cargo test --manifest-path desktop/src-tauri/Cargo.toml",
     "check:all": "pnpm core:typecheck && pnpm desktop:typecheck && pnpm mobile:typecheck && pnpm mobile:lint",
-    "test:all": "pnpm check:all && pnpm test:core && pnpm test:desktop && pnpm test:rust",
+    "test:all": "pnpm check:all && pnpm mobile:test && pnpm test:core && pnpm test:desktop && pnpm test:rust",
     "test": "pnpm test:all",
-    "test:desktop": "pnpm --filter @auralflow/desktop test"
+    "test:desktop": "pnpm --filter @auralflow/desktop test",
+    "mobile:test": "pnpm --filter @auralflow/mobile test"
   }
 }

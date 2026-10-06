@@ -38,6 +38,9 @@ jobs:
       - name: core 单元测试
         run: pnpm test:core
 
+      - name: 移动端回归测试
+        run: pnpm mobile:test
+
       - name: 桌面功能单元测试
         run: pnpm test:desktop
 

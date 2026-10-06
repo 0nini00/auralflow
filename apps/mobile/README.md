@@ -75,6 +75,7 @@ pnpm mobile:android
 pnpm mobile:build:debug
 
 # 质量检查
+pnpm mobile:test           # 离线回归测试（单文件硬超时 60 秒）
 pnpm mobile:typecheck      # tsc --noEmit
 pnpm mobile:lint           # eslint src App.tsx（含 react-hooks rules-of-hooks 防护）
 ```

@@ -29,6 +29,7 @@ import {
   findTxVariants,
 } from "@/services/crossSourceFallbackService";
 import { probeStreamUrl } from "./streamProbe";
+import { beginPlaybackRequest, getCurrentPlaybackRequestId, isCurrentPlaybackRequest } from "./playbackRequest";
 
 /**
  * 提取 URL 的协议与主机用于错误提示，丢弃路径与查询串（可能含鉴权 token）。
@@ -731,21 +732,23 @@ export function prefetchUpcomingSongNearEnd(position: number, duration: number):
   prefetchSong(nextSong);
 }
 
-// playSongCore 级别的播放意图序号：每次发起新的播放意图（含切音质）递增。
-// play() 内部的 requestId 只能淘汰「已进入 play」后被抢占的请求；解析慢的旧请求
-// 拿到的是新令牌，检查全过——必须在「解析返回 → 调 play」之间用本序号拦截。
-let playIntentSeq = 0;
-
 // 切歌连点合并：切换进行中（解析/播放器加载）时重复点击只补跳一次，不重复解析。
-let switchStepQueue = createSwitchStepQueueState();
+let switchStepSession = { state: createSwitchStepQueueState() };
+
+/** 清空队列时一并丢弃旧会话中尚未消费的连点，避免补跳推进新队列。 */
+export function cancelPendingPlayback(): number {
+  switchStepSession = { state: createSwitchStepQueueState() };
+  return beginPlaybackRequest();
+}
 
 /**
  * 播放歌曲（完整流程）
  */
 /** 当前切歌完成后消费连点补跳（只补一次，防止循环）。 */
-async function completeQueuedSwitchStep(): Promise<void> {
-  const finished = finishSwitchStep(switchStepQueue);
-  switchStepQueue = finished.nextState;
+async function completeQueuedSwitchStep(session: typeof switchStepSession): Promise<void> {
+  if (session !== switchStepSession) return;
+  const finished = finishSwitchStep(session.state);
+  session.state = finished.nextState;
   if (finished.shouldStep) {
     void (finished.direction === "prev" ? playPrevious() : playNext()).catch(() => undefined);
   }
@@ -774,13 +777,13 @@ async function resolveCrossSourceSubstitute(
 
   const candidates = await findTxVariants(song);
   // 搜索期间用户可能已改点其它歌曲，结果作废
-  if (intent !== playIntentSeq) throw new Error(primaryMessage);
+  if (!isCurrentPlaybackRequest(intent)) throw new Error(primaryMessage);
 
   for (const candidate of candidates) {
-    if (intent !== playIntentSeq) throw new Error(primaryMessage);
+    if (!isCurrentPlaybackRequest(intent)) throw new Error(primaryMessage);
     try {
       const { url, headers } = await resolveSongUrl(candidate);
-      if (intent !== playIntentSeq) throw new Error(primaryMessage);
+      if (!isCurrentPlaybackRequest(intent)) throw new Error(primaryMessage);
       return { song: candidate, url, headers };
     } catch {
       // 该候选解析不出来（多数是没导入可用的 QQ 音源脚本）：继续试下一条，
@@ -792,7 +795,7 @@ async function resolveCrossSourceSubstitute(
 
 async function playSongCore(song: MusicInfo, startPosition?: number): Promise<void> {
   const { play, setLoading, setError } = usePlayerStore.getState();
-  const intent = ++playIntentSeq;
+  const intent = beginPlaybackRequest();
   // 实际发声的曲目：网易云无版权时会换成 QQ 音乐的同名曲
   let effectiveSong = song;
   // 总帽定时器句柄提到 try 外：finally 里统一清理，不在播放会话里留空转句柄
@@ -824,6 +827,7 @@ async function playSongCore(song: MusicInfo, startPosition?: number): Promise<vo
       url = primary.url;
       headers = primary.headers;
     } catch (primaryError) {
+      if (!isCurrentPlaybackRequest(intent)) return;
       // 网易云无版权的歌永远解析不出地址：去 QQ 音乐找同名曲顶上（静默降级，见函数注释）
       const primaryMessage = primaryError instanceof Error ? primaryError.message : String(primaryError);
       const substitute = await resolveCrossSourceSubstitute(song, intent, primaryMessage);
@@ -831,7 +835,7 @@ async function playSongCore(song: MusicInfo, startPosition?: number): Promise<vo
       url = substitute.url;
       headers = substitute.headers;
     }
-    if (intent !== playIntentSeq) return;
+    if (!isCurrentPlaybackRequest(intent)) return;
     // 接管成功：把 UI 也切到实际发声的 QQ 音乐版本，避免歌名/歌词与实际音频错位。
     // 队列仍保留原来的网易云条目（不原地改写队列），切上/下一首仍按原位置推进。
     if (effectiveSong !== song) {
@@ -842,7 +846,8 @@ async function playSongCore(song: MusicInfo, startPosition?: number): Promise<vo
       });
     }
     // 2. 播放（远端音源需带防盗链 headers；startPosition 用于快照恢复续播）
-    await play(effectiveSong, url, headers, startPosition);
+    await play(effectiveSong, url, headers, startPosition, intent);
+    if (!isCurrentPlaybackRequest(intent)) return;
     // 3. 启动听歌时长追踪（满足 2 分钟或 50% 播放条件才记入历史与打点，过期请求不启动）
     if (usePlayerStore.getState().currentSong === effectiveSong) {
       startListeningSession(effectiveSong, startPosition ?? 0);
@@ -863,6 +868,7 @@ async function playSongCore(song: MusicInfo, startPosition?: number): Promise<vo
       }
     }, 800);
   } catch (error) {
+    if (!isCurrentPlaybackRequest(intent)) return;
     const message = error instanceof Error ? error.message : "播放失败";
     setError(message);
     throw error;
@@ -870,7 +876,7 @@ async function playSongCore(song: MusicInfo, startPosition?: number): Promise<vo
     // 竞速已定稿（胜出或被总帽拒绝）后清掉总帽定时器，不在播放会话里留空转句柄
     if (budgetTimer) clearTimeout(budgetTimer);
     // 请求被更新的播放意图取代时，loading 归新请求所有，不提前清掉它的加载态
-    if (intent === playIntentSeq) {
+    if (isCurrentPlaybackRequest(intent)) {
       setLoading(false);
     }
   }
@@ -913,24 +919,26 @@ export async function switchCurrentPlaybackQuality(quality: string): Promise<voi
 
   const { play, setLoading, setError } = usePlayerStore.getState();
   // 切音质也是一次播放意图：解析期间用户改点其它歌/重播本曲时，本次结果作废
-  const intent = ++playIntentSeq;
+  const intent = beginPlaybackRequest();
   try {
     setLoading(true);
     setError(null);
     const { url, headers } = await resolveSongUrl(nextSong, quality);
-    if (intent !== playIntentSeq) return;
+    if (!isCurrentPlaybackRequest(intent)) return;
     // 直接以原进度开播（play 内部 seek 后才淡入），避免「先从头播再跳回」的回跳感
-    await play(nextSong, url, headers, resumePosition > 1 ? resumePosition : undefined);
+    await play(nextSong, url, headers, resumePosition > 1 ? resumePosition : undefined, intent);
+    if (!isCurrentPlaybackRequest(intent)) return;
     if (!wasPlaying) {
       // 暂停态切音质：立即压回暂停（淡入刚起即被按住，几乎无感）
       await usePlayerStore.getState().pause();
     }
     prefetchNearbySongs();
   } catch (error) {
+    if (!isCurrentPlaybackRequest(intent)) return;
     setError(error instanceof Error ? error.message : "切换音质失败");
     throw error;
   } finally {
-    if (intent === playIntentSeq) {
+    if (isCurrentPlaybackRequest(intent)) {
       setLoading(false);
     }
   }
@@ -995,9 +1003,10 @@ export async function playShuffledQueue(songs: MusicInfo[]): Promise<void> {
  * 自动跳过若也排进去会在用户手动切歌完成后凭空多跳一首。
  */
 export async function playNext(auto = false): Promise<void> {
-  if (auto && switchStepQueue.switching) return;
-  const step = applySwitchStepRequest(switchStepQueue, "next");
-  switchStepQueue = step.nextState;
+  const session = switchStepSession;
+  if (auto && session.state.switching) return;
+  const step = applySwitchStepRequest(session.state, "next");
+  session.state = step.nextState;
   if (!step.startNow) return;
   try {
   const store = usePlayerStore.getState();
@@ -1047,7 +1056,7 @@ export async function playNext(auto = false): Promise<void> {
   if (next.nextIndex == null) return;
   await playFromQueue(next.nextIndex);
   } finally {
-    await completeQueuedSwitchStep();
+    await completeQueuedSwitchStep(session);
   }
 }
 
@@ -1055,8 +1064,9 @@ export async function playNext(auto = false): Promise<void> {
  * 播放上一首
  */
 export async function playPrevious(): Promise<void> {
-  const step = applySwitchStepRequest(switchStepQueue, "prev");
-  switchStepQueue = step.nextState;
+  const session = switchStepSession;
+  const step = applySwitchStepRequest(session.state, "prev");
+  session.state = step.nextState;
   if (!step.startNow) return;
   try {
   const { playbackContext, queue, currentIndex, position, playMode, shuffleHistory } = usePlayerStore.getState();
@@ -1094,7 +1104,7 @@ export async function playPrevious(): Promise<void> {
   if (previous.previousIndex == null) return;
   await playFromQueue(previous.previousIndex);
   } finally {
-    await completeQueuedSwitchStep();
+    await completeQueuedSwitchStep(session);
   }
 }
 
@@ -1315,7 +1325,7 @@ export async function playNextHeartbeatSong(): Promise<void> {
 
 /**
  * 加载当前曲歌词。
- * intent 为发起时的 playIntentSeq 快照：歌词链路（缓存/网络）可达数秒，
+ * intent 为发起时的共享播放请求快照：歌词链路（缓存/网络）可达数秒，
  * 快速连切时旧请求的响应必须整体丢弃（含失败分支的 setLyrics([])），
  * 否则慢响应会覆盖新曲歌词造成音词错位。
  */
@@ -1325,20 +1335,20 @@ async function loadLyrics(song: MusicInfo, intent: number): Promise<void> {
     // 1. 尝试从缓存加载
     const cachedLyrics = await getCachedLyrics(song);
     if (cachedLyrics && cachedLyrics.length > 0) {
-      if (intent !== playIntentSeq) return;
+      if (!isCurrentPlaybackRequest(intent)) return;
       setLyrics(cachedLyrics);
       return;
     }
     // 2. 从网络获取
     const lyrics = await getLyrics(song);
-    if (intent !== playIntentSeq) return;
+    if (!isCurrentPlaybackRequest(intent)) return;
     setLyrics(lyrics);
     // 3. 缓存歌词
     if (lyrics.length > 0) {
       await cacheLyrics(song, lyrics);
     }
   } catch (error) {
-    if (intent !== playIntentSeq) return;
+    if (!isCurrentPlaybackRequest(intent)) return;
     usePlayerStore.getState().setLyrics([]);
   }
 }
@@ -1352,7 +1362,7 @@ export async function loadLyricsForRestoredSong(song: MusicInfo): Promise<void> 
   const { currentSong } = usePlayerStore.getState();
   // 期间用户已切歌则放弃：切歌流程（playSongCore）会自己加载歌词
   if (!currentSong || currentSong.source !== song.source || currentSong.id !== song.id) return;
-  await loadLyrics(song, playIntentSeq);
+  await loadLyrics(song, getCurrentPlaybackRequestId());
 }
 
 /**

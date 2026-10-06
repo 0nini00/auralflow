@@ -21,13 +21,14 @@ import {
 } from "@/services/songQueueActions";
 import { syncPlaybackParameters } from "@/services/androidPitchService";
 import { buildMobilePlayRequestKey } from "@/services/playerRequestModel";
+import { beginPlaybackRequest, isCurrentPlaybackRequest } from "@/services/playbackRequest";
 import { invalidateCachedPlaybackUrl } from "@/services/playbackUrlCache";
 import {
   decidePlaybackFailureAction,
   notePlaybackHealthy,
   noteRetrySettled,
 } from "@/services/playbackFailurePolicy";
-import { invalidatePrefetchForSong, prefetchUpcomingSongNearEnd } from "../services/playerService";
+import { cancelPendingPlayback, invalidatePrefetchForSong, prefetchUpcomingSongNearEnd } from "../services/playerService";
 import {
   isLyricOverlaySupported,
   playLyricOverlayClock,
@@ -40,7 +41,7 @@ import { onPlaybackProgress, resetListeningSession } from "@/services/listenTrac
 
 // ── 播放竞态保护 ──
 
-let playRequestId = 0;
+let nativeQueueClear: Promise<void> | null = null;
 
 // 底层 play 最近一次接管的歌曲 key（play 入口同步登记）。PlaybackError 没有曲目归属，
 // 据此做同步归属判定（不引入桥接调用，保住错误处置「必须同步完成」的约定）：
@@ -76,7 +77,7 @@ const PLAYBACK_HEALTHY_POSITION_SECONDS = 5;
 // 同 key 播放进入去重（对齐桌面端 inflightPlayRequest）：同 key 的并发 play 复用同一 Promise，
 // 避免重复 reset/add 同一 track；不同 key 不去重，仍靠上面的令牌丢弃过期请求。
 // key 含音质：同一首歌切换音质后再切，需发起全新 play 而不是复用旧音质的在途请求。
-const inflightPlayRequests = new Map<string, Promise<void>>();
+const nativePlayRequests = new Set<{ requestKey: string; requestId: number; promise: Promise<void> }>();
 
 
 
@@ -375,7 +376,7 @@ export interface PlayerState {
 
 interface PlayerActions {
   // 播放控制
-  play: (song: MusicInfo, url: string, headers?: Record<string, string>, startPosition?: number) => Promise<void>;
+  play: (song: MusicInfo, url: string, headers?: Record<string, string>, startPosition?: number, requestId?: number) => Promise<void>;
   pause: () => Promise<void>;
   resume: () => Promise<void>;
   stop: () => Promise<void>;
@@ -479,23 +480,21 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
 
   // 播放控制
 
-  play: async (song: MusicInfo, url: string, headers?: Record<string, string>, startPosition?: number) => {
+  play: async (song: MusicInfo, url: string, headers?: Record<string, string>, startPosition?: number, intent?: number) => {
+    if (intent !== undefined && !isCurrentPlaybackRequest(intent)) return;
     // 同 key 并发 play 去重：直接复用进行中的同一请求；完成后清除。不同 key 走下方令牌竞态丢弃。
     const requestKey = buildMobilePlayRequestKey(song);
     // 登记本次 play 接管的歌曲：此后到 currentSong 落库前到达的 PlaybackError
     // 一律不归因旧 currentSong（见 shouldAttributePlaybackErrorToCurrentSong）。
     lastQueuedTrackOwnerKey = `${song.source}:${song.id}`;
-    const inflight = inflightPlayRequests.get(requestKey);
-    if (inflight) return inflight;
+    const inflight = Array.from(nativePlayRequests).find(entry =>
+      entry.requestKey === requestKey && isCurrentPlaybackRequest(entry.requestId)
+    );
+    if (inflight) return inflight.promise;
 
-    // 新请求启动时清掉其它 key 的在途条目：单曲槽语义下它们必是被抢占的过期请求，
-    // 留着会让稍后的重试复用已判死的 promise（表现为「点了没反应」——
-    // 如切歌后回头重点上一首、或同曲二次切音质拿到旧音质的播放）。
-    inflightPlayRequests.clear();
-
+    // 过期请求仍可能持有原生写入，必须保留到真正结束，清空队列才能完整等待它们。
+    const requestId = intent ?? beginPlaybackRequest();
     const request = (async () => {
-
-    const requestId = ++playRequestId;
 
     try {
 
@@ -519,11 +518,14 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
 
       // 确保播放器已初始化
 
+      // 清队列先等旧原生调用结束再 reset，新请求必须等这个清理屏障。
+      if (nativeQueueClear) await nativeQueueClear;
+      if (!isCurrentPlaybackRequest(requestId)) return;
       await ensurePlayerSetup();
 
       // 竞态检查：已有更新的 play 请求，丢弃本次
 
-      if (requestId !== playRequestId) return;
+      if (!isCurrentPlaybackRequest(requestId)) return;
 
 
 
@@ -535,7 +537,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       } catch {
         previousQueueLength = 0;
       }
-      if (requestId !== playRequestId) return;
+      if (!isCurrentPlaybackRequest(requestId)) return;
 
       // 双轨入队：真实曲目 + 静音占位（文件已扩到 15s，仅作后台保活窗口）。
       // 曲末队列见底会停播，Android 随即失去维持进程的理由；静音尾轨让前台服务继续存活。
@@ -561,7 +563,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
         },
       ];
       await TrackPlayer.add(nextTracks);
-      if (requestId !== playRequestId) return;
+      if (!isCurrentPlaybackRequest(requestId)) return;
 
       const newSongIndex = previousQueueLength;
       try {
@@ -569,7 +571,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       } catch {
         // 空队列首次入队时 skip 可能多余，继续 play 即可
       }
-      if (requestId !== playRequestId) return;
+      if (!isCurrentPlaybackRequest(requestId)) return;
 
       // 先出声再清旧轨：remove 会再触发一次轨道切换事件，不必挡在 play() 前面。
       if (previousQueueLength > 0) {
@@ -577,7 +579,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
         void TrackPlayer.remove(staleIndexes).catch(() => undefined);
       }
 
-      if (requestId !== playRequestId) return;
+      if (!isCurrentPlaybackRequest(requestId)) return;
 
 
 
@@ -585,13 +587,15 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
 
       const nextPlaybackRate = clampPlaybackRate(playbackRate);
       await TrackPlayer.setRate(nextPlaybackRate);
+      if (!isCurrentPlaybackRequest(requestId)) return;
       // 无淡入淡出：入原生前直接落到目标音量。外部音频压低（duck）期间以压低音量为上限，
       // 避免 duck 中自动切歌把音量拉回满格、盖住导航播报等外部音频。
       const targetVolume = externalDuckVolume != null ? Math.min(volume, externalDuckVolume) : volume;
       await TrackPlayer.setVolume(targetVolume);
+      if (!isCurrentPlaybackRequest(requestId)) return;
       await TrackPlayer.play();
 
-      if (requestId !== playRequestId) return;
+      if (!isCurrentPlaybackRequest(requestId)) return;
 
       set({
         currentSong: song,
@@ -609,6 +613,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       previewRejectedKeys.clear();
 
     } catch (error) {
+      // 已取消请求的失败没有当前 UI 所有权，不得覆盖新播放或触发旧请求重试。
+      if (!isCurrentPlaybackRequest(requestId)) return;
       const message = error instanceof Error ? error.message : "播放失败";
       set({
         error: message,
@@ -620,23 +626,18 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       // loading 归它管，这里照写会抹掉新请求刚点亮的加载态；反之若完全不写，设过
       // loading:true 后走提前 return 的路径会把 UI 永久钉在加载中（转圈不停、按钮点不动）。
       // 成功路径已连同 currentSong 原子置过 false，故先读一下避开多余的 set 广播。
-      if (requestId === playRequestId && get().loading) {
+      if (isCurrentPlaybackRequest(requestId) && get().loading) {
         set({ loading: false });
       }
     }
     })();
 
-    inflightPlayRequests.set(requestKey, request);
+    const entry = { requestKey, requestId, promise: request };
+    nativePlayRequests.add(entry);
 
-    // 清理绑定在 promise 自身而不是调用方的 await 上：调用方若不等待（或提前放弃等待），
-    // 已 settle 的死条目会留在 Map 里，后续同 key 点击复用它就表现为「点了没反应」。
-    const clearInflightRequest = () => {
-      // 仅删自己登记的那一条：新请求已通过上面的 clear/set 顶掉本条时不能再删，
-      // 否则会连带清掉当前有效的在途请求。
-      if (inflightPlayRequests.get(requestKey) === request) {
-        inflightPlayRequests.delete(requestKey);
-      }
-    };
+    // 按任务实例删除，不会误删同 key 的新尝试。
+    const clearInflightRequest = () => { nativePlayRequests.delete(entry); };
+
     void request.then(clearInflightRequest, clearInflightRequest);
 
     return request;
@@ -889,10 +890,13 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   },
 
   clearQueue: async () => {
-    // stop 可能在播放器未 setup 时被调用（如快照恢复后直接清空队列），兜住 rejection 避免崩溃。
-    try {
-      await TrackPlayer.stop();
-    } catch { /* 未 setup 时 stop 会 reject：忽略，照常清空队列 */ }
+    const requestId = cancelPendingPlayback();
+    const pendingPlays = Array.from(nativePlayRequests, entry => entry.promise);
+    const previousClear = nativeQueueClear;
+    lastQueuedTrackOwnerKey = null;
+    resetListeningSession();
+    get().cancelSleepTimer();
+    // 同步清 UI；等待原生清理时发起的新请求不应被本次完成后的 set 覆盖。
     set({
       currentSong: null,
       currentUrl: null,
@@ -900,6 +904,10 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       loading: false,
       error: null,
       position: 0,
+      duration: 0,
+      buffered: 0,
+      lyrics: [],
+      onSilenceGap: false,
       queue: [],
       currentIndex: -1,
       shuffleHistory: [],
@@ -907,6 +915,23 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       tempPlayList: [],
       playbackContext: { type: "queue" },
     });
+    const clearing = (async () => {
+      if (previousClear) await previousClear;
+      await Promise.all(pendingPlays);
+      // 旧 add/skip 全部退出后再清原生队列，避免延迟入队留下可被媒体键恢复的曲目。
+      if (isPlayerSetup) await TrackPlayer.reset();
+    })();
+    nativeQueueClear = clearing;
+    try {
+      await clearing;
+    } catch (error) {
+      if (isCurrentPlaybackRequest(requestId)) {
+        set({ error: error instanceof Error ? error.message : "清空播放队列失败" });
+      }
+      throw error;
+    } finally {
+      if (nativeQueueClear === clearing) nativeQueueClear = null;
+    }
   },
 
   // FM 上下文
