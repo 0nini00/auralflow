@@ -23,8 +23,8 @@
 - [x] 独立代码审查及修复。
 - [x] 全量移动测试、类型检查、lint、双 ABI 正式构建。
 - [x] Android 运行验证或明确设备环境限制；检查真实签名、版本、APK内容。
-- [ ] 提交并推送，创建 v0.6.10 tag，先上传草稿资产并核验后设为 Latest。
-- [ ] 核验公开 Latest、两种 APK 和桌面更新清单。
+- [x] 提交并推送，创建 v0.6.10 tag，先上传草稿资产并核验后设为 Latest。
+- [x] 核验公开 Latest、两种 APK 和桌面更新清单。
 
 ## 发布基线
 
@@ -43,3 +43,14 @@
 - 签名与资产摘要保存于忽略目录 dist/release-v0.6.10/artifact-verification.json。
 
 - 最终 Debug 包上执行 5 次 HOME 返回和 1 次锁屏恢复，7 个控制按钮 bounds 最大变化 0 px；底部按钮距系统导航栏 31 px，未见遮挡。
+
+
+## 发布完成
+
+- 代码提交：6a7945cb30f46ac9d31f61451a98264410a25ae0，已推送 main；v0.6.10 tag 指向该提交。
+- GitHub CI：https://github.com/0nini00/auralflow/actions/runs/37512028901，结果 success。
+- Release：https://github.com/0nini00/auralflow/releases/tag/v0.6.10，已公开并设为 Latest。
+- 四个上传资产的字节数与 SHA256 均匹配本地；正式两包签名与 v0.6.8 一致。
+- 公开 APK 地址可访问；公开 latest.json / latest-mirror.json 与 v0.6.8 清单逐字节一致。
+- 使用已发布元数据执行旧版更新客户端逻辑，0.6.8 检出 0.6.10，两个 ABI 选包正确。
+- 本机出口的匿名 GitHub API 触发速率限制；Latest 元数据由已认证 API 核验，公开文件地址另行无认证验证。未宣称真实手机已完成应用内更新。

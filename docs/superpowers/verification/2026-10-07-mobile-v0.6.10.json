@@ -61,5 +61,17 @@
   "limits": [
     "Runtime playback used synthetic files and injected delays/errors; actual network sources and OEM power management need device acceptance.",
     "No audio listening-quality claim; emulator audio output disabled."
-  ]
+  ],
+  "publication": {
+    "codeCommit": "6a7945cb30f46ac9d31f61451a98264410a25ae0",
+    "releaseUrl": "https://github.com/0nini00/auralflow/releases/tag/v0.6.10",
+    "latest": true,
+    "assetsDigestVerified": true,
+    "publicAssetUrlsVerified": true,
+    "desktopManifestsPreservedByteForByte": true,
+    "oldClientLogicWithPublishedMetadata": "0.6.8 detects 0.6.10; both ABI assets selected correctly",
+    "ciUrl": "https://github.com/0nini00/auralflow/actions/runs/37512028901",
+    "ciConclusion": "success",
+    "apiVerification": "Authenticated GitHub API; anonymous API at validation egress hit rate limit."
+  }
 }
