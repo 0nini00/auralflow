@@ -4,6 +4,7 @@ import {
   BackHandler,
   Modal,
   Pressable,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -12,9 +13,10 @@ import {
 } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, {
+  cancelAnimation,
   Easing,
   FadeInDown,
-  FadeInUp,
+  FadeIn,
   interpolate,
   runOnJS,
   useAnimatedStyle,
@@ -46,6 +48,7 @@ import {
   type ImmersiveFlyRect,
 } from "@/screens/immersive/immersiveFlySource";
 import { fetchCoverColors, type CoverColors } from "@/services/coverColorService";
+import { resolveImmersiveCoverLayout, resolveImmersiveLayout } from "@/services/immersiveLayoutModel";
 import { withAlpha } from "@/services/themePaletteModel";
 import { getResolvedTheme, useThemeStore } from "@/stores/themeStore";
 import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
@@ -134,7 +137,7 @@ const FlyOverlay = React.memo(function FlyOverlay({
  * - UI → TopBar / PagerView(封面|歌词) / Transport / Modals
  * - 转场：Modal 不再整体滑动（animationType="none"），封面从迷你栏位置飞入；
  *   顶栏/控制区错落淡入；关闭时封面飞回 + 整页淡出后再 goBack
- * - 下拉关闭（仅封面页）跟手位移，松手按位移/速度判定关闭或回弹
+ * - 可用宽度充足时封面/控制与歌词并列；下拉仅绑定封面区域
  */
 export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScreenProps) {
   const showLyricProgress = useLyricSettingsStore((s) => s.showLyricProgress);
@@ -144,12 +147,15 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
   const systemTheme = useThemeStore((s) => s.systemTheme);
   const isDark = getResolvedTheme(themeMode, systemTheme) === "dark";
   const pagerViewRef = React.useRef<PagerView>(null);
-  const { height: windowHeight } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight, fontScale } = useWindowDimensions();
+  const lyricFontSize = useLyricSettingsStore((s) => s.fontSize);
+  const [viewport, setViewport] = React.useState({ width: windowWidth, height: windowHeight });
+  const viewportMeasured = React.useRef(false);
+  const [mediaViewport, setMediaViewport] = React.useState({ width: 0, height: 0 });
+  const [moreMenuVisible, setMoreMenuVisible] = React.useState(false);
 
   const {
     insets,
-    layoutWidth,
-    onLayout,
     palette,
     currentSong,
     isPlaying,
@@ -163,7 +169,6 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     isLyricsPage,
     addToPlaylistVisible,
     setAddToPlaylistVisible,
-    coverSize,
     handleOpenArtist,
     canOpenArtist,
     playModeControl,
@@ -226,6 +231,21 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     isLiked,
   } = useImmersiveController({ visible, onClose });
 
+  // 标题和控制区按原生固有高度排布；实测媒体视口仅用于封面及迷你歌词预算。
+  const miniLyricHeight = showLyricProgress
+    ? Math.ceil((Math.max(14, lyricFontSize * 0.7) * 1.4 + (showTranslation ? 18 : 0)) * fontScale + 24)
+    : 0;
+  const layout = resolveImmersiveLayout({
+    ...viewport, insets, fontScale,
+  });
+  const isSplit = layout.mode === "split";
+  const media = resolveImmersiveCoverLayout({
+    ...mediaViewport, miniLyricHeight: isSplit ? 0 : miniLyricHeight,
+  });
+  const overlayVisible = queueModalVisible || commentsVisible || playSettingVisible || sleepModalVisible
+    || rateModalVisible || volumeModalVisible || addToPlaylistVisible || coverMenuVisible
+    || coverSongDownloadVisible || moreMenuVisible;
+
   // 氛围色背景：从封面提取主色，仅在开关打开且取色成功时叠加渐变
   const [ambient, setAmbient] = React.useState<CoverColors>({ base: "", accent: "" });
   React.useEffect(() => {
@@ -245,7 +265,13 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
   // ── 封面飞入/飞回转场 ──
   // 起点在挂载前一次性捕获（渲染期读取，首帧就能停在迷你栏封面位置）。
   const flySource = React.useRef<ImmersiveFlyRect | null>(getImmersiveFlySource()).current;
-  const flightEnabled = !!(flySource && artwork);
+  const geometryKey = [windowWidth, windowHeight,
+    insets.top, insets.bottom, insets.left, insets.right, fontScale].join(":");
+  const flightGeometry = React.useRef(geometryKey).current;
+  const [flightInvalidated, setFlightInvalidated] = React.useState(false);
+  // 宽屏采用静态封面与控件淡入；旋转后迷你栏坐标已失效，本次打开不再飞回旧位置。
+  const flightEnabled = !!(flySource && artwork) && !isSplit && !flightInvalidated
+    && geometryKey === flightGeometry;
   const [targetRect, setTargetRect] = React.useState<(ImmersiveFlyRect & { radius: number }) | null>(null);
   const [flightDone, setFlightDone] = React.useState(!flightEnabled);
   const [overlayGone, setOverlayGone] = React.useState(false);
@@ -284,19 +310,25 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     });
   }, [flightEnabled, targetRect, rootOpacity, flyProgress, realCoverOpacity, flyOverlayOpacity]);
 
-  // 兜底：终点坐标迟迟未测到（极端布局）时跳过转场，直接呈现静态播放页
   React.useEffect(() => {
-    if (!flightEnabled) return;
-    const timer = setTimeout(() => {
-      if (flightStartedRef.current) return;
-      flightStartedRef.current = true;
-      rootOpacity.value = 1;
-      realCoverOpacity.value = 1;
-      setFlightDone(true);
-      setOverlayGone(true);
-    }, 800);
-    return () => clearTimeout(timer);
-  }, [flightEnabled, rootOpacity, realCoverOpacity]);
+    if (geometryKey !== flightGeometry) setFlightInvalidated(true);
+    if (flightEnabled) return;
+    cancelAnimation(flyProgress);
+    cancelAnimation(flyOverlayOpacity);
+    cancelAnimation(realCoverOpacity);
+    cancelAnimation(rootOpacity);
+    cancelAnimation(contentTranslateY);
+    if (closingRef.current) {
+      closeNow();
+      return;
+    }
+    rootOpacity.value = 1;
+    realCoverOpacity.value = 1;
+    contentTranslateY.value = 0;
+    setFlightDone(true);
+    setOverlayGone(true);
+  }, [flightEnabled, geometryKey, flightGeometry, flyProgress, flyOverlayOpacity,
+    realCoverOpacity, rootOpacity, contentTranslateY, closeNow]);
 
   // 关闭编排：封面飞回迷你栏 + 整页淡出，动画结束后才真正 goBack
   const requestClose = React.useCallback(() => {
@@ -323,11 +355,12 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
   // 接管系统物理/手势返回键：先播飞回动画再真正返回
   React.useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (overlayVisible) return false;
       requestClose();
       return true;
     });
     return () => sub.remove();
-  }, [requestClose]);
+  }, [requestClose, overlayVisible]);
 
   // 从后台恢复前台时的状态保护：长时间后台挂起后唤醒，确保不透明度与位移处于可见态，杜绝白屏/假死
   React.useEffect(() => {
@@ -350,15 +383,17 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     }
   }, [currentSong]);
 
-  // ── 下拉关闭（跟手）：仅封面页启用，纵向位移驱动整页下移 ──
-  // 播放列表 / 评论等应用内底部弹层打开期间必须禁用：它们盖在封面页上且自带
-  // 可滚动列表，根级下拉手势会劫持列表滚动（页面跟着位移），快速滑动还会
-  // 触发关闭判定把整个播放页拽走。
-  const pullDownGestureEnabled = !isLyricsPage && !closing && flightDone && !queueModalVisible && !commentsVisible;
+  // 下拉返回只在封面区域启用；任何弹层打开时停用，避免与弹层滚动竞争。
+  const pullDownGestureEnabled = (isSplit || !isLyricsPage) && !closing && flightDone && !overlayVisible;
+  const markClosing = React.useCallback(() => {
+    closingRef.current = true;
+    setClosing(true);
+  }, []);
   const panGesture = React.useMemo(
     () =>
       Gesture.Pan()
         .enabled(pullDownGestureEnabled)
+        .maxPointers(1)
         .activeOffsetY(14)
         .failOffsetX(16)
         .onUpdate((event) => {
@@ -373,8 +408,7 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
             contentTranslateY.value = withSpring(0, { stiffness: 340, damping: 30 });
             return;
           }
-          closingRef.current = true;
-          runOnJS(setClosing)(true);
+          runOnJS(markClosing)();
           // 下拉路径不做封面飞回（整页已跟手位移），滑出屏幕后直接关闭
           contentTranslateY.value = withTiming(
             windowHeight + 120,
@@ -383,8 +417,11 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
               if (finished) runOnJS(closeNow)();
             },
           );
+        })
+        .onFinalize((_event, success) => {
+          if (!success) contentTranslateY.value = withSpring(0, { stiffness: 340, damping: 30 });
         }),
-    [pullDownGestureEnabled, windowHeight, contentTranslateY, closeNow],
+    [pullDownGestureEnabled, windowHeight, contentTranslateY, closeNow, markClosing],
   );
 
   const rootAnimatedStyle = useAnimatedStyle(() => ({
@@ -392,12 +429,51 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     transform: [{ translateY: contentTranslateY.value }],
   }));
   const coverRevealStyle = useAnimatedStyle(() => ({ opacity: realCoverOpacity.value }));
+  const handleCoverMeasured = React.useCallback((rect: ImmersiveFlyRect) => {
+    setTargetRect({ ...rect, radius: coverSpin ? rect.height / 2 : 8 });
+  }, [coverSpin]);
 
   if (!currentSong) {
     return null;
   }
 
   const currentMvId = currentSong.source === "wy" ? currentSong.mvId : undefined;
+  const lyricContent = (
+    <LyricView
+      lyrics={lyrics}
+      currentLineIndex={currentLyricIndex}
+      showTranslation={showTranslation}
+      palette={palette}
+      onSeek={handleSeek}
+      style={styles.pagerLyricList}
+    />
+  );
+  // 下拉只绑定封面，歌词滚动/捏合、进度拖动及控制区滚动不参与关闭手势。
+  const coverContent = (
+    <GestureDetector gesture={panGesture}>
+      <View style={styles.flexFill} collapsable={false}>
+        <Animated.View style={[styles.coverRevealHost, coverRevealStyle]}>
+          <ImmersiveCoverPage
+            artwork={artwork}
+            coverSize={media.coverSize}
+            bottomSpace={media.coverBottomSpace}
+            isPlaying={isPlaying}
+            palette={palette}
+            onLongPress={openCoverMenu}
+            onCoverMeasured={handleCoverMeasured}
+          />
+        </Animated.View>
+        {media.showMiniLyric ? (
+          <MiniLyric
+            lyrics={lyrics}
+            currentLineIndex={currentLyricIndex}
+            palette={palette}
+            onPress={() => pagerViewRef.current?.setPage(1)}
+          />
+        ) : null}
+      </View>
+    </GestureDetector>
+  );
 
   return (
     <View style={styles.flexFill}>
@@ -407,10 +483,21 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
         barStyle={isDark ? "light-content" : "dark-content"}
       />
       <GestureHandlerRootView style={styles.flexFill}>
-        <GestureDetector gesture={panGesture}>
           <Animated.View
-            style={[styles.root, { backgroundColor: palette.background }, rootAnimatedStyle]}
-            onLayout={onLayout}
+            style={[styles.root, {
+              backgroundColor: palette.background,
+              paddingTop: insets.top, paddingBottom: insets.bottom,
+              paddingLeft: insets.left, paddingRight: insets.right,
+            }, rootAnimatedStyle]}
+            onLayout={(e) => {
+              const { width, height } = e.nativeEvent.layout;
+              // 首次测量不是旋转；只在已测容器再次改变时废弃旧飞行坐标。
+              if (viewportMeasured.current && (width !== viewport.width || height !== viewport.height)) {
+                setFlightInvalidated(true);
+              }
+              viewportMeasured.current = true;
+              setViewport({ width, height });
+            }}
           >
             {/* 氛围色背景（可选开关）：封面主色自上而下淡出的渐变，压在内容层之下 */}
             {ambientCoverTint && ambient.base ? (
@@ -425,130 +512,132 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
                 locations={[0, 0.55, 1]}
               />
             ) : null}
-            {/* 默认对齐 lx 竖屏：纯主题色背景（氛围色在播放设置里可选开启） */}
-            <PagerView
-              ref={pagerViewRef}
-              style={styles.pagerView}
-              initialPage={0}
-              overScrollMode="never"
-              onPageSelected={(e) => setCurrentPage(e.nativeEvent.position)}
+            <ScrollView
+              style={styles.headerViewport}
+              contentInsetAdjustmentBehavior="never"
+              automaticallyAdjustContentInsets={false}
+              bounces={false}
             >
-              <View key="cover" style={styles.pagerPage}>
-                <Animated.View style={[styles.coverRevealHost, coverRevealStyle]}>
-                  <ImmersiveCoverPage
-                    artwork={artwork}
-                    coverSize={coverSize}
-                    isPlaying={isPlaying}
-                    palette={palette}
-                    onLongPress={openCoverMenu}
-                    onCoverMeasured={(rect) =>
-                      setTargetRect({ ...rect, radius: coverSpin ? rect.height / 2 : 8 })
-                    }
-                  />
-                </Animated.View>
-                {showLyricProgress ? (
-                  <MiniLyric
-                    lyrics={lyrics}
-                    currentLineIndex={currentLyricIndex}
-                    palette={palette}
-                    onPress={() => pagerViewRef.current?.setPage(1)}
-                  />
-                ) : null}
-              </View>
-              <View key="lyrics" style={styles.pagerPage}>
-                <LyricView
-                  lyrics={lyrics}
-                  currentLineIndex={currentLyricIndex}
-                  showTranslation={showTranslation}
+              <Animated.View
+                entering={FadeInDown.duration(280).delay(140)}
+              >
+                <ImmersiveTopBar
+                  insetsTop={0}
+                  songName={currentSong.name}
+                  artist={currentSong.singer || "未知歌手"}
                   palette={palette}
-                  onSeek={handleSeek}
-                  style={styles.pagerLyricList}
+                  onClose={requestClose}
+                  onOpenPlaySetting={() => setPlaySettingVisible(true)}
+                  onPressArtist={canOpenArtist ? handleOpenArtist : undefined}
+                  sleepLabel={sleepTimerControl.label}
+                  sleepActive={!!sleepTimerControl.active}
+                  onOpenSleep={() => setSleepModalVisible(true)}
                 />
+              </Animated.View>
+            </ScrollView>
+
+            <View style={[
+              styles.playbackBody,
+              { paddingHorizontal: layout.horizontalPadding, gap: layout.columnGap },
+            ]}>
+              <View style={[styles.primaryColumn, { width: layout.primaryWidth }]}>
+                <View
+                  style={styles.mediaViewport}
+                  onLayout={(e) => {
+                    const { width, height } = e.nativeEvent.layout;
+                    setMediaViewport({ width, height });
+                  }}
+                >
+                  {isSplit ? coverContent : (
+                    <PagerView
+                      ref={pagerViewRef}
+                      style={styles.pagerView}
+                      initialPage={currentPage}
+                      overScrollMode="never"
+                      onPageSelected={(e) => setCurrentPage(e.nativeEvent.position)}
+                    >
+                      <View key="cover" style={styles.pagerPage} collapsable={false}>{coverContent}</View>
+                      <View key="lyrics" style={styles.pagerPage} collapsable={false}>{lyricContent}</View>
+                    </PagerView>
+                  )}
+                </View>
+                <ScrollView
+                  style={styles.transportViewport}
+                  contentInsetAdjustmentBehavior="never"
+                  automaticallyAdjustContentInsets={false}
+                  bounces={false}
+                  nestedScrollEnabled
+                >
+                  <Animated.View
+                    entering={FadeIn.duration(300).delay(200)}
+                  >
+                    <ImmersiveTransport
+                      insetsBottom={0}
+                      compact={layout.compact}
+                      moreMenuVisible={moreMenuVisible}
+                      onMoreMenuVisibleChange={setMoreMenuVisible}
+                      onSeek={handleSeek}
+                      playMode={playMode}
+                      playModeControl={playModeControl}
+                      onTogglePlayMode={handleTogglePlayMode}
+                      onPrevious={handlePrevious}
+                      onNext={handleNext}
+                      onTogglePlay={handleTogglePlay}
+                      isPlaying={isPlaying}
+                      loading={loading}
+                      palette={palette}
+                      isLiked={isLiked}
+                      onToggleLike={() => void handleLike()}
+                      floatingLyricActive={floatingLyricActive}
+                      onToggleFloatingLyric={handleToggleFloatingLyric}
+                      canAddToPlaylist={currentSongActions.show}
+                      onAddToPlaylist={() => setAddToPlaylistVisible(true)}
+                      canShare={currentSongActions.show}
+                      shareLabel={currentSongActions.shareLabel}
+                      onShare={() => {
+                        void handleShare();
+                      }}
+                      onOpenDownload={openCoverSongDownload}
+                      onPlayMv={
+                        currentMvId
+                          ? () => {
+                              // 先关闭播放页 Modal 再压 MV 路由，否则新页面被 Modal 盖住不可见。
+                              // 跳 MV 无需转场，直接 onClose 立即关闭。
+                              onClose();
+                              openMvPlayerScreen({
+                                mvId: currentMvId,
+                                title: currentSong.name,
+                                artist: currentSong.singer,
+                                posterUrl: currentSong.img || currentSong.picUrl,
+                              });
+                            }
+                          : undefined
+                      }
+                      canShowComments={currentSong.source === "wy"}
+                      onOpenComments={() => setCommentsVisible(true)}
+                      canShowSimilarSongs={currentSong.source === "wy"}
+                      onOpenSimilarSongs={() => {
+                        onClose();
+                        openSimilarSongsScreen({
+                          songId: currentSong.id,
+                          songName: currentSong.name,
+                        });
+                      }}
+                      onOpenQueue={() => setQueueModalVisible(true)}
+                      queueLabel={queueModel.triggerLabel}
+                    />
+                  </Animated.View>
+                </ScrollView>
               </View>
-            </PagerView>
+              {isSplit ? <View style={{ width: layout.lyricsWidth }}>{lyricContent}</View> : null}
+            </View>
 
-            {isLyricsPage && <KeepAwake />}
-
-            {/* 顶栏/控制区错落入场（封面飞行期间先后淡入） */}
-            <Animated.View
-              entering={FadeInDown.duration(280).delay(140)}
-              style={styles.topBarHost}
-              pointerEvents="box-none"
-            >
-              <ImmersiveTopBar
-                insetsTop={insets.top}
-                songName={currentSong.name}
-                artist={currentSong.singer || "未知歌手"}
-                palette={palette}
-                onClose={requestClose}
-                onOpenPlaySetting={() => setPlaySettingVisible(true)}
-                onPressArtist={canOpenArtist ? handleOpenArtist : undefined}
-                sleepLabel={sleepTimerControl.label}
-                sleepActive={!!sleepTimerControl.active}
-                onOpenSleep={() => setSleepModalVisible(true)}
-              />
-            </Animated.View>
-
+            {(isSplit || isLyricsPage) && <KeepAwake />}
             <ImmersivePlaySettingSheet
               visible={playSettingVisible}
               onClose={() => setPlaySettingVisible(false)}
               palette={palette}
             />
-
-            <Animated.View entering={FadeInUp.duration(300).delay(200)}>
-              <ImmersiveTransport
-                insetsBottom={insets.bottom}
-                onSeek={handleSeek}
-                playMode={playMode}
-                playModeControl={playModeControl}
-                onTogglePlayMode={handleTogglePlayMode}
-                onPrevious={handlePrevious}
-                onNext={handleNext}
-                onTogglePlay={handleTogglePlay}
-                isPlaying={isPlaying}
-                loading={loading}
-                palette={palette}
-                isLiked={isLiked}
-                onToggleLike={() => void handleLike()}
-                floatingLyricActive={floatingLyricActive}
-                onToggleFloatingLyric={handleToggleFloatingLyric}
-                canAddToPlaylist={currentSongActions.show}
-                onAddToPlaylist={() => setAddToPlaylistVisible(true)}
-                canShare={currentSongActions.show}
-                shareLabel={currentSongActions.shareLabel}
-                onShare={() => {
-                  void handleShare();
-                }}
-                onOpenDownload={openCoverSongDownload}
-                onPlayMv={
-                  currentMvId
-                    ? () => {
-                        // 先关闭播放页 Modal 再压 MV 路由，否则新页面被 Modal 盖住不可见。
-                        // 跳 MV 无需转场，直接 onClose 立即关闭。
-                        onClose();
-                        openMvPlayerScreen({
-                          mvId: currentMvId,
-                          title: currentSong.name,
-                          artist: currentSong.singer,
-                          posterUrl: currentSong.img || currentSong.picUrl,
-                        });
-                      }
-                    : undefined
-                }
-                canShowComments={currentSong.source === "wy"}
-                onOpenComments={() => setCommentsVisible(true)}
-                canShowSimilarSongs={currentSong.source === "wy"}
-                onOpenSimilarSongs={() => {
-                  onClose();
-                  openSimilarSongsScreen({
-                    songId: currentSong.id,
-                    songName: currentSong.name,
-                  });
-                }}
-                onOpenQueue={() => setQueueModalVisible(true)}
-                queueLabel={queueModel.triggerLabel}
-              />
-            </Animated.View>
 
             <AddToLocalPlaylistModal
               visible={addToPlaylistVisible}
@@ -595,7 +684,6 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
               palette={palette}
             />
           </Animated.View>
-        </GestureDetector>
 
           <ImmersiveModals
             customMinutes={customMinutes}

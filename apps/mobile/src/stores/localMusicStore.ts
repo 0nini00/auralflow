@@ -10,10 +10,18 @@ import {
 } from "../services/localMusicService";
 import { buildLocalMusicMetadataUpdate, type LocalMusicMetadataInput } from "@/services/localMusicMetadataModel";
 
+import {
+  applyLocalMetadataEdit,
+  mergeManualLocalSongs,
+  parseLocalSongs,
+  reconcileLocalMusic,
+  type LocalMusicInfo,
+} from "../services/localMusicScanModel";
+
 export const LOCAL_MUSIC_KEY = "auralflow.mobile.localMusic";
 
 export interface LocalMusicState {
-  localSongs: MusicInfo[];
+  localSongs: LocalMusicInfo[];
   loading: boolean;
   error: string | null;
 }
@@ -31,164 +39,124 @@ interface LocalMusicActions {
   clearLocalMusic: () => Promise<void>;
 }
 
-function songKey(song: Pick<MusicInfo, "id" | "source">): string {
-  return `${song.source}:${song.id}`;
-}
-
-function mergeLocalSongs(existing: MusicInfo[], incoming: MusicInfo[]): MusicInfo[] {
-  const seen = new Set(existing.map(songKey));
-  const merged = [...existing];
-  for (const song of incoming) {
-    const key = songKey(song);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    merged.push(song);
-  }
-  return merged;
-}
-
 type LocalMusicStore = LocalMusicState & LocalMusicActions;
 
-// 启动 load* 未完成时用户即写入：串行化加载 + 写入，避免晚到的 load 回滚刚写入的记录。
 let localSongsLoadPromise: Promise<void> | null = null;
 let localSongsHydrated = false;
+let localSongsOperationTail: Promise<void> = Promise.resolve();
+
+function serializeLocalMusicOperation<T>(operation: () => Promise<T>): Promise<T> {
+  const result = localSongsOperationTail.then(operation);
+  // 队列恢复仅用于接纳后续操作；调用方仍接收原始 result 的拒绝，错误不被吞掉。
+  localSongsOperationTail = result.then(() => undefined, () => undefined);
+  return result;
+}
 
 async function ensureLocalSongsLoaded(get: () => LocalMusicStore): Promise<void> {
-  if (!localSongsHydrated || localSongsLoadPromise) {
+  if (!localSongsHydrated || localSongsLoadPromise) await get().loadLocalSongs();
+}
+
+type LocalSongsUpdate = (songs: LocalMusicInfo[]) => LocalMusicInfo[] | Promise<LocalMusicInfo[]>;
+
+export const useLocalMusicStore = create<LocalMusicStore>((set, get) => {
+  // 所有写入共享同一提交边界：读取当前态、变换、落盘、发布内存态不可交错。
+  const commitLocalSongs = (update: LocalSongsUpdate, removeStorage = false) => serializeLocalMusicOperation(async () => {
     try {
-      await get().loadLocalSongs();
-    } catch {
-      // load 失败不阻断写入：在现有内存态上继续
-    }
-  }
-}
-
-function parseLocalSongs(raw: string | null): MusicInfo[] {
-  if (!raw) return [];
-  const parsed = JSON.parse(raw) as unknown;
-  if (!Array.isArray(parsed)) throw new Error("本地音乐数据格式错误");
-  return parsed as MusicInfo[];
-}
-
-async function persistLocalSongs(songs: MusicInfo[]): Promise<void> {
-  await AsyncStorage.setItem(LOCAL_MUSIC_KEY, JSON.stringify(songs));
-}
-
-export const useLocalMusicStore = create<LocalMusicStore>((set, get) => ({
-  localSongs: [],
-  loading: false,
-  error: null,
-
-  loadLocalSongs: async () => {
-    if (localSongsLoadPromise) return localSongsLoadPromise;
-    localSongsLoadPromise = (async () => {
-      try {
-        set({ loading: true, error: null });
-        const raw = await AsyncStorage.getItem(LOCAL_MUSIC_KEY);
-        set({ localSongs: parseLocalSongs(raw), loading: false });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "加载本地音乐失败";
-        set({ error: message, loading: false });
-        throw error;
-      } finally {
-        localSongsHydrated = true;
+      const current = get().localSongs;
+      const songs = await update(current);
+      if (removeStorage) {
+        await AsyncStorage.removeItem(LOCAL_MUSIC_KEY);
+      } else {
+        await AsyncStorage.setItem(LOCAL_MUSIC_KEY, JSON.stringify(songs));
       }
-    })();
-    try {
-      await localSongsLoadPromise;
-    } finally {
-      localSongsLoadPromise = null;
-    }
-  },
-
-  scanMusic: async () => {
-    set({ loading: true, error: null });
-    try {
-      await ensureLocalSongsLoaded(get);
-      set({ loading: true, error: null });
-      // MediaStore 不索引应用私有下载目录：并行扫描系统媒体库与应用下载目录，
-      // 合并后再落盘——「扫描/刷新」后下载完成的歌曲才能出现在本地曲库
-      const [scanned, downloaded] = await Promise.all([
-        scanLocalMusic(),
-        getDownloadedLocalSongs(),
-      ]);
-      // 与现有本地曲库取并集（保留手动挑选导入、且不在 MediaStore 内的文件），
-      // 再并入本次扫描结果，避免「扫描/刷新」覆盖先前的导入记录。
-      const songs = mergeLocalSongs(mergeLocalSongs(get().localSongs, scanned), downloaded);
-      await persistLocalSongs(songs);
-      set({ localSongs: songs, loading: false });
+      set({ localSongs: songs, loading: false, error: null });
+      return { added: songs.length - current.length, total: songs.length };
     } catch (error) {
-      const message = error instanceof Error ? error.message : "扫描失败";
-      set({ error: message, loading: false });
+      set({ error: error instanceof Error ? error.message : "保存本地音乐失败", loading: false });
       throw error;
     }
-  },
+  });
 
-  importLocalFiles: async () => {
-    set({ loading: true, error: null });
-    try {
-      await ensureLocalSongsLoaded(get);
-      set({ loading: true, error: null });
-      const picked = await pickLocalAudioFiles();
-      let added = 0;
-      let total = 0;
-      let nextSongs: MusicInfo[] = [];
-      set((state) => {
-        const before = state.localSongs.length;
-        nextSongs = mergeLocalSongs(state.localSongs, picked);
-        added = nextSongs.length - before;
-        total = nextSongs.length;
-        return { localSongs: nextSongs, loading: false, error: null };
+  return {
+    localSongs: [],
+    loading: false,
+    error: null,
+
+    loadLocalSongs: async () => {
+      if (localSongsLoadPromise) return localSongsLoadPromise;
+      localSongsLoadPromise = serializeLocalMusicOperation(async () => {
+        try {
+          set({ loading: true, error: null });
+          const raw = await AsyncStorage.getItem(LOCAL_MUSIC_KEY);
+          set({ localSongs: parseLocalSongs(raw), loading: false });
+          localSongsHydrated = true;
+        } catch (error) {
+          set({ error: error instanceof Error ? error.message : "加载本地音乐失败", loading: false });
+          throw error;
+        }
       });
-      await persistLocalSongs(nextSongs);
-      return { added, total };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "导入失败";
-      set({ error: message, loading: false });
-      throw error;
-    }
-  },
-
-  removeLocalSong: async (song) => {
-    await ensureLocalSongsLoaded(get);
-    let nextSongs: MusicInfo[] = [];
-    set((state) => {
-      nextSongs = state.localSongs.filter(
-        (item) => !(String(item.id) === String(song.id) && item.source === song.source),
-      );
-      return { localSongs: nextSongs, error: null };
-    });
-    await persistLocalSongs(nextSongs);
-  },
-
-  updateLocalSongMetadata: async (song, input) => {
-    await ensureLocalSongsLoaded(get);
-    const patch = buildLocalMusicMetadataUpdate(input);
-    try {
-      // 下载目录入库的歌曲不在 MediaStore 里，没有可写回的媒体 id：仅更新本地列表
-      if (!isDownloadedLocalSong(song)) {
-        await updateLocalMusicMetadata(String(song.id), patch);
+      try {
+        await localSongsLoadPromise;
+      } finally {
+        localSongsLoadPromise = null;
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "写回文件标签失败";
-      set({ error: message });
-      throw error;
-    }
-    let nextSongs: MusicInfo[] = [];
-    set((state) => {
-      nextSongs = state.localSongs.map((item) => (
-        String(item.id) === String(song.id) && item.source === song.source
-          ? { ...item, ...patch }
-          : item
-      ));
-      return { localSongs: nextSongs, error: null };
-    });
-    await persistLocalSongs(nextSongs);
-  },
+    },
 
-  clearLocalMusic: async () => {
-    await ensureLocalSongsLoaded(get);
-    await AsyncStorage.removeItem(LOCAL_MUSIC_KEY);
-    set({ localSongs: [], error: null });
-  },
-}));
+    scanMusic: async () => {
+      set({ loading: true, error: null });
+      try {
+        await ensureLocalSongsLoaded(get);
+        set({ loading: true, error: null });
+        // 并行查询 MediaStore 与检查已知下载文件，不枚举下载目录或重建孤儿文件索引。
+        const [scanned, downloaded] = await Promise.all([
+          scanLocalMusic(get().localSongs),
+          getDownloadedLocalSongs(get().localSongs),
+        ]);
+        await commitLocalSongs((songs) => reconcileLocalMusic(songs, [scanned, downloaded]));
+      } catch (error) {
+        set({ error: error instanceof Error ? error.message : "扫描失败", loading: false });
+        throw error;
+      }
+    },
+
+    importLocalFiles: async () => {
+      set({ loading: true, error: null });
+      try {
+        await ensureLocalSongsLoaded(get);
+        set({ loading: true, error: null });
+        const picked = await pickLocalAudioFiles();
+        return await commitLocalSongs((songs) => mergeManualLocalSongs(songs, picked));
+      } catch (error) {
+        set({ error: error instanceof Error ? error.message : "导入失败", loading: false });
+        throw error;
+      }
+    },
+
+    removeLocalSong: async (song) => {
+      await ensureLocalSongsLoaded(get);
+      await commitLocalSongs((songs) => songs.filter(
+        (item) => !(String(item.id) === String(song.id) && item.source === song.source),
+      ));
+    },
+
+    updateLocalSongMetadata: async (song, input) => {
+      await ensureLocalSongsLoaded(get);
+      const patch = buildLocalMusicMetadataUpdate(input);
+      await commitLocalSongs(async (songs) => {
+        const current = songs.find((item) => item.id === song.id && item.source === song.source);
+        const downloaded = isDownloadedLocalSong(current ?? song);
+        // 下载曲编辑只保存在本地曲库；记录字段名，避免刷新时被旧下载元数据覆盖。
+        if (!downloaded) await updateLocalMusicMetadata(String(song.id), patch);
+        return songs.map((item) => {
+          if (String(item.id) !== String(song.id) || item.source !== song.source) return item;
+          return downloaded ? applyLocalMetadataEdit(item, patch) : { ...item, ...patch };
+        });
+      });
+    },
+
+    clearLocalMusic: async () => {
+      await ensureLocalSongsLoaded(get);
+      await commitLocalSongs(() => [], true);
+    },
+  };
+});

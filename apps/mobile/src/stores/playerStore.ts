@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { reorderQueueState, type QueueReorderStatus } from "@/services/queueReorderModel";
 import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import TrackPlayer, {
@@ -23,12 +24,8 @@ import { syncPlaybackParameters } from "@/services/androidPitchService";
 import { buildMobilePlayRequestKey } from "@/services/playerRequestModel";
 import { beginPlaybackRequest, isCurrentPlaybackRequest } from "@/services/playbackRequest";
 import { invalidateCachedPlaybackUrl } from "@/services/playbackUrlCache";
-import {
-  decidePlaybackFailureAction,
-  notePlaybackHealthy,
-  noteRetrySettled,
-} from "@/services/playbackFailurePolicy";
-import { cancelPendingPlayback, invalidatePrefetchForSong, prefetchUpcomingSongNearEnd } from "../services/playerService";
+import { notePlaybackHealthy } from "@/services/playbackFailurePolicy";
+import { cancelPendingPlayback, invalidatePrefetchForSong, playFromQueue, playSong, prefetchUpcomingSongNearEnd } from "../services/playerService";
 import {
   isLyricOverlaySupported,
   playLyricOverlayClock,
@@ -42,6 +39,14 @@ import { onPlaybackProgress, resetListeningSession } from "@/services/listenTrac
 // ── 播放竞态保护 ──
 
 let nativeQueueClear: Promise<void> | null = null;
+
+/** 被取消的装载尚未拥有 currentUrl，不能把上首地址当作本曲的续播凭据。 */
+function cancelTransportPlayback(): number {
+  const { loading } = usePlayerStore.getState();
+  const requestId = cancelPendingPlayback();
+  if (loading) usePlayerStore.setState({ loading: false, currentUrl: null });
+  return requestId;
+}
 
 // 底层 play 最近一次接管的歌曲 key（play 入口同步登记）。PlaybackError 没有曲目归属，
 // 据此做同步归属判定（不引入桥接调用，保住错误处置「必须同步完成」的约定）：
@@ -395,6 +400,7 @@ interface PlayerActions {
   addToQueue: (song: MusicInfo) => void;
   playNextInQueue: (song: MusicInfo) => void;
   removeFromQueue: (index: number) => void;
+  reorderQueue: (expectedQueue: readonly MusicInfo[], from: number, to: number) => QueueReorderStatus;
   clearQueue: () => Promise<void>;
 
   // 稍后播放（独立暂存区）
@@ -644,47 +650,49 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   },
 
   pause: async () => {
-    // 播放器未 setup（如快照恢复后尚未播放）时无原生可暂停，仅同步 UI 状态。
-    if (!isPlayerSetup) {
-      set({ isPlaying: false });
-      return;
-    }
-    try {
-      await TrackPlayer.pause();
-    } catch { /* 原生 pause 失败：仍落 UI 暂停态 */ }
-    // 暂停即重置结算基准：暂停期间不倒数
+    const requestId = cancelTransportPlayback();
+    if (isPlayerSetup) await TrackPlayer.pause();
+    if (!isCurrentPlaybackRequest(requestId)) return;
+    // 暂停即重置结算基准：暂停期间不倒数。
     syncSleepTimerClock();
     set({ isPlaying: false });
   },
 
   resume: async () => {
-    // 未 setup 时没有已加载的 track，无法 resume；忽略以避免调用未初始化的原生播放器。
+    const requestId = cancelTransportPlayback();
+    const { currentSong, currentUrl, currentIndex, queue, position } = get();
+    if (currentSong && (!isPlayerSetup || !currentUrl)) {
+      // 取消不能撤回已送入原生的 add/skip；先排空它们再重建本曲，避免交错提交。
+      await Promise.all(Array.from(nativePlayRequests, entry => entry.promise));
+      if (!isCurrentPlaybackRequest(requestId)) return;
+      const queuedSong = queue[currentIndex];
+      if (queuedSong?.source === currentSong.source && String(queuedSong.id) === String(currentSong.id)) {
+        await playFromQueue(currentIndex, position > 0 ? position : undefined, requestId);
+      } else {
+        await playSong(currentSong);
+      }
+      return;
+    }
     if (!isPlayerSetup) return;
-    try {
-      await TrackPlayer.play();
-    } catch { /* 原生 play 失败：由下方状态回读纠偏 */ }
-    // 续播即重置结算基准：暂停期间的时间不计入睡眠时长
+    await TrackPlayer.play();
+    if (!isCurrentPlaybackRequest(requestId)) return;
     syncSleepTimerClock();
-    // 原生处于 IDLE/ENDED（加载失败停播、清队列、顺序播完）时 play() 是 no-op，
-    // 且不会再派发 PlaybackState 事件纠偏——必须回读原生状态才落库，否则 UI 进入
-    // 假播放态（有进度无声音），PlayerBar 的快照续播兜底（!isPlaying 才触发）也永不可达。
-    let nativePlaying = false;
-    try {
-      const state = await TrackPlayer.getState();
-      nativePlaying = state === State.Playing || state === State.Buffering;
-    } catch { /* 回读失败：按未播放落库，避免假播放态 */ }
-    set({ isPlaying: nativePlaying });
+    // IDLE/ENDED 的 play 可能是 no-op，回读原生状态，不能伪造播放成功。
+    const state = await TrackPlayer.getState();
+    if (!isCurrentPlaybackRequest(requestId)) return;
+    set({ isPlaying: state === State.Playing || state === State.Buffering });
   },
 
   stop: async () => {
+    const requestId = cancelTransportPlayback();
     resetListeningSession();
-    if (!isPlayerSetup) {
-      set({ isPlaying: false, position: 0 });
-      return;
-    }
-    try {
+    if (isPlayerSetup) {
+      // stop 不保证清除 ExoPlayer 的 playWhenReady，先明确关闭唯一播放意图。
+      await TrackPlayer.setPlayWhenReady(false);
+      if (!isCurrentPlaybackRequest(requestId)) return;
       await TrackPlayer.stop();
-    } catch { /* 原生 stop 失败：仍清空 UI 播放态 */ }
+    }
+    if (!isCurrentPlaybackRequest(requestId)) return;
     syncSleepTimerClock();
     set({ isPlaying: false, position: 0 });
   },
@@ -815,7 +823,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   // 队列控制
   setQueue: (songs: MusicInfo[], startIndex = 0) => {
     set({
-      queue: songs,
+      // 每次重建都拥有新数组，复用输入数组也会使旧拖拽基线失效。
+      queue: [...songs],
       currentIndex: startIndex,
       shuffleHistory: [],
       playedIndices: [],
@@ -863,6 +872,13 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
 
   clearTempPlayList: () => {
     set({ tempPlayList: [] });
+  },
+
+  reorderQueue: (expectedQueue, from, to) => {
+    const result = reorderQueueState(get(), expectedQueue, from, to);
+    // 只改队列索引元数据，不调用 play/setQueue，不触碰原生队列、进度或临时插播区。
+    if (result.status === "reordered") set(result.patch);
+    return result.status;
   },
 
   removeFromQueue: (index: number) => {
@@ -939,7 +955,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     set({ playbackContext: { type: "queue" } });
   },
 
-  setPersonalFmContext: ({ currentBatch, currentBatchIndex, buffer = [], hasMore = true }) => {
+  setPersonalFmContext: ({ currentBatch: songs, currentBatchIndex, buffer = [], hasMore = true }) => {
+    const currentBatch = [...songs];
     set({
       playbackContext: {
         type: "personalFm",
@@ -1032,7 +1049,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   },
 
   // 心动模式上下文
-  setHeartbeatContext: ({ seedSongId, playlistId, currentBatch, currentBatchIndex, buffer = [], hasMore = true }) => {
+  setHeartbeatContext: ({ seedSongId, playlistId, currentBatch: songs, currentBatchIndex, buffer = [], hasMore = true }) => {
+    const currentBatch = [...songs];
     set({
       playbackContext: {
         type: "heartbeat",
@@ -1222,62 +1240,10 @@ export function setupPlayerListeners() {
     }
   });
 
-  // 播放错误：解析成功但播放器拒收（典型：URL 实际已 403/失效），先把该歌持久化 URL
-  // 缓存清掉，避免坏链接被缓存 6h 反复命中「播放即停」；预读缓存同步失效，重播强制重新解析。
-  // 清完缓存后对同一首歌自动重播一次（多数 403 靠重新解析即可救回）；重试仍失败只报错，
-  // 不在此自动跳下一首。
+  // 这里只同步错误状态；重解析、缓存失效及有限跳过由后台服务唯一处置。
   TrackPlayer.addEventListener(Event.PlaybackError, ({ message }) => {
-    const currentSong = usePlayerStore.getState().currentSong;
-    if (!currentSong) return;
-    const retryKey = `${currentSong.source}:${currentSong.id}`;
-
-    // 归属守卫：切歌在途（见 shouldAttributePlaybackErrorToCurrentSong）时只清旧曲
-    // 坏链缓存、不发起重播——重播会劫持刚点的新歌或把在播的新曲从头重启。
-    if (!shouldAttributePlaybackErrorToCurrentSong()) {
-      void invalidateCachedPlaybackUrl(currentSong).catch(() => undefined);
-      invalidatePrefetchForSong(currentSong);
-      return;
-    }
-
-    // 处置判定必须同步完成：后台服务在让出一个微任务后回读本结论决定是否跳歌
-    if (decidePlaybackFailureAction(retryKey) === "skip") {
-      // 重试额度已用掉 → 终局失败。仍清坏链缓存（下次重播强制重新解析），
-      // 跳下一首由后台 playbackService 发起：app 退到后台后这里跳不动。
-      setError(message);
-      void invalidateCachedPlaybackUrl(currentSong).catch(() => undefined);
-      invalidatePrefetchForSong(currentSong);
-      return;
-    }
-
-    const retryIndex = usePlayerStore.getState().currentIndex;
-    const retryQueueSong = usePlayerStore.getState().queue[retryIndex];
-
-    void (async () => {
-      try {
-        // 必须等缓存真正失效再重播，否则重解析会命中同一条坏链接
-        await invalidateCachedPlaybackUrl(currentSong).catch(() => undefined);
-        invalidatePrefetchForSong(currentSong);
-        // 等待期间用户已切歌：本次重播作废，不劫持新的播放意图
-        if (usePlayerStore.getState().currentSong !== currentSong) return;
-        const { playFromQueue, playSong } = await import("../services/playerService");
-        // 队列该位置仍是本曲时走 playFromQueue，保留队列/FM 上下文与索引语义；
-        // 队列已变动则退回按歌曲重播。
-        const sameQueueSlot =
-          retryQueueSong != null &&
-          retryQueueSong.source === currentSong.source &&
-          String(retryQueueSong.id) === String(currentSong.id);
-        if (sameQueueSlot) {
-          await playFromQueue(retryIndex);
-        } else {
-          await playSong(currentSong);
-        }
-      } catch {
-        setError(message);
-      } finally {
-        // 解除在途标记：此后同曲再报错即判终局，由后台服务跳下一首
-        noteRetrySettled(retryKey);
-      }
-    })();
+    if (!shouldAttributePlaybackErrorToCurrentSong()) return;
+    setError(message);
   });
 
   // 曲末自动切歌不在此注册：该逻辑必须运行在 TrackPlayer 的后台服务上下文

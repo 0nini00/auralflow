@@ -18,6 +18,7 @@ public class LocalMusicPackage implements ReactPackage {
   public List<NativeModule> createNativeModules(ReactApplicationContext reactContext) {
     List<NativeModule> modules = new ArrayList<>();
     modules.add(new LocalMusicModule(reactContext));
+    modules.add(new DownloadFileModule(reactContext));
     modules.add(new SecureStorageModule(reactContext));
     modules.add(new CryptoModule(reactContext));
     modules.add(new CustomSourceFilePickerModule(reactContext));

@@ -235,6 +235,38 @@ const files = [
           `        const val DEFAULT_STOP_FOREGROUND_GRACE_PERIOD = 5\n${lyricConstants}\n`,
         );
       }
+      // 服务实例 ID 将 headless 注册和销毁配对，避免旧实例结束新实例的 JS 生命周期。
+      const lifecycleReplacements = [
+        {
+          from: '    private val binder = MusicBinder()\n',
+          to: '    private val auralflowServiceId = java.util.UUID.randomUUID().toString()\n    private val binder = MusicBinder()\n',
+        },
+        {
+          from: '        return HeadlessJsTaskConfig(TASK_KEY, Arguments.createMap(), 0, true)\n',
+          to: [
+            '        val taskData = Arguments.createMap().apply {',
+            '            putString("serviceId", auralflowServiceId)',
+            '        }',
+            '        return HeadlessJsTaskConfig(TASK_KEY, taskData, 0, true)',
+            '',
+          ].join('\n'),
+        },
+        {
+          from: '    override fun onDestroy() {\n',
+          to: [
+            '    override fun onDestroy() {',
+            '        emit("auralflow-playback-service-destroyed", Bundle().apply {',
+            '            putString("serviceId", auralflowServiceId)',
+            '        })',
+            '',
+          ].join('\n'),
+        },
+      ];
+      for (const { from, to } of lifecycleReplacements) {
+        // 插入型替换会保留原锚点，先检查完整结果才能重复运行而不重复插入。
+        if (next.includes(to)) continue;
+        next = replaceAllRequired(next, target, from, to);
+      }
       return next;
     },
     replacements: [

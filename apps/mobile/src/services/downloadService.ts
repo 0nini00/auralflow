@@ -5,6 +5,7 @@ import { DEFAULT_QUALITY_UPGRADE_WINDOW_MS, estimateStreamDurationSeconds, isPre
 import { fetchSongLyrics, parseUrl, buildStreamHeaders } from "./musicApi";
 import { resolveUrlWithCustomSource } from "./playerService";
 import { probeStreamUrl } from "./streamProbe";
+import { commitDownloadedFile, createPartialDownloadPath, removeOrphanedPartialDownloads, validateDownloadedFile } from "./fileDownloadCommit";
 
 import { embedId3Tag, type Id3Cover } from "./id3TagWriter";
 import { base64ToBytes, bytesToBase64 } from "@/utils/base64";
@@ -358,6 +359,8 @@ async function findExistingDownloadFile(
 /**
  * 确保下载目录存在
  */
+let partialRecovery: Promise<void> | undefined;
+
 export async function ensureDownloadDirectory(): Promise<string> {
   const rootExists = await RNFS.exists(DOWNLOAD_ROOT_DIR);
   if (!rootExists) {
@@ -367,6 +370,13 @@ export async function ensureDownloadDirectory(): Promise<string> {
   if (!exists) {
     await RNFS.mkdir(DOWNLOAD_DIR);
   }
+  if (!partialRecovery) {
+    partialRecovery = removeOrphanedPartialDownloads(DOWNLOAD_DIR).catch((error) => {
+      partialRecovery = undefined;
+      throw error;
+    });
+  }
+  await partialRecovery;
   return DOWNLOAD_DIR;
 }
 
@@ -497,10 +507,11 @@ async function downloadSongInternal(task: QueueTask): Promise<string> {
   let currentSpeed = 0;
 
   assertTaskActive(task);
-  task.filePath = finalFilePath;
+  const partialPath = createPartialDownloadPath(finalFilePath);
+  task.filePath = partialPath;
   const download = RNFS.downloadFile({
     fromUrl: url,
-    toFile: finalFilePath,
+    toFile: partialPath,
     background: true,
     discretionary: false,
     progressDivider: 5,
@@ -539,11 +550,16 @@ async function downloadSongInternal(task: QueueTask): Promise<string> {
   if (result.statusCode !== 200 && result.statusCode !== 206) {
     throw new Error("下载失败，请重试或更换音源");
   }
+  await validateDownloadedFile(partialPath, result.bytesWritten);
   const lyrics = await waitForTask(task, fetchSongLyrics(song).catch(() => [] as LyricLine[]));
   assertTaskActive(task);
-  const warnings = await writeSidecarLyrics(song, finalFilePath, lyrics);
+  const warnings = await enhanceDownloadedFile(song, partialPath, lyrics, finalFilePath);
   assertTaskActive(task);
-  warnings.push(...await enhanceDownloadedFile(song, finalFilePath, lyrics));
+  await commitDownloadedFile(partialPath, finalFilePath);
+  // 提交期间取消也必须清理最终文件，不能再只清理已被重命名的临时路径。
+  task.filePath = finalFilePath;
+  assertTaskActive(task);
+  warnings.push(...await writeSidecarLyrics(song, finalFilePath, lyrics));
   assertTaskActive(task);
   if (warnings.length > 0) task.onWarnings?.(warnings);
   return finalUri;
@@ -598,15 +614,16 @@ async function fetchCoverBytes(song: MusicInfo): Promise<Id3Cover | undefined> {
  * 只处理非本地、MP3 类文件：
  * - FLAC/M4A 用 ID3v2 头是非标准格式（播放器可能忽略甚至误读），跳过；
  * - 读整文件进内存 + base64 双转换，超过体积上限（25MB）跳过，避免 Hermes OOM。
- * 任一步失败仅告警不中断（下载文件本身已完整）。
+ * 封面缺失可继续；文件重写失败必须终止任务，不能把截断音频当作完成下载。
  */
 async function enhanceDownloadedFile(
   song: MusicInfo,
   audioFilePath: string,
-  lyrics?: LyricLine[],
+  lyrics: LyricLine[],
+  finalFilePath: string,
 ): Promise<string[]> {
   if (song.isLocal) return [];
-  const ext = audioFilePath.split(".").pop()?.toLowerCase() ?? "";
+  const ext = finalFilePath.split(".").pop()?.toLowerCase() ?? "";
   if (ext !== "mp3") return [];
   try {
     const stat = await RNFS.stat(audioFilePath);
@@ -626,7 +643,7 @@ async function enhanceDownloadedFile(
     await RNFS.writeFile(audioFilePath, bytesToBase64(tagged), "base64");
     return [];
   } catch (error) {
-    return [`写入内嵌标签失败：${formatDownloadReason(error)}`];
+    throw new Error(`写入内嵌标签失败：${formatDownloadReason(error)}`);
   }
 }
 

@@ -32,6 +32,7 @@ function setup(blockAt) {
   const tracker = { startListeningSession: () => {}, resetListeningSession: () => {} };
   const mocks = {
     zustand: mobileRequire("zustand"),
+    "@/services/logger": { logger: { info() {}, warn() {}, error() {} } },
     "react-native": { AppState: { addEventListener: () => ({ remove() {} }) } },
     "@react-native-async-storage/async-storage": { getItem: async () => null, setItem: async () => {} },
     "react-native-track-player": { __esModule: true, default: native, State: {}, RepeatMode: { Off: 0 }, Event: {}, AppKilledPlaybackBehavior: {}, Capability: {} },

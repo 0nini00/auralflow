@@ -48,7 +48,15 @@ function setup(options = {}) {
       if (!files.delete(p)) throw new Error("ENOENT");
       events.push(`unlink:${p}`);
     },
-    writeFile: async (p, data) => { files.set(p, data); events.push(`write:${p}`); },
+    moveFile: async (from, to) => {
+      if (!files.has(from)) throw new Error("ENOENT");
+      files.set(to, files.get(from)); files.delete(from);
+      events.push(`move:${from}:${to}`);
+    },
+    writeFile: async (p, data) => {
+      if (options.failTagWrite && p.endsWith(".part")) { files.set(p, "ID3"); throw new Error("ENOSPC"); }
+      files.set(p, data); events.push(`write:${p}`);
+    },
     readFile: async (p, encoding) => {
       if (!files.has(p)) throw new Error("ENOENT");
       return encoding === "base64" ? Buffer.from(files.get(p)).toString("base64") : files.get(p);
@@ -86,6 +94,7 @@ function setup(options = {}) {
       },
     },
     "react-native-fs": rnfs,
+    "react-native": { NativeModules: { DownloadFileModule: { commitDownload: rnfs.moveFile } } },
     "@lx/core": {
       DEFAULT_QUALITY_UPGRADE_WINDOW_MS: 0,
       raceForBestQuality: (attempts) => Promise.any(attempts),
@@ -94,7 +103,7 @@ function setup(options = {}) {
     "./musicApi": {
       parseUrl: (track) => {
         parses.push(track.id);
-        return parses.length === 1 && options.parseGate ? options.parseGate.promise : Promise.resolve(url);
+        return parses.length === 1 && options.parseGate ? options.parseGate.promise : Promise.resolve(options.resolvedUrl ?? url);
       },
       buildStreamHeaders: () => ({}),
       fetchSongLyrics: async () => {
@@ -368,4 +377,51 @@ test("暂停停止尚未完成时重复继续，不重复提交新尝试", setti
   await until(() => h.store.getState().downloading.length === 0);
   assert.equal(h.saves.length, 1);
   assert.equal(h.haptics, 1);
+});
+
+
+test("音频下载和后处理结束前，不允许从最终路径读取半成品", settings, async () => {
+  const lyricsGate = deferred();
+  const h = setup({ manualNative: true, lyricsGate });
+  const pending = h.store.getState().downloadSong(song, "flac");
+  await until(() => h.jobs.length === 1);
+  const duringDownload = await h.service.getDownloadedPath(song, "flac");
+  h.jobs[0].finish();
+  await until(() => h.lyricsCalls === 1);
+  const duringProcessing = await h.service.getDownloadedPath(song, "flac");
+  lyricsGate.resolve();
+  assert.equal((await pending).status, "completed");
+  assert.equal(duringDownload, null);
+  assert.equal(duringProcessing, null);
+  assert.ok(h.jobs[0].request.toFile.endsWith(".part"));
+  assert.equal(await h.service.getDownloadedPath(song, "flac"), `file://${audioPath}`);
+  assert.equal([...h.files.keys()].some(p => p.endsWith(".part")), false);
+});
+
+test("重新启动后的临时音频不能作为已下载文件且会被清理", settings, async () => {
+  const h = setup();
+  h.files.set(`${audioPath}.old.part`, "unfinished");
+  assert.equal(await h.service.getDownloadedPath(song, "flac"), null);
+  await h.service.ensureDownloadDirectory();
+  assert.equal(h.files.size, 0);
+});
+
+test("200响应但实际为空时不能提交下载记录", settings, async () => {
+  const h = setup({ manualNative: true });
+  const pending = h.store.getState().downloadSong(song, "flac");
+  await until(() => h.jobs.length === 1);
+  h.files.set(h.jobs[0].request.toFile, "");
+  h.jobs[0].pending.resolve({ statusCode: 200, bytesWritten: 0 });
+  assert.equal((await pending).status, "failed");
+  assert.deepEqual(h.saved(), []);
+  assert.equal(h.files.size, 0);
+});
+
+
+test("MP3标签部分写入失败不得发布损坏音频", settings, async () => {
+  const h = setup({ failTagWrite: true, resolvedUrl: { url: "https://mock.invalid/audio.mp3", quality: "320k" } });
+  const result = await h.store.getState().downloadSong(song, "320k");
+  assert.equal(result.status, "failed");
+  assert.deepEqual(h.saved(), []);
+  assert.equal(h.files.size, 0);
 });

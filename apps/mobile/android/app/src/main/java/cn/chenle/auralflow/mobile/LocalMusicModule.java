@@ -33,6 +33,7 @@ import org.jaudiotagger.tag.images.ArtworkFactory;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -45,7 +46,7 @@ import java.util.List;
  * 通过 Android MediaStore 读写设备本地音乐文件的原生模块。
  *
  * 暴露给 JS 的方法：
- * - {@code scanLocalMusic()}：扫描音频库，返回歌曲列表。
+ * - {@code scanLocalMusic(knownSignatures)}：扫描音频库，返回完整范围及增量标签。
  * - {@code updateAudioMetadata(mediaId, metadata)}：把标题/歌手/专辑写回 MediaStore 文本字段。
  * - {@code writeAudioCover(mediaId, imageUri)}：把图片字节写回音频文件内嵌封面（APIC 帧）。
  * - {@code writeAudioLyrics(mediaId, lrc)}：把 LRC 歌词写回音频文件内嵌歌词（USLT 帧）。
@@ -56,6 +57,7 @@ import java.util.List;
  */
 public class LocalMusicModule extends ReactContextBaseJavaModule {
 
+  private static final String MEDIA_STORE_SCOPE = "mediaStore:external:music";
   private static final String ALBUM_ART_BASE_URI = "content://media/external/audio/albumart";
   private static final int REQUEST_WRITE_AUDIO = 43014;
   private static final int REQUEST_PICK_AUDIO = 43015;
@@ -302,8 +304,9 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
         }
         return song;
       }
-    } catch (Exception ignored) {
-      // fall through to display-name fallback
+    } catch (Exception error) {
+      android.util.Log.w("LocalMusicModule", "手动导入元数据读取失败，仅保留 URI：" + uri, error);
+      // 保留用户明确选中的 URI，避免把单个导入失败误当成扫描结果。
     } finally {
       if (cursor != null) {
         cursor.close();
@@ -339,32 +342,28 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
   };
 
   /**
-   * 读取音频文件内嵌歌词（USLT/UNSYNCEDLYRICS 帧）。无内嵌歌词或读取失败返回 null。
+   * 读取音频文件内嵌歌词（USLT/UNSYNCEDLYRICS 帧）。无内嵌歌词返回 null，读取失败向上传递。
    * 对齐桌面端 Rust getAudioInfo 返回的 lyrics 字段。
    */
-  private static String readEmbeddedLyrics(File audioFile) {
+  private static String readEmbeddedLyrics(File audioFile) throws Exception {
     if (audioFile == null || !audioFile.exists() || !audioFile.isFile()) {
       return null;
     }
-    try {
-      AudioFile af = AudioFileIO.read(audioFile);
-      if (af == null) {
-        return null;
-      }
-      Tag tag = af.getTag();
-      if (tag == null) {
-        return null;
-      }
-      // jaudiotagger 的 FieldKey.LYRICS 统一映射 MP3 USLT / MP4 歌词帧。
-      String lyrics = tag.getFirst(FieldKey.LYRICS);
-      return (lyrics == null || lyrics.trim().isEmpty()) ? null : lyrics;
-    } catch (Exception ignored) {
+    AudioFile af = AudioFileIO.read(audioFile);
+    if (af == null) {
       return null;
     }
+    Tag tag = af.getTag();
+    if (tag == null) {
+      return null;
+    }
+    // jaudiotagger 的 FieldKey.LYRICS 统一映射 MP3 USLT / MP4 歌词帧。
+    String lyrics = tag.getFirst(FieldKey.LYRICS);
+    return (lyrics == null || lyrics.trim().isEmpty()) ? null : lyrics;
   }
 
   /** 读取音频同目录的「同名.lrc」旁挂歌词文件（桌面端同款约定）。无或过大返回 null。 */
-  private static String readSidecarLrc(File audioFile) {
+  private static String readSidecarLrc(File audioFile) throws Exception {
     if (audioFile == null || !audioFile.exists()) {
       return null;
     }
@@ -374,23 +373,19 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
     if (!lrc.exists() || !lrc.isFile() || lrc.length() > MAX_LOCAL_LYRICS_BYTES) {
       return null;
     }
-    try {
-      StringBuilder sb = new StringBuilder((int) lrc.length() + 16);
-      try (BufferedReader reader = new BufferedReader(
-          new InputStreamReader(new FileInputStream(lrc), StandardCharsets.UTF_8))) {
-        String line;
-        while ((line = reader.readLine()) != null) {
-          sb.append(line).append('\n');
-        }
+    StringBuilder sb = new StringBuilder((int) lrc.length() + 16);
+    try (BufferedReader reader = new BufferedReader(
+        new InputStreamReader(new FileInputStream(lrc), StandardCharsets.UTF_8))) {
+      String line;
+      while ((line = reader.readLine()) != null) {
+        sb.append(line).append('\n');
       }
-      return sb.length() == 0 ? null : sb.toString();
-    } catch (Exception ignored) {
-      return null;
     }
+    return sb.length() == 0 ? null : sb.toString();
   }
 
   /** 歌词解析顺序：内嵌歌词优先，其次同名 .lrc 旁挂文件。 */
-  private static String resolveLyrics(File audioFile) {
+  private static String resolveLyrics(File audioFile) throws Exception {
     String embedded = readEmbeddedLyrics(audioFile);
     if (embedded != null) {
       return embedded;
@@ -426,7 +421,7 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
   }
 
   /** MediaStore albumart URI 是否真的存在（无内嵌封面时该 URI 指向不存在的文件）。 */
-  private static boolean albumArtExists(ContentResolver resolver, Uri albumArtUri) {
+  private static boolean albumArtExists(ContentResolver resolver, Uri albumArtUri) throws Exception {
     try {
       InputStream in = resolver.openInputStream(albumArtUri);
       if (in == null) {
@@ -434,13 +429,13 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
       }
       in.close();
       return true;
-    } catch (Exception ignored) {
+    } catch (FileNotFoundException missingArtwork) {
       return false;
     }
   }
 
   /** 封面解析顺序：MediaStore albumart 优先，其次同目录 sidecar 图片。 */
-  private static String resolveCover(ContentResolver resolver, long albumId, File audioFile) {
+  private static String resolveCover(ContentResolver resolver, long albumId, File audioFile) throws Exception {
     if (albumId > 0) {
       Uri albumArtUri = ContentUris.withAppendedId(Uri.parse(ALBUM_ART_BASE_URI), albumId);
       if (albumArtExists(resolver, albumArtUri)) {
@@ -465,12 +460,46 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
     return name;
   }
 
+  /** 长度前缀避免路径、标题含分隔符时碰撞；版本变化会自然失效旧签名。 */
+  private static void appendSignaturePart(StringBuilder signature, String value) {
+    signature.append(value.length()).append(':').append(value);
+  }
+
+  private static void appendFileStamp(StringBuilder signature, File file) {
+    appendSignaturePart(signature, file.getAbsolutePath());
+    appendSignaturePart(signature, Long.toString(file.lastModified()));
+    appendSignaturePart(signature, Long.toString(file.length()));
+  }
+
+  private static String buildScanSignature(Cursor cursor, File audioFile) {
+    StringBuilder signature = new StringBuilder("v1:");
+    // 包含 MediaStore 修改时间、大小及基础元数据，亦检测仅修改数据库标签的情况。
+    for (int i = 0; i < cursor.getColumnCount(); i++) {
+      appendSignaturePart(signature, safeString(cursor, i));
+    }
+    if (audioFile == null) return signature.toString();
+    // 毫秒文件时间补足 MediaStore 秒精度；旁挂歌词和封面独立修改也使缓存失效。
+    appendFileStamp(signature, audioFile);
+    File dir = audioFile.getParentFile();
+    if (dir == null) return signature.toString();
+    String name = audioFile.getName();
+    int dot = name.lastIndexOf('.');
+    String stem = dot > 0 ? name.substring(0, dot) : name;
+    appendFileStamp(signature, new File(dir, stem + ".lrc"));
+    for (String coverName : SIDECAR_COVER_NAMES) {
+      appendFileStamp(signature, new File(dir, coverName));
+    }
+    for (String ext : new String[] { ".jpg", ".jpeg", ".png" }) {
+      appendFileStamp(signature, new File(dir, stem + ext));
+    }
+    return signature.toString();
+  }
+
   @ReactMethod
-  public void scanLocalMusic(Promise promise) {
+  public void scanLocalMusic(ReadableMap knownSignatures, Promise promise) {
     try {
       ContentResolver resolver = getReactApplicationContext().getContentResolver();
       Uri collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
-
       String[] projection = new String[] {
         MediaStore.Audio.Media._ID,
         MediaStore.Audio.Media.TITLE,
@@ -479,66 +508,66 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
         MediaStore.Audio.Media.ALBUM_ID,
         MediaStore.Audio.Media.DURATION,
         MediaStore.Audio.Media.DATA,
+        MediaStore.Audio.Media.DATE_MODIFIED,
+        MediaStore.Audio.Media.SIZE,
       };
-
       String selection = MediaStore.Audio.Media.IS_MUSIC + " != 0";
       String sortOrder = MediaStore.Audio.Media.TITLE + " COLLATE NOCASE ASC";
-
       WritableArray songs = Arguments.createArray();
-
-      Cursor cursor = resolver.query(collection, projection, selection, null, sortOrder);
-      if (cursor != null) {
-        try {
-          int idIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID);
-          int titleIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE);
-          int artistIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST);
-          int albumIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM);
-          int albumIdIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID);
-          int durationIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION);
-          int dataIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA);
-
-          while (cursor.moveToNext()) {
-            long id = cursor.getLong(idIndex);
-            String title = safeString(cursor, titleIndex);
-            String artist = safeString(cursor, artistIndex);
-            String album = safeString(cursor, albumIndex);
-            long albumId = cursor.getLong(albumIdIndex);
-            long durationMs = cursor.getLong(durationIndex);
-            String filePath = safeString(cursor, dataIndex);
-
-            if (title.isEmpty() || filePath.isEmpty()) {
-              continue;
+      try (Cursor cursor = resolver.query(collection, projection, selection, null, sortOrder)) {
+        if (cursor == null) {
+          throw new IllegalStateException("MediaStore 查询返回 null，未完成扫描");
+        }
+        int idIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID);
+        int titleIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE);
+        int artistIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST);
+        int albumIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM);
+        int albumIdIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID);
+        int durationIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION);
+        int dataIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA);
+        while (cursor.moveToNext()) {
+          if (cursor.isNull(idIndex)) throw new IllegalStateException("MediaStore 条目缺少 ID");
+          long id = cursor.getLong(idIndex);
+          String mediaId = Long.toString(id);
+          String title = safeString(cursor, titleIndex);
+          String artist = safeString(cursor, artistIndex);
+          String album = safeString(cursor, albumIndex);
+          long albumId = cursor.getLong(albumIdIndex);
+          long durationMs = cursor.getLong(durationIndex);
+          String filePath = safeString(cursor, dataIndex);
+          String contentUri = ContentUris.withAppendedId(collection, id).toString();
+          File audioFile = filePath.startsWith("/") ? new File(filePath) : null;
+          String signature = buildScanSignature(cursor, audioFile);
+          boolean tagsUnchanged = knownSignatures != null && knownSignatures.hasKey(mediaId)
+              && !knownSignatures.isNull(mediaId) && signature.equals(knownSignatures.getString(mediaId));
+          WritableMap song = Arguments.createMap();
+          song.putString("id", mediaId);
+          song.putString("title", title.isEmpty() ? "未知歌曲" : title);
+          song.putString("artist", artist.isEmpty() ? "未知艺术家" : artist);
+          song.putString("album", album.isEmpty() ? "未知专辑" : album);
+          song.putDouble("duration", (double) durationMs);
+          song.putString("filePath", filePath);
+          song.putString("contentUri", contentUri);
+          song.putString("signature", signature);
+          song.putBoolean("tagsUnchanged", tagsUnchanged);
+          // 签名由 JS 从曲库记录派生；原生无独立持久化缓存。
+          if (!tagsUnchanged) {
+            String lyrics = resolveLyrics(audioFile);
+            if (lyrics != null) song.putString("lyrics", lyrics);
+            String coverUri = resolveCover(resolver, albumId, audioFile);
+            if (coverUri != null) song.putString("albumArtUri", coverUri);
+            if (!signature.equals(buildScanSignature(cursor, audioFile))) {
+              throw new IllegalStateException("音频或旁挂文件在扫描期间发生变化，请重试：" + contentUri);
             }
-
-            String contentUri = ContentUris.withAppendedId(collection, id).toString();
-
-            WritableMap song = Arguments.createMap();
-            song.putString("id", Long.toString(id));
-            song.putString("title", title);
-            song.putString("artist", artist.isEmpty() ? "未知艺术家" : artist);
-            song.putString("album", album.isEmpty() ? "未知专辑" : album);
-            song.putDouble("duration", (double) durationMs);
-            song.putString("filePath", filePath);
-            song.putString("contentUri", contentUri);
-
-            // 内嵌歌词（USLT）→ 同名 .lrc 旁挂文件；封面 albumart → folder.jpg/cover.jpg 兜底。
-            String lyrics = resolveLyrics(new File(filePath));
-            if (lyrics != null) {
-              song.putString("lyrics", lyrics);
-            }
-            String coverUri = resolveCover(resolver, albumId, new File(filePath));
-            if (coverUri != null) {
-              song.putString("albumArtUri", coverUri);
-            }
-
-            songs.pushMap(song);
           }
-        } finally {
-          cursor.close();
+          songs.pushMap(song);
         }
       }
-
-      promise.resolve(songs);
+      WritableMap result = Arguments.createMap();
+      result.putString("scope", MEDIA_STORE_SCOPE);
+      result.putBoolean("complete", true);
+      result.putArray("songs", songs);
+      promise.resolve(result);
     } catch (Exception error) {
       promise.reject("LOCAL_MUSIC_SCAN_FAILED", error);
     }

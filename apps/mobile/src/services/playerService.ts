@@ -1,4 +1,6 @@
 import type { MusicInfo } from "@lx/core";
+import { interruptPlaybackResolution, runPlaybackResolution } from "./playbackResolution";
+import { logger } from "@/services/logger";
 import { parseUrl, getLyrics, buildStreamHeaders } from "./musicApi";
 import { resolveWySongUrl } from "./wyDirectProvider";
 import { usePlayerStore } from "../stores/playerStore";
@@ -55,14 +57,6 @@ const PREFETCH_TTL_MS = 10 * 60 * 1000;
  * 给整条链一个总 deadline，超时停止降档直接报错，切歌在可预期时间内出结果。
  */
 const RESOLVE_RACE_BUDGET_MS = 10_000;
-/**
- * 整条解析链的总预算帽（对齐桌面端 withResolveDeadline）。
- *
- * 内层各源/各 tier 有独立预算、串行叠加最坏会远超预期；
- * 这里在 playSongCore 调用 resolveSongUrl 处再套一层 12s 总 race，先到先出：
- * 内层预算先触发就先退出，总帽只兜底，超时统一报「解析超时」。
- */
-const RESOLVE_TOTAL_BUDGET_MS = 12_000;
 /** FM 当前批次（播放历史）上限：只保留最新 50 条，对齐桌面端 fmHistory 上限。 */
 const FM_HISTORY_MAX = 50;
 const prefetchCache = new Map<string, PrefetchedUrl>();
@@ -661,7 +655,7 @@ export function prefetchSong(song: MusicInfo): void {
   // 不写入 TrackPlayer 原生队列——原生始终保持单曲，切歌由 JS 调度。
   // skipPrefetchInflight：本条解析自身不得再复用在途任务（否则会等待自己死锁）。
   // 失败记为 null 并静默：预读失败不影响真实播放时的解析兜底。
-  const task = resolveSongUrl(song, undefined, { skipPrefetchInflight: true }).then(
+  const task = runPlaybackResolution(() => resolveSongUrl(song, undefined, { skipPrefetchInflight: true })).then(
     (result) => result,
     () => null,
   );
@@ -750,7 +744,7 @@ async function completeQueuedSwitchStep(session: typeof switchStepSession): Prom
   const finished = finishSwitchStep(session.state);
   session.state = finished.nextState;
   if (finished.shouldStep) {
-    void (finished.direction === "prev" ? playPrevious() : playNext()).catch(() => undefined);
+    void (finished.direction === "prev" ? playPrevious() : playNext()).catch(error => logger.warn("补跳播放失败", error));
   }
 }
 
@@ -793,13 +787,12 @@ async function resolveCrossSourceSubstitute(
   throw new Error(`${primaryMessage}（${describeCrossSourceFailure(candidates)}）`);
 }
 
-async function playSongCore(song: MusicInfo, startPosition?: number): Promise<void> {
+async function playSongCore(song: MusicInfo, startPosition?: number, requestId?: number): Promise<void> {
+  if (requestId !== undefined && !isCurrentPlaybackRequest(requestId)) return;
   const { play, setLoading, setError } = usePlayerStore.getState();
-  const intent = beginPlaybackRequest();
+  const intent = requestId ?? beginPlaybackRequest();
   // 实际发声的曲目：网易云无版权时会换成 QQ 音乐的同名曲
   let effectiveSong = song;
-  // 总帽定时器句柄提到 try 外：finally 里统一清理，不在播放会话里留空转句柄
-  let budgetTimer: ReturnType<typeof setTimeout> | undefined;
   try {
     // 先切 UI：封面/歌名立刻跟上手指，URL 解析在后台跑，避免「点了还播上一首」。
     usePlayerStore.setState({
@@ -810,31 +803,18 @@ async function playSongCore(song: MusicInfo, startPosition?: number): Promise<vo
       duration: song.interval || 0,
       lyrics: [],
     });
-    // 1. 解析播放 URL（命中预读缓存时无需等待网络）。
-    // 整条解析链（内置降级链→自定义源兜底）统一套 12s 总预算帽：
-    // 超时后迟到的解析结果不会再走到 play（await 已 reject）；
-    // 未超时但迟到的旧意图（用户已改点其它歌曲）由下方 intent 序号拦截，
-    // 避免十几秒后突然劫持播放；迟到的成功结果仍会静默写缓存，供下次命中。
-    let url!: string;
-    let headers: Record<string, string> | undefined;
-    try {
-      const primary = await Promise.race([
-        resolveSongUrl(song),
-        new Promise<never>((_, reject) => {
-          budgetTimer = setTimeout(() => reject(new Error("解析超时")), RESOLVE_TOTAL_BUDGET_MS);
-        }),
-      ]);
-      url = primary.url;
-      headers = primary.headers;
-    } catch (primaryError) {
-      if (!isCurrentPlaybackRequest(intent)) return;
-      // 网易云无版权的歌永远解析不出地址：去 QQ 音乐找同名曲顶上（静默降级，见函数注释）
-      const primaryMessage = primaryError instanceof Error ? primaryError.message : String(primaryError);
-      const substitute = await resolveCrossSourceSubstitute(song, intent, primaryMessage);
-      effectiveSong = substitute.song;
-      url = substitute.url;
-      headers = substitute.headers;
-    }
+    logger.info("开始解析播放", { requestId: intent, song: `${song.source}:${song.id}` });
+    const resolved = await runPlaybackResolution(async () => {
+      try {
+        return { song, ...await resolveSongUrl(song) };
+      } catch (primaryError) {
+        if (!isCurrentPlaybackRequest(intent)) throw primaryError;
+        const message = primaryError instanceof Error ? primaryError.message : String(primaryError);
+        return resolveCrossSourceSubstitute(song, intent, message);
+      }
+    }, intent);
+    effectiveSong = resolved.song;
+    const { url, headers } = resolved;
     if (!isCurrentPlaybackRequest(intent)) return;
     // 接管成功：把 UI 也切到实际发声的 QQ 音乐版本，避免歌名/歌词与实际音频错位。
     // 队列仍保留原来的网易云条目（不原地改写队列），切上/下一首仍按原位置推进。
@@ -873,8 +853,6 @@ async function playSongCore(song: MusicInfo, startPosition?: number): Promise<vo
     setError(message);
     throw error;
   } finally {
-    // 竞速已定稿（胜出或被总帽拒绝）后清掉总帽定时器，不在播放会话里留空转句柄
-    if (budgetTimer) clearTimeout(budgetTimer);
     // 请求被更新的播放意图取代时，loading 归新请求所有，不提前清掉它的加载态
     if (isCurrentPlaybackRequest(intent)) {
       setLoading(false);
@@ -923,7 +901,7 @@ export async function switchCurrentPlaybackQuality(quality: string): Promise<voi
   try {
     setLoading(true);
     setError(null);
-    const { url, headers } = await resolveSongUrl(nextSong, quality);
+    const { url, headers } = await runPlaybackResolution(() => resolveSongUrl(nextSong, quality), intent);
     if (!isCurrentPlaybackRequest(intent)) return;
     // 直接以原进度开播（play 内部 seek 后才淡入），避免「先从头播再跳回」的回跳感
     await play(nextSong, url, headers, resumePosition > 1 ? resumePosition : undefined, intent);
@@ -955,7 +933,8 @@ export async function playSong(song: MusicInfo): Promise<void> {
 /**
  * 播放队列中的歌曲
  */
-export async function playFromQueue(index: number, startPosition?: number): Promise<void> {
+export async function playFromQueue(index: number, startPosition?: number, requestId?: number): Promise<void> {
+  if (requestId !== undefined && !isCurrentPlaybackRequest(requestId)) return;
   const { playbackContext, queue } = usePlayerStore.getState();
   if (index < 0 || index >= queue.length) return;
   const song = queue[index];
@@ -966,7 +945,7 @@ export async function playFromQueue(index: number, startPosition?: number): Prom
   } else {
     usePlayerStore.setState({ currentIndex: index });
   }
-  await playSongCore(song, startPosition);
+  await playSongCore(song, startPosition, requestId);
 }
 
 /**
@@ -1003,11 +982,26 @@ export async function playShuffledQueue(songs: MusicInfo[]): Promise<void> {
  * 自动跳过若也排进去会在用户手动切歌完成后凭空多跳一首。
  */
 export async function playNext(auto = false): Promise<void> {
+  // 无导航目标时不能取消正在解析的队尾歌曲；预检不消费随机预抽或历史。
+  const preview = usePlayerStore.getState();
+  if (preview.tempPlayList.length === 0 && preview.playbackContext.type === "queue") {
+    const next = getNextQueueNavigationState({
+      queueLength: preview.queue.length, currentIndex: preview.currentIndex,
+      playMode: preview.playMode, shuffleHistory: preview.shuffleHistory,
+      playedIndices: preview.playedIndices, random: () => 0,
+    });
+    if (next.nextIndex === null) return;
+  }
+  if (!auto && interruptPlaybackResolution()) {
+    switchStepSession = { state: createSwitchStepQueueState() };
+    logger.info("手动下一首取消旧解析");
+  }
   const session = switchStepSession;
   if (auto && session.state.switching) return;
   const step = applySwitchStepRequest(session.state, "next");
   session.state = step.nextState;
   if (!step.startNow) return;
+  const intent = beginPlaybackRequest();
   try {
   const store = usePlayerStore.getState();
   const { playbackContext, queue, currentIndex, playMode, shuffleHistory, playedIndices, tempPlayList } = store;
@@ -1027,18 +1021,18 @@ export async function playNext(auto = false): Promise<void> {
       });
       // 空队列场景：insertSongToPlayNext 返回 currentIndex=0 且 queue=[nextSong]，直接播这首。
       const targetIndex = queue.length === 0 || currentIndex < 0 ? 0 : currentIndex + 1;
-      await playFromQueue(targetIndex);
+      await playFromQueue(targetIndex, undefined, intent);
       return;
     }
   }
 
   if (playbackContext.type === "personalFm") {
-    await playNextPersonalFmSong();
+    await playNextPersonalFmSong(intent);
     return;
   }
 
   if (playbackContext.type === "heartbeat") {
-    await playNextHeartbeatSong();
+    await playNextHeartbeatSong(intent);
     return;
   }
 
@@ -1054,7 +1048,7 @@ export async function playNext(auto = false): Promise<void> {
   });
   usePlayerStore.setState({ shuffleHistory: next.shuffleHistory, playedIndices: next.playedIndices });
   if (next.nextIndex == null) return;
-  await playFromQueue(next.nextIndex);
+  await playFromQueue(next.nextIndex, undefined, intent);
   } finally {
     await completeQueuedSwitchStep(session);
   }
@@ -1064,21 +1058,30 @@ export async function playNext(auto = false): Promise<void> {
  * 播放上一首
  */
 export async function playPrevious(): Promise<void> {
+  if (usePlayerStore.getState().queue.length === 0) return;
+  const interrupted = interruptPlaybackResolution();
+  if (interrupted) {
+    switchStepSession = { state: createSwitchStepQueueState() };
+    logger.info("手动上一首取消旧解析");
+  }
   const session = switchStepSession;
   const step = applySwitchStepRequest(session.state, "prev");
   session.state = step.nextState;
   if (!step.startNow) return;
+  const intent = beginPlaybackRequest();
   try {
   const { playbackContext, queue, currentIndex, position, playMode, shuffleHistory } = usePlayerStore.getState();
-  if (queue.length === 0) return;
+  const restartCurrent = () => interrupted
+    ? playFromQueue(Math.max(0, currentIndex), undefined, intent)
+    : usePlayerStore.getState().seekTo(0);
   if (playbackContext.type === "personalFm" || playbackContext.type === "heartbeat") {
     if (position > 3) {
-      await usePlayerStore.getState().seekTo(0);
+      await restartCurrent();
       return;
     }
     const prevIndex = currentIndex - 1;
     if (prevIndex < 0) {
-      await usePlayerStore.getState().seekTo(0);
+      await restartCurrent();
       return;
     }
     if (playbackContext.type === "personalFm") {
@@ -1086,7 +1089,7 @@ export async function playPrevious(): Promise<void> {
     } else {
       usePlayerStore.getState().setHeartbeatBatchIndex(prevIndex);
     }
-    await playFromQueue(prevIndex);
+    await playFromQueue(prevIndex, undefined, intent);
     return;
   }
   const previous = getPreviousQueueNavigationState({
@@ -1098,11 +1101,11 @@ export async function playPrevious(): Promise<void> {
   });
   usePlayerStore.setState({ shuffleHistory: previous.shuffleHistory });
   if (previous.shouldRestartCurrent) {
-    await usePlayerStore.getState().seekTo(0);
+    await restartCurrent();
     return;
   }
   if (previous.previousIndex == null) return;
-  await playFromQueue(previous.previousIndex);
+  await playFromQueue(previous.previousIndex, undefined, intent);
   } finally {
     await completeQueuedSwitchStep(session);
   }
@@ -1142,12 +1145,29 @@ export async function startPersonalFmWithSongs(
   return songs;
 }
 
-export async function playNextPersonalFmSong(): Promise<void> {
+/** 续批也属于当前播放意图，不能让慢推荐请求永久占住切歌入口。 */
+async function resolvePlaybackRefill<T>(load: () => Promise<T>, intent: number): Promise<{ value: T; requestId: number } | undefined> {
+  if (!isCurrentPlaybackRequest(intent)) return undefined;
+  usePlayerStore.setState({ loading: true, error: null });
+  try {
+    const value = await runPlaybackResolution(load, intent);
+    return { value, requestId: intent };
+  } catch (error) {
+    if (!isCurrentPlaybackRequest(intent)) return undefined;
+    throw error;
+  } finally {
+    if (isCurrentPlaybackRequest(intent)) usePlayerStore.setState({ loading: false });
+  }
+}
+
+export async function playNextPersonalFmSong(requestId?: number): Promise<void> {
   const store = usePlayerStore.getState();
   const context = store.playbackContext;
   if (context.type !== "personalFm") {
     return;
   }
+  if (requestId !== undefined && !isCurrentPlaybackRequest(requestId)) return;
+  const intent = requestId ?? beginPlaybackRequest();
   const nextInBatchIndex = context.currentBatchIndex + 1;
   if (nextInBatchIndex < context.currentBatch.length) {
     usePlayerStore.setState({ currentIndex: nextInBatchIndex });
@@ -1157,12 +1177,14 @@ export async function playNextPersonalFmSong(): Promise<void> {
       buffer: context.buffer,
       hasMore: context.hasMore,
     });
-    await playSongCore(context.currentBatch[nextInBatchIndex]);
+    await playSongCore(context.currentBatch[nextInBatchIndex], undefined, intent);
     return;
   }
   let nextSong = store.shiftPersonalFmBuffer();
   if (!nextSong) {
-    const result = await getPersonalFmSongs();
+    const refill = await resolvePlaybackRefill(getPersonalFmSongs, intent);
+    if (!refill || !isCurrentPlaybackRequest(refill.requestId)) return;
+    const result = refill.value;
     if (result.songs.length === 0) {
       throw new Error("暂无更多私人 FM");
     }
@@ -1173,7 +1195,7 @@ export async function playNextPersonalFmSong(): Promise<void> {
       buffer: restSongs,
       hasMore: result.hasMore,
     });
-    await playSongCore(firstSong);
+    await playSongCore(firstSong, undefined, intent);
     return;
   }
   // FM 历史上限：追加后超过 50 条时截断保留最新 50 条（对齐桌面端 fmHistory 上限），
@@ -1187,26 +1209,14 @@ export async function playNextPersonalFmSong(): Promise<void> {
     buffer: nextBuffer,
     hasMore: context.hasMore,
   });
-  await playSongCore(nextSong);
+  await playSongCore(nextSong, undefined, intent);
   const latestContext = usePlayerStore.getState().playbackContext;
   if (latestContext.type === "personalFm" && latestContext.buffer.length < 2 && latestContext.hasMore) {
-    // 播后 buffer<2 时补拉推荐，失败不再静默：warn + 延迟 1s 轻量重试一次（重试失败仅 warn）
-    const refillFmBuffer = async (warnPrefix: string): Promise<void> => {
-      try {
-        const refill = await getPersonalFmSongs();
-        usePlayerStore.getState().appendPersonalFmBuffer(refill.songs, refill.hasMore);
-      } catch (err) {
-        console.warn(warnPrefix, err);
-      }
-    };
-    try {
-      const refill = await getPersonalFmSongs();
+    // 预取不属于当前切歌的完成条件。只向发起时的同一上下文提交，旧批次不能污染新队列。
+    void runPlaybackResolution(getPersonalFmSongs).then((refill) => {
+      if (usePlayerStore.getState().playbackContext !== latestContext) return;
       usePlayerStore.getState().appendPersonalFmBuffer(refill.songs, refill.hasMore);
-    } catch (err) {
-      console.warn("[FM] 补拉推荐失败", err);
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
-      await refillFmBuffer("[FM] 补拉推荐重试失败");
-    }
+    }).catch((error) => logger.warn("FM 后台补拉失败", error));
   }
 }
 
@@ -1262,12 +1272,15 @@ export async function startHeartbeat(seedSong: MusicInfo, playlistId: string): P
   return [seedSong, ...rest];
 }
 
-export async function playNextHeartbeatSong(): Promise<void> {
+export async function playNextHeartbeatSong(requestId?: number): Promise<void> {
   const store = usePlayerStore.getState();
   const context = store.playbackContext;
   if (context.type !== "heartbeat") {
     return;
   }
+
+  if (requestId !== undefined && !isCurrentPlaybackRequest(requestId)) return;
+  const intent = requestId ?? beginPlaybackRequest();
 
   const { nextSong, nextBatch, nextBatchIndex, nextBuffer, needsRefill } =
     consumeHeartbeatNext(context.currentBatch, context.currentBatchIndex, context.buffer);
@@ -1275,7 +1288,9 @@ export async function playNextHeartbeatSong(): Promise<void> {
   if (!nextSong) {
     const currentSong = store.currentSong;
     if (!currentSong) throw new Error("心动模式暂无更多推荐歌曲");
-    const fresh = await getHeartbeatModeList(currentSong.id, context.playlistId);
+    const refill = await resolvePlaybackRefill(() => getHeartbeatModeList(currentSong.id, context.playlistId), intent);
+    if (!refill || !isCurrentPlaybackRequest(refill.requestId)) return;
+    const fresh = refill.value;
     if (fresh.length === 0) {
       throw new Error("心动模式暂无更多推荐歌曲");
     }
@@ -1288,7 +1303,7 @@ export async function playNextHeartbeatSong(): Promise<void> {
       buffer: rest,
       hasMore: true,
     });
-    await playSongCore(first);
+    await playSongCore(first, undefined, intent);
     return;
   }
 
@@ -1304,14 +1319,15 @@ export async function playNextHeartbeatSong(): Promise<void> {
     hasMore: context.hasMore,
   });
 
-  await playSongCore(nextSong);
+  await playSongCore(nextSong, undefined, intent);
 
   if (needsRefill && context.hasMore) {
     void (async () => {
       try {
-        const refill = await getHeartbeatModeList(nextSong.id, context.playlistId);
+        const owner = usePlayerStore.getState().playbackContext;
+        const refill = await runPlaybackResolution(() => getHeartbeatModeList(nextSong.id, context.playlistId));
         const latest = usePlayerStore.getState().playbackContext;
-        if (latest.type === "heartbeat") {
+        if (latest === owner && latest.type === "heartbeat") {
           const existingKeys = new Set(latest.currentBatch.map((s) => `${s.source}:${s.id}`));
           const { nextBuffer: appended } = appendHeartbeatRefill(latest.buffer, refill, existingKeys);
           usePlayerStore.getState().appendHeartbeatBuffer(appended.slice(latest.buffer.length), true);

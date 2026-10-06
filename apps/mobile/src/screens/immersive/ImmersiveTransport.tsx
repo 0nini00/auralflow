@@ -28,6 +28,9 @@ import { getNextMobilePlayMode, getMobilePlayModeLabel } from "@/services/mobile
 
 export interface ImmersiveTransportProps {
   insetsBottom: number;
+  compact: boolean;
+  moreMenuVisible: boolean;
+  onMoreMenuVisibleChange: (visible: boolean) => void;
   onSeek: (time: number) => void;
   playMode: MobilePlayMode;
   playModeControl: { label: string; active: boolean };
@@ -104,6 +107,9 @@ function PlayModeIcon({
  */
 export function ImmersiveTransport({
   insetsBottom,
+  compact,
+  moreMenuVisible,
+  onMoreMenuVisibleChange,
   onSeek,
   playMode,
   playModeControl,
@@ -131,7 +137,6 @@ export function ImmersiveTransport({
   onOpenQueue,
   queueLabel,
 }: ImmersiveTransportProps) {
-  const [moreMenuVisible, setMoreMenuVisible] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMode, setToastMode] = useState<MobilePlayMode>(playMode);
   const toastOpacity = useRef(new Animated.Value(0)).current;
@@ -171,12 +176,12 @@ export function ImmersiveTransport({
   };
 
   return (
-    <View style={[styles.playerArea, { paddingBottom: insetsBottom + 12 }]}>
+    <View style={[styles.playerArea, compact && localStyles.compactArea, { paddingBottom: insetsBottom + (compact ? 8 : 12) }]}>
       {/* ── PlayInfo：进度 + 时间行（叶子组件，内部订阅 0.25s 进度，按钮区不随进度重渲染） ── */}
       <ImmersivePlayInfo onSeek={onSeek} palette={palette} />
 
       {/* ── ControlBtn：上一首 / 播放暂停 / 下一首（大按钮，space-evenly） ── */}
-      <View style={styles.mainControls}>
+      <View style={[styles.mainControls, compact && localStyles.compactControls]}>
         <IconButton
           size="lg"
           tone="strong"
@@ -268,7 +273,7 @@ export function ImmersiveTransport({
         ) : null}
 
         <IconButton
-          onPress={() => setMoreMenuVisible(true)}
+          onPress={() => onMoreMenuVisibleChange(true)}
           tone="strong"
           accessibilityLabel="更多选项"
           render={({ size, color }) => <MoreHorizontal size={size} color={color} />}
@@ -296,7 +301,7 @@ export function ImmersiveTransport({
 
       <ImmersiveMoreMenu
         visible={moreMenuVisible}
-        onClose={() => setMoreMenuVisible(false)}
+        onClose={() => onMoreMenuVisibleChange(false)}
         palette={palette}
         canAddToPlaylist={canAddToPlaylist}
         onAddToPlaylist={onAddToPlaylist}
@@ -314,6 +319,8 @@ export function ImmersiveTransport({
 }
 
 const localStyles = StyleSheet.create({
+  compactArea: { paddingTop: 4 },
+  compactControls: { paddingVertical: 4 },
   modeToast: {
     position: "absolute",
     left: 14,

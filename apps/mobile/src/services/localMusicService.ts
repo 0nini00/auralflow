@@ -3,6 +3,7 @@ import RNFS from "react-native-fs";
 import { check, request, PERMISSIONS, RESULTS } from "react-native-permissions";
 import type { MusicInfo } from "@lx/core";
 import { useDownloadStore } from "@/stores/downloadStore";
+import { DOWNLOAD_SCOPE, MEDIA_STORE_SCOPE, type LocalMusicInfo, type LocalMusicScanResult } from "./localMusicScanModel";
 
 /**
  * 原生模块返回的单首本地歌曲结构。
@@ -24,9 +25,20 @@ interface NativeLocalSong {
   lyrics?: string;
 }
 
+interface NativeScannedSong extends NativeLocalSong {
+  signature: string;
+  tagsUnchanged: boolean;
+}
+
+interface NativeLocalScan {
+  scope: string;
+  complete: true;
+  songs: NativeScannedSong[];
+}
+
 interface LocalMusicNativeModule {
 
-  scanLocalMusic(): Promise<NativeLocalSong[]>;
+  scanLocalMusic(knownSignatures: Record<string, string>): Promise<NativeLocalScan>;
 
   pickLocalAudioFiles(): Promise<NativeLocalSong[]>;
 
@@ -50,23 +62,13 @@ export async function requestAudioPermission(): Promise<boolean> {
     return true;
   }
 
-  try {
-    const permission =
-      Platform.Version >= 33
-        ? PERMISSIONS.ANDROID.READ_MEDIA_AUDIO
-        : PERMISSIONS.ANDROID.READ_EXTERNAL_STORAGE;
-
-    const result = await check(permission);
-
-    if (result === RESULTS.GRANTED) {
-      return true;
-    }
-
-    const requestResult = await request(permission);
-    return requestResult === RESULTS.GRANTED;
-  } catch (error) {
-    return false;
-  }
+  const permission =
+    Platform.Version >= 33
+      ? PERMISSIONS.ANDROID.READ_MEDIA_AUDIO
+      : PERMISSIONS.ANDROID.READ_EXTERNAL_STORAGE;
+  const result = await check(permission);
+  if (result === RESULTS.GRANTED) return true;
+  return (await request(permission)) === RESULTS.GRANTED;
 }
 
 /**
@@ -76,59 +78,67 @@ export async function requestAudioPermission(): Promise<boolean> {
 const DOWNLOADED_LOCAL_ID_PREFIX = "dl-";
 
 /** 是否为「应用下载目录」入库的本地歌曲（而非 MediaStore 扫描条目）。 */
-export function isDownloadedLocalSong(song: Pick<MusicInfo, "id">): boolean {
+export function isDownloadedLocalSong(song: Pick<MusicInfo, "id"> & Pick<LocalMusicInfo, "localOrigin">): boolean {
+  if (song.localOrigin && song.localOrigin !== "legacy") return song.localOrigin === "download";
+  // 仅保留旧版元数据编辑判断的兼容性；范围对账绝不使用 ID 前缀推断来源。
   return String(song.id).startsWith(DOWNLOADED_LOCAL_ID_PREFIX);
 }
 
 /**
- * 把应用下载目录（DocumentDirectoryPath/auralflow/downloads）中已完成的下载
- * 映射为本地歌曲。
+ * 将下载记录与已入库下载曲指向的已知文件映射为本地歌曲。
+ * 本范围不枚举应用下载目录，不发现没有记录的孤儿文件。
  *
  * 该目录是应用私有外部目录，MediaStore 不会索引它——只靠 scanLocalMusic 的
  * MediaStore 查询，下载的歌曲在本地曲库里永远刷不出来，必须在此显式合并。
- * 文件已被删除（下载管理里移除过）的条目自动跳过。
+ * 只有确认已知文件不存在才移除对应条目；移除下载记录不等于删除文件。
  */
-export async function getDownloadedLocalSongs(): Promise<MusicInfo[]> {
-  const downloads = useDownloadStore.getState().downloads;
-  if (downloads.length === 0) return [];
-  const resolved = await Promise.all(
-    downloads.map(async (item): Promise<MusicInfo | null> => {
-      if (!item.localPath) return null;
-      try {
-        if (!(await RNFS.exists(item.localPath))) return null;
-      } catch {
-        return null;
-      }
-      const cover = item.song.picUrl || item.song.img;
-      const localLyrics = await readSidecarLrc(item.localPath);
-      return {
-        id: `${DOWNLOADED_LOCAL_ID_PREFIX}${item.song.source}-${item.song.id}`,
-        name: item.song.name,
-        singer: item.song.singer || "未知歌手",
-        albumName: item.song.albumName || "未知专辑",
-        source: "local",
-        interval: item.song.interval,
-        url: getLocalMusicUrl(item.localPath),
-        picUrl: cover,
-        img: cover,
-        localLyrics,
-        isLocal: true,
-      } satisfies MusicInfo;
-    }),
-  );
-  return resolved.filter((song): song is MusicInfo => song != null);
+export async function getDownloadedLocalSongs(existing: LocalMusicInfo[] = []): Promise<LocalMusicScanResult> {
+  await useDownloadStore.getState().loadDownloads();
+  const { downloads, error } = useDownloadStore.getState();
+  if (error) throw new Error(error);
+  // 下载记录被移除不代表文件被删除；以现有曲库补齐待检查路径，不依赖空索引判断消失。
+  const candidates = new Map(existing
+    .filter((song) => song.localOrigin === "download" && song.localScan?.scope === DOWNLOAD_SCOPE)
+    .map((song) => [song.id, song]));
+  for (const item of downloads) {
+    if (!item.localPath) throw new Error("下载记录缺少本地文件路径");
+    const cover = item.song.picUrl || item.song.img;
+    const id = DOWNLOADED_LOCAL_ID_PREFIX + item.song.source + "-" + item.song.id;
+    candidates.set(id, {
+      id,
+      name: item.song.name,
+      singer: item.song.singer || "未知歌手",
+      albumName: item.song.albumName || "未知专辑",
+      source: "local",
+      interval: item.song.interval,
+      url: getLocalMusicUrl(item.localPath),
+      picUrl: cover,
+      img: cover,
+      isLocal: true,
+      localOrigin: "download",
+      localScan: { scope: DOWNLOAD_SCOPE },
+    });
+  }
+  const resolved = await Promise.all([...candidates.values()].map(async (song) => {
+    if (!song.url?.startsWith("file://")) throw new Error("下载歌曲缺少有效的本地文件路径");
+    const path = song.url.slice(7);
+    if (!(await RNFS.exists(path))) return null;
+    return { ...song, localLyrics: await readSidecarLrc(path) };
+  }));
+  return {
+    source: "download", scope: DOWNLOAD_SCOPE, complete: true,
+    songs: resolved.filter((song) => song !== null),
+  };
 }
 
 /**
- * 扫描设备本地音乐文件，返回 MusicInfo[]（source: "local"）。
+ * 扫描设备本地音乐文件，返回完整范围结果；缓存只来自现有曲库记录。
  *
  * 依赖原生模块 NativeModules.LocalMusicModule.scanLocalMusic()。
  * 若模块未注册（例如未重新编译原生工程），会抛出清晰错误。
  */
-export async function scanLocalMusic(): Promise<MusicInfo[]> {
-  if (Platform.OS !== "android") {
-    return [];
-  }
+export async function scanLocalMusic(existing: LocalMusicInfo[] = []): Promise<LocalMusicScanResult> {
+  if (Platform.OS !== "android") throw new Error("当前平台不支持本地音乐扫描");
 
   const hasPermission = await requestAudioPermission();
 
@@ -142,15 +152,34 @@ export async function scanLocalMusic(): Promise<MusicInfo[]> {
     );
   }
 
-  const songs = await nativeLocalMusicModule.scanLocalMusic();
-  return mapNativeLocalSongs(songs);
+  const cached = new Map(existing
+    .filter((song) => song.localScan?.scope === MEDIA_STORE_SCOPE && song.localScan.signature)
+    .map((song) => [song.id, song]));
+  const signatures = Object.fromEntries([...cached].map(([id, song]) => [id, song.localScan!.signature!]));
+  const result = await nativeLocalMusicModule.scanLocalMusic(signatures);
+  validateNativeScan(result);
+  const songs = result.songs.map((native) => {
+    const song = mapNativeLocalSong(native);
+    const previous = cached.get(native.id);
+    if (native.tagsUnchanged) {
+      if (!previous || previous.localScan?.signature !== native.signature) {
+        throw new Error("本地音乐扫描缓存签名不匹配");
+      }
+      song.localLyrics = previous.localLyrics;
+      song.picUrl = previous.picUrl;
+      song.img = previous.img;
+    }
+    return { ...song, localOrigin: "mediaStore" as const,
+      localScan: { scope: MEDIA_STORE_SCOPE, signature: native.signature } };
+  });
+  return { source: "mediaStore", scope: MEDIA_STORE_SCOPE, complete: true, songs };
 }
 
 /**
  * 打开系统文件选择器，手动挑选音频文件加入本地曲库（对齐桌面端「添加文件」）。
  * 用户取消时返回空数组。
  */
-export async function pickLocalAudioFiles(): Promise<MusicInfo[]> {
+export async function pickLocalAudioFiles(): Promise<LocalMusicInfo[]> {
   if (Platform.OS !== "android") {
     return [];
   }
@@ -162,44 +191,59 @@ export async function pickLocalAudioFiles(): Promise<MusicInfo[]> {
   }
 
   const songs = await nativeLocalMusicModule.pickLocalAudioFiles();
-  return mapNativeLocalSongs(Array.isArray(songs) ? songs : []);
+  if (!Array.isArray(songs)) throw new Error("本地音乐导入结果格式错误");
+  return songs.map((song) => ({ ...mapNativeLocalSong(song), localOrigin: "manual" }));
 }
 
-function mapNativeLocalSongs(songs: NativeLocalSong[]): MusicInfo[] {
-  return songs.map((song) => {
-    const filePath = song.filePath || song.contentUri || "";
-    const cover = song.albumArtUri || undefined;
+function validateNativeScan(result: NativeLocalScan): void {
+  if (!result || result.complete !== true || result.scope !== MEDIA_STORE_SCOPE || !Array.isArray(result.songs)) {
+    throw new Error("本地音乐扫描结果无效或不完整，请检查原生模块版本");
+  }
+  const ids = new Set<string>();
+  for (const song of result.songs) {
+    if (!song || typeof song.id !== "string" || !song.id || ids.has(song.id)
+      || typeof song.title !== "string" || typeof song.artist !== "string" || typeof song.album !== "string"
+      || typeof song.duration !== "number" || !Number.isFinite(song.duration) || song.duration < 0
+      || typeof song.filePath !== "string" || (!song.filePath && !song.contentUri)
+      || typeof song.signature !== "string" || !song.signature || typeof song.tagsUnchanged !== "boolean"
+      || (song.contentUri !== undefined && typeof song.contentUri !== "string")
+      || (song.lyrics !== undefined && typeof song.lyrics !== "string")
+      || (song.albumArtUri !== undefined && typeof song.albumArtUri !== "string")) {
+      throw new Error("本地音乐扫描结果包含无效条目");
+    }
+    ids.add(song.id);
+  }
+}
 
-    return {
-      id: song.id,
-      name: song.title,
-      singer: song.artist || "未知歌手",
-      albumName: song.album || "未知专辑",
-      source: "local",
-      interval: Math.max(0, Math.round(song.duration / 1000)),
-      url: getLocalMusicUrl(filePath),
-      picUrl: cover,
-      img: cover,
-      localLyrics: song.lyrics || undefined,
-      isLocal: true,
-    } satisfies MusicInfo;
-  });
+function mapNativeLocalSong(song: NativeLocalSong): LocalMusicInfo {
+  const filePath = song.filePath || song.contentUri || "";
+  const cover = song.albumArtUri || undefined;
+  return {
+    id: song.id,
+    name: song.title,
+    singer: song.artist || "未知歌手",
+    albumName: song.album || "未知专辑",
+    source: "local",
+    interval: Math.max(0, Math.round(song.duration / 1000)),
+    url: getLocalMusicUrl(filePath),
+    picUrl: cover,
+    img: cover,
+    localLyrics: song.lyrics || undefined,
+    isLocal: true,
+  };
 }
 
 /**
  * 读取下载音频的同名旁挂 .lrc 歌词（下载时由 downloadService 写入）。
- * 文件不存在或读取失败返回 undefined，不影响歌曲入库。
+ * 不存在时返回 undefined；I/O 异常向上传递，使此次范围对账失败。
  */
 async function readSidecarLrc(audioPath: string): Promise<string | undefined> {
-  try {
-    const plain = audioPath.startsWith("file://") ? audioPath.slice(7) : audioPath;
-    const lrcPath = plain.replace(/\.[^/.]+$/, ".lrc");
-    if (!(await RNFS.exists(lrcPath))) return undefined;
-    const text = await RNFS.readFile(lrcPath, "utf8");
-    return text.trim() ? text : undefined;
-  } catch {
-    return undefined;
-  }
+  const plain = audioPath.startsWith("file://") ? audioPath.slice(7) : audioPath;
+  const dot = plain.lastIndexOf(".");
+  const lrcPath = (dot > plain.lastIndexOf("/") ? plain.slice(0, dot) : plain) + ".lrc";
+  if (!(await RNFS.exists(lrcPath))) return undefined;
+  const text = await RNFS.readFile(lrcPath, "utf8");
+  return text.trim() ? text : undefined;
 }
 
 /**

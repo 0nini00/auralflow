@@ -12,6 +12,8 @@ import {
   type CachedAudioEntry,
 } from "./audioCacheListModel";
 import { usePlayerStore } from "@/stores/playerStore";
+import { logger } from "@/services/logger";
+import { commitDownloadedFile, createPartialDownloadPath, discardPartialDownload, isPartialDownload, removeOrphanedPartialDownloads } from "./fileDownloadCommit";
 
 // 缓存目录
 const CACHE_DIR = `${RNFS.CachesDirectoryPath}/auralflow`;
@@ -68,6 +70,8 @@ const emptyCacheStats = (): CacheStats => ({
 /**
  * 初始化缓存目录
  */
+let partialRecovery: Promise<void> | undefined;
+
 async function initCacheDirectories(): Promise<void> {
   try {
     const dirs = [CACHE_DIR, COVER_CACHE_DIR, LYRIC_CACHE_DIR, AUDIO_CACHE_DIR];
@@ -77,6 +81,12 @@ async function initCacheDirectories(): Promise<void> {
         await RNFS.mkdir(dir);
       }
     }
+    if (!partialRecovery) {
+      partialRecovery = Promise.all([COVER_CACHE_DIR, AUDIO_CACHE_DIR].map(removeOrphanedPartialDownloads))
+        .then(() => undefined)
+        .catch((error) => { partialRecovery = undefined; throw error; });
+    }
+    await partialRecovery;
   } catch (error) {
     throw error;
   }
@@ -125,71 +135,67 @@ async function isCacheValidWithAge(filePath: string): Promise<boolean> {
   }
 }
 
-/** 同一封面 URL 的进行中下载去重（避免多行并发写同一文件导致损坏）。 */
-const coverDownloadsInFlight = new Map<string, Promise<string | null>>();
+/** 封面与音频共用文件提交边界；同一路径只允许一个写入任务。 */
+const cacheDownloadsInFlight = new Map<string, Promise<string | null>>();
 
-/**
- * 缓存封面图片
- */
-export async function cacheCover(url: string): Promise<string | null> {
-  if (!url) return null;
-
-  // 缓存大图规格而非原图（对齐桌面端 cacheMusicCover）：图床原图常有数 MB，
-  // resizeCoverUrl 只对已知图床域名改写（网易云 ?param=NxN），其他原样。
-  const targetUrl = resizeCoverUrl(url, COVER_SIZE_LARGE);
-
-  await initCacheDirectories();
-
-  const filePath = getCacheFilePath(targetUrl, "cover");
-
-  // 检查缓存（immutable：URL 不变永不过期，对齐 lx）
-  if (await isCacheFileExists(filePath)) {
-    return `file://${filePath}`;
-  }
-
-  // 并发去重：同 URL 正在下载时直接复用同一 Promise
-  const inFlight = coverDownloadsInFlight.get(filePath);
-  if (inFlight) return inFlight;
-
-  const promise = (async () => {
+async function downloadCacheFile(url: string, filePath: string, headers: Record<string, string> | undefined, onCommitted?: () => Promise<void>): Promise<string | null> {
+  const running = cacheDownloadsInFlight.get(filePath);
+  if (running) return running;
+  const partialPath = createPartialDownloadPath(filePath);
+  const task = (async () => {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let abandoned = false;
+    const cleanLateDownload = async () => {
+      if (abandoned) await discardPartialDownload(partialPath);
+    };
     try {
-      // 下载并缓存（带 UA 请求头，对齐 lx defaultHeaders，避免部分图床 403）
-      const download = RNFS.downloadFile({
-        fromUrl: targetUrl,
-        toFile: filePath,
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36",
-        },
+      const download = RNFS.downloadFile({ fromUrl: url, toFile: partialPath, headers });
+      // stopDownload 不保证原生 Promise 立即结束；迟到写入只能清理本次独占临时文件。
+      void download.promise.then(cleanLateDownload, cleanLateDownload).catch((error) => {
+        logger.warn("清理迟到缓存下载失败", error);
       });
-      const jobId = download.jobId;
-      const timeoutPromise = new Promise<never>((_, reject) => {
+      const timeout = new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
-          try { RNFS.stopDownload(jobId); } catch {}
-          reject(new Error("封面下载超时"));
+          try {
+            RNFS.stopDownload(download.jobId);
+          } catch (error) {
+            logger.warn("停止超时缓存下载失败", error);
+          }
+          reject(new Error("缓存下载超时"));
         }, DOWNLOAD_TIMEOUT_MS);
       });
-      const downloadResult = await Promise.race([download.promise, timeoutPromise]);
-
-      if (downloadResult.statusCode === 200) {
-        scheduleEnforceCacheSizeLimit();
-        return `file://${filePath}`;
-      }
-      // 非 200（404/403 等）：清理残留的响应体文件，避免下次被误判为有效缓存
-      await RNFS.unlink(filePath).catch(() => undefined);
-      return null;
+      const result = await Promise.race([download.promise, timeout]);
+      if (result.statusCode < 200 || result.statusCode >= 300) throw new Error(`缓存下载失败，HTTP ${result.statusCode}`);
+      await commitDownloadedFile(partialPath, filePath, result.bytesWritten);
+      await onCommitted?.();
+      scheduleEnforceCacheSizeLimit();
+      return `file://${filePath}`;
     } catch (error) {
-      // 下载中断（网络错误）同样会留下部分文件，必须清理，否则下次会被误判为有效 immutable 缓存
-      await RNFS.unlink(filePath).catch(() => undefined);
+      abandoned = true;
+      logger.warn("缓存下载未完成", error);
+      // 缓存是可选加速；失败明确记入日志，调用方保留已有在线播放路径。
+      await discardPartialDownload(partialPath);
       return null;
     } finally {
       if (timer) clearTimeout(timer);
-      coverDownloadsInFlight.delete(filePath);
+      cacheDownloadsInFlight.delete(filePath);
     }
   })();
-  coverDownloadsInFlight.set(filePath, promise);
-  return promise;
+  cacheDownloadsInFlight.set(filePath, task);
+  return task;
+}
+
+export async function cacheCover(url: string): Promise<string | null> {
+  if (!url) return null;
+  const targetUrl = resizeCoverUrl(url, COVER_SIZE_LARGE);
+  await initCacheDirectories();
+  const filePath = getCacheFilePath(targetUrl, "cover");
+  const running = cacheDownloadsInFlight.get(filePath);
+  if (running) return running;
+  if (await isCacheFileExists(filePath)) return `file://${filePath}`;
+  return downloadCacheFile(targetUrl, filePath, {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36",
+  });
 }
 
 /**
@@ -273,14 +279,7 @@ export async function getCachedAudioFile(music: MusicInfo, quality: string): Pro
   }
 }
 
-/** 同一音频缓存文件的进行中下载去重（预读缓存、手动下载、再次播放可能并发触发同一文件）。 */
-const audioDownloadsInFlight = new Map<string, Promise<string | null>>();
-
-/**
- * 把音频文件下载到本地缓存目录，返回 file:// 路径。
- * 已存在则直接返回，避免重复下载；同文件并发下载复用同一 Promise。
- * 仅对可缓存音质 URL 生效（调用方负责筛选音源）。
- */
+/** 完整音频才可命中；下载中内容保持在独立临时路径。 */
 export async function cacheAudioFile(
   url: string,
   music: MusicInfo,
@@ -290,49 +289,12 @@ export async function cacheAudioFile(
   if (!/^https?:\/\//i.test(url)) return null;
   await initCacheDirectories();
   const filePath = getAudioCacheFilePath(music, quality);
-
+  const running = cacheDownloadsInFlight.get(filePath);
+  if (running) return running;
   const existing = await getCachedAudioFile(music, quality);
   if (existing) return existing;
-
-  const inFlight = audioDownloadsInFlight.get(filePath);
-  if (inFlight) return inFlight;
-
-  const effectiveHeaders = headers ?? buildStreamHeaders(music.source);
-
-  const promise = (async () => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      const download = RNFS.downloadFile({
-        fromUrl: url,
-        toFile: filePath,
-        headers: effectiveHeaders,
-      });
-      const jobId = download.jobId;
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => {
-          try { RNFS.stopDownload(jobId); } catch {}
-          reject(new Error("音频下载超时"));
-        }, DOWNLOAD_TIMEOUT_MS);
-      });
-      const result = await Promise.race([download.promise, timeoutPromise]);
-      if (result.statusCode >= 200 && result.statusCode < 300) {
-        await recordAudioCacheIndex(music, quality, filePath);
-        scheduleEnforceCacheSizeLimit();
-        return `file://${filePath}`;
-      }
-      await RNFS.unlink(filePath).catch(() => undefined);
-      return null;
-    } catch (error) {
-      // 下载中断（网络错误/超时）会留下部分文件（可能非空），清理避免被 getCachedAudioFile 误判为完整缓存
-      await RNFS.unlink(filePath).catch(() => undefined);
-      return null;
-    } finally {
-      if (timer) clearTimeout(timer);
-      audioDownloadsInFlight.delete(filePath);
-    }
-  })();
-  audioDownloadsInFlight.set(filePath, promise);
-  return promise;
+  return downloadCacheFile(url, filePath, headers ?? buildStreamHeaders(music.source),
+    () => recordAudioCacheIndex(music, quality, filePath));
 }
 
 /** 校验 file:// 本地文件是否仍存在（清理策略可能已回收）。 */
@@ -482,7 +444,7 @@ async function collectAllCacheFiles(now: number): Promise<CachedFileEntry[]> {
       if (!(await RNFS.exists(dir))) continue;
       const entries = await RNFS.readDir(dir);
       for (const entry of entries) {
-        if (!entry.isFile()) continue;
+        if (!entry.isFile() || isPartialDownload(entry.path)) continue;
         files.push({
           path: entry.path,
           size: entry.size || 0,
@@ -627,7 +589,7 @@ export async function autoCleanCache(): Promise<void> {
 
     for (const file of allFiles) {
       if (currentFreeSpace > 1024 * 1024 * 1024 && deletedSize > initialSize / 2) break;
-      if (now - new Date(file.mtime || 0).getTime() > SEVEN_DAYS) {
+      if (!isPartialDownload(file.path) && now - new Date(file.mtime || 0).getTime() > SEVEN_DAYS) {
         deletedSize += file.size;
         await RNFS.unlink(file.path);
         currentFreeSpace += file.size;

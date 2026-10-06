@@ -1,0 +1,65 @@
+{
+  "version": "0.6.10",
+  "unitTests": {
+    "passed": 215,
+    "failed": 0,
+    "hardProcessTimeoutSeconds": 60
+  },
+  "typecheck": "passed",
+  "lint": {
+    "errors": 0,
+    "existingWarnings": 2
+  },
+  "build": [
+    "Android Debug x86_64",
+    "Android release arm64-v8a",
+    "Android release armeabi-v7a"
+  ],
+  "androidRuntime": {
+    "environment": "Android 15 API 35 x86_64 emulator",
+    "background": {
+      "foregroundActivity": "com.android.launcher3",
+      "playedSyntheticTracks": [
+        1,
+        2,
+        3,
+        5,
+        7,
+        8
+      ],
+      "failedTrackSkipped": 4,
+      "hangingResolutionTrack": 6,
+      "notificationNextWorkedWithoutForeground": true,
+      "timerTicks": 34
+    },
+    "portrait": {
+      "homeResumeCycles": 5,
+      "lockResumeCycles": 1,
+      "controlButtons": 7,
+      "maxBoundsDeltaPx": 0,
+      "navigationBarClearancePx": 31
+    }
+  },
+  "artifacts": [
+    {
+      "name": "AuralFlow-v0.6.10-arm64-v8a.apk",
+      "bytes": 64740877,
+      "sha256": "73b93c1fd3bcab457344910ab0a6e6042187152d09e0e45fc1b2f7dff2b31ee2",
+      "certificateSha256": "bdd358fe1e2f57afb348c54c71e4cc666cde664ced83650a6f5cdc3220c1b566",
+      "package": "package: name='cn.chenle.auralflow.mobile' versionCode='17' versionName='0.6.10' platformBuildVersionName='16' platformBuildVersionCode='36' compileSdkVersion='36' compileSdkVersionCodename='16'",
+      "native": "native-code: 'arm64-v8a'"
+    },
+    {
+      "name": "AuralFlow-v0.6.10-armeabi-v7a.apk",
+      "bytes": 58291799,
+      "sha256": "5e3a22ac9398742d602677738000d64f4ea0106a8399d709d92382626f0da065",
+      "certificateSha256": "bdd358fe1e2f57afb348c54c71e4cc666cde664ced83650a6f5cdc3220c1b566",
+      "package": "package: name='cn.chenle.auralflow.mobile' versionCode='17' versionName='0.6.10' platformBuildVersionName='16' platformBuildVersionCode='36' compileSdkVersion='36' compileSdkVersionCodename='16'",
+      "native": "native-code: 'armeabi-v7a'"
+    }
+  ],
+  "limits": [
+    "Runtime playback used synthetic files and injected delays/errors; actual network sources and OEM power management need device acceptance.",
+    "No audio listening-quality claim; emulator audio output disabled."
+  ]
+}

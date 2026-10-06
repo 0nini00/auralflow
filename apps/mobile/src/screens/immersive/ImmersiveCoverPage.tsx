@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useCallback } from "react";
-import { View, Animated, Easing, Pressable, type LayoutChangeEvent } from "react-native";
+import { View, Animated, Easing, Pressable } from "react-native";
 import { Music2 } from "lucide-react-native";
 import { COVER_SIZE_LARGE } from "@lx/core";
 import type { ThemePalette } from "@/stores/themeStore";
@@ -11,6 +11,7 @@ import { styles } from "@/screens/immersive/immersiveStyles";
 export interface ImmersiveCoverPageProps {
   artwork?: string;
   coverSize: number;
+  bottomSpace: number;
   isPlaying: boolean;
   palette: ThemePalette;
   onLongPress?: () => void;
@@ -21,11 +22,13 @@ export interface ImmersiveCoverPageProps {
 export function ImmersiveCoverPage({
   artwork,
   coverSize,
+  bottomSpace,
   isPlaying,
   palette,
   onLongPress,
   onCoverMeasured,
 }: ImmersiveCoverPageProps) {
+  const coverFrameRef = useRef<View>(null);
   const spinValue = useRef(new Animated.Value(0)).current;
   const animationRef = useRef<Animated.CompositeAnimation | null>(null);
   const isAnimating = useRef(false);
@@ -83,20 +86,25 @@ export function ImmersiveCoverPage({
 
   const coverBorderRadius = coverSpin ? coverSize / 2 : 8;
 
-  const handleCoverFrameLayout = (event: LayoutChangeEvent) => {
+  const measureCover = useCallback(() => {
     if (!onCoverMeasured) return;
-    (event.currentTarget as unknown as View).measureInWindow((x, y, width, height) => {
-      if (width > 0 && height > 0) {
-        onCoverMeasured({ x, y, width, height });
-      }
+    coverFrameRef.current?.measureInWindow((x, y, width, height) => {
+      if (width > 0 && height > 0) onCoverMeasured({ x, y, width, height });
     });
-  };
+  }, [onCoverMeasured]);
+
+  useEffect(() => {
+    // 父级高度和安全区变化也会移动封面，不能只依赖封面自身尺寸变化。
+    const frame = requestAnimationFrame(measureCover);
+    return () => cancelAnimationFrame(frame);
+  }, [measureCover, coverSize, bottomSpace]);
 
   return (
-    <View style={styles.coverPageContainer}>
-      <Pressable onLongPress={onLongPress}>
+    <View style={[styles.coverPageContainer, { paddingBottom: bottomSpace }]} onLayout={measureCover}>
+      <Pressable onLongPress={onLongPress} onLayout={measureCover}>
         <View
-          onLayout={handleCoverFrameLayout}
+          ref={coverFrameRef}
+          onLayout={measureCover}
           style={[
             styles.coverFrame,
             {

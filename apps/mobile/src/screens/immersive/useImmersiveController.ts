@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, type LayoutChangeEvent, useWindowDimensions } from "react-native";
+import { Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { buildImmersiveCurrentSongActions } from "@/services/currentSongActions";
@@ -38,8 +38,6 @@ export interface UseImmersiveControllerArgs {
 /** 沉浸式播放页状态与操作（对齐 lx 竖屏播放器：控件常驻，不做自动隐藏） */
 export function useImmersiveController({ visible, onClose }: UseImmersiveControllerArgs) {
   const insets = useSafeAreaInsets();
-
-  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
 
   const currentSong = usePlayerStore((s) => s.currentSong);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
@@ -106,7 +104,6 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
   // PagerView 页面索引：0=封面, 1=歌词（手机端使用）
   const [currentPage, setCurrentPage] = useState(0);
 
-  const [layoutWidth, setLayoutWidth] = useState(0);
   const [rateModalVisible, setRateModalVisible] = useState(false);
   const [queueModalVisible, setQueueModalVisible] = useState(false);
   const [volumeModalVisible, setVolumeModalVisible] = useState(false);
@@ -208,13 +205,6 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
   useEffect(() => {
     if (visible) setCurrentPage(0);
   }, [visible]);
-
-  // 封面尺寸对齐 lx 竖屏播放器：宽度的 85% 与可用高度的一半取较小值
-  // （lx 原公式：Math.min(winWidth * 0.85, (winHeight - statusBar - header) * 0.5)）
-  const coverSize = Math.min(
-    (layoutWidth || windowWidth) * 0.85,
-    Math.max(140, ((windowHeight || 0) - 160) * 0.5)
-  );
 
   const handleTogglePlay = async () => {
     if (isPlaying) {
@@ -435,16 +425,10 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
     }
   };
 
-  const onLayout = (e: LayoutChangeEvent) => {
-    setLayoutWidth(e.nativeEvent.layout.width);
-  };
-
   return {
     visible,
     onClose,
     insets,
-    layoutWidth,
-    onLayout,
     palette,
     currentSong,
     isPlaying,
@@ -473,7 +457,6 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
     handleCoverDownload,
     commentsVisible,
     setCommentsVisible,
-    coverSize,
     playModeControl,
     rateModel,
     volumeModel,

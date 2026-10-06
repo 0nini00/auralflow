@@ -22,14 +22,33 @@ export const styles = StyleSheet.create({
     flex: 1,
   },
 
-  // 顶栏宿主：topBar 组件内部是 absolute 定位，宿主铺满根容器保持坐标不变
-  topBarHost: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 10,
+  playbackBody: {
+    flex: 1,
+    minHeight: 0,
+    flexDirection: "row",
+  },
+
+  primaryColumn: {
+    minHeight: 0,
+  },
+
+  // 不把 onLayout 高度回写视口；媒体填满剩余空间，控制区底边始终落在安全区内。
+  mediaViewport: {
+    flex: 1,
+    minHeight: 0,
+    overflow: "hidden",
+  },
+
+  headerViewport: {
+    flexGrow: 0,
+    flexShrink: 0,
+    maxHeight: "30%",
+  },
+
+  // 矮屏或大字体时保留媒体可见区域，其余内容使用 ScrollView 的真实滚动。
+  transportViewport: {
+    flexGrow: 0,
+    maxHeight: "70%",
   },
 
   // 真实封面显隐宿主（封面飞行浮层交叉淡换期间用）
@@ -74,14 +93,6 @@ export const styles = StyleSheet.create({
   },
 
   topBar: {
-
-    position: "absolute",
-
-    top: 0,
-
-    left: 0,
-
-    right: 0,
 
     flexDirection: "row",
 
@@ -149,7 +160,8 @@ export const styles = StyleSheet.create({
     flex: 1,
   },
   pagerPage: {
-    flex: 1,
+    width: "100%",
+    height: "100%",
   },
   pagerLyricList: {
     flex: 1,
@@ -178,6 +190,7 @@ export const styles = StyleSheet.create({
   mainControls: {
     width: "100%",
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "space-evenly",
     paddingVertical: 14,
@@ -206,6 +219,7 @@ export const styles = StyleSheet.create({
 
   moreBtnRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "space-evenly",
     gap: 8,
