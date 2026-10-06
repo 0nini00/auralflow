@@ -8,6 +8,7 @@ import { useWyAccountStore } from '@/stores/wyAccountStore';
 import { exportPlaylists, importPlaylists } from '@/services/playlistTransferService';
 import { fetchPlaylistSongsFromLink } from '@/services/playlistLinkImportService';
 import { parsePlaylistLink } from '@lx/core';
+import { getPlaylistCover } from '@/utils/playlistCover';
 import { CARD_COVER_CSS_SIZE, ROW_COVER_CSS_SIZE, coverSrc } from '@/utils/imageReferrerPolicy';
 import {
   Plus,
@@ -413,7 +414,7 @@ export function PlaylistsView() {
                   aria-label={`打开歌单 ${playlist.name}`}
                   style={{ display: 'block', color: 'inherit', textDecoration: 'none' }}
                 >
-                  <PlaylistCover src={playlist.cover} name={playlist.name} />
+                  <PlaylistCover src={getPlaylistCover(playlist)} name={playlist.name} />
                   <div className="af-playlist-overlay">
                     <span className="af-play-all-btn" aria-hidden="true">
                       <Music size={22} />

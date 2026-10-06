@@ -1,11 +1,9 @@
 import { useDialogFocus } from '@/hooks/useDialogFocus';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { ChevronDown, Maximize2, Minimize2 } from 'lucide-react';
 import { ImmersivePlayerControls, type ImmersivePlayerControlsHandle, type LyricDisplayOption } from '@/components/ImmersivePlayerControls';
 import { PlayerVisualizerRenderer } from '@/components/playerVisualizers/PlayerVisualizerRenderer';
 import { SongAddMenuButton } from '@/components/SongAddMenuButton';
 import { useInterpolatedPlaybackProgress } from '@/hooks/useInterpolatedPlaybackProgress';
-import { useNativeFullscreen } from '@/hooks/useNativeFullscreen';
 import { useLyrics } from '@/hooks/useLyrics';
 import { getNextPlayMode, getPlayModeControl } from '@/services/playback/playModeControl';
 import { resolveImmersiveKeyboardAction } from '@/services/playback/immersiveKeyboard';
@@ -77,7 +75,7 @@ export function ImmersiveLyricsOverlay({
   const [immersiveLyricFontFamily, setImmersiveLyricFontFamily] = useState(DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
   const [animationIntensity, setAnimationIntensity] = useState<LyricAnimationIntensity>('normal');
   const [manualOffsetMs, setManualOffsetMs] = useState(0);
-  const [fullscreenError, setFullscreenError] = useState('');
+  const [lyricError, setLyricError] = useState('');
   const [shareStatus, setShareStatus] = useState('');
   const [panelOpen, setPanelOpen] = useState(false);
   const [lyricSettingsPending, setLyricSettingsPending] = useState(false);
@@ -96,9 +94,6 @@ export function ImmersiveLyricsOverlay({
   const lyricProgress = useInterpolatedPlaybackProgress({ status, progress, progressSampledAt, duration, playbackRate });
   const lyricTime = lyricProgress + manualOffsetMs / 1000;
   const { lyrics, currentLine: currentLyricIndex } = useLyrics(currentTrack, lyricTime);
-  const { isFullscreen: isNativeFullscreen, toggleFullscreen } = useNativeFullscreen(open);
-
-
 
   useEffect(() => {
     if (!open) return;
@@ -229,13 +224,13 @@ export function ImmersiveLyricsOverlay({
     const setting = options[option];
     const patch = { [setting.key]: !setting.value };
     setLyricSettingsPending(true);
-    setFullscreenError('');
+    setLyricError('');
     try {
       await patchSettings(patch);
       setting.set(!setting.value);
       broadcastLyricSettings(patch);
     } catch (error) {
-      setFullscreenError(`${setting.label}设置失败：${error instanceof Error ? error.message : String(error)}`);
+      setLyricError(`${setting.label}设置失败：${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setLyricSettingsPending(false);
     }
@@ -254,18 +249,8 @@ export function ImmersiveLyricsOverlay({
         }, 120);
       })
       .catch((error) => {
-        setFullscreenError(`桌面歌词失败：${error instanceof Error ? error.message : String(error)}`);
+        setLyricError(`桌面歌词失败：${error instanceof Error ? error.message : String(error)}`);
       });
-  };
-
-  const handleFullscreenToggle = async () => {
-    closeControlPopovers();
-    setFullscreenError('');
-    try {
-      await toggleFullscreen();
-    } catch (error) {
-      setFullscreenError(`全屏请求失败：${error instanceof Error ? error.message : String(error)}`);
-    }
   };
 
   const handleShare = async () => {
@@ -300,7 +285,6 @@ export function ImmersiveLyricsOverlay({
       className={[
         'af-immersive-lyrics',
         'af-immersive-visualizer-scrolling',
-        isNativeFullscreen ? 'af-immersive-native-fullscreen' : '',
         // 保留播放态给歌词表现层，不再驱动封面呼吸缩放。
         isPlaying ? 'af-immersive-playing' : '',
       ].filter(Boolean).join(' ')}
@@ -328,17 +312,6 @@ export function ImmersiveLyricsOverlay({
         />
       )}
       <div className="af-immersive-noise" aria-hidden="true" />
-
-      <header className="af-immersive-topbar">
-        <button type="button" className="af-immersive-close" onClick={onClose} aria-label="退出沉浸式播放" data-tooltip="退出沉浸式播放">
-          <ChevronDown size={22} />
-        </button>
-        <button type="button" className={`af-immersive-icon-btn af-immersive-fullscreen-btn ${isNativeFullscreen ? 'af-active' : ''}`}
-          onClick={() => { void handleFullscreenToggle(); }} aria-label={isNativeFullscreen ? '退出全屏' : '进入全屏'}
-          aria-pressed={isNativeFullscreen} data-tooltip={isNativeFullscreen ? '退出全屏' : '进入全屏'}>
-          {isNativeFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
-        </button>
-      </header>
 
       <main className="af-immersive-stage af-showcase-layout">
         <section className="af-immersive-cover-section" aria-label="歌曲封面">
@@ -376,7 +349,7 @@ export function ImmersiveLyricsOverlay({
       <ImmersivePlayerControls
         ref={controlsRef}
         playback={{ isPlaying, volume, isMuted, playbackRate, mode: playModeControl }}
-        actions={{ togglePlay, toggleMute, setVolume, prev, next, cycleMode: handlePlayModeToggle, setPlaybackRate, share: handleShare }}
+        actions={{ togglePlay, toggleMute, setVolume, prev, next, cycleMode: handlePlayModeToggle, setPlaybackRate, share: handleShare, exitImmersive: onClose }}
         timeline={{
           current: displayProgress,
           duration,
@@ -388,7 +361,7 @@ export function ImmersiveLyricsOverlay({
         queue={{ tracks: queue, currentIndex, play: playByIndex, remove: removeFromQueue }}
         desktopLyrics={{ open: desktopLyricOpen, label: desktopLyricButtonLabel, toggle: handleDesktopLyricToggle }}
         onPanelOpenChange={setPanelOpen}
-        error={fullscreenError}
+        error={lyricError}
         shareStatus={shareStatus}
       >
         {currentTrack && <SongAddMenuButton song={currentTrack} className="af-immersive-more-action" iconSize={18} title="添加到我的喜欢或歌单" label="收藏 / 加入歌单" />}

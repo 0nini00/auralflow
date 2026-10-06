@@ -5,7 +5,7 @@ const deps = vi.hoisted(() => ({
   player: {} as any,
   interpolatedProgress: 25,
   loadSettings: vi.fn(), patchSettings: vi.fn(), broadcast: vi.fn(), subscribe: vi.fn(),
-  toggleFullscreen: vi.fn(), toggleDesktop: vi.fn(), copy: vi.fn(),
+  getCurrentWindow: vi.fn(), toggleDesktop: vi.fn(), copy: vi.fn(),
 }));
 vi.mock('@/stores/playerStore', () => ({ usePlayerStore: Object.assign(() => deps.player, { getState: () => deps.player }) }));
 vi.mock('@lx/tauri-bridge', () => ({
@@ -16,7 +16,7 @@ vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
 vi.mock('@/stores/lyricSettingsSync', () => ({ broadcastLyricSettings: deps.broadcast, subscribeLyricSettings: deps.subscribe }));
 vi.mock('@/hooks/useLyrics', () => ({ useLyrics: () => ({ lyrics: [], currentLine: 0 }) }));
 vi.mock('@/hooks/useInterpolatedPlaybackProgress', () => ({ useInterpolatedPlaybackProgress: () => deps.interpolatedProgress }));
-vi.mock('@/hooks/useNativeFullscreen', () => ({ useNativeFullscreen: () => ({ isFullscreen: false, toggleFullscreen: deps.toggleFullscreen }) }));
+vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: deps.getCurrentWindow }));
 vi.mock('@/utils/desktopLyricToggle', () => ({ toggleDesktopLyricFromPlayer: deps.toggleDesktop }));
 vi.mock('@/components/playerVisualizers/PlayerVisualizerRenderer', () => ({ PlayerVisualizerRenderer: (props: any) => <div data-testid="lyrics" {...props} /> }));
 vi.mock('@/components/SongAddMenuButton', () => ({ SongAddMenuButton: () => <button aria-label="添加到我的喜欢或歌单" /> }));
@@ -43,6 +43,12 @@ const click = (label: string) => act(() => button(label).props.onClick());
 beforeEach(() => {
   vi.resetAllMocks();
   deps.interpolatedProgress = 25;
+  deps.getCurrentWindow.mockReturnValue({
+    isFullscreen: async () => false,
+    onResized: async () => () => {},
+    onFocusChanged: async () => () => {},
+    setFullscreen: vi.fn(),
+  });
   deps.player = {
     current: { id: '1', source: 'wy', name: 'Song', singer: 'Singer', albumName: 'Album' },
     queue: [{ id: '1', source: 'wy', name: 'Song', singer: 'Singer' }], currentIndex: 0,
@@ -67,10 +73,12 @@ beforeEach(() => {
 afterEach(() => { act(() => renderer?.unmount()); vi.unstubAllGlobals(); });
 async function mount() { await act(async () => { renderer = create(<ImmersiveLyricsOverlay open onClose={onClose} />); }); }
 
-it('顶部只保留退出与全屏，封面下展示歌名歌手专辑，底栏三列', async () => {
+it('不渲染顶部退出和全屏入口，封面信息与底栏三列保持不变', async () => {
   await mount();
-  const topbar = renderer.root.findByProps({ className: 'af-immersive-topbar' });
-  expect(topbar.findAllByType('button')).toHaveLength(2);
+  expect(renderer.root.findAllByType('header')).toHaveLength(0);
+  for (const label of ['进入全屏', '退出全屏', '退出沉浸式播放']) {
+    expect(renderer.root.findAllByProps({ 'aria-label': label })).toHaveLength(0);
+  }
   const cover = renderer.root.findByProps({ className: 'af-immersive-cover-section' });
   expect(cover.findByType('h1').children).toContain('Song');
   expect(JSON.stringify(cover.findByProps({ className: 'af-immersive-heading' }).children.map(child => typeof child === 'string' ? child : child.children))).toContain('Album');
@@ -165,11 +173,8 @@ it.each([
   expect(renderer.root.findByProps({ 'data-testid': 'lyrics' }).props[prop]).toBe(true);
 });
 
-it('原生全屏与桌面歌词错误保留可见反馈，分享保留状态反馈', async () => {
+it('桌面歌词错误保留可见反馈，分享保留状态反馈', async () => {
   await mount();
-  deps.toggleFullscreen.mockRejectedValueOnce(new Error('fullscreen denied'));
-  await act(async () => button('进入全屏').props.onClick());
-  expect(renderer.root.findByProps({ role: 'alert' }).children.join('')).toContain('fullscreen denied');
   deps.toggleDesktop.mockRejectedValueOnce(new Error('desktop denied'));
   await act(async () => button('打开桌面歌词').props.onClick());
   expect(renderer.root.findByProps({ role: 'alert' }).children.join('')).toContain('desktop denied');
@@ -203,4 +208,22 @@ it('歌词手动偏移同时传给高亮时间，播放进度保持真实音频�
   act(() => deps.subscribe.mock.calls[0][0]({ lyricManualOffsetMs: -1500 }));
   expect(renderer.root.findByProps({ 'data-testid': 'lyrics' }).props.currentTime).toBe(23.5);
   expect(button('播放进度').props.value).toBe(25);
+});
+
+
+it('更多菜单提供唯一退出入口并关闭沉浸页一次', async () => {
+  await mount();
+  click('更多');
+  const panel = renderer.root.findByProps({ 'aria-label': '更多播放操作' });
+  expect(panel.findAllByProps({ 'aria-label': '退出沉浸式播放' })).toHaveLength(1);
+  click('退出沉浸式播放');
+  expect(onClose).toHaveBeenCalledOnce();
+  expect(renderer.root.findByType('footer').props['data-panel-open']).toBe(false);
+});
+
+
+it('打开和关闭沉浸页不再访问原生窗口全屏接口', async () => {
+  await mount();
+  act(() => renderer.update(<ImmersiveLyricsOverlay open={false} onClose={onClose} />));
+  expect(deps.getCurrentWindow).not.toHaveBeenCalled();
 });

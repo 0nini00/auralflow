@@ -42,6 +42,8 @@ export function setupTaskbarThumbnails(): () => void {
   let disposed = false;
   let lastTrackKey = "";
   let lastStatus = "";
+  let requestVersion = 0;
+  let settingsRequestVersion = 0;
   let coverRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
   const clearCoverRetry = () => {
@@ -51,8 +53,19 @@ export function setupTaskbarThumbnails(): () => void {
     }
   };
 
+  // 查询、原生提交和延时补推共用代次，避免旧请求跨切歌或启用周期继续提交。
+  const invalidatePending = () => {
+    clearCoverRetry();
+    return ++requestVersion;
+  };
+
+  const isCurrentRequest = (version: number) =>
+    !disposed && enabled && version === requestVersion;
+
   /** 推送播放状态 + 封面；封面取自本地缓存，取不到就只推状态 */
   const pushTrack = async (isCoverRetry = false) => {
+    if (!enabled || disposed) return;
+    const version = invalidatePending();
     const snapshot = getPlaybackSnapshotFromStore();
     const track = snapshot.current;
     // 先登记状态，避免 await 期间重复推送同一首
@@ -60,7 +73,7 @@ export function setupTaskbarThumbnails(): () => void {
     lastStatus = snapshot.status;
 
     const coverPath = track ? await lookupCachedCoverPath(track) : null;
-    if (disposed) return;
+    if (!isCurrentRequest(version)) return;
 
     const payload: TaskbarTrackPayload = {
       status: snapshot.status,
@@ -70,13 +83,13 @@ export function setupTaskbarThumbnails(): () => void {
       logger.warn("[任务栏缩略图] 推送播放状态失败", error);
     });
 
+    if (!isCurrentRequest(version)) return;
+
     // 没拿到封面且不是补推：等封面落盘后补一次
     if (!isCoverRetry && track && !coverPath) {
-      const retryKey = trackKeyOf(track);
-      clearCoverRetry();
       coverRetryTimer = setTimeout(() => {
+        if (!isCurrentRequest(version)) return;
         coverRetryTimer = null;
-        if (disposed || trackKeyOf(getPlaybackSnapshotFromStore().current) !== retryKey) return;
         void pushTrack(true);
       }, COVER_RETRY_DELAY_MS);
     }
@@ -106,21 +119,22 @@ export function setupTaskbarThumbnails(): () => void {
 
   /** 读取设置并应用开关；打开时立刻推一次当前状态 */
   const applySettings = async () => {
+    // 设置读取独立编号：切歌只淘汰封面请求，不能取消尚未返回的最新开关设置。
+    const settingsVersion = ++settingsRequestVersion;
     const settings = await loadSettings().catch((error) => {
       logger.warn("[任务栏缩略图] 读取设置失败", error);
       return null;
     });
-    if (disposed || !settings) return;
+    if (disposed || settingsVersion !== settingsRequestVersion || !settings) return;
 
     // 字段缺失按默认「开」处理，与 Rust 侧 AppSettings 默认值一致
     enabled = settings.taskbarThumbnails !== false;
+    const version = invalidatePending();
     await taskbarSetEnabled(enabled).catch((error) => {
       logger.warn("[任务栏缩略图] 切换开关失败", error);
     });
-    if (enabled) {
+    if (settingsVersion === settingsRequestVersion && isCurrentRequest(version)) {
       await pushTrack();
-    } else {
-      clearCoverRetry();
     }
   };
 
@@ -156,7 +170,7 @@ export function setupTaskbarThumbnails(): () => void {
   return () => {
     disposed = true;
     disposedBeforeListen = true;
-    clearCoverRetry();
+    invalidatePending();
     unsubscribe();
     window.removeEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged);
     unlisten?.();

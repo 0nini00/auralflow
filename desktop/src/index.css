@@ -172,10 +172,6 @@ button {
   color: #f8fafc;
 }
 
-.af-app:has(.af-immersive-native-fullscreen) .af-window-titlebar {
-  display: none;
-}
-
 .af-main-container {
   position: relative;
   z-index: 1;

@@ -24,7 +24,7 @@ vi.mock('@/stores/playerStore', async () => {
 const tracks: LocalSong[] = ['Alpha', 'Beta', 'Gamma'].map((title, index) => ({
   id: String(index), title, artist: index === 2 ? 'Other' : 'AC/DC', album: 'Live',
   path: `C:\\Music\\${title}.mp3`, duration: 120, size: 100, format: 'mp3', isLocal: true,
-  lyricsOverride: '[00:01]歌词', coverOverride: 'manual.jpg', replayGain: { gainDb: -3 },
+  lyricsOverride: '[00:01]歌词', coverOverride: 'manual.jpg',
 }));
 let renderer: ReactTestRenderer;
 const root = () => renderer.root;

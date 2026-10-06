@@ -242,7 +242,6 @@ export function SearchView() {
   const playQueue = usePlayerStore((s) => s.playQueue);
   const localPlaylists = usePlaylistStore((s) => s.playlists);
   const importPlaylist = usePlaylistStore((s) => s.importPlaylist);
-  const updatePlaylistCover = usePlaylistStore((s) => s.updatePlaylistCover);
   const wyAccount = useWyAccountStore((s) => s.account);
   const wyPlaylists = useWyAccountStore((s) => s.playlists);
   const wySetSubscribed = useWyAccountStore((s) => s.setSubscribed);
@@ -464,10 +463,7 @@ export function SearchView() {
         if (!provider) throw new Error("未找到 QQ 音乐源");
         const songs = await provider.getPlaylistDetail(playlist);
         const description = [playlist.desc, marker].filter(Boolean).join("\n");
-        const created = importPlaylist(playlist.name, description || marker, songs);
-        if (playlist.picUrl) {
-          updatePlaylistCover(created.id, playlist.picUrl);
-        }
+        const created = importPlaylist(playlist.name, description || marker, songs, playlist.picUrl);
         setActionStatus(`已收藏到本地歌单：${created.name}`);
       }
     } catch (err) {

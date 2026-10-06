@@ -20,8 +20,8 @@ fn is_audio_file(path: &std::path::Path) -> bool {
 /// 提取音频文件元数据 — 沿用原 main.rs 的完整实现
 ///
 /// `include_heavy_fields = false`（整目录扫描）时跳过大字段：不生成封面 base64，
-/// lofty 只读取文本标签，关闭封面与音频属性解析，避免重复搬运大封面；
-/// 单文件查询（get_audio_info）额外返回内嵌歌词。
+/// 单文件查询（get_audio_info）通过 lofty 额外读取内嵌歌词，
+/// 关闭封面与音频属性解析，避免重复搬运大封面。
 fn extract_metadata(app: &AppHandle, path: &std::path::Path, include_heavy_fields: bool) -> Option<AudioFile> {
     use lofty::file::TaggedFileExt;
     let metadata = std::fs::metadata(path).ok()?;
@@ -35,7 +35,6 @@ fn extract_metadata(app: &AppHandle, path: &std::path::Path, include_heavy_field
     let mut cover_data: Option<String> = None;
     let mut cover_path: Option<String> = None;
     let mut lyrics: Option<String> = None;
-    let mut replay_gain = None;
 
     // 使用 audiotags 读取音频标签
     if let Ok(tag) = audiotags::Tag::new().read_from_path(path) {
@@ -70,15 +69,14 @@ fn extract_metadata(app: &AppHandle, path: &std::path::Path, include_heavy_field
         }
     }
 
-    // 只读取文本标签；已有 audiotags 路径负责属性/封面，避免重复解析大图。
-    let options = lofty::config::ParseOptions::new()
-        .read_properties(false)
-        .read_cover_art(false);
-    if let Ok(probe) = lofty::probe::Probe::open(path) {
-        if let Ok(tagged_file) = probe.options(options).read() {
-            replay_gain = read_replay_gain_tags(tagged_file.primary_tag(), tagged_file.tags());
-            if let Some(tag) = tagged_file.primary_tag().or_else(|| tagged_file.first_tag()) {
-                if include_heavy_fields {
+    // 目录扫描不返回歌词，无需再用 lofty 打开文件读取文本标签。
+    if include_heavy_fields {
+        let options = lofty::config::ParseOptions::new()
+            .read_properties(false)
+            .read_cover_art(false);
+        if let Ok(probe) = lofty::probe::Probe::open(path) {
+            if let Ok(tagged_file) = probe.options(options).read() {
+                if let Some(tag) = tagged_file.primary_tag().or_else(|| tagged_file.first_tag()) {
                     lyrics = tag.get_string(&lofty::tag::ItemKey::Lyrics).map(str::to_string);
                 }
             }
@@ -97,7 +95,6 @@ fn extract_metadata(app: &AppHandle, path: &std::path::Path, include_heavy_field
         cover_data,
         cover_path,
         lyrics,
-        replay_gain,
     })
 }
 
@@ -383,106 +380,4 @@ pub async fn set_audio_lyrics(path: String, lyrics: String) -> Result<(), String
             .save_to_path(temp_str, lofty::config::WriteOptions::default())
             .map_err(|e| format!("写入歌词失败: {}", e))
     })
-}
-
-
-fn read_replay_gain(tag: &lofty::tag::Tag) -> Option<AudioReplayGain> {
-    use lofty::tag::ItemKey;
-    let raw = tag.get_string(&ItemKey::ReplayGainTrackGain)?.trim().to_ascii_lowercase();
-    let value = raw.strip_suffix("db").unwrap_or(&raw).trim();
-    let gain_db: f64 = value.parse().ok()?;
-    if !gain_db.is_finite() { return None; }
-    let peak = tag.get_string(&ItemKey::ReplayGainTrackPeak)
-        .and_then(|value| value.trim().parse::<f64>().ok())
-        .filter(|value| value.is_finite() && *value > 0.0);
-    Some(AudioReplayGain { gain_db, peak })
-}
-
-#[cfg(test)]
-mod replay_gain_tests {
-    use super::*;
-    use lofty::tag::{ItemKey, Tag, TagType};
-
-    #[test]
-    fn reads_track_gain_and_optional_peak() {
-        let mut tag = Tag::new(TagType::VorbisComments);
-        tag.insert_text(ItemKey::ReplayGainTrackGain, " -6.25 dB ".into());
-        tag.insert_text(ItemKey::ReplayGainTrackPeak, "0.92".into());
-        let result = read_replay_gain(&tag).unwrap();
-        assert_eq!(result.gain_db, -6.25);
-        assert_eq!(result.peak, Some(0.92));
-        tag.remove_key(&ItemKey::ReplayGainTrackPeak);
-        assert!(read_replay_gain(&tag).unwrap().peak.is_none());
-    }
-
-    #[test]
-    fn missing_or_non_finite_gain_is_not_fabricated() {
-        let mut tag = Tag::new(TagType::Id3v2);
-        assert!(read_replay_gain(&tag).is_none());
-        for value in ["NaN", "inf", "broken", "1.0 junk"] {
-            tag.insert_text(ItemKey::ReplayGainTrackGain, value.into());
-            assert!(read_replay_gain(&tag).is_none());
-        }
-    }
-
-    #[test]
-    fn positive_gain_and_invalid_peak_remain_distinguishable() {
-        let mut tag = Tag::new(TagType::Id3v2);
-        tag.insert_text(ItemKey::ReplayGainTrackGain, "+3.0 DB".into());
-        tag.insert_text(ItemKey::ReplayGainTrackPeak, "NaN".into());
-        let result = read_replay_gain(&tag).unwrap();
-        assert_eq!(result.gain_db, 3.0);
-        assert!(result.peak.is_none());
-    }
-}
-
-
-/// 单曲补读标签，让升级前的曲库缓存也能使用 ReplayGain。
-#[tauri::command]
-pub async fn get_audio_replay_gain(path: String) -> Result<Option<AudioReplayGain>, String> {
-    use lofty::file::TaggedFileExt;
-    let path = PathBuf::from(path);
-    if !path.is_file() { return Err("音频文件不存在或不可访问".to_string()); }
-    let options = lofty::config::ParseOptions::new().read_properties(false).read_cover_art(false);
-    let tagged = lofty::probe::Probe::open(&path)
-        .map_err(|e| format!("打开标签失败: {}", e))?
-        .options(options).read().map_err(|e| format!("读取标签失败: {}", e))?;
-    Ok(read_replay_gain_tags(tagged.primary_tag(), tagged.tags()))
-}
-
-
-fn read_replay_gain_tags(primary: Option<&lofty::tag::Tag>, tags: &[lofty::tag::Tag]) -> Option<AudioReplayGain> {
-    // 主标签有有效值时优先；否则查其他标签，同一组增益/峰值不跨标签拼接。
-    primary.and_then(read_replay_gain).or_else(|| tags.iter().find_map(read_replay_gain))
-}
-
-#[cfg(test)]
-mod replay_gain_multi_tag_tests {
-    use super::*;
-    use lofty::tag::{ItemKey, Tag, TagType};
-
-    #[test]
-    fn metadata_only_primary_does_not_hide_ape_replaygain() {
-        let primary = Tag::new(TagType::Id3v2);
-        let mut ape = Tag::new(TagType::Ape);
-        ape.insert_text(ItemKey::ReplayGainTrackGain, "-7.5 dB".into());
-        ape.insert_text(ItemKey::ReplayGainTrackPeak, "0.7".into());
-        let tags = vec![primary, ape];
-        let result = read_replay_gain_tags(Some(&tags[0]), &tags).unwrap();
-        assert_eq!(result.gain_db, -7.5);
-        assert_eq!(result.peak, Some(0.7));
-    }
-
-    #[test]
-    fn valid_primary_is_preferred_without_mixing_another_tags_peak() {
-        let mut primary = Tag::new(TagType::Id3v2);
-        primary.insert_text(ItemKey::ReplayGainTrackGain, "-3 dB".into());
-        let mut ape = Tag::new(TagType::Ape);
-        ape.insert_text(ItemKey::ReplayGainTrackGain, "-7 dB".into());
-        ape.insert_text(ItemKey::ReplayGainTrackPeak, "0.7".into());
-        let tags = vec![primary, ape];
-        let result = read_replay_gain_tags(Some(&tags[0]), &tags).unwrap();
-        assert_eq!(result.gain_db, -3.0);
-        assert_eq!(result.peak, None);
-    }
 }

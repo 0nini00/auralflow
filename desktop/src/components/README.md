@@ -32,7 +32,7 @@ components/
 | 组件 | 文件 | 职责 |
 | --- | --- | --- |
 | PlayerBar | `PlayerBar.tsx` | 3 列网格（曲目\|传输\|音量）+ 全宽进度；`useInterpolatedPlaybackProgress` rAF 平滑；拖动状态机 `isScrubbing` 覆盖；`useArtworkAmbience` 在 early return 前调 hooks 规则；封面点击开 ImmersiveLyricsOverlay；桌面歌词按钮 `toggleDesktopLyricFromPlayer` |
-| ImmersiveLyricsOverlay | `ImmersiveLyricsOverlay.tsx` | 24.5KB；`position:fixed` 全屏 + 大封面呼吸 + 滚动卡啦 OK + 3 组控件 + CSS 变量 `--af-immersive-progress/volume/artwork-rgb/anim-scale/lyric-font-family` + 队列 `scrollIntoView` + `useNativeFullscreen` + 分享剪贴板 + 键盘 `resolveImmersiveKeyboardAction` |
+| ImmersiveLyricsOverlay | `ImmersiveLyricsOverlay.tsx` | `position:fixed` 全窗沉浸层 + 封面与滚动歌词 + `ImmersivePlayerControls` 三列底栏 + CSS 变量 `--af-immersive-progress/volume/artwork-rgb/anim-scale/lyric-font-family` + 分享剪贴板 + 更多菜单“退出沉浸式播放” + 键盘 `resolveImmersiveKeyboardAction`；Esc 优先关闭菜单，关闭后恢复焦点；保留 AppTitleBar 窗口操作，不控制原生全屏 |
 | MusicCard / SongList / PlaylistCard | — | 通用曲目/歌单卡片与列表 |
 | WyCookieLoginModal | — | 网易登录弹窗 |
 | PactModal | — | 用户协议确认 |

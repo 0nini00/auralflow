@@ -1,0 +1,21 @@
+import { act, create, type ReactTestRenderer } from "react-test-renderer";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { PlaybackSettingsSection } from "../src/views/settings/PlaybackSettingsSection";
+const mock = vi.hoisted(() => ({ load: vi.fn(), patch: vi.fn() }));
+vi.mock("@lx/tauri-bridge", () => ({ loadSettings: mock.load, patchSettings: mock.patch, libraryLoad: vi.fn().mockResolvedValue(null), librarySave: vi.fn() }));
+vi.mock("../src/services/playerEngine", () => ({ playerEngine: {} }));
+const model = { defaultQuality: "320k", setDefaultQuality: vi.fn(), pauseOnExternalPlayback: true, patchPlaybackSetting: vi.fn(), handlePauseOnExternalPlaybackChange: vi.fn() };
+let renderer: ReactTestRenderer | undefined;
+beforeEach(() => { vi.clearAllMocks(); mock.load.mockResolvedValue({ replayGainEnabled: true }); });
+afterEach(() => { if (renderer) act(() => renderer!.unmount()); renderer = undefined; });
+it("播放设置移除本地音量平衡，保留普通音质和外部媒体行为", async () => {
+  await act(async () => { renderer = create(<PlaybackSettingsSection model={model as never} />); });
+  expect(JSON.stringify(renderer!.toJSON())).not.toMatch(/ReplayGain|音量平衡|音量补偿/);
+  expect(mock.load).not.toHaveBeenCalled();
+  expect(mock.patch).not.toHaveBeenCalled();
+  act(() => renderer!.root.findByType("select").props.onChange({ target: { value: "flac" } }));
+  expect(model.setDefaultQuality).toHaveBeenCalledWith("flac");
+  expect(model.patchPlaybackSetting).toHaveBeenCalledWith({ defaultQuality: "flac" });
+  await act(async () => { await renderer!.root.findAllByType("button")[1].props.onClick(); });
+  expect(model.handlePauseOnExternalPlaybackChange).toHaveBeenCalledWith(false);
+});

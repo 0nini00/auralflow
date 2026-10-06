@@ -81,7 +81,7 @@ describe("resizeCoverUrl", () => {
   it("腾讯图床改写文件名里的 R{W}x{H}", () => {
     expect(
       resizeCoverUrl("https://y.gtimg.cn/music/photo_new/T002R300x300M000abc.jpg", 600),
-    ).toBe("https://y.gtimg.cn/music/photo_new/T002R600x600M000abc.jpg");
+    ).toBe("https://y.gtimg.cn/music/photo_new/T002R800x800M000abc.jpg");
     expect(
       resizeCoverUrl("https://y.gtimg.cn/music/photo_new/T001R800x800M000singer.jpg", 150),
     ).toBe("https://y.gtimg.cn/music/photo_new/T001R150x150M000singer.jpg");
@@ -124,4 +124,14 @@ describe("resizeCoverUrl", () => {
     );
     expect(resizeCoverUrl(tencentOnce, 300)).toBe(tencentOnce);
   });
+});
+
+
+describe("腾讯图床支持的尺寸", () => {
+  it.each([[96, 150], [150, 150], [300, 300], [450, 500], [600, 800], [800, 800]])(
+    "将应用档位 %i 映射为受支持的 %i，避免真实图床404", (requested, supported) => {
+      const original = "https://y.gtimg.cn/music/photo_new/T002R300x300M0000041WVfh2vtlJE.jpg";
+      expect(resizeCoverUrl(original, requested)).toBe(original.replace("R300x300", `R${supported}x${supported}`));
+    },
+  );
 });

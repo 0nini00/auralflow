@@ -5,6 +5,7 @@ import { customSourcePersistence, useCustomSourceStore } from "../src/stores/cus
 
 const dependencies = vi.hoisted(() => ({
   loadSettings: vi.fn(), checkForUpdate: vi.fn(), autoSyncPlaylistsOnce: vi.fn(),
+  setVolume: vi.fn(), setPauseOnExternalPlayback: vi.fn(),
   setAvailable: vi.fn(), setupSystemMediaControls: vi.fn(), setupTaskbarThumbnails: vi.fn(),
 }));
 vi.mock("@/stores/customSourceStore", async () => {
@@ -53,8 +54,8 @@ vi.mock("@/stores/playerSync", () => ({ setupPlayerSync: vi.fn() }));
 vi.mock("@/stores/favoritesStore", () => ({ favoritesPersistence: { ready: Promise.resolve() } }));
 vi.mock("@/stores/playlistStore", () => ({ playlistPersistence: { ready: Promise.resolve() } }));
 vi.mock("@/stores/historyStore", () => ({ historyPersistence: { ready: Promise.resolve() } }));
-vi.mock("@/stores/playerStore", () => ({ usePlayerStore: { getState: () => ({ setVolume: vi.fn() }) }, setPlaybackFailedAutoNext: vi.fn() }));
-vi.mock("@/services/playerEngine", () => ({ playerEngine: { setPauseOnExternalPlayback: vi.fn(), setReplayGainEnabled: vi.fn() } }));
+vi.mock("@/stores/playerStore", () => ({ usePlayerStore: { getState: () => ({ setVolume: dependencies.setVolume }) }, setPlaybackFailedAutoNext: vi.fn() }));
+vi.mock("@/services/playerEngine", () => ({ playerEngine: { setPauseOnExternalPlayback: dependencies.setPauseOnExternalPlayback } }));
 vi.mock("@/services/logger", () => ({ logger: { warn: vi.fn() } }));
 vi.mock("@/stores/libraryPersistence", () => ({ flushLibraryPersistence: vi.fn() }));
 vi.mock("@/services/webdavSyncService", () => ({ autoSyncPlaylistsOnce: dependencies.autoSyncPlaylistsOnce }));
@@ -160,4 +161,12 @@ describe("App 音源自动检查生命周期", () => {
     await advance(10000);
     expect(useCustomSourceStore.getState().checkAllUpdates).not.toHaveBeenCalled();
   });
+});
+
+
+it("旧配置启用 ReplayGain 不调用已删除接口，也不阻断普通播放设置恢复", async () => {
+  dependencies.loadSettings.mockResolvedValue({ ...settings, replayGainEnabled: true, volume: 37, pauseOnExternalPlayback: false });
+  await mount();
+  expect(dependencies.setVolume).toHaveBeenCalledWith(0.37);
+  expect(dependencies.setPauseOnExternalPlayback).toHaveBeenCalledWith(false);
 });

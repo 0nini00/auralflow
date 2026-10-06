@@ -15,9 +15,8 @@ export function createLocalPlaybackLookup(getSongs: () => readonly LocalSong[]) 
     const song = index.get(music.id);
     if (!song) return music;
     const next = localSongToMusicInfo(song);
-    const fields = ["name", "singer", "albumName", "interval", "picUrl", "img", "localLyrics", "localLyricsTranslation", "localLyricsRomanization", "localPath", "replayGainError"] as const;
-    const equalGain = next.replayGain?.gainDb === music.replayGain?.gainDb && next.replayGain?.peak === music.replayGain?.peak;
-    if (equalGain && fields.every((key) => next[key] === music[key])) return music;
+    const fields = ["name", "singer", "albumName", "interval", "picUrl", "img", "localLyrics", "localLyricsTranslation", "localLyricsRomanization", "localPath"] as const;
+    if (fields.every((key) => next[key] === music[key])) return music;
     // 正在播放的流地址必须保留；标签变化不触发取链或重载音频。
     return { ...music, ...next, url: music.url };
   };

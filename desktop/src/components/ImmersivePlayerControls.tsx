@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react';
-import { Ellipsis, Gauge, ListMusic, Pause, Play, Repeat, Repeat1, Share2, Shuffle, SkipBack, SkipForward, Languages, Volume2, VolumeX, X } from 'lucide-react';
+import { LogOut, Ellipsis, Gauge, ListMusic, Pause, Play, Repeat, Repeat1, Share2, Shuffle, SkipBack, SkipForward, Languages, Volume2, VolumeX, X } from 'lucide-react';
 import { formatTime } from '@/utils/formatTime';
 
 type Panel = 'more' | 'lyrics' | 'queue';
@@ -24,6 +24,7 @@ export interface ImmersivePlayerControlsProps {
     cycleMode: () => void;
     setPlaybackRate: (rate: number) => void;
     share: () => void;
+    exitImmersive: () => void;
   };
   timeline: { current: number; duration: number; onSeek: (value: number) => void; onSeekStart: () => void; onSeekEnd: () => void };
   lyrics: {
@@ -176,6 +177,8 @@ export const ImmersivePlayerControls = forwardRef<ImmersivePlayerControlsHandle,
                     </label>
                     <button type="button" className="af-immersive-more-action" aria-label="复制歌曲链接"
                       onClick={() => { actions.share(); dismissPanel(); }}><Share2 size={18} /><span>复制歌曲链接</span></button>
+                    <button type="button" className="af-immersive-more-action" aria-label="退出沉浸式播放"
+                      onClick={() => { dismissPanel(); actions.exitImmersive(); }}><LogOut size={18} /><span>退出沉浸式播放</span></button>
                   </div>
                 </div>
               )}

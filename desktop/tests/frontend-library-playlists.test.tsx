@@ -176,3 +176,14 @@ describe('歌单页面真实组件与 store', () => {
   });
 
 });
+
+
+it('已有本地歌单无独立封面时，卡片使用首个有图片的歌曲，不写回派生封面', () => {
+  const playlist = usePlaylistStore.getState().importPlaylist('Cover list', undefined, [
+    ...songs, { ...songs[0], id: 'pictured', picUrl: 'https://example.com/song.jpg' },
+  ]);
+  mount();
+  const cover = renderer.root.findAllByType('a').find(node => node.props.href === `/playlist/${playlist.id}` && node.props.className === 'af-playlist-cover-wrap')!;
+  expect(cover.findAllByType('img').map(node => node.props.src)).toEqual(['https://example.com/song.jpg']);
+  expect(usePlaylistStore.getState().playlists[0].cover).toBeUndefined();
+});

@@ -3,6 +3,8 @@ import { writeTextFile, readTextFile } from "@tauri-apps/plugin-fs";
 import type { MusicInfo } from "@lx/core";
 import { usePlaylistStore, type Playlist } from "@/stores/playlistStore";
 
+import { getPlaylistOwnCover } from "@/utils/playlistCover";
+
 interface ExportEnvelope {
   app: "auralflow";
   version: 1;
@@ -10,6 +12,8 @@ interface ExportEnvelope {
   playlists: Array<{
     name: string;
     description?: string;
+    cover?: string;
+    picUrl?: string;
     songs: MusicInfo[];
   }>;
 }
@@ -34,6 +38,7 @@ export async function exportPlaylists(playlists: Playlist[]): Promise<string | n
     playlists: playlists.map((p) => ({
       name: p.name,
       description: p.description,
+      cover: getPlaylistOwnCover(p),
       songs: p.songs,
     })),
   };
@@ -64,11 +69,15 @@ export async function importPlaylists(): Promise<number> {
   const list = data!.playlists;
   if (list.length === 0) return 0;
 
+  if (list.some((p) => [p?.cover, p?.picUrl].some((value) => value !== undefined && typeof value !== "string"))) {
+    throw new Error("歌单封面格式无效，应为图片地址");
+  }
+
   const store = usePlaylistStore.getState();
   let count = 0;
   for (const p of list) {
     if (!p?.name) continue;
-    store.importPlaylist(p.name, p.description, (p.songs ?? []) as MusicInfo[]);
+    store.importPlaylist(p.name, p.description, (p.songs ?? []) as MusicInfo[], getPlaylistOwnCover(p));
     count++;
   }
   return count;

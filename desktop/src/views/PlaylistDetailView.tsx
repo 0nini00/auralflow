@@ -10,6 +10,7 @@ import { SongAddMenu } from '@/components/SongAddMenuButton';
 import { DownloadQualityMenu } from '@/components/DownloadQualityButton';
 import { VirtualList } from '@/components/VirtualList';
 import { formatDuration } from '@/lib/utils';
+import { getPlaylistCover } from '@/utils/playlistCover';
 import { formatPlaylistSearchMeta } from '@/services/neteasePlaylistUtils';
 import { DETAIL_COVER_CSS_SIZE, ROW_COVER_CSS_SIZE, coverSrc } from '@/utils/imageReferrerPolicy';
 import type { MusicInfo, PlaylistInfo, SourceTag } from '@lx/core';
@@ -58,7 +59,6 @@ export function PlaylistDetailView() {
     playlists,
     removeSongFromPlaylist,
     importPlaylist,
-    updatePlaylistCover,
   } = usePlaylistStore();
 
   const favorites = useFavoritesStore((s) => s.favorites);
@@ -98,7 +98,6 @@ export function PlaylistDetailView() {
         songs: favorites,
         createdAt: 0,
         updatedAt: 0,
-        cover: favorites[0]?.img || favorites[0]?.picUrl,
       }
     : !explicitRemoteSource
       ? playlists.find((p) => p.id === id)
@@ -189,7 +188,7 @@ export function PlaylistDetailView() {
 
   // 最终展示的歌单数据
   const resolvedPlaylist = localPlaylist
-    ? { ...localPlaylist, cover: (localPlaylist as any).cover ?? (localPlaylist as any).picUrl }
+    ? localPlaylist
     : wyPlaylist
       ? { id: wyPlaylist.id, name: wyPlaylist.name, songs: loadedSongs, createdAt: 0, updatedAt: 0, description: wyPlaylist.author ? `by ${wyPlaylist.author}` : undefined, cover: wyPlaylist.picUrl }
       : remotePlaylistInfo
@@ -247,7 +246,7 @@ export function PlaylistDetailView() {
   const playlist = resolvedPlaylist!;
   const isWyPlaylist = !!wyPlaylist;
   const isRemotePlaylist = !!remotePlaylistInfo;
-  const playlistCoverUrl = coverSrc(playlist.cover, DETAIL_COVER_CSS_SIZE);
+  const playlistCoverUrl = coverSrc(getPlaylistCover(playlist), DETAIL_COVER_CSS_SIZE);
   const isWyOwned = isWyPlaylist && wyPlaylist!.subscribed === false;
   const isWySubscribed = isWyPlaylist && wyPlaylist!.subscribed === true;
   const remotePlaylistCollectionMarker = remotePlaylistInfo ? buildImportedPlaylistMarker(remotePlaylistInfo) : null;
@@ -387,10 +386,7 @@ export function PlaylistDetailView() {
         if (!provider) throw new Error("未找到 QQ 音乐源");
         const detailSongs = activeRequest?.songs ?? await provider.getPlaylistDetail(remotePlaylistInfo);
         const description = [remotePlaylistInfo.desc, marker].filter(Boolean).join('\n');
-        const created = importPlaylist(remotePlaylistInfo.name, description || marker, detailSongs);
-        if (remotePlaylistInfo.picUrl) {
-          updatePlaylistCover(created.id, remotePlaylistInfo.picUrl);
-        }
+        const created = importPlaylist(remotePlaylistInfo.name, description || marker, detailSongs, remotePlaylistInfo.picUrl);
         setActionStatus(`已收藏到本地歌单：${created.name}`);
       }
     } catch (err) {
@@ -557,7 +553,7 @@ export function PlaylistDetailView() {
                 setDownloadMenu(null);
               }}
               renderItem={(song, index) => {
-                const songCoverUrl = coverSrc(song.img, ROW_COVER_CSS_SIZE);
+                const songCoverUrl = coverSrc(song.img?.trim() || song.picUrl, ROW_COVER_CSS_SIZE);
                 const isCurrentSong = currentSongIndex === index;
                 const isLocatedSong = locatedSongIndex === index;
 

@@ -219,7 +219,6 @@ pub fn run() {
             // 本地音频
             commands::scan_directory,
             commands::get_audio_info,
-            commands::get_audio_replay_gain,
             commands::set_audio_metadata,
             commands::set_audio_cover,
             commands::set_audio_lyrics,

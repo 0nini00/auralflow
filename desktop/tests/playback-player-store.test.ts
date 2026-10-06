@@ -4,7 +4,7 @@ import type { PlaybackPrefetchEntry } from '../src/services/playback/prefetchMod
 const fixture = vi.hoisted(() => ({
   state: { featureEnabled: true, featureReady: true, sources: [] },
   persistence: { ready: Promise.resolve() },
-  play: vi.fn(), pause: vi.fn(), stop: vi.fn(), resume: vi.fn(), getEngineState: vi.fn(), resolve: vi.fn(), cached: vi.fn(), history: vi.fn(),
+  setVolume: vi.fn(), subscribe: vi.fn(), play: vi.fn(), pause: vi.fn(), stop: vi.fn(), resume: vi.fn(), getEngineState: vi.fn(), resolve: vi.fn(), cached: vi.fn(), history: vi.fn(),
 }));
 vi.mock('../src/stores/customSourceStore', async () => {
   const { createCustomSourceAccess } = await import('../src/services/customSourceAccess');
@@ -16,7 +16,7 @@ vi.mock('../src/stores/customSourceStore', async () => {
 });
 vi.mock('../src/services/playerEngine', () => ({ playerEngine: {
   play: fixture.play, pause: fixture.pause, stop: fixture.stop, resume: fixture.resume, getState: fixture.getEngineState,
-  subscribe: vi.fn(), onEnded: vi.fn(), onPreviewDetected: vi.fn(),
+  setVolume: fixture.setVolume, subscribe: fixture.subscribe, onEnded: vi.fn(), onPreviewDetected: vi.fn(),
 } }));
 vi.mock('../src/services/playback/playbackResolver', () => ({ resolvePlaybackUrl: fixture.resolve }));
 vi.mock('../src/services/playback/prefetchService', () => ({ getPrefetchedTrack: fixture.cached, prefetchNearbyTracks: vi.fn(async () => {}), prefetchTracks: vi.fn(async () => {}), invalidatePrefetchedTrack: vi.fn() }));
@@ -154,4 +154,33 @@ it('暂停尚未加载的歌曲后恢复，应重新解析目标而不是恢复�
   await vi.waitFor(() => expect(fixture.play).toHaveBeenCalledTimes(1));
   expect(fixture.resolve).toHaveBeenCalled();
   expect(fixture.resume).not.toHaveBeenCalled();
+});
+
+
+it('本地曲目不再读取 ReplayGain 状态或标签，直接使用普通播放通路', async () => {
+  const { usePlayerStore } = await load();
+  const local = { ...music, source: 'local' as const, isLocal: true, localPath: 'F:\\music.flac', url: 'asset:music.flac', replayGain: { gainDb: 6 } };
+  await usePlayerStore.getState().play(local);
+  expect(fixture.play).toHaveBeenCalledWith(local, local.url, undefined);
+  expect(fixture.resolve).not.toHaveBeenCalled();
+  expect(usePlayerStore.getState().error).toBeNull();
+});
+
+
+it('静音不覆盖逻辑音量，恢复时使用静音前音量', async () => {
+  const { usePlayerStore } = await load();
+  const notify = fixture.subscribe.mock.calls[0][0];
+  fixture.setVolume.mockImplementation((volume: number) => notify({
+    currentMusic: null, currentUrl: null, status: 'idle', currentTime: 0,
+    currentTimeSampledAt: 0, duration: 0, playbackRate: 1, volume, error: null,
+  }));
+  usePlayerStore.getState().setVolume(0.35);
+  for (let cycle = 0; cycle < 3; cycle += 1) {
+    usePlayerStore.getState().toggleMute();
+    expect(fixture.setVolume).toHaveBeenLastCalledWith(0);
+    expect(usePlayerStore.getState()).toMatchObject({ isMuted: true, volume: 0.35 });
+    usePlayerStore.getState().toggleMute();
+    expect(fixture.setVolume).toHaveBeenLastCalledWith(0.35);
+    expect(usePlayerStore.getState()).toMatchObject({ isMuted: false, volume: 0.35 });
+  }
 });

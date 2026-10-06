@@ -21,6 +21,8 @@ export const COVER_SIZE_LARGE = 500;
 const NETEASE_IMAGE_HOSTS = ["music.126.net", "126.net"];
 /** 腾讯图床：文件名里带 `R{边长}x{边长}` 这个唯一的尺寸标记。 */
 const TENCENT_IMAGE_HOSTS = ["gtimg.cn", "qq.com"];
+/** QQ 图床不支持应用通用的 96/450/600 档，必须向上取可用尺寸。 */
+const TENCENT_COVER_SIZES = [150, 300, 500, 800] as const;
 
 /**
  * 可选档位（px）：按「滚动列表 / 卡片刻度 / 播放条 / 详情页 / 沉浸页 / 全屏」的
@@ -142,5 +144,6 @@ function withTencentSize(value: string, size: number): string {
   const hash = hashParts.length ? `#${hashParts.join("#")}` : "";
   // 没有尺寸标记就原样返回：猜一个位置替换可能改坏路径
   if (!pattern.test(beforeHash)) return value;
-  return `${beforeHash.replace(pattern, `R${size}x${size}`)}${hash}`;
+  const supportedSize = TENCENT_COVER_SIZES.find((candidate) => candidate >= size) ?? 800;
+  return `${beforeHash.replace(pattern, `R${supportedSize}x${supportedSize}`)}${hash}`;
 }

@@ -299,6 +299,8 @@
   --af-text-secondary: var(--af-immersive-muted);
   --af-text-tertiary: rgba(229, 241, 229, 0.6);
   --af-immersive-gutter: clamp(24px, 4.5vw, 72px);
+  /* 保留原顶部操作区的空间，避免移除按钮后封面和歌词上移。 */
+  padding-top: 60px;
   position: fixed;
   inset: 0;
   z-index: 1800;
@@ -345,14 +347,6 @@
     color-mix(in srgb, rgb(var(--af-immersive-artwork-rgb)) 34%, #15363a) 0%,
     color-mix(in srgb, rgb(var(--af-immersive-artwork-rgb)) 74%, #294c42) 100%);
   opacity: 0.65;
-}
-
-.af-immersive-topbar {
-  flex: 0 0 60px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 22px;
 }
 
 .af-immersive-stage.af-showcase-layout {
@@ -444,19 +438,16 @@
 .af-immersive-volume-fill { width: var(--af-immersive-volume, 0%); height: 100%; background: var(--af-immersive-control-ink); pointer-events: none; }
 .af-immersive-volume-track:focus-within { outline: 2px solid var(--af-immersive-control-focus); outline-offset: 5px; }
 .af-immersive-icon-btn,
-.af-immersive-play-btn,
-.af-immersive-close { width: 40px; height: 40px; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 6px; color: var(--af-immersive-control-ink); background: transparent; box-shadow: none; cursor: pointer; transition: background 150ms ease, color 150ms ease; }
-.af-immersive-icon-btn svg, .af-immersive-close svg { stroke-width: 1.5; }
+.af-immersive-play-btn { width: 40px; height: 40px; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 6px; color: var(--af-immersive-control-ink); background: transparent; box-shadow: none; cursor: pointer; transition: background 150ms ease, color 150ms ease; }
+.af-immersive-icon-btn svg { stroke-width: 1.5; }
 .af-immersive-play-btn { width: 46px; height: 46px; }
 .af-immersive-play-btn svg { width: 25px; height: 25px; stroke-width: 1.4; }
 .af-immersive-icon-btn span { font-size: 16px; font-weight: 500; }
 .af-immersive-icon-btn:hover,
-.af-immersive-play-btn:hover,
-.af-immersive-close:hover { background: rgba(233, 246, 230, 0.09); color: #fff; }
+.af-immersive-play-btn:hover { background: rgba(233, 246, 230, 0.09); color: #fff; }
 .af-immersive-icon-btn.af-active { color: #f2f8e9; }
 .af-immersive-icon-btn:focus-visible,
-.af-immersive-play-btn:focus-visible,
-.af-immersive-close:focus-visible { outline: 2px solid var(--af-immersive-control-focus); outline-offset: 2px; }
+.af-immersive-play-btn:focus-visible { outline: 2px solid var(--af-immersive-control-focus); outline-offset: 2px; }
 
 @media (hover: hover) and (pointer: fine) {
   .af-immersive-controls .af-immersive-control-center { opacity: 0; }
@@ -545,7 +536,7 @@
 .af-immersive-queue-remove:hover { color: #ffb5ac; }
 
 @media (max-width: 1000px), (max-height: 650px) {
-  .af-immersive-topbar { flex-basis: 52px; padding: 6px 16px; }
+  .af-immersive-lyrics { padding-top: 52px; }
   .af-immersive-stage.af-showcase-layout { padding-top: 8px; padding-bottom: 18px; gap: 22px; }
   .af-immersive-cover-section { --af-immersive-cover-size: min(31vw, calc(100dvh - 278px)); }
   .af-immersive-heading { margin-top: 18px; }

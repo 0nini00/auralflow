@@ -345,7 +345,7 @@ describe('歌单来源、身份及请求代次', () => {
     api.remote.mockResolvedValueOnce([song('Import-song')]);
     await go('/playlist/A?source=tx');
     await click('收藏到本地歌单');
-    expect(usePlaylistStore.getState().importPlaylist).toHaveBeenCalledWith('QQ 音乐歌单', expect.stringContaining('[af-imported-playlist:tx:A]'), [song('Import-song')]);
+    expect(usePlaylistStore.getState().importPlaylist).toHaveBeenCalledWith('QQ 音乐歌单', expect.stringContaining('[af-imported-playlist:tx:A]'), [song('Import-song')], undefined);
     expect(renderer!.root.findByProps({ rowHeight: 60 }).props.items).toEqual([song('Import-song')]);
     expect(renderer!.root.findByProps({ rowHeight: 60 }).props.scrollRootSelector).toBe('.af-content-scroll');
   });
@@ -422,4 +422,17 @@ describe('浏览页面紧凑反馈', () => {
     expect(renderer!.root.findByProps({ className: 'af-playlist-detail-meta' }).findByType('h1')).toBeDefined();
     expect(text(renderer!.root.findByProps({ className: 'af-page-feedback', role: 'status' }))).toContain('empty refresh failed');
   });
+});
+
+
+it('已有本地歌单无独立封面时详情取歌曲封面，行图片兼容仅picUrl且使用有效QQ尺寸', async () => {
+  const url = 'https://y.gtimg.cn/music/photo_new/T002R300x300M0000041WVfh2vtlJE.jpg';
+  usePlaylistStore.setState({ playlists: [{ id: 'local-cover', name: 'Cover list', songs: [
+    song('without-cover'), { ...song('with-cover'), picUrl: url },
+  ], createdAt: 0, updatedAt: 0 }] });
+  await mount('/playlist/local-cover');
+  const header = renderer!.root.findByProps({ className: 'af-playlist-detail-cover' });
+  expect(header.findAllByType('img').map(node => node.props.src)).toEqual([url]);
+  const row = renderer!.root.findAllByProps({ className: 'af-song-cover' })[1];
+  expect(row.findAllByType('img').map(node => node.props.src)).toEqual([url.replace('R300x300', 'R150x150')]);
 });

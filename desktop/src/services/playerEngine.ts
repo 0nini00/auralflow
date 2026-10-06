@@ -1,5 +1,4 @@
 import type { MusicInfo } from "@lx/core";
-import { calculateReplayGain, LocalReplayGainOutput, type ReplayGainState } from "./replayGain";
 import { isPreviewDuration } from "@lx/core";
 import {
   normalizePauseOnExternalPlayback,
@@ -31,10 +30,7 @@ type EndedListener = () => void;
 type PreviewListener = (duration: number) => void;
 
 class PlayerEngine {
-  private readonly directAudio = new Audio();
-  private audio = this.directAudio;
-  private localOutput: LocalReplayGainOutput | null = null;
-  private replayGainEnabled = false;
+  private readonly audio = new Audio();
   private loadVersion = 0;
   private preloadAudio: HTMLAudioElement | null = null;
   private preloadedUrl: string | null = null;
@@ -67,9 +63,7 @@ class PlayerEngine {
 
   private bindAudioEvents(audio: HTMLAudioElement): void {
     const on = (event: string, listener: () => void) => {
-      audio.addEventListener(event, () => {
-        if (audio === this.audio) listener();
-      });
+      audio.addEventListener(event, listener);
     };
     audio.volume = this.state.volume;
     audio.playbackRate = this.state.playbackRate;
@@ -162,32 +156,11 @@ class PlayerEngine {
     this.pauseOnExternalPlayback = normalizePauseOnExternalPlayback(value);
   }
 
-  getReplayGainState(): ReplayGainState {
-    return calculateReplayGain(this.replayGainEnabled, this.state.currentMusic);
-  }
-
-  setReplayGainEnabled(enabled: boolean): void {
-    this.replayGainEnabled = enabled === true;
-    this.localOutput?.setGain(this.getReplayGainState().gain);
-    this.patchState({});
-  }
-
   /** 曲库资料变化只更新元信息，不能重新启动歌曲或重置进度。 */
   updateCurrentMusic(music: MusicInfo): void {
     const current = this.state.currentMusic;
     if (!current || current.id !== music.id || current.source !== music.source) return;
-    this.localOutput?.setGain(calculateReplayGain(this.replayGainEnabled, music).gain);
     this.patchState({ currentMusic: music });
-  }
-
-  private async selectAudio(music: MusicInfo): Promise<HTMLAudioElement> {
-    if (!music.isLocal || music.source !== "local") return this.directAudio;
-    if (!this.localOutput) {
-      this.localOutput = new LocalReplayGainOutput();
-      this.bindAudioEvents(this.localOutput.audio);
-    }
-    await this.localOutput.ready();
-    return this.localOutput.audio;
   }
 
   async load(music: MusicInfo, url: string, assertPlaybackAllowed?: () => void): Promise<void> {
@@ -195,21 +168,10 @@ class PlayerEngine {
     const assertCurrent = () => { if (version !== this.loadVersion) throw new Error("播放加载已被更新的操作取消"); };
     assertPlaybackAllowed?.();
     await this.fadeOut();
-    // 本地增益输出初始化可能让出执行权；源交给媒体元素前再次确认许可。
-    assertCurrent();
-    const nextAudio = await this.selectAudio(music);
+    // 淡出会让出执行权；切歌、暂停或停止后不能再提交旧加载。
     assertCurrent();
     assertPlaybackAllowed?.();
-    if (nextAudio !== this.audio) {
-      const previous = this.audio;
-      this.audio = nextAudio;
-      previous.pause();
-      previous.removeAttribute("src");
-      previous.load();
-    }
     this.audio.volume = this.state.volume;
-    this.audio.playbackRate = this.state.playbackRate;
-    this.localOutput?.setGain(calculateReplayGain(this.replayGainEnabled, music).gain);
     this.patchState({
       currentMusic: music,
       currentUrl: url,
@@ -222,6 +184,8 @@ class PlayerEngine {
     this.markInternalPause();
     this.audio.src = url;
     this.audio.load();
+    // load() 会重置播放速率，必须在装载后恢复用户设置。
+    this.audio.playbackRate = this.state.playbackRate;
   }
 
   async play(music: MusicInfo, url: string, assertPlaybackAllowed?: () => void): Promise<void> {

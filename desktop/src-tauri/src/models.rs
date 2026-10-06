@@ -21,8 +21,6 @@ pub struct AppSettings {
     pub theme: String,
     /// 音量 (0-100)
     pub volume: u32,
-    /// 本地 ReplayGain 标签补偿，默认关闭。
-    pub replay_gain_enabled: bool,
     /// 默认音质: "128k" / "320k" / "flac"
     pub default_quality: String,
     /// 其他媒体开始播放时，是否接受系统/浏览器触发的自动暂停
@@ -131,7 +129,6 @@ impl Default for AppSettings {
         Self {
             theme: "dark".to_string(),
             volume: 80,
-            replay_gain_enabled: false,
             default_quality: "320k".to_string(),
             pause_on_external_playback: true,
             playback_failed_auto_next: false,
@@ -192,13 +189,6 @@ impl Default for AppSettings {
 // 本地音频文件模型（沿用原 main.rs 中的 AudioFile，更丰富）
 // ============================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AudioReplayGain {
-    pub gain_db: f64,
-    pub peak: Option<f64>,
-}
-
 /// 本地音频文件 — 包含完整元数据、封面 Base64、内嵌歌词
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -230,7 +220,6 @@ pub struct AudioFile {
     pub cover_path: Option<String>,
     /// 内嵌歌词（LRC 格式）。同样只在单文件查询时填充。
     pub lyrics: Option<String>,
-    pub replay_gain: Option<AudioReplayGain>,
 }
 
 /// 支持的音频格式扩展名
@@ -245,20 +234,39 @@ mod desktop_media_settings_tests {
     #[test]
     fn new_media_features_default_off() {
         let settings = serde_json::to_value(AppSettings::default()).unwrap();
-        assert_eq!(settings["replayGainEnabled"], false);
+        assert!(settings.get("replayGainEnabled").is_none());
         assert_eq!(settings["lyricShowRomanization"], false);
         assert_eq!(settings["lyricShowRuby"], false);
     }
 
     #[test]
-    fn audio_file_preserves_replay_gain_contract() {
+    fn legacy_audio_file_discards_replay_gain() {
         let file: AudioFile = serde_json::from_value(serde_json::json!({
             "id":"1", "path":"song.flac", "title":"song", "artist":"artist", "album":"album",
             "duration":10, "format":"flac", "size":100,
             "replayGain":{"gainDb":-6.0,"peak":0.8}
         })).unwrap();
         let value = serde_json::to_value(file).unwrap();
-        assert_eq!(value["replayGain"]["gainDb"], -6.0);
-        assert_eq!(value["replayGain"]["peak"], 0.8);
+        assert!(value.get("replayGain").is_none());
+        assert_eq!(value["title"], "song");
+    }
+}
+
+#[cfg(test)]
+mod legacy_playback_settings_tests {
+    use super::AppSettings;
+
+    #[test]
+    fn legacy_enabled_replay_gain_is_ignored_and_not_saved() {
+        let settings: AppSettings = serde_json::from_value(serde_json::json!({
+            "replayGainEnabled": true,
+            "volume": 37,
+            "pauseOnExternalPlayback": false
+        })).unwrap();
+        assert_eq!(settings.volume, 37);
+        assert!(!settings.pause_on_external_playback);
+        let value = serde_json::to_value(settings).unwrap();
+        assert!(value.get("replayGainEnabled").is_none());
+        assert_eq!(value["volume"], 37);
     }
 }

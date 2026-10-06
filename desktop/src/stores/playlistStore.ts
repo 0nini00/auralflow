@@ -35,7 +35,7 @@ interface PlaylistStore {
   mergeAll: (playlists: Playlist[]) => void;
 
   // 导入：用外部数据创建新歌单（用于导入导出）
-  importPlaylist: (name: string, description: string | undefined, songs: MusicInfo[]) => Playlist;
+  importPlaylist: (name: string, description: string | undefined, songs: MusicInfo[], cover?: string) => Playlist;
 }
 
 export const usePlaylistStore = create<PlaylistStore>()((set, get) => ({
@@ -171,12 +171,13 @@ export const usePlaylistStore = create<PlaylistStore>()((set, get) => ({
         return duplicated;
       },
 
-      importPlaylist: (name, description, songs) => {
+      importPlaylist: (name, description, songs, cover) => {
         const newPlaylist: Playlist = {
           id: `playlist_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
           name,
           description,
           songs: songs ?? [],
+          cover,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         };

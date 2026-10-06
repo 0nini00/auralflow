@@ -16,8 +16,8 @@
 //! 窗口基本功能与播放完全不受影响；所有 GDI/COM 对象在不再需要时释放，不留泄漏。
 //!
 //! 线程模型：COM 对象（`ITaskbarList3`）、图标、窗口句柄都只能在主线程用（存在 `thread_local`），
-//! 因此所有需要它们的操作都排在 `AppHandle::run_on_main_thread` 上；封面解码走 IPC 线程
-//! （磁盘 I/O 不占 UI 线程），只把像素数据交给主线程。
+//! 因此所有需要它们的操作都排在 `AppHandle::run_on_main_thread` 上；封面解码通过 `spawn_blocking`
+//! 派到后台（同步 IPC 入口本身仍可能在 UI 线程），只把像素数据交给主线程。
 
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -319,15 +319,18 @@ struct Cover {
     height: u32,
 }
 
+#[derive(Default)]
 struct Shared {
     /// 设置开关「任务栏缩略图按钮与封面预览」
     enabled: bool,
     /// 最近一次的播放状态（决定播放暂停按钮的图标）
     status: String,
-    /// 已解码的封面路径；与上一次相同就不重复解码
+    /// 最新请求的封面路径；与上一次相同就不重复解码
     cover_path: Option<String>,
     /// 当前封面像素；None = 没有封面，预览保持系统默认
     cover: Option<Cover>,
+    /// 路径改变或关闭功能时递增，拒绝旧解码（包括 A→B→A）。
+    cover_version: u64,
 }
 
 /// 跨线程共享的普通数据（开关 + 播放快照 + 封面像素）。
@@ -337,7 +340,59 @@ static SHARED: Mutex<Shared> = Mutex::new(Shared {
     status: String::new(),
     cover_path: None,
     cover: None,
+    cover_version: 0,
 });
+
+struct CoverRequest {
+    path: String,
+    version: u64,
+}
+
+impl Shared {
+    fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+        if !enabled {
+            self.cover_version = self.cover_version.wrapping_add(1);
+            self.cover_path = None;
+            self.cover = None;
+        }
+    }
+
+    fn begin_update(&mut self, track: TaskbarTrack) -> Option<CoverRequest> {
+        self.status = track.status;
+        let path = track.cover_path.as_deref().map(str::trim).filter(|path| !path.is_empty());
+        if path == self.cover_path.as_deref() {
+            return None;
+        }
+        self.cover_version = self.cover_version.wrapping_add(1);
+        self.cover_path = path.map(str::to_string);
+        self.cover = None;
+        self.cover_path.as_ref().map(|path| CoverRequest {
+            path: path.clone(),
+            version: self.cover_version,
+        })
+    }
+
+    fn preview_cover_path(&self) -> Option<&str> {
+        // 尚未解码的路径不能占用 DWM 的已应用标记，否则像素就绪后不会重绘。
+        self.cover.as_ref().and(self.cover_path.as_deref())
+    }
+}
+
+/// 解码器在锁外运行；只把仍属于当前请求的像素提交到共享状态。
+fn decode_and_commit_cover(
+    state: &Mutex<Shared>,
+    request: CoverRequest,
+    decode: impl FnOnce(&str) -> Result<Cover, String>,
+) -> Result<bool, String> {
+    let cover = decode(&request.path)?;
+    let mut state = state.lock().unwrap_or_else(|err| err.into_inner());
+    if !state.enabled || state.cover_version != request.version {
+        return Ok(false);
+    }
+    state.cover = Some(cover);
+    Ok(true)
+}
 
 /// 取共享状态锁。锁只保护普通数据，中毒后数据仍然有意义，沿用内部值继续工作。
 fn shared() -> MutexGuard<'static, Shared> {
@@ -366,63 +421,31 @@ pub fn setup(app: &AppHandle) {
 ///
 /// 关闭 = 卸载子类化 + 收起按钮 + DWM 属性复位，窗口回到完全原生的行为。
 pub fn set_enabled(app: &AppHandle, enabled: bool) {
-    {
-        let mut state = shared();
-        state.enabled = enabled;
-        if !enabled {
-            // 关闭后不再持有封面像素：内存与「换歌才解码」的判断都从干净状态重新开始
-            state.cover = None;
-            state.cover_path = None;
-        }
-    }
+    shared().set_enabled(enabled);
     run_on_main(app, move |app| platform::apply_enabled(&app, enabled));
 }
 
 /// 推送播放状态 / 封面（切歌、暂停恢复、封面落盘后调用）。
 pub fn update_track(app: &AppHandle, track: TaskbarTrack) {
-    let cover_changed = {
+    let request = {
         let mut state = shared();
         if !state.enabled {
-            // 安全阀：关闭时连解码都不做
             return;
         }
-        state.status = track.status.clone();
-        let requested = track
-            .cover_path
-            .as_deref()
-            .map(str::trim)
-            .filter(|path| !path.is_empty());
-        if requested == state.cover_path.as_deref() {
-            false
-        } else {
-            state.cover_path = requested.map(str::to_string);
-            // 路径变了先丢掉旧像素：解码失败就是「这次没有封面」，不能拿着上一首的封面充数
-            state.cover = None;
-            true
-        }
+        state.begin_update(track)
     };
-
-    if cover_changed {
-        // 磁盘 I/O 与图像解码留在当前线程（IPC 线程），不占主线程
-        if let Some(path) = shared().cover_path.clone() {
-            match platform::decode_cover(&path) {
-                Ok(cover) => {
-                    let mut state = shared();
-                    // 期间用户可能关了开关：关了就不留像素，也谈不上预览
-                    if state.enabled {
-                        state.cover = Some(cover);
-                    }
-                }
-                Err(err) => log::warn!(
-                    "[taskbar] 封面不可用，悬浮预览保持系统默认: {} ({})",
-                    path,
-                    err
-                ),
-            }
-        }
-    }
-
+    // 主线程只接收快照；调用系统接口前必须释放状态锁，避免窗口消息重入。
     run_on_main(app, |app| platform::apply_track(&app));
+    let Some(request) = request else { return };
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = request.path.clone();
+        match decode_and_commit_cover(&SHARED, request, platform::decode_cover) {
+            Ok(true) => run_on_main(&app, |app| platform::apply_track(&app)),
+            Ok(false) => {} // 已切歌或关闭；过期像素不得覆盖当前封面。
+            Err(err) => log::warn!("[taskbar] 封面解码失败: {} ({})", path, err),
+        }
+    });
 }
 
 // ─── Windows 实现 ─────────────────────────────────────────────
@@ -622,7 +645,7 @@ mod platform {
         }
         let (status, cover_path, cover) = {
             let state = shared();
-            (state.status.clone(), state.cover_path.clone(), state.cover.clone())
+            (state.status.clone(), state.preview_cover_path().map(str::to_string), state.cover.clone())
         };
         with_hook(|hook| {
             if !hook.installed {
@@ -1015,10 +1038,11 @@ mod platform {
             WM_DWMSENDICONICTHUMBNAIL => {
                 let size = thumbnail_size(lparam.0 as u32);
                 // 先在锁外取出封面（Arc 克隆），拿锁时间极短
-                let cover = shared().cover.clone()?;
+                let cover = shared().cover.clone();
                 let handled = with_hook(|hook| {
+                    // 解码未完成也保留请求尺寸，像素就绪后才能主动补推当前悬停预览。
                     hook.thumb_size = Some(size);
-                    set_iconic_thumbnail(hook, &cover, size)
+                    cover.as_ref().is_some_and(|cover| set_iconic_thumbnail(hook, cover, size))
                 })
                 .unwrap_or(false);
                 // 没画成功就不认领这条消息：交给 DefSubclassProc，让 DWM 用默认快照
@@ -1181,6 +1205,126 @@ mod platform {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn track(path: Option<&str>, status: &str) -> TaskbarTrack {
+        TaskbarTrack { status: status.into(), cover_path: path.map(str::to_string) }
+    }
+
+    fn cover(value: u8) -> Cover {
+        Cover { pixels: Arc::new(vec![value; 4]), width: 1, height: 1 }
+    }
+
+    fn enabled_state() -> Mutex<Shared> {
+        Mutex::new(Shared { enabled: true, ..Shared::default() })
+    }
+
+    #[test]
+    fn cover_decode_and_commit_never_hold_state_lock_together() {
+        let state = enabled_state();
+        let request = state.lock().unwrap().begin_update(track(Some("cover.jpg"), "playing")).unwrap();
+        let committed = decode_and_commit_cover(&state, request, |_| {
+            assert!(state.try_lock().is_ok(), "封面解码期间不得持有任务栏状态锁");
+            Ok(cover(1))
+        }).unwrap();
+        assert!(committed);
+        assert_eq!(state.try_lock().unwrap().cover.as_ref().unwrap().pixels[0], 1);
+    }
+
+    #[test]
+    fn stale_decode_cannot_overwrite_newer_cover_even_after_a_b_a() {
+        let state = enabled_state();
+        let old = state.lock().unwrap().begin_update(track(Some("a.jpg"), "playing")).unwrap();
+        assert!(!decode_and_commit_cover(&state, old, |_| {
+            state.lock().unwrap().begin_update(track(Some("b.jpg"), "playing"));
+            let latest = state.lock().unwrap().begin_update(track(Some("a.jpg"), "paused")).unwrap();
+            assert!(decode_and_commit_cover(&state, latest, |_| Ok(cover(2))).unwrap());
+            Ok(cover(1))
+        }).unwrap());
+        let state = state.lock().unwrap();
+        assert_eq!(state.cover.as_ref().unwrap().pixels[0], 2);
+        assert_eq!(state.status, "paused");
+    }
+
+    #[test]
+    fn disable_and_reenable_invalidates_pending_decode() {
+        let state = enabled_state();
+        let old = state.lock().unwrap().begin_update(track(Some("a.jpg"), "playing")).unwrap();
+        assert!(!decode_and_commit_cover(&state, old, |_| {
+            let mut state = state.lock().unwrap();
+            state.set_enabled(false);
+            state.set_enabled(true);
+            state.begin_update(track(Some("a.jpg"), "playing"));
+            Ok(cover(1))
+        }).unwrap());
+        assert!(state.lock().unwrap().cover.is_none());
+    }
+
+    #[test]
+    fn unchanged_path_updates_status_without_restarting_decode() {
+        let state = enabled_state();
+        let pending = state.lock().unwrap().begin_update(track(Some(" a.jpg "), "playing")).unwrap();
+        assert!(state.lock().unwrap().begin_update(track(Some("a.jpg"), "paused")).is_none());
+        assert!(decode_and_commit_cover(&state, pending, |_| Ok(cover(3))).unwrap());
+        assert_eq!(state.lock().unwrap().status, "paused");
+    }
+
+    #[test]
+    fn preview_path_is_published_only_when_pixels_are_ready() {
+        let state = enabled_state();
+        let pending = state.lock().unwrap().begin_update(track(Some("a.jpg"), "playing")).unwrap();
+        assert_eq!(state.lock().unwrap().preview_cover_path(), None);
+        decode_and_commit_cover(&state, pending, |_| Ok(cover(1))).unwrap();
+        assert_eq!(state.lock().unwrap().preview_cover_path(), Some("a.jpg"));
+        let bad = state.lock().unwrap().begin_update(track(Some("bad.jpg"), "playing")).unwrap();
+        assert_eq!(state.lock().unwrap().preview_cover_path(), None);
+        assert_eq!(decode_and_commit_cover(&state, bad, |_| Err("decode failed".into())), Err("decode failed".into()));
+        assert!(state.lock().unwrap().cover.is_none());
+    }
+
+    #[test]
+    fn clearing_cover_invalidates_pending_work() {
+        let state = enabled_state();
+        let pending = state.lock().unwrap().begin_update(track(Some("a.jpg"), "playing")).unwrap();
+        assert!(state.lock().unwrap().begin_update(track(Some("  "), "paused")).is_none());
+        assert!(!decode_and_commit_cover(&state, pending, |_| Ok(cover(1))).unwrap());
+        let state = state.lock().unwrap();
+        assert!(state.cover.is_none());
+        assert_eq!(state.preview_cover_path(), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn real_wic_cover_can_be_decoded_and_committed_off_thread() {
+        // 1x1、24位BMP，真实走Windows WIC；不启动窗口或访问用户媒体。
+        let mut bmp = vec![0u8; 58];
+        bmp[0..2].copy_from_slice(b"BM");
+        bmp[2..6].copy_from_slice(&58u32.to_le_bytes());
+        bmp[10..14].copy_from_slice(&54u32.to_le_bytes());
+        bmp[14..18].copy_from_slice(&40u32.to_le_bytes());
+        bmp[18..22].copy_from_slice(&1i32.to_le_bytes());
+        bmp[22..26].copy_from_slice(&1i32.to_le_bytes());
+        bmp[26..28].copy_from_slice(&1u16.to_le_bytes());
+        bmp[28..30].copy_from_slice(&24u16.to_le_bytes());
+        bmp[56] = 255;
+        let path = std::env::temp_dir().join(format!("auralflow-taskbar-test-{}.bmp", std::process::id()));
+        std::fs::write(&path, bmp).unwrap();
+        let result = std::thread::spawn({
+            let path = path.to_string_lossy().into_owned();
+            move || {
+                let state = enabled_state();
+                let request = state.lock().unwrap().begin_update(track(Some(&path), "playing")).unwrap();
+                let committed = decode_and_commit_cover(&state, request, platform::decode_cover)?;
+                let state = state.lock().unwrap();
+                let cover = state.cover.as_ref().unwrap();
+                assert!(committed);
+                assert_eq!((cover.width, cover.height), (1, 1));
+                assert_eq!(&**cover.pixels, &[0, 0, 255, 255]);
+                Ok::<(), String>(())
+            }
+        }).join();
+        std::fs::remove_file(path).unwrap();
+        result.unwrap().unwrap();
+    }
 
     #[test]
     fn button_ids_round_trip() {

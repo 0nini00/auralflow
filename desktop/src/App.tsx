@@ -96,7 +96,6 @@ function MainApp() {
           if (typeof s.volume === "number") {
             usePlayerStore.getState().setVolume(s.volume / 100);
           }
-          playerEngine.setReplayGainEnabled(s.replayGainEnabled === true);
           playerEngine.setPauseOnExternalPlayback(normalizePauseOnExternalPlayback(s.pauseOnExternalPlayback));
           setPlaybackFailedAutoNext(s.playbackFailedAutoNext);
         })

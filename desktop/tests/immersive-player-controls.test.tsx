@@ -16,7 +16,7 @@ beforeEach(() => {
   vi.stubGlobal('window', { requestAnimationFrame: (fn: () => void) => { fn(); return 1; }, cancelAnimationFrame: vi.fn() });
   props = {
     playback: { isPlaying: true, volume: 0.5, isMuted: false, playbackRate: 1, mode: { id: 'sequence', label: '顺序播放' } },
-    actions: { togglePlay: vi.fn(), toggleMute: vi.fn(), setVolume: vi.fn(), prev: vi.fn(), next: vi.fn(), cycleMode: vi.fn(), setPlaybackRate: vi.fn(), share: vi.fn() },
+    actions: { togglePlay: vi.fn(), toggleMute: vi.fn(), setVolume: vi.fn(), prev: vi.fn(), next: vi.fn(), cycleMode: vi.fn(), setPlaybackRate: vi.fn(), share: vi.fn(), exitImmersive: vi.fn() },
     timeline: { current: 25, duration: 120, onSeek: vi.fn(), onSeekStart: vi.fn(), onSeekEnd: vi.fn() },
     lyrics: { showTranslation: true, showRomanization: true, showRuby: true, pending: false, onToggle: vi.fn() },
     queue: { tracks: [{ source: 'wy', id: 'one', name: 'One', singer: 'Singer' }], currentIndex: 0, play: vi.fn(), remove: vi.fn() },
@@ -107,14 +107,24 @@ it('全部基础播放动作与倍速由 props 派发，歌词设置等待时不
   expect(button('罗马音').props.disabled).toBe(true);
   expect(button('注音').props.disabled).toBe(true);
 });
-it('更多操作是三条一致的菜单行，倍速有图标和原生选择器，分享说明复制行为', () => {
+it('更多操作是四条一致的菜单行，包含退出沉浸式播放', () => {
   click('更多');
   const grid = renderer.root.findByProps({ className: 'af-immersive-more-grid' });
-  expect(grid.children).toHaveLength(3);
+  expect(grid.children).toHaveLength(4);
   expect(grid.findAllByProps({ className: 'af-immersive-add-action' })).toHaveLength(0);
   const select = button('播放速度');
   expect(select.type).toBe('select');
   expect(select.parent?.findAllByType('svg').length).toBe(1);
   const share = button('复制歌曲链接');
   expect(share.findAllByType('span').map(node => node.children.join(''))).toContain('复制歌曲链接');
+});
+
+
+it('退出只在更多面板显示，关闭面板后派发退出动作一次', () => {
+  expect(renderer.root.findAllByProps({ 'aria-label': '退出沉浸式播放' })).toHaveLength(0);
+  click('更多');
+  click('退出沉浸式播放');
+  expect(panels()).toHaveLength(0);
+  expect(focus.get('更多')).toHaveBeenCalledOnce();
+  expect(props.actions.exitImmersive).toHaveBeenCalledOnce();
 });

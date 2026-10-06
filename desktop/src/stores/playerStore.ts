@@ -1,4 +1,3 @@
-import { readLocalReplayGain } from "@/services/localMusicService";
 import { useLibraryStore } from "./libraryStore";
 import { createLocalPlaybackLookup, synchronizeLocalQueue } from "@/services/localPlaybackMetadata";
 import { create } from "zustand";
@@ -374,16 +373,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
           let playedMusic = music;
           // 检查是否为本地音乐
           if ('isLocal' in music && music.isLocal && 'url' in music && music.url) {
-            let localMusic = getLocalPlaybackMusic(music);
-            if (playerEngine.getReplayGainState().enabled && localMusic.localPath) {
-              localMusic = await readLocalReplayGain(localMusic);
-              if (requestId !== activePlayRequestId) return;
-              useLibraryStore.getState().updateSong(localMusic.id, {
-                replayGain: localMusic.replayGain, replayGainError: localMusic.replayGainError,
-              });
-              localMusic = getLocalPlaybackMusic(localMusic);
-            }
-            if (requestId !== activePlayRequestId) return;
+            const localMusic = getLocalPlaybackMusic(music);
             await playThroughEngine(localMusic, music.url as string);
             if (requestId !== activePlayRequestId) return;
             useHistoryStore.getState().add(music);
@@ -960,9 +950,10 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
         // 否则 unmute 只能回到默认 0.8，且下次启动音量被写成 0
 
-        playerEngine.setVolume(0);
-
+        // 引擎会同步推送音量；先标记静音，订阅者才会保留逻辑音量。
         set({ isMuted: true });
+
+        playerEngine.setVolume(0);
 
       }
 
