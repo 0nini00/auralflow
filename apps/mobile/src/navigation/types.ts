@@ -66,8 +66,6 @@ export type RootStackParamList = {
   SearchFallbackDetail: { detail: SearchFallbackDetailModel };
   Leaderboard: undefined;
   PlaylistSquare: undefined;
-  FollowedArtists: undefined;
-  SubscribedAlbums: undefined;
   SimilarSongs: { songId: string; songName: string };
   ListeningStats: undefined;
 };

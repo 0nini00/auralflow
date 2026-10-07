@@ -5,6 +5,7 @@ import type { MusicInfo } from "@lx/core";
 
 import { useHistoryStore } from "@/stores/historyStore";
 import { useLocalMusicStore } from "@/stores/localMusicStore";
+import { buildLocalMusicMetadataUpdate } from "@/services/localMusicMetadataModel";
 import { useDownloadStore } from "@/stores/downloadStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { playQueue } from "@/services/playerService";
@@ -135,24 +136,28 @@ export function LibraryScreen({
     try {
       const mediaId = String(editingLocalSong.id);
       const coverValue = localSongCoverUri || localSongCoverUrl;
-      await updateLocalSongMetadata(
-        { id: editingLocalSong.id, source: editingLocalSong.source },
-        {
-          name: localSongName,
-          singer: localSongSinger,
-          albumName: localSongAlbumName,
-          coverUrl: coverValue,
-          localLyrics: localSongLyrics,
-        },
-      );
+      const input = {
+        name: localSongName,
+        singer: localSongSinger,
+        albumName: localSongAlbumName,
+        coverUrl: coverValue,
+        localLyrics: localSongLyrics,
+      };
+      // 先验证表单，再写音频；只有写入成功才发布曲库修改。
+      buildLocalMusicMetadataUpdate(input);
       // 封面与歌词写入音频文件标签（对齐桌面端 set_audio_cover / set_audio_lyrics）。
       // 下载目录入库的歌曲没有 MediaStore 媒体 id，原生写回必然失败：仅更新列表元数据。
       if (!isDownloadedLocalSong(editingLocalSong)) {
         if (localSongCoverUri) {
           await writeLocalMusicCover(mediaId, localSongCoverUri);
         }
-        await writeLocalMusicLyrics(mediaId, localSongLyrics);
+        if (localSongLyrics !== (editingLocalSong.localLyrics || "")) {
+          await writeLocalMusicLyrics(mediaId, localSongLyrics);
+        }
       }
+      await updateLocalSongMetadata(
+        { id: editingLocalSong.id, source: editingLocalSong.source }, input,
+      );
       closeLocalSongEditor();
     } catch (error) {
       Alert.alert("编辑失败", error instanceof Error ? error.message : String(error));

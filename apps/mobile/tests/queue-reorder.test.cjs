@@ -16,6 +16,7 @@ function setup() {
     "@/services/androidPitchService": {},
     "@/services/playbackUrlCache": {},
     "@/services/playbackFailurePolicy": {},
+    "@/services/logger": { logger: { warn() {} } },
     "../services/playerService": {},
     "@/services/lyricOverlayService": {},
     "@/services/listenTrackerService": {},

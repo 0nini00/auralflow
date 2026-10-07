@@ -17,6 +17,7 @@ import { searchWySongsViaCloudSearch } from "./wySearchService";
 import { mapWyTrackToMusicInfo } from "./wyMusicMapper";
 import { postWyEapi } from "./wyDirectProvider";
 import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
+import { parseNeteaseCommentResult, type SongCommentResult } from "./songCommentModel";
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 30;
@@ -59,21 +60,7 @@ export interface SearchResults {
 
 export type SearchSource = "all" | Extract<SourceTag, "wy" | "tx">;
 
-export interface SongComment {
-  id: string;
-  content: string;
-  userId: string;
-  nickname: string;
-  avatarUrl?: string;
-  likedCount: number;
-  createdAt: number;
-  beReplied?: Array<{ nickname: string; content: string }>;
-}
-
-export interface SongCommentResult {
-  total: number;
-  comments: SongComment[];
-}
+export type { CommentVoice, SongComment, SongCommentResult } from "./songCommentModel";
 
 /** 网易云歌单评论标识前缀（歌曲资源 R_SO_4_<songId>） */
 const SONG_COMMENT_RESOURCE_PREFIX = "R_SO_4_";
@@ -91,36 +78,8 @@ export async function fetchNeteaseComments(
   const url =
     `https://music.163.com/api/v1/resource/comments/${rid}` +
     `?rid=${rid}&offset=${offset}&total=${offset > 0}&limit=${limit}`;
-  let response: string;
-  let data: Record<string, any>;
-  try {
-    response = await fetchText(url);
-    data = JSON.parse(response) as Record<string, any>;
-  } catch (error) {
-    // 评论接口失败（风控/非 JSON）不应阻断，返回空列表（与搜索各分类的 allSettled 语义一致）
-    return { total: 0, comments: [] };
-  }
-  const comments = Array.isArray(data.comments) ? data.comments : [];
-  return {
-    total: Number(data.total ?? comments.length),
-    comments: comments.map((item: any) => ({
-      id: String(item.commentId ?? item.id),
-      content: item.content ?? "",
-      userId: String(item.user?.userId ?? ""),
-      nickname: item.user?.nickname ?? "未知用户",
-      avatarUrl: item.user?.avatarUrl ?? "",
-      likedCount: Number(item.likedCount ?? 0),
-      createdAt: Number(item.time ?? 0),
-      beReplied: Array.isArray(item.beReplied)
-        ? item.beReplied
-            .filter((reply: any) => reply?.user)
-            .map((reply: any) => ({
-              nickname: reply.user.nickname ?? "",
-              content: reply.content ?? "",
-            }))
-        : undefined,
-    })),
-  };
+  const response = await fetchText(url);
+  return parseNeteaseCommentResult(JSON.parse(response));
 }
 
 export interface ArtistDetailResult {
@@ -162,6 +121,26 @@ const builtinClient = createBuiltinMusicApiClient(fetchText);
 
 export function toApiSource(source: Extract<SourceTag, "wy" | "tx">): string {
   return source === "wy" ? "netease" : "joox";
+}
+
+/** 显式网关召回，不读取或覆盖官方搜索缓存。 */
+export async function searchGatewaySongs(
+  source: Extract<SourceTag, "wy" | "tx">,
+  keyword: string,
+): Promise<MusicInfo[]> {
+  return builtinClient.searchSongs(toApiSource(source), keyword, DEFAULT_PAGE, DEFAULT_LIMIT, source);
+}
+
+/** 网关候选只交给其真实 namespace，不向官方接口发送 JOOX 等外部 ID。 */
+export async function getGatewayLyrics(candidate: MusicInfo): Promise<LyricLine[]> {
+  if (candidate.source === "local" || candidate.isLocal || candidate.localPath ||
+      !candidate.gateway?.source || !candidate.gateway.trackId) {
+    throw new Error("网关歌词需要带真实网关身份的在线候选");
+  }
+  const lyricResult = await builtinClient.getLyric(candidate);
+  const rawLyric = lyricResult.lyric ?? "";
+  if (!rawLyric.trim()) return [];
+  return mergeTranslation(parseLyricSource({ type: "auto", content: rawLyric }), lyricResult.tlyric);
 }
 
 function formatDate(value?: number | string): string | undefined {
@@ -601,7 +580,9 @@ export async function parseUrl(song: MusicInfo, quality = "320k"): Promise<{ url
  */
 export async function getLyrics(song: MusicInfo): Promise<Array<{ time: number; text: string; tr?: string }>> {
   const localLyrics = song.localLyrics?.trim();
-  if (song.source === "local" && localLyrics) {
+  if (song.source === "local" || song.isLocal) {
+    // 本地 ID 没有在线语义；缺失资料由独立的只读匹配链处理。
+    if (!localLyrics) return [];
     const parsed = parseLyricSource({ type: "auto", content: localLyrics });
     const lines: LyricLine[] = parsed.length > 0
       ? parsed

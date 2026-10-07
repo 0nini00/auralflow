@@ -17,6 +17,9 @@ import type { ThemePalette } from "@/stores/themeStore";
 import { fetchNeteaseComments, type SongComment } from "@/services/musicApi";
 import { sendWyComment } from "@/services/wyPlaylistService";
 import { useAccountStore } from "@/stores/accountStore";
+import { CommentVoiceContent } from "@/components/CommentVoiceContent";
+import { useCommentVoicePlayback } from "@/hooks/useCommentVoicePlayback";
+import type { CommentVoiceItem, CommentVoiceState } from "@/services/commentVoiceController";
 
 export interface ImmersiveCommentsSheetProps {
   visible: boolean;
@@ -37,7 +40,12 @@ function formatCommentTime(createdAt: number): string {
   return new Date(createdAt).toLocaleDateString("zh-CN");
 }
 
-function CommentRow({ comment, palette }: { comment: SongComment; palette: ThemePalette }) {
+function CommentRow({ comment, palette, playback, onToggle }: {
+  comment: SongComment;
+  palette: ThemePalette;
+  playback: CommentVoiceState;
+  onToggle: (item: CommentVoiceItem) => void;
+}) {
   return (
     <View style={styles.row}>
       {comment.avatarUrl ? (
@@ -64,11 +72,12 @@ function CommentRow({ comment, palette }: { comment: SongComment; palette: Theme
           </View>
         </View>
         {comment.beReplied && comment.beReplied.length > 0 ? (
-          <Text style={[styles.replied, { color: palette.textMuted }]} numberOfLines={2}>
-            回复 {comment.beReplied[0].nickname}：{comment.beReplied[0].content}
-          </Text>
+          <View>
+            <Text style={[styles.replied, { color: palette.textMuted }]} numberOfLines={1}>回复 {comment.beReplied[0].nickname}：</Text>
+            <CommentVoiceContent itemId={`reply:${comment.id}:0`} data={comment.beReplied[0]} palette={palette} playback={playback} onToggle={onToggle} compact />
+          </View>
         ) : null}
-        <Text style={[styles.content, { color: palette.text }]}>{comment.content}</Text>
+        <CommentVoiceContent itemId={`comment:${comment.id}`} data={comment} palette={palette} playback={playback} onToggle={onToggle} />
         <Text style={[styles.time, { color: palette.textMuted }]}>
           {formatCommentTime(comment.createdAt)}
         </Text>
@@ -87,6 +96,11 @@ export function ImmersiveCommentsSheet({
   // 仅网易云（wy）曲目有真实评论 ID：wy 的 song.id 即网易云歌曲 ID
   // （gateway.trackId 是播放 url_id，可能非歌曲 ID，不作评论资源用）。
   const songId = song?.source === "wy" ? song.id : undefined;
+  const voice = useCommentVoicePlayback(visible, songId);
+  const handleClose = async () => {
+    if (await voice.controller.stop(true)) onClose();
+  };
+  const handleToggleVoice = (item: CommentVoiceItem) => { void voice.controller.toggle(item); };
   const isLoggedIn = useAccountStore((state) => state.isLoggedIn);
 
   const [items, setItems] = useState<SongComment[]>([]);
@@ -201,10 +215,10 @@ export function ImmersiveCommentsSheet({
       transparent
       animationType="slide"
       statusBarTranslucent
-      onRequestClose={onClose}
+      onRequestClose={() => { void handleClose(); }}
     >
       <View style={styles.overlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => { void handleClose(); }} />
         <View style={[styles.sheet, { backgroundColor: palette.surface }]}>
           <View style={styles.header}>
             <View style={styles.headerTitleWrap}>
@@ -216,7 +230,7 @@ export function ImmersiveCommentsSheet({
                 <Text style={[styles.count, { color: palette.textMuted }]}>({total})</Text>
               ) : null}
             </View>
-            <Pressable onPress={onClose} hitSlop={8} accessibilityRole="button" accessibilityLabel="关闭评论">
+            <Pressable onPress={() => { void handleClose(); }} hitSlop={8} accessibilityRole="button" accessibilityLabel="关闭评论">
               <X size={20} color={palette.textMuted} />
             </Pressable>
           </View>
@@ -246,7 +260,8 @@ export function ImmersiveCommentsSheet({
             <FlatList
               data={items}
               keyExtractor={(item, index) => `${item.id}-${index}`}
-              renderItem={({ item }) => <CommentRow comment={item} palette={palette} />}
+              extraData={voice.playback}
+              renderItem={({ item }) => <CommentRow comment={item} palette={palette} playback={voice.playback} onToggle={handleToggleVoice} />}
               onEndReached={handleLoadMore}
               onEndReachedThreshold={0.3}
               refreshing={refreshing}
@@ -261,6 +276,9 @@ export function ImmersiveCommentsSheet({
               style={styles.list}
             />
           )}
+
+          {voice.player}
+          {voice.playback.error ? <Text accessibilityRole="alert" style={[styles.errorText, { color: palette.danger }]}>{voice.playback.error}</Text> : null}
 
           {/* 评论输入栏：网易云曲目且已登录才渲染（未登录不展示需要账号的操作，也不留"登录后可评论"文案） */}
           {songId && isLoggedIn ? (
@@ -380,11 +398,6 @@ const styles = StyleSheet.create({
   },
   replied: {
     fontSize: 13,
-    marginTop: 6,
-  },
-  content: {
-    fontSize: 15,
-    lineHeight: 20,
     marginTop: 6,
   },
   time: {

@@ -24,11 +24,12 @@ import { Touchable } from "@/components/Touchable";
 import {
   clearLyricOverlayLyrics,
   hideLyricOverlay,
-  playLyricOverlayClock,
   setLyricOverlayLocked,
   setLyricOverlayLyrics,
   updateLyricOverlay,
 } from "@/services/lyricOverlayService";
+import { syncLyricOverlayPlaybackClock } from "@/services/lyricOverlayPlayback";
+import { logger } from "@/services/logger";
 import { shouldCalibrateClock } from "@lx/core";
 import {
   playFromQueue,
@@ -42,6 +43,7 @@ import { useLyricOverlayStore } from "@/stores/lyricOverlayStore";
 import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
 import { useLyricLineIndex } from "@/hooks/useLyricLineIndex";
 import { usePlayerStore } from "@/stores/playerStore";
+import { selectPlaybackArtwork } from "@/services/localMediaPlaybackModel";
 import { PLAYER_BAR_HEIGHT } from "@/navigation/tabLayout";
 import { setImmersiveFlySource } from "@/screens/immersive/immersiveFlySource";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
@@ -60,6 +62,7 @@ function showActionError(title: string, error: unknown) {
 
 export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
   const currentSong = usePlayerStore((state) => state.currentSong);
+  const coverUrl = usePlayerStore(selectPlaybackArtwork);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const loading = usePlayerStore((state) => state.loading);
   const pause = usePlayerStore((state) => state.pause);
@@ -153,7 +156,6 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
 
   if (!currentSong || keyboardVisible) return null;
 
-  const coverUrl = currentSong.picUrl || currentSong.img;
 
   const handleTogglePlayback = async () => {
     try {
@@ -422,42 +424,30 @@ function MiniLyricStatus({ overlayVisible, color }: MiniLyricStatusProps) {
   const lyricsOwned = songKey !== "" && lyricsOwnerRef.current.key === songKey;
 
   const position = usePlayerStore((s) => s.position);
-  const lastInjectedKeyRef = useRef("");
   const lastSyncTimeRef = useRef(0);
 
   // 会话边界同步：当歌曲、歌词数组或悬浮窗开启状态发生改变时，向原生注入歌词全集与初始时钟
   useEffect(() => {
-    if (!overlayVisible) {
-      lastInjectedKeyRef.current = "";
-      return;
-    }
+    if (!overlayVisible) return;
 
     const titleText = currentSong
       ? convertText(currentSong.singer ? `${currentSong.name} - ${currentSong.singer}` : currentSong.name)
       : "";
 
     if (currentSong && lyricsOwned && lyrics.length > 0) {
-      const injectionKey = `${songKey}:${lyrics.length}`;
-      if (injectionKey !== lastInjectedKeyRef.current) {
-        lastInjectedKeyRef.current = injectionKey;
-        const converted = lyrics.map((l) => ({
-          time: l.time,
-          text: convertText(l.text ?? ""),
-          tr: l.tr ? convertText(l.tr) : undefined,
-        }));
-        void setLyricOverlayLyrics(converted, titleText).then(() => {
-          if (isPlaying) {
-            void playLyricOverlayClock(position).catch(() => {});
-          }
-        }).catch(() => {});
-      }
-    } else {
-      if (lastInjectedKeyRef.current !== "") {
-        lastInjectedKeyRef.current = "";
-        void clearLyricOverlayLyrics(titleText).catch(() => {});
-      }
+      const converted = lyrics.map((line) => ({
+        time: line.time,
+        text: convertText(line.text ?? ""),
+        tr: line.tr ? convertText(line.tr) : undefined,
+      }));
+      // effect 已按实际数组/转换设置触发；行数相同不代表内容相同。
+      void setLyricOverlayLyrics(converted, titleText)
+        .then(() => syncLyricOverlayPlaybackClock())
+        .catch((error) => logger.warn("悬浮歌词注入失败", error));
+    } else if (currentSong) {
+      void clearLyricOverlayLyrics(titleText).catch((error) => logger.warn("悬浮歌词清理失败", error));
     }
-  }, [overlayVisible, currentSong, songKey, lyricsOwned, lyrics, convertText, isPlaying, position]);
+  }, [overlayVisible, currentSong, songKey, lyricsOwned, lyrics, convertText]);
 
   // 前台 5s 周期校准：避免累积时钟漂移
   useEffect(() => {
@@ -465,7 +455,7 @@ function MiniLyricStatus({ overlayVisible, color }: MiniLyricStatusProps) {
     const now = Date.now();
     if (shouldCalibrateClock(now - lastSyncTimeRef.current, true)) {
       lastSyncTimeRef.current = now;
-      void playLyricOverlayClock(position).catch(() => {});
+      void syncLyricOverlayPlaybackClock().catch((error) => logger.warn("悬浮歌词时钟校准失败", error));
     }
   }, [position, overlayVisible, isPlaying]);
 

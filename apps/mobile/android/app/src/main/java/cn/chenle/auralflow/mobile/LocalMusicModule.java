@@ -10,6 +10,7 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.MediaStore;
+import android.provider.OpenableColumns;
 
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.ActivityEventListener;
@@ -34,13 +35,18 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.net.URI;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * 通过 Android MediaStore 读写设备本地音乐文件的原生模块。
@@ -92,6 +98,7 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
   private PendingWrite writePending;
   private PendingMetadataUpdate updatePending;
   private Promise pickAudioPromise;
+  private final ExecutorService audioAssetsExecutor = Executors.newSingleThreadExecutor();
 
   private interface TagMutator {
     void mutate(AudioFile audioFile, Tag tag) throws Exception;
@@ -137,6 +144,105 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
   @Override
   public String getName() {
     return "LocalMusicModule";
+  }
+
+  /** 只读提取；整个 I/O 流程与 Native 调用线程及播放控制隔离。 */
+  @ReactMethod
+  public void readAudioAssets(String uriString, Promise promise) {
+    try {
+      audioAssetsExecutor.execute(() -> {
+        try {
+          promise.resolve(readLocalAudioAssets(uriString));
+        } catch (Exception error) {
+          promise.reject("LOCAL_MUSIC_ASSETS_FAILED", error);
+        }
+      });
+    } catch (RejectedExecutionException error) {
+      promise.reject("LOCAL_MUSIC_ASSETS_FAILED", error);
+    }
+  }
+
+  private WritableMap readLocalAudioAssets(String uriString) throws Exception {
+    if (uriString == null) throw new IllegalArgumentException("音频 URI 不能为空");
+    URI parsed = null;
+    if (uriString.startsWith("file:///") && !uriString.startsWith("file:////")) {
+      // 旧曲库直接拼接 file:// 与原路径；已有绝对本地文件按字面读取，保留空格、# 和 %。
+      File literalFile = new File(uriString.substring("file://".length()));
+      if (literalFile.isAbsolute() && literalFile.isFile()) parsed = literalFile.toURI();
+    }
+    // 字面文件不存在时严格解析标准 URI，由 File(URI) 解码一次，不手动解码路径。
+    if (parsed == null) parsed = new URI(uriString);
+    String scheme = parsed.getScheme();
+    if ((!"file".equals(scheme) && !"content".equals(scheme)) || parsed.isOpaque()
+        || parsed.getFragment() != null || parsed.getPath() == null || parsed.getPath().isEmpty()) {
+      throw new IllegalArgumentException("仅支持 file:// 或 content:// 音频 URI");
+    }
+    if ("content".equals(scheme) && (parsed.getAuthority() == null || parsed.getAuthority().isEmpty())) {
+      throw new IllegalArgumentException("content URI 缺少提供方");
+    }
+    Uri audioUri = Uri.parse(parsed.toString());
+    ContentResolver resolver = getReactApplicationContext().getContentResolver();
+    File localFile = null;
+    String displayName = audioUri.getLastPathSegment();
+    String mime = null;
+    List<String> warnings = new ArrayList<>();
+    LocalAudioAssetsReader.Source source;
+    if ("file".equals(scheme)) {
+      File file = new File(parsed);
+      if (!file.isFile()) throw new FileNotFoundException("音频不是可读文件：" + file);
+      localFile = file;
+      displayName = file.getName();
+      source = () -> new FileInputStream(file);
+    } else {
+      source = () -> resolver.openInputStream(audioUri);
+      // 提供方的可选元数据失败不能遮蔽仍然可读的流；每项失败显式返回警告。
+      try {
+        String name = getAudioDisplayName(resolver, audioUri);
+        if (name != null) displayName = name;
+      } catch (RuntimeException error) {
+        warnings.add("SOURCE_NAME_FAILED: " + error.getMessage());
+      }
+      try {
+        mime = resolver.getType(audioUri);
+      } catch (RuntimeException error) {
+        warnings.add("SOURCE_MIME_FAILED: " + error.getMessage());
+      }
+      try {
+        localFile = getAudioAssetsFile(resolver, audioUri);
+      } catch (RuntimeException error) {
+        warnings.add("SIDECAR_PATH_FAILED: " + error.getMessage());
+      }
+    }
+    LocalAudioAssetsReader.Result assets = LocalAudioAssetsReader.read(
+        getReactApplicationContext().getCacheDir(), displayName, mime, source, localFile);
+    WritableMap result = Arguments.createMap();
+    result.putString("signature", assets.signature);
+    if (assets.lyrics != null) result.putString("lyrics", assets.lyrics);
+    if (assets.coverFile != null) result.putString("coverUri", Uri.fromFile(assets.coverFile).toString());
+    WritableArray resultWarnings = Arguments.createArray();
+    for (String warning : warnings) resultWarnings.pushString(warning);
+    for (String warning : assets.warnings) resultWarnings.pushString(warning);
+    result.putArray("warnings", resultWarnings);
+    return result;
+  }
+
+  private static File getAudioAssetsFile(ContentResolver resolver, Uri audioUri) {
+    try (Cursor cursor = resolver.query(audioUri, new String[] {MediaStore.Audio.Media.DATA},
+        null, null, null)) {
+      if (cursor == null || !cursor.moveToFirst()) return null;
+      int column = cursor.getColumnIndex(MediaStore.Audio.Media.DATA);
+      if (column < 0 || cursor.isNull(column)) return null;
+      File file = new File(cursor.getString(column));
+      return file.isAbsolute() ? file : null;
+    }
+  }
+
+  @Override
+  public void invalidate() {
+    // 不接受新读取，但排空已接受的任务，让每个 Promise 都能结束后再释放线程。
+    audioAssetsExecutor.shutdown();
+    getReactApplicationContext().removeActivityEventListener(writeActivityEventListener);
+    super.invalidate();
   }
 
   /**
@@ -335,7 +441,7 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
   /* 内嵌歌词 / 同名 .lrc 旁挂歌词 / sidecar 封面                        */
   /* ------------------------------------------------------------------ */
 
-  private static final int MAX_LOCAL_LYRICS_BYTES = 512 * 1024;
+  private static final int MAX_LOCAL_LYRICS_BYTES = LocalAudioAssetsReader.MAX_LYRICS_BYTES;
   private static final String[] SIDECAR_COVER_NAMES = {
     "folder.jpg", "Folder.jpg", "cover.jpg", "Cover.jpg",
     "folder.png", "Folder.png", "cover.png", "Cover.png",
@@ -667,31 +773,30 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
   }
 
   /**
-   * 通用写标签流程：拷贝到临时文件 -> jaudiotagger 修改 -> 覆盖写回原音频 URI。
+   * 通用写标签流程：保留原始副本 -> 按真实格式编辑副本 -> 复读验证 -> 覆盖写回，I/O 失败恢复。
    * 遇到 RecoverableSecurityException 时发起写授权，授权成功后由 ActivityEventListener 重试。
    */
   private void writeTagToFile(Uri audioUri, TagMutator mutator, Promise promise) {
     ContentResolver resolver = getReactApplicationContext().getContentResolver();
-    File temp = null;
     try {
-      temp = File.createTempFile("af_tag_", ".tmp", getReactApplicationContext().getCacheDir());
-      try (InputStream in = resolver.openInputStream(audioUri);
-           OutputStream out = new FileOutputStream(temp)) {
-        copyStream(in, out);
+      String displayName = getAudioDisplayName(resolver, audioUri);
+      // 恢复失败时这是唯一原始副本，不能放在系统可回收的 cache 目录。
+      File stagingDir = new File(getReactApplicationContext().getFilesDir(), "local-tag-edit");
+      if (!stagingDir.mkdirs() && !stagingDir.isDirectory()) {
+        throw new IOException("无法创建标签编辑暂存目录：" + stagingDir.getAbsolutePath());
       }
+      LocalTagEditor.write(stagingDir, displayName,
+          resolver.getType(audioUri), new LocalTagEditor.Source() {
+            @Override
+            public InputStream openInput() throws IOException {
+              return resolver.openInputStream(audioUri);
+            }
 
-      AudioFile audioFile = AudioFileIO.read(temp);
-      Tag tag = audioFile.getTagOrCreateAndSetDefault();
-      mutator.mutate(audioFile, tag);
-      audioFile.commit();
-
-      // 注意：openOutputStream(audioUri, "wt") 会先截断原文件再写入，写入中途失败会损坏原文件。
-      // content:// URI 无法做原子 rename，故此处采用先把完整修改写入临时文件、再整体覆盖写回的策略，
-      // 以降低（但无法完全消除）损坏风险。
-      try (InputStream in = new FileInputStream(temp);
-           OutputStream out = resolver.openOutputStream(audioUri, "wt")) {
-        copyStream(in, out);
-      }
+            @Override
+            public OutputStream openOutput() throws IOException {
+              return resolver.openOutputStream(audioUri, "wt");
+            }
+          }, mutator::mutate);
       promise.resolve(true);
     } catch (SecurityException securityError) {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
@@ -702,11 +807,15 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
       }
     } catch (Exception error) {
       promise.reject("LOCAL_MUSIC_TAG_WRITE_FAILED", error);
-    } finally {
-      if (temp != null && temp.exists()) {
-        //noinspection ResultOfMethodCallIgnored
-        temp.delete();
-      }
+    }
+  }
+
+  private static String getAudioDisplayName(ContentResolver resolver, Uri audioUri) {
+    try (Cursor cursor = resolver.query(audioUri, new String[] { OpenableColumns.DISPLAY_NAME },
+        null, null, null)) {
+      if (cursor == null || !cursor.moveToFirst()) return null;
+      int column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+      return column >= 0 && !cursor.isNull(column) ? cursor.getString(column) : null;
     }
   }
 
@@ -794,14 +903,6 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
         buffer.write(chunk, 0, read);
       }
       return buffer.toByteArray();
-    }
-  }
-
-  private static void copyStream(InputStream in, OutputStream out) throws Exception {
-    byte[] buffer = new byte[8192];
-    int read;
-    while ((read = in.read(buffer)) != -1) {
-      out.write(buffer, 0, read);
     }
   }
 }

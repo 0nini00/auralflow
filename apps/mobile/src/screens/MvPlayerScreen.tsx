@@ -7,7 +7,8 @@ import { ArrowLeft, Maximize2, Minimize2, Pause, Play, RotateCcw } from "lucide-
 import { IconButton } from "@/components/IconButton";
 import { ChoiceChip } from "@/components/ChoiceChip";
 import { fetchWyMvPlaybackSource, type MvPlaybackSource, type MvResolution } from "@/services/wyMvService";
-import { startMvAudioSession, type MvAudioSession } from "@/services/mvAudioSession";
+import { createMediaAudioSession, type MediaAudioSession } from "@/services/mediaAudioSession";
+import { logger } from "@/services/logger";
 import { setLandscapePreferred, restoreOrientationPreference } from "@/services/orientationService";
 import { formatTime } from "@/services/playerService";
 
@@ -139,7 +140,10 @@ export function MvPlayerScreen({ mvId, title, artist, posterUrl, onBack }: MvPla
   // 是否进入过全屏(供卸载时决定是否需要恢复方向)。
   const everEnteredFullscreenRef = useRef(false);
   const videoRef = useRef<ElementRef<typeof Video> | null>(null);
-  const sessionRef = useRef<MvAudioSession | null>(null);
+  const sessionRef = useRef<MediaAudioSession | null>(null);
+  const closingSessionRef = useRef<Promise<void> | null>(null);
+  const mountedRef = useRef(false);
+  const [sessionReady, setSessionReady] = useState(false);
   const requestIdRef = useRef(0);
   const pendingSeekRef = useRef<{ requestId: number; position: number } | null>(null);
   const progressListenersRef = useRef<MvProgressListenerBag | null>(null);
@@ -147,11 +151,41 @@ export function MvPlayerScreen({ mvId, title, artist, posterUrl, onBack }: MvPla
   const positionRef = useRef(0);
   const [source, setSource] = useState<ResolvedMvSource | null>(null);
   const [quality, setQuality] = useState<MvResolution>(1080);
-  const [paused, setPaused] = useState(false);
+  const [paused, setPaused] = useState(true);
   const [ended, setEnded] = useState(false);
   const [buffering, setBuffering] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const reportMediaError = useCallback((value: unknown, message: string) => {
+    logger.error(message, value);
+    if (!mountedRef.current) return;
+    setLoading(false);
+    setError(value instanceof Error ? value.message : message);
+  }, []);
+
+  const stopMedia = useCallback((resume = true): Promise<void> => {
+    requestIdRef.current += 1;
+    videoRef.current?.pause();
+    setPaused(true);
+    setSessionReady(false);
+    setBuffering(false);
+    setLoading(false);
+    const session = sessionRef.current;
+    sessionRef.current = null;
+    if (!session) return closingSessionRef.current ?? Promise.resolve();
+    const closing = session.close(resume);
+    closingSessionRef.current = closing;
+    const clearClosing = () => {
+      if (closingSessionRef.current === closing) closingSessionRef.current = null;
+    };
+    void closing.then(clearClosing, clearClosing);
+    return closing;
+  }, []);
+
+  const interruptMedia = useCallback(() => {
+    void stopMedia(false).catch((error) => reportMediaError(error, "MV 中断清理失败"));
+  }, [stopMedia, reportMediaError]);
 
   const resolve = useCallback(async (preferred: MvResolution, seekPosition?: number) => {
     const requestId = ++requestIdRef.current;
@@ -159,53 +193,72 @@ export function MvPlayerScreen({ mvId, title, artist, posterUrl, onBack }: MvPla
     setError(null);
     try {
       const next = await fetchWyMvPlaybackSource(mvId, preferred);
-      if (requestId !== requestIdRef.current) return;
+      if (requestId !== requestIdRef.current || !mountedRef.current) return false;
       pendingSeekRef.current = seekPosition == null ? null : { requestId, position: seekPosition };
       setSource({ ...next, requestId });
       setQuality(next.resolution);
       setLoading(false);
+      return true;
     } catch (value) {
-      if (requestId !== requestIdRef.current) return;
-      setLoading(false);
-      setError(value instanceof Error ? value.message : "MV 播放地址获取失败");
+      if (requestId !== requestIdRef.current || !mountedRef.current) return false;
+      reportMediaError(value, "MV 播放地址获取失败");
+      videoRef.current?.pause();
+      setPaused(true);
+      return false;
     }
-  }, [mvId]);
+  }, [mvId, reportMediaError]);
 
-  useEffect(() => {
-    let mounted = true;
-    setSource(null);
+  const startMedia = useCallback(async () => {
+    if (sessionRef.current) {
+      const retrySession = sessionRef.current;
+      if (await resolve(lastPreferredResolution, positionRef.current) && sessionRef.current === retrySession) setPaused(false);
+      return;
+    }
+    const requestId = ++requestIdRef.current;
+    let startingSession: MediaAudioSession | null = null;
     setLoading(true);
     setError(null);
-
-    void (async () => {
-      try {
-        const session = await startMvAudioSession();
-        if (!mounted) {
-          await session.close();
-          return;
-        }
-        sessionRef.current = session;
-        await resolve(lastPreferredResolution);
-      } catch (value) {
-        if (!mounted) return;
-        setLoading(false);
-        setError(value instanceof Error ? value.message : "无法暂停音频");
+    try {
+      if (closingSessionRef.current) await closingSessionRef.current;
+      if (!mountedRef.current || requestId !== requestIdRef.current) return;
+      const session = createMediaAudioSession(() => {
+        if (sessionRef.current === session) interruptMedia();
+      });
+      startingSession = session;
+      sessionRef.current = session;
+      setSource(null);
+      if (!await session.start() || sessionRef.current !== session || !mountedRef.current) return;
+      setSessionReady(true);
+      setPaused(false);
+      setEnded(false);
+      await resolve(lastPreferredResolution, positionRef.current);
+    } catch (value) {
+      if (!mountedRef.current || (startingSession ? sessionRef.current !== startingSession : requestId !== requestIdRef.current)) {
+        logger.error("已取消的 MV 音频会话失败", value);
+        return;
       }
-    })();
+      reportMediaError(value, "无法开始 MV 音频会话");
+      await stopMedia(false).catch((error) => reportMediaError(error, "MV 会话清理失败"));
+    }
+  }, [interruptMedia, reportMediaError, resolve, stopMedia]);
 
+  useEffect(() => {
+    mountedRef.current = true;
+    positionRef.current = 0;
+    setSource(null);
+    void startMedia();
     return () => {
-      mounted = false;
-      requestIdRef.current += 1;
-      const session = sessionRef.current;
-      sessionRef.current = null;
-      if (session) void session.close();
+      mountedRef.current = false;
+      void stopMedia().catch((error) => reportMediaError(error, "退出 MV 后恢复歌曲失败"));
     };
-  }, [resolve]);
+  }, [startMedia, stopMedia, reportMediaError]);
 
   const handleQuality = useCallback((nextQuality: MvResolution) => {
     if (nextQuality === quality) return;
     lastPreferredResolution = nextQuality;
-    void resolve(nextQuality, positionRef.current);
+    setQuality(nextQuality);
+    // 清晰度只换媒体资源，不释放或新建音频会话。
+    if (sessionRef.current) void resolve(nextQuality, positionRef.current);
   }, [quality, resolve]);
 
   const enterFullscreen = useCallback(async () => {
@@ -266,19 +319,28 @@ export function MvPlayerScreen({ mvId, title, artist, posterUrl, onBack }: MvPla
     };
   }, []);
 
-  // 播完进入 ended 态：按钮变重播，按下回到 0 重新播放
+  // 中断或播放结束后须由用户重新点击，重新取得播放权；不自动抢回焦点。
   const handlePlayPause = useCallback(() => {
+    if (loading) return;
+    if (!sessionRef.current) {
+      if (ended) positionRef.current = 0;
+      void startMedia();
+      return;
+    }
     if (ended) {
-      positionRef.current = 0;
       videoRef.current?.seek(0);
+      positionRef.current = 0;
       setEnded(false);
       setPaused(false);
       return;
     }
     setPaused((value) => !value);
-  }, [ended]);
+  }, [ended, loading, startMedia]);
 
-  const close = useCallback(() => onBack(), [onBack]);
+  const close = useCallback(() => {
+    void stopMedia().catch((error) => reportMediaError(error, "退出 MV 后恢复歌曲失败"));
+    onBack();
+  }, [onBack, stopMedia, reportMediaError]);
 
   return (
     <View style={styles.root}>
@@ -298,7 +360,7 @@ export function MvPlayerScreen({ mvId, title, artist, posterUrl, onBack }: MvPla
       </View>
       {/* 竖屏 16:9 固定框；横屏全屏铺满（按钮全屏 / 系统旋转均走此布局） */}
       <View style={isLandscape ? styles.videoFrameLandscape : styles.videoFrame}>
-        {source ? <Video
+        {source && sessionReady ? <Video
           key={source.requestId}
           ref={videoRef}
           source={{ uri: source.url }}
@@ -306,8 +368,17 @@ export function MvPlayerScreen({ mvId, title, artist, posterUrl, onBack }: MvPla
           posterResizeMode="contain"
           resizeMode="contain"
           paused={paused}
+          playInBackground={false}
+          playWhenInactive={false}
+          onAudioBecomingNoisy={() => {
+            if (source.requestId === requestIdRef.current) interruptMedia();
+          }}
+          onAudioFocusChanged={({ hasAudioFocus }) => {
+            if (!hasAudioFocus && source.requestId === requestIdRef.current) interruptMedia();
+          }}
           style={StyleSheet.absoluteFill}
           onLoad={(data) => {
+            if (source.requestId !== requestIdRef.current) return;
             progressListenersRef.current?.onDuration?.(data.duration);
             const pendingSeek = pendingSeekRef.current;
             if (pendingSeek?.requestId === source.requestId) {
@@ -316,23 +387,28 @@ export function MvPlayerScreen({ mvId, title, artist, posterUrl, onBack }: MvPla
             }
           }}
           onProgress={(data) => {
+            if (source.requestId !== requestIdRef.current) return;
             positionRef.current = data.currentTime;
             progressListenersRef.current?.onProgress?.(data);
           }}
-          onBuffer={(event: OnBufferData) => setBuffering(event.isBuffering)}
+          onBuffer={(event: OnBufferData) => {
+            if (source.requestId === requestIdRef.current) setBuffering(event.isBuffering);
+          }}
           onEnd={() => {
-            setPaused(true);
+            if (source.requestId !== requestIdRef.current) return;
             setEnded(true);
+            setPaused(true);
           }}
           progressUpdateInterval={250}
-          onError={() => {
-            setBuffering(false);
-            setLoading(false);
-            setError("视频播放失败，请重试或切换清晰度");
+          onError={(event) => {
+            if (source.requestId !== requestIdRef.current) return;
+            reportMediaError(event, "视频播放失败，请重试或切换清晰度");
+            videoRef.current?.pause();
+            setPaused(true);
           }}
         /> : null}
         {loading ? <View style={styles.overlay}><ActivityIndicator color="#fff" /><Text style={styles.message}>正在解析视频</Text></View> : null}
-        {error ? <View style={styles.overlay}><Text style={styles.message}>{error}</Text><IconButton onPress={() => void resolve(quality, positionRef.current)} tone="onImage" accessibilityLabel="重试" render={({ size, color }) => <RotateCcw color={color} size={size} />} /></View> : null}
+        {error ? <View style={styles.overlay}><Text style={styles.message}>{error}</Text><IconButton onPress={() => void startMedia()} tone="onImage" accessibilityLabel="重试" render={({ size, color }) => <RotateCcw color={color} size={size} />} /></View> : null}
         {!loading && !error && buffering && !paused ? (
           <View style={styles.bufferingBadge} pointerEvents="none">
             <ActivityIndicator color="#fff" size="small" />

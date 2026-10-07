@@ -1,3 +1,4 @@
+import type { LocalMediaPlaybackState } from "@/services/localMediaPlaybackModel";
 import { create } from "zustand";
 import { reorderQueueState, type QueueReorderStatus } from "@/services/queueReorderModel";
 import { AppState } from "react-native";
@@ -28,10 +29,10 @@ import { notePlaybackHealthy } from "@/services/playbackFailurePolicy";
 import { cancelPendingPlayback, invalidatePrefetchForSong, playFromQueue, playSong, prefetchUpcomingSongNearEnd } from "../services/playerService";
 import {
   isLyricOverlaySupported,
-  playLyricOverlayClock,
-  pauseLyricOverlayClock,
   setLyricOverlayClockRate,
 } from "@/services/lyricOverlayService";
+import { syncLyricOverlayPlaybackClock } from "@/services/lyricOverlayPlayback";
+import { logger } from "@/services/logger";
 import { onPlaybackProgress, resetListeningSession } from "@/services/listenTrackerService";
 
 
@@ -332,6 +333,8 @@ function maybeReconcileSleepTimer(): void {
 export interface PlayerState {
   // 当前播放
   currentSong: MusicInfo | null;
+  /** 仅播放展示用的派生资料，不写回歌曲、队列或播放快照。 */
+  localMedia: LocalMediaPlaybackState | null;
   currentUrl: string | null;
 
   // 播放状态
@@ -457,6 +460,7 @@ type PlayerStore = PlayerState & PlayerActions;
 export const usePlayerStore = create<PlayerStore>((set, get) => ({
   // 初始状态
   currentSong: null,
+  localMedia: null,
   currentUrl: null,
   isPlaying: false,
   loading: false,
@@ -605,6 +609,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
 
       set({
         currentSong: song,
+        localMedia: null,
         currentUrl: url,
         isPlaying: true,
         loading: false,
@@ -653,9 +658,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     const requestId = cancelTransportPlayback();
     if (isPlayerSetup) await TrackPlayer.pause();
     if (!isCurrentPlaybackRequest(requestId)) return;
-    // 暂停即重置结算基准：暂停期间不倒数。
-    syncSleepTimerClock();
-    set({ isPlaying: false });
+    get().syncPlayerState(State.Paused);
   },
 
   resume: async () => {
@@ -676,11 +679,10 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     if (!isPlayerSetup) return;
     await TrackPlayer.play();
     if (!isCurrentPlaybackRequest(requestId)) return;
-    syncSleepTimerClock();
     // IDLE/ENDED 的 play 可能是 no-op，回读原生状态，不能伪造播放成功。
     const state = await TrackPlayer.getState();
     if (!isCurrentPlaybackRequest(requestId)) return;
-    set({ isPlaying: state === State.Playing || state === State.Buffering });
+    get().syncPlayerState(state);
   },
 
   stop: async () => {
@@ -693,8 +695,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       await TrackPlayer.stop();
     }
     if (!isCurrentPlaybackRequest(requestId)) return;
-    syncSleepTimerClock();
-    set({ isPlaying: false, position: 0 });
+    get().syncPlayerState(State.Stopped);
+    set({ position: 0 });
   },
 
   seekTo: async (position: number) => {
@@ -715,9 +717,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       await TrackPlayer.seekTo(position);
     } catch { /* seek 失败：仍落 UI 位置 */ }
     set({ position });
-    if (isLyricOverlaySupported() && get().isPlaying) {
-      void playLyricOverlayClock(position).catch(() => {});
-    }
+    void syncLyricOverlayPlaybackClock().catch((error) => logger.warn("悬浮歌词进度同步失败", error));
   },
 
   setPlaybackRate: async (rate: number) => {
@@ -915,6 +915,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     // 同步清 UI；等待原生清理时发起的新请求不应被本次完成后的 set 覆盖。
     set({
       currentSong: null,
+      localMedia: null,
       currentUrl: null,
       isPlaying: false,
       loading: false,
@@ -1144,15 +1145,9 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     // 原生事件驱动的播放/暂停切换（如音频焦点中断）同样重置结算基准
     if (isPlaying !== get().isPlaying) {
       syncSleepTimerClock();
-      if (isLyricOverlaySupported()) {
-        if (state === State.Playing) {
-          void playLyricOverlayClock(get().position).catch(() => {});
-        } else if (state === State.Paused || state === State.Stopped) {
-          void pauseLyricOverlayClock().catch(() => {});
-        }
-      }
     }
     set({ isPlaying });
+    void syncLyricOverlayPlaybackClock(state).catch((error) => logger.warn("悬浮歌词播放状态同步失败", error));
   },
 }));
 

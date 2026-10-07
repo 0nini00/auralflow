@@ -1,11 +1,11 @@
 import React, { useState } from "react";
 import { StyleSheet, Text, View, Pressable } from "react-native";
 import type { MusicInfo } from "@lx/core";
-import { ChevronLeft, ChevronRight } from "lucide-react-native";
+import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react-native";
 
+import { HistoryCalendar } from "@/components/HistoryCalendar";
 import { SongList } from "@/components/SongList";
 import {
-  DAY_MS,
   addDays,
   dayStartOf,
   filterEntriesByDay,
@@ -43,6 +43,7 @@ export function HistorySection({
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
 
   const [selectedDay, setSelectedDay] = useState(() => dayStartOf(Date.now()));
+  const [calendarOpen, setCalendarOpen] = useState(false);
 
   const dayEntries = filterEntriesByDay(entries, selectedDay);
   const songs = dayEntries.map((entry) => entry.song);
@@ -61,6 +62,7 @@ export function HistorySection({
       <View style={styles.navigationRow}>
         <Pressable
           onPress={goPrev}
+          accessibilityRole="button"
           accessibilityLabel="前一天"
           style={({ pressed }) => [
             styles.navButton,
@@ -71,12 +73,23 @@ export function HistorySection({
           <ChevronLeft size={22} color={palette.text} />
         </Pressable>
 
-        <Text style={[styles.dayTitle, { color: palette.text }]} numberOfLines={1}>
-          {formatHistoryDayTitle(selectedDay)}
-        </Text>
+        <Pressable
+          onPress={() => setCalendarOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel="打开历史日历"
+          accessibilityValue={{ text: formatHistoryDayTitle(selectedDay) }}
+          accessibilityState={{ expanded: calendarOpen }}
+          style={({ pressed }) => [styles.dayButton, pressed && styles.navButtonPressed]}
+        >
+          <Text style={[styles.dayTitle, { color: palette.text }]} numberOfLines={1}>
+            {formatHistoryDayTitle(selectedDay)}
+          </Text>
+          <ChevronDown size={16} color={palette.textMuted} />
+        </Pressable>
 
         <Pressable
           onPress={goNext}
+          accessibilityRole="button"
           accessibilityLabel="后一天"
           accessibilityState={{ disabled: !canGoNext }}
           disabled={!canGoNext}
@@ -90,6 +103,16 @@ export function HistorySection({
           <ChevronRight size={22} color={palette.text} />
         </Pressable>
       </View>
+
+      {calendarOpen && (
+        <HistoryCalendar
+          entries={entries}
+          selectedDay={selectedDay}
+          palette={palette}
+          onSelect={setSelectedDay}
+          onClose={() => setCalendarOpen(false)}
+        />
+      )}
 
       <SongList
         songs={songs}
@@ -125,8 +148,16 @@ const styles = StyleSheet.create({
   navButtonDisabled: {
     opacity: 0.35,
   },
-  dayTitle: {
+  dayButton: {
     flex: 1,
+    minHeight: touch.minTarget,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xxs,
+  },
+  dayTitle: {
+    flexShrink: 1,
     textAlign: "center",
     fontSize: typography.body,
     fontWeight: "700",

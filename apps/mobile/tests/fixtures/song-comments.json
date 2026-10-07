@@ -1,0 +1,10 @@
+{
+  "commentId": 1,
+  "content": "测试附文\n[发布了语音，请前往最新移动端版本查看]",
+  "contentResource": {
+    "resourceType": 1014,
+    "url": "http://example.test/comment.m4a",
+    "duration": 54
+  },
+  "beReplied": []
+}

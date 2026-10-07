@@ -27,6 +27,7 @@ import {
 
 export interface LyricViewProps {
   lyrics: LyricLine[];
+  emptyText?: string;
   /** 当前高亮歌词行索引，无匹配时为 -1 */
   currentLineIndex: number;
   /** 是否显示译文 */
@@ -117,6 +118,7 @@ function smoothScrollToOffset(
 
 export function LyricView({
   lyrics,
+  emptyText = "暂无歌词",
   currentLineIndex,
   showTranslation: showTranslationProp,
   palette,
@@ -455,7 +457,7 @@ export function LyricView({
     <View style={[styles.container, style]} {...panResponder.panHandlers}>
       {data.length === 0 ? (
         <View style={styles.empty}>
-          <Text style={[styles.emptyText, { color: palette.textMuted }]}>暂无歌词</Text>
+          <Text style={[styles.emptyText, { color: palette.textMuted }]}>{emptyText}</Text>
         </View>
       ) : (
         <FlatList

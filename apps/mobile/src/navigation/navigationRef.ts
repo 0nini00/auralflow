@@ -151,14 +151,6 @@ export function openPersonalFmScreen() {
   navigateStackScreen("PersonalFm");
 }
 
-export function openFollowedArtistsScreen() {
-  pushRoot("FollowedArtists");
-}
-
-export function openSubscribedAlbumsScreen() {
-  pushRoot("SubscribedAlbums");
-}
-
 export function openSimilarSongsScreen(params: { songId: string; songName: string }) {
   pushRoot("SimilarSongs", params);
 }

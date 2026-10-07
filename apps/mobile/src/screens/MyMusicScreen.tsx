@@ -27,12 +27,10 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useFavoritesStore } from "@/stores/favoritesStore";
 import { usePlaylistStore } from "@/stores/playlistStore";
 import {
-  openFollowedArtistsScreen,
   openLikedSongsScreen,
   openListeningStatsScreen,
   openLocalPlaylistDetailScreen,
   openPlaylistDetailScreen,
-  openSubscribedAlbumsScreen,
 } from "@/navigation/navigationRef";
 import { buildLibraryQuickActions } from "@/services/libraryQuickActions";
 import { buildWyPlaylistGroups } from "@/services/libraryPlaylistGroups";
@@ -146,19 +144,12 @@ export function MyMusicScreen({ onNavigateToPlayer }: MyMusicScreenProps) {
   const quickActions = buildLibraryQuickActions({
     favoritesCount: favorites.length,
     likedCoverUri: favorites[0]?.img || favorites[0]?.picUrl || null,
-    isWyLoggedIn: isLoggedIn,
   });
 
   const handleQuickAction = (action: LibraryQuickActionType) => {
     switch (action) {
       case "openLikedPlaylist":
         openLikedSongsScreen();
-        return;
-      case "openFollowedArtists":
-        openFollowedArtistsScreen();
-        return;
-      case "openSubscribedAlbums":
-        openSubscribedAlbumsScreen();
         return;
       case "openListeningStats":
         openListeningStatsScreen();

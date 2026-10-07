@@ -38,6 +38,25 @@ jobs:
       - name: core 单元测试
         run: pnpm test:core
 
+      # 本地标签回归使用真实 jaudiotagger 和生成的音频，不以 mock 跳过文件完整性检查。
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 准备本地音频标签测试依赖
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          jar="$RUNNER_TEMP/jaudiotagger-3.0.1.jar"
+          curl --fail --show-error --location --retry 2 --connect-timeout 10 --max-time 60 \
+            https://repo.maven.apache.org/maven2/net/jthink/jaudiotagger/3.0.1/jaudiotagger-3.0.1.jar \
+            --output "$jar"
+          echo "68aa0fe601b05df683a843acf6f8d4793ab476f47da1ac3dab57e0b1886b0aee  $jar" | sha256sum --check --status
+          echo "JAUDIOTAGGER_JAR=$jar" >> "$GITHUB_ENV"
+
       - name: 移动端回归测试
         run: pnpm mobile:test
 

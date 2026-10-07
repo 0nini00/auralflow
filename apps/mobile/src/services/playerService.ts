@@ -1,3 +1,5 @@
+import { isLocalMediaSong, localMediaSongKey } from "./localMediaPlaybackModel";
+import { localMediaInputKey } from "./localMediaAssetsService";
 import type { MusicInfo } from "@lx/core";
 import { interruptPlaybackResolution, runPlaybackResolution } from "./playbackResolution";
 import { logger } from "@/services/logger";
@@ -639,6 +641,8 @@ const prefetchInflight = new Map<
  * 供「下一首播放/稍后播放」插入时立即预热，播到它时命中缓存秒开。
  */
 export function prefetchSong(song: MusicInfo): void {
+  // 本地补全只针对正在播放的歌曲，不预先上传邻近歌曲信息或解析本地 ID。
+  if (isLocalMediaSong(song)) return;
   // 歌词/封面无论 URL 是否已缓存都尝试预取（各自内部会跳过已命中项）
   prefetchLyrics(song);
   prefetchCover(song);
@@ -797,6 +801,7 @@ async function playSongCore(song: MusicInfo, startPosition?: number, requestId?:
     // 先切 UI：封面/歌名立刻跟上手指，URL 解析在后台跑，避免「点了还播上一首」。
     usePlayerStore.setState({
       currentSong: song,
+      localMedia: null,
       loading: true,
       error: null,
       position: startPosition && startPosition > 0 ? startPosition : 0,
@@ -1345,7 +1350,55 @@ export async function playNextHeartbeatSong(requestId?: number): Promise<void> {
  * 快速连切时旧请求的响应必须整体丢弃（含失败分支的 setLyrics([])），
  * 否则慢响应会覆盖新曲歌词造成音词错位。
  */
+let localMediaSequence = 0;
+let activeLocalMedia: { id: number; inputKey: string; promise: Promise<void> } | null = null;
+
+async function loadLocalMedia(song: MusicInfo): Promise<void> {
+  const songKey = localMediaSongKey(song);
+  const inputKey = localMediaInputKey(song);
+  const current = usePlayerStore.getState();
+  if (localMediaSongKey(current.currentSong) !== songKey) return;
+  if (activeLocalMedia && activeLocalMedia.id === current.localMedia?.requestId && activeLocalMedia.inputKey === inputKey) {
+    return activeLocalMedia.promise;
+  }
+  const requestId = ++localMediaSequence;
+  usePlayerStore.setState({ localMedia: { songKey, requestId, status: "loading", message: "正在读取本地资料", issues: [] } });
+  // 暂停/继续不改变资料所有权；新曲、同曲重播、标签变化才让旧结果失效。
+  const isCurrent = () => {
+    const state = usePlayerStore.getState();
+    return state.localMedia?.requestId === requestId && state.currentSong != null &&
+      localMediaSongKey(state.currentSong) === songKey && localMediaInputKey(state.currentSong) === inputKey;
+  };
+  const promise = (async () => {
+    try {
+      const { resolveLocalMediaAssets } = await import("./localMediaRuntime");
+      if (!isCurrent()) return;
+      await resolveLocalMediaAssets(song, result => {
+        if (!isCurrent()) return;
+        const { lyrics, ...media } = result;
+        usePlayerStore.setState({ lyrics, localMedia: { ...media, songKey, requestId } });
+        if (result.status !== "loading" && result.issues.length) logger.warn("本地资料补全", { song: `${song.source}:${song.id}`, issues: result.issues });
+      }, isCurrent);
+    } catch (error) {
+      if (!isCurrent()) return;
+      const message = error instanceof Error ? error.message : String(error);
+      logger.warn("本地资料补全失败", message);
+      usePlayerStore.setState({ localMedia: { songKey, requestId, status: "error", message: "资料读取失败，播放不受影响", issues: [message] } });
+    } finally {
+      if (activeLocalMedia?.id === requestId) activeLocalMedia = null;
+      const state = usePlayerStore.getState();
+      if (state.localMedia?.requestId === requestId && state.localMedia.status === "loading") usePlayerStore.setState({ localMedia: null });
+    }
+  })();
+  activeLocalMedia = { id: requestId, inputKey, promise };
+  return promise;
+}
+
 async function loadLyrics(song: MusicInfo, intent: number): Promise<void> {
+  if (isLocalMediaSong(song)) {
+    await loadLocalMedia(song);
+    return;
+  }
   try {
     const { setLyrics } = usePlayerStore.getState();
     // 1. 尝试从缓存加载

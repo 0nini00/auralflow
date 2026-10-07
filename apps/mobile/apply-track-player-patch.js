@@ -414,3 +414,5 @@ fs.writeFileSync(keepAwakeBuildGradlePath, keepAwakeBuildGradle, 'utf-8');
 console.log('Patched: react-native-keep-awake/android/build.gradle');
 
 console.log('Mobile dependency patches applied manually.');
+
+require('./apply-video-release-patch.js')();

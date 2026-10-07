@@ -1,7 +1,5 @@
 export type LibraryQuickActionType =
   | "openLikedPlaylist"
-  | "openFollowedArtists"
-  | "openSubscribedAlbums"
   | "openListeningStats";
 
 export interface LibraryQuickAction {
@@ -15,29 +13,9 @@ export interface BuildLibraryQuickActionsInput {
   favoritesCount: number;
   likedCoverUri?: string | null;
   historyCoverUri?: string | null;
-  /**
-   * 网易云登录态。关注歌手 / 收藏专辑完全由网易云账号提供：
-   * 未登录时**不产出**这两个入口（此前是置灰 +「登录网易云查看」副标题）。
-   */
-  isWyLoggedIn?: boolean;
 }
 
 export function buildLibraryQuickActions(input: BuildLibraryQuickActionsInput): LibraryQuickAction[] {
-  const wyAccountActions: LibraryQuickAction[] = input.isWyLoggedIn
-    ? [
-        {
-          action: "openFollowedArtists",
-          title: "关注歌手",
-          subtitle: "网易云关注列表",
-        },
-        {
-          action: "openSubscribedAlbums",
-          title: "收藏专辑",
-          subtitle: "网易云收藏列表",
-        },
-      ]
-    : [];
-
   return [
     {
       action: "openLikedPlaylist",
@@ -46,7 +24,6 @@ export function buildLibraryQuickActions(input: BuildLibraryQuickActionsInput): 
       subtitle: input.favoritesCount > 0 ? `${input.favoritesCount} 首歌曲` : "还没有喜欢的歌曲",
       ...(input.likedCoverUri ? { coverUri: input.likedCoverUri } : {}),
     },
-    ...wyAccountActions,
     {
       action: "openListeningStats",
       title: "听歌统计",

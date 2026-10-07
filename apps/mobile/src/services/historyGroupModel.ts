@@ -65,19 +65,7 @@ export function groupHistoryEntries(entries: HistoryEntry[]): HistoryGroup[] {
   const groups = new Map<string, HistoryEntry[]>();
   for (const entry of entries) {
     const dayStart = dayStartOf(entry.playedAt);
-    let title: string;
-    if (dayStart === todayStart) {
-      title = "今天";
-    } else if (dayStart === todayStart - DAY_MS) {
-      title = "昨天";
-    } else {
-      const date = new Date(dayStart);
-      const now = new Date();
-      // 同年省略年份，跨年（或早于今年）补全年份，避免歧义。
-      title = date.getFullYear() === now.getFullYear()
-        ? `${date.getMonth() + 1}月${date.getDate()}日`
-        : `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
-    }
+    const title = formatHistoryDayTitle(dayStart, todayStart);
     const list = groups.get(title) ?? [];
     list.push(entry);
     groups.set(title, list);
@@ -95,15 +83,17 @@ export function isSameDay(a: number, b: number): boolean {
 }
 
 export function filterEntriesByDay(entries: HistoryEntry[], dayStart: number): HistoryEntry[] {
-  const start = dayStart;
-  const end = start + DAY_MS;
+  const start = dayStartOf(dayStart);
+  const end = addDays(start, 1);
   return entries
     .filter((e) => e.playedAt >= start && e.playedAt < end)
     .sort((a, b) => b.playedAt - a.playedAt);
 }
 
+/** 使用本地日历日期，夏令时切换日不一定是 24 小时。 */
 export function addDays(dayStart: number, n: number): number {
-  return dayStart + n * DAY_MS;
+  const date = new Date(dayStart);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + n).getTime();
 }
 
 export function formatHistoryDayTitle(dayStart: number, now = Date.now()): string {
@@ -113,11 +103,52 @@ export function formatHistoryDayTitle(dayStart: number, now = Date.now()): strin
 
   if (dayStart === todayStart) {
     return "今天";
-  } else if (dayStart === todayStart - DAY_MS) {
+  } else if (dayStart === addDays(todayStart, -1)) {
     return "昨天";
   } else {
     return date.getFullYear() === nowDate.getFullYear()
       ? `${date.getMonth() + 1}月${date.getDate()}日`
       : `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
   }
+}
+
+/** 月导航从月初计算，避免 31 日切到短月时溢出。 */
+export function addMonths(time: number, n: number): number {
+  const date = new Date(time);
+  return new Date(date.getFullYear(), date.getMonth() + n, 1).getTime();
+}
+
+export interface HistoryCalendarDay {
+  dayStart: number;
+  disabled: boolean;
+  selected: boolean;
+}
+
+/** 日历只标记真实播放日；合成时间仍按既有规则在历史列表中展示。 */
+export function getHistoryCalendarDays(
+  entries: HistoryEntry[],
+  month: number,
+  selectedDay: number,
+  now = Date.now(),
+): (HistoryCalendarDay | null)[] {
+  const first = new Date(addMonths(month, 0));
+  const year = first.getFullYear();
+  const monthIndex = first.getMonth();
+  const offset = first.getDay();
+  const dayCount = new Date(year, monthIndex + 1, 0).getDate();
+  const weekLength = 7;
+  const cellCount = Math.ceil((offset + dayCount) / weekLength) * weekLength;
+  const today = dayStartOf(now);
+  const recordedDays = new Set(entries.filter(hasRealPlayedAt).map((entry) => dayStartOf(entry.playedAt)));
+
+  return Array.from({ length: cellCount }, (_, index) => {
+    const day = index - offset + 1;
+    if (day < 1 || day > dayCount) return null;
+    const dayStart = new Date(year, monthIndex, day).getTime();
+    return {
+      dayStart,
+      disabled: dayStart > today || !recordedDays.has(dayStart),
+      selected: dayStart === selectedDay,
+    };
+  });
 }

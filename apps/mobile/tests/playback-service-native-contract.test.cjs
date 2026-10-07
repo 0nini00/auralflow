@@ -97,7 +97,12 @@ function applyPatch(serviceSource) {
   };
   vm.runInNewContext(fs.readFileSync(patchPath, "utf8"), {
     __dirname: mobileDir,
-    require: (name) => name === "fs" ? memoryFs : require(name),
+    require: (name) => {
+      if (name === "fs") return memoryFs;
+      // 独立 Video 补丁由专属契约测试覆盖，此处禁止触碰真实依赖。
+      if (name === "./apply-video-release-patch.js") return () => {};
+      return require(name);
+    },
     console: { log() {}, error() {} },
     process: { exit: (code) => { throw new Error('补丁退出: ' + code); } },
   }, { filename: patchPath, timeout: 5000 });

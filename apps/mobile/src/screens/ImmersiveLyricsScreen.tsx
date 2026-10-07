@@ -164,6 +164,7 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     lyrics,
     currentLyricIndex,
     artwork,
+    localMediaMessage,
     currentPage,
     setCurrentPage,
     isLyricsPage,
@@ -441,6 +442,7 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
   const lyricContent = (
     <LyricView
       lyrics={lyrics}
+      emptyText={localMediaMessage}
       currentLineIndex={currentLyricIndex}
       showTranslation={showTranslation}
       palette={palette}

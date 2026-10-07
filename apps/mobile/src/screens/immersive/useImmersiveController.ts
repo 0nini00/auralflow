@@ -15,6 +15,7 @@ import { saveCoverToDownloads } from "@/services/downloadService";
 import { buildImmersiveTranslationControl, buildImmersiveChineseConversionControl } from "@/services/lyricSettingsModel";
 import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
 import { usePlayerStore } from "@/stores/playerStore";
+import { selectPlaybackArtwork, selectLocalMediaMessage } from "@/services/localMediaPlaybackModel";
 import { useLyricOverlayStore } from "@/stores/lyricOverlayStore";
 import {
   canDrawOverlays,
@@ -140,11 +141,12 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
   // 暂停态进入沉浸页时歌词仍为空的兜底：快照恢复的启动补拉是异步的（离线启动会失败），
   // 若打开页面时还没有歌词且当前曲存在，就地再拉一次（缓存优先；期间切歌由 intent 守卫丢弃旧响应）
   useEffect(() => {
-    if (!visible || !currentSong || lyrics.length > 0) return;
+    if (!visible || !currentSong || loading || lyrics.length > 0) return;
     void loadLyricsForRestoredSong(currentSong).catch(() => undefined);
-  }, [visible, currentSong, lyrics.length]);
+  }, [visible, currentSong, lyrics.length, loading]);
 
-  const artwork = currentSong?.picUrl || currentSong?.img;
+  const artwork = usePlayerStore(selectPlaybackArtwork);
+  const localMediaMessage = usePlayerStore(selectLocalMediaMessage);
 
   const currentSongActions = useMemo(
     () => buildImmersiveCurrentSongActions(currentSong, isLiked),
@@ -442,6 +444,7 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
     lyrics,
     currentLyricIndex,
     artwork,
+    localMediaMessage,
     isLyricsPage,
     currentPage,
     setCurrentPage,
