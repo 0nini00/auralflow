@@ -74,6 +74,19 @@
   transform: translateY(0);
 }
 
+/* 贴右缘且需向上弹的元素：右对齐展开，浮层不横向溢出（滚动容器内的右缘按钮用它，
+   否则伪元素盒子会撑出横向滚动条，且悬停时被容器右缘剪裁）。 */
+[data-tooltip][data-tooltip-placement="top-end"]::after {
+  left: auto;
+  right: 0;
+  transform: translateY(4px);
+}
+
+[data-tooltip][data-tooltip-placement="top-end"]:hover::after,
+[data-tooltip][data-tooltip-placement="top-end"]:focus-visible::after {
+  transform: translateY(0);
+}
+
 [data-tooltip]:disabled::after {
   display: none;
 }

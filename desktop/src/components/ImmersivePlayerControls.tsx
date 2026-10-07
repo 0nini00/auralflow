@@ -155,7 +155,7 @@ export const ImmersivePlayerControls = forwardRef<ImmersivePlayerControlsHandle,
                           <span className="af-immersive-queue-info"><strong>{track.name}</strong><span>{track.singer || '未知歌手'}</span></span>
                         </button>
                         <button type="button" className="af-immersive-queue-remove" onClick={() => queue.remove(index)}
-                          aria-label={`从播放列表移除 ${track.name}`} data-tooltip="从播放列表移除"><X size={15} /></button>
+                          aria-label={`从播放列表移除 ${track.name}`} data-tooltip="从播放列表移除" data-tooltip-placement="top-end"><X size={15} /></button>
                       </div>
                     ))}
                   </div>

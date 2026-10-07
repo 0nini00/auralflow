@@ -523,7 +523,12 @@
 .af-immersive-queue-header { display: flex; justify-content: space-between; align-items: center; padding: 7px 6px 13px; border-bottom: 1px solid rgba(233,246,230,.12); }
 .af-immersive-queue-header strong { font-size: 14px; font-weight: 600; }
 .af-immersive-queue-header > span { color: rgba(237,246,233,.6); font-size: 12px; }
-.af-immersive-queue-list { max-height: min(48vh, 400px); overflow: auto; padding-top: 8px; scrollbar-width: thin; }
+.af-immersive-queue-list { max-height: min(48vh, 400px); overflow-x: hidden; overflow-y: auto; padding-top: 8px; scrollbar-width: thin; scrollbar-color: rgba(233, 246, 230, 0.32) transparent; }
+/* 沉浸浮层不随主题变：滚动条取 --af-immersive-* ink 色族，不用 --af-border-primary（light 主题下它是亮白灰）。 */
+.af-immersive-queue-list::-webkit-scrollbar { width: 6px; }
+.af-immersive-queue-list::-webkit-scrollbar-track { background: transparent; }
+.af-immersive-queue-list::-webkit-scrollbar-thumb { background: rgba(233, 246, 230, 0.32); border-radius: 3px; }
+.af-immersive-queue-list::-webkit-scrollbar-thumb:hover { background: rgba(233, 246, 230, 0.5); }
 .af-immersive-queue-item { display: flex; align-items: center; border-radius: 8px; gap: 6px; }
 .af-immersive-queue-item:hover, .af-immersive-queue-item.af-playing { background: rgba(233,246,230,.08); }
 .af-immersive-queue-play { display: flex; align-items: center; min-width: 0; flex: 1; text-align: left; gap: 10px; padding: 10px 6px; color: #edf4e5; background: transparent; border: 0; cursor: pointer; }
