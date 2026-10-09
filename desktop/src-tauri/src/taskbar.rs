@@ -136,11 +136,13 @@ pub fn command_action(wparam: u32) -> Option<TaskbarAction> {
     action_for_button_id(wparam & 0xffff)
 }
 
-/// `WM_DWMSENDICONICTHUMBNAIL` 的 lparam：低 16 位是宽、高 16 位是高。
+/// `WM_DWMSENDICONICTHUMBNAIL` 的 lparam：按 MSDN，**高 16 位是最大宽度（x 坐标）**，
+/// **低 16 位是最大高度（y 坐标）**；任一维度超出 DWM 都会拒收位图，
+/// 因此这里绝不能写反——此前宽高颠倒正是缩略图系统性 E_INVALIDARG、预览黑屏的根因。
 ///
 /// 系统偶尔会给 0（尺寸还没算出来），这里按 1 兜住，避免生成非法位图。
 pub fn thumbnail_size(lparam: u32) -> (u32, u32) {
-    ((lparam & 0xffff).max(1), (lparam >> 16).max(1))
+    ((lparam >> 16).max(1), (lparam & 0xffff).max(1))
 }
 
 /// 播放暂停按钮的提示文案（供真机核对用）。
@@ -466,8 +468,8 @@ mod platform {
         DWMWA_FORCE_ICONIC_REPRESENTATION, DWMWA_HAS_ICONIC_BITMAP,
     };
     use windows::Win32::Graphics::Gdi::{
-        CreateBitmap, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, BITMAPINFO,
-        BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP, HGDIOBJ,
+        CreateBitmap, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDIBits,
+        BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP, HGDIOBJ,
     };
     use windows::Win32::Graphics::Imaging::{
         IWICImagingFactory, IWICPalette, CLSID_WICImagingFactory, GUID_WICPixelFormat32bppPBGRA,
@@ -483,8 +485,9 @@ mod platform {
         THBF_ENABLED, THBF_HIDDEN, THB_FLAGS, THB_ICON, THB_TOOLTIP, THUMBBUTTON,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateIconIndirect, DestroyIcon, GetClientRect, RegisterWindowMessageW, HICON, ICONINFO,
-        WM_COMMAND, WM_DESTROY, WM_DWMSENDICONICLIVEPREVIEWBITMAP, WM_DWMSENDICONICTHUMBNAIL,
+        CreateIconIndirect, DestroyIcon, GetClassLongPtrW, GetClientRect, GetIconInfo,
+        RegisterWindowMessageW, SendMessageW, GCLP_HICON, HICON, ICONINFO, ICON_BIG, WM_COMMAND,
+        WM_DESTROY, WM_DWMSENDICONICLIVEPREVIEWBITMAP, WM_DWMSENDICONICTHUMBNAIL, WM_GETICON,
     };
 
     /// 子类化 id：本模块只挂一份，卸载时按同一个 id 摘。
@@ -896,6 +899,92 @@ mod platform {
         dib_from_bgra(&pixels, size.0, size.1)
     }
 
+    /// 无封面时的兜底图源：窗口大图标的像素（BGRA、自上而下）。
+    ///
+    /// `HAS_ICONIC_BITMAP` 下 DWM 只认我们主动提交的位图，不应答就是黑预览，
+    /// 所以没有封面（无封面歌 / 解码中 / 封面推送被拒）时必须给一张兜底图。
+    fn icon_cover(hook: &Hook) -> Option<Cover> {
+        // 窗口级大图标（建窗时已设）；拿不到再退回窗口类图标
+        let mut hicon = HICON(
+            unsafe { SendMessageW(hook.hwnd, WM_GETICON, Some(WPARAM(ICON_BIG as usize)), Some(LPARAM(0))) }.0
+                as *mut c_void,
+        );
+        if hicon.0.is_null() {
+            hicon = HICON(unsafe { GetClassLongPtrW(hook.hwnd, GCLP_HICON) } as *mut c_void);
+        }
+        if hicon.0.is_null() {
+            return None;
+        }
+        let mut info = ICONINFO::default();
+        unsafe { GetIconInfo(hicon, &mut info) }.ok()?;
+        // GetIconInfo 返回的两张位图归调用方释放
+        let color = info.hbmColor;
+        let mask = info.hbmMask;
+        let cover = (|| {
+            if color.0.is_null() {
+                return None;
+            }
+            let hdc = unsafe { CreateCompatibleDC(None) };
+            if hdc.0.is_null() {
+                return None;
+            }
+            let cover = (|| {
+                let mut bmi = BITMAPINFO {
+                    bmiHeader: BITMAPINFOHEADER {
+                        biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                        biPlanes: 1,
+                        biBitCount: 32,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                };
+                // 第一遍 lpvBits 传空：只拿尺寸
+                if unsafe { GetDIBits(hdc, color, 0, 0, None, &mut bmi, DIB_RGB_COLORS) } == 0
+                {
+                    return None;
+                }
+                let (width, height) = (
+                    bmi.bmiHeader.biWidth.unsigned_abs(),
+                    bmi.bmiHeader.biHeight.unsigned_abs(),
+                );
+                if width == 0 || height == 0 {
+                    return None;
+                }
+                // 第二遍：biHeight 取负，读自上而下像素
+                let mut pixels = vec![0u8; width as usize * height as usize * 4];
+                bmi.bmiHeader.biHeight = -(height as i32);
+                if unsafe {
+                    GetDIBits(
+                        hdc,
+                        color,
+                        0,
+                        height,
+                        Some(pixels.as_mut_ptr() as *mut c_void),
+                        &mut bmi,
+                        DIB_RGB_COLORS,
+                    )
+                } == 0
+                {
+                    return None;
+                }
+                // 24 位旧式图标的 alpha 全 0：整图强制不透明，避免兜底图自身透明变黑
+                if pixels.chunks_exact(4).all(|px| px[3] == 0) {
+                    for px in pixels.chunks_exact_mut(4) {
+                        px[3] = 0xff;
+                    }
+                }
+                Some(Cover { pixels: Arc::new(pixels), width, height })
+            })();
+            let _ = unsafe { DeleteDC(hdc) };
+            cover
+        })();
+        delete_bitmap(color);
+        if !mask.0.is_null() {
+            delete_bitmap(mask);
+        }
+        cover
+    }
+
     /// 把封面推给 DWM 当悬浮预览缩略图；成功返回 true（失败让调用方退回系统默认）。
     fn set_iconic_thumbnail(hook: &Hook, cover: &Cover, size: (u32, u32)) -> bool {
         match cover_bitmap(cover, size) {
@@ -1042,15 +1131,31 @@ mod platform {
                 let handled = with_hook(|hook| {
                     // 解码未完成也保留请求尺寸，像素就绪后才能主动补推当前悬停预览。
                     hook.thumb_size = Some(size);
-                    cover.as_ref().is_some_and(|cover| set_iconic_thumbnail(hook, cover, size))
+                    // FORCE_ICONIC 下 DWM 不画默认快照：无封面 / 推送被拒都必须兜底应答，
+                    // 否则预览黑屏（这正是此前宽高颠倒 + 不应答导致的黑屏路径）。
+                    if let Some(cover) = cover.as_ref() {
+                        if set_iconic_thumbnail(hook, cover, size) {
+                            return true;
+                        }
+                    }
+                    icon_cover(hook).is_some_and(|icon| set_iconic_thumbnail(hook, &icon, size))
                 })
                 .unwrap_or(false);
-                // 没画成功就不认领这条消息：交给 DefSubclassProc，让 DWM 用默认快照
+                // 兜底也失败才不认领（DWM 只能画默认快照）；hook 未挂时同样交回系统默认
                 handled.then_some(LRESULT(0))
             }
             WM_DWMSENDICONICLIVEPREVIEWBITMAP => {
-                let cover = shared().cover.clone()?;
-                let handled = with_hook(|hook| set_live_preview(hook, &cover)).unwrap_or(false);
+                let cover = shared().cover.clone();
+                let handled = with_hook(|hook| {
+                    if let Some(cover) = cover.as_ref() {
+                        if set_live_preview(hook, cover) {
+                            return true;
+                        }
+                    }
+                    // 无封面 / 推送失败：用窗口图标兜底，保证预览大图永远不黑
+                    icon_cover(hook).is_some_and(|icon| set_live_preview(hook, &icon))
+                })
+                .unwrap_or(false);
                 handled.then_some(LRESULT(0))
             }
             WM_DESTROY => {
@@ -1392,7 +1497,8 @@ mod tests {
 
     #[test]
     fn thumbnail_size_parses_lparam_and_clamps_zero() {
-        assert_eq!(thumbnail_size(0x0120_01E0), (0x01E0, 0x0120));
+        // MSDN: HIWORD(lParam) = 最大宽（x），LOWORD(lParam) = 最大高（y）
+        assert_eq!(thumbnail_size(0x0120_01E0), (0x0120, 0x01E0));
         // 系统给 0（尺寸还没算出来）按 1 兜住，避免生成非法位图
         assert_eq!(thumbnail_size(0), (1, 1));
     }

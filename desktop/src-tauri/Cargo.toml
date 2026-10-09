@@ -1,6 +1,6 @@
 [package]
 name = "auralflow"
-version = "0.6.11"
+version = "0.6.13"
 description = "AuralFlow Desktop (Tauri + React)"
 authors = ["chenle"]
 edition = "2021"
@@ -58,4 +58,12 @@ windows = { version = "0.62", features = [
   "Win32_UI_Controls",
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
+  # ── 音量合成器里的应用身份（src/audio_session.rs）──
+  # WASAPI 的会话接口在 Win32::Media::Audio；进程链要靠 ToolHelp 快照判断归属。
+  # IMMDevice::Activate 的签名引用了 StructuredStorage/Variant 的 PROPVARIANT，
+  # 缺这两个特性时那个方法不会被生成。
+  "Win32_Media_Audio",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_Variant",
 ] }

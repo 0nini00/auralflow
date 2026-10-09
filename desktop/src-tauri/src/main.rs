@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod atomic_file;
+mod audio_session;
 mod commands;
 mod config;
 mod library;
@@ -166,6 +167,11 @@ pub fn run() {
             // Windows 任务栏缩略图按钮 / 悬浮预览封面：只做登记与准备，
             // 真正的窗口过程子类化要等设置开关确认打开（taskbar::set_enabled）。
             taskbar::setup(app.handle());
+            // 音量合成器里的应用身份：音频由 WebView2 的音频服务进程播放，那个进程不带
+            // 本应用的 AUMID，系统会把它显示成「Microsoft Edge WebView2」。这里起一个后台
+            // 线程，在播放期间把会话名称/图标改写成 AuralFlow + 本应用图标。
+            // 失败只记日志，播放不受影响。
+            audio_session::setup();
             // 注册深链 scheme（Windows 运行时写入注册表）
             #[cfg(target_os = "windows")]
             {
