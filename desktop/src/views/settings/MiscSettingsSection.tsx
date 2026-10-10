@@ -148,8 +148,8 @@ export function MiscSettingsSection() {
           />
         </SettingRow>
         <SettingRow
-          label="任务栏缩略图按钮与封面预览"
-          hint="悬停任务栏图标时显示上一首 / 播放暂停 / 下一首按钮，并把窗口快照预览换成当前曲目封面"
+          label="任务栏缩略图按钮"
+          hint="悬停任务栏图标时显示上一首 / 播放暂停 / 下一首按钮；缩略图内容仍是系统默认的窗口画面"
         >
           <input
             type="checkbox"

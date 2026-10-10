@@ -17,7 +17,7 @@ export interface RustAppSettings {
   playbackFailedAutoNext: boolean;
   /** 跟随系统媒体控制（SMTC）：键盘媒体键 / 系统媒体浮层 / 锁屏控制 */
   followSystemMediaControl: boolean;
-  /** 任务栏缩略图按钮与封面预览：悬停任务栏图标显示上一首 / 播放暂停 / 下一首与封面 */
+  /** 任务栏缩略图按钮：悬停任务栏图标显示上一首 / 播放暂停 / 下一首 */
   taskbarThumbnails: boolean;
   wyCookie?: string | null;
   lyricPinned: boolean;
@@ -385,7 +385,7 @@ export async function smtcUpdateProgress(position: number, duration: number): Pr
   await invoke<void>("smtc_update_progress", { position, duration });
 }
 
-// ─── 任务栏缩略图按钮与悬浮预览封面 ────────────────────
+// ─── 任务栏缩略图按钮 ──────────────────────────────────
 
 /** 任务栏缩略图按钮点击事件名（Rust 侧 src/taskbar.rs 的同名常量必须一致） */
 export const TASKBAR_ACTION_EVENT = "taskbar-action";
@@ -402,16 +402,14 @@ export interface TaskbarActionEvent {
 export interface TaskbarTrackPayload {
   /** playerStore.status：idle / loading / playing / paused / error */
   status: string;
-  /** 本地封面缓存文件路径；缺失时悬浮预览保持系统默认 */
-  coverPath?: string | null;
 }
 
-/** 应用「任务栏缩略图按钮与封面预览」开关（关闭时 Rust 侧卸载窗口过程子类化钩子） */
+/** 应用「任务栏缩略图按钮」开关（关闭时 Rust 侧卸载窗口过程子类化钩子） */
 export async function taskbarSetEnabled(enabled: boolean): Promise<void> {
   await invoke<void>("taskbar_set_enabled", { enabled });
 }
 
-/** 推送当前播放状态与封面（切歌、暂停恢复、封面落盘后调用） */
+/** 推送当前播放状态（切歌、暂停恢复等） */
 export async function taskbarUpdateTrack(track: TaskbarTrackPayload): Promise<void> {
   await invoke<void>("taskbar_update_track", { track });
 }

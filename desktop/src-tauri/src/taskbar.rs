@@ -1,26 +1,31 @@
-//! Windows 任务栏缩略图按钮与悬浮预览封面
+//! Windows 任务栏缩略图按钮
 //!
-//! 目的：鼠标悬停任务栏图标时，缩略图上出现「上一首 / 播放暂停 / 下一首」三个按钮，
-//! 并把默认的窗口快照预览换成当前曲目封面。
+//! 目的：鼠标悬停任务栏图标时，缩略图上出现「上一首 / 播放暂停 / 下一首」三个按钮。
+//!
+//! **缩略图内容保持系统默认的实时窗口画面**。这里曾经还给窗口设过
+//! `DWMWA_HAS_ICONIC_BITMAP` + `DWMWA_FORCE_ICONIC_REPRESENTATION`，把缩略图/预览换成当前曲目封面；
+//! 但按 MSDN，`FORCE_ICONIC_REPRESENTATION` 会让 DWM **即使存在实时或快照表示也优先画我们提交的静态位图**，
+//! 而静态位图只能按 `WM_DWMSENDICONICTHUMBNAIL` 给出的最大尺寸出图 —— 于是 Alt+Tab 与任务栏悬停里的
+//! 封面比别的应用（实时画面按槽位缩放）小、对不齐。2026-10-09 据此退役封面预览，只保留按钮：
+//! 封面解码、DIB 组装、DWM 属性设置与 iconic 消息应答一并删除。
 //!
 //! 钩窗口过程只能用**子类化**（`SetWindowSubclass` + `DefSubclassProc`）：
 //! 未处理的消息一律原样交给 `DefSubclassProc`，它会继续走子类链上的下一个处理者，
 //! 最终回到 Tauri/tao 自己的窗口过程。**绝不用 `SetWindowLongPtrW` 替换窗口过程** ——
 //! 那会掐断 Tauri 的消息处理，窗口基本功能会坏掉。
 //!
-//! 安全阀（见设置项「任务栏缩略图按钮与封面预览」，默认开）：关闭时**不安装任何钩子**
-//! （不调用 `SetWindowSubclass`），已安装的则 `RemoveWindowSubclass` 卸掉、
-//! 按钮用 `THBF_HIDDEN` 收起、DWM 属性复位，悬浮预览退回系统默认。
+//! 安全阀（见设置项「任务栏缩略图按钮」，默认开）：关闭时**不安装任何钩子**
+//! （不调用 `SetWindowSubclass`），已安装的则 `RemoveWindowSubclass` 卸掉、按钮用 `THBF_HIDDEN` 收起，
+//! 窗口回到完全原生的行为。
 //!
 //! 失败即降级：HWND 未就绪、消息注册失败、Win32/COM 调用报错 → `log::warn!` 后放弃本次操作，
 //! 窗口基本功能与播放完全不受影响；所有 GDI/COM 对象在不再需要时释放，不留泄漏。
 //!
 //! 线程模型：COM 对象（`ITaskbarList3`）、图标、窗口句柄都只能在主线程用（存在 `thread_local`），
-//! 因此所有需要它们的操作都排在 `AppHandle::run_on_main_thread` 上；封面解码通过 `spawn_blocking`
-//! 派到后台（同步 IPC 入口本身仍可能在 UI 线程），只把像素数据交给主线程。
+//! 因此所有需要它们的操作都排在 `AppHandle::run_on_main_thread` 上。
 
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Mutex, MutexGuard};
 use tauri::AppHandle;
 use tauri_plugin_log::log;
 
@@ -42,8 +47,6 @@ pub const GLYPH_COUNT: usize = 4;
 /// 按钮图标边长（像素）。任务栏缩略图按钮按 16~24px 显示，32px 缩下去也清晰。
 const ICON_SIZE: u32 = 32;
 
-/// 封面像素的内存上限（最长边）：预览最大也就几百像素，留着原图只是白占内存。
-pub const COVER_MAX_EDGE: u32 = 1024;
 
 // ─── 纯函数层（不碰 Win32/COM，可单测） ─────────────────────────
 
@@ -136,14 +139,6 @@ pub fn command_action(wparam: u32) -> Option<TaskbarAction> {
     action_for_button_id(wparam & 0xffff)
 }
 
-/// `WM_DWMSENDICONICTHUMBNAIL` 的 lparam：按 MSDN，**高 16 位是最大宽度（x 坐标）**，
-/// **低 16 位是最大高度（y 坐标）**；任一维度超出 DWM 都会拒收位图，
-/// 因此这里绝不能写反——此前宽高颠倒正是缩略图系统性 E_INVALIDARG、预览黑屏的根因。
-///
-/// 系统偶尔会给 0（尺寸还没算出来），这里按 1 兜住，避免生成非法位图。
-pub fn thumbnail_size(lparam: u32) -> (u32, u32) {
-    ((lparam >> 16).max(1), (lparam & 0xffff).max(1))
-}
 
 /// 播放暂停按钮的提示文案（供真机核对用）。
 pub fn play_pause_tooltip(status: &str) -> &'static str {
@@ -151,65 +146,6 @@ pub fn play_pause_tooltip(status: &str) -> &'static str {
         Glyph::Pause => "暂停",
         _ => "播放",
     }
-}
-
-/// 把封面限制到最长边之内（等比缩放，至少 1 像素）。
-pub fn fit_within(width: u32, height: u32, max_edge: u32) -> (u32, u32) {
-    if width == 0 || height == 0 {
-        return (1, 1);
-    }
-    let longest = width.max(height);
-    if longest <= max_edge {
-        return (width, height);
-    }
-    let scaled_w = ((width as u64 * max_edge as u64) / longest as u64).max(1);
-    let scaled_h = ((height as u64 * max_edge as u64) / longest as u64).max(1);
-    (scaled_w as u32, scaled_h as u32)
-}
-
-/// 双线性缩放预乘 BGRA 像素。
-///
-/// 预乘 alpha 的数据直接做线性插值就是对的（颜色与 alpha 一起淡化），
-/// 不需要先反预乘再插值。尺寸不合法 / 数据长度不匹配时返回 `None`。
-pub fn scale_bgra(src: &[u8], src_w: u32, src_h: u32, dst_w: u32, dst_h: u32) -> Option<Vec<u8>> {
-    if src_w == 0 || src_h == 0 || dst_w == 0 || dst_h == 0 {
-        return None;
-    }
-    if src.len() != src_w as usize * src_h as usize * 4 {
-        return None;
-    }
-    if src_w == dst_w && src_h == dst_h {
-        return Some(src.to_vec());
-    }
-
-    let mut out = vec![0u8; dst_w as usize * dst_h as usize * 4];
-    let max_x = (src_w - 1) as f32;
-    let max_y = (src_h - 1) as f32;
-    for y in 0..dst_h {
-        // 目标像素中心映射回源坐标，再取相邻四个像素插值
-        let src_y = (((y as f32 + 0.5) * src_h as f32 / dst_h as f32) - 0.5).clamp(0.0, max_y);
-        let y0 = src_y.floor() as u32;
-        let y1 = (y0 + 1).min(src_h - 1);
-        let fy = src_y - y0 as f32;
-        for x in 0..dst_w {
-            let src_x = (((x as f32 + 0.5) * src_w as f32 / dst_w as f32) - 0.5).clamp(0.0, max_x);
-            let x0 = src_x.floor() as u32;
-            let x1 = (x0 + 1).min(src_w - 1);
-            let fx = src_x - x0 as f32;
-
-            let index = |px: u32, py: u32| (py as usize * src_w as usize + px as usize) * 4;
-            let (tl, tr) = (index(x0, y0), index(x1, y0));
-            let (bl, br) = (index(x0, y1), index(x1, y1));
-            let out_index = (y as usize * dst_w as usize + x as usize) * 4;
-            for channel in 0..4 {
-                let top = src[tl + channel] as f32 * (1.0 - fx) + src[tr + channel] as f32 * fx;
-                let bottom = src[bl + channel] as f32 * (1.0 - fx) + src[br + channel] as f32 * fx;
-                out[out_index + channel] = (top * (1.0 - fy) + bottom * fy).round().clamp(0.0, 255.0)
-                    as u8;
-            }
-        }
-    }
-    Some(out)
 }
 
 /// 字形颜色（BGRA）：浅灰，兼顾深色与浅色任务栏。
@@ -299,8 +235,6 @@ fn tri_hit(x: f32, y: f32, a: (f32, f32), b: (f32, f32), c: (f32, f32)) -> bool 
 pub struct TaskbarTrack {
     /// `playerStore.status`：idle / loading / playing / paused / error
     pub status: String,
-    /// 已落盘的封面文件路径（取自本地封面缓存）；None / 空串 = 这次没有封面
-    pub cover_path: Option<String>,
 }
 
 /// 点击事件载荷（事件名与前端 bridge 的 `TASKBAR_ACTION_EVENT` 一致）。
@@ -313,87 +247,33 @@ pub struct TaskbarActionEvent {
 
 // ─── 跨线程共享状态 ────────────────────────────────────────────
 
-/// 封面像素（预乘 BGRA）+ 尺寸。普通数据，主线程拿它造 DIB。
-#[derive(Clone)]
-struct Cover {
-    pixels: Arc<Vec<u8>>,
-    width: u32,
-    height: u32,
-}
+/// 设置开关 + 最近一次的播放状态。主线程独占的 COM / GDI 对象不放在这里，见 `platform::HOOK`。
+///
+/// 这里只留「按钮该画哪个字形」需要的信息：状态没变就不必重画，所以 [`update_track`]
+/// 用 [`Shared::set_status`] 的返回值把这种情况挡在门外，避免每首歌都往主线程排一次任务。
+static SHARED: Mutex<Shared> = Mutex::new(Shared { enabled: false, status: String::new() });
 
 #[derive(Default)]
 struct Shared {
-    /// 设置开关「任务栏缩略图按钮与封面预览」
+    /// 设置开关「任务栏缩略图按钮」
     enabled: bool,
     /// 最近一次的播放状态（决定播放暂停按钮的图标）
     status: String,
-    /// 最新请求的封面路径；与上一次相同就不重复解码
-    cover_path: Option<String>,
-    /// 当前封面像素；None = 没有封面，预览保持系统默认
-    cover: Option<Cover>,
-    /// 路径改变或关闭功能时递增，拒绝旧解码（包括 A→B→A）。
-    cover_version: u64,
-}
-
-/// 跨线程共享的普通数据（开关 + 播放快照 + 封面像素）。
-/// 主线程独占的 COM / GDI 对象不放在这里，见 `platform::HOOK`。
-static SHARED: Mutex<Shared> = Mutex::new(Shared {
-    enabled: false,
-    status: String::new(),
-    cover_path: None,
-    cover: None,
-    cover_version: 0,
-});
-
-struct CoverRequest {
-    path: String,
-    version: u64,
 }
 
 impl Shared {
     fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
-        if !enabled {
-            self.cover_version = self.cover_version.wrapping_add(1);
-            self.cover_path = None;
-            self.cover = None;
+    }
+
+    /// 记录新状态；返回「按钮需要重画吗」。
+    fn set_status(&mut self, status: String) -> bool {
+        if self.status == status {
+            return false;
         }
+        self.status = status;
+        true
     }
-
-    fn begin_update(&mut self, track: TaskbarTrack) -> Option<CoverRequest> {
-        self.status = track.status;
-        let path = track.cover_path.as_deref().map(str::trim).filter(|path| !path.is_empty());
-        if path == self.cover_path.as_deref() {
-            return None;
-        }
-        self.cover_version = self.cover_version.wrapping_add(1);
-        self.cover_path = path.map(str::to_string);
-        self.cover = None;
-        self.cover_path.as_ref().map(|path| CoverRequest {
-            path: path.clone(),
-            version: self.cover_version,
-        })
-    }
-
-    fn preview_cover_path(&self) -> Option<&str> {
-        // 尚未解码的路径不能占用 DWM 的已应用标记，否则像素就绪后不会重绘。
-        self.cover.as_ref().and(self.cover_path.as_deref())
-    }
-}
-
-/// 解码器在锁外运行；只把仍属于当前请求的像素提交到共享状态。
-fn decode_and_commit_cover(
-    state: &Mutex<Shared>,
-    request: CoverRequest,
-    decode: impl FnOnce(&str) -> Result<Cover, String>,
-) -> Result<bool, String> {
-    let cover = decode(&request.path)?;
-    let mut state = state.lock().unwrap_or_else(|err| err.into_inner());
-    if !state.enabled || state.cover_version != request.version {
-        return Ok(false);
-    }
-    state.cover = Some(cover);
-    Ok(true)
 }
 
 /// 取共享状态锁。锁只保护普通数据，中毒后数据仍然有意义，沿用内部值继续工作。
@@ -419,35 +299,29 @@ pub fn setup(app: &AppHandle) {
     run_on_main(app, |app| platform::prepare(&app));
 }
 
-/// 设置开关：启用 / 卸载任务栏缩略图按钮与封面预览。
+/// 设置开关：启用 / 卸载任务栏缩略图按钮。
 ///
-/// 关闭 = 卸载子类化 + 收起按钮 + DWM 属性复位，窗口回到完全原生的行为。
+/// 关闭 = 卸载子类化 + 收起按钮，窗口回到完全原生的行为。
 pub fn set_enabled(app: &AppHandle, enabled: bool) {
     shared().set_enabled(enabled);
     run_on_main(app, move |app| platform::apply_enabled(&app, enabled));
 }
 
-/// 推送播放状态 / 封面（切歌、暂停恢复、封面落盘后调用）。
+/// 推送播放状态（切歌、暂停恢复等）。
 pub fn update_track(app: &AppHandle, track: TaskbarTrack) {
-    let request = {
+    let changed = {
         let mut state = shared();
         if !state.enabled {
             return;
         }
-        state.begin_update(track)
+        state.set_status(track.status)
     };
+    // 状态没变就不用重画：这个方法每首歌都会调到。
+    if !changed {
+        return;
+    }
     // 主线程只接收快照；调用系统接口前必须释放状态锁，避免窗口消息重入。
     run_on_main(app, |app| platform::apply_track(&app));
-    let Some(request) = request else { return };
-    let app = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let path = request.path.clone();
-        match decode_and_commit_cover(&SHARED, request, platform::decode_cover) {
-            Ok(true) => run_on_main(&app, |app| platform::apply_track(&app)),
-            Ok(false) => {} // 已切歌或关闭；过期像素不得覆盖当前封面。
-            Err(err) => log::warn!("[taskbar] 封面解码失败: {} ({})", path, err),
-        }
-    });
 }
 
 // ─── Windows 实现 ─────────────────────────────────────────────
@@ -458,36 +332,22 @@ mod platform {
     use std::cell::RefCell;
     use std::ffi::c_void;
     use std::mem::size_of;
-    use std::os::windows::ffi::OsStrExt;
-    use std::ptr::{copy_nonoverlapping, null, null_mut};
+    use std::ptr::{copy_nonoverlapping, null_mut};
     use tauri::{AppHandle, Emitter, Manager};
-    use windows::core::{w, BOOL, IUnknown, PCWSTR};
-    use windows::Win32::Foundation::{GENERIC_READ, HWND, LPARAM, LRESULT, RECT, WPARAM};
-    use windows::Win32::Graphics::Dwm::{
-        DwmSetIconicLivePreviewBitmap, DwmSetIconicThumbnail, DwmSetWindowAttribute,
-        DWMWA_FORCE_ICONIC_REPRESENTATION, DWMWA_HAS_ICONIC_BITMAP,
-    };
+    use windows::core::{w, BOOL, IUnknown};
+    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows::Win32::Graphics::Gdi::{
-        CreateBitmap, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDIBits,
-        BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP, HGDIOBJ,
+        CreateBitmap, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, BITMAPINFO,
+        BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP, HGDIOBJ,
     };
-    use windows::Win32::Graphics::Imaging::{
-        IWICImagingFactory, IWICPalette, CLSID_WICImagingFactory, GUID_WICPixelFormat32bppPBGRA,
-        WICBitmapDitherTypeNone, WICBitmapPaletteTypeCustom,
-        WICDecodeMetadataCacheOnDemand,
-    };
-    use windows::Win32::System::Com::{
-        CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER,
-        COINIT_MULTITHREADED,
-    };
+    use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
     use windows::Win32::UI::Shell::{
         DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass, TaskbarList, ITaskbarList3,
         THBF_ENABLED, THBF_HIDDEN, THB_FLAGS, THB_ICON, THB_TOOLTIP, THUMBBUTTON,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateIconIndirect, DestroyIcon, GetClassLongPtrW, GetClientRect, GetIconInfo,
-        RegisterWindowMessageW, SendMessageW, GCLP_HICON, HICON, ICONINFO, ICON_BIG, WM_COMMAND,
-        WM_DESTROY, WM_DWMSENDICONICLIVEPREVIEWBITMAP, WM_DWMSENDICONICTHUMBNAIL, WM_GETICON,
+        CreateIconIndirect, DestroyIcon, RegisterWindowMessageW, HICON, ICONINFO, WM_COMMAND,
+        WM_DESTROY,
     };
 
     /// 子类化 id：本模块只挂一份，卸载时按同一个 id 摘。
@@ -508,10 +368,6 @@ mod platform {
         installed: bool,
         /// 已经应用到按钮上的播放状态，避免同一状态重复更新
         applied_status: String,
-        /// 已用于 DWM 预览的封面路径，避免重复重建位图
-        applied_cover_path: Option<String>,
-        /// DWM 最近一次要过的缩略图尺寸：换封面时按它主动重推一张
-        thumb_size: Option<(u32, u32)>,
     }
 
     impl Hook {
@@ -524,8 +380,6 @@ mod platform {
                 icons: None,
                 installed: false,
                 applied_status: String::new(),
-                applied_cover_path: None,
-                thumb_size: None,
             }
         }
     }
@@ -594,7 +448,7 @@ mod platform {
         }
     }
 
-    /// 装钩子：子类化 + DWM 属性 + 挂按钮（fail-soft，任一步失败都只记日志）。
+    /// 装钩子：子类化 + 挂按钮（fail-soft，任一步失败都只记日志）。
     fn install(hook: &mut Hook) {
         if hook.installed {
             return;
@@ -606,7 +460,6 @@ mod platform {
             return;
         }
         hook.installed = true;
-        apply_dwm_attributes(hook, true);
         // 任务栏按钮通常在建窗时就已就绪（那条消息早于本次启用），先直接挂一次；
         // 晚到的 TaskbarButtonCreated 消息会再补一次，explorer 重启后也靠它恢复。
         add_buttons(hook);
@@ -626,54 +479,35 @@ mod platform {
                 }
             }
         }
-        apply_dwm_attributes(hook, false);
         if hook.installed {
             // 返回值只表示「摘掉了没有」，此时已无补救手段：显式忽略（BOOL 是 must_use）
             let _ = unsafe { RemoveWindowSubclass(hook.hwnd, Some(hook_proc), SUBCLASS_ID) };
             hook.installed = false;
         }
         destroy_icons(hook);
-        hook.thumb_size = None;
-        hook.applied_cover_path = None;
         // 重新打开时按当时的播放状态重画一遍
         hook.applied_status.clear();
-        log::info!("[taskbar] 已卸载任务栏钩子（按钮收起，悬浮预览退回系统默认）");
+        log::info!("[taskbar] 已卸载任务栏钩子（按钮收起）");
     }
 
-    /// 主线程：播放状态 / 封面变化后刷新按钮图标与 DWM 预览位图。
+    /// 主线程：播放状态变化后刷新按钮图标。
     pub fn apply_track(app: &AppHandle) {
         if let Err(err) = sync_window(app) {
             log::warn!("[taskbar] 主窗口句柄不可用，本次刷新跳过: {}", err);
             return;
         }
-        let (status, cover_path, cover) = {
-            let state = shared();
-            (state.status.clone(), state.preview_cover_path().map(str::to_string), state.cover.clone())
-        };
+        let status = shared().status.clone();
         with_hook(|hook| {
-            if !hook.installed {
+            if !hook.installed || hook.applied_status == status {
                 return;
             }
-            // 1) 播放状态 → 播放暂停按钮换图标
-            if hook.applied_status != status {
-                hook.applied_status = status.clone();
-                if let Some(buttons) = buttons_for(hook, false) {
-                    let list = hook.list.as_ref();
-                    if let Some(list) = list {
-                        if let Err(err) = unsafe { list.ThumbBarUpdateButtons(hook.hwnd, &buttons) } {
-                            log::warn!("[taskbar] 更新任务栏按钮图标失败: {}", err);
-                        }
+            hook.applied_status = status;
+            if let Some(buttons) = buttons_for(hook, false) {
+                let list = hook.list.as_ref();
+                if let Some(list) = list {
+                    if let Err(err) = unsafe { list.ThumbBarUpdateButtons(hook.hwnd, &buttons) } {
+                        log::warn!("[taskbar] 更新任务栏按钮图标失败: {}", err);
                     }
-                }
-            }
-            // 2) 封面换新 → 主动重推 DWM 位图（系统侧有缓存，等下次悬停可能还是旧封面）
-            if hook.applied_cover_path != cover_path {
-                hook.applied_cover_path = cover_path;
-                if let Some(cover) = cover.as_ref() {
-                    if let Some(size) = hook.thumb_size {
-                        set_iconic_thumbnail(hook, cover, size);
-                    }
-                    set_live_preview(hook, cover);
                 }
             }
         });
@@ -714,31 +548,6 @@ mod platform {
             return None;
         }
         Some(list)
-    }
-
-    /// DWM 属性：让悬浮预览用我们的位图（而不是窗口快照）。
-    ///
-    /// `FORCE_ICONIC_REPRESENTATION` 让任务栏/预览走「图标式」表示，
-    /// `HAS_ICONIC_BITMAP` 告诉 DWM 我们会提供位图；关闭时两个都复位。
-    fn apply_dwm_attributes(hook: &Hook, on: bool) {
-        let value = BOOL::from(on);
-        for attribute in [DWMWA_FORCE_ICONIC_REPRESENTATION, DWMWA_HAS_ICONIC_BITMAP] {
-            let result = unsafe {
-                DwmSetWindowAttribute(
-                    hook.hwnd,
-                    attribute,
-                    &value as *const BOOL as *const c_void,
-                    size_of::<BOOL>() as u32,
-                )
-            };
-            if let Err(err) = result {
-                log::warn!(
-                    "[taskbar] 设置 DWM 属性 {} 失败，悬浮预览保持系统默认: {}",
-                    attribute.0,
-                    err
-                );
-            }
-        }
     }
 
     /// 挂按钮：图标拿不到 / 任务栏还没就绪都只记日志。
@@ -892,155 +701,6 @@ mod platform {
         let _ = unsafe { DeleteObject(HGDIOBJ(bitmap.0)) };
     }
 
-    /// 封面 → 指定尺寸的 DIB。
-    fn cover_bitmap(cover: &Cover, size: (u32, u32)) -> Result<HBITMAP, String> {
-        let pixels = scale_bgra(&cover.pixels, cover.width, cover.height, size.0, size.1)
-            .ok_or_else(|| "封面缩放失败".to_string())?;
-        dib_from_bgra(&pixels, size.0, size.1)
-    }
-
-    /// 无封面时的兜底图源：窗口大图标的像素（BGRA、自上而下）。
-    ///
-    /// `HAS_ICONIC_BITMAP` 下 DWM 只认我们主动提交的位图，不应答就是黑预览，
-    /// 所以没有封面（无封面歌 / 解码中 / 封面推送被拒）时必须给一张兜底图。
-    fn icon_cover(hook: &Hook) -> Option<Cover> {
-        // 窗口级大图标（建窗时已设）；拿不到再退回窗口类图标
-        let mut hicon = HICON(
-            unsafe { SendMessageW(hook.hwnd, WM_GETICON, Some(WPARAM(ICON_BIG as usize)), Some(LPARAM(0))) }.0
-                as *mut c_void,
-        );
-        if hicon.0.is_null() {
-            hicon = HICON(unsafe { GetClassLongPtrW(hook.hwnd, GCLP_HICON) } as *mut c_void);
-        }
-        if hicon.0.is_null() {
-            return None;
-        }
-        let mut info = ICONINFO::default();
-        unsafe { GetIconInfo(hicon, &mut info) }.ok()?;
-        // GetIconInfo 返回的两张位图归调用方释放
-        let color = info.hbmColor;
-        let mask = info.hbmMask;
-        let cover = (|| {
-            if color.0.is_null() {
-                return None;
-            }
-            let hdc = unsafe { CreateCompatibleDC(None) };
-            if hdc.0.is_null() {
-                return None;
-            }
-            let cover = (|| {
-                let mut bmi = BITMAPINFO {
-                    bmiHeader: BITMAPINFOHEADER {
-                        biSize: size_of::<BITMAPINFOHEADER>() as u32,
-                        biPlanes: 1,
-                        biBitCount: 32,
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                };
-                // 第一遍 lpvBits 传空：只拿尺寸
-                if unsafe { GetDIBits(hdc, color, 0, 0, None, &mut bmi, DIB_RGB_COLORS) } == 0
-                {
-                    return None;
-                }
-                let (width, height) = (
-                    bmi.bmiHeader.biWidth.unsigned_abs(),
-                    bmi.bmiHeader.biHeight.unsigned_abs(),
-                );
-                if width == 0 || height == 0 {
-                    return None;
-                }
-                // 第二遍：biHeight 取负，读自上而下像素
-                let mut pixels = vec![0u8; width as usize * height as usize * 4];
-                bmi.bmiHeader.biHeight = -(height as i32);
-                if unsafe {
-                    GetDIBits(
-                        hdc,
-                        color,
-                        0,
-                        height,
-                        Some(pixels.as_mut_ptr() as *mut c_void),
-                        &mut bmi,
-                        DIB_RGB_COLORS,
-                    )
-                } == 0
-                {
-                    return None;
-                }
-                // 24 位旧式图标的 alpha 全 0：整图强制不透明，避免兜底图自身透明变黑
-                if pixels.chunks_exact(4).all(|px| px[3] == 0) {
-                    for px in pixels.chunks_exact_mut(4) {
-                        px[3] = 0xff;
-                    }
-                }
-                Some(Cover { pixels: Arc::new(pixels), width, height })
-            })();
-            let _ = unsafe { DeleteDC(hdc) };
-            cover
-        })();
-        delete_bitmap(color);
-        if !mask.0.is_null() {
-            delete_bitmap(mask);
-        }
-        cover
-    }
-
-    /// 把封面推给 DWM 当悬浮预览缩略图；成功返回 true（失败让调用方退回系统默认）。
-    fn set_iconic_thumbnail(hook: &Hook, cover: &Cover, size: (u32, u32)) -> bool {
-        match cover_bitmap(cover, size) {
-            Ok(bitmap) => {
-                // DwmSetIconicThumbnail 在调用时就取走像素（GDI 句柄不能跨进程），
-                // 因此立刻释放位图，避免每次悬停都漏一个 GDI 对象。
-                let result = unsafe { DwmSetIconicThumbnail(hook.hwnd, bitmap, 0) };
-                delete_bitmap(bitmap);
-                match result {
-                    Ok(()) => true,
-                    Err(err) => {
-                        log::warn!(
-                            "[taskbar] 设置悬浮预览缩略图失败，保持系统默认: {}",
-                            err
-                        );
-                        false
-                    }
-                }
-            }
-            Err(err) => {
-                log::warn!("[taskbar] 生成悬浮预览位图失败，保持系统默认: {}", err);
-                false
-            }
-        }
-    }
-
-    /// 把封面推给 DWM 当预览大图（铺满客户区）；成功返回 true。
-    fn set_live_preview(hook: &Hook, cover: &Cover) -> bool {
-        let mut rect = RECT::default();
-        if let Err(err) = unsafe { GetClientRect(hook.hwnd, &mut rect) } {
-            log::warn!("[taskbar] 读取窗口客户区失败，本次不推预览大图: {}", err);
-            return false;
-        }
-        let size = (
-            (rect.right - rect.left).max(1) as u32,
-            (rect.bottom - rect.top).max(1) as u32,
-        );
-        match cover_bitmap(cover, size) {
-            Ok(bitmap) => {
-                let result = unsafe { DwmSetIconicLivePreviewBitmap(hook.hwnd, bitmap, None, 0) };
-                delete_bitmap(bitmap);
-                match result {
-                    Ok(()) => true,
-                    Err(err) => {
-                        log::warn!("[taskbar] 设置预览大图失败，保持系统默认: {}", err);
-                        false
-                    }
-                }
-            }
-            Err(err) => {
-                log::warn!("[taskbar] 生成预览大图失败，保持系统默认: {}", err);
-                false
-            }
-        }
-    }
-
     // ─── 按钮数组 ─────────────────────────────────────────────
 
     /// 组装三个按钮（id / 图标 / 提示 / 显隐）。
@@ -1107,7 +767,7 @@ mod platform {
     }
 
     /// 处理我们关心的消息；`None` = 不处理，由调用方转给 `DefSubclassProc`。
-    fn handle_message(message: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
+    fn handle_message(message: u32, wparam: WPARAM, _lparam: LPARAM) -> Option<LRESULT> {
         // 窗口消息在触发它的线程上派发：走到这里就是主线程
         if message == WM_COMMAND {
             let action = command_action(wparam.0 as u32)?;
@@ -1124,40 +784,6 @@ mod platform {
         }
 
         match message {
-            WM_DWMSENDICONICTHUMBNAIL => {
-                let size = thumbnail_size(lparam.0 as u32);
-                // 先在锁外取出封面（Arc 克隆），拿锁时间极短
-                let cover = shared().cover.clone();
-                let handled = with_hook(|hook| {
-                    // 解码未完成也保留请求尺寸，像素就绪后才能主动补推当前悬停预览。
-                    hook.thumb_size = Some(size);
-                    // FORCE_ICONIC 下 DWM 不画默认快照：无封面 / 推送被拒都必须兜底应答，
-                    // 否则预览黑屏（这正是此前宽高颠倒 + 不应答导致的黑屏路径）。
-                    if let Some(cover) = cover.as_ref() {
-                        if set_iconic_thumbnail(hook, cover, size) {
-                            return true;
-                        }
-                    }
-                    icon_cover(hook).is_some_and(|icon| set_iconic_thumbnail(hook, &icon, size))
-                })
-                .unwrap_or(false);
-                // 兜底也失败才不认领（DWM 只能画默认快照）；hook 未挂时同样交回系统默认
-                handled.then_some(LRESULT(0))
-            }
-            WM_DWMSENDICONICLIVEPREVIEWBITMAP => {
-                let cover = shared().cover.clone();
-                let handled = with_hook(|hook| {
-                    if let Some(cover) = cover.as_ref() {
-                        if set_live_preview(hook, cover) {
-                            return true;
-                        }
-                    }
-                    // 无封面 / 推送失败：用窗口图标兜底，保证预览大图永远不黑
-                    icon_cover(hook).is_some_and(|icon| set_live_preview(hook, &icon))
-                })
-                .unwrap_or(false);
-                handled.then_some(LRESULT(0))
-            }
             WM_DESTROY => {
                 // 窗口销毁前卸钩子并释放 GDI 对象；消息照常转发
                 teardown();
@@ -1192,100 +818,6 @@ mod platform {
         }
     }
 
-    // ─── 封面解码（在调用它的线程上跑） ─────────────────────────
-
-    /// 工作线程上的 COM 初始化。`CoInitializeEx` 每次成功都会让引用计数 +1，
-    /// 因此这里成对释放；`RPC_E_CHANGED_MODE`（套间模式冲突）不改变计数，也不去反初始化。
-    struct ComGuard {
-        balance: bool,
-    }
-
-    impl ComGuard {
-        fn new() -> Self {
-            let hr = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
-            Self { balance: hr.is_ok() }
-        }
-    }
-
-    impl Drop for ComGuard {
-        fn drop(&mut self) {
-            if self.balance {
-                unsafe { CoUninitialize() };
-            }
-        }
-    }
-
-    /// 解码封面缓存文件 → 预乘 BGRA 像素。
-    ///
-    /// 只读已经落盘的本地封面缓存，**这条路径不下载任何东西**；
-    /// 走 WIC（`Windows Imaging Component`）解码，PNG/JPEG 都能吃。
-    pub fn decode_cover(path: &str) -> Result<Cover, String> {
-        let _com = ComGuard::new();
-        let wide: Vec<u16> = std::ffi::OsStr::new(path)
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-
-        let factory: IWICImagingFactory = unsafe {
-            CoCreateInstance(
-                &CLSID_WICImagingFactory,
-                None::<&IUnknown>,
-                CLSCTX_INPROC_SERVER,
-            )
-        }
-        .map_err(step("创建封面解码器失败"))?;
-        let decoder = unsafe {
-            factory.CreateDecoderFromFilename(
-                PCWSTR(wide.as_ptr()),
-                None,
-                GENERIC_READ,
-                WICDecodeMetadataCacheOnDemand,
-            )
-        }
-        .map_err(step("打开封面文件失败"))?;
-        let frame = unsafe { decoder.GetFrame(0) }.map_err(step("读取封面帧失败"))?;
-        let converter = unsafe { factory.CreateFormatConverter() }
-            .map_err(step("创建像素格式转换器失败"))?;
-        unsafe {
-            converter.Initialize(
-                &*frame,
-                &GUID_WICPixelFormat32bppPBGRA,
-            WICBitmapDitherTypeNone,
-                None::<&IWICPalette>,
-                0.0,
-                WICBitmapPaletteTypeCustom,
-            )
-        }
-        .map_err(step("转换封面像素格式失败"))?;
-
-        let (mut width, mut height) = (0u32, 0u32);
-        unsafe { converter.GetSize(&mut width, &mut height) }.map_err(step("读取封面尺寸失败"))?;
-        if width == 0 || height == 0 {
-            return Err("封面尺寸为空".to_string());
-        }
-        let (mut target_width, mut target_height) = fit_within(width, height, COVER_MAX_EDGE);
-
-        let mut pixels = vec![0u8; width as usize * height as usize * 4];
-        unsafe { converter.CopyPixels(null(), width * 4, &mut pixels) }
-            .map_err(step("读取封面像素失败"))?;
-
-        if (target_width, target_height) != (width, height) {
-            pixels = scale_bgra(&pixels, width, height, target_width, target_height)
-                .ok_or_else(|| "封面缩放失败".to_string())?;
-            width = target_width;
-            height = target_height;
-            // 只是为了让「缩放后尺寸」在编译期也被认为可能变化
-            target_width = width;
-            target_height = height;
-        }
-        let _ = (target_width, target_height);
-
-        Ok(Cover {
-            pixels: Arc::new(pixels),
-            width,
-            height,
-        })
-    }
 }
 
 // ─── 非 Windows 构建占位 ──────────────────────────────────────
@@ -1300,9 +832,6 @@ mod platform {
     pub fn prepare(_app: &AppHandle) {}
     pub fn apply_enabled(_app: &AppHandle, _enabled: bool) {}
     pub fn apply_track(_app: &AppHandle) {}
-    pub fn decode_cover(_path: &str) -> Result<Cover, String> {
-        Err("当前平台不支持任务栏封面预览".to_string())
-    }
 }
 
 // ─── 单测（纯函数：不碰窗口、COM、GDI） ────────────────────────
@@ -1310,127 +839,6 @@ mod platform {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn track(path: Option<&str>, status: &str) -> TaskbarTrack {
-        TaskbarTrack { status: status.into(), cover_path: path.map(str::to_string) }
-    }
-
-    fn cover(value: u8) -> Cover {
-        Cover { pixels: Arc::new(vec![value; 4]), width: 1, height: 1 }
-    }
-
-    fn enabled_state() -> Mutex<Shared> {
-        Mutex::new(Shared { enabled: true, ..Shared::default() })
-    }
-
-    #[test]
-    fn cover_decode_and_commit_never_hold_state_lock_together() {
-        let state = enabled_state();
-        let request = state.lock().unwrap().begin_update(track(Some("cover.jpg"), "playing")).unwrap();
-        let committed = decode_and_commit_cover(&state, request, |_| {
-            assert!(state.try_lock().is_ok(), "封面解码期间不得持有任务栏状态锁");
-            Ok(cover(1))
-        }).unwrap();
-        assert!(committed);
-        assert_eq!(state.try_lock().unwrap().cover.as_ref().unwrap().pixels[0], 1);
-    }
-
-    #[test]
-    fn stale_decode_cannot_overwrite_newer_cover_even_after_a_b_a() {
-        let state = enabled_state();
-        let old = state.lock().unwrap().begin_update(track(Some("a.jpg"), "playing")).unwrap();
-        assert!(!decode_and_commit_cover(&state, old, |_| {
-            state.lock().unwrap().begin_update(track(Some("b.jpg"), "playing"));
-            let latest = state.lock().unwrap().begin_update(track(Some("a.jpg"), "paused")).unwrap();
-            assert!(decode_and_commit_cover(&state, latest, |_| Ok(cover(2))).unwrap());
-            Ok(cover(1))
-        }).unwrap());
-        let state = state.lock().unwrap();
-        assert_eq!(state.cover.as_ref().unwrap().pixels[0], 2);
-        assert_eq!(state.status, "paused");
-    }
-
-    #[test]
-    fn disable_and_reenable_invalidates_pending_decode() {
-        let state = enabled_state();
-        let old = state.lock().unwrap().begin_update(track(Some("a.jpg"), "playing")).unwrap();
-        assert!(!decode_and_commit_cover(&state, old, |_| {
-            let mut state = state.lock().unwrap();
-            state.set_enabled(false);
-            state.set_enabled(true);
-            state.begin_update(track(Some("a.jpg"), "playing"));
-            Ok(cover(1))
-        }).unwrap());
-        assert!(state.lock().unwrap().cover.is_none());
-    }
-
-    #[test]
-    fn unchanged_path_updates_status_without_restarting_decode() {
-        let state = enabled_state();
-        let pending = state.lock().unwrap().begin_update(track(Some(" a.jpg "), "playing")).unwrap();
-        assert!(state.lock().unwrap().begin_update(track(Some("a.jpg"), "paused")).is_none());
-        assert!(decode_and_commit_cover(&state, pending, |_| Ok(cover(3))).unwrap());
-        assert_eq!(state.lock().unwrap().status, "paused");
-    }
-
-    #[test]
-    fn preview_path_is_published_only_when_pixels_are_ready() {
-        let state = enabled_state();
-        let pending = state.lock().unwrap().begin_update(track(Some("a.jpg"), "playing")).unwrap();
-        assert_eq!(state.lock().unwrap().preview_cover_path(), None);
-        decode_and_commit_cover(&state, pending, |_| Ok(cover(1))).unwrap();
-        assert_eq!(state.lock().unwrap().preview_cover_path(), Some("a.jpg"));
-        let bad = state.lock().unwrap().begin_update(track(Some("bad.jpg"), "playing")).unwrap();
-        assert_eq!(state.lock().unwrap().preview_cover_path(), None);
-        assert_eq!(decode_and_commit_cover(&state, bad, |_| Err("decode failed".into())), Err("decode failed".into()));
-        assert!(state.lock().unwrap().cover.is_none());
-    }
-
-    #[test]
-    fn clearing_cover_invalidates_pending_work() {
-        let state = enabled_state();
-        let pending = state.lock().unwrap().begin_update(track(Some("a.jpg"), "playing")).unwrap();
-        assert!(state.lock().unwrap().begin_update(track(Some("  "), "paused")).is_none());
-        assert!(!decode_and_commit_cover(&state, pending, |_| Ok(cover(1))).unwrap());
-        let state = state.lock().unwrap();
-        assert!(state.cover.is_none());
-        assert_eq!(state.preview_cover_path(), None);
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn real_wic_cover_can_be_decoded_and_committed_off_thread() {
-        // 1x1、24位BMP，真实走Windows WIC；不启动窗口或访问用户媒体。
-        let mut bmp = vec![0u8; 58];
-        bmp[0..2].copy_from_slice(b"BM");
-        bmp[2..6].copy_from_slice(&58u32.to_le_bytes());
-        bmp[10..14].copy_from_slice(&54u32.to_le_bytes());
-        bmp[14..18].copy_from_slice(&40u32.to_le_bytes());
-        bmp[18..22].copy_from_slice(&1i32.to_le_bytes());
-        bmp[22..26].copy_from_slice(&1i32.to_le_bytes());
-        bmp[26..28].copy_from_slice(&1u16.to_le_bytes());
-        bmp[28..30].copy_from_slice(&24u16.to_le_bytes());
-        bmp[56] = 255;
-        let path = std::env::temp_dir().join(format!("auralflow-taskbar-test-{}.bmp", std::process::id()));
-        std::fs::write(&path, bmp).unwrap();
-        let result = std::thread::spawn({
-            let path = path.to_string_lossy().into_owned();
-            move || {
-                let state = enabled_state();
-                let request = state.lock().unwrap().begin_update(track(Some(&path), "playing")).unwrap();
-                let committed = decode_and_commit_cover(&state, request, platform::decode_cover)?;
-                let state = state.lock().unwrap();
-                let cover = state.cover.as_ref().unwrap();
-                assert!(committed);
-                assert_eq!((cover.width, cover.height), (1, 1));
-                assert_eq!(&**cover.pixels, &[0, 0, 255, 255]);
-                Ok::<(), String>(())
-            }
-        }).join();
-        std::fs::remove_file(path).unwrap();
-        result.unwrap().unwrap();
-    }
-
     #[test]
     fn button_ids_round_trip() {
         // 按钮 id 就是按钮栏下标，前后端与窗口消息一起用，必须稳定
@@ -1496,14 +904,6 @@ mod tests {
     }
 
     #[test]
-    fn thumbnail_size_parses_lparam_and_clamps_zero() {
-        // MSDN: HIWORD(lParam) = 最大宽（x），LOWORD(lParam) = 最大高（y）
-        assert_eq!(thumbnail_size(0x0120_01E0), (0x0120, 0x01E0));
-        // 系统给 0（尺寸还没算出来）按 1 兜住，避免生成非法位图
-        assert_eq!(thumbnail_size(0), (1, 1));
-    }
-
-    #[test]
     fn glyphs_draw_strokes_without_filling_the_background() {
         let size = 32;
         for glyph in [Glyph::Previous, Glyph::Play, Glyph::Pause, Glyph::Next] {
@@ -1540,41 +940,16 @@ mod tests {
     fn render_glyph_handles_zero_size() {
         assert!(render_glyph(Glyph::Play, 0).is_empty());
     }
-
     #[test]
-    fn scale_bgra_rejects_bad_input() {
-        let src = vec![0u8; 2 * 2 * 4];
-        // 长度对不上
-        assert!(scale_bgra(&src[..15], 2, 2, 1, 1).is_none());
-        // 尺寸为 0
-        assert!(scale_bgra(&src, 2, 2, 0, 1).is_none());
-        assert!(scale_bgra(&src, 0, 2, 1, 1).is_none());
+    fn status_change_decides_whether_buttons_need_repainting() {
+        let mut state = Shared::default();
+        // 首次推送一定算变化（默认状态是空串）
+        assert!(state.set_status("playing".to_string()));
+        // 同一状态重复推送（切歌、进度刷新都会走到这里）不该再排一次主线程任务
+        assert!(!state.set_status("playing".to_string()));
+        assert_eq!(state.status, "playing");
+        assert!(state.set_status("paused".to_string()));
+        assert_eq!(state.status, "paused");
     }
 
-    #[test]
-    fn scale_bgra_averages_and_keeps_size() {
-        // 2x2 → 1x1：四个像素的平均值
-        let src = vec![
-            0, 0, 0, 0, //
-            4, 8, 12, 16, //
-            8, 16, 24, 32, //
-            12, 24, 36, 48,
-        ];
-        let scaled = scale_bgra(&src, 2, 2, 1, 1).expect("缩放应当成功");
-        assert_eq!(scaled, vec![6, 12, 18, 24]);
-
-        // 尺寸不变时原样返回
-        let same = scale_bgra(&src, 2, 2, 2, 2).expect("缩放应当成功");
-        assert_eq!(same, src);
-    }
-
-    #[test]
-    fn fit_within_caps_the_longest_edge() {
-        assert_eq!(fit_within(500, 400, 1024), (500, 400));
-        assert_eq!(fit_within(2048, 1024, 1024), (1024, 512));
-        assert_eq!(fit_within(1024, 2048, 1024), (512, 1024));
-        // 极小图至少 1 像素
-        assert_eq!(fit_within(3000, 1, 1024), (1024, 1));
-        assert_eq!(fit_within(0, 0, 1024), (1, 1));
-    }
 }
