@@ -240,17 +240,24 @@ const syncEngineToStore = (set: any, get: any) => {
       engineTargetKey = null;
     }
 
+    // 引擎里没有加载任何音频时（启动后未播放、或 stop/clearQueue 之后），它推送的
+    // currentMusic 是 null —— 那是「引擎还没参与」，不是「当前曲目被清空」。
+    // 启动时恢复的会话（队列 / 当前曲 / 进度 / 时长）必须留住：恢复音量这一步就会触发
+    // 一次引擎推送，旧代码用它覆盖 current/progress/duration，实测症状就是重启后进度全丢。
+    // 真正的清空路径（stop / clearQueue / 换曲）都在 store 侧显式 set，不依赖这次同步。
+    const engineHasTrack = engineState.currentMusic != null;
     set({
       status: engineState.status,
-      progress: engineState.currentTime,
-      // 锚点用 engine 采样时刻（同帧），UI 外推不再重复计入 React 渲染延迟
-      progressSampledAt: engineState.currentTimeSampledAt,
-      duration: engineState.duration,
-      // While muted, engine volume is 0; keep store logical volume for unmute/slider
       volume: isMuted ? storeVolume : engineState.volume,
       playbackRate: engineState.playbackRate,
-      current: engineState.currentMusic,
       error: engineState.error,
+      ...(engineHasTrack ? {
+        progress: engineState.currentTime,
+        // 锚点用 engine 采样时刻（同帧），UI 外推不再重复计入 React 渲染延迟
+        progressSampledAt: engineState.currentTimeSampledAt,
+        duration: engineState.duration,
+        current: engineState.currentMusic,
+      } : {}),
     });
 
     // 普通队列：仅 playing→error 自动跳（loading→error 由 playAndDidFail 处理），由设置开关控制

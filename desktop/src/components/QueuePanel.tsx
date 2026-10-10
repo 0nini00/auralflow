@@ -47,7 +47,9 @@ export function QueuePanel({ tracks, currentIndex, play, remove, classes, id, on
   // 队列可能上百首，打开面板时先把当前曲滚进视野，用户才找得到「正在播的是哪首」
   useEffect(() => {
     if (currentIndex < 0) return;
-    const frame = window.requestAnimationFrame(() => currentItem.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+    // 居中而不是 block:'nearest'：nearest 会把当前曲贴到列表下沿（用户要往上找），
+    // 打开队列时最该先看到的是「正在播的是哪首」。
+    const frame = window.requestAnimationFrame(() => currentItem.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
     return () => window.cancelAnimationFrame(frame);
   }, [currentIndex, tracks.length]);
 

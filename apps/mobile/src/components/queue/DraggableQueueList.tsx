@@ -43,6 +43,13 @@ export const DraggableQueueList = forwardRef<QueueListHandle, Props>(function Dr
   const count = queue.length;
   const [viewportWidth, setViewportWidth] = useState(0);
   const presentation = resolveQueueRowPresentation(viewportWidth);
+  /**
+   * 打开队列时把当前曲放到列表中间，而不是贴在上沿（用户还得自己往下找）：
+   * 初始定位往前让出半个视口的行数，右侧那行就落在中间。
+   */
+  const centeredLeadRows = Math.max(0, Math.floor((height / QUEUE_ROW_HEIGHT - 1) / 2));
+  const hasCurrentTrack = currentIndex >= 0 && currentIndex < count;
+  const initialRowIndex = hasCurrentTrack ? Math.max(0, currentIndex - centeredLeadRows) : undefined;
   const [entryState, setEntryState] = useState(() => ({ queue, entries: buildQueueEntries(queue) }));
   if (entryState.queue !== queue) {
     setEntryState({ queue, entries: buildQueueEntries(queue, entryState.entries) });
@@ -57,7 +64,8 @@ export const DraggableQueueList = forwardRef<QueueListHandle, Props>(function Dr
   const to = useSharedValue(-1);
   const gestureId = useSharedValue(0);
   const active = useSharedValue(false);
-  const scrollOffset = useSharedValue(Math.max(0, currentIndex) * QUEUE_ROW_HEIGHT);
+  // 初始滚动量必须与 initialScrollIndex 一致，否则长按拖动算出的插入位置会整体偏移
+  const scrollOffset = useSharedValue((initialRowIndex ?? 0) * QUEUE_ROW_HEIGHT);
   const startScroll = useSharedValue(0);
   const translation = useSharedValue(0);
   const startTranslation = useSharedValue(0);
@@ -197,7 +205,7 @@ export const DraggableQueueList = forwardRef<QueueListHandle, Props>(function Dr
           <Animated.FlatList ref={listRef} data={entries} keyExtractor={item => String(item.key)}
             renderItem={({ item, index }) => <QueueRow index={index} from={from} to={to}>{renderSong(item, index)}</QueueRow>}
             getItemLayout={(_data, index) => ({ length: QUEUE_ROW_HEIGHT, offset: index * QUEUE_ROW_HEIGHT, index })}
-            initialScrollIndex={currentIndex >= 0 && currentIndex < count ? currentIndex : undefined}
+            initialScrollIndex={initialRowIndex}
             onScroll={onScroll} scrollEventThrottle={16} scrollEnabled={!lifted}
             bounces={false} overScrollMode="never" windowSize={7} initialNumToRender={12} maxToRenderPerBatch={12}
             removeClippedSubviews={false} />

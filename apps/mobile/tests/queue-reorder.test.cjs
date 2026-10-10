@@ -262,3 +262,16 @@ test("窄屏队列行先隐藏可选信息，更多按钮不与拖动把手重�
   }
   assert.equal(queuePresentation.resolveQueueRowPresentation(396).showDuration, true);
 });
+
+test("打开队列时当前播放曲居中显示，而不是贴在列表上沿", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const { mobileRoot } = require("./helpers/loadTs.cjs");
+  const source = fs.readFileSync(path.join(mobileRoot, "src/components/queue/DraggableQueueList.tsx"), "utf8");
+
+  // 初始定位前移半个视口的行数 → 当前曲落在列表中间
+  assert.match(source, /centeredLeadRows/);
+  assert.match(source, /initialScrollIndex=\{initialRowIndex\}/);
+  // 初始滚动量必须与同一个索引一致，否则长按拖动算出的插入位置会整体偏移
+  assert.match(source, /useSharedValue\(\(initialRowIndex \?\? 0\) \* QUEUE_ROW_HEIGHT\)/);
+});

@@ -184,3 +184,38 @@ it('静音不覆盖逻辑音量，恢复时使用静音前音量', async () => {
     expect(usePlayerStore.getState()).toMatchObject({ isMuted: false, volume: 0.35 });
   }
 });
+
+it('引擎的空状态推送不会清掉会话恢复的当前曲与进度', async () => {
+  const { usePlayerStore } = await load();
+  const onEngineState = fixture.subscribe.mock.calls[0][0] as (state: Record<string, unknown>) => void;
+  expect(typeof onEngineState).toBe('function');
+
+  // 模拟启动时从 playback.json 恢复出来的会话（此时引擎还没加载任何音频）
+  usePlayerStore.setState({ current: music, queue: [music], currentIndex: 0, progress: 42, duration: 200, status: 'idle' });
+  // 恢复音量这一步就会触发引擎推一次状态，而引擎的 currentMusic 仍是 null
+  onEngineState({
+    currentMusic: null, currentUrl: null, status: 'idle', currentTime: 0,
+    currentTimeSampledAt: Date.now(), duration: 0, volume: 0.8, playbackRate: 1, error: null,
+  });
+
+  const state = usePlayerStore.getState();
+  expect(state.current?.id).toBe(music.id);
+  expect(state.progress).toBe(42);
+  expect(state.duration).toBe(200);
+  expect(state.queue).toHaveLength(1);
+});
+
+it('引擎加载了曲目后仍照常同步 current 与进度', async () => {
+  const { usePlayerStore } = await load();
+  const onEngineState = fixture.subscribe.mock.calls[0][0] as (state: Record<string, unknown>) => void;
+  usePlayerStore.setState({ current: null, queue: [], currentIndex: -1, progress: 0, duration: 0, status: 'idle' });
+  onEngineState({
+    currentMusic: music, currentUrl: 'https://audio/builtinNetease', status: 'playing', currentTime: 12,
+    currentTimeSampledAt: Date.now(), duration: 200, volume: 0.8, playbackRate: 1, error: null,
+  });
+
+  const state = usePlayerStore.getState();
+  expect(state.current?.id).toBe(music.id);
+  expect(state.progress).toBe(12);
+  expect(state.status).toBe('playing');
+});
