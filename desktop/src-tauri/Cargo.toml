@@ -1,6 +1,6 @@
 [package]
 name = "auralflow"
-version = "0.6.14"
+version = "0.6.15"
 description = "AuralFlow Desktop (Tauri + React)"
 authors = ["chenle"]
 edition = "2021"

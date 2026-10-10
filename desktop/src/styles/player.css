@@ -425,7 +425,10 @@
 }
 .af-immersive-progress-track input,
 .af-immersive-volume-track input { position: absolute; margin: 0; inset: auto 0; top: 50%; transform: translateY(-50%); width: 100%; height: 24px; opacity: 0; cursor: pointer; z-index: 1; }
-.af-immersive-progress-track:focus-within { outline: 2px solid var(--af-immersive-control-focus); outline-offset: 5px; }
+/* 焦点环只在键盘聚焦（Tab）时出现：打沉浸页时 useDialogFocus 会把焦点交给这个进度输入框，
+   而它高 24px、横跨整行、本身不可见 —— 用 :focus-within 时那道 2px、offset 5px 的环会被整行裁掉
+   左右两边，只剩进度条上方、下方各一条横线（与进度条同色），看着像多了两条进度条。 */
+.af-immersive-progress-track:has(input:focus-visible) { outline: 2px solid var(--af-immersive-control-focus); outline-offset: 5px; }
 .af-immersive-control-row { display: grid; grid-template-columns: minmax(100px, 1fr) auto minmax(176px, 1fr); align-items: center; gap: 20px; height: 60px; min-width: 0; }
 .af-immersive-time-group { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-variant-numeric: tabular-nums; line-height: 1.35; }
 .af-immersive-time-current { font-size: 19px; font-weight: 400; letter-spacing: 0.025em; }
@@ -436,7 +439,8 @@
 .af-immersive-control-right { justify-content: flex-end; }
 .af-immersive-volume-track { flex: 0 0 58px; width: 58px; height: 2px; position: relative; background: rgba(224, 242, 230, 0.2); margin-right: 8px; }
 .af-immersive-volume-fill { width: var(--af-immersive-volume, 0%); height: 100%; background: var(--af-immersive-control-ink); pointer-events: none; }
-.af-immersive-volume-track:focus-within { outline: 2px solid var(--af-immersive-control-focus); outline-offset: 5px; }
+/* 音量轨道同上：鼠标点击滑杆不算 :focus-visible，只有键盘导航才画环。 */
+.af-immersive-volume-track:has(input:focus-visible) { outline: 2px solid var(--af-immersive-control-focus); outline-offset: 5px; }
 .af-immersive-icon-btn,
 .af-immersive-play-btn { width: 40px; height: 40px; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 6px; color: var(--af-immersive-control-ink); background: transparent; box-shadow: none; cursor: pointer; transition: background 150ms ease, color 150ms ease; }
 .af-immersive-icon-btn svg { stroke-width: 1.5; }
