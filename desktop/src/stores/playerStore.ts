@@ -8,6 +8,7 @@ import { prefetchNearbyTracks, prefetchTracks, getPrefetchedTrack, invalidatePre
 import { selectCachedPlaybackTarget } from "@/services/playback/prefetchModel";
 import { getPlayModeState, type PlayModeId } from "@/services/playback/playModeControl";
 import { invalidateCachedPlaybackUrl } from "@/services/persistentCache";
+import { takeResumeProgress } from "./playerResumeTarget";
 import { removeCachedAudioForMusic } from "@/services/mediaCache";
 import { debugLog, patchSettings } from "@lx/tauri-bridge";
 import { applySwitchStepRequest, createSwitchStepQueueState, finishSwitchStep } from "@lx/core";
@@ -116,7 +117,12 @@ async function playAndDidFail(get: () => PlayerStore, music: MusicInfo): Promise
  */
 async function playThroughEngine(music: MusicInfo, url: string, assertPlaybackAllowed?: () => void): Promise<void> {
   engineTargetKey = buildPlayRequestKey(music);
-  await playerEngine.play(music, url, assertPlaybackAllowed);
+  // 恢复上次播放位置（跨重启）：在装载音频**之前**把秒数交给引擎，
+  // 浏览器会把它记成「默认起播位置」，不会出现「先从头播一下再跳」。
+  // takeResumeProgress 取一次即消费，且只对同一首歌生效 ——
+  // 恢复语义是「按播放继续听」，不是「启动就自动播放」。
+  const startAt = takeResumeProgress(music) ?? undefined;
+  await playerEngine.play(music, url, assertPlaybackAllowed, startAt);
 }
 
 async function invalidatePersistentPlaybackCache(

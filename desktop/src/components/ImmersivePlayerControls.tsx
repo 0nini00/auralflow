@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react';
-import { LogOut, Ellipsis, Gauge, ListMusic, Pause, Play, Repeat, Repeat1, Share2, Shuffle, SkipBack, SkipForward, Languages, Volume2, VolumeX, X } from 'lucide-react';
+import { LogOut, Ellipsis, Gauge, ListMusic, Pause, Play, Repeat, Repeat1, Share2, Shuffle, SkipBack, SkipForward, Languages, Volume2, VolumeX } from 'lucide-react';
+import { IMMERSIVE_QUEUE_CLASSES, QueuePanel } from '@/components/QueuePanel';
 import { formatTime } from '@/utils/formatTime';
 
 type Panel = 'more' | 'lyrics' | 'queue';
@@ -53,7 +54,6 @@ export const ImmersivePlayerControls = forwardRef<ImmersivePlayerControlsHandle,
   function ImmersivePlayerControls({ playback, actions, timeline, lyrics, queue, desktopLyrics, onPanelOpenChange, error, shareStatus, children }, ref) {
     const [panel, setPanel] = useState<Panel | null>(null);
     const triggers = useRef<Partial<Record<Panel, HTMLButtonElement | null>>>({});
-    const currentQueueItem = useRef<HTMLDivElement | null>(null);
 
     const dismissPanel = () => {
       if (!panel) return false;
@@ -64,11 +64,6 @@ export const ImmersivePlayerControls = forwardRef<ImmersivePlayerControlsHandle,
     };
     useImperativeHandle(ref, () => ({ dismissPanel }));
     useEffect(() => onPanelOpenChange(panel !== null), [panel, onPanelOpenChange]);
-    useEffect(() => {
-      if (panel !== 'queue' || queue.currentIndex < 0) return;
-      const frame = window.requestAnimationFrame(() => currentQueueItem.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
-      return () => window.cancelAnimationFrame(frame);
-    }, [panel, queue.currentIndex, queue.tracks.length]);
 
     const togglePanel = (next: Panel) => setPanel(current => current === next ? null : next);
     const triggerProps = (name: Panel) => ({
@@ -143,23 +138,8 @@ export const ImmersivePlayerControls = forwardRef<ImmersivePlayerControlsHandle,
             <div className="af-immersive-menu-anchor">
               <button type="button" {...triggerProps('queue')} aria-label="播放列表" data-tooltip="播放列表"><ListMusic size={18} /></button>
               {panel === 'queue' && (
-                <div id="af-immersive-queue-panel" className="af-immersive-popover af-immersive-queue-panel" role="dialog" aria-label="当前播放队列">
-                  <div className="af-immersive-queue-header"><strong>播放列表</strong><span>{queue.tracks.length} 首</span></div>
-                  <div className="af-immersive-queue-list">
-                    {queue.tracks.map((track, index) => (
-                      <div key={`${track.source}:${track.id}:${index}`} ref={index === queue.currentIndex ? currentQueueItem : undefined}
-                        className={`af-immersive-queue-item${index === queue.currentIndex ? ' af-playing' : ''}`}>
-                        <button type="button" className="af-immersive-queue-play" aria-label={`播放 ${track.name}`} aria-current={index === queue.currentIndex ? 'true' : undefined}
-                          onClick={() => { queue.play(index); dismissPanel(); }}>
-                          <span className="af-immersive-queue-index">{index + 1}</span>
-                          <span className="af-immersive-queue-info"><strong>{track.name}</strong><span>{track.singer || '未知歌手'}</span></span>
-                        </button>
-                        <button type="button" className="af-immersive-queue-remove" onClick={() => queue.remove(index)}
-                          aria-label={`从播放列表移除 ${track.name}`} data-tooltip="从播放列表移除" data-tooltip-placement="top-end"><X size={15} /></button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                <QueuePanel id="af-immersive-queue-panel" tracks={queue.tracks} currentIndex={queue.currentIndex}
+                  play={queue.play} remove={queue.remove} classes={IMMERSIVE_QUEUE_CLASSES} onClose={dismissPanel} />
               )}
             </div>
             <button type="button" className={`af-immersive-icon-btn${desktopLyrics.open ? ' af-active' : ''}`} aria-label={desktopLyrics.label}

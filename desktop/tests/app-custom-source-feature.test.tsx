@@ -58,6 +58,8 @@ vi.mock("@/stores/playerStore", () => ({ usePlayerStore: { getState: () => ({ se
 vi.mock("@/services/playerEngine", () => ({ playerEngine: { setPauseOnExternalPlayback: dependencies.setPauseOnExternalPlayback } }));
 vi.mock("@/services/logger", () => ({ logger: { warn: vi.fn() } }));
 vi.mock("@/stores/libraryPersistence", () => ({ flushLibraryPersistence: vi.fn() }));
+// App 现在会挂载播放会话持久化；这条测试只关心音源检查生命周期，把它挡掉。
+vi.mock("@/stores/playerPersistence", () => ({ attachPlaybackPersistence: vi.fn() }));
 vi.mock("@/services/webdavSyncService", () => ({ autoSyncPlaylistsOnce: dependencies.autoSyncPlaylistsOnce }));
 
 let renderer: ReactTestRenderer | undefined;

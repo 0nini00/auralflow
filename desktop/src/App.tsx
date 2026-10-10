@@ -26,6 +26,7 @@ import { UpdateModal } from "./components/UpdateModal";
 import { CustomSourceUpdateModal } from "./components/CustomSourceUpdateModal";
 import { checkForUpdate } from "./services/updateService";
 import { useUpdateStore } from "./stores/updateStore";
+import { attachPlaybackPersistence } from "./stores/playerPersistence";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useNativeControls } from "./hooks/useNativeControls";
 import { setupSystemMediaControls } from "./services/smtcService";
@@ -86,6 +87,13 @@ function MainApp() {
       document.removeEventListener("visibilitychange", onVisibilityChange);
       unlisten?.();
     };
+  }, []);
+
+  // 播放会话持久化：恢复队列 / 当前曲 / 上次播放位置（library 的 playback 命名空间）。
+  // 只重建状态、不自动播放 —— 用户按下播放时由 playerStore 的 playThroughEngine
+  // 取一次待恢复位置交给引擎（见 stores/playerPersistence.ts）。
+  useEffect(() => {
+    attachPlaybackPersistence();
   }, []);
 
   useEffect(() => {

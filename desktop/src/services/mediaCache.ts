@@ -1,7 +1,9 @@
 import type { MusicInfo } from '@lx/core';
-import { COVER_TIER_IMMERSIVE, resizeCoverUrl } from '@lx/core';
+import { COVER_TIER_IMMERSIVE, estimateStreamDurationSeconds, isPreviewStream, resizeCoverUrl } from '@lx/core';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { cacheRemoteAudio, cacheRemoteImage, lookupCachedMedia, removeCachedMedia } from '@lx/tauri-bridge';
+import { cacheRemoteAudio, cacheRemoteImage, lookupCachedMedia, removeCachedMedia, type CachedMedia } from '@lx/tauri-bridge';
+import { logger } from '@/services/logger';
+import { isLocalCachedPlaybackUrl } from '@/services/persistentCache';
 import type { CustomSourceOperation } from '@/services/customSourceAccess';
 import type { PlaybackBackendId, PlaybackResolvedUrl } from '@/services/playback/types';
 
@@ -9,6 +11,19 @@ export const CACHEABLE_AUDIO_SOURCES = new Set<MusicInfo['source']>(['wy', 'tx']
 
 function isHttpUrl(value: string | undefined): value is string {
   return !!value && /^https?:\/\//i.test(value);
+}
+
+/**
+ * 本地缓存条目不可用（文件被 LRU 淘汰 / 老命名 / 落盘的是试听片段）时抛出。
+ *
+ * 必须让调用方知道「这条持久化条目已经废了」—— 以前这里会回退到条目里的原地址，
+ * 而原地址就是那个已经不存在的本地文件：播放器只会拿到一次 asset 协议 404 与一次失败。
+ */
+export class StalePlaybackCacheError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StalePlaybackCacheError";
+  }
 }
 
 function normalizeKeyPart(value: unknown): string {
@@ -21,6 +36,15 @@ function normalizeKeyPart(value: unknown): string {
 
 function buildMediaCacheKey(music: MusicInfo, kind: string): string {
   return `${normalizeKeyPart(music.source)}-${normalizeKeyPart(music.id)}-${normalizeKeyPart(kind)}`;
+}
+
+/** 音频缓存 key：`<source>-<id>-audio-<backend>-<quality>`（与 Rust 侧落盘文件名一致）。 */
+export function buildAudioCacheKey(
+  music: MusicInfo,
+  backend: string,
+  quality: string,
+): string {
+  return buildMediaCacheKey(music, `audio-${backend}-${quality}`);
 }
 
 function getCoverUrl(music: MusicInfo): string {
@@ -51,7 +75,7 @@ async function cacheMusicCover(music: MusicInfo, operation?: CustomSourceOperati
   const remoteUrl = resizeCoverUrl(coverUrl, COVER_TIER_IMMERSIVE);
   const cacheKey = buildMediaCacheKey(music, 'cover');
 
-  let cached: string | null = null;
+  let cached: CachedMedia | null = null;
   try {
     cached = await lookupCachedMedia('cover', cacheKey);
   } catch {
@@ -59,7 +83,7 @@ async function cacheMusicCover(music: MusicInfo, operation?: CustomSourceOperati
   }
   operation?.assertActive();
   if (cached) {
-    const localCoverUrl = convertFileSrc(cached);
+    const localCoverUrl = convertFileSrc(cached.path);
     return { ...music, picUrl: localCoverUrl, img: localCoverUrl };
   }
 
@@ -77,7 +101,8 @@ async function cacheMusicCover(music: MusicInfo, operation?: CustomSourceOperati
  */
 export async function lookupCachedCoverPath(music: MusicInfo): Promise<string | null> {
   try {
-    return await lookupCachedMedia("cover", buildMediaCacheKey(music, "cover"));
+    const cached = await lookupCachedMedia("cover", buildMediaCacheKey(music, "cover"));
+    return cached?.path ?? null;
   } catch {
     // 查缓存失败不影响播放，按「没有封面」处理
     return null;
@@ -89,13 +114,17 @@ async function cachePlaybackAudio(
   resolved: PlaybackResolvedUrl,
   operation?: CustomSourceOperation,
 ): Promise<string> {
-  if (!CACHEABLE_AUDIO_SOURCES.has(music.source) || !isHttpUrl(resolved.url)) {
+  if (!CACHEABLE_AUDIO_SOURCES.has(music.source)) {
     return resolved.url;
   }
 
-  const cacheKey = buildMediaCacheKey(music, `audio-${resolved.backend}-${resolved.quality}`);
+  const cacheKey = buildAudioCacheKey(music, resolved.backend, resolved.quality);
+  // 「本地地址」不能只看协议：Windows 上 convertFileSrc 产出的是
+  // `http://asset.localhost/<编码后的路径>`，isHttpUrl 会把它当成远端地址。
+  const remoteUrl =
+    isHttpUrl(resolved.url) && !isLocalCachedPlaybackUrl(resolved.url) ? resolved.url : null;
 
-  let cached: string | null = null;
+  let cached: CachedMedia | null = null;
   try {
     // 新 key 按 backend 分区；旧 key 来源不明，不复用也不主动删除。
     cached = await lookupCachedMedia('audio', cacheKey);
@@ -104,12 +133,42 @@ async function cachePlaybackAudio(
   }
   // 查询是异步的，失效后既不能返回本地文件，也不能发起新的原生下载。
   operation?.assertActive();
-  if (cached) return convertFileSrc(cached);
+
+  if (cached) {
+    // 磁盘上这份也可能是「试听片段」（同一首歌此前拿到过 30s 试听并落了盘）：
+    // 解析期的探活判定只覆盖新地址，落盘文件必须靠体积离线判定，否则仍会出现
+    //「播十几秒就跳」——播放器按实际时长判定试听 → 停播清缓存 → 自动下一首。
+    if (
+      isPreviewStream({
+        totalBytes: cached.bytes,
+        quality: resolved.quality,
+        expectedDurationSeconds: music.interval,
+      })
+    ) {
+      const seconds = estimateStreamDurationSeconds(cached.bytes, resolved.quality);
+      logger.warn(
+        `[cache] 磁盘缓存是试听片段（约 ${Math.round(seconds ?? 0)}s），已清除并改用远端地址: ${music.name}`,
+      );
+      await removeCachedMedia('audio', cacheKey).catch(() => undefined);
+      operation?.assertActive();
+      if (!remoteUrl) throw new StalePlaybackCacheError('磁盘缓存是试听片段');
+      // 远端地址来自本次解析（解析期已做过试听判定），继续走下面的「先播远端」分支。
+    } else {
+      return convertFileSrc(cached.path);
+    }
+  }
+
+  if (!remoteUrl) {
+    // 待播地址本身就是本地文件（持久化条目里存的旧路径），而当前 key 查不到可用文件：
+    // 文件可能早被 LRU 淘汰、或那次缓存用的还是老命名（v0.6.8 前不分后端）。
+    // 把死链交给播放器只会得到一次 asset 协议 404 与一次失败，必须让上层作废该条目并重新解析。
+    throw new StalePlaybackCacheError('本地缓存文件已不存在');
+  }
 
   // 未落盘：立即用远端地址播放，后台下载供下次使用。
   // 这里绝不能 await —— 等整首歌下载完再播放会让每次切歌卡住十几秒。
-  void cacheRemoteAudio({ url: resolved.url, cacheKey }).catch(() => undefined);
-  return resolved.url;
+  void cacheRemoteAudio({ url: remoteUrl, cacheKey }).catch(() => undefined);
+  return remoteUrl;
 }
 
 export async function cacheResolvedPlaybackMedia(

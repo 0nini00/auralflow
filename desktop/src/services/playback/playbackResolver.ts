@@ -8,8 +8,8 @@ import { customSourceBackend } from './customSourceBackend';
 import { probeStreamUrl } from './streamProbe';
 import type { PlaybackBackendId, PlaybackResolvedUrl } from './types';
 import { getSource } from '@/services/sources/sourceService';
-import { getCachedPlaybackUrl, saveCachedPlaybackUrl } from '@/services/persistentCache';
-import { cacheResolvedPlaybackMedia } from '@/services/mediaCache';
+import { getCachedPlaybackUrl, invalidateCachedPlaybackUrl, saveCachedPlaybackUrl } from '@/services/persistentCache';
+import { cacheResolvedPlaybackMedia, StalePlaybackCacheError } from '@/services/mediaCache';
 import { customSourceAccess, customSourcePersistence, useCustomSourceStore } from '@/stores/customSourceStore';
 import { CustomSourceDisabledError, type CustomSourceOperation } from '@/services/customSourceAccess';
 
@@ -169,11 +169,25 @@ async function resolvePlaybackUrlUncapped(
   if (!options.bypassCache) {
     try {
       const cached = await getCachedPlaybackUrl(music, qualityPreference, cacheVariants);
-      // 持久化条目存的可能是会过期的远端地址;再过一次媒体缓存,
-      // 音频已落盘时升级为本地文件,避免命中过期 URL。
+      // 持久化条目存的可能是会过期的远端地址、也可能是指向已被淘汰的本地文件的死链；
+      // 这里再过一次媒体缓存：远端地址在音频已落盘时升级为本地文件，
+      // 本地条目不可用时抛 StalePlaybackCacheError，由下面作废该条目并改为重新解析。
       if (cached) {
         debugLog(`[resolve] 命中持久化缓存 ${music.name} url=${cached.url.slice(0, 60)}`);
-        return await prepareResolvedPlaybackMedia(music, cached, options.cacheMedia !== false, operation);
+        try {
+          return await prepareResolvedPlaybackMedia(music, cached, options.cacheMedia !== false, operation);
+        } catch (error) {
+          if (!(error instanceof StalePlaybackCacheError)) throw error;
+          // 只作废这一条音质档（主源与变体都可能存过同一条），其余档位的记录不受影响。
+          debugLog(
+            `[resolve] 持久化条目指向的本地文件已不可用（${error.message}），作废后重新解析: ${music.name}`,
+          );
+          await Promise.all([
+            invalidateCachedPlaybackUrl(music, cached.quality).catch(() => undefined),
+            invalidateCachedPlaybackUrl(cached.music, cached.quality).catch(() => undefined),
+          ]);
+          operation?.assertActive();
+        }
       }
     } catch (error) {
       // 缓存读失败按未命中处理，继续走网络解析；但不能完全静默，
@@ -302,6 +316,10 @@ async function prepareResolvedPlaybackMedia(
   } catch (error) {
     // 生命周期失效不能被媒体缓存的网络失败回退吞掉。
     access?.assertActive();
+    // 本地缓存条目已作废（文件被 LRU 淘汰 / 老命名 / 落盘的是试听片段）：
+    // 回退到原地址只会把死链交给播放器（asset 协议 404 → 立刻失败，开了自动下一首就跳歌），
+    // 必须抛给调用方去作废持久化条目并重新解析。
+    if (error instanceof StalePlaybackCacheError) throw error;
     // 媒体缓存（封面/音频落盘）失败不影响本次播放，仍用远端地址；
     // 但要留痕，否则“缓存一直不命中”会没人发现。
     debugLog(`[resolve] 媒体缓存处理失败，改用原地址: ${error instanceof Error ? error.message : String(error)}`);

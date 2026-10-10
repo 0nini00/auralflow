@@ -163,7 +163,7 @@ class PlayerEngine {
     this.patchState({ currentMusic: music });
   }
 
-  async load(music: MusicInfo, url: string, assertPlaybackAllowed?: () => void): Promise<void> {
+  async load(music: MusicInfo, url: string, assertPlaybackAllowed?: () => void, startAtSeconds?: number): Promise<void> {
     const version = ++this.loadVersion;
     const assertCurrent = () => { if (version !== this.loadVersion) throw new Error("播放加载已被更新的操作取消"); };
     assertPlaybackAllowed?.();
@@ -184,14 +184,20 @@ class PlayerEngine {
     this.markInternalPause();
     this.audio.src = url;
     this.audio.load();
+    // 恢复上次播放位置：此刻还没有 metadata，赋 currentTime 会被浏览器记成「默认起播位置」，
+    // 元数据到位后自动落到该处；顺手把状态推给 UI，进度条不必等 metadata 才正确。
+    if (typeof startAtSeconds === "number" && startAtSeconds > 0) {
+      this.audio.currentTime = startAtSeconds;
+      this.patchState({ currentTime: startAtSeconds });
+    }
     // load() 会重置播放速率，必须在装载后恢复用户设置。
     this.audio.playbackRate = this.state.playbackRate;
   }
 
-  async play(music: MusicInfo, url: string, assertPlaybackAllowed?: () => void): Promise<void> {
+  async play(music: MusicInfo, url: string, assertPlaybackAllowed?: () => void, startAtSeconds?: number): Promise<void> {
     const version = this.loadVersion + 1;
     try {
-      await this.load(music, url, assertPlaybackAllowed);
+      await this.load(music, url, assertPlaybackAllowed, startAtSeconds);
       if (version !== this.loadVersion) throw new Error("播放加载已被更新的操作取消");
       assertPlaybackAllowed?.();
       await this.audio.play();

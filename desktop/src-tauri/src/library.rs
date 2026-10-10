@@ -25,6 +25,7 @@ const ALLOWED_NAMESPACES: &[&str] = &[
     "recent",
     "cache",
     "dailyRecommend",
+    "playback",
 ];
 
 fn validate(namespace: &str) -> Result<(), String> {

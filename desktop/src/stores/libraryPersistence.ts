@@ -78,6 +78,7 @@ export const LIBRARY_NAMESPACE_LABELS: Record<LibraryNamespace, string> = {
   recent: "最近播放",
   cache: "缓存",
   dailyRecommend: "每日推荐",
+  playback: "播放会话",
 };
 
 /** 当前因读盘失败而停用写盘的命名空间（引用稳定，可直接给 useSyncExternalStore）。 */

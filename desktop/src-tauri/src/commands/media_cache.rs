@@ -401,6 +401,24 @@ pub async fn cache_remote_audio(
 const AUDIO_CACHE_EXTS: &[&str] = &["mp3", "flac", "m4a", "aac", "ogg", "opus", "wav"];
 const COVER_CACHE_EXTS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "bmp"];
 
+/// 命中的媒体缓存条目：文件路径 + 体积。
+///
+/// 前端要靠 `bytes` 做两件事：判断落盘的是不是「试听片段」（见 @lx/core stream-integrity），
+/// 以及配合下面的体积门槛把残包挡在播放器之外。
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CachedMedia {
+    pub path: String,
+    pub bytes: u64,
+}
+
+/// 音频缓存的最小可信体积。历史样本里出现过 74 字节的 mp3（下载中断的残包）；
+/// 旧逻辑只要求「文件存在且非空」，于是查询会一次次命中它、播放器一加载就报错。
+/// 24 KiB 远低于任何可播放音频（128k 的 1.5 秒也有约 24 KB），不会误伤正常文件。
+const MIN_AUDIO_CACHE_BYTES: u64 = 24 * 1024;
+/// 封面缓存的对应门槛：几十字节的「图片」同样只可能是残包。
+const MIN_COVER_CACHE_BYTES: u64 = 512;
+
 #[tauri::command]
 pub async fn cache_remote_image(
     app: AppHandle,
@@ -425,15 +443,51 @@ pub async fn cache_remote_image(
 ///
 /// 播放路径用它区分「已缓存 → 直接放本地文件」与「未缓存 → 先播远端、后台落盘」，
 /// 避免把整首歌下载完才开始播放。
+/// 查询侧的统一判定：先找文件，再按体积门槛校验；残包（体积不够）直接清掉并按未命中返回。
+///
+/// 抽成纯函数是为了能在单测里用临时目录同时覆盖「来不及下完的残包」与正常文件两种情况。
+fn inspect_cached_file(
+    cache_dir: &Path,
+    key: &str,
+    allowed: &[&str],
+    min_bytes: u64,
+) -> Result<Option<CachedMedia>, String> {
+    let Some(path) = find_cached_file(cache_dir, key, allowed)? else {
+        return Ok(None);
+    };
+    let bytes = std::fs::metadata(&path)
+        .map_err(|err| format!("读取缓存文件失败: {}", err))?
+        .len();
+    if bytes < min_bytes {
+        // 残包留在磁盘上只会让每次查询都再命中一次，清理失败也不改变「按未命中返回」的结论。
+        let _ = std::fs::remove_file(&path);
+        tauri_plugin_log::log::warn!(
+            "[cache] 清理不可用的缓存残包 {}（{} 字节，门槛 {} 字节）",
+            path.display(),
+            bytes,
+            min_bytes
+        );
+        return Ok(None);
+    }
+    Ok(Some(CachedMedia {
+        path: path.to_string_lossy().to_string(),
+        bytes,
+    }))
+}
+
+/// 查询已落盘的媒体缓存（不发起下载）。
+///
+/// 播放路径用它区分「已缓存 → 直接放本地文件」与「未缓存 → 先播远端、后台落盘」，
+/// 避免把整首歌下载完才开始播放；返回的体积供前端判断「这是不是一个试听片段」。
 #[tauri::command]
 pub fn lookup_cached_media(
     app: AppHandle,
     kind: String,
     cache_key: String,
-) -> Result<Option<String>, String> {
-    let (cache_dir, allowed) = match kind.as_str() {
-        "audio" => (song_audio_cache_dir(&app)?, AUDIO_CACHE_EXTS),
-        "cover" => (song_cover_cache_dir(&app)?, COVER_CACHE_EXTS),
+) -> Result<Option<CachedMedia>, String> {
+    let (cache_dir, allowed, min_bytes) = match kind.as_str() {
+        "audio" => (song_audio_cache_dir(&app)?, AUDIO_CACHE_EXTS, MIN_AUDIO_CACHE_BYTES),
+        "cover" => (song_cover_cache_dir(&app)?, COVER_CACHE_EXTS, MIN_COVER_CACHE_BYTES),
         other => return Err(format!("未知的媒体缓存类型: {}", other)),
     };
     // 查询侧不接受空 key：normalize_cache_key 在 key 为空时会回退到 md5("")（一个固定值），
@@ -443,7 +497,7 @@ pub fn lookup_cached_media(
     if key.is_empty() {
         return Err("缓存 key 无效：不能为空".to_string());
     }
-    Ok(find_cached_file(&cache_dir, &key, allowed)?.map(|path| path.to_string_lossy().to_string()))
+    inspect_cached_file(&cache_dir, &key, allowed, min_bytes)
 }
 
 /// 按 key 删除单条媒体缓存，返回是否真的删掉了文件。
@@ -540,5 +594,34 @@ mod manual_cover_tests {
         assert!(write_manual_cover(&dir, "data:image/svg+xml;base64,PHN2Zy8+").is_err());
         assert!(write_manual_cover(&dir, "data:image/png;base64,bm90IGEgcG5n").is_err());
         assert!(!dir.exists());
+    }
+}
+
+#[cfg(test)]
+mod cache_lookup_tests {
+    use super::*;
+
+    /// 残包（下载中断留下的几十字节文件）必须按未命中处理并顺手清掉；
+    /// 正常体积的文件要带出字节数，前端据此判定「落盘的试听片段」。
+    #[test]
+    fn rejects_stub_files_and_reports_bytes() {
+        let dir = std::env::temp_dir().join(format!("auralflow-cache-lookup-{}", unique_temp_suffix()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let stub = dir.join("wy-1-audio-flac.mp3");
+        std::fs::write(&stub, vec![0u8; 74]).unwrap();
+        let hit = inspect_cached_file(&dir, "wy-1-audio-flac", &["mp3"], MIN_AUDIO_CACHE_BYTES).unwrap();
+        assert!(hit.is_none(), "74 字节的残包不能算命中");
+        assert!(!stub.exists(), "残包应当被清掉，否则每次查询都会再命中一次");
+
+        let good = dir.join("wy-2-audio-builtinNetease-320k.mp3");
+        std::fs::write(&good, vec![0u8; (MIN_AUDIO_CACHE_BYTES + 10) as usize]).unwrap();
+        let hit = inspect_cached_file(&dir, "wy-2-audio-builtinNetease-320k", &["mp3"], MIN_AUDIO_CACHE_BYTES)
+            .unwrap()
+            .expect("正常体积的文件应当命中");
+        assert_eq!(hit.bytes, MIN_AUDIO_CACHE_BYTES + 10);
+        assert!(hit.path.ends_with("wy-2-audio-builtinNetease-320k.mp3"));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

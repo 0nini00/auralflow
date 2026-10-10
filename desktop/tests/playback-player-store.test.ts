@@ -62,8 +62,8 @@ describe('playerStore LX 快路径及在途结果', () => {
     const { usePlayerStore } = await load();
     await usePlayerStore.getState().play(music);
     expect(fixture.resolve).toHaveBeenCalled();
-    expect(fixture.play).toHaveBeenCalledWith(music, 'https://audio/builtinNetease', undefined);
-    expect(fixture.play).not.toHaveBeenCalledWith(music, 'https://audio/customSource', expect.any(Function));
+    expect(fixture.play).toHaveBeenCalledWith(music, 'https://audio/builtinNetease', undefined, undefined);
+    expect(fixture.play).not.toHaveBeenCalledWith(music, 'https://audio/customSource', expect.any(Function), undefined);
   });
   it('开启且版本匹配时仍走 LX 快路径', async () => {
     const { usePlayerStore, customSourceAccess } = await load();
@@ -73,7 +73,7 @@ describe('playerStore LX 快路径及在途结果', () => {
     expect(() => fixture.play.mock.calls[0][2]()).not.toThrow();
     customSourceAccess.invalidate();
     expect(() => fixture.play.mock.calls[0][2]()).toThrow();
-    expect(fixture.play).toHaveBeenCalledWith(music, 'https://audio/customSource', expect.any(Function));
+    expect(fixture.play).toHaveBeenCalledWith(music, 'https://audio/customSource', expect.any(Function), undefined);
   });
   it('off→on 后旧版本的 LX 快路径不复活', async () => {
     const { usePlayerStore, customSourceAccess, toggle } = await load();
@@ -82,7 +82,7 @@ describe('playerStore LX 快路径及在途结果', () => {
     toggle(true);
     fixture.cached.mockReturnValue({ ...resolved(), fetchedAt: Date.now(), customSourceVersion: version });
     await usePlayerStore.getState().play(music);
-    expect(fixture.play).not.toHaveBeenCalledWith(music, 'https://audio/customSource', expect.any(Function));
+    expect(fixture.play).not.toHaveBeenCalledWith(music, 'https://audio/customSource', expect.any(Function), undefined);
     expect(fixture.resolve).toHaveBeenCalled();
   });
   it.each(['customSource', 'builtinNetease'])('解析在途 off→on 仅拒绝旧 LX，保留内置：%s', async (backend) => {
@@ -99,7 +99,7 @@ describe('playerStore LX 快路径及在途结果', () => {
       expect(fixture.play).not.toHaveBeenCalled();
       expect(fixture.history).not.toHaveBeenCalled();
     } else {
-      expect(fixture.play).toHaveBeenCalledWith(music, 'https://audio/builtinNetease', undefined);
+      expect(fixture.play).toHaveBeenCalledWith(music, 'https://audio/builtinNetease', undefined, undefined);
     }
   });
   it('hydrate 未完成不读取在线缓存，完成后按迁移状态播放', async () => {
@@ -116,7 +116,7 @@ describe('playerStore LX 快路径及在途结果', () => {
     fixture.cached.mockReturnValue({ ...resolved(), fetchedAt: Date.now(), customSourceVersion: customSourceAccess.version });
     hydration.resolve();
     await pending;
-    expect(fixture.play).toHaveBeenCalledWith(music, 'https://audio/customSource', expect.any(Function));
+    expect(fixture.play).toHaveBeenCalledWith(music, 'https://audio/customSource', expect.any(Function), undefined);
   });
   it('已开始播放不因开关变化暂停或停止', async () => {
     const playing = deferred<void>();
@@ -161,7 +161,7 @@ it('本地曲目不再读取 ReplayGain 状态或标签，直接使用普通播�
   const { usePlayerStore } = await load();
   const local = { ...music, source: 'local' as const, isLocal: true, localPath: 'F:\\music.flac', url: 'asset:music.flac', replayGain: { gainDb: 6 } };
   await usePlayerStore.getState().play(local);
-  expect(fixture.play).toHaveBeenCalledWith(local, local.url, undefined);
+  expect(fixture.play).toHaveBeenCalledWith(local, local.url, undefined, undefined);
   expect(fixture.resolve).not.toHaveBeenCalled();
   expect(usePlayerStore.getState().error).toBeNull();
 });

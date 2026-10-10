@@ -817,6 +817,56 @@
   color: var(--af-accent-primary);
 }
 
+/* ── 迷你栏播放列表弹层 ── */
+/* 弹层 portal 到 body 并固定定位：迷你栏自身 z-index 是 1000，弹层要盖住它，
+   又低于窗口标题栏与全局对话框，避免抢别人的层级。 */
+.af-bar-queue-layer {
+  position: fixed;
+  z-index: 1200;
+}
+.af-bar-queue-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1199;
+  background: transparent;
+}
+/* 迷你栏贴窗口底部，弹层由组件给出 bottom/left 朝上开，这里只管外观 */
+.af-bar-queue-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(340px, calc(100vw - 16px));
+  padding: 10px;
+  background: var(--af-bg-elevated);
+  border: 1px solid var(--af-border-primary);
+  border-radius: var(--af-radius-lg);
+  box-shadow: var(--af-shadow-xl);
+}
+.af-bar-queue-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 8px 10px; border-bottom: 1px solid var(--af-border-secondary); }
+.af-bar-queue-header strong { font-size: var(--af-font-size-sm); font-weight: 600; color: var(--af-text-primary); }
+.af-bar-queue-header > span { font-size: var(--af-font-size-xs); color: var(--af-text-tertiary); font-variant-numeric: tabular-nums; }
+.af-bar-queue-list { max-height: min(46vh, 360px); overflow-x: hidden; overflow-y: auto; padding-top: 6px; scrollbar-width: thin; scrollbar-color: var(--af-border-primary) transparent; }
+/* 滚动条也走主题变量：浅色主题下 --af-border-primary 是浅灰，两套主题共用一条规则 */
+.af-bar-queue-list::-webkit-scrollbar { width: 6px; }
+.af-bar-queue-list::-webkit-scrollbar-track { background: transparent; }
+.af-bar-queue-list::-webkit-scrollbar-thumb { background: var(--af-border-primary); border-radius: 3px; }
+.af-bar-queue-list::-webkit-scrollbar-thumb:hover { background: var(--af-text-quaternary); }
+.af-bar-queue-item { display: flex; align-items: center; gap: 4px; border-radius: var(--af-radius-sm); }
+.af-bar-queue-item:hover,
+.af-bar-queue-item.af-playing { background: var(--af-bg-hover); }
+.af-bar-queue-item.af-playing .af-bar-queue-index,
+.af-bar-queue-item.af-playing .af-bar-queue-info strong { color: var(--af-accent-primary); }
+.af-bar-queue-play { display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; padding: 8px 6px; border: 0; background: transparent; color: var(--af-text-primary); font: inherit; text-align: left; cursor: pointer; }
+.af-bar-queue-play:focus-visible,
+.af-bar-queue-remove:focus-visible { outline: 2px solid var(--af-border-focus); outline-offset: -2px; }
+.af-bar-queue-index { flex: 0 0 22px; text-align: center; color: var(--af-text-tertiary); font-size: 11px; font-variant-numeric: tabular-nums; }
+.af-bar-queue-info { display: flex; flex-direction: column; min-width: 0; gap: 3px; }
+.af-bar-queue-info strong, .af-bar-queue-info span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.af-bar-queue-info strong { font-size: var(--af-font-size-sm); font-weight: 500; }
+.af-bar-queue-info span { font-size: var(--af-font-size-xs); color: var(--af-text-secondary); }
+.af-bar-queue-remove { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex: 0 0 auto; margin-right: 4px; border: 0; border-radius: var(--af-radius-sm); background: transparent; color: var(--af-text-tertiary); cursor: pointer; }
+.af-bar-queue-remove:hover { color: var(--af-error); background: var(--af-error-bg); }
+.af-bar-queue-empty { padding: 18px 8px; text-align: center; font-size: var(--af-font-size-xs); color: var(--af-text-tertiary); }
+
 /* ── 沉浸式完整歌词滚动 ── */
 .af-scrolling-lyrics {
   position: relative;

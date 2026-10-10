@@ -230,12 +230,18 @@ export async function cacheRemoteImage(options: RemoteMediaCacheOptions): Promis
   });
 }
 
+/** 命中的本地媒体缓存：文件路径与体积（体积用于判定试听片段与残包） */
+export interface CachedMedia {
+  path: string;
+  bytes: number;
+}
+
 /** 只查本地媒体缓存，不发起下载；未命中返回 null */
 export async function lookupCachedMedia(
   kind: "audio" | "cover",
   cacheKey: string,
-): Promise<string | null> {
-  return invoke<string | null>("lookup_cached_media", { kind, cacheKey });
+): Promise<CachedMedia | null> {
+  return invoke<CachedMedia | null>("lookup_cached_media", { kind, cacheKey });
 }
 
 /** 按 key 删除单条媒体缓存；返回是否真的删掉了文件 */
@@ -266,7 +272,8 @@ export type LibraryNamespace =
   | "customSources"
   | "recent"
   | "cache"
-  | "dailyRecommend";
+  | "dailyRecommend"
+  | "playback";
 
 /** 读取某个 namespace；文件不存在或为空返回 null */
 export async function libraryLoad<T = unknown>(

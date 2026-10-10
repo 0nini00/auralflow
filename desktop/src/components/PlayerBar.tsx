@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { usePlayerStore } from '@/stores/playerStore';
 import { useInterpolatedPlaybackProgress } from '@/hooks/useInterpolatedPlaybackProgress';
 import { useSleepTimerStore } from '@/stores/sleepTimerStore';
 import { ImmersiveLyricsOverlay } from '@/components/ImmersiveLyricsOverlay';
 import { SongAddMenuButton } from '@/components/SongAddMenuButton';
+import { BAR_QUEUE_CLASSES, QueuePanel, type QueuePanelProps } from '@/components/QueuePanel';
 import { listen } from '@tauri-apps/api/event';
 import { subscribeLyricSettings } from '@/stores/lyricSettingsSync';
 import { toggleDesktopLyricFromPlayer } from '@/utils/desktopLyricToggle';
@@ -21,10 +23,69 @@ import {
   Repeat,
   Repeat1,
   Shuffle,
+  ListMusic,
   Timer,
 } from 'lucide-react';
 import { getLyricWindowState, isLyricWindowOpen } from '@lx/tauri-bridge';
 import { useArtworkAmbience } from '@/hooks/useArtworkAmbience';
+
+const BAR_QUEUE_PANEL_ID = 'af-bar-queue-panel';
+/** 定位用的宽度，与 .af-bar-queue-panel 的 width 保持一致（窄窗口由 CSS 的 calc 兜底） */
+const BAR_QUEUE_PANEL_WIDTH = 340;
+
+/**
+ * 迷你栏贴窗口底部，弹层只能朝上开：bottom 取触发按钮上沿到窗口底部的距离，
+ * 横向贴按钮右缘并夹在窗口内，窄窗口下也不出界。
+ */
+function getQueuePanelPosition(anchor: HTMLElement) {
+  const rect = anchor.getBoundingClientRect();
+  const left = Math.max(8, Math.min(rect.right - BAR_QUEUE_PANEL_WIDTH, window.innerWidth - BAR_QUEUE_PANEL_WIDTH - 8));
+  const bottom = Math.max(8, window.innerHeight - rect.top + 10);
+  return { left, bottom };
+}
+
+type PlayerBarQueueMenuProps = Pick<QueuePanelProps, 'tracks' | 'currentIndex' | 'play' | 'remove'> & {
+  /** 触发按钮：弹层按它的位置定位，关闭后焦点交还给它 */
+  anchor: HTMLElement;
+  onClose: () => void;
+};
+
+/**
+ * 迷你栏的播放列表弹层：portal 到 body，免得被迷你栏自身的 z-index / overflow 裁掉。
+ * 沿用与 SongAddMenu 相同的弹层约定：backdrop 点击或 Escape 关闭并归还焦点。
+ */
+function PlayerBarQueueMenu({ tracks, currentIndex, play, remove, anchor, onClose }: PlayerBarQueueMenuProps) {
+  const [position] = useState(() => getQueuePanelPosition(anchor));
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+
+  useEffect(() => {
+    // 先声明归属再加监听：portal 里的面板也能被触发按钮的 aria-controls 关联到
+    const previousControls = anchor.getAttribute('aria-controls');
+    anchor.setAttribute('aria-controls', previousControls ? `${previousControls} ${BAR_QUEUE_PANEL_ID}` : BAR_QUEUE_PANEL_ID);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      onCloseRef.current();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      if (previousControls === null) anchor.removeAttribute('aria-controls');
+      else anchor.setAttribute('aria-controls', previousControls);
+    };
+  }, [anchor]);
+
+  return createPortal(
+    <>
+      <div className="af-bar-queue-backdrop" onClick={onClose} aria-hidden="true" />
+      <div className="af-bar-queue-layer" style={{ bottom: position.bottom, left: position.left }}>
+        <QueuePanel id={BAR_QUEUE_PANEL_ID} tracks={tracks} currentIndex={currentIndex} play={play} remove={remove}
+          classes={BAR_QUEUE_CLASSES} onClose={onClose} />
+      </div>
+    </>,
+    document.body,
+  );
+}
 
 export const PlayerBar: React.FC = () => {
   const {
@@ -47,6 +108,12 @@ export const PlayerBar: React.FC = () => {
     setProgress,
   } = usePlayerStore();
 
+  // 队列逐字段订阅：迷你栏只在意队列本身，避免整表订阅被每帧进度推送带着重渲染
+  const queueTracks = usePlayerStore((s) => s.queue);
+  const queueIndex = usePlayerStore((s) => s.currentIndex);
+  const playByIndex = usePlayerStore((s) => s.playByIndex);
+  const removeFromQueue = usePlayerStore((s) => s.removeFromQueue);
+
   // 与沉浸式一致：播放中用插值进度，进度条更顺滑
   const interpolatedProgress = useInterpolatedPlaybackProgress({
     status,
@@ -68,6 +135,7 @@ export const PlayerBar: React.FC = () => {
   const [lyricOpen, setLyricOpen] = useState(false);
   const [lyricLocked, setLyricLocked] = useState(false);
   const [immersiveLyricsOpen, setImmersiveLyricsOpen] = useState(false);
+  const [queueMenuAnchor, setQueueMenuAnchor] = useState<HTMLElement | null>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubProgress, setScrubProgress] = useState(0);
   const scrub = useRef<{ trackKey: string; value: number; changed: boolean } | null>(null);
@@ -112,6 +180,18 @@ export const PlayerBar: React.FC = () => {
 
   const handlePlayModeToggle = () => {
     setPlayMode(getNextPlayMode(playModeControl.id));
+  };
+
+  const handleQueueToggle = (event: React.MouseEvent<HTMLButtonElement>) => {
+    // currentTarget 在事件派发结束后会被置空，先取出再进 updater
+    const trigger = event.currentTarget;
+    setQueueMenuAnchor((current) => (current ? null : trigger));
+  };
+
+  const closeQueueMenu = () => {
+    // 关闭后把焦点还给触发按钮，键盘用户不会掉到文档末尾；节点可能已卸载，fail-soft 不抛错
+    queueMenuAnchor?.focus?.();
+    setQueueMenuAnchor(null);
   };
 
   const handleScrubStart = () => {
@@ -348,6 +428,17 @@ export const PlayerBar: React.FC = () => {
               >
                 <SkipForward size={18} fill="currentColor" />
               </button>
+
+              <button
+                onClick={handleQueueToggle}
+                className={`af-control-btn ${queueMenuAnchor ? 'af-active' : ''}`}
+                aria-label="播放列表"
+                data-tooltip="播放列表"
+                aria-haspopup="dialog"
+                aria-expanded={queueMenuAnchor != null}
+              >
+                <ListMusic size={18} />
+              </button>
             </div>
           </div>
 
@@ -379,6 +470,16 @@ export const PlayerBar: React.FC = () => {
         </div>
       </div>
       </div>
+      {queueMenuAnchor && (
+        <PlayerBarQueueMenu
+          tracks={queueTracks}
+          currentIndex={queueIndex}
+          play={playByIndex}
+          remove={removeFromQueue}
+          anchor={queueMenuAnchor}
+          onClose={closeQueueMenu}
+        />
+      )}
       <ImmersiveLyricsOverlay
         open={immersiveLyricsOpen}
         onClose={() => setImmersiveLyricsOpen(false)}
