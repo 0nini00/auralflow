@@ -172,6 +172,39 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
         if (existing) throw new Error(`导入失败，脚本内容与已有的源「${existing.name}」相同`);
 
         const now = Date.now();
+        // 同名源视为「同一音源的更新」:原位覆盖脚本与头部信息,而不是再追加一份。
+        // 此前只按脚本内容查重,于是更新音源时会留下旧的一份,用户得手动删。
+        // 按「导入名」判定:更新脚本的 id 是重新生成的,只有名字稳定。
+        const sameName = get().sources.find((source) => source.name === info.name);
+        if (sameName) {
+          // 运行时缓存按 id 缓存,覆盖后必须失效,否则仍用旧脚本取链。
+          invalidateRuntimeCache(sameName.id);
+          const updated: CustomSourceItem = {
+            ...sameName,
+            name: info.name,
+            description: info.description,
+            script,
+            author: info.author || undefined,
+            homepage: info.homepage || undefined,
+            version: info.version || undefined,
+            // 保留用户的启用状态与提醒开关;能力清单来自脚本 init,清掉等重新测试,
+            // 否则旧脚本的平台能力会残留到新脚本上。
+            sources: undefined,
+            testStatus: 'idle',
+            testMessage: undefined,
+            updateStatus: 'idle',
+            updateMessage: undefined,
+            updateLog: undefined,
+            updateUrl: undefined,
+            updateCheckedAt: undefined,
+            updatedAt: now,
+          };
+          set((state) => ({
+            sources: state.sources.map((source) => (source.id === sameName.id ? updated : source)),
+          }));
+          return updated;
+        }
+
         const item: CustomSourceItem = {
           id: makeId(),
           name: info.name,

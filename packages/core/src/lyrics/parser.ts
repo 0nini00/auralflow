@@ -43,6 +43,13 @@ const LRC_SINGLE_TIME_REGEX = /\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]/;
 const ANGLE_TIME_REGEX = /<(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?>/g;
 const OFFSET_REGEX = /\[offset:([+-]?\d+)\]/i;
 const METADATA_REGEX = /^\[(?:ti|ar|al|by|offset|length|tool|re):/i;
+/**
+ * 网易云 eapi 歌词把「作词 : 郑润泽」这类元信息单独写成富文本 JSON 行
+ * (`{"t":0,"c":[{"tx":"作词: "},{"tx":"林夕"}]}`),标准 `[mm:ss]` 时间戳解析会
+ * 整行丢弃 —— 于是作词/作曲/编曲/出品整批消失。tx 源返回的是标准 LRC,所以只有它完整。
+ * 这里在进入各解析分支前把它归一成标准 `[mm:ss.mmm]` 行。
+ */
+const NETEASE_RICH_LINE_PREFIX = /^\s*\{\s*"t"\s*:/;
 
 function parseTimestamp(minute: string, second: string, fraction = '0'): number {
   const milliseconds = Number.parseInt(fraction.padEnd(3, '0').slice(0, 3), 10);
@@ -55,6 +62,54 @@ function sortLines(lines: LyricLine[]): LyricLine[] {
 
 function stripInlineTimeTags(value: string): string {
   return value.replace(LRC_TIME_REGEX, '').replace(ANGLE_TIME_REGEX, '');
+}
+
+/** 解析一条 eapi 富文本行;非该格式或非法 JSON 返回 null。 */
+function parseNeteaseRichLine(line: string): { text: string; ms: number } | null {
+  if (!NETEASE_RICH_LINE_PREFIX.test(line)) return null;
+  try {
+    const parsed = JSON.parse(line) as { t?: unknown; c?: unknown };
+    if (!Array.isArray(parsed.c)) return null;
+    const text = parsed.c
+      .map((segment) => (segment && typeof segment === 'object' && typeof (segment as { tx?: unknown }).tx === 'string'
+        ? (segment as { tx: string }).tx
+        : ''))
+      .join('')
+      .trim();
+    if (!text) return null;
+    // t 是毫秒;非有限数字按 0 处理(与其它轨的兜底口径一致)
+    const ms = typeof parsed.t === 'number' && Number.isFinite(parsed.t) ? Math.max(0, Math.round(parsed.t)) : 0;
+    return { text, ms };
+  } catch {
+    // 不是合法 JSON(或截断)时按普通行处理,交给后面的分支
+    return null;
+  }
+}
+
+/** 把单行的 eapi 富文本 JSON 还原成 `[mm:ss.mmm]文本`;非该格式原样返回。 */
+function normalizeNeteaseRichLine(line: string): string {
+  const rich = parseNeteaseRichLine(line);
+  if (rich === null) return line;
+  // 全程整数运算:先按浮点算秒再乘回 1000,遇到 1999.9995ms 这类值会得到
+  // fraction=1000,拼出解析器认不出的 `[00:01.1000]`,那一行照样丢。
+  const totalMs = rich.ms;
+  const minutes = Math.floor(totalMs / 60000);
+  const secs = Math.floor((totalMs % 60000) / 1000);
+  const fraction = totalMs % 1000;
+  const stamp = `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(fraction).padStart(3, '0')}`;
+  return `[${stamp}]${rich.text}`;
+}
+
+/**
+ * 归一化整份歌词:逐行把 eapi 富文本 JSON 行转成标准 LRC 行。
+ * 无富文本行时原样返回,避免无谓的字符串重建。
+ */
+function normalizeNeteaseRichLyric(content: string): string {
+  if (!content.includes('{"t"') && !content.includes('{ "t"')) return content;
+  return content
+    .split(/\r?\n/)
+    .map((line) => normalizeNeteaseRichLine(line))
+    .join('\n');
 }
 
 export function normalizeLyricTextForCompare(text: string): string {
@@ -70,7 +125,8 @@ export function isSameLyricText(a: string, b: string): boolean {
   return left.length > 0 && left === right;
 }
 
-export function parseLrc(lrc: string): LyricLine[] {
+export function parseLrc(input: string): LyricLine[] {
+  const lrc = normalizeNeteaseRichLyric(input);
   const result: LyricLine[] = [];
   const offsetMatch = lrc.match(OFFSET_REGEX);
   const offsetSeconds = offsetMatch ? Number(offsetMatch[1]) / 1000 : 0;
@@ -127,7 +183,8 @@ function parseEnhancedLine(line: string, offsetSeconds: number): LyricLine[] {
   return [{ time: lineTime, text: text.trim(), words: words.length ? words : undefined }];
 }
 
-export function parseEnhancedLrc(lrc: string): LyricLine[] {
+export function parseEnhancedLrc(input: string): LyricLine[] {
+  const lrc = normalizeNeteaseRichLyric(input);
   const result: LyricLine[] = [];
   const offsetMatch = lrc.match(OFFSET_REGEX);
   const offsetSeconds = offsetMatch ? Number(offsetMatch[1]) / 1000 : 0;
@@ -261,7 +318,15 @@ function parseMsWordFormat(content: string, tagRegex: RegExp): LyricLine[] {
 
   for (const raw of content.replace(/^\uFEFF/, '').split(/\r?\n/)) {
     const line = raw.trim();
-    if (!line || line.startsWith('{"')) continue;
+    if (!line) continue;
+    // 逐字轨(yrc)里元信息行同样是富文本 JSON,且没有逐字标签:
+    // 直接按行级时间收下,否则作词/作曲/编曲会随整行一起被丢弃。
+    const rich = parseNeteaseRichLine(line);
+    if (rich !== null) {
+      result.push({ time: Math.max(0, rich.ms / 1000 + offsetSeconds), text: rich.text });
+      continue;
+    }
+    if (line.startsWith('{"')) continue;
     const lineMatch = lineTimeRe.exec(line);
     if (!lineMatch) continue;
 

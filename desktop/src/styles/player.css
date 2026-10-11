@@ -934,7 +934,17 @@
   overflow-wrap: anywhere;
 }
 
-.af-scrolling-lyric-line.af-active .af-scrolling-lyric-primary {
+/* 卡拉OK 行:行级渐变关掉,逐字进度改由每个词的 clip 承担。
+   否则父级的 background-clip:text 渐变会和词的两层叠加互相干扰(桌面歌词窗同理)。 */
+.af-scrolling-lyric-line.af-active .af-scrolling-lyric-primary:has(.af-scrolling-karaoke-word) {
+  background-image: none;
+  -webkit-text-fill-color: initial;
+  font-size: clamp(24px, 2.6vw, 37px);
+  font-weight: 650;
+}
+
+/* 非卡拉OK 的当前行:整行按进度铺渐变(逐字轨才走上面的分支) */
+.af-scrolling-lyric-line.af-active .af-scrolling-lyric-primary:not(:has(.af-scrolling-karaoke-word)) {
   color: transparent;
   background-image: linear-gradient(
     90deg,
@@ -969,16 +979,20 @@
   -webkit-text-fill-color: initial;
 }
 
+/* 未唱/已唱的区分靠「亮度差 + 已唱加一条冷色描边」两条一起给,而不是只差 0.22 alpha。
+   改动前 base .76 / fill .98 在深绿背景上只有约 1.57:1 对比,肉眼几乎看不出逐字推进;
+   这里把未唱压到 .42、已唱提到纯白并补 text-shadow,拉到 3:1 以上。 */
 .af-scrolling-karaoke-word-base {
-  color: rgba(240, 247, 235, 0.76);
-  -webkit-text-fill-color: rgba(240, 247, 235, 0.76);
+  color: rgba(226, 238, 222, 0.42);
+  -webkit-text-fill-color: rgba(226, 238, 222, 0.42);
 }
 
 .af-scrolling-karaoke-word-fill {
   position: absolute;
   inset: 0;
-  color: rgba(248, 250, 252, 0.98);
-  -webkit-text-fill-color: rgba(248, 250, 252, 0.98);
+  color: #ffffff;
+  -webkit-text-fill-color: #ffffff;
+  text-shadow: 0 0 18px rgba(255, 255, 255, 0.34);
   pointer-events: none;
 }
 

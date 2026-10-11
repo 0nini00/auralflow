@@ -450,6 +450,10 @@ button {
 
 .af-content-scroll {
   flex: 1;
+  /* 两个轴必须显式声明:只写 overflow-y 时,overflow-x 的 visible 会被引擎提升成
+     auto —— 于是任何悬停提示(::after 自带 120px 宽)都会撑出横向滚动条,
+     并因横向滚动条占高又挤出纵向滚动条(主页「右滑块 + 下滑块」)。 */
+  overflow-x: hidden;
   overflow-y: auto;
   padding: 32px;
   scrollbar-width: thin;

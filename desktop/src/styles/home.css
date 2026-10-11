@@ -280,8 +280,29 @@
 
 .af-home-recent-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  /* auto-fit 而非 auto-fill:auto-fill 会为放不满的列保留空轨道(全屏时 9 张卡片
+     摊在 13 列里,右侧留一大片空白),auto-fit 会折叠空轨道让卡片撑满整行。 */
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 18px;
+}
+
+/* auto-fit 在卡片很少(1–2 张)时会把轨道拉到整行宽,而封面是 1:1,
+   会得到一块过大的方块。给卡片本身一个宽度上限,多卡时不影响铺满效果。 */
+.af-home-recent-grid .af-music-card {
+  max-width: 240px;
+}
+
+/* 卡片右缘的「添加到」按钮:默认提示气泡水平居中在按钮上,伪元素盒子会越过
+   内容右边界撑出横向滚动条。改为右对齐展开,气泡朝左伸展。 */
+.af-music-card-action-btn[data-tooltip]::after {
+  left: auto;
+  right: 0;
+  transform: translateY(4px);
+}
+
+.af-music-card-action-btn[data-tooltip]:hover::after,
+.af-music-card-action-btn[data-tooltip]:focus-visible::after {
+  transform: translateY(0);
 }
 
 .af-home-empty-state {
@@ -331,6 +352,10 @@
   }
 
   .af-home-recent-grid {
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  .af-home-recent-grid {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   }
-}
+
+  .af-home-recent-grid .af-music-card {
+    max-width: 200px;
+  }
