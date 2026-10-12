@@ -18,7 +18,10 @@ foreach ($dir in @($apkDir, $apkAltDir)) {
 
 Push-Location $projectDir
 try {
-    & .\gradlew.bat assembleRelease -PreactNativeArchitectures=$Abi --no-daemon --console=plain
+    # 必须用双引号插值:PSNativeCommandArgumentPassing=Windows 模式下,调用 .bat 时
+    # 裸词参数里的 $var 会原样透传不展开(实测 Gradle 收到字面量 "$Abi" 导致 CXX1201),
+    # 双引号字符串会在调用前完成插值。
+    & .\gradlew.bat assembleRelease "-PreactNativeArchitectures=$Abi" --no-daemon --console=plain
     if ($LASTEXITCODE -ne 0) {
         throw "Gradle release 构建失败,退出码: $LASTEXITCODE"
     }
