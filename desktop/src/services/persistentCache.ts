@@ -11,7 +11,10 @@ export const LOCAL_PLAYBACK_CACHE_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 export const LYRIC_FOUND_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const LYRIC_EMPTY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-const CACHE_VERSION = 1;
+// v2：歌词解析器修复网易云 eapi 富文本元信息行（作词/作曲/编曲…整批丢失）后，
+// 旧版缓存里存的解析结果永久缺失这些行且要活 30 天，必须整体失效重拉。
+// 播放 URL 缓存一并重置，代价只是首次播放时重新解析一次直链。
+export const CACHE_VERSION = 2;
 const MAX_PLAYBACK_URL_ENTRIES = 500;
 const MAX_LYRIC_ENTRIES = 1000;
 const CACHEABLE_EMPTY_LYRIC_ERRORS = new Set([

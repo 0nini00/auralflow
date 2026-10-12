@@ -474,10 +474,20 @@ async function fetchWyOfficialLyric(song: MusicInfo): Promise<OfficialLyricResul
     yv: -1,
     ytv: -1,
     yrv: -1,
-  })) as { yrc?: { lyric?: string }; lrc?: { lyric?: string }; tlyric?: { lyric?: string } };
-  const lyric = body?.yrc?.lyric || body?.lrc?.lyric || "";
-  const tlyric = body?.tlyric?.lyric || "";
+  })) as {
+    yrc?: { lyric?: string };
+    ytlrc?: { lyric?: string };
+    lrc?: { lyric?: string };
+    tlyric?: { lyric?: string };
+  };
+  const yrc = body?.yrc?.lyric || "";
+  const lyric = yrc || body?.lrc?.lyric || "";
   if (!lyric.trim()) return null;
+  // yrc 为主轨时优先取与逐字轨对齐的 ytlrc（对齐 lx-music-desktop 的分工），
+  // 无 ytlrc 再退 lrc 对齐的 tlyric；lrc 主轨则只用 tlyric。
+  const tlyric = (yrc
+    ? body?.ytlrc?.lyric || body?.tlyric?.lyric
+    : body?.tlyric?.lyric) || "";
   return { lyric, tlyric: tlyric.trim() ? tlyric : undefined };
 }
 

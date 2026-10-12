@@ -100,7 +100,11 @@ export interface AlbumInfo {
 export interface LyricResult {
   lyric?: string;
   tlyric?: string;
+  /** 网易云逐字歌词对应的翻译轨（ytlrc，与 yrc 时间轴对齐；lx-music-desktop 同款分工） */
+  ytlyric?: string;
   romaLyric?: string;
+  /** 网易云逐字歌词对应的罗马音轨（yromalrc，与 yrc 时间轴对齐） */
+  yromaLyric?: string;
   /** 网易云逐字歌词（yrc 原始串） */
   yrc?: string;
 }

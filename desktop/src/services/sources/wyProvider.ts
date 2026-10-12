@@ -352,10 +352,10 @@ export const wyProvider: MusicSource = {
       return {
         lyric: (body?.lrc?.lyric as string) ?? undefined,
         tlyric: (body?.tlyric?.lyric as string) ?? undefined,
-        romaLyric:
-          (body?.romalrc?.lyric as string) ??
-          (body?.yromalrc?.lyric as string) ??
-          undefined,
+        // 与逐字轨对齐的翻译/罗马音：主轨选 yrc 时解析层优先用这两个（对齐 lx-music-desktop）
+        ytlyric: (body?.ytlrc?.lyric as string) ?? undefined,
+        romaLyric: (body?.romalrc?.lyric as string) ?? undefined,
+        yromaLyric: (body?.yromalrc?.lyric as string) ?? undefined,
         yrc: (body?.yrc?.lyric as string) ?? undefined,
       };
     } catch (error) {

@@ -1,6 +1,5 @@
 import {
   detectLyricSourceType,
-  mergeMissingLines,
   mergeTranslation,
   mergeRomanization,
   parseLyricSource,
@@ -53,13 +52,26 @@ function parseProviderLyrics(lyricResult: {
   qrc?: string;
   krc?: string;
   tlyric?: string;
+  ytlyric?: string;
   romaLyric?: string;
+  yromaLyric?: string;
 }): LyricLine[] {
   let lines: LyricLine[] = [];
+  let translation: string | undefined = lyricResult.tlyric;
+  let romanization: string | undefined = lyricResult.romaLyric;
   if (lyricResult.yrc) {
     lines = parseLyricSource({ type: 'yrc', content: lyricResult.yrc });
-    if (lyricResult.lyric) {
-      lines = mergeMissingLines(lines, parseLyricSource({ type: 'lrc', content: lyricResult.lyric }));
+    if (lines.length > 0) {
+      // 对齐 lx-music-desktop（wy/lyric.js parse()）：yrc 整轨非空即独占采用，不再与 lrc 行级合并。
+      // 此前 mergeMissingLines 按「同文本 ±1200ms」去重，而 yrc 的 eapi 富文本元信息行
+      // 全部落在 t=0、lrc 的同批行 t 随行递增（0/463/926/1389ms…），第 4 行起漂移超出容差，
+      // 「制作人: xxx」等会在头部整批重复（实测孤勇者 67→78 行）。
+      // 翻译/罗马音同样优先取与逐字轨对齐的 ytlrc/yromalrc，缺失时再退 lrc 对齐轨。
+      translation = lyricResult.ytlyric || lyricResult.tlyric;
+      romanization = lyricResult.yromaLyric || lyricResult.romaLyric;
+    } else {
+      // yrc 解析不出任何行（格式异常/空串）：整轨退回 lrc
+      lines = lyricResult.lyric ? parseLyricSource({ type: 'lrc', content: lyricResult.lyric }) : [];
     }
   } else if (lyricResult.qrc) {
     lines = parseLyricSource({ type: 'qrc', content: lyricResult.qrc });
@@ -68,7 +80,7 @@ function parseProviderLyrics(lyricResult: {
   } else if (lyricResult.lyric) {
     lines = parseLyricSource({ type: 'auto', content: lyricResult.lyric });
   }
-  return mergeRomanization(mergeTranslation(lines, lyricResult.tlyric), lyricResult.romaLyric);
+  return mergeRomanization(mergeTranslation(lines, translation), romanization);
 }
 
 async function fetchNeteaseJson(url: string): Promise<any> {

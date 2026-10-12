@@ -1,7 +1,6 @@
 import RNFS from "react-native-fs";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import CryptoJS from "crypto-js";
-import { Platform } from "react-native";
 import { COVER_SIZE_LARGE, resizeCoverUrl, type MusicInfo } from "@lx/core";
 import { clearPlaybackUrlCache } from "./playbackUrlCache";
 import { selectFilesToEvict, type CachedFileEntry } from "./cacheEvictionModel";
@@ -46,6 +45,9 @@ const MAX_CACHE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB
 // 歌词内容可能随版权/修词更新，保留 30 天过期；封面/音频采用 lx 的 immutable 语义
 // （URL 不变永不过期，仅受容量上限 LRU 约束），避免定期失效导致重新下载。
 const MAX_CACHE_AGE = 30 * 24 * 60 * 60 * 1000; // 30天（仅歌词使用）
+// 歌词缓存条目格式版本：v2 起解析器保留网易云 eapi 富文本元信息行（作词/作曲/编曲…）。
+// 旧版条目缺这些行，不带/不符版本的缓存直接判失效重拉（不删除文件，下次写入时覆盖）。
+const LYRIC_CACHE_VERSION = 2;
 // CDN 下载超时：弱网/断网时 RNFS.downloadFile 可能长期挂起，若不中断会把 InFlight
 // 条目永久占用，同 URL 后续请求永远复用同一个 pending Promise。超时后停止下载并
 // 在 catch/finally 清理 InFlight，标记失败，下一个请求可重试。
@@ -227,6 +229,7 @@ export async function cacheLyrics(
 
   try {
     const data = {
+      v: LYRIC_CACHE_VERSION,
       song: {
         id: song.id,
         name: song.name,
@@ -239,7 +242,10 @@ export async function cacheLyrics(
 
     await RNFS.writeFile(filePath, JSON.stringify(data), "utf8");
     scheduleEnforceCacheSizeLimit();
-  } catch {}
+  } catch (error) {
+    // 缓存写失败不影响本次歌词展示，只留痕便于区分「缓存一直 miss」的原因
+    logger.warn("[Cache] 歌词缓存写入失败（忽略）:", error);
+  }
 }
 
 /**
@@ -258,8 +264,12 @@ export async function getCachedLyrics(
   try {
     const content = await RNFS.readFile(filePath, "utf8");
     const data = JSON.parse(content);
+    // 版本不符（含无版本的旧条目）判失效重拉：旧解析器写入的歌词缺 eapi 富文本元信息行
+    if (data.v !== LYRIC_CACHE_VERSION) return null;
     return data.lyrics;
   } catch (error) {
+    // 缓存文件损坏/读不了按未命中处理，不影响本次取词
+    logger.warn("[Cache] 歌词缓存读取失败（按未命中处理）:", error);
     return null;
   }
 }
@@ -327,7 +337,10 @@ async function loadAudioCacheIndex(): Promise<Record<string, AudioCacheIndexEntr
 async function saveAudioCacheIndex(index: Record<string, AudioCacheIndexEntry>): Promise<void> {
   try {
     await AsyncStorage.setItem(AUDIO_CACHE_INDEX_KEY, JSON.stringify(index));
-  } catch {}
+  } catch (error) {
+    // 索引丢失仅影响「已缓存歌曲」列表展示，不阻断下载本身
+    logger.warn("[Cache] 音频缓存索引写入失败（忽略）:", error);
+  }
 }
 
 function getAudioCacheFileBase(music: MusicInfo, quality: string): string {
@@ -469,7 +482,10 @@ function getProtectedPlaybackCachePaths(): Set<string> {
     if (currentUrl && currentUrl.startsWith("file://")) {
       protectedPaths.add(currentUrl.slice("file://".length));
     }
-  } catch {}
+  } catch (error) {
+    // store 不可用（极早期启动/热重载窗口）时宁可少保护，不阻断驱逐流程
+    logger.warn("[Cache] 读取当前播放路径失败（不保护任何路径）:", error);
+  }
   return protectedPaths;
 }
 
@@ -492,7 +508,10 @@ export async function enforceCacheSizeLimit(now = Date.now()): Promise<void> {
       }
       // 兜底说明：被保护的文件不计入“可回收”总量，只剩它在播时目录可能仍略超上限，
       // 属 best-effort——只要正在播的文件在，就不为达标而删除它。
-    } catch {} finally {
+    } catch (error) {
+      // 容量回收是 best-effort：失败不阻断播放，下轮下载完成时再试
+      logger.warn("[Cache] 容量回收失败（忽略，待下次重试）:", error);
+    } finally {
       enforceInFlight = null;
     }
   })();
@@ -595,7 +614,10 @@ export async function autoCleanCache(): Promise<void> {
         currentFreeSpace += file.size;
       }
     }
-  } catch {}
+  } catch (error) {
+    // 空间清理失败不影响启动流程；剩余空间不足时音频下载自身会再次触发清理
+    logger.warn("[Cache] 低空间自动清理失败（忽略）:", error);
+  }
 }
 
 /**

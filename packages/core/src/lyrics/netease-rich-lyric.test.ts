@@ -47,6 +47,19 @@ describe('网易云 eapi 富文本歌词行', () => {
     expect(lines[2].time).toBeCloseTo(14.36, 3);
   });
 
+  it('yrc 元信息行全部落在 t=0 时保持原始顺序(真实接口形态,依赖稳定排序)', () => {
+    // 网易云 eapi 的 yrc 把整批元信息行都写成 t=0(实测孤勇者 10 行全为 0),
+    // 排序必须稳定才能保持「作词→作曲→…→母带」的原始顺序。
+    const credits = ['作词: 唐恬', '作曲: 钱雷', '编曲: 钱雷', '制作人: 钱雷', '吉他: 高飞', '母带: 周天澈'];
+    const yrc = [
+      ...credits.map((credit) => `{"t":0,"c":[{"tx":"${credit}"}]}`),
+      '[46590,5630](46590,380,0)我(46970,300,0)肯(47270,780,0)定',
+    ].join('\n');
+    const lines = parseYrc(yrc);
+    expect(lines.slice(0, credits.length).map((line) => line.text)).toEqual(credits);
+    expect(lines[lines.length - 1].words).toHaveLength(3);
+  });
+
   it('yrc 与 lrc 合并时同一元信息行不会重复', () => {
     const yrc = [RICH_CREDIT, '[14360,1740](14360,470,0)你'].join('\n');
     const lrc = [RICH_CREDIT, '[00:14.360]你'].join('\n');

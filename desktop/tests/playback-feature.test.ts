@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MusicInfo } from '@lx/core';
+import { CACHE_VERSION } from '../src/services/persistentCache';
 
 const fixture = vi.hoisted(() => {
   const state = { featureEnabled: true, featureReady: true, sources: [{ id: 'lx', name: 'LX', enabled: true }], applyRuntimeUpdateAlert: vi.fn() };
@@ -48,7 +49,7 @@ function deferred<T>() {
 }
 function seed(backend: string) {
   const entry = { ...resolved(backend), quality: '128k', cachedAt: Date.now(), expiresAt: Date.now() + 60000 };
-  return { version: 1, playbackUrls: { 'wy:1:128k': entry }, lyrics: {} };
+  return { version: CACHE_VERSION, playbackUrls: { 'wy:1:128k': entry }, lyrics: {} };
 }
 beforeEach(() => {
   vi.resetModules();

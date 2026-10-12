@@ -12,7 +12,8 @@ interface UseLyricsResult {
   error: string | null;
 }
 
-const LYRICS_CACHE_PREFIX = "auralflow:lyrics:v3:";
+// v4：v3 及更早的条目由旧解析器写入，缺网易云 eapi 富文本元信息行（作词/作曲等），整体废弃
+const LYRICS_CACHE_PREFIX = "auralflow:lyrics:v4:";
 
 function getLyricsCacheKey(music: MusicInfo): string {
   return `${LYRICS_CACHE_PREFIX}${music.source}:${music.id}`;
