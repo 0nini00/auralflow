@@ -352,10 +352,10 @@
   }
 
   .af-home-recent-grid {
-  .af-home-recent-grid {
     grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   }
 
   .af-home-recent-grid .af-music-card {
     max-width: 200px;
   }
+}
