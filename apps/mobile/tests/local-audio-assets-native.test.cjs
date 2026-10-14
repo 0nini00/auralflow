@@ -6,13 +6,18 @@ const { spawnSync } = require('node:child_process');
 const { test, before, after } = require('node:test');
 
 const nativeDir = path.resolve(__dirname, '../android/app/src/main/java/cn/chenle/auralflow/mobile');
-const deadline = Date.now() + 55000;
+// 每条外部命令各自拿固定预算。曾经用「模块加载起算」的全局预算（deadline = Date.now() + 55000）：
+// 并发跑测试文件时 javac 与 ffmpeg 先把预算吃光，后续 java 场景拿到 Math.max(1, 负数) = 1ms 的
+// 预算，整片场景以 spawnSync ETIMEDOUT 秒失败——断言不再落到被测代码上。
+// 25000ms 是「机器被 26 个测试文件同时压满」时的量级：javac 单独跑约 0.8s，满载时实测超过 12s。
+// 它必须明显低于下面每个用例的 runner 超时（30000ms），否则超时会先由 runner 判定、丢掉命令级报错。
+const COMMAND_TIMEOUT_MS = 25000;
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'auralflow-audio-assets-test-'));
 const gradleHome = process.env.GRADLE_USER_HOME || path.join(os.homedir(), '.gradle');
 let jar;
 function run(command, args) {
   const result = spawnSync(command, args, {
-    encoding: 'utf8', timeout: Math.max(1, Math.min(15000, deadline - Date.now())),
+    encoding: 'utf8', timeout: COMMAND_TIMEOUT_MS,
     maxBuffer: 4 * 1024 * 1024, windowsHide: true,
   });
   assert.equal(result.error, undefined, `${command}: ${result.error}`);
@@ -64,7 +69,7 @@ after(() => {
 });
 for (const mode of ['file-space', 'file-hash', 'file-percent', 'file-unicode', 'uri-boundaries',
   'embedded', 'sidecars', 'signature', 'limits', 'failures', 'publication', 'async']) {
-  test(`read-only native audio assets: ${mode}`, { timeout: 15000 }, () => {
+  test(`read-only native audio assets: ${mode}`, { timeout: 30000 }, () => {
     assert.match(run(javaTool('java'), ['-cp', `${work}${path.delimiter}${jar}`,
       'cn.chenle.auralflow.mobile.LocalAudioAssetsHarness', work, mode]), new RegExp(`PASS ${mode}`));
   });

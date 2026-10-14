@@ -32,7 +32,9 @@ function setup() {
   const service=load("src/services/playerService.ts");
   return {store,service,calls,lookups,cache,cross,recommendations, requests: load("src/services/playbackRequest.ts")};
 }
-const options={timeout:5000};
+// 上限只是 runner 的安全网，不是断言：这些用例靠推进虚拟计时器消耗真实 CPU，墙钟时间只反映
+// 机器速度。5000ms 在并发跑整个套件时会把它们判成超时（实测同一用例 4.2s，转译未缓存时更高）。
+const options={timeout:15000};
 
 test("12秒预算涵盖主源失败后的跨源候选，超时后迟到结果不能开播",options,async t=>{
   t.mock.timers.enable({apis:["setTimeout"]});

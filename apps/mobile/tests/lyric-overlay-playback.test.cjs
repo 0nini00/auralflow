@@ -3,7 +3,9 @@ const test = require("node:test");
 const { createLoader, deferred, mobileRequire } = require("./helpers/loadTs.cjs");
 
 const State = Object.fromEntries(["None", "Ready", "Playing", "Paused", "Stopped", "Buffering", "Loading", "Ended", "Error"].map(s => [s, s]));
-const options = { timeout: 5000 };
+// 上限只是 runner 的安全网，不是断言：本文件的用例回读原生状态并推进挂钟，墙钟时间只反映机器
+// 速度。5000ms 在并发跑整个套件时会把它判成超时（实测 8.6s），断言本身与耗时无关。
+const options = { timeout: 15000 };
 
 function setup() {
   const calls = [];

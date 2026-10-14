@@ -6,14 +6,19 @@ const { spawnSync } = require('node:child_process');
 const { test, before, after } = require('node:test');
 
 const nativeDir = path.resolve(__dirname, '../android/app/src/main/java/cn/chenle/auralflow/mobile');
-const deadline = Date.now() + 55000;
+// 每条外部命令各自拿固定预算。曾经用「模块加载起算」的全局预算（deadline = Date.now() + 55000）：
+// 并发跑测试文件时 javac 与 10 次 ffmpeg 先把预算吃光，后续 java 场景拿到 Math.max(1, 负数) = 1ms
+// 的预算，整片场景以 spawnSync ETIMEDOUT 秒失败——断言不再落到被测代码上。
+// 25000ms 是「机器被 26 个测试文件同时压满」时的量级：javac 单独跑约 0.8s，满载时实测超过 12s。
+// 保持它明显低于 runner 的 60s 用例超时，命令级报错才不会被 runner 的超时判定盖掉。
+const COMMAND_TIMEOUT_MS = 25000;
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'auralflow-local-tag-test-'));
 const gradleHome = process.env.GRADLE_USER_HOME || path.join(os.homedir(), '.gradle');
 const dependencyDir = path.join(gradleHome, 'caches/modules-2/files-2.1/net.jthink/jaudiotagger/3.0.1');
 let jar;
 function run(command, args) {
   const result = spawnSync(command, args, {
-    encoding: 'utf8', timeout: Math.max(1, Math.min(15000, deadline - Date.now())),
+    encoding: 'utf8', timeout: COMMAND_TIMEOUT_MS,
     maxBuffer: 4 * 1024 * 1024, windowsHide: true,
   });
   assert.equal(result.error, undefined, `${command}: ${result.error}`);

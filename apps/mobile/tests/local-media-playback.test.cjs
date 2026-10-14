@@ -1,7 +1,9 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { createLoader, deferred, mobileRequire } = require('./helpers/loadTs.cjs');
-const options = { timeout: 5000 };
+// 上限只是 runner 的安全网，不是断言：本文件第一个用例要为整个模块图付首次转译与 TypeScript
+// 载入的代价，并发跑整个套件时会超过 5000ms（实测 5.0s），断言本身与耗时无关。
+const options = { timeout: 15000 };
 const song = id => ({ id, source: 'local', isLocal: true, name: id, singer: 'Singer', albumName: 'Album', interval: 100, url: `file:///music/${id}.mp3` });
 const result = text => ({ status: 'matched', lyrics: [{ time: 1, text }], coverUri: 'file:///cache/art.jpg', message: '', issues: [] });
 function setup() {
