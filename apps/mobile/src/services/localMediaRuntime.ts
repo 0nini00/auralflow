@@ -28,12 +28,21 @@ async function readLocal(song: MusicInfo): Promise<LocalAudioAssets> {
   return result;
 }
 
+/** 来源标注是可选字段，但出现时必须结构合法：宁可把坏缓存按 miss 处理，也不静默读进不认识的字段。 */
+function isLyricOrigin(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const origin = value as { tier?: unknown; performer?: unknown; source?: unknown };
+  return (origin.tier === "same-recording" || origin.tier === "other-performer") &&
+    (origin.performer === undefined || typeof origin.performer === "string") &&
+    (origin.source === undefined || typeof origin.source === "string");
+}
 function validateCache(value: unknown): asserts value is LocalMediaCache {
   const data = value as LocalMediaCache | null;
   if (!data || data.version !== 1 || !Number.isFinite(data.cachedAt) || !Array.isArray(data.lyrics)
     || data.lyrics.some(line => !line || !Number.isFinite(line.time) || line.time < 0 || typeof line.text !== "string"
       || (line.tr !== undefined && typeof line.tr !== "string"))
-    || (data.coverUri !== undefined && (typeof data.coverUri !== "string" || !/^(file|content):\/\//.test(data.coverUri)))) {
+    || (data.coverUri !== undefined && (typeof data.coverUri !== "string" || !/^(file|content):\/\//.test(data.coverUri)))
+    || (data.lyricOrigin !== undefined && !isLyricOrigin(data.lyricOrigin))) {
     throw new Error("本地补全缓存格式无效");
   }
 }

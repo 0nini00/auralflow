@@ -165,6 +165,7 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     currentLyricIndex,
     artwork,
     localMediaMessage,
+    localMediaLyricOriginLabel,
     currentPage,
     setCurrentPage,
     isLyricsPage,
@@ -440,15 +441,28 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
 
   const currentMvId = currentSong.source === "wy" ? currentSong.mvId : undefined;
   const lyricContent = (
-    <LyricView
-      lyrics={lyrics}
-      emptyText={localMediaMessage}
-      currentLineIndex={currentLyricIndex}
-      showTranslation={showTranslation}
-      palette={palette}
-      onSeek={handleSeek}
-      style={styles.pagerLyricList}
-    />
+    <View style={styles.flexFill}>
+      <LyricView
+        lyrics={lyrics}
+        emptyText={localMediaMessage}
+        currentLineIndex={currentLyricIndex}
+        showTranslation={showTranslation}
+        palette={palette}
+        onSeek={handleSeek}
+        style={styles.pagerLyricList}
+      />
+      {localMediaLyricOriginLabel ? (
+        // 来源标注绝对定位，不参与歌词页布局流：歌词页高度参与封面/控制区预算，
+        // 为它预留一行会改动既有布局契约（immersive-layout 用例）。
+        <Text
+          pointerEvents="none"
+          numberOfLines={1}
+          style={[styles.lyricOriginNote, { color: palette.textMuted }]}
+        >
+          {localMediaLyricOriginLabel}
+        </Text>
+      ) : null}
+    </View>
   );
   // 下拉只绑定封面，歌词滚动/捏合、进度拖动及控制区滚动不参与关闭手势。
   const coverContent = (

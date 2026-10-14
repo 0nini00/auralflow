@@ -3,6 +3,9 @@ const test = require("node:test");
 const { createLoader, deferred, mobileRequire } = require("./helpers/loadTs.cjs");
 
 const core = createLoader({})("../../packages/core/src/mobile-api.ts");
+// 判定已收敛到 @lx/core（移动端原 localMediaMatchModel 已删除），用例直接加载 core 的真实实现，
+// 不再依赖移动端副本，避免「两端各有一套判定」的历史问题。
+const matcher = createLoader({})("../../packages/core/src/local-media-match.ts");
 const LYRICS = [{ time: 0, text: "夜色中的航线", tr: "A route in the night" }];
 const COVER = "https://example.test/cover.jpg";
 const BOTH = { lyrics: true, cover: true };
@@ -17,8 +20,13 @@ const online = (extra = {}) => ({
 });
 const tx = (extra = {}) => online({ source: "tx", id: "qq-native-mid", ...extra });
 
-function harness({ results = {}, gatewayResults = {}, lyrics = async () => LYRICS, gatewayLyrics = lyrics, pic = async () => response({ url: COVER }) } = {}) {
-  const calls = { search: [], gatewaySearch: [], lyrics: [], directLyrics: [], gatewayLyrics: [], pic: [] };
+function harness({
+  results = {}, gatewayResults = {}, lyrics = async () => LYRICS, gatewayLyrics = lyrics,
+  pic = async () => response({ url: COVER }),
+  // LRCLIB 默认未命中：既有用例全部走「LRCLIB 空手 → wy/tx 搜索链」，与本改动前等价。
+  lrclib = async () => null,
+} = {}) {
+  const calls = { search: [], gatewaySearch: [], lyrics: [], directLyrics: [], gatewayLyrics: [], pic: [], lrclib: [] };
   const load = createLoader({
     "./musicApi": {
       searchSongs: async (source, keyword) => {
@@ -38,7 +46,11 @@ function harness({ results = {}, gatewayResults = {}, lyrics = async () => LYRIC
       getGatewayLyrics: async (song) => { calls.lyrics.push(song); calls.gatewayLyrics.push(song); return gatewayLyrics(song); },
       searchAll: () => assert.fail("不得调用 searchAll"),
     },
-    "@lx/core": { buildBuiltinMusicApiUrl: core.buildBuiltinMusicApiUrl },
+    "@lx/core": { buildBuiltinMusicApiUrl: core.buildBuiltinMusicApiUrl, ...matcher },
+    "./lrclibLyricsService": {
+      readLrclibLyrics: async (song) => { calls.lrclib.push(song); return lrclib(song); },
+      LRCLIB_ORIGIN_SOURCE: "lrclib",
+    },
     "@/utils/fetchWithTimeout": {
       fetchWithTimeout: async (...args) => { calls.pic.push(args); return pic(...args); },
     },
@@ -106,7 +118,9 @@ test("专辑显式版本冲突也不混成同一录音", async () => {
   assertNoAssets(await h.find(local(), BOTH), "not-found");
 });
 
-for (const extra of [{ singer: "另一歌手" }, { singer: "林舟、另一歌手" }, { interval: 255 }]) {
+// 召回里出现与本地同演唱者的候选（含「林舟、另一歌手」这种署名重叠）时，歌名相同也不得改用它人的录音；
+// 时长冲突同样不构成可用证据。
+for (const extra of [{ singer: "林舟、另一歌手" }, { interval: 255 }]) {
   test(`相同标题不能覆盖明确歌手或时长冲突 ${JSON.stringify(extra)}`, async () => {
     const h = harness({ results: { wy: [online(extra)] } });
     assertNoAssets(await h.find(local(), BOTH), "not-found");
@@ -114,6 +128,19 @@ for (const extra of [{ singer: "另一歌手" }, { singer: "林舟、另一歌�
     assert.equal(h.calls.pic.length, 0);
   });
 }
+
+// 原唱在这次召回里一条都没有（下架 / 无版权）+ 时长几乎一致：只有这时才允许启用同曲异唱档。
+// 旧用例在此预期 not-found，同曲异唱档落地后按新语义显式断言 matched，并把演唱者与来源一起钉住。
+test("原唱缺席且时长几乎一致时才按同曲异唱采用，并标注演唱者", async () => {
+  const h = harness({ results: { wy: [online({ singer: "另一歌手" })] } });
+  const result = await h.find(local(), BOTH);
+  assert.equal(result.status, "matched");
+  assert.equal(result.candidate.id, "wy-1");
+  assert.equal(result.candidate.singer, "另一歌手");
+  assert.deepEqual(result.lyricOrigin, { tier: "other-performer", performer: "另一歌手", source: "wy" });
+  assert.deepEqual(result.lyrics, LYRICS);
+  assert.deepEqual(h.calls.directLyrics.map(song => song.id), ["wy-1"]);
+});
 
 test("歌手名单顺序与分隔排版不形成冲突", async () => {
   const h = harness({ results: { wy: [online({ singer: "乙 / 甲" })] } });
@@ -349,8 +376,13 @@ test("缺时长候选不能传递合并时长冲突的不同录音", async () =>
 });
 
 test("混合未知歌手不能抹掉已知歌手冲突或伪造完整歌手证据", async () => {
-  const conflicting = harness({ results: { wy: [online({ singer: "另一歌手" })] } });
-  assertNoAssets(await conflicting.find(local({ singer: "林舟、未知歌手" }), BOTH), "not-found");
+  // 召回里只要有一条与本地已知歌手（林舟）同演唱者的候选——哪怕它因时长冲突被否决——
+  // 就证明「原唱在平台上可得」，同曲异唱档必须拒绝启用，结果仍是 not-found。
+  const guarded = harness({
+    results: { wy: [online({ singer: "另一歌手" })], tx: [tx({ singer: "林舟", interval: 240 })] },
+  });
+  assertNoAssets(await guarded.find(local({ singer: "林舟、未知歌手" }), BOTH), "not-found");
+  assert.equal(guarded.calls.lyrics.length, 0);
   const partial = harness({ results: { wy: [online({ singer: "林舟、未知歌手", albumName: "", interval: undefined })] } });
   assertNoAssets(await partial.find(local({ singer: "林舟、未知歌手" }), BOTH), "ambiguous");
 });
@@ -614,4 +646,93 @@ test("追加网关：大批同组候选仍按 namespace 限次，重判不重发
   assert.equal(h.calls.directLyrics.length, 2);
   assert.equal(h.calls.gatewayLyrics.length, 2);
   assert.equal(h.calls.pic.length, 2);
+});
+
+// ── LRCLIB 直查：命中即采用，失败静默降级 ──
+
+test("LRCLIB 命中即采用，不再请求 wy/tx 搜索歌词", async () => {
+  const h = harness({ results: { wy: [online()] }, lrclib: async () => ({ kind: "lyrics", lines: LYRICS }) });
+  const result = await h.find(local(), { lyrics: true, cover: false });
+  assert.equal(result.status, "matched");
+  assert.deepEqual(result.lyrics, LYRICS);
+  assert.deepEqual(result.lyricOrigin, { tier: "same-recording", source: "lrclib" });
+  assert.deepEqual(h.calls.search, []);
+  assert.deepEqual(h.calls.gatewaySearch, []);
+  assert.deepEqual(h.calls.lyrics, []);
+  assert.deepEqual(h.calls.lrclib.map(song => song.name), ["夜航"]);
+});
+
+test("LRCLIB 命中但缺封面时只补封面，歌词仍标注 LRCLIB", async () => {
+  const h = harness({ results: { wy: [online()] }, lrclib: async () => ({ kind: "lyrics", lines: LYRICS }) });
+  const result = await h.find(local(), BOTH);
+  assert.equal(result.status, "matched");
+  assert.deepEqual(result.lyrics, LYRICS);
+  assert.equal(result.coverUrl, COVER);
+  assert.deepEqual(result.lyricOrigin, { tier: "same-recording", source: "lrclib" });
+  assert.deepEqual(h.calls.directLyrics, []);
+  assert.deepEqual(h.calls.search, [["wy", "夜航"], ["tx", "夜航"]]);
+});
+
+test("LRCLIB 判定纯音乐时不再为歌词搜索", async () => {
+  const h = harness({ results: { wy: [online()] }, lrclib: async () => ({ kind: "instrumental" }) });
+  const result = await h.find(local(), { lyrics: true, cover: false });
+  assertNoAssets(result, "not-found");
+  assertIssue(result, /lrclib:instrumental/);
+  assert.deepEqual(h.calls.search, []);
+  assert.deepEqual(h.calls.lrclib.map(song => song.name), ["夜航"]);
+});
+
+test("LRCLIB 未命中、异常或不需要歌词时都走原搜索链", async () => {
+  const miss = harness({ results: { wy: [online()] } });
+  const result = await miss.find(local(), BOTH);
+  assert.equal(result.status, "matched");
+  assert.deepEqual(result.lyrics, LYRICS);
+  assert.equal(result.lyricOrigin, undefined);
+  assert.deepEqual(miss.calls.search, [["wy", "夜航"], ["tx", "夜航"]]);
+  assert.equal(miss.calls.lrclib.length, 1);
+  const failed = harness({ results: { wy: [online()] }, lrclib: async () => { throw new Error("network"); } });
+  assert.equal((await failed.find(local(), BOTH)).status, "matched");
+  const coverOnly = harness({ results: { wy: [online()] } });
+  assert.equal((await coverOnly.find(local(), { lyrics: false, cover: true })).coverUrl, COVER);
+  assert.equal(coverOnly.calls.lrclib.length, 0);
+});
+
+// ── 同曲异唱：所有轮次穷尽后的最后手段 ──
+
+test("召回里仍有原唱时，异唱档绝不介入", async () => {
+  const h = harness({
+    results: { wy: [online({ singer: "另一歌手" })] },
+    gatewayResults: { wy: [gatewaySong("wy")] },
+  });
+  const result = await h.find(local(), BOTH);
+  assert.equal(result.status, "matched");
+  assert.equal(result.candidate.id, "wy-gateway");
+  assert.equal(result.candidate.singer, "林舟");
+  assert.equal(result.lyricOrigin, undefined);
+  assert.deepEqual(h.calls.gatewayLyrics.map(song => song.gateway.source), ["netease"]);
+});
+
+test("证据不足的同名异唱只暴露 alternatives，不自动采用", async () => {
+  // 时长差 2.5s：在异唱窗口内，但既非同一份录音素材（>1s），也没有第二个平台互证 → corroboration="none"。
+  const h = harness({ results: { wy: [online({ singer: "另一歌手", interval: 212.5 })] } });
+  const result = await h.find(local(), BOTH);
+  assertNoAssets(result, "not-found");
+  assert.equal(h.calls.lyrics.length, 0);
+  assert.equal(h.calls.pic.length, 0);
+  assert.deepEqual(result.alternatives, [
+    { source: "wy", id: "wy-1", name: "夜航", performer: "另一歌手", durationDeltaSeconds: 2.5 },
+  ]);
+});
+
+test("跨源互证的异唱候选才自动采用", async () => {
+  const h = harness({
+    results: {
+      wy: [online({ singer: "另一歌手", interval: 212.5 })],
+      tx: [tx({ singer: "另一歌手", interval: 212.5 })],
+    },
+  });
+  const result = await h.find(local(), BOTH);
+  assert.equal(result.status, "matched");
+  assert.deepEqual(result.lyricOrigin, { tier: "other-performer", performer: "另一歌手", source: "wy" });
+  assert.deepEqual(h.calls.directLyrics.map(song => song.id), ["wy-1"]);
 });

@@ -14,6 +14,9 @@ export interface LocalMediaCache {
   lyrics: LyricLine[];
   coverUri?: string;
   candidate?: LocalMediaAssets["candidate"];
+  // 歌词来源标注（同曲异唱 / LRCLIB）。旧缓存没有这个可选字段，读出来只是「没有可标注的来源」，
+  // 结构与语义仍然兼容，因此不升版本、不改缓存键：升版本会让所有既有缓存一次性失效。
+  lyricOrigin?: LocalMediaAssets["lyricOrigin"];
 }
 export interface LocalMediaResult {
   status: "loading" | "local" | "cached" | "matched" | "partial" | "not-found" | "ambiguous" | "error";
@@ -21,6 +24,8 @@ export interface LocalMediaResult {
   coverUri?: string;
   message: string;
   issues: string[];
+  // 同曲异唱必须让 UI 标注「歌词来自谁的演唱版本」，不能静默；LRCLIB 来源同样标注。
+  lyricOrigin?: LocalMediaAssets["lyricOrigin"];
 }
 interface Dependencies {
   readLocal: (song: MusicInfo) => Promise<LocalAudioAssets>;
@@ -50,12 +55,14 @@ export function createLocalMediaResolver(deps: Dependencies) {
   ): Promise<LocalMediaResult | null> {
     let lyrics: LyricLine[] = [];
     let coverUri: string | undefined;
+    // 来源标注只随命中的那份歌词产生：缓存复用、LRCLIB 直查、同曲异唱都各带自己的来源。
+    let lyricOrigin: LocalMediaAssets["lyricOrigin"];
     const issues: string[] = [];
     const edited = (song as MusicInfo & { localEditedFields?: string[] }).localEditedFields ?? [];
     const needs = () => ({ lyrics: lyrics.length === 0, cover: !coverUri });
     const complete = () => !needs().lyrics && !needs().cover;
     const report = (status: LocalMediaResult["status"], message: string): LocalMediaResult => {
-      const result = { status, lyrics, coverUri, message, issues: [...issues] };
+      const result = { status, lyrics, coverUri, message, issues: [...issues], ...(lyricOrigin ? { lyricOrigin } : {}) };
       if (isCurrent()) onUpdate(result);
       return result;
     };
@@ -93,7 +100,7 @@ export function createLocalMediaResolver(deps: Dependencies) {
       if (!isCurrent()) return null;
       let reusedCache = false;
       if (cached) {
-        if (needs().lyrics && cached.lyrics.length) { lyrics = cached.lyrics; reusedCache = true; }
+        if (needs().lyrics && cached.lyrics.length) { lyrics = cached.lyrics; reusedCache = true; lyricOrigin = cached.lyricOrigin; }
         if (needs().cover) {
           coverUri = await getCover(cached.coverUri);
           reusedCache ||= Boolean(coverUri);
@@ -107,6 +114,9 @@ export function createLocalMediaResolver(deps: Dependencies) {
       if (!isCurrent()) return null;
       issues.push(...found.issues);
       if (found.status !== "matched") {
+        // LRCLIB 已明确判定纯音乐：这不是「没找到可靠匹配」，而是这首歌本来就没有词（对齐桌面端提示）。
+        // 任何搜索都补不出歌词，直接结束，别让用户以为补全失败。
+        if (found.issues.includes("lrclib:instrumental")) return report("local", "纯音乐，无歌词");
         const status = found.status === "not-found" && issues.some(issue => /failed|失败/.test(issue)) ? "error" : found.status;
         const message = status === "ambiguous" ? "同名歌曲存在歧义，未自动补全"
           : status === "error" ? "资料查询失败，播放不受影响" : "未找到可靠匹配，未自动补全";
@@ -116,15 +126,19 @@ export function createLocalMediaResolver(deps: Dependencies) {
         issues.push("match:cached-identity-conflict");
         return report("ambiguous", "新的匹配与缓存来源不一致，未混用资料");
       }
-      if (wanted.lyrics && found.lyrics?.length) lyrics = found.lyrics;
+      if (wanted.lyrics && found.lyrics?.length) { lyrics = found.lyrics; lyricOrigin = found.lyricOrigin; }
       if (wanted.cover && found.coverUrl) coverUri = await getCover(found.coverUrl);
       if (!isCurrent()) return null;
       if (lyrics.length || coverUri) {
         try {
-          await deps.writeCache(key, { version: 1, cachedAt: deps.now(), lyrics, coverUri, candidate: found.candidate }, isCurrent);
+          await deps.writeCache(key, { version: 1, cachedAt: deps.now(), lyrics, coverUri, candidate: found.candidate,
+            ...(lyricOrigin ? { lyricOrigin } : {}) }, isCurrent);
         } catch (error) { issues.push(`补全缓存保存失败：${messageOf(error)}`); }
       }
       if (!isCurrent()) return null;
+      // 纯音乐（LRCLIB 明确标注）在 matched 路径同样要如实说明：歌词本来就没有，
+      // 不能说成「部分资料暂不可用」——那会让用户以为稍后能补上词。
+      if (found.issues.includes("lrclib:instrumental")) return report(coverUri ? "matched" : "not-found", "纯音乐，无歌词");
       return complete() ? report("matched", lyrics.length ? "" : "暂无歌词")
         : report("partial", "已找到匹配歌曲，但部分资料暂不可用");
     } catch (error) {
