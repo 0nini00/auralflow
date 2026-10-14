@@ -155,8 +155,6 @@ function scheduleVolumePersist(volume: number) {
   }, 400);
 }
 
-/** 调用 discoveryStore.fmNext 后播放下一首 FM 曲目；失败返回 false */
-/** FM 下一首：解析/播放失败时最多再试几首，避免卡在死链上 */
 /** 当前切歌完成后消费连点补跳（只补一次，防止循环）。 */
 function completeQueuedSwitchStep(get: any): void {
   const finished = finishSwitchStep(switchStepQueue);
@@ -166,6 +164,7 @@ function completeQueuedSwitchStep(get: any): void {
   }
 }
 
+/** FM 下一首：调 discoveryStore.fmNext 取下一位，解析/播放失败时最多再试 maxAttempts 首（避免卡在死链上）；失败返回 false */
 async function playNextFmTrack(get: any, maxAttempts = 5): Promise<boolean> {
   let lastError = '';
   for (let attempt = 0; attempt < maxAttempts; attempt++) {

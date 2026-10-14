@@ -84,7 +84,7 @@ export function LocalPlaylistDetailScreen({
     };
   }, []);
 
-  const songs = playlist?.songs ?? [];
+  const songs = useMemo(() => playlist?.songs ?? [], [playlist]);
   const songKey = useCallback((song: MusicInfo) => `${song.source}:${song.id}`, []);
 
   const selectedSongs = useMemo(() => {
