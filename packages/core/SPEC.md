@@ -13,6 +13,9 @@ tags: [auralflow, shared]
 
 - **播什么**：音质阶梯与轮次划分（`playback-quality`）、试听片段判定（`stream-integrity`）、连点合并（`switch-step-queue`）。
 - **唱到哪**：6 种歌词格式的归一化解析（`lyrics/parser`）、当前行定位（`lyrics/playbackSync`）、原生浮窗的自走时钟（`lyrics/overlay-clock`）。
+- **拿哪一份**：本地文件与在线候选的择优判定（`local-media-match`）。两档结论——`same-recording`（同一录音：歌名、版本、演唱者、时长都对得上，可静默采信）与 `other-performer`（同曲异唱：原唱在平台上不可得时，用别人唱的同一首歌补歌词/封面）。异唱档只在调用方确认「原唱不可得」**且**召回里确实没有同一演唱者的候选时才产出，并额外要求时长差 ≤3s 与证据（≤1s 的时长吻合，或另一个平台的候选互相印证）；证据不足的只作为候选交给人工挑，不自动采信。歌手身份按 token 求交而不是比整串——本地标签常带别名（「吴亦凡/Kris」），平台上只署名「吴亦凡」的原唱不能被误判成「不可得」。版本标记在两档口径不同：同一录音比「歌名 + 专辑」，异唱档只比歌名，因为翻唱条的专辑名几乎必然带「翻唱 / 伴奏」字眼。
+
+  这一档收敛到 core 的原因与其它规则一致：此前移动端是硬否决（原唱下架时永远匹配不到），桌面端是加权打分（歌名对得上就给 56 分、阈值 28 分，于是同名不同曲也能过，还会因歌词「看起来更好」而在混合评分里胜出）——同一首歌两端给出相反答案。
 - **记什么**：入历史与打点阈值（`history/listen-threshold`）、心动模式缓冲推进（`recommendations/heartbeat-queue`）、WebDAV 加法合并与歌单归类（`webdav-merge`：`isWebdavLocalPlaylistRef` 判 `userList` 的一条记录是本地歌单还是云端歌单引用，`scrubSyncedCloudPlaylistRefs` 清理历史上被误物化成「本地歌单」的云端引用）与同步拒绝的错误层级（`webdav-sync-error`：`CloudSyncRefusalError` / `CloudDataStaleError`）。同步服务与设置页一律按类型判断该拒绝属于哪一种，不匹配错误文案。已下线来源的历史条目清理也在这一层（`removed-source`：`isRemovedSource` / `dropRemovedSourceEntries`，两端在读盘后与同步合并后调用，直接丢弃、不备份）。
 - **算了什么**：听歌统计聚合（`stats/aggregate`：`aggregateListeningStats` 把历史归一成总时长/次数、Top 歌曲与歌手、按天趋势）。两端历史形状不同（桌面是去重的 `MusicInfo[]` + 侧挂播放时间表，移动是 `HistoryEntry{key,song,playedAt}`），所以由各端 store 先产出统一的 `{song, playedAt?}[]` 再调用；**时间未知的条目只进总数与榜单、不进趋势**，两端都不允许伪造播放时间。
 - **更新与发布相关**：发布说明清洗（`release-notes`：`summarizeReleaseNotes` 把 GitHub 发布正文降成纯文本摘要，丢表格/分隔线/代码块）与 GitHub 加速镜像地址改写（`github-mirror`：`GITHUB_MIRROR_PREFIX` / `isMirrorableGithubUrl` / `toMirroredGithubUrl`，刻意手写解析而不用 `new URL`——RN 的 polyfill 不完整）。两端各自接线：移动端镜像失败回退直连，桌面端的镜像/直连双清单由 `desktop/build-release.ps1` 产出。
@@ -37,8 +40,8 @@ tags: [auralflow, shared]
 
 ## 测试
 
-JS/TS 侧唯一有自动化测试的包：`pnpm core:test`（vitest），7 个测试文件，全部只测纯逻辑。其中 `outbound-host.test.ts` 用 Node 的 WHATWG `URL` 作参照物做差分断言，锚定「守卫判定的 host 必须等于 HTTP 客户端真正连接的 host」这一不变量——它测的不只是函数返回值，而是守卫与真实客户端的一致性。
+本包是 JS/TS 侧把「纯逻辑」测满的那一个：`pnpm core:test`（vitest），14 个测试文件 162 例，全部只测纯逻辑。其中 `outbound-host.test.ts` 用 Node 的 WHATWG `URL` 作参照物做差分断言，锚定「守卫判定的 host 必须等于 HTTP 客户端真正连接的 host」这一不变量——它测的不只是函数返回值，而是守卫与真实客户端的一致性。
 
-两端其余部分依赖真机运行时，只做 `typecheck`。
+两端另有自己的套件（桌面前端 57 文件 469 例、移动端 28 文件 613 例，含真 `javac` + jaudiotagger + `ffmpeg` 编译原生源码片段的契约用例，见各自 SPEC）；但真正依赖真机运行时的行为仍只有 `typecheck` + lint + 真机手测。
 
 - **封面取图档位**：`cover-image` 里的 `COVER_TIERS = [96,150,300,450,600,800]` 与 `coverTierForDisplay(cssSize, dpr)` 把「显示尺寸 × 屏密度」量化到档位，再改写图床地址：网易云用 `?param=NxN`、腾讯图床改文件名里的 `R{W}x{H}` 标记（无标记就原样返回，不猜）。档位是**缓存 key 的一部分**，所以展示位必须按真实尺寸取图，改尺寸等于换图；未知图床、本地路径与 data URL 一律不改写。
