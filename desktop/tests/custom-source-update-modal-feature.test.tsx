@@ -1,6 +1,6 @@
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CustomSourceUpdateModal, openCustomSourceUpdateModal } from "../src/components/CustomSourceUpdateModal";
+import { CustomSourceUpdateModal, openCustomSourceUpdateModal, __resetCustomSourceUpdateSessionForTests } from "../src/components/CustomSourceUpdateModal";
 import { useCustomSourceStore } from "../src/stores/customSourceStore";
 
 vi.mock("@/stores/customSourceStore", async () => {
@@ -16,6 +16,7 @@ const source = {
 };
 let renderer: ReactTestRenderer | undefined;
 beforeEach(() => {
+  __resetCustomSourceUpdateSessionForTests();
   vi.stubGlobal("window", new EventTarget());
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn() });
   useCustomSourceStore.setState({ sources: [source], featureEnabled: false, featureReady: true });
@@ -75,5 +76,38 @@ describe("LX 更新弹窗总开关隔离", () => {
     expect(renderer!.toJSON()).toBeNull();
     act(() => useCustomSourceStore.setState({ featureEnabled: true }));
     expect(renderer!.toJSON()).toBeNull();
+  });
+
+  it("同一音源本次会话只自动弹一次(脚本反复上报不再重弹)", () => {
+    useCustomSourceStore.setState({ featureEnabled: true });
+    mount();
+    expect(renderer!.root.findAllByType("button")).toHaveLength(1);
+    act(() => renderer!.unmount());
+    mount();
+    // 脚本每次上报都会刷新 updateCheckedAt,dismissKey 随之失效;
+    // 会话集合保证同一音源不退出只自动弹一次
+    expect(renderer!.toJSON()).toBeNull();
+  });
+
+  it("运行时事件路径同样受会话一次限制", () => {
+    useCustomSourceStore.setState({ featureEnabled: true, sources: [{ ...source, allowShowUpdateAlert: false }] });
+    mount();
+    act(() => openCustomSourceUpdateModal(source.id));
+    expect(renderer!.toJSON()).not.toBeNull();
+    act(() => renderer!.unmount());
+    mount();
+    act(() => openCustomSourceUpdateModal(source.id));
+    expect(renderer!.toJSON()).toBeNull();
+  });
+
+  it("设置页手动查看不受会话一次限制", () => {
+    useCustomSourceStore.setState({ featureEnabled: true, sources: [{ ...source, allowShowUpdateAlert: false }] });
+    mount();
+    act(() => openCustomSourceUpdateModal(source.id, { manual: true }));
+    expect(renderer!.toJSON()).not.toBeNull();
+    act(() => renderer!.unmount());
+    mount();
+    act(() => openCustomSourceUpdateModal(source.id, { manual: true }));
+    expect(renderer!.toJSON()).not.toBeNull();
   });
 });

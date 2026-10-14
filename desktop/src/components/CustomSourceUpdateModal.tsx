@@ -28,12 +28,28 @@ function persistDismissedKeys(keys: Set<string>): void {
 
 interface OpenCustomSourceUpdateModalDetail {
   sourceId: string;
+  /** 设置页「查看更新」等用户主动动作：不受会话一次限制 */
+  manual?: boolean;
 }
 
-export function openCustomSourceUpdateModal(sourceId: string) {
+/**
+ * 本次会话内已自动弹过更新弹窗的音源 id。
+ * 脚本在每次播放/取链时都可能上报 updateAlert,且每次上报都会刷新 updateCheckedAt
+ * (dismissKey 随之变化,localStorage 里的「已关闭」记录永远追不上),
+ * 不加会话去重的话弹窗会频繁重开。产品语义:不退出软件,每个音源只自动弹一次;
+ * 设置页手动查看不受限。
+ */
+const sessionAutoShownSourceIds = new Set<string>();
+
+/** 仅供测试重置会话状态 */
+export function __resetCustomSourceUpdateSessionForTests(): void {
+  sessionAutoShownSourceIds.clear();
+}
+
+export function openCustomSourceUpdateModal(sourceId: string, options?: { manual?: boolean }) {
   window.dispatchEvent(new CustomEvent<OpenCustomSourceUpdateModalDetail>(
     OPEN_CUSTOM_SOURCE_UPDATE_MODAL_EVENT,
-    { detail: { sourceId } },
+    { detail: { sourceId, manual: options?.manual } },
   ));
 }
 
@@ -66,8 +82,13 @@ export function CustomSourceUpdateModal() {
     const handleOpen = (event: Event) => {
       const state = useCustomSourceStore.getState();
       if (!state.featureEnabled || !state.featureReady) return;
-      const sourceId = (event as CustomEvent<OpenCustomSourceUpdateModalDetail>).detail?.sourceId;
-      if (sourceId) setRequestedSourceId(sourceId);
+      const detail = (event as CustomEvent<OpenCustomSourceUpdateModalDetail>).detail;
+      const sourceId = detail?.sourceId;
+      if (!sourceId) return;
+      // 运行时上报的自动弹窗:每个音源本次会话只弹一次,
+      // 用户关闭后脚本反复上报也不再打扰;设置页手动查看(manual)不受限
+      if (!detail.manual && sessionAutoShownSourceIds.has(sourceId)) return;
+      setRequestedSourceId(sourceId);
     };
 
     window.addEventListener(OPEN_CUSTOM_SOURCE_UPDATE_MODAL_EVENT, handleOpen);
@@ -84,6 +105,9 @@ export function CustomSourceUpdateModal() {
 
       return sources.find((item) => {
         if (item.updateStatus === "available" && item.allowShowUpdateAlert !== false) {
+          // 本会话已自动弹过的音源不再进入自动扫描(脚本每次上报都会刷新
+          // updateCheckedAt,单靠 dismissedKeys 挡不住反复重弹)
+          if (sessionAutoShownSourceIds.has(item.id)) return false;
           return !dismissedKeys.has(buildDismissKey(item));
         }
         return false;
@@ -91,6 +115,11 @@ export function CustomSourceUpdateModal() {
     },
     [dismissedKeys, requestedSourceId, sources, featureEnabled, featureReady],
   );
+
+  // 弹窗实际展示的音源记入会话集合:本次会话内不再自动弹出
+  useEffect(() => {
+    if (source) sessionAutoShownSourceIds.add(source.id);
+  }, [source]);
 
   const handleClose = () => {
     if (!source) return;

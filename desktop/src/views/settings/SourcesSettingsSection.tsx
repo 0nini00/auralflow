@@ -57,7 +57,7 @@ export function SourcesSettingsSection({ model }: { model: SourcesSettingsModel 
   {featureReady && featureEnabled && (
     <>
   <div className="af-settings-group">
-    <label className="af-settings-label">自定义音源</label>
+    <span className="af-settings-label">自定义音源</span>
     <div className="af-settings-input-group">
       <button type="button" className="af-settings-button" onClick={handleImportCustomSourceFile}>
         导入 LX 音源文件
@@ -181,7 +181,7 @@ export function SourcesSettingsSection({ model }: { model: SourcesSettingsModel 
                   <button
                     type="button"
                     className="af-custom-source-icon-button"
-                    onClick={() => openCustomSourceUpdateModal(source.id)}
+                    onClick={() => openCustomSourceUpdateModal(source.id, { manual: true })}
                     title="查看更新弹窗"
                     aria-label="查看更新弹窗"
                   >

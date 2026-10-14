@@ -22,12 +22,12 @@ beforeEach(() => {
     queue: { tracks: [{ source: 'wy', id: 'one', name: 'One', singer: 'Singer' }], currentIndex: 0, play: vi.fn(), remove: vi.fn() },
     desktopLyrics: { open: false, label: '打开桌面歌词', toggle: vi.fn() },
     onPanelOpenChange: vi.fn(),
-    children: <button aria-label="收藏歌单插槽" />,
+    children: <button type="button" aria-label="收藏歌单插槽" />,
   };
   act(() => { renderer = create(<ImmersivePlayerControls {...props} ref={ref} />, { createNodeMock: element => {
     const label = element.props['aria-label'];
     const fn = focus.get(label) ?? vi.fn(); if (label) focus.set(label, fn);
-    return { focus: fn, scrollIntoView: vi.fn() };
+    return { focus: fn, scrollIntoView: vi.fn(), getBoundingClientRect: () => ({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }) };
   } }); });
 });
 afterEach(() => { act(() => renderer.unmount()); vi.unstubAllGlobals(); });

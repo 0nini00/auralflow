@@ -19,7 +19,7 @@ vi.mock('@/hooks/useInterpolatedPlaybackProgress', () => ({ useInterpolatedPlayb
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: deps.getCurrentWindow }));
 vi.mock('@/utils/desktopLyricToggle', () => ({ toggleDesktopLyricFromPlayer: deps.toggleDesktop }));
 vi.mock('@/components/playerVisualizers/PlayerVisualizerRenderer', () => ({ PlayerVisualizerRenderer: (props: any) => <div data-testid="lyrics" {...props} /> }));
-vi.mock('@/components/SongAddMenuButton', () => ({ SongAddMenuButton: () => <button aria-label="添加到我的喜欢或歌单" /> }));
+vi.mock('@/components/SongAddMenuButton', () => ({ SongAddMenuButton: () => <button type="button" aria-label="添加到我的喜欢或歌单" /> }));
 // 真正的DOM焦点循环由 frontend-immersive-focus.test.tsx 验证。
 vi.mock('@/hooks/useDialogFocus', () => ({ useDialogFocus: vi.fn() }));
 import { ImmersiveLyricsOverlay } from '../src/components/ImmersiveLyricsOverlay';
@@ -35,7 +35,11 @@ class ElementTarget {
 class InputTarget extends ElementTarget {}
 const key = (value: string, target: any = null) => {
   const event = { key: value, target, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation: vi.fn() };
-  act(() => keydown.forEach(handler => handler(event)));
+  act(() => {
+    for (const handler of keydown) {
+      handler(event);
+    }
+  });
   return event;
 };
 const button = (label: string) => renderer.root.findByProps({ 'aria-label': label });
@@ -115,7 +119,11 @@ it('range 左右键与按钮空格不被全局播放快捷键抢走', async () =
 
 it('已经处理的 Escape 不关闭 overlay，未处理的 Escape 关闭', async () => {
   await mount();
-  act(() => keydown.forEach(handler => handler({ key: 'Escape', defaultPrevented: true, preventDefault: vi.fn() })));
+  act(() => {
+    for (const handler of keydown) {
+      handler({ key: 'Escape', defaultPrevented: true, preventDefault: vi.fn() });
+    }
+  });
   expect(onClose).not.toHaveBeenCalled();
   key('Escape'); expect(onClose).toHaveBeenCalledOnce();
 });
@@ -135,7 +143,7 @@ it('全局 Escape 先关闭菜单并归还触发焦点，第二次才关闭 over
   const focus = vi.fn();
   await act(async () => {
     renderer = create(<ImmersiveLyricsOverlay open onClose={onClose} />, {
-      createNodeMock: () => ({ focus, scrollIntoView: vi.fn() }),
+      createNodeMock: () => ({ focus, scrollIntoView: vi.fn(), getBoundingClientRect: () => ({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }) }),
     });
   });
   click('更多');
