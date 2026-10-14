@@ -27,7 +27,7 @@ tags: [auralflow, desktop]
 
 两条硬规则：**只有真的发现新版本才弹窗**——静默检查失败不打扰用户（网络抖动很常见），失败原因只在设置页显示；**安装是终态**——Rust 侧一调起安装器就 `exit(0)`，装完由安装器重新拉起应用，所以「安装中」必须由前端自己画出来，不能指望 `downloadAndInstall` 的 Promise 返回（细节见 `desktop-native`）。
 
-**路由**：BrowserRouter v6，13 个子路由（首页 index / search / library→收藏歌单重定向 / local / playlists / downloads / history / playlist/:id / artist/:id / album/:id / daily / fm / settings），外加通配重定向到首页。
+**路由**：BrowserRouter v6，14 个子路由（首页 index / search / library→收藏歌单重定向 / local / playlists / downloads / history / stats / playlist/:id / artist/:id / album/:id / daily / fm / settings），外加通配重定向到首页。
 
 ## 边界
 
@@ -35,9 +35,9 @@ tags: [auralflow, desktop]
 
 **依赖方向**：`views` 与 `components` 只向下依赖 `stores` / `hooks` / `lib`；`stores` 与 `services` 互相读写；业务规则只允许存在于 `services`。
 
-**已知边界瑕疵（实情，与 `desktop/src/stores/README.md` 的表述不符）**：`stores` ↔ `services` 是**双向**的，不是单向数据流。`services` 里确实有 6 个文件反向 `import` `@/stores`：`webdavSyncService.ts`、`playlistTransferService.ts`、`playback/playbackSnapshot.ts`、`playback/customSourceBackend.ts`、`customSourceRuntime.ts`、`playback/playbackSnapshotModel.ts`。这是「服务直接读写 store」约定的自然结果，不是回归——但也意味着不存在可强制的单向分层。
+**已知边界瑕疵（实情）**：`stores` ↔ `services` 是**双向**的，不是单向数据流。`services` 里确实有 11 个文件反向 `import` `@/stores`：`persistentCache.ts`、`playback/playbackResolver.ts`、`playback/prefetchService.ts`、`playback/customSourceBackend.ts`、`playback/playbackSnapshot.ts`、`playback/playbackSnapshotModel.ts`、`playlistTransferService.ts`、`smtcService.ts`、`taskbarService.ts`、`customSourceRuntime.ts`、`webdavSyncService.ts`。这是「服务直接读写 store」约定的自然结果，不是回归——但也意味着不存在可强制的单向分层。
 
-同类瑕疵：`services` 并非全部经 IPC 桥访问原生能力，`desktop/src` 有 31 处直接 `import` `@tauri-apps/*`（详见 `desktop` 与 `tauri-bridge` 的边界）。
+同类瑕疵：`services` 并非全部经 IPC 桥访问原生能力，`desktop/src` 有 43 处直接 `import` `@tauri-apps/*`（分布在 33 个文件，详见 `desktop` 与 `tauri-bridge` 的边界）。
 
 **约束强度**：桌面端没有 ESLint 配置（全仓库只有移动端有），所以以上分层是**约定而非工具强制**——越界不会有检查报错，评审时看这里。
 

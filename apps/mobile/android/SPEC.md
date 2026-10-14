@@ -18,7 +18,7 @@ Android 原生层（`apps/mobile/android/app/src/main/java/cn/chenle/auralflow/m
 
 其余模块提供单点能力：`CoverColorModule`（封面主色）、`ImagePickerModule`、`ApkInstallerModule`、`CustomSourceFilePickerModule`、`OrientationModule`、`WakeLockModule`、`BatteryOptimizationModule`（后台保活与电池豁免）。`apply-track-player-patch.js` 在 `postinstall` 期给 RNTP 的 `MusicService` 打补丁，补上通知栏歌词按钮。
 
-`LocalMusicPackage` 是唯一的 ReactPackage，注册上述 **12 个模块**——新增模块必须同时改这里，否则 JS 侧只会拿到 `undefined`。
+`LocalMusicPackage` 是唯一的 ReactPackage，注册上述 **12 个模块**——新增模块必须同时改这里，否则 JS 侧只会拿到 `undefined`。另有 4 个**未注册**的辅助类：`LocalAudioAssetsReader` 与 `LocalTagEditor`（被 `LocalMusicModule` 调用，也被原生契约测试直接 `javac` 编译）、`LyricOverlayPreferences` 与 `LyricNotificationReceiver`（悬浮窗偏好存取，以及 `apply-track-player-patch.js` 打进 RNTP `MusicService` 的通知栏歌词按钮所引用的类）——它们不是 `NativeModule`，JS 侧取不到，本就不该出现在注册表里。
 
 ## 边界
 
@@ -31,6 +31,6 @@ Android 原生层（`apps/mobile/android/app/src/main/java/cn/chenle/auralflow/m
 
 **接通方式**：JS 侧通过 service 边界经 `NativeModules` 触达原生——`fileDownloadCommit`、`localMusicService`、`secureStorageService`、`imagePickerService`、`customSourceFilePicker`、`orientationService`、`lyricOverlayService`、`coverColorService`、`apkInstallService`、`wakeLockService`、`backgroundPlaybackService`、`weapi`。新增原生能力要同时改这两侧。**注意注册名不一定等于类名**：`NativeModules.AuralFlowOrientation` 对应的是类 `OrientationModule`——按类名取不到时去查 `getName()`。
 
-**权限边界**（`AndroidManifest.xml`）：INTERNET / SYSTEM_ALERT_WINDOW / WAKE_LOCK / FOREGROUND_SERVICE_MEDIA_PLAYBACK / POST_NOTIFICATIONS / READ_MEDIA_AUDIO。**无 RECORD_AUDIO**。
+**权限边界**（`AndroidManifest.xml`，共 11 条）：INTERNET / SYSTEM_ALERT_WINDOW / WAKE_LOCK / VIBRATE / FOREGROUND_SERVICE / FOREGROUND_SERVICE_MEDIA_PLAYBACK / POST_NOTIFICATIONS / REQUEST_IGNORE_BATTERY_OPTIMIZATIONS（`BatteryOptimizationModule`）/ REQUEST_INSTALL_PACKAGES（`ApkInstallerModule`）/ READ_EXTERNAL_STORAGE（`maxSdkVersion="32"`）/ READ_MEDIA_AUDIO。**无 RECORD_AUDIO**。
 
 **已知边界瑕疵**：`lx_bridge` 的 WebView 配置宽松（`originWhitelist ["*"]`、`mixedContentMode "always"`、`allowFileAccessFromFileURLs`）——与桌面端的参数遮蔽一样**不是安全边界**。脚本能力的实际收敛靠白名单交集（kg/tx/wy 只有 `musicUrl`，local 另有 `lyric` / `pic`）与 musicUrl 返回值的 `assertPublicOutboundUrl` 复核。

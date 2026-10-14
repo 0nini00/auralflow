@@ -7,7 +7,7 @@
 | 路由 | 视图组件 | 职责 |
 | --- | --- | --- |
 | `/` | HomeView | 发现页：推荐歌单 / 排行榜 / 快速入口 |
-| `/search` | SearchView (1029 行，最大) | 综合 / 单曲 / 歌手 / 专辑 / 歌单分类 + 建议 + 历史 |
+| `/search` | SearchView (1037 行，最大) | 综合 / 单曲 / 歌手 / 专辑 / 歌单分类 + 建议 + 历史 |
 | `/library` | （重定向） | 无独立视图，仅重定向到 `/playlist/favorites` |
 | `/local` | LocalMusicView | 本地音乐扫描 / 列表 / 网格 / 元数据编辑 |
 | `/playlists` | PlaylistsView | 歌单中心 |

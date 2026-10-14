@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.2.0-blue.svg" alt="版本" />
+  <img src="https://img.shields.io/badge/version-0.6.24-blue.svg" alt="版本" />
   <img src="https://img.shields.io/badge/node-%3E%3D22.11.0-brightgreen.svg" alt="Node" />
   <img src="https://img.shields.io/badge/tauri-v2-orange.svg" alt="Tauri" />
   <img src="https://img.shields.io/badge/react--native-0.86-61dafb.svg" alt="React Native" />
@@ -33,7 +33,7 @@ AuralFlow 是一款功能完备的跨平台音乐流媒体与本地播放器。�
 
 ## 核心亮点
 
-- **共享领域核心（`@lx/core`）**：将音质档位分层、并发竞速、流完整性探活、歌词时钟插值计算统一沉淀在独立核心包中，由 55 项单元测试全面覆盖。
+- **共享领域核心（`@lx/core`）**：将音质档位分层、并发竞速、流完整性探活、歌词时钟插值计算统一沉淀在独立核心包中，由 162 项单元测试覆盖（两端各自另有测试套件，见各端说明）。
 - **网易云无版权自动跨源降级**：当网易云曲目因下架或版权受限返回 403 / 无法取链时，自动直连 QQ 音乐用「歌名 + 首位歌手」检索，执行严格校验（歌名规整相同 + 歌手重叠 + 时长差 <= 5s），平滑接管发声并同步歌词与元数据。
 - **全格式动态歌词**：支持 LRC、YRC、QRC、KRC 歌词解析与逐字卡拉 OK 动效渲染，支持译文合并；桌面端提供透明悬停穿透窗口，移动端提供原生悬浮窗歌词。
 - **WebDAV 双向数据同步**：支持歌单、收藏、自定义音源与播放历史跨设备同步，提供冷启动自动同步、并集收敛合并、云端版本冲突拦截与本地自动快照。

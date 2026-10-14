@@ -7,7 +7,7 @@ UI 组件层：负责桌面端全部可见界面与交互，自身不持业务�
 ```
 components/
 ├── Layout/            # 路由布局 shell（4 文件）
-└── playerVisualizers/ # 歌词可视化渲染（5 文件）
+└── playerVisualizers/ # 歌词可视化渲染（6 文件）
 ```
 
 ## Layout/（4 文件）
@@ -19,7 +19,7 @@ components/
 | Header | `Header.tsx` | 搜索框（220ms 防抖建议）+ 主题切换 |
 | AppTitleBar | `AppTitleBar.tsx` | 无边框拖拽 `data-tauri-drag-region` + 最小化/最大化/关闭 |
 
-## playerVisualizers/（5 文件）
+## playerVisualizers/（6 文件）
 
 | 组件 | 文件 | 职责 |
 | --- | --- | --- |
@@ -27,13 +27,13 @@ components/
 | ScrollingLyricsVisualizer | `ScrollingLyricsVisualizer.tsx` | 纯 CSS 背景渐变填充 `background-clip:text` + `--af-scrolling-lyric-progress` + 逐词 `clip-path:inset()` |
 | PosterLyricsVisualizer | `PosterLyricsVisualizer.tsx` | 备用海报式可视化 |
 
-## 顶层主要组件（24 个 .tsx）
+## 顶层主要组件（21 个 .tsx）
 
 | 组件 | 文件 | 职责 |
 | --- | --- | --- |
 | PlayerBar | `PlayerBar.tsx` | 3 列网格（曲目\|传输\|音量）+ 全宽进度；`useInterpolatedPlaybackProgress` rAF 平滑；拖动状态机 `isScrubbing` 覆盖；`useArtworkAmbience` 在 early return 前调 hooks 规则；封面点击开 ImmersiveLyricsOverlay；桌面歌词按钮 `toggleDesktopLyricFromPlayer` |
 | ImmersiveLyricsOverlay | `ImmersiveLyricsOverlay.tsx` | `position:fixed` 全窗沉浸层 + 封面与滚动歌词 + `ImmersivePlayerControls` 三列底栏 + CSS 变量 `--af-immersive-progress/volume/artwork-rgb/anim-scale/lyric-font-family` + 分享剪贴板 + 更多菜单“退出沉浸式播放” + 键盘 `resolveImmersiveKeyboardAction`；Esc 优先关闭菜单，关闭后恢复焦点；保留 AppTitleBar 窗口操作，不控制原生全屏 |
-| MusicCard / SongList / PlaylistCard | — | 通用曲目/歌单卡片与列表 |
+| MusicCard / VirtualList / SongAddMenuButton | — | 通用曲目卡片、虚拟化列表与歌曲操作菜单 |
 | WyCookieLoginModal | — | 网易登录弹窗 |
 | PactModal | — | 用户协议确认 |
 | CursorEffect | — | 唯一 canvas 光标特效 |

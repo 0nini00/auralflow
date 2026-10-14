@@ -10,13 +10,13 @@ parent: auralflow-goal
 
 AuralFlow 是基于 TypeScript 与 Rust 构建的双端音乐播放器。桌面端与移动端通过 `@lx/core` 复用平台无关的领域模型与纯逻辑，同时分别维护各自的播放引擎、状态编排、网络适配与系统集成。
 
-> pnpm monorepo · 4 个 workspace 包 · 版本 0.4.0（desktop）/ 0.3.0（mobile，本次未改） · 仓库 https://github.com/0nini00/auralflow.git
+> pnpm monorepo · 4 个 workspace 包 · 版本 0.6.24（desktop）/ 0.6.22（mobile，本次未改） · 仓库 https://github.com/0nini00/auralflow.git · 本文数字为 0.6.24 时点实测（`(Get-Content <file>).Count`，含空行）
 
 ## 架构分层
 
 ```mermaid
 flowchart TB
-    subgraph Core["@lx/core（packages/core · 30 文件 2701 行 TS · 无构建）"]
+    subgraph Core["@lx/core（packages/core · 44 文件 5229 行 TS · 无构建）"]
         C1[sources/ 源注册与领域模型]
         C2[lyrics/ 解析 · 行定位 · 浮窗时钟]
         C3[playback-quality 质量排序唯一真相源]
@@ -27,19 +27,19 @@ flowchart TB
     end
 
     subgraph Desktop["@auralflow/desktop（desktop/）"]
-        D1[React 18.3.1 前端<br/>13 路由 BrowserRouter v6<br/>12 Zustand store]
-        D2[playerEngine.ts 388 行<br/>HTMLAudio + rAF + 余弦淡入淡出]
-        D3[customSourceRuntime.ts 776 行<br/>new Function 参数遮蔽（非沙箱）+ LRU(8) + HTTP 代理]
-        D4[Rust 后端 23 文件 5297 行<br/>39 IPC 命令]
-        D5["@lx/tauri-bridge IPC 桥 345 行"]
+        D1[React 18.3.1 前端<br/>14 路由 BrowserRouter v6<br/>12 Zustand store]
+        D2[playerEngine.ts 425 行<br/>HTMLAudio + rAF + 余弦淡入淡出]
+        D3[customSourceRuntime.ts 892 行<br/>new Function 参数遮蔽（非沙箱）+ LRU(8) + HTTP 代理]
+        D4[Rust 后端 25 文件 6710 行<br/>41 IPC 命令]
+        D5["@lx/tauri-bridge IPC 桥 427 行"]
     end
 
     subgraph Mobile["@auralflow/mobile（apps/mobile/）"]
         M1[React Native 0.86 + React 19.2.3]
-        M2[playerStore.ts 1162 行<br/>静音间隙技巧]
+        M2[playerStore.ts 1252 行<br/>静音间隙技巧（15s 静音占位轨）]
         M3[playbackService.ts<br/>RNTP 后台 PlaybackActiveTrackChanged]
         M4[16 Zustand store<br/>Drawer > NativeStack > BottomTabs]
-        M5[Android 原生 15 Java + 2 Kotlin 2825 行<br/>11 个原生模块 + lx_bridge 脚本沙箱]
+        M5[Android 原生 18 Java + 2 Kotlin 3853 行<br/>12 个原生模块 + lx_bridge 脚本沙箱]
     end
 
     Core --> Desktop
@@ -51,31 +51,37 @@ flowchart TB
 
 | 模块 | 行数 | 职责 |
 |---|---|---|
-| `sources/registry.ts` | 22 | 音源注册表 |
-| `sources/types.ts` | 115 | `MusicSource` / `MusicInfo` / `Lyric` 等领域模型 |
-| `sources/custom-source.ts` | 90 | 自定义音源类型 |
-| `sources/tx-meta.ts` | 28 | 腾讯取链元数据（strMediaMid，脚本据此拼 M500/F000 文件名） |
-| `custom-source.ts` | 52 | 自定义音源脚本契约（与 `sources/custom-source.ts` 并存） |
-| `lyrics/parser.ts` | 375 | lrc / enhanced-lrc / yrc / qrc / krc / vtt 6 格式归一化解析 |
-| `lyrics/playbackSync.ts` | 61 | `findCurrentLyricLineIndex` 行定位唯一实现（lead 提前量 + 前进滞后带可配，首行前返回 -1）；移动端 `playerService.getCurrentLyricIndex` 已接入。桌面 `services/lyrics/playbackSync` 仍为其本地超集副本（词级进度、时钟外推），迁移待办 |
-| `lyrics/overlay-clock.ts` | 72 | 悬浮歌词时钟调度：由位置算出当前行与到下一行的毫秒延迟（原生浮窗自走，不依赖 JS 每行推词），并判定前台校准时机 |
-| `playback-quality.ts` | 168 | 质量排序唯一真相源，`raceForBestQuality` 800ms 升级窗口 |
-| `stream-integrity.ts` | 79 | 试听检测 |
-| `webdav-merge.ts` | 136 | 纯函数加法合并，删除不传播 |
-| `webdav-sync-error.ts` | 36 | WebDAV 同步拒绝的错误层级：`CloudSyncRefusalError`（设置页据此提示强制下载）与派生的 `CloudDataStaleError`（自动同步据此跳过下载、改上传本地收敛） |
-| `outbound-host.ts` | 267 | SSRF 守卫，与 Rust 双实现契约；自行按 RFC 3986 取 host（不信 RN 的 `URL` polyfill），并归一化到客户端实际连接的形式后再比对黑名单 |
-| `mobile-api.ts` | 236 | gdstudio 网关依赖注入传输；`createRacingBuiltinMusicApiClient` 多网关竞速（空数组不视为成功）已就绪但移动端未接线，当前仅单网关客户端 |
-| `history/listen-threshold.ts` | 83 | 入历史 / 打点阈值追踪（默认 120s 或 50%；只累计播放中的连续推进，排除 seek 与暂停造成的虚假进度） |
-| `recommendations/heartbeat-queue.ts` | 87 | 心动模式待播缓冲的补充判定与逐曲推进（batch 播尽时从 buffer 取出并追加） |
-| `cover-image.ts` | 56 | 缩略图处理 |
-| `switch-step-queue.ts` | 53 | 连点合并 |
-| `playlist-link.ts` | 34 | 歌单分享链接解析 |
+| `sources/registry.ts` | 28 | 音源注册表 |
+| `sources/types.ts` | 134 | `MusicSource` / `MusicInfo` / `Lyric` 等领域模型 |
+| `sources/custom-source.ts` | 104 | 自定义音源类型 |
+| `sources/tx-meta.ts` | 33 | 腾讯取链元数据（strMediaMid，脚本据此拼 M500/F000 文件名） |
+| `custom-source.ts` | 61 | 自定义音源脚本契约（与 `sources/custom-source.ts` 并存） |
+| `lyrics/parser.ts` | 515 | lrc / enhanced-lrc / yrc / qrc / krc / vtt 6 格式归一化解析 |
+| `lyrics/playbackSync.ts` | 70 | `findCurrentLyricLineIndex` 行定位唯一实现（lead 提前量 + 前进滞后带可配，首行前返回 -1）；移动端 `playerService.getCurrentLyricIndex` 已接入。桌面 `services/lyrics/playbackSync` 仍为其本地超集副本（词级进度、时钟外推），迁移待办 |
+| `lyrics/overlay-clock.ts` | 81 | 悬浮歌词时钟调度：由位置算出当前行与到下一行的毫秒延迟（原生浮窗自走，不依赖 JS 每行推词），并判定前台校准时机 |
+| `lyrics/annotations.ts` | 59 | 注音 / 罗马音标注解析（`parseRubyText` / `normalizeRubyLine`） |
+| `playback-quality.ts` | 186 | 质量排序唯一真相源，`raceForBestQuality` 800ms 升级窗口 |
+| `stream-integrity.ts` | 86 | 试听检测 |
+| `webdav-merge.ts` | 211 | 纯函数加法合并，删除不传播 |
+| `webdav-sync-error.ts` | 38 | WebDAV 同步拒绝的错误层级：`CloudSyncRefusalError`（设置页据此提示强制下载）与派生的 `CloudDataStaleError`（自动同步据此跳过下载、改上传本地收敛） |
+| `outbound-host.ts` | 295 | SSRF 守卫，与 Rust 双实现契约；自行按 RFC 3986 取 host（不信 RN 的 `URL` polyfill），并归一化到客户端实际连接的形式后再比对黑名单 |
+| `mobile-api.ts` | 267 | gdstudio 网关依赖注入传输；`createRacingBuiltinMusicApiClient` 多网关竞速（空数组不视为成功）已就绪但移动端未接线，当前仅单网关客户端 |
+| `history/listen-threshold.ts` | 100 | 入历史 / 打点阈值追踪（默认 120s 或 50%；只累计播放中的连续推进，排除 seek 与暂停造成的虚假进度） |
+| `recommendations/heartbeat-queue.ts` | 97 | 心动模式待播缓冲的补充判定与逐曲推进（batch 播尽时从 buffer 取出并追加） |
+| `stats/aggregate.ts` | 270 | 听歌统计聚合（`aggregateListeningStats`）：总时长 / 次数 / Top 歌曲与歌手 / 按天趋势；按宿主本地日历日归组，时间未知的条目只进总数与榜单、不进趋势 |
+| `cover-image.ts` | 149 | 缩略图处理 |
+| `switch-step-queue.ts` | 57 | 连点合并 |
+| `playlist-link.ts` | 39 | 歌单分享链接解析 |
+| `release-notes.ts` | 94 | 发布说明清洗（降成纯文本摘要，丢表格 / 分隔线 / 代码块） |
+| `github-mirror.ts` | 61 | GitHub 加速镜像地址改写（刻意手写解析而不用 `new URL`，RN 的 polyfill 不完整） |
+| `removed-source.ts` | 57 | 已下线来源的历史条目清理（`isRemovedSource` / `dropRemovedSourceEntries`） |
+| `local-media-match.ts` | 353 | 本地文件与在线候选的择优判定：同一录音档（歌名 / 版本 / 演唱者 / 时长全对得上，可静默采信）与同曲异唱档（原唱不可得时才启用，要求时长差 ≤3s 加证据，且必须在 UI 上标注来源）。两端共用，取代了桌面端那套会把同名不同曲判成匹配的加权打分 |
 
-合计 32 文件 2770 行（25 个模块文件 + 7 个测试文件；含 5 个 barrel：`index.ts` / `lyrics/index.ts` / `sources/index.ts` / `history/index.ts` / `recommendations/index.ts`）。
+合计 44 文件 5229 行（25 个模块文件 + 14 个测试文件；另含 5 个 barrel：`index.ts` / `lyrics/index.ts` / `sources/index.ts` / `history/index.ts` / `recommendations/index.ts`）。
 
 `@lx/core` 独立于 UI 框架与平台运行时，**无构建步骤**（`main` / `types` 直接指向 `src/index.ts`）。播放队列、播放状态、缓存 IO、自定义音源运行时（桌面同 WebView 非沙箱执行、移动端隐藏 WebView）、平台网络请求仍由双端分别实现。跨源匹配与搜索结果合并去重曾位于 `sources/resolver.ts`，f91c469 判定其解析链不可达后删除，该职责现由双端各自实现。
 
-带自动化测试的是两侧，而非只有一个包：JS/TS 侧 `pnpm test:core`（vitest 3.2.4，7 个测试文件 74 例——`outbound-host` 20 / `webdav-merge` 17 / `overlay-clock` 10 / `removed-source` 8 / `listen-threshold` 8 / `heartbeat-queue` 8 / `webdav-sync-error` 3）；Rust 侧 `pnpm test:rust`（10 个 `#[test]`：`secret_store.rs` 6 个 + `outbound.rs` 4 个——后者是 SSRF 守卫唯一的测试）。其中 `outbound-host.test.ts` 锚定「guard 判定的 host 必须等于真实请求的 host」这一不变量——用 Node 的 WHATWG `URL` 作参照物做差分断言；`webdav-sync-error.test.ts` 锚定同步拒绝的类型层级（两个错误类的 instanceof 关系），因为自动同步正是靠它决定吞掉哪一种拒绝。根目录 `pnpm test:all` 串起「双端类型检查 + 移动端 lint + 两侧测试」，`.github/workflows/ci.yml` 在 CI 里跑同一批命令（Rust 任务必须 windows runner：`secret_store.rs` 在非 Windows 平台是编译期硬失败）。**桌面端与移动端本身依赖真机运行时，没有任何测试文件**——它们的回归只有类型检查、lint 与真机手测。
+带自动化测试的是两侧，而非只有一个包：JS/TS 侧 `pnpm test:core`（vitest 3.2.4，14 个测试文件 162 例——`stats/aggregate` 24 / `outbound-host` 20 / `webdav-merge` 17 / `local-media-match` 16 / `cover-image` 14 / `overlay-clock` 10 / `release-notes` 9 / `netease-rich-lyric` 9 / `removed-source` 8 / `listen-threshold` 8 / `heartbeat-queue` 8 / `annotations` 8 / `github-mirror` 8 / `webdav-sync-error` 3）；Rust 侧 `pnpm test:rust`（56 个 `#[test]`，分布在 9 个文件——`window_state.rs` 13 / `smtc.rs` 9 / `taskbar.rs` 9 / `secret_store.rs` 6 / `audio_session.rs` 5 / `logging.rs` 5 / `outbound.rs` 4 / `models.rs` 3 / `commands/media_cache.rs` 2）。其中 `outbound-host.test.ts` 锚定「guard 判定的 host 必须等于真实请求的 host」这一不变量——用 Node 的 WHATWG `URL` 作参照物做差分断言；`webdav-sync-error.test.ts` 锚定同步拒绝的类型层级（两个错误类的 instanceof 关系），因为自动同步正是靠它决定吞掉哪一种拒绝。根目录 `pnpm test:all` 串起「双端类型检查 + 移动端 lint + 两侧测试」，`.github/workflows/ci.yml` 在 CI 里跑同一批命令（Rust 任务必须 windows runner：`secret_store.rs` 在非 Windows 平台是编译期硬失败）。**两端另有各自的套件**：桌面前端 `pnpm test:desktop`（vitest + jsdom，57 个文件 469 例）、移动端 `pnpm mobile:test`（`node --test`，28 个文件 613 例，其中两个文件会用真 `javac` + jaudiotagger + `ffmpeg` 编译并运行原生源码片段）。真正依赖真机运行时的行为仍只有类型检查、lint 与真机手测。
 
 ## 各端职责说明
 
@@ -85,12 +91,12 @@ Tauri v2 + React 18.3.1 + Vite 5，提供原生 OS 交互体验。
 
 | 层 | 职责 | 关键实现 |
 |---|---|---|
-| Rust 后端 | 系统级任务，39 IPC 命令 | `outbound.rs`（SSRF + 每跳验证 ≤10）、`lyric_window.rs`（792 行 独立透明窗口：锁定=鼠标穿透+150ms 光标轮询+悬停解锁小窗，置顶 1.5s 巡检 + token/epoch 防竞态）、`local_audio.rs`（walkdir + audiotags/lofty 双库）、`media_cache.rs`（两层：song-audio 2GiB 常量 LRU，covers 不限）、`downloads.rs`（流式 + 取消 + 180ms 节流 + 2GiB 上限，完成后 audiotags 写标签、lofty 写词、旁挂 lrc）、`tray.rs`、`logging.rs`（`tauri-plugin-log` 落盘到 `app_log_dir()`，2 MiB×3 轮转）、`smtc.rs`（Windows 系统媒体控制：媒体键 / 媒体浮层 / 锁屏，封面走内存流）、`taskbar.rs`（任务栏缩略图三按钮 + DWM 悬浮预览封面，`SetWindowSubclass` 子类化，全程 fail-soft） |
-| React 前端 | UI 与业务 | `playerEngine.ts`（388 行 HTMLAudio + rAF + 500ms 纠偏 + 余弦淡入淡出 90/140ms fadeToken + 外部暂停 500ms 保护窗；进度不跨启动恢复，跨窗口由 `stores/playerSync.ts` 经 BroadcastChannel + Tauri 事件同步）、`customSourceRuntime.ts`（776 行 new Function 参数遮蔽，非沙箱——脚本在本 WebView 全权执行 + LRU(8) + HTTP 代理 Rust；能力白名单含 search/playlist）、`webdavSyncService.ts`（629 行 同步锁 + 冲突检测）、`wyAccountService.ts`（601 行 weapi/eapi——`wyProvider.ts` 内另有一份 eapiEncrypt——+ 扫码/Cookie 登录，Cookie 经 Rust DPAPI 加密落盘） |
+| Rust 后端 | 系统级任务，41 IPC 命令 | `outbound.rs`（SSRF + 每跳验证 ≤10）、`lyric_window.rs`（794 行 独立透明窗口：锁定=鼠标穿透+150ms 光标轮询+悬停解锁小窗，置顶 1.5s 巡检 + token/epoch 防竞态）、`local_audio.rs`（walkdir + audiotags/lofty 双库）、`media_cache.rs`（两层：song-audio 2GiB、song-covers 512MiB，命中刷新 mtime 因此是真 LRU）、`downloads.rs`（流式 + 取消 + 180ms 节流 + 2GiB 上限，完成后 audiotags 写标签、lofty 写词、旁挂 lrc）、`tray.rs`、`logging.rs`（`tauri-plugin-log` 落盘到 `app_log_dir()`，2 MiB×3 轮转）、`smtc.rs`（Windows 系统媒体控制：媒体键 / 媒体浮层 / 锁屏，封面走内存流）、`taskbar.rs`（任务栏缩略图三按钮——用封面替换预览已于 2026-10-09 退役，`SetWindowSubclass` 子类化，全程 fail-soft） |
+| React 前端 | UI 与业务 | `playerEngine.ts`（425 行 HTMLAudio + rAF + 500ms 纠偏 + 余弦淡入淡出 90/140ms fadeToken + 外部暂停 500ms 保护窗；进度不跨启动恢复，跨窗口由 `stores/playerSync.ts` 经 BroadcastChannel + Tauri 事件同步）、`customSourceRuntime.ts`（892 行 new Function 参数遮蔽，非沙箱——脚本在本 WebView 全权执行 + LRU(8) + HTTP 代理 Rust；能力白名单含 search/playlist）、`webdavSyncService.ts`（865 行 同步锁 + 冲突检测）、`wyAccountService.ts`（632 行 weapi/eapi——`wyProvider.ts` 内另有一份 eapiEncrypt——+ 扫码/Cookie 登录，Cookie 经 Rust DPAPI 加密落盘） |
 | 缓存 | 播放 URL / 歌词持久索引 | `persistentCache.ts`（URL 6h / 本地 365d / 歌词 30d / 空结果 7d，LRU 500/1000 条） |
-| 导航 | 13 路由 BrowserRouter v6 | 首页(index) / search / library→收藏歌单重定向 / local / playlists / downloads / history / playlist/:id / artist/:id / album/:id / daily / fm / settings |
+| 导航 | 14 路由 BrowserRouter v6 | 首页(index) / search / library→收藏歌单重定向 / local / playlists / downloads / history / stats / playlist/:id / artist/:id / album/:id / daily / fm / settings |
 | 视觉 | 玻璃拟态 | `--af-*` CSS 变量 + `backdrop-filter`、`ImmersiveLyricsOverlay`（纯 CSS/DOM 逐字卡拉 OK：clip-path/背景渐变） |
-| IPC 桥 | `@lx/tauri-bridge` 299 行 | 部分 Tauri 命令的类型化包装，**不是唯一 IPC 路径**：桌面前端另有 31 处直接 `import` `@tauri-apps/*`，其中 4 处（`components/MetadataEditModal.tsx`、`services/appBackground.ts`、`services/outboundHttp.ts`、`utils/compression.ts`）直接 `invoke` |
+| IPC 桥 | `@lx/tauri-bridge` 427 行 | 部分 Tauri 命令的类型化包装，**不是唯一 IPC 路径**：桌面前端另有 43 处（分布于 33 个文件）直接 `import` `@tauri-apps/*`，其中仅 2 处（`services/outboundHttp.ts`、`utils/compression.ts`）直接 `invoke` |
 
 ### 移动端（`@auralflow/mobile`）
 
@@ -98,12 +104,12 @@ React Native 0.86 + React 19.2.3，面向 Android（minSdk 24）。
 
 | 层 | 职责 | 关键实现 |
 |---|---|---|
-| 播放核心 | 前台保活 + 后台推进 | `playerStore.ts`（1162 行 原生恒单曲槽 + 静音间隙技巧：尾部 SILENCE_GAP_TRACK 2s 静音占位轨保持前台服务；播放快照持久化 AsyncStorage）、`playbackService.ts`（RNTP 后台 `PlaybackActiveTrackChanged` 驱动推进，终局失败由 `playbackFailurePolicy` 判定后自动跳歌） |
+| 播放核心 | 前台保活 + 后台推进 | `playerStore.ts`（1252 行 原生恒单曲槽 + 静音间隙技巧：尾部 SILENCE_GAP_TRACK 15s 静音占位轨保持前台服务；播放快照持久化 AsyncStorage）、`playbackService.ts`（RNTP 后台 `PlaybackActiveTrackChanged` 驱动推进，终局失败由 `playbackFailurePolicy` 判定后自动跳歌） |
 | 导航 | Drawer > NativeStack > BottomTabs + MaterialTopTabs | `navigation/` |
-| 沉浸歌词 | PagerView 2 页 | `ImmersiveLyricsScreen`（useImmersiveController 539 行 + 下拉关闭）、`LyricView`（587 行 动态行高 + 累积偏移；仅行级高亮，逐字渲染为桌面能力） |
+| 沉浸歌词 | PagerView 2 页 | `ImmersiveLyricsScreen`（useImmersiveController 522 行 + 下拉关闭）、`LyricView`（623 行 动态行高 + 累积偏移；仅行级高亮，逐字渲染为桌面能力） |
 | 列表 | 增量挂载（非 FlatList） | — |
 | 图片 | CachedImage（Glide） | `cacheService.ts` 2GB LRU（封面/音频 immutable 近似 FIFO，歌词 30 天，AsyncStorage 索引 reconcile；启动时 autoCleanCache 磁盘守卫） |
-| Android 原生 | 15 Java + 2 Kotlin 2825 行 | `LocalMusicPackage` 注册 **11 个模块**：`LocalMusicModule`（712 行 MediaStore + jaudiotagger，读写标签与内嵌封面）、`LyricOverlayModule` + `LyricOverlayService`（248 + 661 行 WindowManager 悬浮歌词，配套 `LyricOverlayPreferences` / `LyricNotificationReceiver`）、`SecureStorageModule`（Keystore AES-256-GCM）、`CryptoModule`（原生 weapi：AES-CBC + RSA NoPadding，固定向量会话自校验，失败回退 weapiJs）、`CoverColorModule`、`ImagePickerModule`、`ApkInstallerModule`、`CustomSourceFilePickerModule`、`OrientationModule`、`WakeLockModule`、`BatteryOptimizationModule`；`lx_bridge`（隐藏 WebView 沙箱跑 LX 脚本：lx 注入 + 13 个全局名参数遮蔽 + RN 侧静态扫描拒 eval/Function，vendor.js 2510 行 CryptoJS + pako；RN fetch 不能禁重定向，自定义源能力白名单仅 musicUrl（kg/tx/wy）+ local 的 musicUrl/lyric/pic）；通知栏歌词按钮（`apply-track-player-patch.js` 补丁 RNTP `MusicService`） |
+| Android 原生 | 18 Java + 2 Kotlin 3853 行 | `LocalMusicPackage` 注册 **12 个模块**：`LocalMusicModule`（908 行 MediaStore + jaudiotagger，读写标签与内嵌封面）、`LyricOverlayModule` + `LyricOverlayService`（280 + 737 行 WindowManager 悬浮歌词，配套 `LyricOverlayPreferences` / `LyricNotificationReceiver`）、`SecureStorageModule`（Keystore AES-256-GCM）、`CryptoModule`（原生 weapi：AES-CBC + RSA NoPadding，固定向量会话自校验，失败回退 weapiJs）、`CoverColorModule`、`ImagePickerModule`、`ApkInstallerModule`、`CustomSourceFilePickerModule`、`OrientationModule`、`WakeLockModule`、`BatteryOptimizationModule`（另有 `LocalAudioAssetsReader` / `LocalTagEditor` 两个未注册的辅助类，被 `LocalMusicModule` 与原生契约测试直接编译使用）；`lx_bridge`（隐藏 WebView 沙箱跑 LX 脚本：lx 注入 + 13 个全局名参数遮蔽 + RN 侧静态扫描拒 eval/Function，vendor.js 2510 行 CryptoJS + pako；RN fetch 不能禁重定向，自定义源能力白名单仅 musicUrl（kg/tx/wy）+ local 的 musicUrl/lyric/pic）；通知栏歌词按钮（`apply-track-player-patch.js` 补丁 RNTP `MusicService`） |
 | 权限 | 无 RECORD_AUDIO | INTERNET / SYSTEM_ALERT_WINDOW / WAKE_LOCK / FOREGROUND_SERVICE_MEDIA_PLAYBACK / POST_NOTIFICATIONS / READ_MEDIA_AUDIO |
 
 ## 关键设计决策摘要
@@ -126,7 +132,7 @@ React Native 0.86 + React 19.2.3，面向 Android（minSdk 24）。
 
 ### 4. 静音间隙技巧
 
-移动端 `playerStore.ts` 在每首真实歌曲尾部插入 `SILENCE_GAP_TRACK`（2s 静音占位轨，`android.resource://.../raw/silence_2s`）。`playbackService.ts` 监听 `PlaybackActiveTrackChanged`，当激活轨为 `SILENCE_GAP_TRACK_ID` 时推进到下一首真实歌曲。播放终局失败由 `playbackFailurePolicy` 判定、同一后台服务自动跳歌（有限连跳，默认关闭）；播放快照（曲目/进度/音量）持久化到 AsyncStorage，启动后恢复。借此在不依赖额外定时器的前提下保持前台服务存活、实现无缝衔接。
+移动端 `playerStore.ts` 在每首真实歌曲尾部插入 `SILENCE_GAP_TRACK`（15s 静音占位轨，`android.resource://.../raw/silence_2s`——文件名与常量名沿用旧名，音频实际 15s，track 的 `duration` 填 0）。`playbackService.ts` 监听 `PlaybackActiveTrackChanged`，当激活轨为 `SILENCE_GAP_TRACK_ID` 时推进到下一首真实歌曲。播放终局失败由 `playbackFailurePolicy` 判定、同一后台服务自动跳歌（有限连跳，默认关闭）；播放快照（曲目/进度/音量）持久化到 AsyncStorage，启动后恢复。借此在不依赖额外定时器的前提下保持前台服务存活、实现无缝衔接。
 
 ### 5. 质量竞速
 
@@ -142,7 +148,7 @@ React Native 0.86 + React 19.2.3，面向 Android（minSdk 24）。
 
 **拒绝分两种，靠错误类型而不是文案区分**：`@lx/core` 的 `CloudSyncRefusalError`（设置页据此提示「强制下载」）与派生的 `CloudDataStaleError`（云端可证明更旧，本地为权威）。只有后者可以被自动同步吞掉并改为上传本地收敛；「无法判定云端新旧」等拒绝必须上抛——吞掉它们就变成覆盖式上传，删掉只存在于云端的实体。双端启动均自动同步（桌面由 `webdavAutoSyncPlaylists` 开关控制，移动端同名开关），自动同步失败只记 console，不呈现给用户。
 
-已知风险：WebDAV 密码的落盘保护两端不一致——**桌面端**已由 `secret_store` 按 DPAPI 加密（`DPAPI:v1:<base64>`，直接读设置 JSON 只拿到密文）；**移动端**存在 `auralflow.mobile.webdavConfig`，`apps/mobile/src` 的 `saveWebdavConfig` 一带没有加密层（Android 原生层是否另行接管**未核实**）。
+密码落盘保护两端都已加密：**桌面端**由 `secret_store` 按 DPAPI 处理（`DPAPI:v1:<base64>`，直接读设置 JSON 只拿到密文）；**移动端**的密码经 `secureStorageService` → `SecureStorageModule`（AndroidKeyStore AES/GCM，键 `auralflow.mobile.webdav.password.v1`）落盘，AsyncStorage 里只剩 url / username / autoSync，并带旧明文（`auralflow.mobile.webdavConfig`）的迁移路径。
 
 ### 7. 播放地址解析链（双端）
 
@@ -164,7 +170,7 @@ React Native 0.86 + React 19.2.3，面向 Android（minSdk 24）。
 
 | 端 | 差异能力 |
 |---|---|
-| 桌面 | 浮动歌词窗口 / 托盘 / 系统媒体控制（SMTC：媒体键、系统媒体浮层、锁屏控制）/ 任务栏缩略图按钮与悬浮预览封面 / 窗口内快捷键（keydown，自定义组合键未做）/ 扫码登录 / Rust 文件操作 / 可变下载目录 / cursor 特效 |
+| 桌面 | 浮动歌词窗口 / 托盘 / 系统媒体控制（SMTC：媒体键、系统媒体浮层、锁屏控制）/ 任务栏缩略图三按钮（用封面替换预览已于 2026-10-09 退役）/ 窗口内快捷键（keydown，自定义组合键未做）/ 扫码登录 / Rust 文件操作 / 可变下载目录 / cursor 特效 |
 | 移动 | 通知栏 / TrackPlayer 后台 / 锁屏 / deep link / 分享 / MV / 首页 feed / Android 浮窗歌词 / 自动检查自定义源 |
 
 ## 常用命令

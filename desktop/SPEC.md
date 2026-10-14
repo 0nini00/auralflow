@@ -12,10 +12,10 @@ tags: [auralflow, desktop]
 桌面端是 AuralFlow 的功能先导端：新能力先在这里落地，移动端随后对齐。它是一个 Tauri v2 应用，由三块构成，各自的细节在子节点里：
 
 - **React 前端**（`desktop/src`）——界面、状态与业务规则。见 `desktop-frontend`。
-- **Rust 后端**（`desktop/src-tauri`）——系统级能力：文件与媒体、流式下载、出站 SSRF 守卫、托盘、独立歌词窗口、系统媒体控制（SMTC）、任务栏缩略图与悬浮预览、运行日志落盘、凭据加密。见 `desktop-native`。
+- **Rust 后端**（`desktop/src-tauri`）——系统级能力：文件与媒体、流式下载、出站 SSRF 守卫、托盘、独立歌词窗口、系统媒体控制（SMTC）、任务栏缩略图按钮（悬浮预览封面已于 2026-10-09 退役）、运行日志落盘、凭据加密。见 `desktop-native`。
 - **IPC 桥**（`desktop/packages/tauri-bridge`）——部分 Tauri 命令的类型化包装。见 `tauri-bridge`。
 
-端上独有的能力（相对移动端）：透明浮窗歌词窗口、系统托盘、**系统媒体控制（SMTC：媒体键 / 系统媒体浮层 / 锁屏控制）**、**任务栏缩略图按钮与悬浮预览封面**、窗口内快捷键（keydown，自定义组合键仍未做，媒体键由 SMTC 承载）、扫码登录、Rust 侧文件操作、可变下载目录、光标特效。这些由平台能力支撑，不是移动端的缺口。
+端上独有的能力（相对移动端）：透明浮窗歌词窗口、系统托盘、**系统媒体控制（SMTC：媒体键 / 系统媒体浮层 / 锁屏控制）**、**任务栏缩略图按钮（只保留上一首 / 播放暂停 / 下一首三个按钮；悬浮预览封面已于 2026-10-09 退役）**、窗口内快捷键（keydown，自定义组合键仍未做，媒体键由 SMTC 承载）、扫码登录、Rust 侧文件操作、可变下载目录、光标特效。这些由平台能力支撑，不是移动端的缺口。
 
 共同目标见 `auralflow-goal`；两端共享的纯逻辑见 `core`；音源解析见 `source-resolution`。
 
@@ -23,7 +23,7 @@ tags: [auralflow, desktop]
 
 ## 边界
 
-**允许**：`@lx/core` 与 `@lx/tauri-bridge`（均为 `workspace:*`），以及 Tauri v2 官方插件（api / plugin-deep-link / plugin-dialog / plugin-fs / plugin-http / plugin-shell）、React 18、React Router 6、Zustand 5、crypto-js、node-forge、lucide-react。
+**允许**：`@lx/core` 与 `@lx/tauri-bridge`（均为 `workspace:*`），以及 Tauri v2 官方插件（api / plugin-deep-link / plugin-dialog / plugin-fs / plugin-http / plugin-log / plugin-shell / plugin-updater）、React 18、React Router 6、Zustand 5、crypto-js、node-forge、lucide-react。
 
 **禁止**：
 
@@ -31,6 +31,6 @@ tags: [auralflow, desktop]
 - **两端必须同答案的纯逻辑不得在桌面端复制**。已知技术债：`desktop/src/services/lyrics/playbackSync` 仍是 `core/lyrics/playbackSync` 的本地超集副本（多了词级进度与时钟外推），迁移未完成。
 - Web 前端不做系统级 IO——除下述已知例外，一律经 IPC 转发。
 
-**已知边界瑕疵（实情）**：`@lx/tauri-bridge` 不是唯一 IPC 路径，也不是强制关口。`desktop/src` 有 31 处直接 `import` `@tauri-apps/*`，包括 `plugin-http` 的静态白名单直连，以及 4 处直接 `invoke`（`components/MetadataEditModal.tsx`、`services/appBackground.ts`、`services/outboundHttp.ts`、`utils/compression.ts`）。桥覆盖的是命令面的一部分，旁路是有意保留的——所以「新增 IO 必须走桥」这条规则在代码里并不成立。细节见 `tauri-bridge`。
+**已知边界瑕疵（实情）**：`@lx/tauri-bridge` 不是唯一 IPC 路径，也不是强制关口。`desktop/src` 有 43 处直接 `import` `@tauri-apps/*`（分布在 33 个文件），包括 `plugin-http` 的静态白名单直连，以及 2 处直接 `invoke`（`services/outboundHttp.ts`、`utils/compression.ts`）——`components/MetadataEditModal.tsx` 已改用桥的 `getAudioInfo`，`services/appBackground.ts` 只用 `convertFileSrc`（不是 invoke）。桥覆盖的是命令面的一部分，旁路是有意保留的——所以「新增 IO 必须走桥」这条规则在代码里并不成立。细节见 `tauri-bridge`。
 
 **约束强度**：桌面端没有 ESLint 配置（全仓库只有移动端有），因此这些边界是约定而非工具强制，越界不会有检查报错。

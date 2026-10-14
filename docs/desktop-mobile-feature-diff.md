@@ -86,7 +86,7 @@
 | 译文合并 | `mergeTranslation()`+`mergeMissingLines()` ±150ms | `@lx/core` 翻译合并 ±150ms | 🟢 共享 |
 | 行进度估算 | `@lx/core` playbackSync PlaybackProgressClock 二分查找 0.12s 提前 CJK/拉丁加权 | `@lx/core calculateLyricLineProgress` 同算法 | 🟢 共享（共享核心） |
 | 逐字卡拉OK | 沉浸层 clip-path 逐字填充（background-clip:text+CSS 变量数据驱动）+桌面歌词窗 KaraokeLine 逐字渐变（LyricWord start/dur 驱动） | 无（`LyricView` 明确只做行级高亮：纯色+切换缩放动画） | 💻 桌面独有 |
-| 多源歌词匹配 | `matchScore.ts` 多源择优 | lyricsService 搜索匹配+`scoreLyricContentQuality` | 🟢 共享 |
+| 多源歌词匹配 | 先 LRCLIB 直查「主歌手（miss 再退完整署名）+ 时长」两轮，再网易搜索 → `@lx/core` 两档判定 | 同一份 core 判定，同样先查 LRCLIB，命中即不再搜 | 🟢 共享（`local-media-match`） |
 | 歌词服务链 | 嵌入式→provider→搜索匹配+0.12s 迟滞 | 同链路 | 🟢 共享 |
 | 用户滚动暂停 | `useLyricAutoScroll` 用户滚动暂停 3s 恢复 | `LyricView` 587 行 onScrollBeginDrag+3s 暂停 | 🟢 共享 |
 | 歌词偏移校准 | `SettingsView` manualOffsetMs 滑块 | `LyricSettingsScreen` 歌词偏移校准滑块 | 🟢 共享 |
