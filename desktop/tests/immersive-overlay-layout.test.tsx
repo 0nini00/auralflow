@@ -69,8 +69,16 @@ beforeEach(() => {
   vi.stubGlobal('document', { body: { style: { overflow: '' } }, querySelector: () => null });
   vi.stubGlobal('navigator', { clipboard: { writeText: deps.copy } });
   vi.stubGlobal('window', {
-    addEventListener: (name: string, handler: any) => { if (name === 'keydown') keydown.push(handler); },
-    removeEventListener: (name: string, handler: any) => { if (name === 'keydown') keydown = keydown.filter(item => item !== handler); },
+    addEventListener: (name: string, handler: any) => {
+      if (name === 'keydown') {
+        keydown.push(handler);
+      }
+    },
+    removeEventListener: (name: string, handler: any) => {
+      if (name === 'keydown') {
+        keydown = keydown.filter(item => item !== handler);
+      }
+    },
     requestAnimationFrame: (callback: any) => { callback(); return 1; }, cancelAnimationFrame: vi.fn(), setTimeout: vi.fn(),
   });
 });
