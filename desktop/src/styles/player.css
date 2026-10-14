@@ -403,6 +403,22 @@
 .af-immersive-heading-album { margin-top: 2px; font-size: 13px; line-height: 1.6; color: rgba(229, 241, 229, 0.6); }
 
 .af-immersive-lyric-section { display: flex; min-width: 0; min-height: 0; height: 100%; padding: 0 10px; overflow: hidden; }
+/* 歌词来源标注：同曲异唱档的可见提示，绝对定位在顶部预留区，不参与布局流。 */
+.af-immersive-lyric-origin {
+  position: absolute;
+  top: 14px;
+  left: var(--af-immersive-gutter);
+  z-index: 2;
+  margin: 0;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--af-immersive-muted);
+  pointer-events: none;
+}
 
 /* 一条可拖动进度线，下方为时间/播放/辅助操作三个区域。 */
 .af-immersive-controls {

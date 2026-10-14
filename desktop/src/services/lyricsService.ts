@@ -1,9 +1,12 @@
 import {
   detectLyricSourceType,
+  hasOriginalPerformerCandidate,
   mergeTranslation,
   mergeRomanization,
   parseLyricSource,
+  selectLocalMediaMatch,
   type LyricLine,
+  type LyricOrigin,
   type LyricResponse,
   type LyricSourceType,
   type LyricWord,
@@ -11,12 +14,6 @@ import {
 } from '@lx/core';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { getSource } from '@/services/sources/sourceService';
-import {
-  MIN_LYRIC_MATCH_SCORE,
-  rankLyricMatches,
-  selectBestLyricMatch,
-  type LyricSearchCandidate,
-} from '@/services/lyrics/matchScore';
 import { getCachedLyrics, isCacheableEmptyLyricResult, saveCachedLyrics } from '@/services/persistentCache';
 
 export type { LyricLine, LyricResponse, LyricWord };
@@ -299,28 +296,45 @@ function scoreLyricContentQuality(lines: LyricLine[]): number {
 
 const MAX_LYRIC_CANDIDATES_TO_TRY = 3;
 
-/**
- * LRC Lib(https://lrclib.net)按「标题 + 歌手 + 时长」直查。
- *
- * 返回三态:
- *  - `null`         无结果或请求不可用(继续走网易搜索兜底)
- *  - `"instrumental"` 命中且明确为纯音乐(无词,直接结束,不必再搜)
- *  - `LyricLine[]`  命中歌词
- */
-async function fetchLrclibLyrics(
-  music: MusicInfo,
-): Promise<LyricLine[] | "instrumental" | null> {
-  const title = music.name?.trim();
-  const artist = music.singer?.trim();
-  if (!title || !artist) return null;
+/** 不带 duration 直查时接口给的是「最近似」条目，超出这个窗口即视为另一首歌。 */
+const LRCLIB_DURATION_WINDOW_SECONDS = 5;
 
+/**
+ * 取主歌手：本地 tag 常写「主歌手/别名/合作者」（吴亦凡/Kris），而平台按单一署名分条，
+ * 用整串查必然查无此歌。
+ */
+function getPrimaryArtist(singer: string): string {
+  return singer
+    .split(/[/、,，;&]|\band\b|\bfeat\.?\b|\bft\.?\b|\bfeaturing\b/iu)
+    .map((part) => part.trim())
+    .find(Boolean) ?? '';
+}
+
+/** 宽松同文比较：只折叠字形、大小写与标点，用于确认回包就是我们查的那首歌。 */
+function sameLooseText(left: unknown, right: string): boolean {
+  if (typeof left !== "string") return false;
+  const normalize = (value: string) => value.normalize("NFKC").toLowerCase().replace(/[\p{P}\p{Z}\s]/gu, "");
+  return normalize(left) === normalize(right);
+}
+
+/**
+ * LRC Lib(https://lrclib.net)单次直查。
+ *
+ * `requestDurationSec` 为 0 表示这次不带 duration 参数：接口此时返回的是「最近似」条目，
+ * 必须用 `localDurationSec` 加 5 秒窗确认它确实是同一首歌，否则会把同名不同曲的词套上去。
+ * 带了 duration 的查询由接口保证时长一致，不必再校验。
+ */
+async function requestLrclibLyrics(
+  artist: string,
+  title: string,
+  requestDurationSec: number,
+  localDurationSec: number,
+): Promise<LyricLine[] | "instrumental" | null> {
   const params = new URLSearchParams({
     artist_name: artist,
     track_name: title,
   });
-  const interval = music.interval;
-  const durationSec = typeof interval === "number" && Number.isFinite(interval) ? Math.round(interval) : 0;
-  if (durationSec > 0) params.set("duration", String(durationSec));
+  if (requestDurationSec > 0) params.set("duration", String(requestDurationSec));
 
   const response = await tauriFetch(`https://lrclib.net/api/get?${params.toString()}`, {
     method: "GET",
@@ -333,17 +347,111 @@ async function fetchLrclibLyrics(
     syncedLyrics?: string;
     plainLyrics?: string;
     instrumental?: boolean;
+    duration?: number;
+    /** 回包自带的署名与曲名，用于确认命中的就是我们查的那首歌。 */
+    artistName?: string;
+    trackName?: string;
   };
   if (data.instrumental) return "instrumental";
+  if (
+    requestDurationSec === 0 &&
+    localDurationSec > 0 &&
+    typeof data.duration === "number" &&
+    Number.isFinite(data.duration) &&
+    Math.abs(data.duration - localDurationSec) > LRCLIB_DURATION_WINDOW_SECONDS
+  ) {
+    // 时长窗只用来拦「回包本来就不是我们要的那首歌」：署名与标题都对得上时，时长差只说明本地
+    // 是另一个版本的录音（或 tag 里的时长本身就是错的），不该因此把本来能用的歌词丢掉——
+    // 这正是「原唱在平台不可得、只有别人的录音」之外最常见的落空原因。
+    const identityMatches = sameLooseText(data.artistName, artist) && sameLooseText(data.trackName, title);
+    if (!identityMatches) return null;
+  }
   const source = data.syncedLyrics || data.plainLyrics;
   if (!source) return null;
   const lines = parseLyricSource({ content: source });
   return lines.length > 0 ? lines : null;
 }
 
+/**
+ * LRC Lib(https://lrclib.net)两轮直查「标题 + 歌手 + 时长」。
+ *
+ * 为什么分两轮：平台侧按单一署名 + 精确时长分条，而本地 tag 是「主歌手/别名」且时长常差几秒。
+ * 只用整串歌手查会 404（吴亦凡/Kris 查不到），只用时长查也会 404（本地 214s vs 条目 201.5s），
+ * 所以第一轮用主歌手且不带时长（命中率最高），第二轮才复现旧的「完整歌手 + 时长」行为。
+ *
+ * 返回三态:
+ *  - `null`         两轮都无结果或请求不可用(继续走网易搜索兜底)
+ *  - `"instrumental"` 命中且明确为纯音乐(无词,直接结束,不必再搜)
+ *  - `LyricLine[]`  命中歌词
+ */
+async function fetchLrclibLyrics(
+  music: MusicInfo,
+): Promise<LyricLine[] | "instrumental" | null> {
+  const title = music.name?.trim();
+  const singer = music.singer?.trim();
+  if (!title || !singer) return null;
+
+  const interval = music.interval;
+  const localDurationSec =
+    typeof interval === "number" && Number.isFinite(interval) && interval > 0 ? Math.round(interval) : 0;
+
+  const primaryArtist = getPrimaryArtist(singer);
+  if (primaryArtist) {
+    const primaryHit = await requestLrclibLyrics(primaryArtist, title, 0, localDurationSec);
+    if (primaryHit !== null) return primaryHit;
+  }
+  return requestLrclibLyrics(singer, title, localDurationSec, localDurationSec);
+}
+
+/** 网易云老版搜索接口(/api/search/get/web)的条目形态。 */
+interface NeteaseSearchSong {
+  id: string | number;
+  name?: string;
+  /** 老版 web 接口用 artists/album/duration，新接口用 ar/al/dt；两种都兼容。 */
+  artists?: Array<{ name?: string }>;
+  ar?: Array<{ name?: string }>;
+  album?: { name?: string };
+  al?: { name?: string };
+  duration?: number;
+  dt?: number;
+}
+
+/** 搜索条目 → 统一 MusicInfo；id 保持原样，便于反查歌词接口。 */
+function toNeteaseMusicInfo(song: NeteaseSearchSong): MusicInfo {
+  const artists = song.artists ?? song.ar ?? [];
+  const durationMs = song.duration ?? song.dt;
+  return {
+    id: String(song.id),
+    name: song.name ?? '',
+    // 多歌手用 / 连接，与其它来源写入 MusicInfo.singer 的写法一致
+    singer: artists.map((artist) => artist.name?.trim()).filter(Boolean).join('/'),
+    albumName: song.album?.name ?? song.al?.name ?? '',
+    // 接口给的是毫秒，MusicInfo.interval 是秒
+    interval: typeof durationMs === 'number' && Number.isFinite(durationMs) ? durationMs / 1000 : undefined,
+    source: 'wy',
+  };
+}
+
+/** 拉一首网易云歌的歌词（逐字/行级 + 翻译/罗马音）。 */
+async function fetchNeteaseLyricLines(songId: string): Promise<LyricLine[]> {
+  const lyricUrl = `https://music.163.com/api/song/lyric?id=${songId}&lv=1&kv=1&tv=-1`;
+  const lyricData = await fetchNeteaseJson(lyricUrl);
+  return parseProviderLyrics({
+    lyric: lyricData.lrc?.lyric,
+    yrc: lyricData.yrc?.lyric,
+    tlyric: lyricData.tlyric?.lyric,
+    romaLyric: lyricData.romalrc?.lyric ?? lyricData.yromalrc?.lyric,
+  });
+}
+
+/** 自动匹配的来源标注；手动/本地覆盖与失败结果都不设，避免 UI 误标。 */
+function wyOrigin(tier: LyricOrigin['tier'], performer?: string): LyricOrigin {
+  return performer ? { tier, performer, source: 'wy' } : { tier, source: 'wy' };
+}
+
 async function searchAndMatchLyrics(music: MusicInfo): Promise<LyricResponse> {
   try {
-    // 先试 LRC Lib:标题/歌手直查,命中即返回,省去网易搜索+打分
+    // 先试 LRC Lib:标题/歌手直查,命中即返回,省去网易搜索+判定
     try {
       const lrclibResult = await fetchLrclibLyrics(music);
       if (lrclibResult === "instrumental") return { lines: [], error: "暂无歌词" };
@@ -357,69 +465,54 @@ async function searchAndMatchLyrics(music: MusicInfo): Promise<LyricResponse> {
       return { lines: [], error: '歌曲信息不完整' };
     }
 
-    const target = {
-      name: music.name,
-      singer: music.singer,
-      albumName: music.albumName,
-      interval: music.interval,
-    };
-
     const searchUrl = `https://music.163.com/api/search/get/web?s=${encodeURIComponent(keyword)}&type=1&limit=8`;
     const searchData = await fetchNeteaseJson(searchUrl);
-    const songs = (searchData.result?.songs || []) as LyricSearchCandidate[];
+    const songs = (searchData.result?.songs || []) as NeteaseSearchSong[];
     if (songs.length === 0) {
       return { lines: [], error: '未找到匹配歌曲' };
     }
 
-    // 多源精选：对 top-N 高匹配候选分别拉歌词，综合「匹配分 + 内容质量」择优
-    const ranked = rankLyricMatches(target, songs).filter((item) => item.score >= MIN_LYRIC_MATCH_SCORE);
-    const shortlist = (ranked.length > 0 ? ranked : rankLyricMatches(target, songs)).slice(
-      0,
-      MAX_LYRIC_CANDIDATES_TO_TRY,
-    );
+    // 判定权在 @lx/core：直接搜平台召回的同名不同曲/别人的翻唱太多，
+    // 这里只接受两种结论——同一录音，或已证实原唱不可得的同曲异唱。
+    const candidates = songs.map(toNeteaseMusicInfo);
+    const match = selectLocalMediaMatch(music, candidates, {
+      originalPerformerUnavailable: !hasOriginalPerformerCandidate(music, candidates),
+    });
 
-    let best: { lines: LyricLine[]; total: number } | null = null;
+    if (match.status !== 'matched' || !match.tier) {
+      // 显式失败：宁可没有歌词，也不能把别人的演唱版本静默套到本地曲上
+      return { lines: [], error: '未找到匹配歌曲' };
+    }
 
-    for (const item of shortlist) {
+    if (match.tier === 'other-performer') {
+      const adopted = match.candidates[0];
+      const lines = adopted ? await fetchNeteaseLyricLines(adopted.id) : [];
+      if (lines.length === 0) return { lines: [], error: '暂无歌词' };
+      // 异唱档必须带来源标注：UI 要提示用户这是别人的演唱版本
+      return { lines, origin: wyOrigin('other-performer', match.performer) };
+    }
+
+    // 同一录音组内可能有多个条目（换名重传/多版本）：匹配分不再参与选择，
+    // 只在这些条目之间用内容质量挑选
+    let best: LyricLine[] | null = null;
+    let bestQuality = -1;
+    for (const candidate of match.candidates.slice(0, MAX_LYRIC_CANDIDATES_TO_TRY)) {
       try {
-        const songId = String(item.candidate.id);
-        const lyricUrl = `https://music.163.com/api/song/lyric?id=${songId}&lv=1&kv=1&tv=-1`;
-        const lyricData = await fetchNeteaseJson(lyricUrl);
-        const lines = parseProviderLyrics({
-          lyric: lyricData.lrc?.lyric,
-          yrc: lyricData.yrc?.lyric,
-          tlyric: lyricData.tlyric?.lyric,
-      romaLyric: lyricData.romalrc?.lyric ?? lyricData.yromalrc?.lyric,
-        });
+        const lines = await fetchNeteaseLyricLines(candidate.id);
         if (lines.length === 0) continue;
-
-        // 匹配分权重略高于内容分，避免「质量好看但歌不对」
-        const total = item.score * 0.65 + scoreLyricContentQuality(lines) * 0.35;
-        if (!best || total > best.total) {
-          best = { lines, total };
+        const quality = scoreLyricContentQuality(lines);
+        if (quality > bestQuality) {
+          best = lines;
+          bestQuality = quality;
         }
-        // 已经非常优秀就提前停：高匹配 + 有逐字
-        if (item.score >= 70 && scoreLyricContentQuality(lines) >= 50) break;
       } catch (err) {
-        // 某个候选拉歌词失败就试下一个（候选是有序的 top-N）
+        // 某个候选拉歌词失败就试同组的下一个
         console.error('[lyrics] 候选歌词拉取失败', err);
       }
     }
 
-    if (best) return { lines: best.lines };
-
-    // 兜底：旧逻辑选一首再试（兼容 minScore 过滤后 shortlist 全空的情况）
-    const matchedSong = selectBestLyricMatch(target, songs) ?? songs[0];
-    const songId = String(matchedSong.id);
-    const lyricUrl = `https://music.163.com/api/song/lyric?id=${songId}&lv=1&kv=1&tv=-1`;
-    const lyricData = await fetchNeteaseJson(lyricUrl);
-    const lines = parseProviderLyrics({
-      lyric: lyricData.lrc?.lyric,
-      yrc: lyricData.yrc?.lyric,
-      tlyric: lyricData.tlyric?.lyric,
-      romaLyric: lyricData.romalrc?.lyric ?? lyricData.yromalrc?.lyric,
-    });
-    return lines.length > 0 ? { lines } : { lines: [], error: '暂无歌词' };
+    if (!best) return { lines: [], error: '暂无歌词' };
+    return { lines: best, origin: wyOrigin('same-recording') };
   } catch (error) {
     console.error('[lyrics] 匹配歌词失败', error);
     return { lines: [], error: '匹配歌词失败' };

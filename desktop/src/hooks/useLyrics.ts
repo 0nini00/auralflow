@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import type { MusicInfo } from "@lx/core";
+import type { LyricOrigin, MusicInfo } from "@lx/core";
 import { getLyrics, getLocalLyricsOverride, type LyricLine } from "@/services/lyricsService";
 import { findCurrentLyricLine } from "@/services/lyrics/playbackSync";
 
@@ -10,6 +10,8 @@ interface UseLyricsResult {
   currentLine: number;
   isLoading: boolean;
   error: string | null;
+  /** 自动匹配的来源标注（如「来自某位的演唱版本」）；手动/本地覆盖与失败结果为 null。 */
+  origin: LyricOrigin | null;
 }
 
 // v4：v3 及更早的条目由旧解析器写入，缺网易云 eapi 富文本元信息行（作词/作曲等），整体废弃
@@ -44,11 +46,13 @@ export function useLyrics(music: MusicInfo | null, progress: number, offsetSec =
   const [lyrics, setLyrics] = useState<LyricLine[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [origin, setOrigin] = useState<LyricOrigin | null>(null);
 
   useEffect(() => {
     if (!music) {
       setLyrics([]);
       setError(null);
+      setOrigin(null);
       setIsLoading(false);
       return;
     }
@@ -57,6 +61,8 @@ export function useLyrics(music: MusicInfo | null, progress: number, offsetSec =
     if (override) {
       setLyrics(override.lines);
       setError(override.error ?? null);
+      // 手动/本地覆盖是权威输入，不来自任何平台匹配，不带来源标注
+      setOrigin(null);
       setIsLoading(false);
       return;
     }
@@ -67,11 +73,14 @@ export function useLyrics(music: MusicInfo | null, progress: number, offsetSec =
       // 内存缓存命中：立刻显示，避免切歌白屏
       setLyrics(cachedLyrics);
       setError(null);
+      // localStorage 只存行，来源标注要等下面的网络结果回来才补上
+      setOrigin(null);
       setIsLoading(false);
     } else {
       // 无缓存：先清掉上一首的歌词，避免短暂显示旧词
       setLyrics([]);
       setError(null);
+      setOrigin(null);
       setIsLoading(true);
     }
 
@@ -87,8 +96,10 @@ export function useLyrics(music: MusicInfo | null, progress: number, offsetSec =
         if (result.error) {
           setError(result.error);
           setLyrics([]);
+          setOrigin(null);
         } else {
           setLyrics(result.lines);
+          setOrigin(result.origin ?? null);
           writeCachedLyrics(music, result.lines);
         }
       } catch (err) {
@@ -120,5 +131,5 @@ export function useLyrics(music: MusicInfo | null, progress: number, offsetSec =
     return findCurrentLyricLine(lyrics, progress + offsetSec);
   }, [progress, lyrics, offsetSec]);
 
-  return { lyrics, currentLine, isLoading, error };
+  return { lyrics, currentLine, isLoading, error, origin };
 }

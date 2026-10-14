@@ -93,7 +93,7 @@ export function ImmersiveLyricsOverlay({
   const playModeControl = getPlayModeControl({ repeatMode, isShuffle });
   const lyricProgress = useInterpolatedPlaybackProgress({ status, progress, progressSampledAt, duration, playbackRate });
   const lyricTime = lyricProgress + manualOffsetMs / 1000;
-  const { lyrics, currentLine: currentLyricIndex } = useLyrics(currentTrack, lyricTime);
+  const { lyrics, currentLine: currentLyricIndex, origin } = useLyrics(currentTrack, lyricTime);
 
   useEffect(() => {
     if (!open) return;
@@ -312,6 +312,10 @@ export function ImmersiveLyricsOverlay({
         />
       )}
       <div className="af-immersive-noise" aria-hidden="true" />
+      {/* 歌词来源标注：同曲异唱档必须可见；绝对定位在顶部预留区，不参与布局流 */}
+      {origin?.tier === 'other-performer' && origin.performer && (
+        <p className="af-immersive-lyric-origin">歌词来自 {origin.performer} 的演唱版本</p>
+      )}
 
       <main className="af-immersive-stage af-showcase-layout">
         <section className="af-immersive-cover-section" aria-label="歌曲封面">

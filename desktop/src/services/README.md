@@ -1,36 +1,36 @@
 # services/
 
-业务逻辑层：承载播放引擎、源解析、账号、同步、缓存、下载等核心规则；直接读写 Zustand store，系统级 IO 主要经 `@lx/tauri-bridge` 包装的 Rust 命令（但有 31 处直接 `import @tauri-apps/*`，见文末），并消费 `@lx/core` 的跨平台能力。
+业务逻辑层：承载播放引擎、源解析、账号、同步、缓存、下载等核心规则；直接读写 Zustand store，系统级 IO 主要经 `@lx/tauri-bridge` 包装的 Rust 命令（但有 43 处直接 `import @tauri-apps/*`，见文末），并消费 `@lx/core` 的跨平台能力。
 
 ## 目录结构
 
 ```
 services/
-├── lyrics/   # 歌词（5）：animationIntensity autoScrollModel matchScore parserCore playbackSync
-├── playback/ # 播放（12）：builtinNeteaseBackend builtinProviderBackend customSourceBackend
+├── lyrics/   # 歌词（3）：animationIntensity autoScrollModel playbackSync（解析器在 @lx/core 的 lyrics/parser.ts，本地已无 parserCore）
+├── playback/ # 播放（13）：builtinNeteaseBackend builtinProviderBackend crossSourceFallbackService customSourceBackend
 │             #       immersiveKeyboard playbackResolver playbackSnapshot playbackSnapshotModel
 │             #       playModeControl prefetchModel prefetchService streamProbe types
 ├── search/   # 搜索（5）：含 searchSuggestions（本地历史 + 网易云 suggest）
 ├── sources/  # 源：wyProvider txProvider（registry 注册；builtin / customSource backend 见 playback/）
-└── *.ts      # 23 个顶层服务
+└── *.ts      # 30 个顶层服务
 ```
 
 ## 核心服务清单
 
 | 服务 | 文件 | 行数 | 职责 |
 | --- | --- | --- | --- |
-| 播放引擎 | `playerEngine.ts` | 388 | HTMLAudio + rAF + 500ms 后备 + 余弦淡入淡出（90/140ms，`fadeToken` 取消）+ 外部暂停 `shouldResumeAfterExternalPause` 500ms 保护窗 + 预览检测 `isPreviewDuration` + 预加载 `preloadAudio` |
-| 自定义源运行时 | `customSourceRuntime.ts` | 776 | LX 脚本 `new Function` 参数遮蔽（`fakeWindow = Object.create(null)` 无原型；**非安全边界**：可经 constructor 链取回真实 globalThis，静态正则黑名单已移除，真正隔离未实施）+ 宿主全局传 undefined + HTTP 代理 `outboundRequest`（Rust SSRF）+ LRU(8) `key=id::djb2a-hash` + `parseDesktopUserApiInfo` 头部 + `testCustomSourceDeep` 两阶段 init + `musicUrl`（wy 2034742057 林俊杰《江南》 / tx 0039MnYb0qxYhV）20s |
-| WebDAV 同步 | `webdavSyncService.ts` | 629 | 同步锁 `withSyncLock` + `lastModified` 冲突 `assertCloudNotStale` + 下载 merge / 上传 overwrite + localStorage 备份 + `/AuralFlow/` 写 / `/LX_Music/` 读回退 |
-| 网易账号 | `wyAccountService.ts` | 601 | weapi/eapi 双通道 + QR 登录（type=3 unikey → SVG 二维码 → 轮询 800/801/802/803）+ 歌单 CRUD + 日推/FM + `extractSetCookie`（`Headers.getSetCookie`） |
-| 歌词 | `lyricsService.ts` | 345 | 多源嵌入式 → provider `getLyric` → 搜索匹配 + `scoreLyricContentQuality` + 翻译合并 |
+| 播放引擎 | `playerEngine.ts` | 425 | HTMLAudio + rAF + 500ms 后备 + 余弦淡入淡出（90/140ms，`fadeToken` 取消）+ 外部暂停 `shouldResumeAfterExternalPause` 500ms 保护窗 + 预览检测 `isPreviewDuration` + 预加载 `preloadAudio` |
+| 自定义源运行时 | `customSourceRuntime.ts` | 892 | LX 脚本 `new Function` 参数遮蔽（`fakeWindow = Object.create(null)` 无原型；**非安全边界**：可经 constructor 链取回真实 globalThis，静态正则黑名单已移除，真正隔离未实施）+ 宿主全局传 undefined + HTTP 代理 `outboundRequest`（Rust SSRF）+ LRU(8) `key=id::djb2a-hash` + `parseDesktopUserApiInfo` 头部 + `testCustomSourceDeep` 两阶段 init + `musicUrl`（wy 2034742057 林俊杰《江南》 / tx 0039MnYb0qxYhV）20s |
+| WebDAV 同步 | `webdavSyncService.ts` | 865 | 同步锁 `withSyncLock` + `lastModified` 冲突 `assertCloudNotStale` + 下载 merge / 上传 overwrite + localStorage 备份 + `/AuralFlow/` 写 / `/LX_Music/` 读回退 |
+| 网易账号 | `wyAccountService.ts` | 632 | weapi/eapi 双通道 + QR 登录（type=3 unikey → SVG 二维码 → 轮询 800/801/802/803）+ 歌单 CRUD + 日推/FM + `extractSetCookie`（`Headers.getSetCookie`） |
+| 歌词 | `lyricsService.ts` | 515 | 多源嵌入式 → provider `getLyric` → LRC Lib 两轮直查（主歌手不带时长 → 完整歌手带时长）→ 网易搜索候选交 `@lx/core` `selectLocalMediaMatch` 判定（不再本地打分；同曲异唱档带 `origin` 标注）+ `scoreLyricContentQuality` 组内择优 + 翻译合并 |
 | 二维码 | `qrCode.ts` | 237 | SVG 二维码生成 |
 | 私人 FM 队列 | `personalFmQueue.ts` | 223 | 私人 FM 队列 + dislike → trash |
-| 下载 | `downloadService.ts` | 177 | 下载 + ID3 嵌入 + sidecar `.lrc` |
-| 预取 | `prefetchService.ts` | 210 | 预取 `[-1,+1,+2]` 随机 `[+1,+2,-1]` → `playerEngine.preload`，10min TTL |
-| 源解析 | `playback/playbackResolver.ts` | 209 | 源解析链 + 竞速 + `streamProbe` + `isPreviewStream` |
-| 持久化缓存 | `persistentCache.ts` | 290 | 持久化缓存 |
-| 封面主色 | `artworkColor.ts` | 164 | 封面主色 → CSS 变量 |
+| 下载 | `downloadService.ts` | 205 | 下载 + ID3 嵌入 + sidecar `.lrc` |
+| 预取 | `playback/prefetchService.ts` | 228 | 预取 `[-1,+1,+2]` 随机 `[+1,+2,-1]` → `playerEngine.preload`，10min TTL |
+| 源解析 | `playback/playbackResolver.ts` | 330 | 源解析链 + 竞速 + `streamProbe` + `isPreviewStream` |
+| 持久化缓存 | `persistentCache.ts` | 312 | 持久化缓存 |
+| 封面主色 | `artworkColor.ts` | 189 | 封面主色 → CSS 变量 |
 | 网关客户端 | `builtinMusicApiClient.ts` | 187 | gdstudio 网关客户端 |
 | 搜索建议 | `search/searchSuggestions.ts` | 246 | 本地历史 + 网易云 suggest |
 
@@ -47,4 +47,4 @@ services/
 
 ## 与 @lx/tauri-bridge 的关系
 
-`@lx/tauri-bridge` 是**部分** Tauri 命令的类型化包装，**不是唯一 IPC 路径、也不是强制关口**：`desktop/src` 有 31 处直接 `import @tauri-apps/*`（`plugin-http` 的静态白名单直连，以及 `plugin-dialog` / `plugin-fs` / `plugin-shell` 等），其中 4 处直接 `invoke`（`components/MetadataEditModal.tsx`、`services/appBackground.ts`、`services/outboundHttp.ts`、`utils/compression.ts`）。所以「新增 IO 必须走桥」这条规则在代码里并不成立——细节见 `desktop/src/SPEC.md` 与 `desktop/packages/tauri-bridge/SPEC.md`。
+`@lx/tauri-bridge` 是**部分** Tauri 命令的类型化包装，**不是唯一 IPC 路径、也不是强制关口**：`desktop/src` 有 43 处直接 `import @tauri-apps/*`（`plugin-http` 的静态白名单直连，以及 `plugin-dialog` / `plugin-fs` / `plugin-shell` 等），其中 2 处直接 `invoke`（`services/outboundHttp.ts`、`utils/compression.ts`）。所以「新增 IO 必须走桥」这条规则在代码里并不成立——细节见 `desktop/src/SPEC.md` 与 `desktop/packages/tauri-bridge/SPEC.md`。
