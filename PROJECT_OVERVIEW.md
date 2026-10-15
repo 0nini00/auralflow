@@ -10,7 +10,7 @@ parent: auralflow-goal
 
 AuralFlow 是基于 TypeScript 与 Rust 构建的双端音乐播放器。桌面端与移动端通过 `@lx/core` 复用平台无关的领域模型与纯逻辑，同时分别维护各自的播放引擎、状态编排、网络适配与系统集成。
 
-> pnpm monorepo · 4 个 workspace 包 · 版本 0.7.1（desktop / mobile 共用同一条发布序列） · 仓库 https://github.com/0nini00/auralflow.git · 本文数字为 0.7.0 时点实测（`(Get-Content <file>).Count`，含空行）
+> pnpm monorepo · 4 个 workspace 包 · 版本 0.7.2（desktop / mobile 共用同一条发布序列） · 仓库 https://github.com/0nini00/auralflow.git · 本文数字为 0.7.0 时点实测（`(Get-Content <file>).Count`，含空行）
 
 ## 架构分层
 

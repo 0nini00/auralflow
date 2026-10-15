@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.7.1-blue.svg" alt="Version" />
+  <img src="https://img.shields.io/badge/version-0.7.2-blue.svg" alt="Version" />
   <img src="https://img.shields.io/badge/node-%3E%3D22.11.0-brightgreen.svg" alt="Node" />
   <img src="https://img.shields.io/badge/tauri-v2-orange.svg" alt="Tauri" />
   <img src="https://img.shields.io/badge/react--native-0.86-61dafb.svg" alt="React Native" />
