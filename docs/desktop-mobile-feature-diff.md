@@ -110,8 +110,8 @@
 | 权限重试 | 无 | RecoverableSecurityException 重试 | 📱 移动独有（Android 沙盒特性） |
 | 元数据编辑 | Rust audiotags/lofty 写文件标签（wav/aac/ogg/opus/wma/ape/aiff 拒写） | MediaStore 写回（RecoverableSecurityException→系统授权）+手写 ID3v2.4；下载入库歌（dl- 前缀）无 MediaStore id 跳过写回 | 🟢 共享（平台原生） |
 | 添加文件 | Tauri 文件选择 | 系统文档选择器多选 | 📱 移动独有 |
-| 本地曲封面来源 | 内嵌封面（扫描时无条件落盘，`local_audio.rs:55`）+ 手动指定（独立存储、优先）+ 无封面时自动匹配（`localCoverMatch.ts`：查缓存 → 缺候选 id 才搜平台 → 落盘并回填） | MediaStore albumart → 同目录旁挂图片 → 无封面时自动匹配（`localMediaAssetsService.ts`） | 🟢 共享 |
-| 旁挂图片封面（`folder.jpg`/`cover.jpg`/同名图片） | 不支持 | 支持（`LocalMusicModule.java:446` 候选名、`:543` 解析顺序） | 📱 移动独有 |
+| 本地曲封面来源 | 内嵌封面（扫描时无条件落盘，`local_audio.rs:173`）→ 同目录旁挂图片（`folder.jpg`/`cover.jpg`/同名图片）→ 手动指定（独立存储、优先）→ 无封面时自动匹配（`localCoverMatch.ts`：查缓存 → 缺候选 id 才搜平台 → 落盘并回填） | MediaStore albumart → 同目录旁挂图片 → 无封面时自动匹配（`localMediaAssetsService.ts`） | 🟢 共享 |
+| 旁挂图片封面（`folder.jpg`/`cover.jpg`/同名图片） | 支持（`local_audio.rs:24` 候选名常量与移动端同表同序、`:65` `find_sidecar_cover`：候选名 → 同名 `<stem>.jpg/.jpeg/.png`，`folder.jpg` 是目录时跳过；内嵌封面优先；**只把用户图片路径交给 asset 协议直接引用、不复制进封面缓存**；扫描时按目录级 memo 只探一次、单文件添加额外 `allow_file` 放行该图） | 支持（`LocalMusicModule.java:446` 候选名、`:543` 解析顺序） | 🟢 共享（2026-10-15 桌面端补齐） |
 
 ---
 
