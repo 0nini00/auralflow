@@ -12,6 +12,8 @@ import {
   normalizeLyricAnimationIntensity,
   type LyricAnimationIntensity,
 } from '@/services/lyrics/animationIntensity';
+import { buildLyricOriginNote } from '@/services/lyrics/lyricOriginNote';
+import { useLyricOriginNote } from '@/hooks/useLyricOriginNote';
 import { broadcastLyricSettings, subscribeLyricSettings } from '@/stores/lyricSettingsSync';
 import { usePlayerStore } from '@/stores/playerStore';
 import { buildMusicShareText } from '@/utils/shareLink';
@@ -94,6 +96,11 @@ export function ImmersiveLyricsOverlay({
   const lyricProgress = useInterpolatedPlaybackProgress({ status, progress, progressSampledAt, duration, playbackRate });
   const lyricTime = lyricProgress + manualOffsetMs / 1000;
   const { lyrics, currentLine: currentLyricIndex, origin } = useLyrics(currentTrack, lyricTime);
+  // 来源标注只提示一次就退场；换歌（resetKey 变化）时为新歌再提示一次。
+  const lyricOriginNote = useLyricOriginNote(
+    buildLyricOriginNote(origin),
+    currentTrack ? `${currentTrack.source}:${currentTrack.id}` : undefined,
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -312,10 +319,8 @@ export function ImmersiveLyricsOverlay({
         />
       )}
       <div className="af-immersive-noise" aria-hidden="true" />
-      {/* 歌词来源标注：同曲异唱档必须可见；绝对定位在顶部预留区，不参与布局流 */}
-      {origin?.tier === 'other-performer' && origin.performer && (
-        <p className="af-immersive-lyric-origin">歌词来自 {origin.performer} 的演唱版本</p>
-      )}
+      {/* 歌词来源标注：同曲异唱档必须可见；绝对定位在顶部预留区、只停留几秒就退场 */}
+      {lyricOriginNote && <p className="af-immersive-lyric-origin">{lyricOriginNote.text}</p>}
 
       <main className="af-immersive-stage af-showcase-layout">
         <section className="af-immersive-cover-section" aria-label="歌曲封面">

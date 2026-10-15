@@ -55,6 +55,7 @@ vi.mock('@/components/SongAddMenuButton', () => ({ SongAddMenuButton: () => <div
 
 import { LyricWindowView } from '../src/views/LyricWindowView';
 import { ImmersiveLyricsOverlay } from '../src/components/ImmersiveLyricsOverlay';
+import { LYRIC_ORIGIN_NOTE_HOLD_MS } from '../src/services/lyrics/lyricOriginNote';
 
 let renderer: ReactTestRenderer;
 const HINT = '歌词来自 湘伦 的演唱版本';
@@ -99,4 +100,18 @@ it('沉浸式歌词层在同曲异唱档显示来源标注，手动覆盖不显�
   deps.origin = null;
   await act(async () => { renderer = create(<ImmersiveLyricsOverlay open onClose={() => {}} />); });
   expect(renderer.root.findAllByProps({ className: 'af-immersive-lyric-origin' })).toHaveLength(0);
+});
+
+it('来源标注只停留一次就退场：到点后不再显示（同曲异唱标的是知情提示，不是常驻徽标）', async () => {
+  vi.useFakeTimers();
+  try {
+    deps.origin = { tier: 'other-performer', performer: '湘伦', source: 'wy' };
+    await act(async () => { renderer = create(<LyricWindowView />); });
+    expect(renderer.root.findAllByProps({ className: 'af-lyric-origin-hint' })).toHaveLength(1);
+
+    await act(async () => { vi.advanceTimersByTime(LYRIC_ORIGIN_NOTE_HOLD_MS); });
+    expect(renderer.root.findAllByProps({ className: 'af-lyric-origin-hint' })).toHaveLength(0);
+  } finally {
+    vi.useRealTimers();
+  }
 });

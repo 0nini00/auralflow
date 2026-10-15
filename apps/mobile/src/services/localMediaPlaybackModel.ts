@@ -42,3 +42,30 @@ export function formatLyricOriginLabel(origin: LocalMediaResult["lyricOrigin"]):
 export function selectLocalMediaLyricOriginLabel(state: ArtworkState): string | undefined {
   return formatLyricOriginLabel(selectLocalMediaLyricOrigin(state));
 }
+
+/**
+ * 标注的停留时长。同曲异唱是「你听到的可能是别人的词」这种知情提示，停留久一点；
+ * 「来自 LRCLIB」只是出处，扫一眼就够。两者都不常驻——常驻会变成遮住歌词的视觉噪音，
+ * 而标注在歌词刚出现的那一刻最有意义。
+ */
+export const LYRIC_ORIGIN_NOTE_HOLD_MS = { otherPerformer: 10_000, source: 4_000 } as const;
+
+export interface LyricOriginNote {
+  text: string;
+  holdMs: number;
+}
+
+export function buildLyricOriginNote(origin: LocalMediaResult["lyricOrigin"]): LyricOriginNote | undefined {
+  const text = formatLyricOriginLabel(origin);
+  if (!text || !origin) return undefined;
+  return {
+    text,
+    holdMs: origin.tier === "other-performer"
+      ? LYRIC_ORIGIN_NOTE_HOLD_MS.otherPerformer
+      : LYRIC_ORIGIN_NOTE_HOLD_MS.source,
+  };
+}
+
+export function selectLocalMediaLyricOriginNote(state: ArtworkState): LyricOriginNote | undefined {
+  return buildLyricOriginNote(selectLocalMediaLyricOrigin(state));
+}

@@ -85,14 +85,30 @@ test("LRCLIB 判定纯音乐时提示「纯音乐，无歌词」，不说未找�
   assert.equal(h.cache.size, 0);
 });
 
-test("沉浸歌词页用绝对定位显示来源标注，不参与歌词页布局流", () => {
+test("来源标注短时显示后自行退场，且不参与歌词页布局流", () => {
   const read = name => fs.readFileSync(path.join(mobileRoot, "src", name), "utf8");
   const screen = read("screens/ImmersiveLyricsScreen.tsx");
-  assert.match(screen, /localMediaLyricOriginLabel/);
-  assert.match(screen, /\{localMediaLyricOriginLabel\}/);
+  const controller = read("screens/immersive/useImmersiveController.ts");
+  const hook = read("screens/immersive/useLyricOriginNote.ts");
+  // 渲染：仍然绝对定位，但用的是「短时显示的 note」，不再是常驻的 label
   assert.match(screen, /styles\.lyricOriginNote/);
-  assert.match(read("screens/immersive/useImmersiveController.ts"), /selectLocalMediaLyricOriginLabel/);
+  assert.match(screen, /\{lyricOriginNote\.text\}/);
+  assert.doesNotMatch(screen, /\{localMediaLyricOriginLabel\}/);
+  // 控制器：选择器 + 把页面可见性交给 hook（页面不可见时不挂待触发的隐藏计时）
+  assert.match(controller, /selectLocalMediaLyricOriginNote/);
+  assert.match(controller, /useLyricOriginNote\(localMediaLyricOriginNoteModel, visible\)/);
+  // hook：到点清空；内容变化/卸载时清掉计时器
+  assert.match(hook, /setTimeout\(\(\) => setShown\(undefined\), holdMs\)/);
+  assert.match(hook, /return \(\) => clearTimeout\(timer\)/);
   assert.match(read("screens/immersive/immersiveStyles.ts"), /lyricOriginNote:\s*\{[\s\S]*?position:\s*"absolute"/);
+});
+
+test("标注停留时长：同曲异唱久于歌词库出处，无标注时不产生 note", () => {
+  assert.equal(model.buildLyricOriginNote(ORIGIN).holdMs, 10000);
+  assert.equal(model.buildLyricOriginNote(ORIGIN).text, "歌词来自 翻唱者 的演唱版本");
+  assert.equal(model.buildLyricOriginNote({ tier: "same-recording", source: "lrclib" }).holdMs, 4000);
+  assert.equal(model.buildLyricOriginNote({ tier: "same-recording" }), undefined);
+  assert.equal(model.buildLyricOriginNote(undefined), undefined);
 });
 
 test("纯音乐但同时补到封面时仍是 matched +「纯音乐，无歌词」，封面照常缓存", async () => {

@@ -14,6 +14,8 @@ import {
   normalizeLyricAnimationIntensity,
   type LyricAnimationIntensity,
 } from "@/services/lyrics/animationIntensity";
+import { buildLyricOriginNote } from "@/services/lyrics/lyricOriginNote";
+import { useLyricOriginNote } from "@/hooks/useLyricOriginNote";
 import { dispatchLyricAction } from "@/stores/playerSync";
 import { subscribeLyricSettings, broadcastLyricSettings } from "@/stores/lyricSettingsSync";
 import { buildDesktopLyricLines, type DesktopLyricDisplayLine } from "@/utils/desktopLyric";
@@ -36,6 +38,11 @@ export function LyricWindowView() {
   const [manualOffsetMs, setManualOffsetMs] = useState(0);
   const lyricTime = lyricProgress + manualOffsetMs / 1000;
   const { lyrics, currentLine, origin } = useLyrics(current, lyricTime);
+  // 来源标注只提示一次就退场；换歌（resetKey 变化）时为新歌再提示一次。
+  const lyricOriginNote = useLyricOriginNote(
+    buildLyricOriginNote(origin),
+    current ? `${current.source}:${current.id}` : undefined,
+  );
   const isPlaying = status === "playing";
 
   // 持久化：置顶状态 + 字号
@@ -353,10 +360,8 @@ export function LyricWindowView() {
         </div>
       </div>
 
-      {/* 歌词来源标注：同曲异唱档必须让用户看到「这不是原唱版本」；绝对定位，不参与布局流 */}
-      {origin?.tier === "other-performer" && origin.performer && (
-        <div className="af-lyric-origin-hint">歌词来自 {origin.performer} 的演唱版本</div>
-      )}
+      {/* 歌词来源标注：同曲异唱档必须让用户看到「这不是原唱版本」；绝对定位、只停留几秒就退场 */}
+      {lyricOriginNote && <div className="af-lyric-origin-hint">{lyricOriginNote.text}</div>}
 
       {/* 锁定态光标悬停时的悬浮解锁条 */}
       {locked && (
