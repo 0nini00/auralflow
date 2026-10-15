@@ -12,7 +12,7 @@ services/
 │             #       playModeControl prefetchModel prefetchService streamProbe types
 ├── search/   # 搜索（5）：含 searchSuggestions（本地历史 + 网易云 suggest）
 ├── sources/  # 源：wyProvider txProvider（registry 注册；builtin / customSource backend 见 playback/）
-└── *.ts      # 30 个顶层服务
+└── *.ts      # 32 个顶层服务
 ```
 
 ## 核心服务清单
@@ -23,7 +23,9 @@ services/
 | 自定义源运行时 | `customSourceRuntime.ts` | 892 | LX 脚本 `new Function` 参数遮蔽（`fakeWindow = Object.create(null)` 无原型；**非安全边界**：可经 constructor 链取回真实 globalThis，静态正则黑名单已移除，真正隔离未实施）+ 宿主全局传 undefined + HTTP 代理 `outboundRequest`（Rust SSRF）+ LRU(8) `key=id::djb2a-hash` + `parseDesktopUserApiInfo` 头部 + `testCustomSourceDeep` 两阶段 init + `musicUrl`（wy 2034742057 林俊杰《江南》 / tx 0039MnYb0qxYhV）20s |
 | WebDAV 同步 | `webdavSyncService.ts` | 865 | 同步锁 `withSyncLock` + `lastModified` 冲突 `assertCloudNotStale` + 下载 merge / 上传 overwrite + localStorage 备份 + `/AuralFlow/` 写 / `/LX_Music/` 读回退 |
 | 网易账号 | `wyAccountService.ts` | 632 | weapi/eapi 双通道 + QR 登录（type=3 unikey → SVG 二维码 → 轮询 800/801/802/803）+ 歌单 CRUD + 日推/FM + `extractSetCookie`（`Headers.getSetCookie`） |
-| 歌词 | `lyricsService.ts` | 515 | 多源嵌入式 → provider `getLyric` → LRC Lib 两轮直查（主歌手不带时长 → 完整歌手带时长）→ 网易搜索候选交 `@lx/core` `selectLocalMediaMatch` 判定（不再本地打分；同曲异唱档带 `origin` 标注）+ `scoreLyricContentQuality` 组内择优 + 翻译合并 |
+| 歌词 | `lyricsService.ts` | 501 | 多源嵌入式 → provider `getLyric` → LRC Lib 两轮直查（主歌手不带时长 → 完整歌手带时长）→ 网易搜索候选交 `localMediaMatch.ts` 判定（不再本地打分；同曲异唱档带 `origin` 标注）+ `scoreLyricContentQuality` 组内择优 + 翻译合并 |
+| 平台匹配 | `localMediaMatch.ts` | 99 | 本地曲 ↔ 网易云公共匹配层：老版 web 搜索（8 条）+ `@lx/core` `selectLocalMediaMatch` 判定 + `adoptedMatchCandidateId`；歌词与封面共用同一份规则，`fetchNeteaseJson` 带上 Referer |
+| 封面匹配 | `localCoverMatch.ts` | 234 | 本地曲自动封面（内嵌/手动之外的那一条）：磁盘缓存命中即返回 →（缺候选 id 才搜平台）→ **官方 `song/detail` 的 `album.picUrl` 为主、gdstudio 网关 pic 为兜底**（实测：官方 4/4 可取，网关 4/4 无 url 且唯一返回过一次的是图床 404 的假地址）→ 落盘并回填 asset 地址；会话级负缓存 + 同键并发去重 |
 | 二维码 | `qrCode.ts` | 237 | SVG 二维码生成 |
 | 私人 FM 队列 | `personalFmQueue.ts` | 223 | 私人 FM 队列 + dislike → trash |
 | 下载 | `downloadService.ts` | 205 | 下载 + ID3 嵌入 + sidecar `.lrc` |

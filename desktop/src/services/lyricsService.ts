@@ -1,10 +1,8 @@
 import {
   detectLyricSourceType,
-  hasOriginalPerformerCandidate,
   mergeTranslation,
   mergeRomanization,
   parseLyricSource,
-  selectLocalMediaMatch,
   type LyricLine,
   type LyricOrigin,
   type LyricResponse,
@@ -14,6 +12,8 @@ import {
 } from '@lx/core';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { getSource } from '@/services/sources/sourceService';
+import { fetchNeteaseJson, searchNeteaseMatch } from '@/services/localMediaMatch';
+import { matchLocalCover } from '@/services/localCoverMatch';
 import { getCachedLyrics, isCacheableEmptyLyricResult, saveCachedLyrics } from '@/services/persistentCache';
 
 export type { LyricLine, LyricResponse, LyricWord };
@@ -78,15 +78,6 @@ function parseProviderLyrics(lyricResult: {
     lines = parseLyricSource({ type: 'auto', content: lyricResult.lyric });
   }
   return mergeRomanization(mergeTranslation(lines, translation), romanization);
-}
-
-async function fetchNeteaseJson(url: string): Promise<any> {
-  const response = await tauriFetch(url, {
-    method: 'GET',
-    headers: { Referer: 'https://music.163.com' },
-  });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.json();
 }
 
 function normalizeLyricFormat(value?: string | null): LyricSourceType | 'auto' {
@@ -403,35 +394,6 @@ async function fetchLrclibLyrics(
   return requestLrclibLyrics(singer, title, localDurationSec, localDurationSec);
 }
 
-/** 网易云老版搜索接口(/api/search/get/web)的条目形态。 */
-interface NeteaseSearchSong {
-  id: string | number;
-  name?: string;
-  /** 老版 web 接口用 artists/album/duration，新接口用 ar/al/dt；两种都兼容。 */
-  artists?: Array<{ name?: string }>;
-  ar?: Array<{ name?: string }>;
-  album?: { name?: string };
-  al?: { name?: string };
-  duration?: number;
-  dt?: number;
-}
-
-/** 搜索条目 → 统一 MusicInfo；id 保持原样，便于反查歌词接口。 */
-function toNeteaseMusicInfo(song: NeteaseSearchSong): MusicInfo {
-  const artists = song.artists ?? song.ar ?? [];
-  const durationMs = song.duration ?? song.dt;
-  return {
-    id: String(song.id),
-    name: song.name ?? '',
-    // 多歌手用 / 连接，与其它来源写入 MusicInfo.singer 的写法一致
-    singer: artists.map((artist) => artist.name?.trim()).filter(Boolean).join('/'),
-    albumName: song.album?.name ?? song.al?.name ?? '',
-    // 接口给的是毫秒，MusicInfo.interval 是秒
-    interval: typeof durationMs === 'number' && Number.isFinite(durationMs) ? durationMs / 1000 : undefined,
-    source: 'wy',
-  };
-}
-
 /** 拉一首网易云歌的歌词（逐字/行级 + 翻译/罗马音）。 */
 async function fetchNeteaseLyricLines(songId: string): Promise<LyricLine[]> {
   const lyricUrl = `https://music.163.com/api/song/lyric?id=${songId}&lv=1&kv=1&tv=-1`;
@@ -449,6 +411,19 @@ function wyOrigin(tier: LyricOrigin['tier'], performer?: string): LyricOrigin {
   return performer ? { tier, performer, source: 'wy' } : { tier, source: 'wy' };
 }
 
+/**
+ * 歌词匹配成功时顺手补一次本地曲封面（已知被采用候选的网易歌曲 id）。
+ *
+ * 这是「顺路兜底 / 提前触发」：播放路径（playerStore）自己也能独立完成匹配，这里带 id 触发
+ * 只是更早一步，且不会重复搜索（缓存命中直接返回，同键并发由 localCoverMatch 去重）。
+ * 完全旁路：不 await、不参与返回，封面失败不能让已经匹配到的歌词消失或变成失败。
+ */
+function triggerLocalCoverMatch(music: MusicInfo, songId: string | undefined): void {
+  if (!songId) return;
+  if (music.source !== 'local' && !music.isLocal) return;
+  void matchLocalCover(music, songId).catch(() => undefined);
+}
+
 async function searchAndMatchLyrics(music: MusicInfo): Promise<LyricResponse> {
   try {
     // 先试 LRC Lib:标题/歌手直查,命中即返回,省去网易搜索+判定
@@ -462,22 +437,15 @@ async function searchAndMatchLyrics(music: MusicInfo): Promise<LyricResponse> {
 
     const keyword = `${music.name} ${music.singer}`.trim();
     if (!keyword) {
+      // keyword 为空要单独报「信息不完整」，不能与「搜到了但没匹配上」混为一谈
       return { lines: [], error: '歌曲信息不完整' };
     }
 
-    const searchUrl = `https://music.163.com/api/search/get/web?s=${encodeURIComponent(keyword)}&type=1&limit=8`;
-    const searchData = await fetchNeteaseJson(searchUrl);
-    const songs = (searchData.result?.songs || []) as NeteaseSearchSong[];
-    if (songs.length === 0) {
+    // 搜索与判定都在 localMediaMatch（与封面匹配共用同一份规则）
+    const { match } = await searchNeteaseMatch(music);
+    if (!match) {
       return { lines: [], error: '未找到匹配歌曲' };
     }
-
-    // 判定权在 @lx/core：直接搜平台召回的同名不同曲/别人的翻唱太多，
-    // 这里只接受两种结论——同一录音，或已证实原唱不可得的同曲异唱。
-    const candidates = songs.map(toNeteaseMusicInfo);
-    const match = selectLocalMediaMatch(music, candidates, {
-      originalPerformerUnavailable: !hasOriginalPerformerCandidate(music, candidates),
-    });
 
     if (match.status !== 'matched' || !match.tier) {
       // 显式失败：宁可没有歌词，也不能把别人的演唱版本静默套到本地曲上
@@ -488,6 +456,7 @@ async function searchAndMatchLyrics(music: MusicInfo): Promise<LyricResponse> {
       const adopted = match.candidates[0];
       const lines = adopted ? await fetchNeteaseLyricLines(adopted.id) : [];
       if (lines.length === 0) return { lines: [], error: '暂无歌词' };
+      triggerLocalCoverMatch(music, adopted?.id);
       // 异唱档必须带来源标注：UI 要提示用户这是别人的演唱版本
       return { lines, origin: wyOrigin('other-performer', match.performer) };
     }
@@ -496,6 +465,7 @@ async function searchAndMatchLyrics(music: MusicInfo): Promise<LyricResponse> {
     // 只在这些条目之间用内容质量挑选
     let best: LyricLine[] | null = null;
     let bestQuality = -1;
+    let bestCandidateId: string | undefined;
     for (const candidate of match.candidates.slice(0, MAX_LYRIC_CANDIDATES_TO_TRY)) {
       try {
         const lines = await fetchNeteaseLyricLines(candidate.id);
@@ -504,6 +474,7 @@ async function searchAndMatchLyrics(music: MusicInfo): Promise<LyricResponse> {
         if (quality > bestQuality) {
           best = lines;
           bestQuality = quality;
+          bestCandidateId = candidate.id;
         }
       } catch (err) {
         // 某个候选拉歌词失败就试同组的下一个
@@ -512,6 +483,7 @@ async function searchAndMatchLyrics(music: MusicInfo): Promise<LyricResponse> {
     }
 
     if (!best) return { lines: [], error: '暂无歌词' };
+    triggerLocalCoverMatch(music, bestCandidateId);
     return { lines: best, origin: wyOrigin('same-recording') };
   } catch (error) {
     console.error('[lyrics] 匹配歌词失败', error);

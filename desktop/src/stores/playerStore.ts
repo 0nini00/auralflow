@@ -1,5 +1,5 @@
 import { useLibraryStore } from "./libraryStore";
-import { createLocalPlaybackLookup, synchronizeLocalQueue } from "@/services/localPlaybackMetadata";
+import { createLocalPlaybackLookup, rememberLocalCover, synchronizeLocalQueue } from "@/services/localPlaybackMetadata";
 import { create } from "zustand";
 import type { MusicInfo } from "@lx/core";
 import { playerEngine } from "@/services/playerEngine";
@@ -10,6 +10,7 @@ import { getPlayModeState, type PlayModeId } from "@/services/playback/playModeC
 import { invalidateCachedPlaybackUrl } from "@/services/persistentCache";
 import { takeResumeProgress } from "./playerResumeTarget";
 import { removeCachedAudioForMusic } from "@/services/mediaCache";
+import { matchLocalCover } from "@/services/localCoverMatch";
 import { debugLog, patchSettings } from "@lx/tauri-bridge";
 import { applySwitchStepRequest, createSwitchStepQueueState, finishSwitchStep } from "@lx/core";
 import { findTxVariants, describeCrossSourceFailure } from "@/services/playback/crossSourceFallbackService";
@@ -212,6 +213,30 @@ export function setPlaybackFailedAutoNext(value: unknown) {
 
 const getLocalPlaybackMusic = createLocalPlaybackLookup(() => useLibraryStore.getState().localSongs);
 
+/**
+ * 本地曲没有封面时，起播时补一次自动匹配封面：磁盘缓存命中立即回填，
+ * 未命中就后台搜一次平台并当场回填（搜索/下载都只发生在这一次，不占住起播）。
+ *
+ * 回填必须同时回写引擎：store.current 每帧都会被引擎推送的 currentMusic 覆盖，
+ * 只改 store 的话封面下一秒就消失（引擎手里仍是那份无封面的对象）。
+ */
+function applyLocalCover(music: MusicInfo): void {
+  void matchLocalCover(music)
+    .then((coverUrl) => {
+      if (!coverUrl) return;
+      const current = usePlayerStore.getState().current;
+      // 查询期间可能已切歌、或已有封面（含手动 coverOverride）：只认同一首且仍无封面的曲目
+      if (!current || current.source !== music.source || current.id !== music.id) return;
+      if (current.picUrl || current.img) return;
+      // 记住这次补的封面：引擎随后加载的曲目对象没有封面，元信息重建时要靠它补回来
+      rememberLocalCover(current, coverUrl);
+      const next = { ...current, picUrl: coverUrl, img: coverUrl };
+      usePlayerStore.setState({ current: next });
+      playerEngine.updateCurrentMusic(next);
+    })
+    .catch(() => undefined);
+}
+
 const syncEngineToStore = (set: any, get: any) => {
   /** Previous engine status: detect mid-play error vs resolve failure */
   let previousEngineStatus: PlayerStore["status"] | "idle" = "idle";
@@ -386,6 +411,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
           // 检查是否为本地音乐
           if ('isLocal' in music && music.isLocal && 'url' in music && music.url) {
             const localMusic = getLocalPlaybackMusic(music);
+            // 不 await：缓存命中会秒回填，未命中也在后台按需搜一次；封面的任何失败/挂起都不影响起播
+            applyLocalCover(localMusic);
             await playThroughEngine(localMusic, music.url as string);
             if (requestId !== activePlayRequestId) return;
             useHistoryStore.getState().add(music);

@@ -39,7 +39,7 @@ Inspired by LX Music, AuralFlow delivers a seamless audio playback experience wi
 - **Dynamic Synchronized Lyrics**: Supports LRC, YRC, QRC, and KRC lyric formats with dynamic character-by-character karaoke rendering, translation merging, and desktop transparent floating overlay / Android WindowManager overlay.
 - **Reliable WebDAV Sync**: Synchronizes playlists, favorite tracks, and listening history with automated startup convergence, conflict detection, and local pre-download snapshots.
 - **Android Background Resilience**: Integrates battery optimization exemption prompts and audio focus management to prevent background freeze on modern Android ROMs.
-- **Local Music Management**: High-performance local directory scanning, ID3 metadata inspection and editing, embedded album artwork extraction, and lossless audio downloading.
+- **Local Music Management**: High-performance local directory scanning, ID3 metadata inspection and editing, embedded album artwork extraction, automatic platform matching when covers or lyrics are missing (distinct-performer recordings are always labelled), and lossless audio downloading.
 
 ## Architecture
 
@@ -82,7 +82,7 @@ Inspired by LX Music, AuralFlow delivers a seamless audio playback experience wi
 | Fallback | Automatic NetEase to QQ Music fallback for tracks without rights | Supported | Supported |
 | Lyrics | Synchronized scrolling, karaoke word-by-word timing, translation merge | Supported | Supported |
 | Floating Lyric | Transparent click-through desktop overlay / WindowManager overlay | Desktop window | Android overlay |
-| Local Music | File scanning, ID3 tag editing, embedded album art, lossless download | Rust Lofty/Tags | MediaStore/FS |
+| Local Music | File scanning, ID3 tag editing, embedded album art, missing cover/lyric auto-matching, lossless download | Rust Lofty/Tags | MediaStore/FS |
 | WebDAV | Cloud sync for playlists, history, and custom sources; startup auto-sync | Supported | Supported |
 | Background Play | Keeps audio uninterrupted during sleep or lockscreen | System tray | Foreground service |
 

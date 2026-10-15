@@ -110,6 +110,8 @@
 | 权限重试 | 无 | RecoverableSecurityException 重试 | 📱 移动独有（Android 沙盒特性） |
 | 元数据编辑 | Rust audiotags/lofty 写文件标签（wav/aac/ogg/opus/wma/ape/aiff 拒写） | MediaStore 写回（RecoverableSecurityException→系统授权）+手写 ID3v2.4；下载入库歌（dl- 前缀）无 MediaStore id 跳过写回 | 🟢 共享（平台原生） |
 | 添加文件 | Tauri 文件选择 | 系统文档选择器多选 | 📱 移动独有 |
+| 本地曲封面来源 | 内嵌封面（扫描时无条件落盘，`local_audio.rs:55`）+ 手动指定（独立存储、优先）+ 无封面时自动匹配（`localCoverMatch.ts`：查缓存 → 缺候选 id 才搜平台 → 落盘并回填） | MediaStore albumart → 同目录旁挂图片 → 无封面时自动匹配（`localMediaAssetsService.ts`） | 🟢 共享 |
+| 旁挂图片封面（`folder.jpg`/`cover.jpg`/同名图片） | 不支持 | 支持（`LocalMusicModule.java:446` 候选名、`:543` 解析顺序） | 📱 移动独有 |
 
 ---
 
@@ -120,7 +122,7 @@
 | URL 缓存 | `persistentCache.ts` playbackUrl（其他 6h/local 1y MAX500 条） | AsyncStorage URL 缓存 6h/1yr | 🟢 共享 |
 | 歌词缓存 | 内存+持久化 | `cacheLyrics` 磁盘层，30 天过期 | 🟢 共享 |
 | 音频文件缓存 | Rust 三层目录：song-audio 2GiB 常量 LRU 按 mtime（经 Rust 桥落盘+`convertFileSrc`） | 磁盘 LRU 100MB（索引 AsyncStorage+对账）+内存 10min | 🟢 共享（07-10 误判已修正） |
-| 封面文件缓存 | `mediaCache.ts` `cacheRemoteImage` 落盘（song-covers 不限量） | `cacheCover` `CachedImage`(@d11/react-native-fast-image+Glide) | 🟢 共享（07-10 误判已修正） |
+| 封面文件缓存 | `mediaCache.ts` `cacheRemoteImage` 落盘（song-covers 512 MiB 上限，按 mtime LRU） | `cacheCover` `CachedImage`(@d11/react-native-fast-image+Glide) | 🟢 共享（07-10 误判已修正） |
 | 缓存统计 | `getSongCacheStats` audioCacheSize/coverCacheSize | 分类统计 | 🟢 共享 |
 | 缓存清理 | 分类清理+全部清理 | 分类清理+全部清理 | 🟢 共享 |
 | 后台下载音频 | 无 | `playerService` 解析成功后后台下载音频到缓存（仅 wy/tx） | 📱 移动独有 |

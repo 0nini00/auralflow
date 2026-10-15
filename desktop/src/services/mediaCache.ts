@@ -93,6 +93,41 @@ async function cacheMusicCover(music: MusicInfo, operation?: CustomSourceOperati
 }
 
 /**
+ * 把已知的远端封面地址落盘到该曲目的封面缓存键（`<source>-<id>-cover`），返回可直接展示的
+ * asset 地址；非 http(s) 地址、落盘失败都返回 null（不向外抛）。
+ *
+ * 复用 cacheMusicCover 的档位与 key 规则：曲目自带封面与自动匹配来的封面必须落在同一个
+ * 文件上，否则播放条、沉浸页、系统媒体控制会各拿一份。
+ *
+ * 这里必须 await 落盘（旧实现是 fire-and-forget）：调用方要拿地址当场回填到正在播放的曲目，
+ * 等下次播放才生效是用户可见的欠缺。不会拖慢任何用户可见路径 —— 两个调用点
+ * （播放起播时的自动匹配、歌词匹配成功后的顺路兜底）都在 `void ...` 的后台任务里。
+ */
+export async function cacheCoverForMusic(music: MusicInfo, coverUrl: string): Promise<string | null> {
+  if (!isHttpUrl(coverUrl)) return null;
+
+  const cacheKey = buildMediaCacheKey(music, 'cover');
+  try {
+    // 已落过盘就不再下载一次（手动匹配与自动匹配可能先后指向同一个 key）
+    const cached = await lookupCachedMedia('cover', cacheKey);
+    if (cached) return convertFileSrc(cached.path);
+  } catch {
+    // 查缓存失败按未命中处理，继续走下载
+  }
+
+  try {
+    const path = await cacheRemoteImage({
+      url: resizeCoverUrl(coverUrl, COVER_TIER_IMMERSIVE),
+      cacheKey,
+    });
+    return path ? convertFileSrc(path) : null;
+  } catch {
+    // 落盘失败静默：封面是可选装饰，不能影响播放或歌词
+    return null;
+  }
+}
+
+/**
  * 查询已落盘的封面缓存路径（只查缓存，不触发下载），供系统媒体控制推封面用。
  *
  * 刻意不看曲目当前的 picUrl：命中缓存时它已经被换成本地 asset 地址，
