@@ -1,8 +1,11 @@
 import {
   detectLyricSourceType,
+  durationDeltaSeconds,
   mergeTranslation,
   mergeRomanization,
   parseLyricSource,
+  selectLocalMediaMatch,
+  type LocalMatchTier,
   type LyricLine,
   type LyricOrigin,
   type LyricResponse,
@@ -13,7 +16,8 @@ import {
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { getSource } from '@/services/sources/sourceService';
 import { fetchNeteaseJson, searchNeteaseMatch } from '@/services/localMediaMatch';
-import { matchLocalCover } from '@/services/localCoverMatch';
+import { localLyricsModeOf, type LocalLyricsChoiceFields } from '@/services/localLyricsChoiceModel';
+
 import { getCachedLyrics, isCacheableEmptyLyricResult, saveCachedLyrics } from '@/services/persistentCache';
 
 export type { LyricLine, LyricResponse, LyricWord };
@@ -31,16 +35,34 @@ function parseEmbeddedLyrics(content: string): LyricLine[] {
   });
 }
 
-/** 手动/本地词是当前歌曲的权威输入，绝不写入自动匹配缓存。 */
-export function getLocalLyricsOverride(music: MusicInfo): LyricResponse | null {
-  if (music.localLyrics === undefined) return null;
-  // 空白字符串表示用户主动清空，仍是权威覆盖，不能回退到自动歌词。
-  if (!music.localLyrics.trim()) return { lines: [] };
+/** 解析一份按曲文本（手动写下的、或面板选中的那一份），带上译文 / 罗马音。 */
+function parseLocalLyricsText(music: MusicInfo, text: string): LyricResponse {
   const lines = mergeRomanization(
-    mergeTranslation(parseEmbeddedLyrics(music.localLyrics), music.localLyricsTranslation),
+    mergeTranslation(parseEmbeddedLyrics(text), music.localLyricsTranslation),
     music.localLyricsRomanization,
   );
   return lines.length ? { lines } : { lines: [], error: '本地歌词无法解析' };
+}
+
+/**
+ * 本地词的权威判定，按 `lyricsMode` 三态分派（手动/本地词是当前歌曲的权威输入，绝不写入自动匹配缓存）：
+ *
+ * - `picked`     只用选中的那一份文本，**永不联网再搜**；文本没了（旧数据 / 被外部清掉）等于选择
+ *                失效，返回 null 交给自动链，而不是显示空歌词。
+ * - `local-only` 不联网，只用本机上已有的词；一句都没有就返回**权威空**（`{ lines: [] }`），
+ *                绝不回退搜索——这就是用户说的「选择不匹配歌词」，必须与 auto 有可观察的区别。
+ * - `auto`（缺省 / 无法识别）走既有行为：按曲文本优先于文件标签，而且是权威输入，不参与联网；
+ *                空白文本只表示「没有文本」，因此交给自动匹配。
+ *
+ * 空串不再表示「明确不匹配」：那是旧约定（`lyricsOverride === ""`），语义已统一到 `lyricsMode`
+ * （移动端同一结论）。判定必须在读缓存**之前**发生，缓存的自动匹配结果才不会顶掉用户的选择。
+ */
+export function getLocalLyricsOverride(music: MusicInfo): LyricResponse | null {
+  const mode = localLyricsModeOf(music as MusicInfo & LocalLyricsChoiceFields);
+  const text = typeof music.localLyrics === 'string' ? music.localLyrics : '';
+  if (mode === 'local-only') return text.trim() ? parseLocalLyricsText(music, text) : { lines: [] };
+  if (!text.trim()) return null;
+  return parseLocalLyricsText(music, text);
 }
 
 function parseProviderLyrics(lyricResult: {
@@ -411,19 +433,6 @@ function wyOrigin(tier: LyricOrigin['tier'], performer?: string): LyricOrigin {
   return performer ? { tier, performer, source: 'wy' } : { tier, source: 'wy' };
 }
 
-/**
- * 歌词匹配成功时顺手补一次本地曲封面（已知被采用候选的网易歌曲 id）。
- *
- * 这是「顺路兜底 / 提前触发」：播放路径（playerStore）自己也能独立完成匹配，这里带 id 触发
- * 只是更早一步，且不会重复搜索（缓存命中直接返回，同键并发由 localCoverMatch 去重）。
- * 完全旁路：不 await、不参与返回，封面失败不能让已经匹配到的歌词消失或变成失败。
- */
-function triggerLocalCoverMatch(music: MusicInfo, songId: string | undefined): void {
-  if (!songId) return;
-  if (music.source !== 'local' && !music.isLocal) return;
-  void matchLocalCover(music, songId).catch(() => undefined);
-}
-
 async function searchAndMatchLyrics(music: MusicInfo): Promise<LyricResponse> {
   try {
     // 先试 LRC Lib:标题/歌手直查,命中即返回,省去网易搜索+判定
@@ -441,7 +450,7 @@ async function searchAndMatchLyrics(music: MusicInfo): Promise<LyricResponse> {
       return { lines: [], error: '歌曲信息不完整' };
     }
 
-    // 搜索与判定都在 localMediaMatch（与封面匹配共用同一份规则）
+    // 搜索与判定都在 localMediaMatch
     const { match } = await searchNeteaseMatch(music);
     if (!match) {
       return { lines: [], error: '未找到匹配歌曲' };
@@ -456,7 +465,6 @@ async function searchAndMatchLyrics(music: MusicInfo): Promise<LyricResponse> {
       const adopted = match.candidates[0];
       const lines = adopted ? await fetchNeteaseLyricLines(adopted.id) : [];
       if (lines.length === 0) return { lines: [], error: '暂无歌词' };
-      triggerLocalCoverMatch(music, adopted?.id);
       // 异唱档必须带来源标注：UI 要提示用户这是别人的演唱版本
       return { lines, origin: wyOrigin('other-performer', match.performer) };
     }
@@ -465,7 +473,6 @@ async function searchAndMatchLyrics(music: MusicInfo): Promise<LyricResponse> {
     // 只在这些条目之间用内容质量挑选
     let best: LyricLine[] | null = null;
     let bestQuality = -1;
-    let bestCandidateId: string | undefined;
     for (const candidate of match.candidates.slice(0, MAX_LYRIC_CANDIDATES_TO_TRY)) {
       try {
         const lines = await fetchNeteaseLyricLines(candidate.id);
@@ -474,7 +481,6 @@ async function searchAndMatchLyrics(music: MusicInfo): Promise<LyricResponse> {
         if (quality > bestQuality) {
           best = lines;
           bestQuality = quality;
-          bestCandidateId = candidate.id;
         }
       } catch (err) {
         // 某个候选拉歌词失败就试同组的下一个
@@ -483,12 +489,197 @@ async function searchAndMatchLyrics(music: MusicInfo): Promise<LyricResponse> {
     }
 
     if (!best) return { lines: [], error: '暂无歌词' };
-    triggerLocalCoverMatch(music, bestCandidateId);
     return { lines: best, origin: wyOrigin('same-recording') };
   } catch (error) {
     console.error('[lyrics] 匹配歌词失败', error);
     return { lines: [], error: '匹配歌词失败' };
   }
+}
+
+/** 「选择歌词」面板的候选来源展示名。 */
+export const LOCAL_LYRIC_CANDIDATE_LABELS = {
+  local: '本地文件', lrclib: 'LRCLIB', wy: '网易云',
+} as const;
+
+export type LocalLyricCandidateKind = keyof typeof LOCAL_LYRIC_CANDIDATE_LABELS;
+
+/**
+ * 一条可选的歌词候选。
+ *
+ * `lines` 是已经取到的歌词（本地 / LRCLIB / 面板预览过的平台候选），点选后不必再取一次；
+ * `neteaseId` 只在没预先取到时用于点选后补取。
+ */
+export interface LocalLyricCandidate {
+  /** 稳定键：同一份候选在面板重新加载后仍是同一项。 */
+  key: string;
+  kind: LocalLyricCandidateKind;
+  sourceLabel: string;
+  name: string;
+  singer: string;
+  albumName: string;
+  /** 与本地时长的差值（秒，绝对值）；没有可比时长时缺省。 */
+  durationDeltaSeconds?: number;
+  /** 首行预览；平台候选超出预览预算时缺省，由 UI 提示「点选后获取」。 */
+  preview?: string;
+  /** core 的档位判定，只用于排序与标注（同一录音档 / 同曲异唱档），不用于隐藏候选。 */
+  tier?: LocalMatchTier;
+  lines?: LyricLine[];
+  /** 平台候选身份，点选时用它补取歌词。 */
+  neteaseId?: string;
+}
+
+export interface LocalLyricCandidateList {
+  candidates: LocalLyricCandidate[];
+  /** 查询失败（离线 / 接口报错）的说明：面板显示错误与「重试」，但候选列表仍然可用、当前 mode 不变。 */
+  error?: string;
+}
+
+/**
+ * 面板一次打开最多为多少条平台候选预取歌词首行（与移动端同值）。
+ *
+ * 候选本身不做隐藏（用户要能自己判断），但首行预览需要真的取一次词；面板是用户主动触发的一次性
+ * 操作，取前 N 条足够看清「是不是这一首」，再多就是替用户浪费平台配额。
+ */
+const MAX_CANDIDATE_PREVIEWS = 6;
+
+function previewOf(lines: LyricLine[]): string | undefined {
+  return lines.find((line) => line.text.trim())?.text.trim() || undefined;
+}
+
+function describeFailure(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * 逐条重判档位。
+ *
+ * 用 core 的判定结果**排序并标注**「同一录音档 / 同曲异唱档」，但不据此隐藏任何候选：
+ * 平台召回的质量不由本层担保，用户要能自己看到并选择（例如原唱下架时的翻唱版本）。
+ * 证据不足时 core 只把候选列进 alternatives（不自动采用），对用户来说它仍然是「同曲异唱档」。
+ */
+function candidateTier(music: MusicInfo, candidate: MusicInfo): LocalMatchTier | undefined {
+  const verdict = selectLocalMediaMatch(music, [candidate], { originalPerformerUnavailable: true });
+  return verdict.tier ?? (verdict.alternatives?.length ? 'other-performer' : undefined);
+}
+
+/**
+ * 「选择歌词」面板的候选列表：本地已有（内嵌标签 / 按曲文本）、LRCLIB、平台搜索（网易云）。
+ *
+ * 与自动匹配的区别：这里**不挑一个胜者**，而是把平台召回整体摆出来，只做排序与档位标注，让用户
+ * 自己判断哪一份是对的。失败只回流到 `error`：本地那一档仍然可达，用户可以照常选「不要匹配」。
+ */
+export async function listLocalLyricCandidates(music: MusicInfo): Promise<LocalLyricCandidateList> {
+  const candidates: LocalLyricCandidate[] = [];
+  const failures: string[] = [];
+  if (!music || typeof music.name !== 'string' || !music.name.trim()) {
+    return { candidates, error: '歌曲信息不完整' };
+  }
+  const name = music.name;
+  const singer = typeof music.singer === 'string' ? music.singer : '';
+  const albumName = typeof music.albumName === 'string' ? music.albumName : '';
+
+  // 本地已有必须排在最前：离线也能选它——「不要匹配」这条退路同样不该依赖网络。
+  const localText = typeof music.localLyrics === 'string' ? music.localLyrics.trim() : '';
+  if (localText) {
+    const lines = parseEmbeddedLyrics(localText);
+    if (lines.length) {
+      candidates.push({
+        key: 'local', kind: 'local', sourceLabel: LOCAL_LYRIC_CANDIDATE_LABELS.local,
+        name, singer, albumName, preview: previewOf(lines), lines,
+      });
+    }
+  }
+
+  // LRCLIB 按「歌名 + 歌手 + 时长」直查，比平台搜索更准；纯音乐与失败都只是「这一档没有」。
+  try {
+    const hit = await fetchLrclibLyrics(music);
+    if (hit === 'instrumental') failures.push('LRCLIB 判定为纯音乐');
+    else if (hit?.length) {
+      candidates.push({
+        key: 'lrclib', kind: 'lrclib', sourceLabel: LOCAL_LYRIC_CANDIDATE_LABELS.lrclib,
+        name, singer, albumName, preview: previewOf(hit), lines: hit,
+      });
+    }
+  } catch (error) {
+    failures.push(`LRCLIB 查询失败：${describeFailure(error)}`);
+  }
+
+  let recalled: MusicInfo[] = [];
+  try {
+    recalled = (await searchNeteaseMatch(music)).candidates;
+  } catch (error) {
+    // 搜索失败只回流错误：面板显示「重试」，绝不因此改写用户当前的 mode。
+    failures.push(`平台搜索失败：${describeFailure(error)}`);
+  }
+
+  const ranked = recalled
+    .map((candidate) => ({
+      candidate,
+      tier: candidateTier(music, candidate),
+      gap: durationDeltaSeconds(music, candidate) ?? undefined,
+    }))
+    .sort((left, right) => {
+      const rank = (tier?: LocalMatchTier) => (tier === 'same-recording' ? 0 : tier === 'other-performer' ? 1 : 2);
+      return rank(left.tier) - rank(right.tier) ||
+        (left.gap ?? Number.POSITIVE_INFINITY) - (right.gap ?? Number.POSITIVE_INFINITY) ||
+        left.candidate.id.localeCompare(right.candidate.id);
+    });
+
+  for (const [index, item] of ranked.entries()) {
+    const online: LocalLyricCandidate = {
+      key: `wy:${item.candidate.id}`, kind: 'wy', sourceLabel: LOCAL_LYRIC_CANDIDATE_LABELS.wy,
+      name: item.candidate.name, singer: item.candidate.singer, albumName: item.candidate.albumName,
+      neteaseId: item.candidate.id,
+      ...(item.gap === undefined ? {} : { durationDeltaSeconds: item.gap }),
+      ...(item.tier ? { tier: item.tier } : {}),
+    };
+    // 预览预算只给最靠前的几条：取不到就留空，点选时再取（见 fetchLyricsCandidateLines）。
+    if (index >= MAX_CANDIDATE_PREVIEWS) {
+      candidates.push(online);
+      continue;
+    }
+    try {
+      const lines = await fetchNeteaseLyricLines(item.candidate.id);
+      candidates.push(lines.length ? { ...online, lines, preview: previewOf(lines) } : online);
+    } catch (error) {
+      failures.push(`候选歌词预览失败：${describeFailure(error)}`);
+      candidates.push(online);
+    }
+  }
+  return failures.length ? { candidates, error: failures.join('；') } : { candidates };
+}
+
+/** 点选候选时取词：面板预览没覆盖到的候选（超出预览预算或预览取词失败）走这里。 */
+export async function fetchLyricsCandidateLines(candidate: LocalLyricCandidate): Promise<LyricLine[]> {
+  if (candidate.lines?.length) return candidate.lines;
+  if (!candidate.neteaseId) return [];
+  return fetchNeteaseLyricLines(candidate.neteaseId);
+}
+
+function formatLrcTimestamp(seconds: number): string {
+  const safeSeconds = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+  const minutes = Math.floor(safeSeconds / 60);
+  const wholeSeconds = Math.floor(safeSeconds % 60);
+  const milliseconds = Math.round((safeSeconds - Math.floor(safeSeconds)) * 1000);
+  return `${String(minutes).padStart(2, '0')}:${String(wholeSeconds).padStart(2, '0')}.${String(milliseconds).padStart(3, '0')}`;
+}
+
+/**
+ * 把候选歌词写成 LRC 文本，用于按曲保存「选中的那一份」。
+ *
+ * 为什么重新序列化而不是留原始回包：本地已有 / LRCLIB / 网易云 三条路拿到的都是行数组，
+ * 存文本是为了让 `lyricsOverride` 这个既有字段自己就能被解析回同样的行（见 parseEmbeddedLyrics），
+ * 不必新增任何存放歌词的字段。译文行按移动端同款写法单独成行。
+ */
+export function formatLyricsAsLrc(lines: LyricLine[]): string {
+  return lines.flatMap((line) => {
+    const text = line.text.trim();
+    const translation = line.tr?.trim();
+    if (!text && !translation) return [];
+    const timeTag = `[${formatLrcTimestamp(line.time)}]`;
+    return [text ? `${timeTag}${text}` : null, translation ? `${timeTag}${translation}` : null]
+      .filter((item): item is string => item !== null);
+  }).join('\n');
 }
 
 export const __lyricsInternals = {

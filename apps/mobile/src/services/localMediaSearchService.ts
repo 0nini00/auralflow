@@ -1,13 +1,13 @@
-import { isHttpMediaUrl } from "@/utils/mediaUrl";
 import {
-  buildBuiltinMusicApiUrl,
+  durationDeltaSeconds,
   hasOriginalPerformerCandidate,
+  parseLyricSource,
   selectLocalMediaMatch,
+  type LocalMatchTier,
   type LyricLine,
   type MusicInfo,
   type OtherPerformerCandidate,
 } from "@lx/core";
-import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
 import { LRCLIB_ORIGIN_SOURCE, readLrclibLyrics, type LrclibLyricsResult } from "./lrclibLyricsService";
 import { getGatewayLyrics, getLyrics, searchGatewaySongs, searchSongs } from "./musicApi";
 
@@ -31,36 +31,67 @@ export interface LocalMediaAlternative {
 export interface LocalMediaAssets {
   status: "matched" | "not-found" | "ambiguous";
   lyrics?: LyricLine[];
-  coverUrl?: string;
   candidate?: { source: string; id: string; name: string; singer: string; gatewaySource?: string; gatewayTrackId?: string };
   issues: string[];
   lyricOrigin?: LocalMediaLyricOrigin;
   alternatives?: LocalMediaAlternative[];
 }
 
+/** 「选择歌词」面板的候选来源展示名。 */
+export const LOCAL_LYRICS_CANDIDATE_LABELS = {
+  local: "本地文件", lrclib: "LRCLIB", wy: "网易云", tx: "QQ音乐",
+} as const;
+
+export type LocalLyricsCandidateKind = keyof typeof LOCAL_LYRICS_CANDIDATE_LABELS;
+
+/**
+ * 一条可选的歌词候选。
+ *
+ * `lines` 是已经取到的歌词（本地 / LRCLIB / 面板预览过的平台候选），点选后不必再取一次；
+ * `identity` 只在没预先取到时用于点击后取词。
+ */
+export interface LocalLyricsCandidate {
+  /** 稳定键：同一份候选在面板重新加载后仍是同一项。 */
+  key: string;
+  kind: LocalLyricsCandidateKind;
+  sourceLabel: string;
+  name: string;
+  singer: string;
+  albumName: string;
+  /** 与本地时长的差值（秒）；没有可比时长时缺省。 */
+  durationDeltaSeconds?: number;
+  /** 首行预览；平台候选未必预先取到，缺省时由 UI 提示。 */
+  preview?: string;
+  /** core 的档位判定，只用于排序与标注（同一录音档 / 同曲异唱档），不用于隐藏候选。 */
+  tier?: LocalMatchTier;
+  lines?: LyricLine[];
+  identity?: { song: MusicInfo; route: "direct" | "gateway" };
+}
+
 type OnlineSource = "wy" | "tx";
 interface AssetResult<T> { value?: T; issues: string[] }
-type AssetNeeds = { lyrics: boolean; cover: boolean };
 interface RoutedCandidate { song: MusicInfo; route: "direct" | "gateway" }
-interface CandidateAssets { lyrics?: AssetResult<LyricLine[]>; cover?: AssetResult<string> }
 interface LookupContext {
-  needs: AssetNeeds;
   issues: string[];
   lyrics: Map<string, AssetResult<LyricLine[]>>;
-  covers: Map<string, AssetResult<string>>;
 }
 
 const SOURCES: readonly OnlineSource[] = ["wy", "tx"];
-const COVER_SIZE = 500;
-const COVER_TIMEOUT_MS = 8_000;
 const MAX_ASSET_NAMESPACES_PER_ROUND = 4;
+/**
+ * 面板一次打开最多为多少条平台候选预取歌词首行。
+ *
+ * 候选本身不做隐藏（用户要能自己判断），但首行预览需要真的取一次词；面板是用户主动触发的一次性
+ * 操作，取前 N 条足够看清「是不是这一首」，再多就是替用户浪费平台配额。
+ */
+const MAX_CANDIDATE_PREVIEWS = 6;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function isRemoteId(value: unknown): value is string {
-  // 歌曲/歌词/图片 ID 是不透明标识，不接受本地路径、URI 或控制字符。
+  // 歌曲/歌词 ID 是不透明标识，不接受本地路径、URI 或控制字符。
   return typeof value === "string" && Boolean(value.trim()) && value === value.trim() &&
     !/[\u0000-\u001f\u007f]/.test(value) && !/^(?:[a-z][a-z0-9+.-]*:|[\\/])/i.test(value);
 }
@@ -96,15 +127,8 @@ function candidateKey(candidate: RoutedCandidate): string {
   return JSON.stringify([namespace(candidate), id]);
 }
 
-function coverKey(candidate: RoutedCandidate): string {
-  const song = candidate.song;
-  if (!song.picUrl && !song.img && !song.gateway?.picId) return candidateKey(candidate);
-  // 图片请求的真实身份是 URL 或 gateway source/picId，不是召回的 direct/gateway 路径。
-  return JSON.stringify([song.picUrl || null, song.img || null, song.gateway?.source, song.gateway?.picId, COVER_SIZE]);
-}
-
-function cachedAssets(candidate: RoutedCandidate, context: LookupContext): CandidateAssets {
-  return { lyrics: context.lyrics.get(candidateKey(candidate)), cover: context.covers.get(coverKey(candidate)) };
+function cachedLyrics(candidate: RoutedCandidate, context: LookupContext): AssetResult<LyricLine[]> | undefined {
+  return context.lyrics.get(candidateKey(candidate));
 }
 
 async function recall(source: OnlineSource, keyword: string, gatewayOnly = false): Promise<{ candidates: RoutedCandidate[]; issues: string[] }> {
@@ -151,68 +175,24 @@ async function readLyrics(candidate: RoutedCandidate): Promise<AssetResult<Lyric
   }
 }
 
-function httpUrl(value: unknown): string | undefined {
-  const url = typeof value === "string" ? value.trim() : value;
-  return isHttpMediaUrl(url) ? url : undefined;
+function hasLyrics(result: LocalMediaAssets): boolean {
+  return result.status === "matched" && Boolean(result.lyrics);
 }
 
-async function readCover(candidate: RoutedCandidate): Promise<AssetResult<string>> {
-  const song = candidate.song;
-  const label = namespace(candidate);
-  const issues: string[] = [];
-  for (const cover of [song.picUrl, song.img]) {
-    if (!cover) continue;
-    const url = httpUrl(cover);
-    if (url) return { value: url, issues };
-    issues.push(`${label}:cover:invalid-url`);
-  }
-  const gateway = song.gateway;
-  if (!gateway?.picId?.trim()) return { issues: [...issues, `${label}:cover:missing`] };
-  try {
-    // 只消费搜索结果的真实 picId，不用歌曲 ID 猜测图片，更不把 QQ ID 转成 joox。
-    const response = await fetchWithTimeout(buildBuiltinMusicApiUrl({
-      type: "pic", source: gateway.source, id: gateway.picId, size: COVER_SIZE,
-    }), { headers: { Accept: "application/json" } }, COVER_TIMEOUT_MS);
-    if (!response.ok) return { issues: [...issues, `${label}:cover:http-${response.status}`] };
-    // 实测 pic 为顶层 { url, from } JSON；不把接口地址或未知嵌套字段当图片。
-    const body: unknown = await response.json();
-    if (!isRecord(body)) return { issues: [...issues, `${label}:cover:invalid-response`] };
-    const url = httpUrl(body.url);
-    if (!url) return { issues: [...issues, `${label}:cover:${body.url ? "invalid-url" : "missing"}`] };
-    return { value: url, issues };
-  } catch {
-    return { issues: [...issues, `${label}:cover:failed`] };
-  }
-}
-
-
-function hasNeededAssets(result: LocalMediaAssets, needs: AssetNeeds): boolean {
-  return result.status === "matched" && (!needs.lyrics || Boolean(result.lyrics)) && (!needs.cover || Boolean(result.coverUrl));
-}
-
-function withAssets(result: LocalMediaAssets, assets?: CandidateAssets): LocalMediaAssets {
+function withLyrics(result: LocalMediaAssets, assets?: AssetResult<LyricLine[]>): LocalMediaAssets {
   return {
     ...result,
-    ...(!result.lyrics && assets?.lyrics?.value ? { lyrics: assets.lyrics.value } : {}),
-    ...(!result.coverUrl && assets?.cover?.value ? { coverUrl: assets.cover.value } : {}),
+    ...(!result.lyrics && assets?.value ? { lyrics: assets.value } : {}),
   };
 }
 
-async function readAssets(candidate: RoutedCandidate, needs: AssetNeeds, context: LookupContext): Promise<CandidateAssets> {
-  const previous = cachedAssets(candidate, context);
-  const [lyrics, cover] = await Promise.all([
-    needs.lyrics && !previous?.lyrics ? readLyrics(candidate) : undefined,
-    needs.cover && !previous?.cover ? readCover(candidate) : undefined,
-  ]);
-  if (lyrics) {
-    context.issues.push(...lyrics.issues);
-    context.lyrics.set(candidateKey(candidate), lyrics);
-  }
-  if (cover) {
-    context.issues.push(...cover.issues);
-    context.covers.set(coverKey(candidate), cover);
-  }
-  return cachedAssets(candidate, context);
+async function readAssets(candidate: RoutedCandidate, context: LookupContext): Promise<AssetResult<LyricLine[]>> {
+  const previous = cachedLyrics(candidate, context);
+  if (previous) return previous;
+  const lyrics = await readLyrics(candidate);
+  context.issues.push(...lyrics.issues);
+  context.lyrics.set(candidateKey(candidate), lyrics);
+  return lyrics;
 }
 
 /**
@@ -224,7 +204,7 @@ function routedGroup(candidates: RoutedCandidate[], songs: MusicInfo[]): RoutedC
   return songs.map(song => bySong.get(song)).filter((candidate): candidate is RoutedCandidate => Boolean(candidate));
 }
 
-/** 为已判定的候选组取歌词与封面；身份信息与资料只从这一组里来，落选身份的部分资料不会泄漏。 */
+/** 为已判定的候选组取歌词；身份信息与资料只从这一组里来，落选身份的部分资料不会泄漏。 */
 async function adoptGroup(group: RoutedCandidate[], context: LookupContext, base: LocalMediaAssets): Promise<LocalMediaAssets> {
   const primary = group[0].song;
   let result: LocalMediaAssets = {
@@ -234,10 +214,10 @@ async function adoptGroup(group: RoutedCandidate[], context: LookupContext, base
     issues: context.issues,
   };
   // 每次重判重新组装返回值；只复用当前胜出组的同 namespace/track 结果，落选身份的部分资料不会泄漏。
-  for (const candidate of group) result = withAssets(result, cachedAssets(candidate, context));
+  for (const candidate of group) result = withLyrics(result, cachedLyrics(candidate, context));
   const attemptedNamespaces = new Set<string>();
   for (const candidate of group) {
-    if (hasNeededAssets(result, context.needs)) break;
+    if (hasLyrics(result)) break;
     const key = namespace(candidate);
     if (attemptedNamespaces.has(key)) continue;
     if (attemptedNamespaces.size === MAX_ASSET_NAMESPACES_PER_ROUND) {
@@ -245,11 +225,7 @@ async function adoptGroup(group: RoutedCandidate[], context: LookupContext, base
       break;
     }
     attemptedNamespaces.add(key);
-    const assets = await readAssets(candidate, {
-      lyrics: context.needs.lyrics && !result.lyrics,
-      cover: context.needs.cover && !result.coverUrl,
-    }, context);
-    result = withAssets(result, assets);
+    result = withLyrics(result, await readAssets(candidate, context));
   }
   return { ...result, issues: [...context.issues] };
 }
@@ -314,13 +290,13 @@ async function finalizeMatch(
  * 两轮均严格重判全体候选；每轮至多四个 namespace 各尝试一位可靠候选，已取结果只在本次调用复用。
  * 服务层至多四次搜索、十六次内容调用，不分页；musicApi 内部直连/网关请求由它管理。
  */
-async function searchOnlineAssets(song: MusicInfo, needs: AssetNeeds): Promise<LocalMediaAssets> {
+async function searchOnlineAssets(song: MusicInfo): Promise<LocalMediaAssets> {
   const keyword = song.name.trim();
   const searches = await Promise.all(SOURCES.map(source => recall(source, keyword)));
   const candidates = searches.flatMap(result => result.candidates);
-  const context: LookupContext = { needs, issues: searches.flatMap(result => result.issues), lyrics: new Map(), covers: new Map() };
+  const context: LookupContext = { issues: searches.flatMap(result => result.issues), lyrics: new Map() };
   const initial = await resolveCandidates(song, candidates, context);
-  if (hasNeededAssets(initial, needs)) return initial;
+  if (hasLyrics(initial)) return initial;
 
   const searchedGateways = new Set(candidates.filter(candidate => candidate.route === "gateway").map(candidate => candidate.song.source));
   const remainingSources = SOURCES.filter(source => !searchedGateways.has(source));
@@ -331,54 +307,147 @@ async function searchOnlineAssets(song: MusicInfo, needs: AssetNeeds): Promise<L
   return finalizeMatch(song, pooled, context, await resolveCandidates(song, pooled, context));
 }
 
-/** LRCLIB 命中结果 -> 直接可用的补全结果（歌词只有它，封面是搜索链的活）。 */
-async function withLrclibLyrics(
-  song: MusicInfo,
-  hit: Extract<LrclibLyricsResult, { kind: "lyrics" }>,
-  needs: AssetNeeds,
-): Promise<LocalMediaAssets> {
-  const lyricOrigin: LocalMediaLyricOrigin = { tier: "same-recording", source: LRCLIB_ORIGIN_SOURCE };
-  // 不再走 wy/tx：LRCLIB 按歌名 + 歌手 + 时长直查，比「先搜歌再判身份」更准。
-  if (!needs.cover) return { status: "matched", lyrics: hit.lines, lyricOrigin, issues: [] };
-  // 封面只有搜索链能提供；歌词已经确定，因此这一轮只为封面搜索。
-  const covered = await searchOnlineAssets(song, { lyrics: false, cover: true });
-  return {
-    // 歌词已经拿到就算 matched：这一档的「缺封面」由 assets 层按 partial 处理，
-    // 搜索层的状态字面只有 matched / not-found / ambiguous。
-    status: "matched",
-    lyrics: hit.lines,
-    coverUrl: covered.coverUrl,
-    candidate: covered.candidate,
-    lyricOrigin,
-    issues: covered.issues,
-  };
-}
-
 /**
- * 本地曲缺失资料的只读补全：先问 LRCLIB，再走 wy/tx 两轮搜索。
- * 任何一步失败都只是「这次没补到」，绝不抛出——歌词与封面都是派生资料，不影响播放。
+ * 本地曲缺失歌词的只读补全：先问 LRCLIB，再走 wy/tx 两轮搜索。
+ * 任何一步失败都只是「这次没补到」，绝不抛出——歌词是派生资料，不影响播放。
+ *
+ * 只补歌词：本地曲封面只来自音频文件自己的内嵌标签与同目录旁挂图，服务层不再为封面联网。
  */
-export async function findLocalMediaAssets(
-  song: MusicInfo,
-  needs: { lyrics: boolean; cover: boolean },
-): Promise<LocalMediaAssets> {
-  if (!needs.lyrics && !needs.cover) return { status: "not-found", issues: ["request:no-assets-needed"] };
+export async function findLocalMediaAssets(song: MusicInfo): Promise<LocalMediaAssets> {
   if (!song || typeof song.name !== "string" || !song.name.trim() ||
       typeof song.singer !== "string" || typeof song.albumName !== "string") {
     return { status: "not-found", issues: ["request:invalid-metadata"] };
   }
-  if (needs.lyrics) {
-    // LRCLIB 只是「更准的一条路」：任何失败（超时 / 限流 / 结构不符）都与 404 一样静默降级到搜索链。
-    let hit: LrclibLyricsResult = null;
-    try { hit = await readLrclibLyrics(song); } catch { hit = null; }
-    if (hit?.kind === "lyrics") return withLrclibLyrics(song, hit, needs);
-    if (hit?.kind === "instrumental") {
-      // 纯音乐是 LRCLIB 给出的明确结论：不再为歌词搜索（对齐桌面端语义）；
-      // 封面与歌词无关，仍有封面需求时照旧走搜索链，无封面需求则直接结束。
-      if (!needs.cover) return { status: "not-found", issues: ["lrclib:instrumental"] };
-      const covered = await searchOnlineAssets(song, { lyrics: false, cover: true });
-      return { ...covered, issues: [...covered.issues, "lrclib:instrumental"] };
+  // LRCLIB 只是「更准的一条路」：任何失败（超时 / 限流 / 结构不符）都与 404 一样静默降级到搜索链。
+  let hit: LrclibLyricsResult = null;
+  try { hit = await readLrclibLyrics(song); } catch { hit = null; }
+  if (hit?.kind === "lyrics") {
+    // 不再走 wy/tx：LRCLIB 按歌名 + 歌手 + 时长直查，比「先搜歌再判身份」更准。
+    return { status: "matched", lyrics: hit.lines, lyricOrigin: { tier: "same-recording", source: LRCLIB_ORIGIN_SOURCE }, issues: [] };
+  }
+  // 纯音乐是 LRCLIB 给出的明确结论：不再为歌词搜索（对齐桌面端语义）。
+  if (hit?.kind === "instrumental") return { status: "not-found", issues: ["lrclib:instrumental"] };
+  return searchOnlineAssets(song);
+}
+
+/** 首行预览：跳过纯空白行，取第一行有内容的文本。 */
+function previewOf(lines: LyricLine[]): string | undefined {
+  return lines.find(line => line.text.trim())?.text.trim() || undefined;
+}
+
+/**
+ * 逐条重判档位。
+ *
+ * 用 core 的判定结果**排序并标注**「同一录音档 / 同曲异唱档」，但不据此隐藏任何候选：
+ * 平台召回的质量不由本层担保，用户要能自己看到并选择（例如原唱下架时的翻唱版本）。
+ */
+function annotateTier(song: MusicInfo, candidate: MusicInfo): LocalMatchTier | undefined {
+  const verdict = selectLocalMediaMatch(song, [candidate], { originalPerformerUnavailable: true });
+  // 证据不足时 core 只把候选列进 alternatives（不自动采用）；对用户来说它仍然是「同曲异唱档」。
+  return verdict.tier ?? (verdict.alternatives?.length ? "other-performer" : undefined);
+}
+
+function durationGap(song: MusicInfo, candidate: MusicInfo): number | undefined {
+  const delta = durationDeltaSeconds(song, candidate);
+  return delta === null ? undefined : Math.abs(delta);
+}
+
+/** 同一份真实身份可能在直连与网关两轮里各召回一次：按 namespace + 真实 ID 去重。 */
+function dedupeCandidates(candidates: RoutedCandidate[]): RoutedCandidate[] {
+  const unique = new Map<string, RoutedCandidate>();
+  for (const candidate of candidates) unique.set(candidateKey(candidate), candidate);
+  return [...unique.values()];
+}
+
+/**
+ * 「选择歌词」面板的候选列表：本地已有（内嵌 / 旁挂 .lrc / 按曲文本）、LRCLIB、平台搜索（wy/tx）。
+ *
+ * 与自动补全的区别：这里**不挑一个胜者**，而是把平台召回整体摆出来，只做排序与档位标注，让用户
+ * 自己判断哪一份是对的；搜索失败只回流 issues，候选列表仍然可用（离线至少还有本地那一档）。
+ */
+export async function findLocalLyricsCandidates(
+  song: MusicInfo,
+  input: { localText?: string } = {},
+): Promise<{ candidates: LocalLyricsCandidate[]; issues: string[] }> {
+  const candidates: LocalLyricsCandidate[] = [];
+  // 面板每次重新加载都是一次独立请求：已取到的词只在本次调用里复用，不跨轮次留缓存。
+  const context: LookupContext = { issues: [], lyrics: new Map() };
+  const issues: string[] = context.issues;
+  if (!song || typeof song.name !== "string" || !song.name.trim()) {
+    return { candidates, issues: ["request:invalid-metadata"] };
+  }
+
+  // 本地已有必须排在最前：离线也能选它（含「不要匹配」这条退路）。
+  const localText = input.localText?.trim() || song.localLyrics?.trim() || "";
+  if (localText) {
+    const lines = parseLyricSource({ type: "auto", content: localText });
+    if (lines.length) {
+      candidates.push({
+        key: "local", kind: "local", sourceLabel: LOCAL_LYRICS_CANDIDATE_LABELS.local,
+        name: song.name, singer: song.singer, albumName: song.albumName,
+        preview: previewOf(lines), lines,
+      });
     }
   }
-  return searchOnlineAssets(song, needs);
+
+  let hit: LrclibLyricsResult = null;
+  try { hit = await readLrclibLyrics(song); } catch { hit = null; }
+  if (hit?.kind === "lyrics") {
+    candidates.push({
+      key: "lrclib", kind: "lrclib", sourceLabel: LOCAL_LYRICS_CANDIDATE_LABELS.lrclib,
+      name: song.name, singer: song.singer, albumName: song.albumName,
+      preview: previewOf(hit.lines), lines: hit.lines,
+    });
+  } else if (hit?.kind === "instrumental") {
+    issues.push("lrclib:instrumental");
+  }
+
+  const keyword = song.name.trim();
+  // 两轮召回：候选列表宁可多一轮，也不因为「官方直连只返回翻唱」就把原唱藏起来。
+  const rounds = await Promise.all([
+    ...SOURCES.map(source => recall(source, keyword)),
+    ...SOURCES.map(source => recall(source, keyword, true)),
+  ]);
+  issues.push(...rounds.flatMap(round => round.issues));
+  const pooled = dedupeCandidates(rounds.flatMap(round => round.candidates));
+  const ranked = pooled
+    .map(candidate => ({ candidate, tier: annotateTier(song, candidate.song) }))
+    .sort((a, b) => {
+      const tierRank = (tier?: LocalMatchTier) => (tier === "same-recording" ? 0 : tier === "other-performer" ? 1 : 2);
+      return tierRank(a.tier) - tierRank(b.tier) ||
+        (durationGap(song, a.candidate.song) ?? Number.POSITIVE_INFINITY) -
+          (durationGap(song, b.candidate.song) ?? Number.POSITIVE_INFINITY) ||
+        Number(a.candidate.song.source !== "wy") - Number(b.candidate.song.source !== "wy") ||
+        a.candidate.song.id.localeCompare(b.candidate.song.id);
+    });
+
+  const withPreviews: LocalLyricsCandidate[] = [];
+  for (const [index, item] of ranked.entries()) {
+    // recall 只接受 wy/tx，因此这里只有这两种平台来源。
+    const kind: LocalLyricsCandidateKind = item.candidate.song.source === "tx" ? "tx" : "wy";
+    const gap = durationGap(song, item.candidate.song);
+    const online: LocalLyricsCandidate = {
+      key: candidateKey(item.candidate), kind,
+      sourceLabel: LOCAL_LYRICS_CANDIDATE_LABELS[kind],
+      name: item.candidate.song.name, singer: item.candidate.song.singer, albumName: item.candidate.song.albumName,
+      ...(gap !== undefined ? { durationDeltaSeconds: gap } : {}),
+      ...(item.tier ? { tier: item.tier } : {}),
+      identity: { song: onlineIdentity(item.candidate.song), route: item.candidate.route },
+    };
+    // 预览预算只给最靠前的几条：取不到就留空，点选时再取（见 readLyricsCandidateLines）。
+    const preview = index < MAX_CANDIDATE_PREVIEWS
+      ? await readAssets(item.candidate, context)
+      : undefined;
+    if (preview?.value) withPreviews.push({ ...online, lines: preview.value, preview: previewOf(preview.value) });
+    else withPreviews.push(online);
+  }
+  return { candidates: [...candidates, ...withPreviews], issues };
+}
+
+/** 点选候选时才取歌词：面板预览没覆盖到的候选（超出预览上限或预览取词失败）走这里。 */
+export async function readLyricsCandidateLines(candidate: LocalLyricsCandidate): Promise<LyricLine[]> {
+  if (candidate.lines?.length) return candidate.lines;
+  if (!candidate.identity) return [];
+  const result = await readLyrics({ song: candidate.identity.song, route: candidate.identity.route });
+  return result.value ?? [];
 }

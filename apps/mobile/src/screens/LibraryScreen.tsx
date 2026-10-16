@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState, useEffect } from "react";
-import { KeyboardAvoidingView, Platform, StyleSheet, Text, View, Pressable, Alert, ActivityIndicator, Modal, TextInput, Image } from "react-native";
+import { KeyboardAvoidingView, Platform, StyleSheet, Text, View, Pressable, Alert, ActivityIndicator, Modal, TextInput } from "react-native";
 import { layout, radius, spacing, touch, typography } from "@/theme/tokens";
 import type { MusicInfo } from "@lx/core";
 
@@ -19,8 +19,7 @@ import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
 import { ErrorState } from "@/components/ScreenState";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
 import { type LibrarySection } from "@/services/librarySectionModel";
-import { pickImageFromGallery } from "@/services/imagePickerService";
-import { writeLocalMusicCover, writeLocalMusicLyrics, isDownloadedLocalSong } from "@/services/localMusicService";
+import { writeLocalMusicLyrics, isDownloadedLocalSong } from "@/services/localMusicService";
 import {
   buildLibraryContentModelInput,
   getLibraryContentModel,
@@ -67,8 +66,6 @@ export function LibraryScreen({
   const [localSongName, setLocalSongName] = useState("");
   const [localSongSinger, setLocalSongSinger] = useState("");
   const [localSongAlbumName, setLocalSongAlbumName] = useState("");
-  const [localSongCoverUrl, setLocalSongCoverUrl] = useState("");
-  const [localSongCoverUri, setLocalSongCoverUri] = useState("");
   const [localSongLyrics, setLocalSongLyrics] = useState("");
   const [savingLocalSongMetadata, setSavingLocalSongMetadata] = useState(false);
 
@@ -103,8 +100,6 @@ export function LibraryScreen({
     setLocalSongName(song.name);
     setLocalSongSinger(song.singer || "");
     setLocalSongAlbumName(song.albumName || "");
-    setLocalSongCoverUrl(song.picUrl || song.img || "");
-    setLocalSongCoverUri("");
     setLocalSongLyrics(song.localLyrics || "");
   }, []);
 
@@ -113,21 +108,7 @@ export function LibraryScreen({
     setLocalSongName("");
     setLocalSongSinger("");
     setLocalSongAlbumName("");
-    setLocalSongCoverUrl("");
-    setLocalSongCoverUri("");
     setLocalSongLyrics("");
-  };
-
-  const handlePickCover = async () => {
-    try {
-      const uri = await pickImageFromGallery();
-      if (uri) {
-        setLocalSongCoverUri(uri);
-        setLocalSongCoverUrl("");
-      }
-    } catch (error) {
-      Alert.alert("选择封面失败", error instanceof Error ? error.message : String(error));
-    }
   };
 
   const handleSaveLocalSongMetadata = async () => {
@@ -135,22 +116,18 @@ export function LibraryScreen({
     setSavingLocalSongMetadata(true);
     try {
       const mediaId = String(editingLocalSong.id);
-      const coverValue = localSongCoverUri || localSongCoverUrl;
       const input = {
         name: localSongName,
         singer: localSongSinger,
         albumName: localSongAlbumName,
-        coverUrl: coverValue,
         localLyrics: localSongLyrics,
       };
       // 先验证表单，再写音频；只有写入成功才发布曲库修改。
       buildLocalMusicMetadataUpdate(input);
-      // 封面与歌词写入音频文件标签（对齐桌面端 set_audio_cover / set_audio_lyrics）。
+      // 歌词写入音频文件标签（对齐桌面端 set_audio_lyrics）。封面已不在这里：本地曲封面只来自
+      // 内嵌标签与同目录旁挂图，不接受手动指定。
       // 下载目录入库的歌曲没有 MediaStore 媒体 id，原生写回必然失败：仅更新列表元数据。
       if (!isDownloadedLocalSong(editingLocalSong)) {
-        if (localSongCoverUri) {
-          await writeLocalMusicCover(mediaId, localSongCoverUri);
-        }
         if (localSongLyrics !== (editingLocalSong.localLyrics || "")) {
           await writeLocalMusicLyrics(mediaId, localSongLyrics);
         }
@@ -372,27 +349,6 @@ export function LibraryScreen({
               style={[styles.createInput, { borderColor: palette.border, color: palette.text }]}
             />
             <TextInput
-              value={localSongCoverUrl}
-              onChangeText={(text) => {
-                setLocalSongCoverUrl(text);
-                setLocalSongCoverUri("");
-              }}
-              placeholder="封面 URL（可选，不写入文件）"
-              placeholderTextColor={palette.textMuted}
-              style={[styles.createInput, { borderColor: palette.border, color: palette.text }]}
-            />
-            <Pressable
-              style={[styles.createInput, styles.coverPickerButton, { borderColor: palette.border }]}
-              onPress={handlePickCover}
-            >
-              <Text style={[styles.coverPickerText, { color: palette.primary }]}>
-                {localSongCoverUri ? "已选择本地图片（将写入文件）" : "从相册选择封面图片"}
-              </Text>
-            </Pressable>
-            {localSongCoverUri ? (
-              <Image source={{ uri: localSongCoverUri }} style={styles.coverPreview} />
-            ) : null}
-            <TextInput
               value={localSongLyrics}
               onChangeText={setLocalSongLyrics}
               placeholder="LRC 或纯文本歌词，留空清除"
@@ -400,7 +356,7 @@ export function LibraryScreen({
               multiline
               style={[styles.createInput, styles.editLocalSongLyricsInput, { borderColor: palette.border, color: palette.text }]}
             />
-            <Text style={[styles.editLocalSongHint, { color: palette.textMuted }]}>标题、歌手、专辑会更新到系统媒体库；从相册选择的封面与歌词会写入音频文件（可能需授权修改媒体文件），留空可清除内嵌歌词。</Text>
+            <Text style={[styles.editLocalSongHint, { color: palette.textMuted }]}>标题、歌手、专辑会更新到系统媒体库；歌词会写入音频文件（可能需授权修改媒体文件），留空可清除内嵌歌词。封面来自音频文件的内嵌标签或同目录旁挂图，不能在这里指定；要换歌词请用列表操作菜单里的「选择歌词」。</Text>
             <View style={styles.createModalActions}>
               <Pressable
                 style={styles.createModalButton}
@@ -491,22 +447,6 @@ const styles = StyleSheet.create({
   editLocalSongLyricsInput: {
     minHeight: 120,
     textAlignVertical: "top",
-  },
-  coverPickerButton: {
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: 44,
-  },
-  coverPickerText: {
-    fontSize: typography.body,
-    fontWeight: "600",
-  },
-  coverPreview: {
-    width: 96,
-    height: 96,
-    borderRadius: radius.sm,
-    marginTop: 8,
-    resizeMode: "cover",
   },
   createModalActions: {
     flexDirection: "row",

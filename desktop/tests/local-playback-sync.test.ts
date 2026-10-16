@@ -11,8 +11,8 @@ it("手动资料更新进入当前元信息但不替换播放地址，在线同I
   let songs = [song];
   const lookup = createLocalPlaybackLookup(() => songs);
   expect(lookup(track)).toBe(track);
-  songs = [{ ...song, title: "新名", lyricsOverride: "[00:00]新词", coverOverride: "asset:new-cover" }];
-  expect(lookup(track)).toMatchObject({ name: "新名", localLyrics: "[00:00]新词", url: track.url, picUrl: "asset:new-cover" });
+  songs = [{ ...song, title: "新名", lyricsOverride: "[00:00]新词", cover: "asset:embedded-cover" }];
+  expect(lookup(track)).toMatchObject({ name: "新名", localLyrics: "[00:00]新词", url: track.url, picUrl: "asset:embedded-cover" });
   const online = { ...track, source: "wy" as const, isLocal: false };
   expect(lookup(online)).toBe(online);
 });

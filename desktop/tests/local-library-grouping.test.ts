@@ -17,7 +17,6 @@ describe('本地曲库纯派生分类', () => {
   it('艺术家分组去重、忽略大小写和多余空格，原曲对象及扩展字段完整保留', () => {
     const track = Object.freeze(song('one', {
       artist: 'AC/DC; ac/dc; Guest', lyricsOverride: '[00:01]手动歌词',
-      coverOverride: 'asset://manual.jpg',
     }));
     const tracks = Object.freeze([track, Object.freeze(song('two', { artist: ' guest ' }))]);
     const groups = groupLocalSongs(tracks, 'artist');

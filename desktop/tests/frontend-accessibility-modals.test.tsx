@@ -16,11 +16,10 @@ const api = vi.hoisted(() => ({
   source: { id: 'source', name: '测试源', updateStatus: 'available', updateLog: '更新说明' },
 }));
 vi.mock('@lx/tauri-bridge', () => ({ getAudioInfo: api.audio, loadSettings: api.settings, patchSettings: api.patch }));
-vi.mock('@/services/localMusicService', () => ({ getLocalSongCover: () => '' }));
 vi.mock('@/stores/libraryStore', () => ({ useLibraryStore: (selector: any) => selector({ updateSong: api.updateSong }) }));
 vi.mock('@/services/manualMediaMatchService', () => ({
-  saveManualMediaEdits: api.save, ManualMediaSaveError: class extends Error {}, pickManualCover: vi.fn(),
-  searchManualMedia: api.search, getManualLyrics: vi.fn(), getManualCover: vi.fn(), cacheManualCover: vi.fn(),
+  saveManualMediaEdits: api.save, ManualMediaSaveError: class extends Error {},
+  searchManualMedia: api.search, getManualLyrics: vi.fn(),
 }));
 vi.mock('@/stores/updateStore', () => ({ useUpdateStore: (selector: any) => selector({ available: api.update, setAvailable: api.closeUpdate }) }));
 vi.mock('@/stores/libraryPersistence', () => ({ flushLibraryPersistence: api.flush }));
@@ -59,14 +58,14 @@ it('元数据编辑器初始字段聚焦，保存中所有关闭入口受既有 
 });
 it('元数据匹配子窗 Escape 返回原入口、草稿不丢失', async () => {
   const close = vi.fn(); await render(<MetadataEditModal song={song} onClose={close} />);
-  const match = button('搜索匹配歌词 / 封面'); match.focus(); act(() => match.click());
+  const match = button('搜索匹配歌词'); match.focus(); act(() => match.click());
   expect(document.activeElement?.id).toBe('manual-media-query');
   escape(); expect(close).not.toHaveBeenCalled();
-  expect(document.activeElement).toBe(button('搜索匹配歌词 / 封面'));
+  expect(document.activeElement).toBe(button('搜索匹配歌词'));
   expect((document.getElementById('metadata-title') as HTMLInputElement).value).toBe('歌曲');
 });
 it('手动匹配 Escape 关闭，IME Enter 不发起搜索', async () => {
-  const close = vi.fn(); await render(<ManualMediaMatchDialog initialQuery="歌曲" onLyrics={vi.fn()} onCover={vi.fn()} onClose={close} />);
+  const close = vi.fn(); await render(<ManualMediaMatchDialog initialQuery="歌曲" onLyrics={vi.fn()} onClose={close} />);
   const input = document.getElementById('manual-media-query')!;
   act(() => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true })); });
   expect(api.search).not.toHaveBeenCalled(); escape(input); expect(close).toHaveBeenCalledOnce();

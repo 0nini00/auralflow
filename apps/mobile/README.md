@@ -28,7 +28,7 @@ AuralFlow 的 Android 端，包名 `@auralflow/mobile`，基于 **React Native 0
 - **发现与搜索**：首页信息流（推荐歌单 / 新歌 / 新碟 / 排行榜 / MV）、搜索（网易云 + QQ 音乐多源合并、联想、最近搜索、去重，歌单 / 歌手 / 专辑分类）、每日推荐、私人 FM（下一首预取，切歌秒开）、排行榜、歌单广场。
 - **播放**：全屏沉浸播放器（封面页 / 歌词页 / 控制栏 / 更多菜单 / 评论 / 音质切换 / 睡眠定时）、迷你播放器（底部导航上方，封面 / 歌名 / 歌手 / 迷你歌词）、播放队列、下一首 / 稍后播放、播放模式（顺序 / 列表 / 单曲 / 随机去重）、倍速 0.5–2.0（原生 setRate，无独立变调）、音质切换（带原进度开播）、暂停续播（恢复快照进度 `playFromQueue(index, position)`）、通知栏控制、后台播放、系统媒体键 / 锁屏控制。
 - **歌词**：滚动跟随（用户滚动暂停 3 秒后恢复）、行级高亮（纯色 + 缩放动画；逐字卡拉 OK 为桌面端能力，数据层经 `@lx/core` 仍支持 YRC / QRC / KRC 解析）、译文、简繁转换；字号捏合缩放（歌词设置共 17 项，设置 UI 仅暴露译文 / 双色 / 字体 / 预览 4 项，其余用默认值）；Android 悬浮歌词窗（可拖动、可锁定、随播放滚动，显示当前行 + 下一行整行）；浮窗歌词。
-- **本地音乐**：MediaStore 扫描 + 文件选择导入；歌词内嵌（USLT）优先，回退同名 `.lrc` 旁挂（≤512KB）；封面 albumart URI 优先，回退 `folder.jpg` / `cover.jpg` sidecar；可写回标题 / 歌手 / 专辑 / 封面 / 歌词标签（Android 13+ `RecoverableSecurityException` 触发系统授权）；下载入库歌曲（`dl-` 前缀）不写回 MediaStore。
+- **本地音乐**：MediaStore 扫描 + 文件选择导入；歌词内嵌（USLT）优先，回退同名 `.lrc` 旁挂（≤512KB）；**封面只取文件自身的**（albumart URI 优先，回退 `folder.jpg` / `cover.jpg` sidecar）——2026-10-16 起不再联网匹配封面，也没有换封面入口；可写回标题 / 歌手 / 专辑 / 歌词标签（Android 13+ `RecoverableSecurityException` 触发系统授权）；缺歌词时仍会自动匹配平台资料，但**结果可按曲纠正**——换一份候选，或选「不要匹配」只用本地歌词（同名不同曲很容易匹错）；下载入库歌曲（`dl-` 前缀）不写回 MediaStore。
 - **缓存与下载**：封面 / 歌词 / 音频三级缓存（MD5 命名、音频为 source-id-quality.audio；immutable + LRU 2GB（`MAX_CACHE_SIZE`，见 `services/cacheService.ts`）按 mtime 淘汰（封面 / 音频），歌词 30 天过期；封面 / 歌词缓存于应用缓存目录，下载文件存持久沙盒目录）；串行下载队列（音质选择 128 / 192 / 320 / FLAC / Hi-Res、进度 / 速度、暂停 / 取消——暂停即删半成品、整曲重下，无断点续传；MP3 ≤25MB 手写 ID3v2.4 嵌标签（标题 / 歌手 / 专辑 / 封面 / USLT 歌词）+ 旁挂 `.lrc`）。
 - **数据**：播放历史分时间记录（今天 / 昨天 / 日期），31 天滚动；本地歌单、我喜欢（收藏）、下载管理；WebDAV 同步（与桌面端 / lx 互通：歌单收藏历史 + 自定义音源；远端根 `/AuralFlow/`，读回退旧 `/LX_Music/`，上传只写新路径；playlists.json v3 + user_apis.json v2；防较旧云端覆盖：lastModified 拦截 + 强制下载 + 本地备份；支持启动自动同步，先合并下载再上传）。
 - **账号与服务**：网易云（仅 Cookie 粘贴登录：剪贴板一键读取、掩码摘要显示、MUSIC_U 检测、weapi 校验，无二维码扫码）、QQ 音乐（无 cookie 直连）；Cookie 存原生 SecureStorageModule（Keystore AES-256-GCM，旧 AsyncStorage 自动迁移）。详见 [ACCOUNT_LOGIN.md](./ACCOUNT_LOGIN.md)。
@@ -41,7 +41,7 @@ apps/mobile/
 ├── App.tsx                      # 应用入口
 ├── apply-track-player-patch.js  # postinstall 补丁脚本（补 MusicService.kt 通知栏歌词开关）
 ├── index.js                     # RN 注册入口
-├── android/                     # 原生工程（含 12 个自研原生模块）
+├── android/                     # 原生工程（含 11 个自研原生模块）
 └── src/
     ├── components/              # 共享 UI 组件（67，含 ui/ 5 个原语 + settings/）
     │   ├── ui/                  # Button / Chip / IconButton / ListItemButton / ModalActions
@@ -113,7 +113,7 @@ Release 构建签名凭据从仓库外目录读取（环境变量 `AURALFLOW_KEY
 | `SecureStorageModule` | Android Keystore 加密存储（AES-256-GCM，alias `auralflow.mobile.secure-storage.v2`，格式 `v1:iv:ciphertext`，旧 AsyncStorage 自动迁移）。 |
 | `LocalMusicModule` | MediaStore 本地音乐扫描 / 元数据读写。 |
 | `LyricOverlayModule` / `LyricOverlayService` / `LyricNotificationReceiver` | 悬浮歌词窗 + 通知栏歌词开关与联动。 |
-| `ImagePickerModule` / `CustomSourceFilePickerModule` | 图片与自定义音源文件选择。 |
+| `CustomSourceFilePickerModule` | 自定义音源文件选择。 |
 | `ApkInstallerModule` | APK 应用内安装：ABI 检测、安装权限检查、装包；安装包下载到 `cache/updates` 后经 FileProvider 交给系统安装器。 |
 | `CoverColorModule` | androidx.palette 封面取色，供沉浸页氛围背景。 |
 | `DownloadFileModule` | 下载提交边界：`commitDownload` 把 `.part` 临时文件原子重命名为最终文件（只限应用私有目录内同目录，拒绝复制回退）。 |

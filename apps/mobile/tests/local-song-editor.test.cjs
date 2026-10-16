@@ -62,10 +62,12 @@ test('输入验证先于任何音频写入，非法标题不修改文件', async
   assert.equal(h.calls.some(c => ['metadata', 'lyrics', 'cover', 'close'].includes(c[0])), false);
   assert.match(h.errors[0][1], /标题不能为空/);
 });
-test('选封面只写所选封面，未改歌词不附带写入', async () => {
+test('封面已不可选：编辑器不写封面，也不附带写歌词', async () => {
+  // 封面选择已删除（2026-10-16）。即使表单里塞了封面 URI，也不得产生任何封面写入。
   const h = setup({ coverUri: 'content://photo/1' }); await h.save();
-  assert.deepEqual(h.calls.filter(c => c[0] === 'cover'), [['cover', '42', 'content://photo/1']]);
+  assert.deepEqual(h.calls.filter(c => c[0] === 'cover'), []);
   assert.equal(h.calls.some(c => c[0] === 'lyrics'), false);
+  assert.equal(h.calls.filter(c => c[0] === 'metadata').length, 1);
 });
 test('下载入库歌曲仍只更新曲库，不把下载ID传给MediaStore', async () => {
   const h = setup({ downloaded: true, lyrics: '新歌词', coverUri: 'content://photo/1' }); await h.save();

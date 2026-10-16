@@ -4,6 +4,7 @@ import { useLibraryStore } from '@/stores/libraryStore';
 import { usePlayerStore } from '@/stores/playerStore';
 import { LocalMusicService, localSongToMusicInfo, type LocalSong } from '@/services/localMusicService';
 import { MetadataEditModal } from '@/components/MetadataEditModal';
+import { LyricsChoiceDialog } from '@/components/LyricsChoiceDialog';
 import { LocalLibraryBrowser } from '@/components/LocalLibraryBrowser';
 
 export function LocalMusicView() {
@@ -15,6 +16,8 @@ export function LocalMusicView() {
   const playQueue = usePlayerStore((state) => state.playQueue);
   const togglePlay = usePlayerStore((state) => state.togglePlay);
   const [editingSong, setEditingSong] = useState<LocalSong | null>(null);
+  // 歌词选择是独立会话：编辑元数据与选歌词可以各开各的，互不覆盖草稿。
+  const [lyricsSong, setLyricsSong] = useState<LocalSong | null>(null);
   const [error, setError] = useState('');
 
   const handleSelectDirectory = async () => {
@@ -96,8 +99,9 @@ export function LocalMusicView() {
       </header>
       {error && <p className="af-local-error" role="alert">{error}</p>}
       <LocalLibraryBrowser localSongs={localSongs} currentTrack={currentTrack} isPlaying={status === 'playing'}
-        onPlay={handleTrackClick} onEdit={setEditingSong} onRemove={handleRemoveTrack} />
+        onPlay={handleTrackClick} onEdit={setEditingSong} onRemove={handleRemoveTrack} onChooseLyrics={setLyricsSong} />
       <MetadataEditModal song={editingSong} onClose={() => setEditingSong(null)} />
+      <LyricsChoiceDialog song={lyricsSong} onClose={() => setLyricsSong(null)} />
     </div>
   );
 }

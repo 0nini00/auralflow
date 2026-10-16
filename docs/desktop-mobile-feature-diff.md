@@ -86,7 +86,7 @@
 | 译文合并 | `mergeTranslation()`+`mergeMissingLines()` ±150ms | `@lx/core` 翻译合并 ±150ms | 🟢 共享 |
 | 行进度估算 | `@lx/core` playbackSync PlaybackProgressClock 二分查找 0.12s 提前 CJK/拉丁加权 | `@lx/core calculateLyricLineProgress` 同算法 | 🟢 共享（共享核心） |
 | 逐字卡拉OK | 沉浸层 clip-path 逐字填充（background-clip:text+CSS 变量数据驱动）+桌面歌词窗 KaraokeLine 逐字渐变（LyricWord start/dur 驱动） | 无（`LyricView` 明确只做行级高亮：纯色+切换缩放动画） | 💻 桌面独有 |
-| 多源歌词匹配 | 先 LRCLIB 直查「主歌手（miss 再退完整署名）+ 时长」两轮，再网易搜索 → `@lx/core` 两档判定 | 同一份 core 判定，同样先查 LRCLIB，命中即不再搜 | 🟢 共享（`local-media-match`） |
+| 多源歌词匹配 | 先 LRCLIB 直查「主歌手（miss 再退完整署名）+ 时长」两轮，再网易搜索 → `@lx/core` 两档判定；**可按曲手动选择候选，或选「不要匹配」只用本地歌词**（`lyricsMode` 三态，按文件路径 + 内容指纹记住） | 同左（`localLyricsChoiceModel` + `LyricsChoiceSheet`，入口在列表菜单与沉浸歌词页） | 🟢 共享（`local-media-match` 判定 + 双端三态选择） |
 | 歌词服务链 | 嵌入式→provider→搜索匹配+0.12s 迟滞 | 同链路 | 🟢 共享 |
 | 用户滚动暂停 | `useLyricAutoScroll` 用户滚动暂停 3s 恢复 | `LyricView` 587 行 onScrollBeginDrag+3s 暂停 | 🟢 共享 |
 | 歌词偏移校准 | `SettingsView` manualOffsetMs 滑块 | `LyricSettingsScreen` 歌词偏移校准滑块 | 🟢 共享 |
@@ -110,7 +110,7 @@
 | 权限重试 | 无 | RecoverableSecurityException 重试 | 📱 移动独有（Android 沙盒特性） |
 | 元数据编辑 | Rust audiotags/lofty 写文件标签（wav/aac/ogg/opus/wma/ape/aiff 拒写） | MediaStore 写回（RecoverableSecurityException→系统授权）+手写 ID3v2.4；下载入库歌（dl- 前缀）无 MediaStore id 跳过写回 | 🟢 共享（平台原生） |
 | 添加文件 | Tauri 文件选择 | 系统文档选择器多选 | 📱 移动独有 |
-| 本地曲封面来源 | 内嵌封面（扫描时无条件落盘，`local_audio.rs:173`）→ 同目录旁挂图片（`folder.jpg`/`cover.jpg`/同名图片）→ 手动指定（独立存储、优先）→ 无封面时自动匹配（`localCoverMatch.ts`：查缓存 → 缺候选 id 才搜平台 → 落盘并回填） | MediaStore albumart → 同目录旁挂图片 → 无封面时自动匹配（`localMediaAssetsService.ts`） | 🟢 共享 |
+| 本地曲封面来源 | 内嵌封面（扫描时无条件落盘，`local_audio.rs:173`）→ 同目录旁挂图片（`folder.jpg`/`cover.jpg`/同名图片） | MediaStore albumart → 同目录旁挂图片 | 🟢 共享（2026-10-16 起两端一致：**封面只取音频文件自己的**，平台自动匹配与手动封面/图片导入/封面 URL 已删除） |
 | 旁挂图片封面（`folder.jpg`/`cover.jpg`/同名图片） | 支持（`local_audio.rs:24` 候选名常量与移动端同表同序、`:65` `find_sidecar_cover`：候选名 → 同名 `<stem>.jpg/.jpeg/.png`，`folder.jpg` 是目录时跳过；内嵌封面优先；**只把用户图片路径交给 asset 协议直接引用、不复制进封面缓存**；扫描时按目录级 memo 只探一次、单文件添加额外 `allow_file` 放行该图） | 支持（`LocalMusicModule.java:446` 候选名、`:543` 解析顺序） | 🟢 共享（2026-10-15 桌面端补齐） |
 
 ---

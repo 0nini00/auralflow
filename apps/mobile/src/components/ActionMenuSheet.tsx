@@ -16,6 +16,7 @@ import {
   ListStart,
   Music2,
   Pencil,
+  ScrollText,
   Share2,
   Trash2,
   Video,
@@ -38,6 +39,7 @@ export type ActionMenuIconKey =
   | "mv"
   | "share"
   | "edit"
+  | "lyrics"
   | "delete";
 
 // 收藏到歌单使用现代通用的 FolderPlus 图标（文件夹加号）
@@ -49,6 +51,7 @@ const ACTION_MENU_ICONS: Record<ActionMenuIconKey, LucideIcon> = {
   mv: Video,
   share: Share2,
   edit: Pencil,
+  lyrics: ScrollText,
   delete: Trash2,
 };
 

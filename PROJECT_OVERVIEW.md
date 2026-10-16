@@ -75,7 +75,7 @@ flowchart TB
 | `release-notes.ts` | 94 | 发布说明清洗（降成纯文本摘要，丢表格 / 分隔线 / 代码块） |
 | `github-mirror.ts` | 61 | GitHub 加速镜像地址改写（刻意手写解析而不用 `new URL`，RN 的 polyfill 不完整） |
 | `removed-source.ts` | 57 | 已下线来源的历史条目清理（`isRemovedSource` / `dropRemovedSourceEntries`） |
-| `local-media-match.ts` | 353 | 本地文件与在线候选的择优判定：同一录音档（歌名 / 版本 / 演唱者 / 时长全对得上，可静默采信）与同曲异唱档（原唱不可得时才启用，要求时长差 ≤3s 加证据，且必须在 UI 上标注来源）。两端共用，取代了桌面端那套会把同名不同曲判成匹配的加权打分 |
+| `local-media-match.ts` | 353 | 本地文件与在线候选的择优判定：同一录音档（歌名 / 版本 / 演唱者 / 时长全对得上，可静默采信）与同曲异唱档（原唱不可得时才启用，要求时长差 ≤3s 加证据，且必须在 UI 上标注来源）。两端共用，取代了桌面端那套会把同名不同曲判成匹配的加权打分。**只服务歌词**——2026-10-16 起本地曲封面只取音频文件自身（内嵌 / 旁挂图），这个判定也用于给「选择歌词」的候选排序与标注 |
 
 合计 44 文件 5229 行（25 个模块文件 + 14 个测试文件；另含 5 个 barrel：`index.ts` / `lyrics/index.ts` / `sources/index.ts` / `history/index.ts` / `recommendations/index.ts`）。
 
@@ -109,7 +109,7 @@ React Native 0.86 + React 19.2.3，面向 Android（minSdk 24）。
 | 沉浸歌词 | PagerView 2 页 | `ImmersiveLyricsScreen`（useImmersiveController 522 行 + 下拉关闭）、`LyricView`（623 行 动态行高 + 累积偏移；仅行级高亮，逐字渲染为桌面能力） |
 | 列表 | 增量挂载（非 FlatList） | — |
 | 图片 | CachedImage（Glide） | `cacheService.ts` 2GB LRU（封面/音频 immutable 近似 FIFO，歌词 30 天，AsyncStorage 索引 reconcile；启动时 autoCleanCache 磁盘守卫） |
-| Android 原生 | 18 Java + 2 Kotlin 3853 行 | `LocalMusicPackage` 注册 **12 个模块**：`LocalMusicModule`（908 行 MediaStore + jaudiotagger，读写标签与内嵌封面）、`LyricOverlayModule` + `LyricOverlayService`（280 + 737 行 WindowManager 悬浮歌词，配套 `LyricOverlayPreferences` / `LyricNotificationReceiver`）、`SecureStorageModule`（Keystore AES-256-GCM）、`CryptoModule`（原生 weapi：AES-CBC + RSA NoPadding，固定向量会话自校验，失败回退 weapiJs）、`CoverColorModule`、`ImagePickerModule`、`ApkInstallerModule`、`CustomSourceFilePickerModule`、`OrientationModule`、`WakeLockModule`、`BatteryOptimizationModule`（另有 `LocalAudioAssetsReader` / `LocalTagEditor` 两个未注册的辅助类，被 `LocalMusicModule` 与原生契约测试直接编译使用）；`lx_bridge`（隐藏 WebView 沙箱跑 LX 脚本：lx 注入 + 13 个全局名参数遮蔽 + RN 侧静态扫描拒 eval/Function，vendor.js 2510 行 CryptoJS + pako；RN fetch 不能禁重定向，自定义源能力白名单仅 musicUrl（kg/tx/wy）+ local 的 musicUrl/lyric/pic）；通知栏歌词按钮（`apply-track-player-patch.js` 补丁 RNTP `MusicService`） |
+| Android 原生 | 17 Java + 2 Kotlin 3740 行 | `LocalMusicPackage` 注册 **11 个模块**：`LocalMusicModule`（908 行 MediaStore + jaudiotagger，读写标签与内嵌封面）、`LyricOverlayModule` + `LyricOverlayService`（280 + 737 行 WindowManager 悬浮歌词，配套 `LyricOverlayPreferences` / `LyricNotificationReceiver`）、`SecureStorageModule`（Keystore AES-256-GCM）、`CryptoModule`（原生 weapi：AES-CBC + RSA NoPadding，固定向量会话自校验，失败回退 weapiJs）、`CoverColorModule`、`ApkInstallerModule`、`CustomSourceFilePickerModule`、`OrientationModule`、`WakeLockModule`、`BatteryOptimizationModule`（另有 `LocalAudioAssetsReader` / `LocalTagEditor` 两个未注册的辅助类，被 `LocalMusicModule` 与原生契约测试直接编译使用）；`lx_bridge`（隐藏 WebView 沙箱跑 LX 脚本：lx 注入 + 13 个全局名参数遮蔽 + RN 侧静态扫描拒 eval/Function，vendor.js 2510 行 CryptoJS + pako；RN fetch 不能禁重定向，自定义源能力白名单仅 musicUrl（kg/tx/wy）+ local 的 musicUrl/lyric/pic）；通知栏歌词按钮（`apply-track-player-patch.js` 补丁 RNTP `MusicService`） |
 | 权限 | 无 RECORD_AUDIO | INTERNET / SYSTEM_ALERT_WINDOW / WAKE_LOCK / FOREGROUND_SERVICE_MEDIA_PLAYBACK / POST_NOTIFICATIONS / READ_MEDIA_AUDIO |
 
 ## 关键设计决策摘要
@@ -162,6 +162,17 @@ React Native 0.86 + React 19.2.3，面向 Android（minSdk 24）。
 - **播放期兜底命中后必须同时失效三层缓存**：持久 URL 缓存、预取/预读缓存、**磁盘音频文件**。第三层不能省——它正是上面「命中不探活」的那一层，不删就形成死循环（磁盘命中 → 播放试听 → 判定 → 只清 URL → 再命中），用户只能手动清空整个音频缓存才能恢复。移动端用 `deleteCachedAudioForMusic`（按 `source-id-` 前缀扫目录 + 剪索引）；桌面端用 Rust 命令 `remove_cached_media(kind, cache_key)` 逐音质档删除——此前只有整体清空的 `clear_song_cache`，按 key 失效的能力是本次补的。
 
 
+### 8. 本地曲：封面只取自身，歌词可手动选择（2026-10-16）
+
+**背景**：本地曲缺歌词时会自动联网匹配，但同名不同曲（重名 / 翻唱 / 同名专辑曲）靠歌名、歌手、时长区分不开，匹错之后用户**没有任何纠正手段**；封面同理，缺封面时也会去平台找一张，同样可能找错。
+
+**封面不再「猜」**：本地曲封面只允许来自音频文件自己——**内嵌标签 → 同目录旁挂图**（`folder.jpg` / `cover.jpg` / 同名图片），都没有就显示占位图。删掉的东西：桌面 `services/localCoverMatch.ts` 整文件与其三处触发（播放时 `playerStore.applyLocalCover`、歌词匹配时 `lyricsService.triggerLocalCoverMatch`、预读时）、`LocalSong.coverOverride` 与 `manual-covers` 手动封面落盘（Rust `save_manual_cover`）、移动端 `localMediaSearchService` 的封面分支与 `needs.cover` / `coverUri`、相册选图与封面 URL 输入、原生 `ImagePickerModule`（注册模块 12 → 11）。**保留** `set_audio_cover`：它服务的是下载**在线**曲时把平台封面写进文件标签，与本地曲封面无关；`sniff_image_extension` 也因此保留。后果（已知并接受）：既有的手动封面设置与 `manual-covers` 目录不再被读取，封面回落到文件自身那张。
+
+**歌词仍自动匹配，但可以纠正**：双端都加了按曲的三态 `lyricsMode`（缺省 `auto`）。`auto` 走既有自动链（内嵌 / 旁挂 → LRCLIB → 平台搜索）；`picked` 只用选中的那一份、**永不联网再搜**并显示来源；`local-only`（UI 上叫「不要匹配（只用本地歌词）」）**不联网**，只用内嵌与旁挂 `.lrc`，没有就显示无歌词。判定必须在读自动匹配缓存之前短路，否则旧的自动匹配结果会被读出来。入口两处：本地曲列表的操作菜单与沉浸歌词页的更多菜单；候选来自本地已有、LRCLIB 与平台搜索，按 `local-media-match` 的结论排序标注但**不隐藏候选**——用户自己判断。
+
+**顺带修掉的旧缺陷**：移动端原先靠空串表达「明确不匹配」，而 `normalizeOptionalText` 会把空串变成 `undefined`，于是「不要匹配」在移动端根本表达不出来（会退回自动搜索）。语义现在统一到 `lyricsMode`，空串不再冒充「不匹配」。
+
+**指纹与生效范围**：选择按「文件路径 + 内容指纹」记住，**改名 / 移动后能自动认回**。桌面指纹是 `"<size>:<md5>"` 复合串（`hash_local_file` 只在用户做出选择、以及重绑核对时调用）；记录消失时把选择移进按内容哈希索引的孤儿表（`lyricsChoicesByHash`，与 `localSongs` 同一个 `library` 命名空间，上限 200 条），扫描合并后先比 `size`、只有吻合才哈希确认——**不对整库每个文件哈希**。移动端同构（`auralflow.mobile.localLyricsChoiceOrphans`，上限 200），认领用的是解析本地曲时**已经拿到**的原生 SHA-256 `signature`，不额外读取。内容被替换（size / signature 变）则自动静默失效、回到 `auto`。
 ## 对齐状态
 
 已对齐：wy / tx + local 源、扫码 / Cookie 登录（扫码仅桌面；移动仅 Cookie 粘贴，网易云剪贴板一键读取 + MUSIC_U 检测）、日推、私人 FM、WebDAV、4 播放模式、淡入淡出、倍速、音效、5 级下载。

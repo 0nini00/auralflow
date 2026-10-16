@@ -91,7 +91,7 @@
 | 译文合并 ±150ms | `desktopLyric.ts` mergeTranslation+mergeMissingLines | `@lx/core` 翻译合并 | ✅ |
 | 行进度估算 | `@lx/core` playbackSync 二分查找 0.12s 提前 CJK/拉丁加权 | `@lx/core calculateLyricLineProgress` 同算法 | ✅ |
 | 逐字高亮 | LyricWord start/dur 驱动 | KaraokeLyricLine+行内进度填充 | ✅ |
-| 多源歌词匹配 | 先 LRCLIB 直查（主歌手两轮）+ 网易搜索 → `@lx/core` 两档判定 | 同一份 core 判定，同样先查 LRCLIB；同曲异唱档带来源标注 | ✅ |
+| 多源歌词匹配 | 先 LRCLIB 直查（主歌手两轮）+ 网易搜索 → `@lx/core` 两档判定；可按曲手动选候选 / 选「不要匹配」 | 同一份 core 判定，同样先查 LRCLIB；同曲异唱档带来源标注；同样支持按曲手动选择 | ✅ |
 | 歌词偏移校准 | `SettingsView` manualOffsetMs 滑块 | `LyricSettingsScreen` 歌词偏移校准滑块 | ✅ |
 | 用户滚动暂停 3s | `USER_SCROLL_RESUME_DELAY_MS=3000` | `LyricView` onScrollBeginDrag+3s 暂停 | ✅ |
 | 沉浸歌词 | `ImmersiveLyricsOverlay` 全屏 overlay | `ImmersiveLyricsScreen` Modal fullScreenModal | ✅（平台原生） |

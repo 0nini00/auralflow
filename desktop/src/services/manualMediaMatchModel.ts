@@ -1,10 +1,5 @@
 import type { LocalSong } from './localMusicService';
 
-export interface LocalCoverSelection {
-  path: string;
-  assetUrl: string;
-}
-
 export interface ManualLyricExtras {
   translation?: string;
   romanization?: string;
@@ -16,7 +11,6 @@ export interface ManualMediaDraft extends ManualLyricExtras {
   album: string;
   /** undefined 表示未编辑，空串表示用户明确清除。 */
   lyrics?: string;
-  cover?: LocalCoverSelection;
 }
 
 export function buildManualMediaPatch(song: LocalSong, draft: ManualMediaDraft): Partial<LocalSong> {
@@ -29,7 +23,6 @@ export function buildManualMediaPatch(song: LocalSong, draft: ManualMediaDraft):
     if (draft.translation !== undefined) patch.lyricsTranslationOverride = draft.translation;
     if (draft.romanization !== undefined) patch.lyricsRomanizationOverride = draft.romanization;
   }
-  if (draft.cover) patch.coverOverride = draft.cover.assetUrl;
   return patch;
 }
 

@@ -62,6 +62,11 @@ mod local_audio {
     include!("commands/local_audio.rs");
 }
 
+mod local_hash {
+    use super::*;
+    include!("commands/local_hash.rs");
+}
+
 mod library {
     use super::*;
     include!("commands/library.rs");
@@ -91,6 +96,7 @@ pub use compression::*;
 pub use downloads::*;
 pub use library::*;
 pub use local_audio::*;
+pub use local_hash::*;
 pub use logging::*;
 pub use lyric_window::*;
 pub use media_cache::*;

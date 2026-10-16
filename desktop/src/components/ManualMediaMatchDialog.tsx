@@ -2,19 +2,23 @@ import { useEffect, useRef, useState } from 'react';
 import type { MusicInfo } from '@lx/core';
 import { useDialogFocus } from '@/hooks/useDialogFocus';
 import {
-  cacheManualCover, getManualCover, getManualLyrics, searchManualMedia,
-  type ManualCoverPreview, type ManualLyricPreview, type ManualMediaSource,
+  getManualLyrics, searchManualMedia, type ManualLyricPreview, type ManualMediaSource,
 } from '@/services/manualMediaMatchService';
-import { formatManualDuration, ManualMediaRequestToken, manualMediaError, type LocalCoverSelection, type ManualLyricExtras } from '@/services/manualMediaMatchModel';
+import { formatManualDuration, ManualMediaRequestToken, manualMediaError, type ManualLyricExtras } from '@/services/manualMediaMatchModel';
 
 interface Props {
   initialQuery: string;
   onLyrics: (lyrics: string, extras?: ManualLyricExtras) => void;
-  onCover: (cover: LocalCoverSelection) => void;
   onClose: () => void;
 }
 
-export function ManualMediaMatchDialog({ initialQuery, onLyrics, onCover, onClose }: Props) {
+/**
+ * 平台候选的手动匹配窗口：只匹配**歌词**。
+ *
+ * 封面没有候选可挑——本地曲封面只能来自音频文件自己（内嵌标签 / 同目录旁挂图），
+ * 所以这里不再请求、预览或应用任何封面。
+ */
+export function ManualMediaMatchDialog({ initialQuery, onLyrics, onClose }: Props) {
   const [query, setQuery] = useState(initialQuery);
   const [source, setSource] = useState<ManualMediaSource>('wy');
   const [candidates, setCandidates] = useState<MusicInfo[]>([]);
@@ -23,28 +27,22 @@ export function ManualMediaMatchDialog({ initialQuery, onLyrics, onCover, onClos
   const [searched, setSearched] = useState(false);
   const [searchError, setSearchError] = useState('');
   const [lyrics, setLyrics] = useState<ManualLyricPreview | null>(null);
-  const [cover, setCover] = useState<ManualCoverPreview | null>(null);
   const [lyricError, setLyricError] = useState('');
-  const [coverError, setCoverError] = useState('');
-  const [caching, setCaching] = useState(false);
   const [status, setStatus] = useState('');
   const searchToken = useRef(new ManualMediaRequestToken());
   const previewToken = useRef(new ManualMediaRequestToken());
-  const cacheToken = useRef(new ManualMediaRequestToken());
-  const cacheBusy = useRef(false);
   const dialogRef = useRef<HTMLElement>(null);
 
   function invalidate() {
-    searchToken.current.invalidate(); previewToken.current.invalidate(); cacheToken.current.invalidate();
-    cacheBusy.current = false;
+    searchToken.current.invalidate(); previewToken.current.invalidate();
   }
   useEffect(() => () => invalidate(), []);
 
   function resetResults() {
     invalidate();
-    setCandidates([]); setSelected(null); setLyrics(null); setCover(null);
-    setSearchError(''); setLyricError(''); setCoverError(''); setStatus('');
-    setSearching(false); setSearched(false); setCaching(false);
+    setCandidates([]); setSelected(null); setLyrics(null);
+    setSearchError(''); setLyricError(''); setStatus('');
+    setSearching(false); setSearched(false);
   }
 
   async function search() {
@@ -64,33 +62,12 @@ export function ManualMediaMatchDialog({ initialQuery, onLyrics, onCover, onClos
 
   function select(candidate: MusicInfo) {
     const isCurrent = previewToken.current.next();
-    cacheToken.current.invalidate(); cacheBusy.current = false;
-    setSelected(candidate); setLyrics(null); setCover(null);
-    setLyricError(''); setCoverError(''); setStatus(''); setCaching(false);
+    setSelected(candidate); setLyrics(null);
+    setLyricError(''); setStatus('');
     void getManualLyrics(candidate).then(
       (result) => { if (isCurrent()) setLyrics(result); },
       (error) => { if (isCurrent()) setLyricError(manualMediaError(error)); },
     );
-    void getManualCover(candidate).then(
-      (result) => { if (isCurrent()) setCover(result); },
-      (error) => { if (isCurrent()) setCoverError(manualMediaError(error)); },
-    );
-  }
-
-  async function useCover() {
-    if (!cover || cacheBusy.current) return;
-    cacheBusy.current = true;
-    const isCurrent = cacheToken.current.next();
-    setCaching(true); setCoverError(''); setStatus('');
-    try {
-      const local = await cacheManualCover(cover);
-      if (!isCurrent()) return;
-      onCover(local); setStatus('封面已加入编辑草稿，保存后才会应用。');
-    } catch (error) {
-      if (isCurrent()) setCoverError(manualMediaError(error));
-    } finally {
-      if (isCurrent()) { setCaching(false); cacheBusy.current = false; }
-    }
   }
 
   function close() { invalidate(); onClose(); }
@@ -98,10 +75,10 @@ export function ManualMediaMatchDialog({ initialQuery, onLyrics, onCover, onClos
 
   return (
     <div className="af-dialog-overlay" onClick={close}>
-      <section ref={dialogRef} className="af-dialog af-metadata-dialog" role="dialog" aria-modal="true" aria-label="手动匹配歌词和封面" onClick={(event) => event.stopPropagation()}>
-        <div className="af-metadata-header"><h2>手动匹配歌词 / 封面</h2></div>
+      <section ref={dialogRef} className="af-dialog af-metadata-dialog" role="dialog" aria-modal="true" aria-label="手动匹配歌词" onClick={(event) => event.stopPropagation()}>
+        <div className="af-metadata-header"><h2>手动匹配歌词</h2></div>
         <div className="af-dialog-body" style={{ overflowY: 'auto', maxHeight: '70vh' }}>
-          <p className="af-settings-hint">搜索不会自动选曲。先预览候选，再分别选择歌词或封面；不会替换音源和播放地址。</p>
+          <p className="af-settings-hint">搜索不会自动选曲。先预览候选，再决定是否采用它的歌词；不会替换音源和播放地址。</p>
           <div className="af-form-group">
             <label htmlFor="manual-media-source">平台</label>
             <select id="manual-media-source" aria-label="匹配平台" value={source} onChange={(event) => { resetResults(); setSource(event.target.value as ManualMediaSource); }}>
@@ -130,10 +107,6 @@ export function ManualMediaMatchDialog({ initialQuery, onLyrics, onCover, onClos
               <pre style={{ whiteSpace: 'pre-wrap', maxHeight: 180, overflowY: 'auto' }}>{lyrics.lines.map((line) => [line.text, line.tr, line.roma].filter(Boolean).join('\n')).join('\n\n')}</pre>
             ) : <p role="status">歌词加载中...</p>}
             <button type="button" className="af-settings-small-button" disabled={!lyrics} onClick={() => { if (lyrics) { if (lyrics.translation !== undefined || lyrics.romanization !== undefined) onLyrics(lyrics.raw, { translation: lyrics.translation, romanization: lyrics.romanization }); else onLyrics(lyrics.raw); setStatus('歌词已加入编辑草稿，保存后才会应用。'); } }}>使用此歌词</button>
-            <h4>封面预览</h4>
-            {cover && <img src={cover.previewUrl} alt={`${selected.name} 封面预览`} style={{ display: 'block', width: 150, height: 150, objectFit: 'contain' }} />}
-            {coverError ? <p role="alert" className="af-settings-error">{coverError}</p> : !cover && <p role="status">封面加载中...</p>}
-            <button type="button" className="af-settings-small-button" disabled={!cover || caching} onClick={useCover}>{caching ? '缓存封面中...' : '使用此封面'}</button>
           </section>}
           {status && <p role="status">{status}</p>}
         </div>

@@ -214,7 +214,6 @@ pub fn run() {
             outbound::proxy_http_request,
             commands::cache_remote_audio,
             commands::cache_remote_image,
-            commands::save_manual_cover,
             commands::lookup_cached_media,
             commands::get_song_cache_stats,
             commands::clear_song_cache,
@@ -237,6 +236,8 @@ pub fn run() {
             commands::set_audio_metadata,
             commands::set_audio_cover,
             commands::set_audio_lyrics,
+            // 本地文件内容指纹（歌词选择绑定用，只在用户做出选择时调用）
+            commands::hash_local_file,
             // 用户数据持久化（B-mid）
             commands::library_load,
             commands::library_save,

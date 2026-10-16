@@ -44,7 +44,6 @@ interface LocalMusicNativeModule {
 
   updateAudioMetadata(mediaId: string, metadata: Record<string, string>): Promise<number>;
 
-  writeAudioCover(mediaId: string, imageUri: string): Promise<boolean>;
 
   writeAudioLyrics(mediaId: string, lrc: string): Promise<boolean>;
 
@@ -282,22 +281,6 @@ export async function updateLocalMusicMetadata(
   if (patch.singer !== undefined) metadata.artist = patch.singer;
   if (patch.albumName !== undefined) metadata.album = patch.albumName;
   return nativeLocalMusicModule.updateAudioMetadata(mediaId, metadata);
-}
-
-/**
- * 把本地图片字节写回音频文件内嵌封面（对应桌面端写入文件标签）。
- * imageUri 为图片的 content:// URI（通常由图片选择器返回）。
- *
- * @returns true 表示写入成功
- */
-export async function writeLocalMusicCover(mediaId: string, imageUri: string): Promise<boolean> {
-  if (Platform.OS !== "android") {
-    return false;
-  }
-  if (!nativeLocalMusicModule || typeof nativeLocalMusicModule.writeAudioCover !== "function") {
-    throw new Error("Android 本地音乐原生模块未注册（writeAudioCover 缺失），请重新编译原生工程");
-  }
-  return nativeLocalMusicModule.writeAudioCover(mediaId, imageUri);
 }
 
 /**

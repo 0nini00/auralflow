@@ -13,17 +13,29 @@ describe("本地歌曲播放模型", () => {
     expect(result).not.toHaveProperty("replayGain");
     expect(result?.embeddedLyrics).toBe("[00:00]内嵌歌词");
   });
-  it("应用手动歌词/封面覆盖，不改变本地播放身份且丢弃旧增益", () => {
-    const enriched = { ...song, lyricsOverride: "[00:00]手动歌词", coverOverride: "asset:chosen.jpg", replayGain: { gainDb: -6 }, replayGainError: "旧错误" };
+  it("应用手动歌词覆盖，封面只来自曲库记录里的内嵌/旁挂封面", () => {
+    const enriched = { ...song, lyricsOverride: "[00:00]手动歌词", replayGain: { gainDb: -6 }, replayGainError: "旧错误" };
     const result = local.localSongToMusicInfo(enriched);
-    expect(result).toMatchObject({ id: song.id, source: "local", isLocal: true, name: song.title, localLyrics: enriched.lyricsOverride, picUrl: enriched.coverOverride, img: enriched.coverOverride });
+    expect(result).toMatchObject({ id: song.id, source: "local", isLocal: true, name: song.title, localLyrics: enriched.lyricsOverride, picUrl: song.cover, img: song.cover });
     expect(result).not.toHaveProperty("replayGain");
     expect(result).not.toHaveProperty("replayGainError");
     expect(result.url).toBe(`asset:${song.path}`);
-    expect(local.getLocalSongCover(enriched)).toBe(enriched.coverOverride);
+    expect(local.getLocalSongCover(enriched)).toBe(song.cover);
   });
-  it("明确的空歌词覆盖不被旧内嵌歌词替代", () => {
-    expect(local.localSongToMusicInfo({ ...song, lyricsOverride: "", embeddedLyrics: "旧词" }).localLyrics).toBe("");
+  it("空串文本只表示「没有文本」，不再冒充「明确不匹配」", () => {
+    // 「不匹配」由 lyricsMode: "local-only" 表达（见 tests/lyrics-annotations-service.test.ts）：
+    // 被清空的按曲文本不算文本，于是回落到文件自身的词——内嵌标签本来就是自动链的第一档。
+    expect(local.localSongToMusicInfo({ ...song, lyricsOverride: "", embeddedLyrics: "旧词" }).localLyrics).toBe("旧词");
     expect(local.localSongToMusicInfo({ ...song, embeddedLyrics: "内嵌歌词" }).localLyrics).toBe("内嵌歌词");
+    // 不匹配档：指纹绑定成立时只用本机已有的词，按曲覆盖被清掉后回落到文件自身的词。
+    const localOnly = { ...song, lyricsOverride: "", embeddedLyrics: "内嵌歌词", lyricsMode: "local-only" as const, lyricsFingerprint: "1000:abc" };
+    const resolved = local.localSongToMusicInfo(localOnly);
+    expect(resolved.localLyrics).toBe("内嵌歌词");
+    expect(resolved).toMatchObject({ lyricsMode: "local-only", lyricsFingerprint: "1000:abc" });
+    // 内容变了（size 对不上指纹）→ 选择静默失效，退回自动匹配
+    const expired = local.localSongToMusicInfo({ ...localOnly, size: 2000 });
+    expect(expired.localLyrics).toBe("内嵌歌词");
+    expect(expired.lyricsMode).toBeUndefined();
+    expect(expired.lyricsFingerprint).toBeUndefined();
   });
 });

@@ -14,6 +14,7 @@ import {
   FolderPlus,
   ListMusic,
   MoreHorizontal,
+  ScrollText,
   Share2,
   Sparkles,
   Video,
@@ -43,6 +44,9 @@ export interface ImmersiveMoreMenuProps {
   onPlayMv?: () => void;
   canShare?: boolean;
   onShare?: () => void;
+  /** 仅本地曲：「选择歌词」入口（在线曲的歌词来自音源本身）。 */
+  canChooseLyrics?: boolean;
+  onChooseLyrics?: () => void;
   canShowSimilarSongs?: boolean;
   onOpenSimilarSongs?: () => void;
   onOpenQueue?: () => void;
@@ -59,6 +63,8 @@ export function ImmersiveMoreMenu({
   onPlayMv,
   canShare,
   onShare,
+  canChooseLyrics,
+  onChooseLyrics,
   canShowSimilarSongs,
   onOpenSimilarSongs,
   onOpenQueue,
@@ -85,6 +91,13 @@ export function ImmersiveMoreMenu({
           icon: Video,
           label: "播放 MV",
           onPress: onPlayMv,
+        }
+      : undefined,
+    canChooseLyrics && onChooseLyrics
+      ? {
+          icon: ScrollText,
+          label: "选择歌词",
+          onPress: onChooseLyrics,
         }
       : undefined,
     canShare

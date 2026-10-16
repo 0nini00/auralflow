@@ -4,8 +4,9 @@ const { createLoader, deferred, mobileRequire } = require('./helpers/loadTs.cjs'
 // 上限只是 runner 的安全网，不是断言：本文件第一个用例要为整个模块图付首次转译与 TypeScript
 // 载入的代价，并发跑整个套件时会超过 5000ms（实测 5.0s），断言本身与耗时无关。
 const options = { timeout: 15000 };
-const song = id => ({ id, source: 'local', isLocal: true, name: id, singer: 'Singer', albumName: 'Album', interval: 100, url: `file:///music/${id}.mp3` });
-const result = text => ({ status: 'matched', lyrics: [{ time: 1, text }], coverUri: 'file:///cache/art.jpg', message: '', issues: [] });
+// 本地曲封面只来自记录里的内嵌标签 / 同目录旁挂图（扫描与下载元数据写入）：记录里没有就是没有。
+const song = id => ({ id, source: 'local', isLocal: true, name: id, singer: 'Singer', albumName: 'Album', interval: 100, url: `file:///music/${id}.mp3`, picUrl: `file:///music/${id}-cover.jpg` });
+const result = text => ({ status: 'matched', lyrics: [{ time: 1, text }], message: '', issues: [] });
 function setup() {
   const calls = [], requests = [];
   const coreLoader = createLoader({});
@@ -37,14 +38,14 @@ function setup() {
 }
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
-test('本地歌词走统一补全，不先命中旧通用缓存；封面不改写歌曲或队列', options, async () => {
+test('本地歌词走统一补全，不先命中旧通用缓存；补全不改写歌曲或队列', options, async () => {
   const h = setup(), pending = h.service.loadLyricsForRestoredSong(h.a); await flush();
   assert.equal(h.requests.length, 1); assert.deepEqual(h.calls, []);
   h.requests[0].update(result('fresh')); h.requests[0].gate.resolve(result('fresh')); await pending;
   const state = h.store.getState();
   assert.equal(state.lyrics[0].text, 'fresh'); assert.strictEqual(state.currentSong, h.a); assert.strictEqual(state.queue, h.queue);
   assert.equal(state.currentUrl, h.a.url); assert.equal(state.position, 37); assert.equal(state.isPlaying, false);
-  assert.equal(h.load('src/services/localMediaPlaybackModel.ts').selectPlaybackArtwork(state), 'file:///cache/art.jpg');
+  assert.equal(h.load('src/services/localMediaPlaybackModel.ts').selectPlaybackArtwork(state), 'file:///music/A-cover.jpg');
 });
 test('本地补全等待期间暂停不丢弃歌词，音频不会重新播放', options, async () => {
   const h = setup(), pending = h.service.loadLyricsForRestoredSong(h.a); await flush();
@@ -60,7 +61,8 @@ test('并发打开播放页复用当前补全，切歌后旧结果无效', optio
   const b = song('B'); h.store.setState({ currentSong: b, localMedia: null, lyrics: [] });
   h.requests[0].update(result('old')); h.requests[0].gate.resolve(result('old')); await Promise.all([one, two]);
   assert.deepEqual(h.store.getState().lyrics, []);
-  assert.equal(h.load('src/services/localMediaPlaybackModel.ts').selectPlaybackArtwork(h.store.getState()), undefined);
+  // 切歌后封面跟着新曲自己的内嵌 / 旁挂图，绝不沿用上一首的补全结果。
+  assert.equal(h.load('src/services/localMediaPlaybackModel.ts').selectPlaybackArtwork(h.store.getState()), 'file:///music/B-cover.jpg');
 });
 test('同一首重新播放建立新补全所有权，旧A不能覆盖新A', options, async () => {
   const h = setup(), old = h.service.loadLyricsForRestoredSong(h.a); await flush();
@@ -80,14 +82,18 @@ test('未匹配与失败不会变成音频播放错误，已有歌词不被清�
   assert.equal(h.store.getState().localMedia.message, '资料查询失败');
 });
 
-test('非本地播放或过期封面不能覆盖当前歌曲，派生封面不写回原对象', () => {
+test('封面只取当前曲记录里的内嵌 / 旁挂图，派生结果里的封面字段被彻底忽略', () => {
   const model = createLoader({})('src/services/localMediaPlaybackModel.ts');
   const local = song('A');
-  const media = { ...result('text'), requestId: 1, songKey: model.localMediaSongKey(local) };
+  // 旧版本的补全结果带 coverUri：它已不属于结果形状，出现了也必须被忽略。
+  const media = { ...result('text'), coverUri: 'file:///cache/stale-art.jpg', requestId: 1, songKey: model.localMediaSongKey(local) };
   const remote = { id: 'B', source: 'wy', name: 'B', singer: 'S', picUrl: 'https://example.test/original.jpg' };
   assert.equal(model.selectPlaybackArtwork({ currentSong: remote, localMedia: media }), remote.picUrl);
-  assert.equal(model.selectPlaybackArtwork({ currentSong: song('B'), localMedia: media }), undefined);
-  assert.equal(local.picUrl, undefined);
+  assert.equal(model.selectPlaybackArtwork({ currentSong: local, localMedia: media }), local.picUrl);
+  // 记录里既无内嵌也无旁挂图时显示占位图，不接受任何补全来源。
+  const bare = { ...song('A'), picUrl: undefined, img: undefined };
+  assert.equal(model.selectPlaybackArtwork({ currentSong: bare, localMedia: media }), undefined);
+  assert.equal(bare.picUrl, undefined);
 });
 
 test('播放器两处封面共享派生选择器，歌词空态显示补全状态', () => {

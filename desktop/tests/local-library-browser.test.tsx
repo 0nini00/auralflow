@@ -8,7 +8,7 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
 vi.mock('@lx/tauri-bridge', () => ({ scanDirectory: vi.fn(), getAudioInfo: vi.fn() }));
 
 const tracks: LocalSong[] = [
-  { id: 'a', title: 'Alpha', artist: 'AC/DC', album: 'Live', path: 'C:\\Rock\\a.mp3', duration: 60, format: 'mp3', size: 10, isLocal: true, cover: 'embedded.jpg', coverOverride: 'manual.jpg' },
+  { id: 'a', title: 'Alpha', artist: 'AC/DC', album: 'Live', path: 'C:\\Rock\\a.mp3', duration: 60, format: 'mp3', size: 10, isLocal: true, cover: 'embedded.jpg' },
   { id: 'b', title: 'Beta', artist: 'AC/DC', album: 'Live', path: 'c:/ROCK/b.mp3', duration: 80, format: 'mp3', size: 10, isLocal: true },
   { id: 'c', title: 'Gamma', artist: 'Other', album: 'Live', path: 'D:\\Other\\c.mp3', duration: 90, format: 'mp3', size: 10, isLocal: true },
 ];
@@ -63,7 +63,7 @@ describe('本地曲库分类浏览', () => {
     expect(onPlay).toHaveBeenLastCalledWith(tracks[1], [tracks[0], tracks[1]]);
   });
 
-  it('列表和网格保留编辑、移除及当前播放状态，使用手选封面', () => {
+  it('列表和网格保留编辑、移除及当前播放状态，使用曲库记录里的封面', () => {
     mount();
     click('编辑 Alpha');
     click('移除 Alpha');
@@ -71,7 +71,7 @@ describe('本地曲库分类浏览', () => {
     expect(onRemove).toHaveBeenCalledWith('a');
     expect(onPlay).not.toHaveBeenCalled();
     click('网格视图');
-    expect(root().findAllByType('img').map((image) => image.props.src)).toContain('manual.jpg');
+    expect(root().findAllByType('img').map((image) => image.props.src)).toContain('embedded.jpg');
     click('编辑 Alpha');
     click('移除 Alpha');
     expect(onEdit).toHaveBeenCalledTimes(2);

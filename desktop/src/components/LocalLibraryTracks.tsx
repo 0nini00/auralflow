@@ -1,6 +1,7 @@
 import { useRef, useState, type KeyboardEvent } from 'react';
-import { Clock, Edit2, Music2, Pause, Play, Trash2 } from 'lucide-react';
+import { Clock, Edit2, FileText, Music2, Pause, Play, Trash2 } from 'lucide-react';
 import { getLocalSongCover, type LocalSong } from '@/services/localMusicService';
+import { formatLocalLyricsChoiceLabel, resolveLocalLyricsChoice } from '@/services/localLyricsChoiceModel';
 import { formatDuration } from '@/lib/utils';
 import { VirtualList } from './VirtualList';
 
@@ -13,9 +14,14 @@ interface LocalLibraryTracksProps {
   onPlay: (track: LocalSong, visibleSongs: LocalSong[]) => void;
   onEdit: (track: LocalSong) => void;
   onRemove: (trackId: string) => void;
+  /**
+   * 「选择歌词」入口：缺省时不渲染这个按钮（不提供该能力的调用方不该看到一个死控件）。
+   * 未播放也能预先指定——用户听到/看到错的词时不一定正在播这首。
+   */
+  onChooseLyrics?: (track: LocalSong) => void;
 }
 
-export function LocalLibraryTracks({ songs, viewMode, currentTrack, isPlaying, onPlay, onEdit, onRemove }: LocalLibraryTracksProps) {
+export function LocalLibraryTracks({ songs, viewMode, currentTrack, isPlaying, onPlay, onEdit, onRemove, onChooseLyrics }: LocalLibraryTracksProps) {
   const [focusIndex, setFocusIndex] = useState<number>();
   const trackButtons = useRef(new Map<number, HTMLButtonElement>());
   const focusTarget = useRef<number>();
@@ -32,6 +38,8 @@ export function LocalLibraryTracks({ songs, viewMode, currentTrack, isPlaying, o
     const isCurrent = currentTrack?.source === 'local' && currentTrack.id === track.id;
     const playing = isCurrent && isPlaying;
     const cover = getLocalSongCover(track);
+    // 当前生效的歌词状态直接进 tooltip：列表里就能看出这首歌是不是「不匹配」或选了哪一份。
+    const lyricsLabel = formatLocalLyricsChoiceLabel(resolveLocalLyricsChoice(track));
     return (
       <div className={`af-local-track ${isCurrent ? 'af-current' : ''}`} key={track.id}>
         <button type="button" className="af-local-track-play" aria-label={`${playing ? '暂停' : '播放'} ${track.title}`}
@@ -52,6 +60,10 @@ export function LocalLibraryTracks({ songs, viewMode, currentTrack, isPlaying, o
           <span className="af-local-track-duration">{formatDuration(track.duration)}</span>
         </button>
         <div className="af-local-track-actions">
+          {onChooseLyrics && (
+            <button type="button" aria-label={`选择歌词 ${track.title}`} title={`选择歌词 · 当前：${lyricsLabel}`}
+              onClick={() => onChooseLyrics(track)}><FileText size={16} /></button>
+          )}
           <button type="button" aria-label={`编辑 ${track.title}`} title="编辑元数据" onClick={() => onEdit(track)}><Edit2 size={16} /></button>
           <button type="button" aria-label={`移除 ${track.title}`} title="从曲库移除，不删除文件" onClick={() => onRemove(track.id)}><Trash2 size={16} /></button>
         </div>

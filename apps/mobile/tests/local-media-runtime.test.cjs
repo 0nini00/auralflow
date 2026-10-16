@@ -1,20 +1,23 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const test = require('node:test');
-const { createLoader, mobileRequire } = require('./helpers/loadTs.cjs');
+const { createLoader, mobileRequire, mobileRoot } = require('./helpers/loadTs.cjs');
 function setup() {
   const files = new Map(), calls = [], nativeCalls = [];
   const native = { readAudioAssets: async uri => { nativeCalls.push(uri); return { signature: 'sha', warnings: [] }; } };
-  const fs = {
+  const fsModule = {
     CachesDirectoryPath: '/app/cache', mkdir: async () => {}, exists: async path => files.has(path),
     readFile: async path => files.get(path), writeFile: async (path, data) => { calls.push(['write', path]); files.set(path, data); },
     unlink: async path => { calls.push(['unlink', path]); files.delete(path); },
   };
   const mocks = {
-    'react-native-fs': fs, 'crypto-js': mobileRequire('crypto-js'),
-    'react-native': { NativeModules: { LocalMusicModule: native }, Image: { getSize: (_uri, done) => done(100, 100) } },
+    'react-native-fs': fsModule, 'crypto-js': mobileRequire('crypto-js'),
+    // 只提供原生模块：封面解码器（Image）之类的能力已不再是本地补全的依赖，mock 里也不留。
+    'react-native': { NativeModules: { LocalMusicModule: native } },
     './musicApi': { getLyrics: async song => song.localLyrics ? [{ time: 1, text: song.localLyrics }] : [] },
-    './localMediaSearchService': { findLocalMediaAssets: async () => ({ status: 'matched', lyrics: [{ time: 1, text: 'online', tr: 'translation' }], coverUrl: 'https://example.test/art', issues: [] }) },
-    './cacheService': { cacheCover: async () => { files.set('/app/cache/covers/art', 'image'); return 'file:///app/cache/covers/art'; }, enforceCacheSizeLimit: async () => {} },
+    './localMediaSearchService': { findLocalMediaAssets: async () => ({ status: 'matched', lyrics: [{ time: 1, text: 'online', tr: 'translation' }], issues: [] }) },
+    './cacheService': { enforceCacheSizeLimit: async () => {} },
     './fileDownloadCommit': { createPartialDownloadPath: path => path + '.part', commitDownloadedFile: async (from, to) => { files.set(to, files.get(from)); files.delete(from); }, discardPartialDownload: async path => files.delete(path) },
   };
   const load = createLoader(mocks);
@@ -49,17 +52,8 @@ test('损坏缓存明确报告后重建，不把坏数据当歌词', async () =>
   assert.equal(result.lyrics[0].text, 'online'); assert.match(result.issues.join(' '), /缓存读取失败/);
   assert.doesNotThrow(() => JSON.parse(h.files.get(key)));
 });
-test('图片解码失败不把下载成功的错误页面当封面', async () => {
-  const h = setup(); h.mocks['react-native'].Image.getSize = (_uri, _done, fail) => fail(new Error('not an image'));
-  const runtime = h.load('src/services/localMediaRuntime.ts');
-  const result = await runtime.resolveLocalMediaAssets(song, () => {}, () => true);
-  assert.equal(result.coverUri, undefined); assert.equal(result.status, 'partial');
-  assert.match(result.issues.join(' '), /not an image/);
-});
 
 test('getLyrics 对缺少歌词的本地歌曲不提交本地 ID 到网关', async () => {
-  const fs = require('node:fs'), path = require('node:path');
-  const { mobileRoot } = require('./helpers/loadTs.cjs');
   const ts = mobileRequire('typescript');
   const file = ts.createSourceFile('musicApi.ts', fs.readFileSync(path.join(mobileRoot, 'src/services/musicApi.ts'), 'utf8'), ts.ScriptTarget.Latest, true);
   const fn = file.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'getLyrics');
@@ -72,18 +66,14 @@ test('getLyrics 对缺少歌词的本地歌曲不提交本地 ID 到网关', asy
   assert.equal((await module.exports({ ...song, localLyrics: '第一行\n第二行' }))[1].text, '第二行');
 });
 
-test('content URI 封面由图片解码器读取，不用文件路径 exists 判定', async () => {
-  const h = setup(), decoded = [];
-  h.native.readAudioAssets = async () => ({ signature: 'sha', lyrics: 'embedded', warnings: [] });
-  h.mocks['react-native'].Image.getSize = (uri, done) => { decoded.push(uri); done(100, 100); };
-  const runtime = h.load('src/services/localMediaRuntime.ts');
-  const uri = 'content://media/external/audio/albumart/9';
-  const result = await runtime.resolveLocalMediaAssets({ ...song, picUrl: uri }, () => {}, () => true);
-  assert.equal(result.status, 'local'); assert.equal(result.coverUri, uri);
-  assert.ok(decoded.includes(uri));
+test('封面不再是本地补全的一部分：运行时不再读取或校验任何封面', () => {
+  const source = fs.readFileSync(path.join(mobileRoot, 'src/services/localMediaRuntime.ts'), 'utf8');
+  for (const removed of ['cacheCover', 'Image', 'validateImage', 'coverUri', 'IMAGE_TIMEOUT_MS']) {
+    assert.equal(source.includes(removed), false, `运行时不得重新引入封面路径：${removed}`);
+  }
 });
 
-test('同键旧缓存写入失效后，不能删除新请求的完整结果', async () => {
+test('重新发布的完整结果覆盖同键缓存的旧结果', async () => {
   const { deferred } = require('./helpers/loadTs.cjs');
   const h = setup(), entered = deferred(), gate = deferred();
   let firstWrite = true, oldCurrent = true, queries = 0;
@@ -94,26 +84,27 @@ test('同键旧缓存写入失效后，不能删除新请求的完整结果', as
   };
   h.mocks['./localMediaSearchService'].findLocalMediaAssets = async () => ++queries === 1
     ? { status: 'matched', lyrics: [{ time: 1, text: 'old' }], issues: [] }
-    : { status: 'matched', lyrics: [{ time: 1, text: 'new' }], coverUrl: 'https://example.test/art', issues: [] };
+    : { status: 'matched', lyrics: [{ time: 1, text: 'new' }], issues: [] };
   const runtime = h.load('src/services/localMediaRuntime.ts');
   const old = runtime.resolveLocalMediaAssets(song, () => {}, () => oldCurrent);
   await entered.promise; oldCurrent = false;
   const next = runtime.resolveLocalMediaAssets(song, () => {}, () => true);
   await new Promise(setImmediate);
   gate.resolve(); await Promise.all([old, next]);
-  const file = [...h.files.keys()].find(name => name.includes('local-media-') && name.endsWith('.json'));
-  const cached = JSON.parse(h.files.get(file));
-  assert.equal(cached.lyrics[0].text, 'new'); assert.equal(cached.coverUri, 'file:///app/cache/covers/art');
+  const name = [...h.files.keys()].find(item => item.includes('local-media-') && item.endsWith('.json'));
+  const cached = JSON.parse(h.files.get(name));
+  assert.equal(cached.lyrics[0].text, 'new');
 });
 
-test('本地 content 封面不会阻止在线歌词缓存，离线仍能复用歌词', async () => {
-  const h = setup(), uri = 'content://media/external/audio/albumart/9';
-  const runtime = h.load('src/services/localMediaRuntime.ts');
-  const input = { ...song, picUrl: uri };
-  const first = await runtime.resolveLocalMediaAssets(input, () => {}, () => true);
-  assert.equal(first.status, 'matched'); assert.equal(first.issues.length, 0);
-  h.mocks['./localMediaSearchService'].findLocalMediaAssets = async () => { throw new Error('offline'); };
-  const second = await runtime.resolveLocalMediaAssets(input, () => {}, () => true);
-  assert.equal(second.status, 'cached'); assert.equal(second.lyrics[0].text, 'online');
-  assert.equal(second.coverUri, uri);
+test('「选择歌词」面板读取指纹与文件里的歌词，且只在调用时读一次', async () => {
+  const h = setup(), runtime = h.load('src/services/localMediaRuntime.ts');
+  h.native.readAudioAssets = async uri => {
+    h.nativeCalls.push(uri);
+    return { signature: 'sha-2', lyrics: '旁挂 .lrc 第一行', warnings: [] };
+  };
+  const read = await runtime.readLocalLyricsFile(song);
+  assert.deepEqual(read, { fingerprint: 'sha-2', lyrics: '旁挂 .lrc 第一行' });
+  assert.deepEqual(h.nativeCalls, [song.url]);
+  h.native.readAudioAssets = async () => ({ signature: 'sha-3', warnings: [] });
+  assert.deepEqual(await runtime.readLocalLyricsFile(song), { fingerprint: 'sha-3' });
 });

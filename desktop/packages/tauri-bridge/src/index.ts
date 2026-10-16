@@ -190,6 +190,16 @@ export async function setAudioLyrics(path: string, lyrics: string): Promise<void
   await invoke<void>("set_audio_lyrics", { path, lyrics });
 }
 
+/**
+ * 计算本地文件的内容指纹（流式 md5）。
+ *
+ * 只给「歌词选择」用：用户在面板上做出选择的那一刻算一次并随记录持久化，
+ * 绝不在扫描或播放路径上调用——整文件读一遍的代价不该落在那些热路径上。
+ */
+export async function hashLocalFile(path: string): Promise<string> {
+  return invoke<string>("hash_local_file", { path });
+}
+
 /** 下载远程文件到本地目录，返回保存路径 */
 export async function downloadFile(
   taskId: string,
@@ -419,9 +429,4 @@ export async function taskbarSetEnabled(enabled: boolean): Promise<void> {
 /** 推送当前播放状态（切歌、暂停恢复等） */
 export async function taskbarUpdateTrack(track: TaskbarTrackPayload): Promise<void> {
   await invoke<void>("taskbar_update_track", { track });
-}
-
-/** 保存用户选定的封面原始字节，独立于可清理的自动缓存。 */
-export async function saveManualCover(dataUrl: string): Promise<string> {
-  return invoke("save_manual_cover", { dataUrl });
 }

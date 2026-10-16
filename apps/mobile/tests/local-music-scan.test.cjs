@@ -288,7 +288,7 @@ test("下载入库后用户编辑字段刷新及重新加载后保留，未编�
   await f.store.getState().scanMusic();
   const downloaded = f.store.getState().localSongs[0];
   await f.store.getState().updateLocalSongMetadata(downloaded, {
-    name: "用户改名", singer: "用户歌手", albumName: "用户专辑", coverUrl: "user-cover", localLyrics: "用户歌词",
+    name: "用户改名", singer: "用户歌手", albumName: "用户专辑", localLyrics: "用户歌词",
   });
   item.song.interval = 200;
   await f.store.getState().scanMusic();
@@ -296,7 +296,8 @@ test("下载入库后用户编辑字段刷新及重新加载后保留，未编�
   assert.equal(edited.name, "用户改名");
   assert.equal(edited.singer, "用户歌手");
   assert.equal(edited.albumName, "用户专辑");
-  assert.equal(edited.picUrl, "user-cover");
+  // 封面已不可编辑（2026-10-16 删除封面匹配/自定义）：重扫后仍取文件自身的封面
+  assert.equal(edited.picUrl, "original-cover");
   assert.equal(edited.localLyrics, "用户歌词");
   assert.equal(edited.interval, 200);
   const restored = setup({ existing: storedSongs(f), downloads: [item] });
@@ -332,13 +333,13 @@ test("下载改名只锁定实际修改字段，未修改的歌手专辑封面�
   assert.deepEqual(actual.localEditedFields, ["name"]);
 });
 
-test("下载用户清空封面在重载刷新后仍保持为空", async () => {
+test("封面不再有用户覆盖：重载刷新后仍来自文件自身", async () => {
   const item = { localPath: "/app/8.mp3", song: { id: "8", source: "kg", name: "原名", singer: "歌手", albumName: "专辑", picUrl: "old-cover" } };
   const f = setup({ downloads: [item] });
   await f.store.getState().scanMusic();
+  // 即使调用方仍尝试传封面字段，也必须被忽略——封面只来自音频文件自己。
   await f.store.getState().updateLocalSongMetadata(f.store.getState().localSongs[0], { name: "原名", singer: "歌手", albumName: "专辑", coverUrl: "" });
   const restored = setup({ existing: storedSongs(f), downloads: [item] });
   await restored.store.getState().scanMusic();
-  assert.equal(restored.store.getState().localSongs[0].picUrl, undefined);
-  assert.equal(restored.store.getState().localSongs[0].img, undefined);
+  assert.equal(restored.store.getState().localSongs[0].picUrl, "old-cover");
 });

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import type { LyricOrigin, MusicInfo } from "@lx/core";
 import { getLyrics, getLocalLyricsOverride, type LyricLine } from "@/services/lyricsService";
+import type { LocalLyricsChoiceFields } from "@/services/localLyricsChoiceModel";
 import { findCurrentLyricLine } from "@/services/lyrics/playbackSync";
 
 export type { LyricLine };
@@ -124,6 +125,10 @@ export function useLyrics(music: MusicInfo | null, progress: number, offsetSec =
     music?.localLyrics,
     music?.localLyricsTranslation,
     music?.localLyricsRomanization,
+    // 歌词选择也要参与：同曲换成「不匹配」或另一份词时，必须重新判定并取消上一次的取词请求。
+    (music as (MusicInfo & LocalLyricsChoiceFields) | null)?.lyricsMode,
+    (music as (MusicInfo & LocalLyricsChoiceFields) | null)?.lyricsFingerprint,
+    (music as (MusicInfo & LocalLyricsChoiceFields) | null)?.lyricsSourceLabel,
   ]);
 
   // 同步计算当前行，不经过 state（避免额外渲染延迟）

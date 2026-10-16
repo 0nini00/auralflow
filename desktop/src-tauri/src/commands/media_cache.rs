@@ -559,20 +559,11 @@ pub fn clear_song_cache(app: AppHandle) -> Result<SongCacheStats, String> {
     song_cache_stats(&app)
 }
 
-
-/// 用户明确选择的封面属于资料，不参与自动缓存淘汰或清空。
-#[tauri::command]
-pub fn save_manual_cover(app: AppHandle, data_url: String) -> Result<String, String> {
-    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("manual-covers");
-    write_manual_cover(&dir, &data_url).map(|path| path.to_string_lossy().into_owned())
-}
-
 /// 按字节魔数识别图片格式，返回扩展名。
 ///
-/// 桌面端只有这里一张图片魔数表：`write_manual_cover`（手动封面落盘）与
-/// `local_audio::set_audio_cover`（把封面写进音频标签）共用它。两者此前不一致——
-/// 前者有白名单，后者只看声明的 MIME 字符串、认不出来就当 JPEG，于是
-/// `data:image/svg+xml` 这类活动内容也能被贴成「JPEG」写进音频文件。
+/// 桌面端只有这里一张图片魔数表：`local_audio::set_audio_cover`（把封面写进音频标签，
+/// 供下载在线曲时使用）靠它做白名单。此前它只看声明的 MIME 字符串、认不出来就当
+/// JPEG，于是 `data:image/svg+xml` 这类活动内容也能被贴成「JPEG」写进音频文件。
 pub(super) fn sniff_image_extension(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         Some("png")
@@ -586,50 +577,6 @@ pub(super) fn sniff_image_extension(bytes: &[u8]) -> Option<&'static str> {
         Some("webp")
     } else {
         None
-    }
-}
-
-fn write_manual_cover(dir: &Path, data_url: &str) -> Result<PathBuf, String> {
-    use base64::Engine;
-    const MAX_BYTES: usize = 10 * 1024 * 1024;
-    let (header, encoded) = data_url.split_once(',').ok_or("封面必须是图片Data URL")?;
-    // 声明的 MIME 只用来索要「预期格式」，真正采信的是字节魔数——两者必须一致。
-    let declared_extension = match header {
-        "data:image/png;base64" => "png",
-        "data:image/jpeg;base64" => "jpg",
-        "data:image/gif;base64" => "gif",
-        "data:image/bmp;base64" => "bmp",
-        "data:image/webp;base64" => "webp",
-        _ => return Err("不支持的封面图片类型".into()),
-    };
-    if encoded.len() > (MAX_BYTES + 2) / 3 * 4 { return Err("封面超过10MB".into()); }
-    let bytes = base64::engine::general_purpose::STANDARD.decode(encoded).map_err(|e| format!("封面解码失败: {}", e))?;
-    if bytes.len() > MAX_BYTES || sniff_image_extension(&bytes) != Some(declared_extension) {
-        return Err("封面内容或大小无效".into());
-    }
-    std::fs::create_dir_all(dir).map_err(|e| format!("创建封面资料目录失败: {}", e))?;
-    let name = format!("{:x}.{}", md5::compute(&bytes), declared_extension);
-    let output = dir.join(&name);
-    let temporary = dir.join(format!("{}.{}.tmp", name, unique_temp_suffix()));
-    let mut guard = TempFileGuard::new(temporary.clone());
-    let mut file = std::fs::File::create(&temporary).map_err(|e| e.to_string())?;
-    file.write_all(&bytes).map_err(|e| e.to_string())?;
-    file.sync_all().map_err(|e| e.to_string())?;
-    drop(file);
-    std::fs::rename(&temporary, &output).map_err(|e| format!("保存手动封面失败: {}", e))?;
-    guard.disarm();
-    Ok(output)
-}
-
-#[cfg(test)]
-mod manual_cover_tests {
-    use super::*;
-    #[test]
-    fn rejects_active_content_and_wrong_image_magic() {
-        let dir = std::env::temp_dir().join(format!("auralflow-manual-cover-{}", unique_temp_suffix()));
-        assert!(write_manual_cover(&dir, "data:image/svg+xml;base64,PHN2Zy8+").is_err());
-        assert!(write_manual_cover(&dir, "data:image/png;base64,bm90IGEgcG5n").is_err());
-        assert!(!dir.exists());
     }
 }
 
@@ -666,7 +613,7 @@ mod cache_lookup_tests {
 mod image_magic_tests {
     use super::*;
 
-    /// 魔数表是桌面端唯一的一张（前端 `manualMediaMatchService.imageMime` 同源），
+    /// 魔数表是桌面端唯一的一张，
     /// 认不出来的字节一律 `None` —— `set_audio_cover` 靠这个挡掉 SVG 这类活动内容。
     #[test]
     fn sniff_recognizes_supported_images_and_rejects_anything_else() {

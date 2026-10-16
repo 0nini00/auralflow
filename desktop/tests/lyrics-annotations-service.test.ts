@@ -43,9 +43,11 @@ describe('歌词来源及手动覆盖优先级', () => {
   });
 });
 
-it.each(['', '   \n\t'])('显式清空 %j 优先于持久化缓存、内嵌词及所有自动来源', async (localLyrics) => {
+// 「不匹配」现在由 lyricsMode 表达（空串只表示「没有文本」）：这两条把权威空的语义钉在 mode 上，
+// 无论文本是空串还是只有空白，都必须短路在缓存、内嵌词与所有自动来源之前。
+it.each([['', '空串'], ['   \n\t', '仅空白']])('不匹配（local-only）在 %s 下优先于持久化缓存、内嵌词及所有自动来源', async (localLyrics) => {
   deps.getCachedLyrics.mockResolvedValue({ lines: [{ time: 1, text: '旧缓存' }] });
-  const track = music({ source: 'local', lyrics: '[00:01]旧内嵌', localLyrics });
+  const track = music({ source: 'local', lyrics: '[00:01]旧内嵌', localLyrics, lyricsMode: 'local-only' });
   expect(await getLyrics(track, [music()])).toEqual({ lines: [] });
   expect(await __lyricsInternals.getLyricsForSingle(track)).toEqual({ lines: [] });
   expect(deps.getCachedLyrics).not.toHaveBeenCalled();
@@ -53,15 +55,15 @@ it.each(['', '   \n\t'])('显式清空 %j 优先于持久化缓存、内嵌词�
   expect(deps.getSource).not.toHaveBeenCalled();
   expect(deps.fetch).not.toHaveBeenCalled();
 });
-it('显式清空优先于已命中的内存缓存，只有 undefined 才恢复自动词', async () => {
+it('不匹配（local-only）优先于已命中的内存缓存，恢复自动匹配（去掉 mode）后仍回到自动词', async () => {
   const track = music();
   await getLyrics(track);
   vi.clearAllMocks();
-  expect(await getLyrics({ ...track, localLyrics: '' })).toEqual({ lines: [] });
+  expect(await getLyrics({ ...track, localLyrics: '', lyricsMode: 'local-only' })).toEqual({ lines: [] });
   expect(deps.getSource).not.toHaveBeenCalled();
   expect(deps.getCachedLyrics).not.toHaveBeenCalled();
   expect(deps.saveCachedLyrics).not.toHaveBeenCalled();
-  expect((await getLyrics({ ...track, localLyrics: undefined })).lines[0].text).toBe('日');
+  expect((await getLyrics({ ...track, localLyrics: '' })).lines[0].text).toBe('日');
 });
 it('手动候选的翻译和罗马音按时间合并，原文、注音和逐字时间不丢失', async () => {
   const track = music({
@@ -80,9 +82,10 @@ it('手动候选的翻译和罗马音按时间合并，原文、注音和逐字�
   expect(deps.saveCachedLyrics).not.toHaveBeenCalled();
   expect(deps.getSource).not.toHaveBeenCalled();
 });
-it('原文显式清空时，保留的辅助轨不能恢复歌词或触发自动来源', async () => {
+it('不匹配（local-only）时保留的辅助轨不能恢复歌词或触发自动来源', async () => {
   expect(await getLyrics(music({
-    localLyrics: '', localLyricsTranslation: '[00:01]翻译', localLyricsRomanization: '[00:01]roma',
+    lyricsMode: 'local-only', localLyrics: '',
+    localLyricsTranslation: '[00:01]翻译', localLyricsRomanization: '[00:01]roma',
   }))).toEqual({ lines: [] });
   expect(deps.getCachedLyrics).not.toHaveBeenCalled();
   expect(deps.getSource).not.toHaveBeenCalled();

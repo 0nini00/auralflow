@@ -4,16 +4,11 @@ import { MetadataEditModal } from '../src/components/MetadataEditModal';
 import type { LocalSong } from '../src/services/localMusicService';
 
 const native = vi.hoisted(() => ({
-  getAudioInfo: vi.fn(), setAudioMetadata: vi.fn(), setAudioCover: vi.fn(), setAudioLyrics: vi.fn(),
-  cacheRemoteImage: vi.fn(), saveManualCover: vi.fn(), open: vi.fn(), readFile: vi.fn(), stat: vi.fn(), updateSong: vi.fn(),
+  getAudioInfo: vi.fn(), setAudioMetadata: vi.fn(), setAudioLyrics: vi.fn(), updateSong: vi.fn(),
 }));
 vi.mock('@lx/tauri-bridge', () => native);
-vi.mock('@tauri-apps/api/core', () => ({ convertFileSrc: (path: string) => `asset://${path}` }));
-vi.mock('@tauri-apps/plugin-dialog', () => ({ open: native.open }));
-vi.mock('@tauri-apps/plugin-fs', () => ({ readFile: native.readFile, stat: native.stat }));
 vi.mock('@/stores/libraryStore', () => ({ useLibraryStore: (selector: any) => selector({ updateSong: native.updateSong }) }));
 vi.mock('@/services/sources/sourceService', () => ({ getSource: vi.fn() }));
-vi.mock('@/services/outboundHttp', () => ({ outboundRequest: vi.fn() }));
 
 const song: LocalSong = {
   id: 'local-one', path: 'C:\\music\\one.mp3', title: '原歌名', artist: '歌手', album: '专辑',
@@ -28,7 +23,6 @@ const deferred = <T,>() => {
 let renderer: ReactTestRenderer | undefined;
 let close: ReturnType<typeof vi.fn>;
 const text = () => JSON.stringify(renderer!.toJSON());
-const button = (label: string) => renderer!.root.findAllByType('button').find((node) => node.children.join('') === label)!;
 const save = () => renderer!.root.findAllByType('button').find((node) => node.props.className === 'af-btn-primary')!;
 async function mount(value: LocalSong | null = song) {
   await act(async () => { renderer = create(<MetadataEditModal song={value} onClose={close} />); });
@@ -36,18 +30,16 @@ async function mount(value: LocalSong | null = song) {
 beforeEach(() => {
   vi.resetAllMocks();
   close = vi.fn();
-  native.saveManualCover.mockResolvedValue('C:\\data\\manual-covers\\picked.png');
   native.getAudioInfo.mockResolvedValue({ ...song, lyrics: '[00:01.00]原歌词' });
 });
 afterEach(() => { act(() => renderer?.unmount()); renderer = undefined; });
 
 describe('手动编辑保存边界', () => {
-  it('默认只保存本机曲库，不写文件、不清除未编辑歌词或封面', async () => {
+  it('默认只保存本机曲库，不写文件、不清除未编辑歌词', async () => {
     await mount();
     await act(async () => { await save().props.onClick(); });
     expect(native.setAudioMetadata).not.toHaveBeenCalled();
     expect(native.setAudioLyrics).not.toHaveBeenCalled();
-    expect(native.setAudioCover).not.toHaveBeenCalled();
     expect(native.updateSong).toHaveBeenCalledWith(song.id, {});
     expect(close).toHaveBeenCalledOnce();
   });
@@ -111,17 +103,5 @@ describe('手动编辑保存边界', () => {
     expect(close).not.toHaveBeenCalled();
     expect(native.updateSong).toHaveBeenCalledWith(song.id, { title: '新标题' });
     expect(native.updateSong.mock.calls.every(([, patch]) => !('lyricsOverride' in patch))).toBe(true);
-  });
-
-  it('本地封面选择用短asset路径保存，不写文件也不持久化base64', async () => {
-    native.open.mockResolvedValue('C:\\covers\\picked.png');
-    native.stat.mockResolvedValue({ size: 8 });
-    native.readFile.mockResolvedValue(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]));
-    await mount();
-    await act(async () => { await button('更换封面').props.onClick(); });
-    await act(async () => { await save().props.onClick(); });
-    expect(native.updateSong).toHaveBeenCalledWith(song.id, { coverOverride: 'asset://C:\\data\\manual-covers\\picked.png' });
-    expect(native.setAudioCover).not.toHaveBeenCalled();
-    expect(JSON.stringify(native.updateSong.mock.calls)).not.toContain('base64');
   });
 });

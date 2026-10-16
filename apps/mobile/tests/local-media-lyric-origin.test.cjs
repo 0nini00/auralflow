@@ -18,7 +18,6 @@ function setup() {
     readLocal: async () => behavior.native,
     readCache: async key => cache.get(key) ?? null,
     writeCache: async (key, value) => { cache.set(key, value); },
-    cover: async uri => uri,
     parse: async raw => raw ? [{ time: 1, text: raw }] : [],
     search: async () => behavior.search,
     now: () => 1000,
@@ -58,7 +57,7 @@ test("新增来源标注不改变缓存键语义", () => {
 test("同曲异唱来源标注随缓存一起持久化；旧缓存缺该字段仍按无标注复用", async () => {
   const h = setup();
   h.behavior.search = {
-    status: "matched", lyrics: lines, coverUrl: "https://example.test/cover",
+    status: "matched", lyrics: lines,
     candidate: { source: "wy", id: "cover-version", name: "歌曲", singer: "翻唱者" },
     lyricOrigin: ORIGIN, issues: [],
   };
@@ -111,15 +110,14 @@ test("标注停留时长：同曲异唱久于歌词库出处，无标注时不�
   assert.equal(model.buildLyricOriginNote(undefined), undefined);
 });
 
-test("纯音乐但同时补到封面时仍是 matched +「纯音乐，无歌词」，封面照常缓存", async () => {
+test("纯音乐（搜索层没有任何歌词）如实报告「纯音乐，无歌词」，不写缓存", async () => {
   const h = setup();
-  h.behavior.search = { status: "matched", coverUrl: "https://example.test/cover", issues: ["lrclib:instrumental"] };
+  h.behavior.search = { status: "matched", issues: ["lrclib:instrumental"] };
   const result = await h.resolve();
-  assert.equal(result.status, "matched");
+  assert.equal(result.status, "not-found");
   assert.equal(result.message, "纯音乐，无歌词");
   assert.deepEqual(result.lyrics, []);
-  assert.equal(result.coverUri, "https://example.test/cover");
-  assert.equal(h.cache.get(h.cacheKey("file-v1")).coverUri, "https://example.test/cover");
+  assert.equal(h.cache.size, 0);
 });
 
 test("来源标注选择器必须返回同一个对象（zustand v5 无 equalityFn，不稳定选择器会让 React 无限重渲染）", () => {

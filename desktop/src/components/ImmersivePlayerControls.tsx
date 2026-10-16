@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react';
-import { LogOut, Ellipsis, Gauge, ListMusic, Pause, Play, Repeat, Repeat1, Share2, Shuffle, SkipBack, SkipForward, Languages, Volume2, VolumeX } from 'lucide-react';
+import { LogOut, Ellipsis, FileText, Gauge, ListMusic, Pause, Play, Repeat, Repeat1, Share2, Shuffle, SkipBack, SkipForward, Languages, Volume2, VolumeX } from 'lucide-react';
 import { IMMERSIVE_QUEUE_CLASSES, QueuePanel } from '@/components/QueuePanel';
 import { formatTime } from '@/utils/formatTime';
 
@@ -42,6 +42,13 @@ export interface ImmersivePlayerControlsProps {
     remove: (index: number) => void;
   };
   desktopLyrics: { open: boolean; label: string; toggle: () => void };
+  /**
+   * 本地曲的「选择歌词」入口。
+   *
+   * 在线曲的歌词来自音源本身、没有可选项，因此调用方对非本地曲不传它——按钮随整个入口一起
+   * 消失，避免出现一个点了没用的控件。
+   */
+  lyricsChoice?: { label: string; open: () => void };
   onPanelOpenChange: (open: boolean) => void;
   error?: string;
   shareStatus?: string;
@@ -51,7 +58,7 @@ export interface ImmersivePlayerControlsProps {
 const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 export const ImmersivePlayerControls = forwardRef<ImmersivePlayerControlsHandle, ImmersivePlayerControlsProps>(
-  function ImmersivePlayerControls({ playback, actions, timeline, lyrics, queue, desktopLyrics, onPanelOpenChange, error, shareStatus, children }, ref) {
+  function ImmersivePlayerControls({ playback, actions, timeline, lyrics, queue, desktopLyrics, lyricsChoice, onPanelOpenChange, error, shareStatus, children }, ref) {
     const [panel, setPanel] = useState<Panel | null>(null);
     const triggers = useRef<Partial<Record<Panel, HTMLButtonElement | null>>>({});
 
@@ -150,6 +157,13 @@ export const ImmersivePlayerControls = forwardRef<ImmersivePlayerControlsHandle,
                 <div id="af-immersive-more-panel" className="af-immersive-popover af-immersive-more-panel" role="dialog" aria-label="更多播放操作">
                   <div className="af-immersive-more-grid">
                     {children}
+                    {/* 本地曲才能选歌词：入口不存在时按钮也不存在，不给用户一个点了没用的控件。 */}
+                    {lyricsChoice && (
+                      <button type="button" className="af-immersive-more-action" aria-label={lyricsChoice.label}
+                        onClick={() => { dismissPanel(); lyricsChoice.open(); }}>
+                        <FileText size={18} /><span>{lyricsChoice.label}</span>
+                      </button>
+                    )}
                     <label className="af-immersive-more-speed"><Gauge size={18} aria-hidden="true" /><span>播放速度</span>
                       <select aria-label="播放速度" value={playback.playbackRate} onChange={event => actions.setPlaybackRate(Number(event.target.value))}>
                         {PLAYBACK_RATES.map(rate => <option key={rate} value={rate}>{rate}x</option>)}
