@@ -1,12 +1,12 @@
 # services/
 
-业务逻辑层：承载播放引擎、源解析、账号、同步、缓存、下载等核心规则；直接读写 Zustand store，系统级 IO 主要经 `@lx/tauri-bridge` 包装的 Rust 命令（但有 43 处直接 `import @tauri-apps/*`，见文末），并消费 `@lx/core` 的跨平台能力。
+业务逻辑层：承载播放引擎、源解析、账号、同步、缓存、下载等核心规则；直接读写 Zustand store，系统级 IO 主要经 `@lx/tauri-bridge` 包装的 Rust 命令（但有 45 条直接 `import @tauri-apps/*` 的语句、分布在 35 个文件，见文末），并消费 `@lx/core` 的跨平台能力。
 
 ## 目录结构
 
 ```
 services/
-├── lyrics/   # 歌词（3）：animationIntensity autoScrollModel playbackSync（解析器在 @lx/core 的 lyrics/parser.ts，本地已无 parserCore）
+├── lyrics/   # 歌词（4）：animationIntensity autoScrollModel lyricOriginNote playbackSync（解析器在 @lx/core 的 lyrics/parser.ts，本地已无 parserCore）
 ├── playback/ # 播放（13）：builtinNeteaseBackend builtinProviderBackend crossSourceFallbackService customSourceBackend
 │             #       immersiveKeyboard playbackResolver playbackSnapshot playbackSnapshotModel
 │             #       playModeControl prefetchModel prefetchService streamProbe types
@@ -24,7 +24,8 @@ services/
 | WebDAV 同步 | `webdavSyncService.ts` | 865 | 同步锁 `withSyncLock` + `lastModified` 冲突 `assertCloudNotStale` + 下载 merge / 上传 overwrite + localStorage 备份 + `/AuralFlow/` 写 / `/LX_Music/` 读回退 |
 | 网易账号 | `wyAccountService.ts` | 632 | weapi/eapi 双通道 + QR 登录（type=3 unikey → SVG 二维码 → 轮询 800/801/802/803）+ 歌单 CRUD + 日推/FM + `extractSetCookie`（`Headers.getSetCookie`） |
 | 歌词 | `lyricsService.ts` | 501 | 多源嵌入式 → provider `getLyric` → LRC Lib 两轮直查（主歌手不带时长 → 完整歌手带时长）→ 网易搜索候选交 `localMediaMatch.ts` 判定（不再本地打分；同曲异唱档带 `origin` 标注）+ `scoreLyricContentQuality` 组内择优 + 翻译合并 |
-| 平台匹配 | `localMediaMatch.ts` | 99 | 本地曲 ↔ 网易云公共匹配层：老版 web 搜索（8 条）+ `@lx/core` `selectLocalMediaMatch` 判定 + `adoptedMatchCandidateId`；歌词与封面共用同一份规则，`fetchNeteaseJson` 带上 Referer |
+| 歌词来源标注 | `lyrics/lyricOriginNote.ts` | 23 | 同曲异唱档（`LyricOrigin.tier === "other-performer"`）生成一条 10s 停留的「歌词来自 X 的演唱版本」提示，供歌词窗与沉浸歌词浮层显示；同一录音档不提示 |
+| 平台匹配 | `localMediaMatch.ts` | 100 | 本地曲 ↔ 网易云公共匹配层：老版 web 搜索（8 条）+ `@lx/core` `selectLocalMediaMatch` 判定 + `adoptedMatchCandidateId`；歌词与封面共用同一份规则，`fetchNeteaseJson` 带上 Referer |
 | 封面匹配 | `localCoverMatch.ts` | 234 | 本地曲自动封面（内嵌/手动之外的那一条）：磁盘缓存命中即返回 →（缺候选 id 才搜平台）→ **官方 `song/detail` 的 `album.picUrl` 为主、gdstudio 网关 pic 为兜底**（实测：官方 4/4 可取，网关 4/4 无 url 且唯一返回过一次的是图床 404 的假地址）→ 落盘并回填 asset 地址；会话级负缓存 + 同键并发去重 |
 | 二维码 | `qrCode.ts` | 237 | SVG 二维码生成 |
 | 私人 FM 队列 | `personalFmQueue.ts` | 223 | 私人 FM 队列 + dislike → trash |
@@ -49,4 +50,4 @@ services/
 
 ## 与 @lx/tauri-bridge 的关系
 
-`@lx/tauri-bridge` 是**部分** Tauri 命令的类型化包装，**不是唯一 IPC 路径、也不是强制关口**：`desktop/src` 有 43 处直接 `import @tauri-apps/*`（`plugin-http` 的静态白名单直连，以及 `plugin-dialog` / `plugin-fs` / `plugin-shell` 等），其中 2 处直接 `invoke`（`services/outboundHttp.ts`、`utils/compression.ts`）。所以「新增 IO 必须走桥」这条规则在代码里并不成立——细节见 `desktop/src/SPEC.md` 与 `desktop/packages/tauri-bridge/SPEC.md`。
+`@lx/tauri-bridge` 是**部分** Tauri 命令的类型化包装，**不是唯一 IPC 路径、也不是强制关口**：`desktop/src` 有 45 条直接 `import @tauri-apps/*` 的语句（分布在 35 个文件：`plugin-http` 的静态白名单直连，以及 `plugin-dialog` / `plugin-fs` / `plugin-shell` 等），其中 2 处直接 `invoke`（`services/outboundHttp.ts`、`utils/compression.ts`）。所以「新增 IO 必须走桥」这条规则在代码里并不成立——细节见 `desktop/src/SPEC.md` 与 `desktop/packages/tauri-bridge/SPEC.md`。

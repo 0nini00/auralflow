@@ -42,7 +42,6 @@ function setup(config = {}) {
     "@/stores/playbackSettingsStore": { usePlaybackSettingsStore: { getState: () => settings } },
     "@/stores/playerStore": { usePlayerStore: { getState: () => state, setState: patch => Object.assign(state, patch) },
       setupPlayerListeners: () => calls.push("setupPlayerListeners"), shouldAttributePlaybackErrorToCurrentSong: () => true, SILENCE_GAP_TRACK_ID: "gap" },
-    "@/services/wakeLockService": { acquirePlaybackWakeLock: async () => calls.push("acquire"), releasePlaybackWakeLock: async () => calls.push("release") },
     "@/services/logger": { logger: { info: (...args) => calls.push(["info", ...args]), warn: (...args) => calls.push(["warn", ...args]), error: (...args) => calls.push(["error", ...args]) } },
     "@/services/playbackUrlCache": { invalidateCachedPlaybackUrl: () => { calls.push("invalidateCachedPlaybackUrl"); return behavior.invalidate(); } },
     "../services/playerService": playerService,

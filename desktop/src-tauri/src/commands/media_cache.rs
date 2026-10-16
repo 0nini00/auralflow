@@ -398,6 +398,20 @@ pub async fn cache_remote_audio(
     Ok(path)
 }
 
+/// 启动时的缓存容量守卫（由 `main.rs` 的 setup 在后台线程调用）。
+///
+/// `enforce_cache_limit` 只在写入新缓存后调用，所以「上次运行写超上限、之后没再写」
+/// 的目录会一直超着；移动端有等价的启动清理（`autoCleanCache`），桌面端此前没有。
+/// 命中缓存会刷新 mtime，因此这里淘汰掉的确实是最不常访问的那些。
+pub fn sweep_caches(app: &AppHandle) {
+    let (Ok(audio_dir), Ok(cover_dir)) = (song_audio_cache_dir(app), song_cover_cache_dir(app))
+    else {
+        return; // 目录取不到就跳过：缓存守卫不该影响启动
+    };
+    enforce_cache_limit(&audio_dir, SONG_AUDIO_CACHE_MAX_BYTES);
+    enforce_cache_limit(&cover_dir, SONG_COVER_CACHE_MAX_BYTES);
+}
+
 const AUDIO_CACHE_EXTS: &[&str] = &["mp3", "flac", "m4a", "aac", "ogg", "opus", "wav"];
 const COVER_CACHE_EXTS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "bmp"];
 
@@ -553,26 +567,48 @@ pub fn save_manual_cover(app: AppHandle, data_url: String) -> Result<String, Str
     write_manual_cover(&dir, &data_url).map(|path| path.to_string_lossy().into_owned())
 }
 
+/// 按字节魔数识别图片格式，返回扩展名。
+///
+/// 桌面端只有这里一张图片魔数表：`write_manual_cover`（手动封面落盘）与
+/// `local_audio::set_audio_cover`（把封面写进音频标签）共用它。两者此前不一致——
+/// 前者有白名单，后者只看声明的 MIME 字符串、认不出来就当 JPEG，于是
+/// `data:image/svg+xml` 这类活动内容也能被贴成「JPEG」写进音频文件。
+pub(super) fn sniff_image_extension(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("png")
+    } else if bytes.starts_with(b"\xff\xd8\xff") {
+        Some("jpg")
+    } else if bytes.starts_with(b"GIF8") {
+        Some("gif")
+    } else if bytes.starts_with(b"BM") {
+        Some("bmp")
+    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+        Some("webp")
+    } else {
+        None
+    }
+}
+
 fn write_manual_cover(dir: &Path, data_url: &str) -> Result<PathBuf, String> {
     use base64::Engine;
     const MAX_BYTES: usize = 10 * 1024 * 1024;
     let (header, encoded) = data_url.split_once(',').ok_or("封面必须是图片Data URL")?;
-    let (extension, prefix): (&str, &[u8]) = match header {
-        "data:image/png;base64" => ("png", b"\x89PNG\r\n\x1a\n"),
-        "data:image/jpeg;base64" => ("jpg", b"\xff\xd8\xff"),
-        "data:image/gif;base64" => ("gif", b"GIF8"),
-        "data:image/bmp;base64" => ("bmp", b"BM"),
-        "data:image/webp;base64" => ("webp", b"RIFF"),
+    // 声明的 MIME 只用来索要「预期格式」，真正采信的是字节魔数——两者必须一致。
+    let declared_extension = match header {
+        "data:image/png;base64" => "png",
+        "data:image/jpeg;base64" => "jpg",
+        "data:image/gif;base64" => "gif",
+        "data:image/bmp;base64" => "bmp",
+        "data:image/webp;base64" => "webp",
         _ => return Err("不支持的封面图片类型".into()),
     };
     if encoded.len() > (MAX_BYTES + 2) / 3 * 4 { return Err("封面超过10MB".into()); }
     let bytes = base64::engine::general_purpose::STANDARD.decode(encoded).map_err(|e| format!("封面解码失败: {}", e))?;
-    if bytes.len() > MAX_BYTES || !bytes.starts_with(prefix)
-        || (extension == "webp" && bytes.get(8..12) != Some(b"WEBP")) {
+    if bytes.len() > MAX_BYTES || sniff_image_extension(&bytes) != Some(declared_extension) {
         return Err("封面内容或大小无效".into());
     }
     std::fs::create_dir_all(dir).map_err(|e| format!("创建封面资料目录失败: {}", e))?;
-    let name = format!("{:x}.{}", md5::compute(&bytes), extension);
+    let name = format!("{:x}.{}", md5::compute(&bytes), declared_extension);
     let output = dir.join(&name);
     let temporary = dir.join(format!("{}.{}.tmp", name, unique_temp_suffix()));
     let mut guard = TempFileGuard::new(temporary.clone());
@@ -623,5 +659,31 @@ mod cache_lookup_tests {
         assert!(hit.path.ends_with("wy-2-audio-builtinNetease-320k.mp3"));
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod image_magic_tests {
+    use super::*;
+
+    /// 魔数表是桌面端唯一的一张（前端 `manualMediaMatchService.imageMime` 同源），
+    /// 认不出来的字节一律 `None` —— `set_audio_cover` 靠这个挡掉 SVG 这类活动内容。
+    #[test]
+    fn sniff_recognizes_supported_images_and_rejects_anything_else() {
+        assert_eq!(sniff_image_extension(b"\x89PNG\r\n\x1a\n\x00\x00"), Some("png"));
+        assert_eq!(sniff_image_extension(b"\xff\xd8\xff\xe0"), Some("jpg"));
+        assert_eq!(sniff_image_extension(b"GIF89a"), Some("gif"));
+        assert_eq!(sniff_image_extension(b"BM\x00\x00"), Some("bmp"));
+        assert_eq!(
+            sniff_image_extension(b"RIFF\x00\x00\x00\x00WEBPVP8 "),
+            Some("webp")
+        );
+
+        // RIFF 容器但不是 WEBP（WAV / AVI）不算图片。
+        assert_eq!(sniff_image_extension(b"RIFF\x00\x00\x00\x00WAVEfmt "), None);
+        // SVG 是活动内容：此前 `set_audio_cover` 会把这类字节当 JPEG 写进音频文件。
+        assert_eq!(sniff_image_extension(b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>"), None);
+        assert_eq!(sniff_image_extension(b""), None);
+        assert_eq!(sniff_image_extension(b"not an image at all"), None);
     }
 }

@@ -10,6 +10,7 @@ import { DownloadQualityButton } from "@/components/DownloadQualityButton";
 import { formatDuration } from "@/lib/utils";
 import { formatPlaylistSearchMeta } from "@/services/neteasePlaylistUtils";
 import { ROW_COVER_CSS_SIZE, coverSrc } from "@/utils/imageReferrerPolicy";
+import { buildImportedPlaylistMarker } from "@/utils/shared";
 import {
   createEmptySearchResult,
   mergeSearchResultInto,
@@ -136,10 +137,6 @@ function getFeaturedAlbum(albums: AlbumInfo[]): AlbumInfo | null {
 function getFeaturedPlaylist(playlists: PlaylistInfo[]): PlaylistInfo | null {
   if (playlists.length === 0) return null;
   return [...playlists].sort((a, b) => (b.playCount ?? 0) - (a.playCount ?? 0))[0];
-}
-
-function buildImportedPlaylistMarker(playlist: PlaylistInfo): string {
-  return `[af-imported-playlist:${playlist.source}:${playlist.id}]`;
 }
 
 type BrowseSearchType = (typeof SEARCH_ALL_TYPES)[number];

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { assertPublicOutboundUrl, isBlockedOutboundHost } from "./outbound-host";
 
 /**
@@ -207,5 +210,47 @@ describe("assertPublicOutboundUrl", () => {
   it("host 大小写不敏感且 scheme 不区分大小写", () => {
     expect(() => assertPublicOutboundUrl("HTTP://LOCALHOST/", "测试")).toThrow(/本地|内网/);
     expect(() => assertPublicOutboundUrl("http://LocalHost./", "测试")).toThrow(/本地|内网/);
+  });
+  /**
+   * 跨端一致性（此前缺失的那条校验）：同一批 URL，本模块（移动端实际执行的实现）
+   * 与 Rust 侧 `assert_public_url`（桌面端实际执行的实现）必须给出相同结论。
+   *
+   * 清单 `packages/core/outbound-host.cases.tsv` 由两侧测试共读——Rust 侧见
+   * `desktop/src-tauri/src/outbound.rs` 的
+   * `cross_language_contract_matches_the_shared_case_list`。任一侧改了规则而另一侧
+   * 没跟上，这里就会红；清单里的 allow 样本同时也是反向约束——不许把正常目标一起
+   * 拦掉。
+   */
+  it("与 Rust 侧共用同一份出站判定契约清单", () => {
+    const allowsResponse = (url: string): boolean => {
+      try {
+        assertPublicOutboundUrl(url, "跨端契约");
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    const casesPath = fileURLToPath(new URL("../outbound-host.cases.tsv", import.meta.url));
+    const lines = readFileSync(casesPath, "utf8").split(/\r?\n/);
+    let checked = 0;
+
+    lines.forEach((raw, index) => {
+      const line = raw.trim();
+      if (!line || line.startsWith("#")) return;
+      const [verdict, url] = line.split("\t");
+      expect(url, `清单第 ${index + 1} 行缺少 URL`).toBeTruthy();
+      const allowed = allowsResponse(url);
+      if (verdict === "block") {
+        expect(allowed, `JS 侧应拦截却放行: ${url}`).toBe(false);
+      } else if (verdict === "allow") {
+        expect(allowed, `JS 侧应放行却拦截: ${url}`).toBe(true);
+      } else {
+        throw new Error(`清单第 ${index + 1} 行判定非法: ${verdict}`);
+      }
+      checked += 1;
+    });
+
+    expect(checked).toBeGreaterThanOrEqual(45);
   });
 });

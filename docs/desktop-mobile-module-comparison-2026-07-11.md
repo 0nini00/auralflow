@@ -95,7 +95,7 @@
 |---|---|---|---|---|
 | URL 缓存 | `persistentCache.ts` playbackUrl TTL 其他 6h/bili 30min/local 1y MAX500（`:8-16`） | `playbackUrlCache.ts` 移植桌面 persistentCache（含 variants 双键、TTL、prune）+AsyncStorage URL 缓存 6h/30min/1yr | — | ✅ 对齐 |
 | 歌词缓存 | 内存+持久化 | `cacheService.ts` `cacheLyrics`（`:153`） | — | ✅ 对齐 |
-| 音频文件缓存 | `mediaCache.ts` 三层 2GiB LRU（`cacheRemoteAudio` 经 Rust 桥落盘+`convertFileSrc`） | `cacheService.ts` `cacheAudioFile`（`:222`）+`isLocalFilePlayable`（`:248`） 三层 内存 10min/磁盘 LRU 100MB | — | ✅ 对齐（07-10 误判已修正） |
+| 音频文件缓存 | `mediaCache.ts` 三层 2GiB LRU（`cacheRemoteAudio` 经 Rust 桥落盘+`convertFileSrc`） | `cacheService.ts` `cacheAudioFile`（`:222`）+`isLocalFilePlayable`（`:248`） 三层 内存 10min/磁盘 LRU 2GB | — | ✅ 对齐（07-10 误判已修正） |
 | 封面文件缓存 | `mediaCache.ts` `cacheRemoteImage` 落盘 | `cacheService.ts` `cacheCover`（`:106`）+`CachedImage`(@d11/react-native-fast-image+Glide) | — | ✅ 对齐（07-10 误判已修正） |
 | 缓存统计 | `getSongCacheStats` audioCacheSize/coverCacheSize | 分类统计 | — | ✅ 对齐 |
 | 后台下载音频 | 无 | `playerService.ts`（`:170`） 解析成功后后台下载音频到缓存（仅 wy/tx，`CACHEABLE_AUDIO_SOURCES`） | — | 📱 移动独有 |
@@ -162,7 +162,7 @@
 
 | 维度 | 桌面实现文件 | 移动实现文件 | 共享核心依赖 | 差异性质 |
 |---|---|---|---|---|
-| 路由框架 | BrowserRouter v6 12 路由 | React Navigation v7 Drawer>NativeStack>BottomTabs+MaterialTopTabs | — | 🟢 平台原生 |
+| 路由框架 | BrowserRouter v6 14 路由 | React Navigation v7 Drawer>NativeStack>BottomTabs+MaterialTopTabs | — | 🟢 平台原生 |
 | 常驻侧栏 | `Sidebar.tsx` 常驻 | `MainDrawerNavigator.tsx` Drawer 默认关闭 front overlay+`AppSidebar.tsx` 镜像桌面入口 | — | 💻 桌面独有 |
 | 顶部栏 | `Header.tsx` 搜索/联想/主题切换/前进后退 | `MobileHeader.tsx` 汉堡/搜索/联想/主题切换 | — | 🟢 平台原生 |
 | 曲库内嵌 | 独立页面（PlaylistsView/HistoryView/LocalMusicView/DownloadsView） | `LibraryScreen` 内嵌 Local/History/Downloads/Bili 条件登录 | — | 📱 移动独有 |

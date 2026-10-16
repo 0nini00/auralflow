@@ -7,7 +7,7 @@
 | 层级 | 介质 | 容量 / TTL | 内容 | 驱逐 |
 | --- | --- | --- | --- | --- |
 | 内存预取 | 进程内 Map | 10min TTL | 下一首已解析的播放 URL / 歌词 / 封面 | TTL 过期 |
-| 磁盘音频文件 | RNFS 文件系统 | LRU 100MB，immutable | 音频文件、封面、歌词 | LRU（mtime 最旧优先） |
+| 磁盘音频文件 | RNFS 文件系统 | LRU 2GB，immutable | 音频文件、封面、歌词 | LRU（mtime 最旧优先） |
 | AsyncStorage URL 缓存 | AsyncStorage | 500 条；普通 6h / 本地 1yr | 歌曲 → 播放 URL 映射 | 条数上限 + TTL 差异 |
 
 ### 磁盘目录
@@ -19,7 +19,7 @@
 └── audio/       # 音频文件
 ```
 
-> 注：音频文件按 `DocumentDirectoryPath/auralflow/audio/` 维护（下载入库），缓存文件目录走 `CachesDirectoryPath`，两者均 immutable + LRU。
+> 注：音频文件按 `DocumentDirectoryPath/auralflow/downloads/` 维护（下载入库），缓存文件目录走 `CachesDirectoryPath`，两者均 immutable，但 LRU 驱逐只覆盖缓存目录，下载文件不参与自动淘汰。
 
 ## URL 缓存（playbackUrlCache）
 
@@ -38,7 +38,7 @@
 `src/services/cacheService.ts`：
 
 - **immutable 语义**：封面 / 音频「URL 不变永不过期」（对齐 lx 的 FastImage immutable 缓存），只受容量上限约束，避免定期失效反复重新下载。歌词例外：内容可能随版权 / 修词更新，保留 `MAX_CACHE_AGE = 30天` 过期。
-- **LRU 驱逐**：`cacheEvictionModel.selectFilesToEvict` + `enforceCacheSizeLimit`，总大小超过 `MAX_CACHE_SIZE = 100MB` 时按 `mtime` 最旧优先删除，直到低于上限；写入文件后去抖触发。
+- **LRU 驱逐**：`cacheEvictionModel.selectFilesToEvict` + `enforceCacheSizeLimit`，总大小超过 `MAX_CACHE_SIZE = 2GB` 时按 `mtime` 最旧优先删除，直到低于上限；写入文件后去抖触发。
 - **命名**：封面 / 音频按 URL 的 MD5 哈希命名；歌词按 `{source}-{id}.json`。
 - **缓存命中**：`isCacheValid` 仅对歌词做过期校验，封面 / 音频只判存在性。
 - **写入中断清理**：下载中断（网络错误）留下的部分文件会被清理，避免下次被误判为有效 immutable 缓存。
@@ -110,7 +110,7 @@ apps/mobile/src/
 │   ├── playerService.ts          # prefetchSong / invalidatePrefetchForSong / 播放解析
 │   └── downloadService.ts        # 下载 + sidecar .lrc + ID3 嵌标签
 ├── stores/
-│   └── playerStore.ts            # isPreviewDuration 试听判定 + 失效清理（1004 行）
+│   └── playerStore.ts            # isPreviewDuration 试听判定 + 失效清理（1252 行）
 └── components/
     └── CachedImage.tsx            # FastImage immutable + Glide + 2 重试
 ```

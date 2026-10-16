@@ -1,80 +1,14 @@
 /**
- * 移动端主导航模型 —— 底部 4 标签 + 侧边抽屉。
+ * 嵌套页面返回按钮的可见性判定。
  *
- * "player" 不在标签列表中，由 PlayerBar / 程序化入口打开。
- *
- * 注意：本模块不引入 lucide-react-native（RN 原生库在 Node 测试环境解析失败），
- *      icon 只声明语义键，由 UI 层映射到具体图标组件。
+ * 本模块此前还导出了一整套底部标签模型（`APP_TABS`、`APP_SETTINGS_TAB`、
+ * `DEFAULT_APP_TAB`、`getNextAppTab`、`openPlayerTab`、`isVisibleTabId` 以及
+ * `AppTabId` / `VisibleTabId` / `AppTabIconKey` / `AppTabItem` 类型），
+ * 但那批导出在移动端没有任何调用方。真实的底部标签定义在
+ * `src/navigation/MainTabNavigator.tsx`，为避免形成第二份真相源，该模型已删除。
+ * 本模块的导入路径 `@/services/appNavigation` 保持不变。
  */
-export type AppTabId =
-  | "home"
-  | "search"
-  | "library"
-  | "myMusic"
-  | "settings"
-  | "player";
-
-/** 底部标签实际展示的页面 */
-export type VisibleTabId =
-  | "home"
-  | "search"
-  | "library"
-  | "myMusic"
-  | "settings";
-
-/** 图标语义键 —— UI 层负责映射到 lucide 组件 */
-export type AppTabIconKey =
-  | "home"
-  | "search"
-  | "library"
-  | "user"
-  | "settings";
-
-export interface AppTabItem {
-  id: VisibleTabId;
-  label: string;
-  /** 图标语义键，由 UI 层映射为矢量图标 */
-  icon: AppTabIconKey;
-}
-
-export const DEFAULT_APP_TAB: AppTabId = "home";
-
-/** 主列表项：底部 4 标签 */
-export const APP_TABS: AppTabItem[] = [
-  { id: "home", label: "首页", icon: "home" },
-  { id: "search", label: "搜索", icon: "search" },
-  { id: "library", label: "曲库", icon: "library" },
-  { id: "myMusic", label: "我的", icon: "user" },
-];
-
-/** footer 设置项 */
-export const APP_SETTINGS_TAB: AppTabItem = {
-  id: "settings",
-  label: "设置",
-  icon: "settings",
-};
-
-const VISIBLE_TAB_IDS = new Set<VisibleTabId>([
-  ...APP_TABS.map((tab) => tab.id),
-  APP_SETTINGS_TAB.id,
-]);
-
-/**
- * 切换到目标 Tab；如果目标不在可见列表中，保持不变。
- * player 等由各自入口直接打开，不经此函数。
- */
-export function getNextAppTab(current: AppTabId, next: AppTabId): AppTabId {
-  return VISIBLE_TAB_IDS.has(next as VisibleTabId) ? next : current;
-}
-
-export function openPlayerTab(): AppTabId {
-  return "player";
-}
 
 export function shouldShowNestedBackButton(onBack: unknown): boolean {
   return typeof onBack === "function";
-}
-
-export function isVisibleTabId(id: string): id is VisibleTabId {
-  return VISIBLE_TAB_IDS.has(id as VisibleTabId);
 }

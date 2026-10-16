@@ -13,7 +13,7 @@ tags: [auralflow, desktop]
 
 | 层 | 位置 | 职责 |
 |---|---|---|
-| 视图 | `views/` | 路由驱动的薄页面。只组合 hooks / store / service，不写业务规则；非首屏视图 `lazy import()`；设置页只挂载活动 section。 |
+| 视图 | `views/` | 路由驱动的薄页面。只组合 hooks / store / service，不写业务规则；**所有视图都同步 import、统一打包**——`desktop/src` 内没有任何 `React.lazy()` / `Suspense`，此前「非首屏视图 `lazy import()`」的说法不成立；设置页只挂载活动 section。 |
 | 组件 | `components/` | 可见界面与交互。从 store 订阅数据，不持业务逻辑；CSS 类名统一 `af-` 前缀，tooltip 用 `data-tooltip` 而不额外插 DOM 节点。 |
 | 状态 | `stores/` | Zustand store，只放状态与状态转换，不含 React 逻辑、不含业务规则。 |
 | 业务 | `services/` | 业务规则唯一的落脚点：播放引擎、源解析、账号、同步、缓存、下载、歌词、应用自更新。持模块单例状态，直接读写 store。 |
@@ -37,11 +37,11 @@ tags: [auralflow, desktop]
 
 **已知边界瑕疵（实情）**：`stores` ↔ `services` 是**双向**的，不是单向数据流。`services` 里确实有 11 个文件反向 `import` `@/stores`：`persistentCache.ts`、`playback/playbackResolver.ts`、`playback/prefetchService.ts`、`playback/customSourceBackend.ts`、`playback/playbackSnapshot.ts`、`playback/playbackSnapshotModel.ts`、`playlistTransferService.ts`、`smtcService.ts`、`taskbarService.ts`、`customSourceRuntime.ts`、`webdavSyncService.ts`。这是「服务直接读写 store」约定的自然结果，不是回归——但也意味着不存在可强制的单向分层。
 
-同类瑕疵：`services` 并非全部经 IPC 桥访问原生能力，`desktop/src` 有 43 处直接 `import` `@tauri-apps/*`（分布在 33 个文件，详见 `desktop` 与 `tauri-bridge` 的边界）。
+同类瑕疵：`services` 并非全部经 IPC 桥访问原生能力，`desktop/src` 有 45 条直接 `import` `@tauri-apps/*` 的语句（分布在 35 个文件，详见 `desktop` 与 `tauri-bridge` 的边界）。
 
 **约束强度**：桌面端没有 ESLint 配置（全仓库只有移动端有），所以以上分层是**约定而非工具强制**——越界不会有检查报错，评审时看这里。
 
 **错误不得静默吞掉（本层的硬规则）**：`services` 里的异步失败要么显式抛出、要么转化成调用方能显示的状态，不允许空 `catch {}`。两类要分开处理：**操作失败**（下载、同步、取链）→ 抛错或让任务落到 failed 态；**后处理失败**（写 ID3 标签 / 嵌封面 / 写内联歌词与旁挂 `.lrc`）→ 音频文件此时已完整落盘，任务仍算 `completed`，但必须把原因作为 `warning` 回报到 `DownloadTask` 上并在下载页显示（`downloadService.enhanceDownloadedFile` 因此返回 `string[]`，而不是把下载判为失败——那会让用户以为整首歌没下下来）。刻意静默的只有纯清理动作：`stopDownload`、临时文件 unlink、批量删除。
 
 **滚动容器与浮层配色（硬规则）**：滚动容器必须 `scrollbar-width` 与 `scrollbar-color`（或 `::-webkit-scrollbar` 三件套）成对出现——只写 `scrollbar-width: thin` 会落回引擎默认滚条，light 主题（`color-scheme: light`）下就是刺眼白条。**沉浸滚动条不随主题切换**：`--af-immersive-*` 表面上的滚动条色值取沉浸 ink 色族（`rgba(233,246,230,·)`），不得引用 `--af-border-primary` 等随主题变的 token（light 主题下它是 #e2e8f0 亮白灰，放上去仍是白条）。tooltip 仍沿用全局主题色。贴滚动容器右缘的元素，其 tooltip 必须用 `data-tooltip-placement` 的 `*-end` 变体右对齐——默认水平居中的 `::after` 盒子会向右溢出并撑出横向滚动条（`visibility: hidden` 的盒子同样计入滚动溢出区，未悬停时也会出现）。
-**持久化归属**（哪些状态会活过重启）：`playlist` / `favorites` / `history` / `library` / `customSources` 五类经 `stores/libraryPersistence.ts` 防抖落盘到 `library/*.json`（一次性 localStorage → Rust 迁移）；`downloadStore` 与 `themeStore` 用 zustand `persist`；`playerStore`、账号 store、`discoveryStore`、`sleepTimerStore` 仅内存态——Cookie 等敏感数据刻意不进 Zustand 持久化，由 settings 侧与 Rust 统一管理。已下线来源的历史条目由 `core` 的 `dropRemovedSourceEntries` 在读盘后与同步合并后清理，直接丢弃不备份。
+**持久化归属**（哪些状态会活过重启）：`stores/libraryPersistence.ts` 共覆盖 **8 个命名空间**——`favorites` / `playlists` / `recent`（播放历史）/ `library` / `customSources` / `cache` / `dailyRecommend` / `playback`（播放会话快照，经 `stores/playerPersistence.ts`）——各自防抖落盘到 `library/<namespace>.json`（一次性 localStorage → Rust 迁移）；`downloadStore` 与 `themeStore` 用 zustand `persist`；`playerStore`、账号 store、`discoveryStore`、`sleepTimerStore` 仅内存态——Cookie 等敏感数据刻意不进 Zustand 持久化，由 settings 侧与 Rust 统一管理。已下线来源的历史条目由 `core` 的 `dropRemovedSourceEntries` 在读盘后与同步合并后清理，直接丢弃不备份。

@@ -63,7 +63,7 @@
 
 ### 2.7 状态恢复边界
 
-- **播放进度不跨启动恢复**：桌面不持久化播放进度，`resume()` 只对 `paused` 有效；`togglePlay` 对 idle/error/loading 一律重新走 `play()` 重新解析播放（resume 无法从这些状态恢复）。
+- **播放进度跨启动恢复**：桌面由 `stores/playerPersistence.ts` 持久化队列 / 当前曲 / 进度到 `library/playback.json`（结构性变化，以及进度每跨过 10s 刻度，见 `PROGRESS_SAVE_STEP_SECONDS`），恢复时只重建 store 与队列、不自动播放，用户起播时由 `playerResumeTarget.takeResumeProgress()` 补一次起播位置。`resume()` 只对 `paused` 有效；`togglePlay` 对 idle/error/loading 一律重新走 `play()` 重新解析播放（resume 无法从这些状态恢复）。
 - 音量等设置经 `patchSettings` 写入 Rust settings 持久化。快照对比见第 9 节 9.3。
 
 ---
@@ -262,7 +262,7 @@
 | 层 | 介质 | 容量/TTL |
 |---|---|---|
 | 内存预取 | JS Map | 10min TTL |
-| 磁盘 LRU | `RNFS.CachesDirectoryPath/auralflow/{audio,covers,lyrics}` | 上限 **100MB**，超限按 mtime LRU 删；封面/音频 immutable（URL 不变永不过期），歌词 30 天过期 |
+| 磁盘 LRU | `RNFS.CachesDirectoryPath/auralflow/{audio,covers,lyrics}` | 上限 **2GB**（`MAX_CACHE_SIZE`），超限按 mtime LRU 删；封面/音频 immutable（URL 不变永不过期），歌词 30 天过期 |
 | AsyncStorage URL 缓存 | `auralflow:playback-url-cache:v2` | TTL：普通 6h / 本地 1 年；上限 500 条；带版本号 v2 |
 
 - `getCachedPlaybackUrl` 按音质降级链 + 多源变体（`variants`）查询，命中即返回（含 headers）。
@@ -271,11 +271,11 @@
 
 ### 9.3 播放快照与跨启动恢复
 
-- **桌面：播放进度不落盘**。跨窗口同步（`playerSync.ts`）里的 playback snapshot 是实时广播的 DTO（BroadcastChannel + Tauri event），只喂给歌词/控制窗口，不持久化；音量等设置经 `patchSettings` 写入 Rust settings。播放进度不跨启动恢复（见 2.7）。
+- **桌面：会话落盘在 `library/playback.json`**（`stores/playerPersistence.ts`）。队列 / 当前曲 / 进度跨重启保留：结构性变化与进度跨过 10s 刻度（`PROGRESS_SAVE_STEP_SECONDS`）时写盘；恢复只重建 store 与队列、**不自动播放**，用户起播时由 `playerResumeTarget.takeResumeProgress()` 补一次位置。跨窗口同步（`playerSync.ts`）里的 playback snapshot 是实时广播的 DTO（BroadcastChannel + Tauri event），只喂给歌词/控制窗口，**不持久化**；音量等设置经 `patchSettings` 写入 Rust settings。
 - **移动：AsyncStorage `auralflow:playback-snapshot:v1`**。保存触发：暂停（含快照清空）立即保存；结构性变化（currentSong/queue/currentIndex/shuffleHistory/模式/倍速/音量/FM 上下文）与进度（每跨过 10s 边界记一次）走 1.5s debounce（`SAVE_DEBOUNCE_MS`）；切后台时立即补存一次。
 - 恢复只还原队列/当前曲/模式/音量等，不自动播放；FM 上下文（`personalFm` 的 buffer）无法离线恢复，退化为 `queue`；**先恢复完再挂订阅**，避免恢复期间的启动写入（如音量恢复）把未恢复的默认状态覆盖到磁盘快照。
 
-**差异本质**：桌面音频缓存大（2GiB），移动端受存储约束只给 100MB；桌面 URL 缓存走 Tauri library（`persistentCache.ts`），移动端用 AsyncStorage；移动端多了内存预取层（10min）作为磁盘与网络之间的快层；移动端还持久化播放快照供重启恢复，桌面则完全没有进度持久化。
+**差异本质**：桌面音频缓存大（2GiB），移动端同样给了 2GB（`MAX_CACHE_SIZE`）；桌面 URL 缓存走 Tauri library（`persistentCache.ts`），移动端用 AsyncStorage；移动端多了内存预取层（10min）作为磁盘与网络之间的快层；两端都持久化播放快照供重启恢复（桌面 `library/playback.json`，移动 AsyncStorage `auralflow:playback-snapshot:v1`），恢复语义同为「只重建、不自动播放」。
 
 ---
 
@@ -303,7 +303,7 @@
 | — | 取链预算 | 桌面 12s 总预算；移动 12s 总帽 + 10s 分轮竞速预算，网关顺序/自定义源并发双路竞速 |
 | — | 预取 | 双端均为 URL+歌词+封面；桌面预载隐藏 audio，移动曲末 10s 窗口预读、不写原生队列 |
 | — | 失败策略 | 桌面 `playbackFailedAutoNext` 默认关，250ms 延迟跳；移动先重试一次再跳，后台限连跳 3 次 |
-| — | 缓存容量 | 桌面 2GiB Rust LRU；移动 100MB 磁盘 + AsyncStorage URL 6h |
-| — | 播放快照 | 桌面进度不落盘（跨窗口快照是实时广播 DTO）；移动 AsyncStorage snapshot v1，重启可恢复队列 |
+| — | 缓存容量 | 桌面 2GiB Rust LRU；移动 2GB 磁盘 + AsyncStorage URL 6h |
+| — | 播放快照 | 两端都落盘：桌面 `library/playback.json`（进度每 10s 刻度 + 结构性变化），移动 AsyncStorage snapshot v1；跨窗口快照是实时广播 DTO，不持久化 |
 | — | 播放模式 | 桌面原生 repeatMode 三态；移动 RepeatMode.Off 固定 JS 驱动 |
 | — | 变调 | 桌面全平台 WebAudio；移动无独立变调（RNTP 4.1.2 `setRate` 变速变调耦合） |

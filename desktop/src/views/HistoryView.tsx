@@ -9,15 +9,7 @@ import { useHistoryStore } from "@/stores/historyStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import type { MusicInfo } from "@lx/core";
 import { DETAIL_COVER_CSS_SIZE, coverSrc } from "@/utils/imageReferrerPolicy";
-
-function fisherYatesShuffle<T>(items: T[]): T[] {
-  const next = [...items];
-  for (let i = next.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [next[i], next[j]] = [next[j], next[i]];
-  }
-  return next;
-}
+import { fisherYatesShuffle } from "@/utils/shared";
 
 export function HistoryView() {
   const navigate = useNavigate();

@@ -104,10 +104,10 @@ function isBlockedIpv4(octets: number[]): boolean {
   if (a === 192 && b === 168) return true; // 私有
   if (a === 169 && b === 254) return true; // 链路本地（含云元数据 169.254.169.254）
   if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT 100.64.0.0/10
-  if (a === 192 && b === 0) return true; // 192.0.0.0/24 + 192.0.2.0/24 文档示例
+  if (a === 192 && b === 0) return true; // 192.0.0.0/16（含 192.0.2.0/24 文档示例）
   if (a === 198 && (b === 18 || b === 19)) return true; // 基准测试网段
-  if (a === 198 && b === 51) return true; // 198.51.100.0/24 文档示例
-  if (a === 203 && b === 0) return true; // 203.0.113.0/24 文档示例
+  if (a === 198 && b === 51) return true; // 198.51.0.0/16（含 198.51.100.0/24 文档示例）
+  if (a === 203 && b === 0) return true; // 203.0.0.0/16（含 203.0.113.0/24 文档示例）
   if (a >= 224) return true; // 多播 224/4 与保留段 240/4（含广播 255.255.255.255）
   return false;
 }

@@ -30,7 +30,7 @@ flowchart TB
         D1[React 18.3.1 前端<br/>14 路由 BrowserRouter v6<br/>12 Zustand store]
         D2[playerEngine.ts 425 行<br/>HTMLAudio + rAF + 余弦淡入淡出]
         D3[customSourceRuntime.ts 892 行<br/>new Function 参数遮蔽（非沙箱）+ LRU(8) + HTTP 代理]
-        D4[Rust 后端 25 文件 6710 行<br/>41 IPC 命令]
+        D4[Rust 后端 25 文件 7058 行<br/>41 IPC 命令]
         D5["@lx/tauri-bridge IPC 桥 427 行"]
     end
 
@@ -56,7 +56,7 @@ flowchart TB
 | `sources/custom-source.ts` | 104 | 自定义音源类型 |
 | `sources/tx-meta.ts` | 33 | 腾讯取链元数据（strMediaMid，脚本据此拼 M500/F000 文件名） |
 | `custom-source.ts` | 61 | 自定义音源脚本契约（与 `sources/custom-source.ts` 并存） |
-| `lyrics/parser.ts` | 515 | lrc / enhanced-lrc / yrc / qrc / krc / vtt 6 格式归一化解析 |
+| `lyrics/parser.ts` | 529 | lrc / enhanced-lrc / yrc / qrc / krc / vtt 6 格式归一化解析 |
 | `lyrics/playbackSync.ts` | 70 | `findCurrentLyricLineIndex` 行定位唯一实现（lead 提前量 + 前进滞后带可配，首行前返回 -1）；移动端 `playerService.getCurrentLyricIndex` 已接入。桌面 `services/lyrics/playbackSync` 仍为其本地超集副本（词级进度、时钟外推），迁移待办 |
 | `lyrics/overlay-clock.ts` | 81 | 悬浮歌词时钟调度：由位置算出当前行与到下一行的毫秒延迟（原生浮窗自走，不依赖 JS 每行推词），并判定前台校准时机 |
 | `lyrics/annotations.ts` | 59 | 注音 / 罗马音标注解析（`parseRubyText` / `normalizeRubyLine`） |
@@ -81,7 +81,7 @@ flowchart TB
 
 `@lx/core` 独立于 UI 框架与平台运行时，**无构建步骤**（`main` / `types` 直接指向 `src/index.ts`）。播放队列、播放状态、缓存 IO、自定义音源运行时（桌面同 WebView 非沙箱执行、移动端隐藏 WebView）、平台网络请求仍由双端分别实现。跨源匹配与搜索结果合并去重曾位于 `sources/resolver.ts`，f91c469 判定其解析链不可达后删除，该职责现由双端各自实现。
 
-带自动化测试的是两侧，而非只有一个包：JS/TS 侧 `pnpm test:core`（vitest 3.2.4，14 个测试文件 162 例——`stats/aggregate` 24 / `outbound-host` 20 / `webdav-merge` 17 / `local-media-match` 16 / `cover-image` 14 / `overlay-clock` 10 / `release-notes` 9 / `netease-rich-lyric` 9 / `removed-source` 8 / `listen-threshold` 8 / `heartbeat-queue` 8 / `annotations` 8 / `github-mirror` 8 / `webdav-sync-error` 3）；Rust 侧 `pnpm test:rust`（56 个 `#[test]`，分布在 9 个文件——`window_state.rs` 13 / `smtc.rs` 9 / `taskbar.rs` 9 / `secret_store.rs` 6 / `audio_session.rs` 5 / `logging.rs` 5 / `outbound.rs` 4 / `models.rs` 3 / `commands/media_cache.rs` 2）。其中 `outbound-host.test.ts` 锚定「guard 判定的 host 必须等于真实请求的 host」这一不变量——用 Node 的 WHATWG `URL` 作参照物做差分断言；`webdav-sync-error.test.ts` 锚定同步拒绝的类型层级（两个错误类的 instanceof 关系），因为自动同步正是靠它决定吞掉哪一种拒绝。根目录 `pnpm test:all` 串起「双端类型检查 + 移动端 lint + 两侧测试」，`.github/workflows/ci.yml` 在 CI 里跑同一批命令（Rust 任务必须 windows runner：`secret_store.rs` 在非 Windows 平台是编译期硬失败）。**两端另有各自的套件**：桌面前端 `pnpm test:desktop`（vitest + jsdom，57 个文件 469 例）、移动端 `pnpm mobile:test`（`node --test`，28 个文件 613 例，其中两个文件会用真 `javac` + jaudiotagger + `ffmpeg` 编译并运行原生源码片段）。真正依赖真机运行时的行为仍只有类型检查、lint 与真机手测。
+带自动化测试的是两侧，而非只有一个包：JS/TS 侧 `pnpm test:core`（vitest 3.2.4，14 个测试文件 163 例——`stats/aggregate` 24 / `outbound-host` 21 / `webdav-merge` 17 / `local-media-match` 16 / `cover-image` 14 / `overlay-clock` 10 / `release-notes` 9 / `netease-rich-lyric` 9 / `removed-source` 8 / `listen-threshold` 8 / `heartbeat-queue` 8 / `annotations` 8 / `github-mirror` 8 / `webdav-sync-error` 3）；Rust 侧 `pnpm test:rust`（70 个 `#[test]`，分布在 11 个文件——`window_state.rs` 13 / `commands/local_audio.rs` 11 / `smtc.rs` 9 / `taskbar.rs` 9 / `secret_store.rs` 6 / `audio_session.rs` 5 / `logging.rs` 5 / `outbound.rs` 5 / `models.rs` 3 / `commands/media_cache.rs` 3 / `main.rs` 1）。其中 `outbound-host.test.ts` 锚定「guard 判定的 host 必须等于真实请求的 host」这一不变量——用 Node 的 WHATWG `URL` 作参照物做差分断言；`outbound-host.test.ts` 与 `outbound.rs` 另外**共读同一份跨端清单** `packages/core/outbound-host.cases.tsv`（49 条 URL，两侧各断言一遍），补上了「同一批 URL 两边结论相同」这条此前缺失的校验；`main.rs` 的 `launch_contract_tests` 钉住 AUMID 与 `tauri.conf.json` 的一致性（identifier 与主窗 `additionalBrowserArgs` 必须逐字相同）；`webdav-sync-error.test.ts` 锚定同步拒绝的类型层级（两个错误类的 instanceof 关系），因为自动同步正是靠它决定吞掉哪一种拒绝。根目录 `pnpm test:all` 串起「双端类型检查 + 移动端 lint + 两侧测试」，`.github/workflows/ci.yml` 在 CI 里跑同一批命令（Rust 任务必须 windows runner：`smtc.rs` / `taskbar.rs` / `audio_session.rs` / `secret_store.rs` 的测试都依赖 Windows API）。**两端另有各自的套件**：桌面前端 `pnpm test:desktop`（vitest，默认 `environment: node`，其中 8 个文件用 `@vitest-environment jsdom` 逐文件覆盖；60 个文件 531 例）、移动端 `pnpm mobile:test`（`node --test`，28 个文件 615 例，其中两个文件会用真 `javac` + jaudiotagger + `ffmpeg` 编译并运行原生源码片段）。真正依赖真机运行时的行为仍只有类型检查、lint 与真机手测。
 
 ## 各端职责说明
 
@@ -91,8 +91,8 @@ Tauri v2 + React 18.3.1 + Vite 5，提供原生 OS 交互体验。
 
 | 层 | 职责 | 关键实现 |
 |---|---|---|
-| Rust 后端 | 系统级任务，41 IPC 命令 | `outbound.rs`（SSRF + 每跳验证 ≤10）、`lyric_window.rs`（794 行 独立透明窗口：锁定=鼠标穿透+150ms 光标轮询+悬停解锁小窗，置顶 1.5s 巡检 + token/epoch 防竞态）、`local_audio.rs`（walkdir + audiotags/lofty 双库）、`media_cache.rs`（两层：song-audio 2GiB、song-covers 512MiB，命中刷新 mtime 因此是真 LRU）、`downloads.rs`（流式 + 取消 + 180ms 节流 + 2GiB 上限，完成后 audiotags 写标签、lofty 写词、旁挂 lrc）、`tray.rs`、`logging.rs`（`tauri-plugin-log` 落盘到 `app_log_dir()`，2 MiB×3 轮转）、`smtc.rs`（Windows 系统媒体控制：媒体键 / 媒体浮层 / 锁屏，封面走内存流）、`taskbar.rs`（任务栏缩略图三按钮——用封面替换预览已于 2026-10-09 退役，`SetWindowSubclass` 子类化，全程 fail-soft） |
-| React 前端 | UI 与业务 | `playerEngine.ts`（425 行 HTMLAudio + rAF + 500ms 纠偏 + 余弦淡入淡出 90/140ms fadeToken + 外部暂停 500ms 保护窗；进度不跨启动恢复，跨窗口由 `stores/playerSync.ts` 经 BroadcastChannel + Tauri 事件同步）、`customSourceRuntime.ts`（892 行 new Function 参数遮蔽，非沙箱——脚本在本 WebView 全权执行 + LRU(8) + HTTP 代理 Rust；能力白名单含 search/playlist）、`webdavSyncService.ts`（865 行 同步锁 + 冲突检测）、`wyAccountService.ts`（632 行 weapi/eapi——`wyProvider.ts` 内另有一份 eapiEncrypt——+ 扫码/Cookie 登录，Cookie 经 Rust DPAPI 加密落盘） |
+| Rust 后端 | 系统级任务，41 IPC 命令 | `outbound.rs`（SSRF + 每跳验证 ≤10）、`lyric_window.rs`（794 行 独立透明窗口：锁定=鼠标穿透+150ms 光标轮询+悬停解锁小窗，置顶 1.5s 巡检 + token/epoch 防竞态）、`local_audio.rs`（walkdir + audiotags/lofty 双库；`set_audio_cover` 按字节魔数校验图片，与手动封面落盘共用同一张表）、`media_cache.rs`（两层：song-audio 2GiB、song-covers 512MiB，命中刷新 mtime 因此是真 LRU；另有启动时的容量守卫 `sweep_caches`）、`downloads.rs`（流式 + 取消 + 180ms 节流 + 2GiB 上限 + `write_download_text_file` 写旁挂 lrc 文本；**音频标签不在 Rust 侧**——下载完成后由前端另调 `set_audio_metadata` / `set_audio_lyrics` / `set_audio_cover`）、`tray.rs`、`logging.rs`（`tauri-plugin-log` 落盘到 `app_log_dir()`，2 MiB×3 轮转）、`smtc.rs`（Windows 系统媒体控制：媒体键 / 媒体浮层 / 锁屏，封面走内存流）、`taskbar.rs`（任务栏缩略图三按钮——用封面替换预览已于 2026-10-09 退役，`SetWindowSubclass` 子类化，全程 fail-soft） |
+| React 前端 | UI 与业务 | `playerEngine.ts`（425 行 HTMLAudio + rAF + 500ms 纠偏 + 余弦淡入淡出 90/140ms fadeToken + 外部暂停 500ms 保护窗；进度经 `stores/playerPersistence.ts` 每 10s 刻度落盘、启动后由 `stores/playerResumeTarget.ts` 交给引擎续播，跨窗口由 `stores/playerSync.ts` 经 BroadcastChannel + Tauri 事件同步）、`customSourceRuntime.ts`（892 行 new Function 参数遮蔽，非沙箱——脚本在本 WebView 全权执行 + LRU(8) + HTTP 代理 Rust；能力白名单只有 `musicUrl`（kg/tx/wy），`local` 另有 `lyric`/`pic`）、`webdavSyncService.ts`（865 行 同步锁 + 冲突检测）、`wyAccountService.ts`（632 行 weapi/eapi——`wyProvider.ts` 内另有一份 eapiEncrypt——+ 扫码/Cookie 登录，Cookie 经 Rust DPAPI 加密落盘） |
 | 缓存 | 播放 URL / 歌词持久索引 | `persistentCache.ts`（URL 6h / 本地 365d / 歌词 30d / 空结果 7d，LRU 500/1000 条） |
 | 导航 | 14 路由 BrowserRouter v6 | 首页(index) / search / library→收藏歌单重定向 / local / playlists / downloads / history / stats / playlist/:id / artist/:id / album/:id / daily / fm / settings |
 | 视觉 | 玻璃拟态 | `--af-*` CSS 变量 + `backdrop-filter`、`ImmersiveLyricsOverlay`（纯 CSS/DOM 逐字卡拉 OK：clip-path/背景渐变） |
@@ -124,9 +124,9 @@ React Native 0.86 + React 19.2.3，面向 Android（minSdk 24）。
 
 ### 3. SSRF 双实现契约
 
-`outbound-host.ts` 是出站主机判定的书面定义（JS 侧），`desktop/src-tauri/src/outbound.rs` 是 Rust 侧的同一套规则。桌面端请求由 Rust 发出，移动端请求在 JS 侧发出，两份实现必须手工同步，**没有自动校验两份实现一致性的机制**，规则变更时需人工逐条比对。显式边界：只允许 http/https；拒绝 localhost / `.local` / 回环 / 私有 / 链路本地 / CGNAT / 未指定 / 多播 / 广播 / 文档示例地址 / `0.0.0.0/8` / `192.0.0.0/16` / `198.18.0.0/15` / `240.0.0.0/4`；**不做** DNS 解析后校验（DNS rebinding 不在拦截范围）。
+`outbound-host.ts` 是出站主机判定的书面定义（JS 侧），`desktop/src-tauri/src/outbound.rs` 是 Rust 侧的同一套规则。桌面端请求由 Rust 发出，移动端请求在 JS 侧发出；两份实现**仍有手工维护的成分**，但一致性已由自动校验钉住——两侧测试共读 `packages/core/outbound-host.cases.tsv`（49 条 URL，每个网段都带边界内/边界外样本，另有一批公网放行样本作反向约束），任一侧改规则而另一侧没跟上就会红。显式边界：只允许 http/https；拒绝 localhost / `.local` / 回环 / 私有 / 链路本地 / CGNAT / 未指定 / 多播 / 广播 / 文档示例地址（`192.0.0.0/16` / `198.51.0.0/16` / `203.0.0.0/16`，均按 /16 拦）/ `0.0.0.0/8` / `198.18.0.0/15` / `240.0.0.0/4`；**不做** DNS 解析后校验（DNS rebinding 不在拦截范围）。
 
-**手工同步真的漏过（2026 复盘）**：逐条比对发现 7 处差异，**全部同一方向——JS 侧更严、Rust 侧更宽松**，而文档一直声称两者「契约一致」。根因是 Rust 侧只用标准库判定（`is_loopback` / `is_private` / …），而标准库没有 `0.0.0.0/8`、`192.0.0.0/16`、`198.18.0.0/15`、`240.0.0.0/4` 这四段——JS 侧一直是手写的。四段已补进 `is_blocked_v4`，并由 `outbound.rs` 的 4 个 `#[test]` 钉住（含 mapped IPv6 的继承关系）。**不变量：宽松的那份就是实际的攻击面**，所以分歧一律对齐到更严的一侧。另有两处**有意保留**：`http:example.com`（JS 要求字面 `://`，Rust 交给 WHATWG 归一化——两者都会拦下内网 host）；「形似 IPv4 但解析失败」的 fail-closed（Rust 侧该情形经归一化后只可能落到公开 IP）。**两端一致性仍无自动化校验**：Rust 侧现在有范围判定测试，但没有跨语言对比测试。
+**手工同步真的漏过（2026 复盘）**：逐条比对发现 7 处差异，**全部同一方向——JS 侧更严、Rust 侧更宽松**，而文档一直声称两者「契约一致」。根因是 Rust 侧只用标准库判定（`is_loopback` / `is_private` / …），而标准库没有 `0.0.0.0/8`、`192.0.0.0/16`、`198.18.0.0/15`、`240.0.0.0/4` 这四段——JS 侧一直是手写的。四段已补进 `is_blocked_v4`，并由 `outbound.rs` 的测试钉住（含 mapped IPv6 的继承关系）。**不变量：宽松的那份就是实际的攻击面**，所以分歧一律对齐到更严的一侧。另有两处**有意保留**：`http:example.com`（JS 要求字面 `://`，Rust 交给 WHATWG 归一化——两者都会拦下内网 host）；「形似 IPv4 但解析失败」的 fail-closed（Rust 侧该情形经归一化后只可能落到公开 IP）。**同类遗漏又发现一处（2026-10）**：文档示例网段——JS 侧拦的是整个 `198.51.0.0/16` 与 `203.0.0.0/16`（代码里那两行注释还误写成 `/24`），而 Rust 侧靠标准库 `is_documentation()` 只拦 RFC 5737 的三个 `/24`，方向仍是「JS 更严、Rust 更松」。已把 Rust 侧按 `/16` 补齐、订正 JS 侧注释。**跨端一致性从此有自动校验**：`packages/core/outbound-host.cases.tsv` 由两侧测试共读（49 条 URL），各断言一遍，替代了纯人工逐条比对。
 
 守卫要成立，判定的 host 必须与 HTTP 客户端真正连接的 host 是同一个，因此 JS 侧不复用任何 `URL` 实现：RN 的 polyfill 构造函数从不抛错，`hostname` 的 userinfo 分组不排除 `/` `?` `#`，`http://127.0.0.1/@evil.com` 会被读成 `evil.com`。取 host 按 RFC 3986 手写（authority 终止于 `/` `?` `#` `\`，userinfo 取最后一个 `@` 之前），再归一化到客户端实际连接的形式：单次百分号解码、IDNA 句点变体（`。．｡`）折成 ASCII 点、小写、剥尾点；解码出分隔符、畸形百分号序列、形似 IPv4/IPv6 但解析失败，全部按拒绝处理，不 fail-open。inet_aton 写法（`2130706433` / `0177.0.0.1` / `127.1`）先还原再判定。尾点剥离在 Rust 侧同步实现，其余归一化步骤由 `reqwest::Url` 自身完成。移动端补充：RN 的 fetch（whatwg-fetch over XHR）无法禁用重定向，出站校验因此只拦截响应回流（最终 URL），拦不住重定向落点。
 

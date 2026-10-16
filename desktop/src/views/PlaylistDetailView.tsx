@@ -10,21 +10,12 @@ import { SongAddMenu } from '@/components/SongAddMenuButton';
 import { DownloadQualityMenu } from '@/components/DownloadQualityButton';
 import { VirtualList } from '@/components/VirtualList';
 import { formatDuration } from '@/lib/utils';
+import { buildImportedPlaylistMarker, fisherYatesShuffle } from '@/utils/shared';
 import { getPlaylistCover } from '@/utils/playlistCover';
 import { formatPlaylistSearchMeta } from '@/services/neteasePlaylistUtils';
 import { DETAIL_COVER_CSS_SIZE, ROW_COVER_CSS_SIZE, coverSrc } from '@/utils/imageReferrerPolicy';
 import type { MusicInfo, PlaylistInfo, SourceTag } from '@lx/core';
 import { ArrowLeft, Play, Shuffle, Trash2, Clock, Loader2, CornerDownRight, MoreHorizontal, Bookmark, BookmarkCheck, BookmarkX, RefreshCw, LocateFixed, ListPlus, Download } from 'lucide-react';
-
-/** Fisher-Yates 均匀洗牌 */
-function fisherYatesShuffle<T>(arr: T[]): T[] {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
 
 interface PlaylistSongsRequest {
   identity: string;
@@ -35,10 +26,6 @@ interface PlaylistSongsRequest {
 
 interface PlaylistRouteState {
   playlist?: PlaylistInfo;
-}
-
-function buildImportedPlaylistMarker(playlist: PlaylistInfo): string {
-  return `[af-imported-playlist:${playlist.source}:${playlist.id}]`;
 }
 
 export function PlaylistDetailView() {

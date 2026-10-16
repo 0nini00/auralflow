@@ -1,0 +1,77 @@
+# 出站主机判定的跨端契约清单（共享给两侧的测试，不含生产代码）
+#
+# 背景：同一套 SSRF 规则有两份实现——JS 侧 packages/core/src/outbound-host.ts
+# （移动端实际执行的那份）与 Rust 侧 desktop/src-tauri/src/outbound.rs
+# （桌面端实际执行的那份）。此前只有人工逐条比对，两边各测各的，没有任何一处
+# 断言「同一批 URL 两边结论相同」。
+#
+# 这份清单补上那个缺口：
+#   - JS 侧：packages/core/src/outbound-host.test.ts
+#   - Rust 侧：desktop/src-tauri/src/outbound.rs 的
+#     cross_language_contract_matches_the_shared_case_list
+# 任一侧改了规则而没同步另一侧，对应测试就会红。
+#
+# 不变量（写在 PROJECT_OVERVIEW.md 里）：分歧一律对齐到更严的一侧，
+# 因为宽松的那份就是实际的攻击面。
+#
+# 格式：判定 <TAB> URL <TAB> 说明。判定取 block / allow。'#' 开头与空行忽略。
+# 覆盖范围刻意限定在「网段 + 主机名规则」——百分号解码、IDNA 句点变体、inet_aton
+# 写法等归一化差异由各端自己的测试覆盖，不适合作为跨语言契约。
+#
+# ---- IPv4：回环 / 私有 / 链路本地 / CGNAT ----
+block	http://127.0.0.1/	回环
+block	http://10.0.0.1/	私有 10.0.0.0/8
+block	http://172.16.0.1/	私有 172.16.0.0/12 下边界
+block	http://172.31.255.255/	私有 172.16.0.0/12 上边界
+allow	http://172.32.0.1/	紧邻私有段之外的第一个地址
+allow	http://9.255.255.255/	紧邻 10.0.0.0/8 之下的最后一个地址
+block	http://192.168.1.1/	私有 192.168.0.0/16
+block	http://169.254.169.254/	链路本地（云元数据端点）
+block	http://100.64.0.1/	CGNAT 100.64.0.0/10
+# ---- IPv4：标准库没有的几段（历史上正是这里漏过判定）----
+block	http://0.0.0.0/	0.0.0.0/8
+block	http://0.0.0.1/	0.0.0.0/8
+allow	http://1.0.0.0/	紧邻 0.0.0.0/8 之外
+block	http://192.0.0.1/	192.0.0.0/16（IETF 协议分配）
+block	http://192.0.255.255/	192.0.0.0/16 上边界
+allow	http://192.1.0.0/	紧邻 192.0.0.0/16 之外
+block	http://192.0.2.1/	RFC 5737 TEST-NET-1
+block	http://198.18.0.1/	基准测试 198.18.0.0/15 下边界
+block	http://198.19.255.255/	基准测试 198.18.0.0/15 上边界
+allow	http://198.20.0.0/	紧邻基准测试段之外
+# ---- IPv4：文档示例网段。JS 侧按 /16 拦，Rust 侧原先只靠 is_documentation() 拦 /24 ----
+block	http://198.51.100.1/	RFC 5737 TEST-NET-2
+block	http://198.51.0.1/	TEST-NET-2 所在 /16 内，但不属于那个 /24
+block	http://198.51.255.255/	TEST-NET-2 所在 /16 上边界
+allow	http://198.52.0.1/	紧邻 198.51.0.0/16 之外
+block	http://203.0.113.1/	RFC 5737 TEST-NET-3
+block	http://203.0.1.1/	TEST-NET-3 所在 /16 内，但不属于那个 /24
+block	http://203.0.255.254/	TEST-NET-3 所在 /16 上边界
+allow	http://203.1.0.1/	紧邻 203.0.0.0/16 之外
+# ---- IPv4：多播与保留段 ----
+block	http://224.0.0.1/	多播 224.0.0.0/4 下边界
+block	http://240.0.0.1/	保留 240.0.0.0/4
+block	http://255.255.255.255/	广播
+allow	http://223.255.255.255/	既不在多播 224/4 也不在保留 240/4 内
+# ---- 真实公网地址（正向兜底：规则不得把正常目标一起拦掉）----
+allow	http://8.8.8.8/
+allow	http://1.1.1.1/
+allow	http://110.242.68.66/	真实公网 IPv4
+allow	https://example.com/path?q=1	公网域名带 path 与 query
+allow	https://music.163.com/	真实音源域名
+# ---- 主机名规则 ----
+block	http://localhost/
+block	http://localhost./	尾点写法等价于 localhost
+block	http://foo.local/	.local 后缀
+block	http://foo.local./	尾点 + .local
+# ---- IPv6 ----
+block	http://[::1]/	IPv6 回环
+block	http://[::]/	IPv6 未指定
+block	http://[::ffff:127.0.0.1]/	IPv4-mapped 回环
+block	http://[fc00::1]/	唯一本地 fc00::/7
+block	http://[fe80::1]/	链路本地 fe80::/10
+block	http://[ff02::1]/	多播 ff00::/8
+allow	http://[2606:4700:4700::1111]/	公网 IPv6
+# ---- 协议限定 ----
+block	ftp://8.8.8.8/	只允许 http/https
+block	file:///C:/Windows/win.ini	只允许 http/https

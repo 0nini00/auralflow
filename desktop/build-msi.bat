@@ -11,7 +11,7 @@ set "WINSDK_LIB=C:\Program Files (x86)\Windows Kits\10\Lib\%WINSDK_VER%"
 set "WINSDK_INC=C:\Program Files (x86)\Windows Kits\10\Include\%WINSDK_VER%"
 set "LIB=%WINSDK_LIB%\um\x64;%WINSDK_LIB%\ucrt\x64;%LIB%"
 set "INCLUDE=%WINSDK_INC%\um;%WINSDK_INC%\ucrt;%WINSDK_INC%\shared;%INCLUDE%"
-cd /d C:\Users\chenle\Desktop\auralflow\desktop
+cd /d "%~dp0"
 if not exist dist\index.html (
   echo frontend dist missing
   exit /b 1

@@ -22,7 +22,7 @@ const LYRIC_UNLOCK_LABEL: &str = "lyric-unlock";
 /// 表现为"点击桌面歌词无反应"。
 /// 末尾三个开关关掉「被遮挡/后台」时的渲染节流：Chromium 对最小化或被完全遮挡的
 /// 窗口会暂停渲染，恢复时可能只画出黑帧，要再操作一下才刷新。
-const ADDITIONAL_BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --app-user-model-id=cn.chenle.auralflow";
+pub(crate) const ADDITIONAL_BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --app-user-model-id=cn.chenle.auralflow";
 const PERSIST_DEBOUNCE_MS: u64 = 300;
 const DEFAULT_WIDTH: f64 = 380.0;
 const DEFAULT_HEIGHT: f64 = 76.0;
@@ -780,15 +780,23 @@ fn persist_position(app: &AppHandle, pos: PhysicalPosition<i32>) {
     let scale = current_scale(app);
     let x = pos.x as f64 / scale;
     let y = pos.y as f64 / scale;
-    let _ = crate::config::patch_settings(app, json!({ "lyricWindowX": x, "lyricWindowY": y }));
+    // 失败只记日志（同 `window_state`）：静默失败会让「下次开窗位置不对」无从排查。
+    if let Err(err) = crate::config::patch_settings(app, json!({ "lyricWindowX": x, "lyricWindowY": y }))
+    {
+        tauri_plugin_log::log::warn!("[lyric-window] 歌词窗位置落盘失败: {}", err);
+    }
 }
 
 fn persist_size(app: &AppHandle, size: PhysicalSize<u32>) {
     let scale = current_scale(app);
     let w = size.width as f64 / scale;
     let h = size.height as f64 / scale;
-    let _ = crate::config::patch_settings(
+    // 失败只记日志（同 `window_state`）：尺寸丢失不该打断交互，但静默失败会让
+    // 「下次开窗尺寸不对」无从排查。
+    if let Err(err) = crate::config::patch_settings(
         app,
         json!({ "lyricWindowWidth": w, "lyricWindowHeight": h }),
-    );
+    ) {
+        tauri_plugin_log::log::warn!("[lyric-window] 歌词窗尺寸落盘失败: {}", err);
+    }
 }

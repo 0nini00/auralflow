@@ -6,7 +6,7 @@
 
 | Store | 文件 | 职责 | 持久化方式 |
 | --- | --- | --- | --- |
-| playerStore | `playerStore.ts` (1031 行) | 当前曲目 / 队列 / 随机 / 循环 / FM / 引擎桥接 | 非持久化（快照存 library） |
+| playerStore | `playerStore.ts` (1057 行) | 当前曲目 / 队列 / 随机 / 循环 / FM / 引擎桥接 | 非持久化（快照存 library） |
 | playlistStore | — | 歌单 CRUD | `libraryPersistence` → `library/playlists.json` |
 | favoritesStore | — | 收藏 | `libraryPersistence` → `library/favorites.json` |
 | historyStore | — | 播放历史 | `libraryPersistence` → `library/recent.json` |

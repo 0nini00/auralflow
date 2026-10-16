@@ -69,7 +69,7 @@
 | 持久化机制 | Rust library JSON（Tauri `loadSettings`/`patchSettings`） | AsyncStorage+SecureStorage | 平台原生 |
 | 敏感数据 | Rust 文件系统 | Keystore AES-256-GCM（`SecureStorageModule`） | 🟢 平台原生 |
 | 设置 | `patchSettings` 400ms 防抖 | AsyncStorage via stores | ✅ 对齐（机制不同） |
-| 缓存元数据 | Rust `media_cache.ts` 三层 2GiB LRU 落盘 | AsyncStorage URL 缓存 6h/30min/1yr+磁盘 LRU 100MB | ✅ 对齐 |
+| 缓存元数据 | Rust `media_cache.ts` 三层 2GiB LRU 落盘 | AsyncStorage URL 缓存 6h/30min/1yr+磁盘 LRU 2GB | ✅ 对齐 |
 | 播放快照 | `playbackSnapshot` JSON | `playbackSnapshot`+shuffleHistory 持久化 | ✅ 对齐 |
 | 下载目录 | `downloadDir` persist 持久化 | 固定沙盒目录（不可改） | 💻 桌面独有（可改） |
 
@@ -79,7 +79,7 @@
 
 | 技术点 | 桌面实现 | 移动实现 | 差异说明 |
 |---|---|---|---|
-| 路由框架 | BrowserRouter v6，12 路由 | React Navigation v7（Drawer > NativeStack > BottomTabs + MaterialTopTabs） | 平台原生 |
+| 路由框架 | BrowserRouter v6，14 路由 | React Navigation v7（Drawer > NativeStack > BottomTabs + MaterialTopTabs） | 平台原生 |
 | URL 同步 | ✅ `setSearchParams({q})` 写地址栏 | ❌ 无地址栏，用 deepLink 初始关键词代替 | 💻 桌面独有（平台差异） |
 | 侧栏 | `Sidebar.tsx` 常驻 | `MainDrawerNavigator.tsx` Drawer 默认关闭 front overlay | 💻 桌面独有 |
 | 顶部栏 | `Header.tsx` 搜索/联想/主题切换/前进后退 | `MobileHeader.tsx` 汉堡/搜索/联想/主题切换 | 🟢 平台原生 |

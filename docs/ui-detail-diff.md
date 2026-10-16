@@ -156,7 +156,7 @@
 | 维度 | 差异性质 | 说明 |
 |---|---|---|
 | 整体布局 | 🟢 平台原生 | 桌面三段式窗口 vs 移动 Tab + 抽屉 |
-| 路由导航 | 🟢 平台原生 | react-router v6 12 路由 vs React Navigation v7 Drawer>Stack>Tabs+MaterialTopTabs；移动多栈形态修正器 |
+| 路由导航 | 🟢 平台原生 | react-router v6 14 路由 vs React Navigation v7 Drawer>Stack>Tabs+MaterialTopTabs；移动多栈形态修正器 |
 | 沉浸式 | 🟢 + 📱 多 | 桌面 CSS/DOM overlay vs 移动 PagerView + useImmersiveController + 下拉关闭 + 旋转封面 |
 | 歌词渲染 | 🟢 + 📱 多 | 桌面纯 CSS 渐变 vs 移动动态行高 + 累积偏移 + 相邻平滑/跨行即时 + 3s 暂停 + 捏合 |
 | 可视化技术 | 🟢 双端均无 analyser | 桌面 CSS 变量驱动 vs 移动 Animated useNativeDriver |

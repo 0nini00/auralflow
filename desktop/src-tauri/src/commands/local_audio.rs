@@ -447,17 +447,8 @@ pub async fn set_audio_cover(path: String, cover_data: String) -> Result<(), Str
     if !mime_str.starts_with("data:image/") {
         return Err("封面格式无效：只支持图片 data URL".to_string());
     }
-    let mime_type = if mime_str.contains("png") {
-        audiotags::MimeType::Png
-    } else if mime_str.contains("jpeg") || mime_str.contains("jpg") {
-        audiotags::MimeType::Jpeg
-    } else if mime_str.contains("bmp") {
-        audiotags::MimeType::Bmp
-    } else if mime_str.contains("gif") {
-        audiotags::MimeType::Gif
-    } else {
-        audiotags::MimeType::Jpeg
-    };
+    // MIME 类别不在这里按声明字符串猜 —— 依据是解码后的字节魔数，见下面
+    // `sniff_image_extension` 那一处。
 
     use base64::{engine::general_purpose, Engine as _};
     // base64 长度先粗判，避免为了量大小而先解码出一个几十 MB 的字符串
@@ -480,6 +471,23 @@ pub async fn set_audio_cover(path: String, cover_data: String) -> Result<(), Str
             MAX_EMBEDDED_COVER_BYTES / (1024 * 1024)
         ));
     }
+    // 采信字节魔数，而不是声明的 MIME 字符串：此前「认不出来就当 JPEG」会把
+    // `data:image/svg+xml` 这类活动内容贴成「JPEG」写进音频文件，而同一功能的
+    // 手动封面落盘（`write_manual_cover`）早就有魔数白名单了 —— 两处不一致。
+    let mime_type = match super::media_cache::sniff_image_extension(&data) {
+        Some("png") => audiotags::MimeType::Png,
+        Some("jpg") => audiotags::MimeType::Jpeg,
+        Some("bmp") => audiotags::MimeType::Bmp,
+        Some("gif") => audiotags::MimeType::Gif,
+        // audiotags 0.5 的 `MimeType` 只有 Png/Jpeg/Tiff/Bmp/Gif，没有 Webp 变体，
+        // 而前端 `manualMediaMatchService.imageMime` 会真的产出 image/webp。这里沿用
+        // Jpeg 兜底而不是拒绝：拒绝会让「手动匹配封面」从「能写入」退化成「写入失败」。
+        // 代价是这一种格式的 MIME 标注不准，属已知残留。
+        Some("webp") => audiotags::MimeType::Jpeg,
+        _ => {
+            return Err("封面格式无效：只支持 PNG / JPEG / GIF / BMP / WebP 图片".to_string());
+        }
+    };
 
     let mut tag = read_or_create_audio_tag(&path_buf)?;
     tag.set_album_cover(audiotags::Picture::new(&data, mime_type));

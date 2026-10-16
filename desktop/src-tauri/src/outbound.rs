@@ -26,14 +26,19 @@ fn is_blocked_v4(addr: Ipv4Addr) -> bool {
     let [a, b, ..] = addr.octets();
     // CGNAT 100.64.0.0/10 —— 标准库的 is_shared() 尚未 stable，手动判定。
     let is_cgnat = a == 100 && (64..=127).contains(&b);
-    // 下面四段标准库都没有对应判定，必须手动补齐：它们与 JS 侧
+    // 下面几段标准库都没有对应判定，必须手动补齐：它们与 JS 侧
     // `packages/core/src/outbound-host.ts:100-111` 一一对应。缺一段就会让桌面端
     // 比移动端更宽松——同一套规则两份实现，宽松的那份是实际的攻击面。
-    // 四段都是不可路由地址，任何正常音源 CDN / WebDAV 都不会落在其中。
+    // 都是不可路由地址，任何正常音源 CDN / WebDAV 都不会落在其中。
     let is_this_network = a == 0; // 0.0.0.0/8（含 0.0.0.0 自身）
     let is_ietf_protocol = a == 192 && b == 0; // 192.0.0.0/16
     let is_benchmark = a == 198 && (b == 18 || b == 19); // 198.18.0.0/15
     let is_reserved = a >= 240; // 240.0.0.0/4（含广播 255.255.255.255）
+    // 文档示例网段：`is_documentation()` 只覆盖 RFC 5737 的三个 /24，而 JS 侧按
+    // 整个 /16 拦（`a === 198 && b === 51` / `a === 203 && b === 0`）。这里同样按
+    // /16 拦——分歧一律对齐到更严的一侧，理由同上。
+    let is_doc_test_net_2 = a == 198 && b == 51; // 198.51.0.0/16（含 198.51.100.0/24）
+    let is_doc_test_net_3 = a == 203 && b == 0; // 203.0.0.0/16（含 203.0.113.0/24）
     addr.is_loopback()
         || addr.is_private()
         || addr.is_link_local()
@@ -45,6 +50,8 @@ fn is_blocked_v4(addr: Ipv4Addr) -> bool {
         || is_this_network
         || is_ietf_protocol
         || is_benchmark
+        || is_doc_test_net_2
+        || is_doc_test_net_3
         || is_reserved
 }
 
@@ -303,7 +310,9 @@ mod tests {
         ] {
             assert!(is_blocked_v4(blocked.parse().unwrap()), "应拦截: {blocked}");
         }
-        for allowed in ["8.8.8.8", "1.1.1.1", "203.0.114.1"] {
+        // 203.0.114.1 与 198.51.100.1 原本在「放行」一侧，对齐到更严的 JS 侧后
+        // （文档示例网段按 /16 拦）它们改为拦截，见下面的跨端契约测试。
+        for allowed in ["8.8.8.8", "1.1.1.1", "203.1.0.1", "198.52.0.1"] {
             assert!(!is_blocked_v4(allowed.parse().unwrap()), "应放行: {allowed}");
         }
     }
@@ -337,5 +346,35 @@ mod tests {
         for accepted in ["http://8.8.8.8/", "https://example.com/path?q=1"] {
             assert!(assert_public_url(accepted, "测试").is_ok(), "应放行: {accepted}");
         }
+    }
+    /// 跨端一致性（此前缺失的那条校验）：同一批 URL，JS 侧 `assertPublicOutboundUrl`
+    /// （移动端实际执行的实现）与 Rust 侧 `assert_public_url`（桌面端实际执行的实现）
+    /// 必须给出相同结论。共用清单 `packages/core/outbound-host.cases.tsv`，
+    /// JS 侧由 `packages/core/src/outbound-host.test.ts` 读同一份文件断言。
+    ///
+    /// 这条测试替代了「两份实现靠人工逐条比对」：任一侧改了规则而另一侧没跟上，这里
+    /// 就会红。清单里的 allow 样本同时也是反向约束——不许把正常目标一起拦掉。
+    #[test]
+    fn cross_language_contract_matches_the_shared_case_list() {
+        const CASES: &str = include_str!("../../../packages/core/outbound-host.cases.tsv");
+        let mut checked = 0usize;
+        for (index, raw) in CASES.lines().enumerate() {
+            let line = raw.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let mut fields = line.split('\t');
+            let verdict = fields.next().unwrap_or("").trim();
+            let url = fields.next().unwrap_or("").trim();
+            assert!(!url.is_empty(), "清单第 {} 行缺少 URL: {line}", index + 1);
+            let allowed = assert_public_url(url, "跨端契约").is_ok();
+            match verdict {
+                "block" => assert!(!allowed, "Rust 侧应拦截却放行: {url}"),
+                "allow" => assert!(allowed, "Rust 侧应放行却拦截: {url}"),
+                other => panic!("清单第 {} 行判定非法 {other:?}: {line}", index + 1),
+            }
+            checked += 1;
+        }
+        assert!(checked >= 45, "契约清单读取异常，只解析出 {checked} 条");
     }
 }

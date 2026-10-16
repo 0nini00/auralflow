@@ -160,7 +160,9 @@ pub fn run() {
             // 失败只记日志——窗口照旧按 tauri.conf.json 的默认尺寸居中显示。
             window_state::attach(app.handle());
             // 系统托盘
-            let _ = tray::setup(app.handle());
+            if let Err(err) = tray::setup(app.handle()) {
+                tauri_plugin_log::log::warn!("[app] 托盘初始化失败，托盘图标与菜单不可用: {}", err);
+            }
             // Windows 系统媒体控制（SMTC）：键盘媒体键 / 系统媒体浮层 / 锁屏控制。
             // 会话必须绑在有 HWND 的主线程上，这里只排队；失败只记日志，不阻断启动。
             smtc::setup(app.handle());
@@ -172,6 +174,13 @@ pub fn run() {
             // 线程，在播放期间把会话名称/图标改写成 AuralFlow + 本应用图标。
             // 失败只记日志，播放不受影响。
             audio_session::setup();
+            // 缓存容量守卫：写入时已经会淘汰，但「上次运行写超上限、之后没再写」的
+            // 目录会一直超着（移动端有等价的启动清理，桌面端此前没有）。放后台线程，
+            // 不拖慢启动。
+            let sweep_app = app.handle().clone();
+            let _ = tauri::async_runtime::spawn_blocking(move || {
+                crate::commands::sweep_caches(&sweep_app);
+            });
             // 注册深链 scheme（Windows 运行时写入注册表）
             #[cfg(target_os = "windows")]
             {
@@ -245,11 +254,56 @@ pub fn run() {
         ])
         .run(tauri::generate_context!());
 
-    if result.is_err() {
+    if let Err(err) = result {
+        // 启动失败必须留下痕迹：此前这里直接 exit(1)，日志里什么都没有，用户只看到
+        // 「窗口没起来」。日志插件这时可能还没装上，所以同时写 stderr。
+        tauri_plugin_log::log::error!("[app] 启动失败: {}", err);
+        eprintln!("[auralflow] 启动失败: {err}");
         std::process::exit(1);
     }
 }
 
 fn main() {
     run();
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod launch_contract_tests {
+    use super::APP_USER_MODEL_ID;
+
+    /// AUMID 散落在四处：本文件的常量、`tauri.conf.json` 的 `identifier`、主窗口
+    /// `additionalBrowserArgs` 里的 `--app-user-model-id`，以及歌词窗那份**必须逐字
+    /// 相同**的 `additionalBrowserArgs`。任何一处单独改了都不会报错，只表现为
+    /// 「音量合成器/任务栏退回默认占位图标」或「点桌面歌词没反应」，所以钉在这里。
+    #[test]
+    fn aumid_and_browser_args_stay_in_sync_with_tauri_conf() {
+        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json"))
+            .expect("tauri.conf.json 必须是合法 JSON");
+
+        assert_eq!(
+            conf["identifier"].as_str(),
+            Some(APP_USER_MODEL_ID),
+            "tauri.conf.json 的 identifier 必须等于 main.rs 的 APP_USER_MODEL_ID"
+        );
+
+        let expected_flag = format!("--app-user-model-id={}", APP_USER_MODEL_ID);
+        assert!(
+            crate::lyric_window::ADDITIONAL_BROWSER_ARGS.contains(&expected_flag),
+            "歌词窗的 additionalBrowserArgs 必须带上 {expected_flag}"
+        );
+
+        // 第一个窗口没有显式 label，Tauri 默认就叫 main。
+        let main_window = conf["app"]["windows"]
+            .as_array()
+            .expect("tauri.conf.json 的 app.windows 必须是数组")
+            .iter()
+            .find(|window| window["label"].as_str().unwrap_or("main") == "main")
+            .expect("tauri.conf.json 必须有主窗口（label 缺省为 main）");
+
+        assert_eq!(
+            main_window["additionalBrowserArgs"].as_str(),
+            Some(crate::lyric_window::ADDITIONAL_BROWSER_ARGS),
+            "主窗与歌词窗的 additionalBrowserArgs 必须逐字相同：第二份 WebView2 环境参数不一致会静默创建失败"
+        );
+    }
 }

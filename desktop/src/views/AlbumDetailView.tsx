@@ -9,6 +9,7 @@ import { usePlayerStore } from "@/stores/playerStore";
 import { SongAddMenuButton } from "@/components/SongAddMenuButton";
 import { DownloadQualityButton } from "@/components/DownloadQualityButton";
 import { formatDuration } from "@/lib/utils";
+import { fisherYatesShuffle } from "@/utils/shared";
 import type { MusicInfo } from "@lx/core";
 import { DETAIL_COVER_CSS_SIZE, ROW_COVER_CSS_SIZE, coverSrc } from "@/utils/imageReferrerPolicy";
 import { ArrowLeft, Play, Shuffle, Clock, Disc3, Loader2 } from "lucide-react";
@@ -22,15 +23,6 @@ interface AlbumInfoFull {
   publishTime: number;
   trackCount: number;
   description: string;
-}
-
-function fisherYatesShuffle<T>(arr: T[]): T[] {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
 }
 
 function formatDate(ts: number) {

@@ -29,7 +29,7 @@ Android 原生层（`apps/mobile/android/app/src/main/java/cn/chenle/auralflow/m
 - 不依赖 `@lx/core`，也不参与任何业务规则判定——原生只提供能力，不决定「播哪首歌」或「用哪个音源」；两者都在 JS 侧。
 - 不实现音效链（均衡器 / 混响 / 声像 / 变调）——该能力已随 `SoundEffectModule` 移除，且明确不重新引入。
 
-**接通方式**：JS 侧通过 service 边界经 `NativeModules` 触达原生——`fileDownloadCommit`、`localMusicService`、`secureStorageService`、`imagePickerService`、`customSourceFilePicker`、`orientationService`、`lyricOverlayService`、`coverColorService`、`apkInstallService`、`wakeLockService`、`backgroundPlaybackService`、`weapi`。新增原生能力要同时改这两侧。**注意注册名不一定等于类名**：`NativeModules.AuralFlowOrientation` 对应的是类 `OrientationModule`——按类名取不到时去查 `getName()`。
+**接通方式**：JS 侧通过 service 边界经 `NativeModules` 触达原生——`fileDownloadCommit`、`localMusicService`、`secureStorageService`、`imagePickerService`、`customSourceFilePicker`、`orientationService`、`lyricOverlayService`、`coverColorService`、`apkInstallService`、`backgroundPlaybackService`、`weapi`（`wakeLockService` 已删除：RNTP 原生 HeadlessJsTaskService 本就持有服务级 WakeLock，不叠加临时锁，`WakeLockModule` 因此当前没有 JS 入口）。新增原生能力要同时改这两侧。**注意注册名不一定等于类名**：`NativeModules.AuralFlowOrientation` 对应的是类 `OrientationModule`——按类名取不到时去查 `getName()`。
 
 **权限边界**（`AndroidManifest.xml`，共 11 条）：INTERNET / SYSTEM_ALERT_WINDOW / WAKE_LOCK / VIBRATE / FOREGROUND_SERVICE / FOREGROUND_SERVICE_MEDIA_PLAYBACK / POST_NOTIFICATIONS / REQUEST_IGNORE_BATTERY_OPTIMIZATIONS（`BatteryOptimizationModule`）/ REQUEST_INSTALL_PACKAGES（`ApkInstallerModule`）/ READ_EXTERNAL_STORAGE（`maxSdkVersion="32"`）/ READ_MEDIA_AUDIO。**无 RECORD_AUDIO**。
 

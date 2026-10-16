@@ -42,6 +42,6 @@ tags: [auralflow, shared]
 
 本包是 JS/TS 侧把「纯逻辑」测满的那一个：`pnpm core:test`（vitest），14 个测试文件 162 例，全部只测纯逻辑。其中 `outbound-host.test.ts` 用 Node 的 WHATWG `URL` 作参照物做差分断言，锚定「守卫判定的 host 必须等于 HTTP 客户端真正连接的 host」这一不变量——它测的不只是函数返回值，而是守卫与真实客户端的一致性。
 
-两端另有自己的套件（桌面前端 57 文件 469 例、移动端 28 文件 613 例，含真 `javac` + jaudiotagger + `ffmpeg` 编译原生源码片段的契约用例，见各自 SPEC）；但真正依赖真机运行时的行为仍只有 `typecheck` + lint + 真机手测。
+两端另有自己的套件（桌面前端 60 文件 531 例、移动端 28 文件 615 例，含真 `javac` + jaudiotagger + `ffmpeg` 编译原生源码片段的契约用例，见各自 SPEC）；但真正依赖真机运行时的行为仍只有 `typecheck` + lint + 真机手测。
 
 - **封面取图档位**：`cover-image` 里的 `COVER_TIERS = [96,150,300,450,600,800]` 与 `coverTierForDisplay(cssSize, dpr)` 把「显示尺寸 × 屏密度」量化到档位，再改写图床地址：网易云用 `?param=NxN`、腾讯图床改文件名里的 `R{W}x{H}` 标记（无标记就原样返回，不猜）。档位是**缓存 key 的一部分**，所以展示位必须按真实尺寸取图，改尺寸等于换图；未知图床、本地路径与 data URL 一律不改写。

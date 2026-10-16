@@ -111,7 +111,7 @@
 |---|---|---|---|
 | URL 缓存 | `persistentCache.ts` playbackUrl TTL 其他 6h/local 1y MAX500 | `playbackUrlCache.ts`+AsyncStorage URL 缓存 6h/1yr | ✅ |
 | 歌词缓存 | 内存+持久化 | `cacheService.cacheLyrics` 磁盘层 | ✅ |
-| 音频文件缓存 | `mediaCache.ts` 三层 2GiB LRU | `cacheService.cacheAudioFile`+`isLocalFilePlayable` 三层 内存 10min/磁盘 LRU 100MB | ✅（07-10 误判已修正） |
+| 音频文件缓存 | `mediaCache.ts` 三层 2GiB LRU | `cacheService.cacheAudioFile`+`isLocalFilePlayable` 三层 内存 10min/磁盘 LRU 2GB | ✅（07-10 误判已修正） |
 | 封面文件缓存 | `mediaCache.ts` `cacheRemoteImage` 落盘 | `cacheService.cacheCover`+`CachedImage`(fast-image+Glide) | ✅（07-10 误判已修正） |
 | 缓存统计 | `getSongCacheStats` audioCacheSize/coverCacheSize | 分类统计 | ✅ |
 | 缓存清理 | 清缓存/清历史 | 分类清理+全部清理 | ✅ |
@@ -211,7 +211,7 @@
 |---|---|---|
 | 后台下载音频 | `playerService` 解析成功后后台下载音频到缓存（仅 wy/tx，`CACHEABLE_AUDIO_SOURCES`） | 📱 移动独有 |
 | streamProbe | 1 字节 Range 5s 探测+`isPreviewDuration` | 📱 移动独有 |
-| 三层缓存 | 内存 10min/磁盘 LRU 100MB/AsyncStorage URL 缓存 6h/30min/1yr | 📱 移动独有（机制，桌面等价 mediaCache） |
+| 三层缓存 | 内存 10min/磁盘 LRU 2GB/AsyncStorage URL 缓存 6h/30min/1yr | 📱 移动独有（机制，桌面等价 mediaCache） |
 | 音质播放中实时切换 | `switchCurrentPlaybackQuality()` | ⬆️ 移动反超 |
 | SecureStorage | `SecureStorageModule` Keystore AES-256-GCM | 📱 移动独有 |
 
@@ -259,7 +259,7 @@
 | 误判项 | 事实 |
 |---|---|
 | ~~移动端无竞态保护~~ | 实际有 `playRequestId`+`inflightPlayRequests` 去重（`playerStore.ts`） |
-| ~~移动端无封面/音频缓存~~ | 实际有三层缓存：内存 10min/磁盘 LRU 100MB/AsyncStorage URL 缓存 6h/30min/1yr |
+| ~~移动端无封面/音频缓存~~ | 实际有三层缓存：内存 10min/磁盘 LRU 2GB/AsyncStorage URL 缓存 6h/30min/1yr |
 
 ---
 

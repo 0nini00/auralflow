@@ -120,7 +120,7 @@
 | 检查项 | 验证方法 | 预期结果 | 状态 |
 |---|---|---|---|
 | URL 缓存命中 | 重复播放同一首歌 | `playbackUrlCache.ts`+AsyncStorage URL 缓存 6h/30min/1yr 命中 | ✅ |
-| 磁盘 LRU | 检查磁盘缓存大小 | 三层 内存 10min/磁盘 LRU 100MB（07-10 误判已修正） | ✅ |
+| 磁盘 LRU | 检查磁盘缓存大小 | 三层 内存 10min/磁盘 LRU 2GB（07-10 误判已修正） | ✅ |
 | 预取暖 | 预读下一首 URL | `prefetchCache` 预读下一首 URL | ✅ |
 | 歌词缓存 | 检查歌词缓存 | `cacheService.cacheLyrics` 磁盘层 | ✅ |
 | 音频文件缓存 | 检查音频缓存 | `cacheService.cacheAudioFile`+`isLocalFilePlayable`（07-10 误判已修正） | ✅ |

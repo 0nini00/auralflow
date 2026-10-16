@@ -121,7 +121,7 @@
 |---|---|---|---|
 | URL 缓存 | `persistentCache.ts` playbackUrl（其他 6h/local 1y MAX500 条） | AsyncStorage URL 缓存 6h/1yr | 🟢 共享 |
 | 歌词缓存 | 内存+持久化 | `cacheLyrics` 磁盘层，30 天过期 | 🟢 共享 |
-| 音频文件缓存 | Rust 三层目录：song-audio 2GiB 常量 LRU 按 mtime（经 Rust 桥落盘+`convertFileSrc`） | 磁盘 LRU 100MB（索引 AsyncStorage+对账）+内存 10min | 🟢 共享（07-10 误判已修正） |
+| 音频文件缓存 | Rust 三层目录：song-audio 2GiB 常量 LRU 按 mtime（经 Rust 桥落盘+`convertFileSrc`） | 磁盘 LRU 2GB（索引 AsyncStorage+对账）+内存 10min | 🟢 共享（07-10 误判已修正） |
 | 封面文件缓存 | `mediaCache.ts` `cacheRemoteImage` 落盘（song-covers 512 MiB 上限，按 mtime LRU） | `cacheCover` `CachedImage`(@d11/react-native-fast-image+Glide) | 🟢 共享（07-10 误判已修正） |
 | 缓存统计 | `getSongCacheStats` audioCacheSize/coverCacheSize | 分类统计 | 🟢 共享 |
 | 缓存清理 | 分类清理+全部清理 | 分类清理+全部清理 | 🟢 共享 |
@@ -309,7 +309,7 @@
 
 | 功能模块 | 桌面端 | 移动端 | 差异性质 |
 |---|---|---|---|
-| 路由 | BrowserRouter v6 12 路由 | React Navigation v7 Drawer>NativeStack>BottomTabs+MaterialTopTabs | 🟢 共享（层不同，见代码差异文档） |
+| 路由 | BrowserRouter v6 14 路由 | React Navigation v7 Drawer>NativeStack>BottomTabs+MaterialTopTabs | 🟢 共享（层不同，见代码差异文档） |
 | 常驻侧栏 | Sidebar 常驻 | 移动 Drawer 默认关闭 front overlay | 💻 桌面独有（平台差异） |
 | 曲库内嵌 | 独立页面 | Library 内嵌 Local/History/Downloads | 📱 移动独有 |
 
@@ -341,4 +341,4 @@
 
 ### 已修正的 07-10 误判（以本表为准）
 - ~~移动端无竞态保护~~ → 实际有 `playRequestId`+`inflightPlayRequests` 去重。
-- ~~移动端无封面/音频缓存~~ → 实际有三层缓存（内存 10min/磁盘 LRU 100MB/AsyncStorage）。
+- ~~移动端无封面/音频缓存~~ → 实际有三层缓存（内存 10min/磁盘 LRU 2GB/AsyncStorage）。

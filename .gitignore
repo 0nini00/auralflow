@@ -73,3 +73,7 @@ mobile_ui_scan.json
 /_device_*.png
 /_shot*.png
 /.af_screen*.png
+
+# 0.1.0 的历史安装包（4 个共 108MB）：不再入库。
+# 已 git rm --cached 停跟踪，本地文件保留；新的发布产物走 dist/。
+release/
