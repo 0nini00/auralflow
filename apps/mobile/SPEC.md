@@ -38,6 +38,8 @@ tags: [auralflow, mobile]
 
 **下载后处理失败必须上报（与桌面端对称，本层硬规则）**：`services/downloadService.ts` 的 `enhanceDownloadedFile` 与 `writeSidecarLyrics` 返回 `string[]` 警告，经 `QueueTask.onWarnings` → `downloadSong` 第 4 个参数 → `store.addDownload(..., warnings)` → `DownloadedItem.warning` → `downloadListMetadataModel.warningLabel` → `DownloadList` 直接显示（移动端没有 hover，文本完整渲染、2 行截断，不塞进 tooltip）。两条约束：**不得抛错**——后处理失败时音频已完整落盘，抛错会让 store 走 catch 分支把下载判为失败；**「跳过」不算失败**——`isLocal` / 非 mp3 / 超过 25MB 三条提前返回都返回空数组。该文件另有 5 处空 `catch`（质量偏好写入 `saveLastSelectQuality`、扩展名解析、`findExistingDownloadFile` 的目录列举、封面扩展名解析、`clearDownloadedFiles` 批量删除）与 2 处 `.catch(() => undefined)`（封面与临时文件的 unlink）是有意为之的尽力清理，不是缺陷，不要「顺手清理」它们。
 
+**Zustand 选择器必须返回稳定引用（本层的硬规则）**：Zustand 5 的 `useStore` 内部就是 `useSyncExternalStore`，**没有 equalityFn**——选择器每次新建对象或数组，React 会认为快照一直在变，直接把整屏崩在错误边界上，报 `Maximum update depth exceeded`。传给 `useXxxStore(selector)` 的选择器只能返回：原始值（字符串 / 数字 / 布尔）、store 里已有的引用（对象字段、数组元素、已存在的函数），或按身份记忆化的值（`WeakMap` / `useMemo`）。已踩过：`services/localMediaPlaybackModel.ts` 的 `selectLocalMediaLyricOriginNote` 每次返回新建的 `{ text, holdMs }`，播放带来源标注的本地曲即崩；修法是按来源对象身份用 `WeakMap` 缓存，并由 `tests/local-media-lyric-origin.test.cjs` 钉住「同一来源必须返回同一个对象」。
+
 **本地歌单里的同步残留必须主动清理（本层的硬规则 + 一次性数据修复）**：`stores/playlistStore.ts` 在**读盘后**（`loadLocalPlaylists`）与**同步合并后**（`mergeFromSync`）各跑一次 `scrubSyncedCloudPlaylistRefs`（规则在 `core`，与桌面端共用，有单测）。
 
 成因：旧版移动端按 `source === "local"` 归类而**不看 id**，把旧版桌面端上传的云端歌单引用（`source:"local"` + 纯数字 id）物化成了本地歌单；归类守卫修好后**已落盘的那批不会自己消失**，而合并规则「不丢本地独有项」会让它们永久留存、每次同步再传回云端，与桌面端的清洗形成乒乓。移动端自建的本地歌单 id 恒为 `local-<ts>-<8位>`，所以**纯数字 id 的本地歌单只可能来自这条污染路径**。

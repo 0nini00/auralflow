@@ -121,3 +121,36 @@ test("纯音乐但同时补到封面时仍是 matched +「纯音乐，无歌词�
   assert.equal(result.coverUri, "https://example.test/cover");
   assert.equal(h.cache.get(h.cacheKey("file-v1")).coverUri, "https://example.test/cover");
 });
+
+test("来源标注选择器必须返回同一个对象（zustand v5 无 equalityFn，不稳定选择器会让 React 无限重渲染）", () => {
+  const LRCLIB_ORIGIN = { tier: "same-recording", source: "lrclib" };
+  const stateWith = origin => ({
+    currentSong: song,
+    localMedia: {
+      songKey: model.localMediaSongKey(song), requestId: 1, status: "matched", message: "", issues: [],
+      lyricOrigin: origin,
+    },
+  });
+
+  const state = stateWith(LRCLIB_ORIGIN);
+  const first = model.selectLocalMediaLyricOriginNote(state);
+  assert.equal(first.text, "歌词来自 LRCLIB");
+  assert.equal(first.holdMs, 4000);
+  // 选择器会被 useSyncExternalStore 的 getSnapshot 反复调用，结果必须按 Object.is 稳定；
+  // 每次新建对象会让 React 认为快照一直在变，直接崩成 Maximum update depth exceeded。
+  assert.equal(model.selectLocalMediaLyricOriginNote(state), first);
+  // zustand 每次 setState 都会换掉 state / localMedia 对象，但同一份来源对象的引用不变，
+  // 因此这里也必须复用同一份 note（否则播放器每秒的进度推送都会重建标注并重新计时）。
+  assert.equal(model.selectLocalMediaLyricOriginNote(stateWith(LRCLIB_ORIGIN)), first);
+
+  // 换一份匹配（新的来源对象）必须给出新的 note，否则换歌后标注内容不会更新。
+  const otherPerformer = model.selectLocalMediaLyricOriginNote(stateWith({ tier: "other-performer", performer: "翻唱者", source: "wy" }));
+  assert.notEqual(otherPerformer, first);
+  assert.equal(otherPerformer.text, "歌词来自 翻唱者 的演唱版本");
+  assert.equal(otherPerformer.holdMs, 10000);
+
+  // 没有可标注的来源、补全结果过期、非本地曲：稳定地返回 undefined。
+  assert.equal(model.selectLocalMediaLyricOriginNote(stateWith({ tier: "same-recording" })), undefined);
+  assert.equal(model.selectLocalMediaLyricOriginNote(stateWith(undefined)), undefined);
+  assert.equal(model.selectLocalMediaLyricOriginNote({ currentSong: song, localMedia: null }), undefined);
+});

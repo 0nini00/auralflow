@@ -66,6 +66,26 @@ export function buildLyricOriginNote(origin: LocalMediaResult["lyricOrigin"]): L
   };
 }
 
+/**
+ * 同一份来源必须返回**同一个对象**。
+ *
+ * zustand v5 的 `useStore` 内部就是 `useSyncExternalStore`，没有 equalityFn：选择器每次新建
+ * 对象，React 就认为「快照一直在变」，于是无限重渲染并抛出 Maximum update depth exceeded
+ * （实测：播放带来源标注的本地曲时整屏崩在错误边界上）。按来源对象的身份缓存即可——来源对象
+ * 来自补全结果或磁盘缓存，同一份匹配期间引用不变，换一份匹配自然得到新对象。
+ * 用 WeakMap 是为了不拖住已作废的来源对象，也不随补全次数无限增长。
+ *
+ * 返回 `undefined`（没有来源）同样是稳定值，React 的比较不会因此触发重渲染。
+ */
+const noteCache = new WeakMap<object, LyricOriginNote>();
+
 export function selectLocalMediaLyricOriginNote(state: ArtworkState): LyricOriginNote | undefined {
-  return buildLyricOriginNote(selectLocalMediaLyricOrigin(state));
+  const origin = selectLocalMediaLyricOrigin(state);
+  if (!origin) return undefined;
+  const cached = noteCache.get(origin);
+  if (cached) return cached;
+  const note = buildLyricOriginNote(origin);
+  if (!note) return undefined;
+  noteCache.set(origin, note);
+  return note;
 }
