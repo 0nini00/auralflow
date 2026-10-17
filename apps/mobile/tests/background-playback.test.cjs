@@ -56,7 +56,9 @@ function setup(config = {}) {
   return { service, listeners, calls, emit, playerService, state, settings, behavior, request, native, policy };
 }
 
-const options = { timeout: 5000 };
+// 上限只是 runner 的安全网，不是断言：这些用例依赖真实计时器的多次让出，墙钟时间
+// 只反映机器与并发负载。全量套件并发跑时 5000ms 会把它们判成超时（实测 5.9-7.7s）。
+const options = { timeout: 20000 };
 test("Headless任务保持到原生服务销毁，后台timer不能因初始化返回而停摆", options, async () => {
   const h = setup();
   let finished = false;

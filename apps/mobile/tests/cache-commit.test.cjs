@@ -4,7 +4,9 @@ const path = require("node:path");
 const { createLoader, deferred, mobileRequire } = require("./helpers/loadTs.cjs");
 const song = { source: "wy", id: "commit", name: "Song", singer: "Artist" };
 const audioPath = "/cache/auralflow/audio/wy-commit-flac.audio";
-const settings = { timeout: 5000 };
+// 上限只是 runner 的安全网，不是断言：该用例依赖真实文件/计时器等待，墙钟时间
+// 只反映机器与并发负载。全量套件并发跑时 5000ms 会把它们判成超时（实测 9.3s）。
+const settings = { timeout: 20000 };
 
 async function until(predicate) {
   for (let i = 0; i < 100; i++) {

@@ -1,4 +1,9 @@
-import { normalizePlaybackQuality } from '@lx/core';
+import {
+  DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
+  DEFAULT_SOURCE_STAGGER_MS,
+  normalizePlaybackQuality,
+  raceStaggeredPriority,
+} from '@lx/core';
 import { customSourceAccess, customSourcePersistence, useCustomSourceStore } from '@/stores/customSourceStore';
 import { requestCustomSourceMusicUrl } from '@/services/customSourceRuntime';
 import type { PlaybackAttempt, PlaybackBackend, PlaybackRequest, PlaybackResolvedUrl } from './types';
@@ -8,17 +13,24 @@ function compactError(error: unknown): string {
   return message.length > 180 ? `${message.slice(0, 180)}...` : message;
 }
 
+interface CustomSourceHit {
+  apiName: string;
+  music: PlaybackRequest['primary'];
+  quality: string;
+  url: string;
+}
 
 export const customSourceBackend: PlaybackBackend = {
   id: 'customSource',
   name: '自定义音源',
 
   /**
-   * 按前端排列顺序逐源尝试(每源带预算):
+   * 按前端排列顺序交错启动的竞速(raceStaggeredPriority):
    *
-   * 排前面的源(用户主力)优先——预算内给出本轮最高档即定稿,后面的源零唤醒;
-   * 超时 / 失败 / 音质不足本轮期望才轮到下一个源。语义与内置 API 懒切一致,
-   * 整条链统一成「按序 + 预算」,前端拖拽排序 = 播放优先级。
+   * 前一个源结算立即启动下一个;未结算则最多等 STAGGER 并行启动下一个。
+   * 前端排序 = 优先权(同档结果更靠前的源优先定稿),而非独占权——旧实现给每源
+   * 2.5s 固定预算,走第三方代理的 LX 脚本正常耗时可达 3s+,会被系统性击杀。
+   * 达标(不低于本轮最低档)即从该源定稿,其后的源零唤醒。
    *
    * request.qualityPreference 由 playbackResolver 按轮次传入且从高到低排序,
    * 此处不再自行增删档位——旧实现会给每一轮追加 128k,导致用户选无损时
@@ -34,98 +46,111 @@ export const customSourceBackend: PlaybackBackend = {
 
     const variants = request.variants?.length ? request.variants : [request.primary];
     const qualities = request.qualityPreference;
-    const targetQuality = qualities[0];
+    if (!qualities.length) throw new Error('没有可尝试的音质档位');
+    const floorQuality = qualities[qualities.length - 1];
     const trace: PlaybackAttempt[] = [];
-    let lastError: unknown;
+    const budgetEndsAt = Date.now() + CUSTOM_SOURCE_TOTAL_BUDGET_MS;
+    const failures: string[] = [];
 
     for (const music of variants) {
-      // 按前端排列顺序逐源尝试,每源 2.5s 预算;达标即定稿,不试后面的源。
-      for (const api of customSources) {
-        // 该源在本轮音质档内从高到低试,拿到该源最优可用档。
-        const sourceAttempt = (async () => {
-          const errors: string[] = [];
-          for (const quality of qualities) {
-            operation.assertActive();
-            try {
-              // 运行时上浮:正常播放取链期间脚本 send updateAlert 且无 waiter 等待时回调,
-              // 写入 store 让全局更新弹窗(updateStatus === 'available')能感知;
-              // 手动测试/检查更新路径走 waitForUpdateAlert 自行消费,不会重复上报
-              const result = await requestCustomSourceMusicUrl(api, music, quality, operation, (alert) => {
-                operation.assertActive();
-                useCustomSourceStore.getState().applyRuntimeUpdateAlert(api.id, alert);
-              });
-              operation.assertActive();
-              return {
-                apiName: api.name,
-                music,
-                quality: normalizePlaybackQuality(result.quality || quality),
-                url: result.url,
-              };
-            } catch (error) {
-              operation.assertActive();
-              errors.push(`${quality}: ${compactError(error)}`);
-              trace.push({
-                backend: 'customSource',
-                resolverName: api.name,
-                source: music.source,
-                quality,
-                status: 'failed',
-                error: compactError(error),
-              });
-            }
-          }
-          throw new Error(`${api.name} 全部音质失败:${errors.join(' | ')}`);
-        })();
+      const remaining = budgetEndsAt - Date.now();
+      if (remaining <= CUSTOM_SOURCE_MIN_ATTEMPT_MS) {
+        failures.push(`时间预算耗尽,未尝试变体 ${music.name}`);
+        break;
+      }
 
-        const hit = await withBudget(sourceAttempt, PRIMARY_BUDGET_MS);
+      // 每个源:源内部也走同一个交错竞速——最高档先发,未回就在交错期后并发降档;
+      // 首个达标结果开启升级窗口,最高档在窗口内赶上仍可翻盘。
+      // 旧实现按档位串行等待:服务端对高清单走慢回退路径(实测 flac24bit 18.7s 才回
+      // 320k 兜底,而 flac 只要 2.1s)时,整源被拖死,真正可用的档位从未被请求。
+      const outcomes = customSources.map<string | undefined>(() => undefined);
+      const launchers = customSources.map((api, index) => () => (async (): Promise<CustomSourceHit> => {
         operation.assertActive();
-        if (hit && normalizePlaybackQuality(hit.quality) === normalizePlaybackQuality(targetQuality)) {
-          // 该源在预算内给出本轮最高档 → 定稿,不再试后面的源。
-          trace.push({
-            backend: 'customSource',
-            resolverName: hit.apiName,
-            source: hit.music.source,
-            quality: hit.quality,
-            status: 'success',
+        const qualityLaunchers = qualities.map((requested) => () => (async () => {
+          operation.assertActive();
+          try {
+            // 运行时上浮:正常播放取链期间脚本 send updateAlert 且无 waiter 等待时回调,
+            // 写入 store 让全局更新弹窗(updateStatus === 'available')能感知;
+            // 手动测试/检查更新路径走 waitForUpdateAlert 自行消费,不会重复上报
+            const result = await requestCustomSourceMusicUrl(api, music, requested, operation, (alert) => {
+              operation.assertActive();
+              useCustomSourceStore.getState().applyRuntimeUpdateAlert(api.id, alert);
+            });
+            operation.assertActive();
+            return { quality: normalizePlaybackQuality(result.quality || requested), url: result.url };
+          } catch (error) {
+            operation.assertActive();
+            trace.push({
+              backend: 'customSource',
+              resolverName: api.name,
+              source: music.source,
+              quality: requested,
+              status: 'failed',
+              error: compactError(error),
+            });
+            throw new Error(`${requested}: ${compactError(error)}`);
+          }
+        })());
+        try {
+          const hit = await raceStaggeredPriority(qualityLaunchers, {
+            getQuality: (value) => value.quality,
+            floor: floorQuality,
+            ceiling: qualities[0],
+            staggerMs: DEFAULT_SOURCE_STAGGER_MS,
+            upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
+            formatError: (errors) =>
+              new Error(errors.map((error) => (error instanceof Error ? error.message : String(error))).join(' | ')),
           });
-          return {
-            url: hit.url,
-            music: hit.music,
-            quality: hit.quality,
-            backend: 'customSource',
-            resolverName: hit.apiName,
-            trace,
-          };
+          return { apiName: api.name, music, quality: hit.quality, url: hit.url };
+        } catch (error) {
+          outcomes[index] = `${api.name} 全部音质失败:${error instanceof Error ? error.message : String(error)}`;
+          throw new Error(outcomes[index]);
         }
-        // 未命中:超时或音质不足本轮期望 → 记一笔并轮下一个源。
-        lastError = hit
-          ? new Error(`${api.name} 音质不足(${hit.quality} < ${targetQuality})`)
-          : new Error(`${api.name} 解析超时`);
+      })());
+
+      try {
+        const hit = await raceStaggeredPriority(launchers, {
+          getQuality: (value) => value.quality,
+          floor: floorQuality,
+          ceiling: qualities[0],
+          staggerMs: DEFAULT_SOURCE_STAGGER_MS,
+          upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
+          deadlineMs: remaining,
+          formatError: (errors) =>
+            new Error(errors.map((error) => (error instanceof Error ? error.message : String(error))).join(';')),
+        });
+        operation.assertActive();
+        trace.push({
+          backend: 'customSource',
+          resolverName: hit.apiName,
+          source: hit.music.source,
+          quality: hit.quality,
+          status: 'success',
+        });
+        return {
+          url: hit.url,
+          music: hit.music,
+          quality: hit.quality,
+          backend: 'customSource',
+          resolverName: hit.apiName,
+          trace,
+        };
+      } catch (error) {
+        // 生命周期失效时抛出生命周期错误,而不是被聚合成解析失败。
+        operation.assertActive();
+        const detail = outcomes.filter((item): item is string => Boolean(item)).join(';');
+        failures.push(detail || (error instanceof Error ? error.message : String(error)));
       }
     }
 
-    const suffix = lastError ? `:${compactError(lastError)}` : '';
-    throw new Error(`所有自定义音源都未解析到可播放链接${suffix}`);
+    const detail = failures.join(' | ');
+    const capped = detail.length > 500 ? `${detail.slice(0, 500)}...` : detail;
+    throw new Error(`所有自定义音源都未解析到可播放链接:${capped}`);
   },
 };
 
-/** 单源预算:与内置 API 懒切同值。 */
-const PRIMARY_BUDGET_MS = 2500;
+/** 自定义源阶段总预算:外层 12s deadline 内为探活与媒体缓存留余量。 */
+const CUSTOM_SOURCE_TOTAL_BUDGET_MS = 8000;
 
-/** 给 Promise 加预算:超时返回 null(不抛)。 */
-async function withBudget<T>(task: Promise<T>, budgetMs: number): Promise<T | null> {
-  return new Promise<T | null>((resolve) => {
-    const timer = setTimeout(() => resolve(null), budgetMs);
-    task.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      () => {
-        clearTimeout(timer);
-        resolve(null);
-      },
-    );
-  });
-}
-
+/** 剩余时间不足该值时不再启动新变体尝试,避免刚启动就撞外层 deadline。 */
+const CUSTOM_SOURCE_MIN_ATTEMPT_MS = 1000;

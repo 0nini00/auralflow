@@ -19,11 +19,13 @@ import { dequeueTempPlayList, insertSongToPlayNext } from "@/services/songQueueA
 import { buildPlaybackQualityTiers, getPlaybackQualityFallbacks, normalizePlaybackQuality, resolveEffectivePlaybackQuality, type PlaybackQuality } from "@/services/playbackQualityModel";
 import {
   DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
+  DEFAULT_SOURCE_STAGGER_MS,
   estimateStreamDurationSeconds,
   findCurrentLyricLineIndex,
   isPreviewStream,
   LYRIC_LINE_ADVANCE_HYSTERESIS_SECONDS,
   raceForBestQuality,
+  raceStaggeredPriority,
 } from "@lx/core";
 import { applySwitchStepRequest, createSwitchStepQueueState, finishSwitchStep } from "@lx/core";
 import { usePlaybackSettingsStore } from "@/stores/playbackSettingsStore";
@@ -109,12 +111,12 @@ export function invalidatePrefetchForSong(song: MusicInfo): void {
 }
 
 /**
- * 自定义音源解析：所有「已启用音源 × 本轮音质」组合并发竞速，取音质最高的成功结果。
+ * 自定义音源解析：按前端排列顺序交错启动竞速，取达标结果中音质最高者。
  *
- * 用户要求（2026-08）：音源之间竞速，且音质不低于所选档位——某音源只有 flac
- * 而用户选 320k 时该 flac 也应参与竞速。首个成功结果开启升级窗口，窗口内有更高
- * 档位就换，达到本轮最高档则立即定稿。
- * 无启用源时快速抛错，不阻塞并发的网关通道。
+ * 用户要求（2026-09）：前端拖拽排序 = 播放优先权。前一个源结算立即启动下一个，
+ * 未结算最多等 DEFAULT_SOURCE_STAGGER_MS 并行启动——顺序是优先权而非独占权，
+ * 慢脚本（走第三方代理，正常耗时 3s+）不再被固定 2.5s 预算系统性击杀。
+ * 音质不低于本轮最低档即可参与裁决；无启用源时快速抛错，不阻塞并发的网关通道。
  */
 export async function resolveUrlWithCustomSource(
   song: MusicInfo,
@@ -130,44 +132,65 @@ export async function resolveUrlWithCustomSource(
     throw new Error("没有可尝试的音质档位");
   }
 
-  // 按前端排列顺序逐源尝试,每源 2.5s 预算;达标即定稿,不试后面的源。
-  // (对齐桌面端 customSourceBackend 2026-09:前端拖拽排序 = 播放优先级)
-  const targetQuality = normalizePlaybackQuality(qualities[0]);
-  let lastError: unknown;
-  for (const source of enabledSources) {
-    // 该源在本轮音质档内从高到低试,拿到该源最优可用档。
-    const sourceAttempt = (async () => {
-      const errors: string[] = [];
-      for (const quality of qualities) {
-        try {
-          // 取链期间脚本主动 send(updateAlert) 时写入 store,让全局更新弹窗能感知
-          const result = await requestCustomSourceMusicUrl(source, song, quality, (alert) => {
-            useCustomSourceStore.getState().applyRuntimeUpdateAlert(source.id, alert);
-          });
-          return {
-            url: result.url,
-            // 与网关通道同样归一化:脚本可能回传 "flac24bit" 之外的别名
-            quality: normalizePlaybackQuality(result.quality || quality),
-          };
-        } catch (error) {
-          errors.push(`${quality}: ${error instanceof Error ? error.message : String(error)}`);
-        }
+  const floorQuality = qualities[qualities.length - 1];
+  const outcomes = enabledSources.map<string | undefined>(() => undefined);
+  // 每个源:源内部也走同一个交错竞速——最高档先发,未回就在交错期后并发降档;
+  // 首个达标结果开启升级窗口,最高档在窗口内赶上仍可翻盘。
+  // 旧实现按档位串行等待:服务端对高清单走慢回退路径(实测 flac24bit 18.7s 才回
+  // 320k 兜底,而 flac 只要 2.1s)时,整源被拖死,真正可用的档位从未被请求。
+  const launchers = enabledSources.map((source, index) => () => (async () => {
+    const qualityLaunchers = qualities.map((requested) => () => (async () => {
+      try {
+        // 取链期间脚本主动 send(updateAlert) 时写入 store,让全局更新弹窗能感知
+        const result = await requestCustomSourceMusicUrl(source, song, requested, (alert) => {
+          useCustomSourceStore.getState().applyRuntimeUpdateAlert(source.id, alert);
+        });
+        // 与网关通道同样归一化:脚本可能回传 "flac24bit" 之外的别名
+        return { url: result.url, quality: normalizePlaybackQuality(result.quality || requested) };
+      } catch (error) {
+        throw new Error(`${requested}: ${error instanceof Error ? error.message : String(error)}`);
       }
-      throw new Error(`${source.name} 全部音质失败:${errors.join(" | ")}`);
-    })();
-
-    const hit = await withBudget(sourceAttempt, PRIMARY_BUDGET_MS);
-    if (hit && hit.quality === targetQuality) {
-      // 该源在预算内给出本轮最高档 → 定稿,不再试后面的源。
-      return hit;
+    })());
+    try {
+      return await raceStaggeredPriority(qualityLaunchers, {
+        getQuality: (value) => value.quality,
+        floor: floorQuality,
+        ceiling: qualities[0],
+        staggerMs: DEFAULT_SOURCE_STAGGER_MS,
+        upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
+        formatError: (errors) => {
+          const detail = errors
+            .map((error) => (error instanceof Error ? error.message : String(error)))
+            .join(" | ");
+          return new Error(detail || "全部音质档位解析失败");
+        },
+      });
+    } catch (error) {
+      outcomes[index] = `${source.name} 全部音质失败:${error instanceof Error ? error.message : String(error)}`;
+      throw new Error(outcomes[index]);
     }
-    // 未命中:超时或音质不足本轮期望 → 记一笔并轮下一个源。
-    lastError = hit
-      ? new Error(`${source.name} 音质不足(${hit.quality} < ${targetQuality})`)
-      : new Error(`${source.name} 解析超时`);
+  })());
+
+  try {
+    return await raceStaggeredPriority(launchers, {
+      getQuality: (value) => value.quality,
+      floor: floorQuality,
+      ceiling: qualities[0],
+      staggerMs: DEFAULT_SOURCE_STAGGER_MS,
+      upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
+      deadlineMs: CUSTOM_SOURCE_RESOLVE_BUDGET_MS,
+      formatError: (errors) => {
+        const detail = errors
+          .map((error) => (error instanceof Error ? error.message : String(error)))
+          .join(";");
+        return new Error(detail || "全部音质档位解析失败");
+      },
+    });
+  } catch (error) {
+    const detail = outcomes.filter((item): item is string => Boolean(item)).join(";");
+    const capped = detail.length > 500 ? `${detail.slice(0, 500)}...` : detail;
+    throw new Error(capped || (error instanceof Error ? error.message : String(error)) || "所有自定义音源均解析失败");
   }
-  const detail = lastError ? (lastError instanceof Error ? lastError.message : String(lastError)) : "";
-  throw new Error(detail || "所有自定义音源均解析失败");
 }
 
 /**
@@ -254,6 +277,9 @@ async function withBudget<T>(task: Promise<T>, budgetMs: number): Promise<T | nu
 
 /** 懒切预算:内置网关先单独跑,超时/不足才唤醒自定义源(对齐桌面端 2500ms)。 */
 const PRIMARY_BUDGET_MS = 2500;
+
+/** 自定义源阶段单次预算:外层 10s 预算内为主源懒切与探活留余量(对齐桌面端 8000ms)。 */
+const CUSTOM_SOURCE_RESOLVE_BUDGET_MS = 7000;
 
 async function resolveSongUrl(
   song: MusicInfo,

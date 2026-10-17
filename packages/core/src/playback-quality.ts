@@ -184,3 +184,159 @@ function defaultQualityRaceError(errors: unknown[]): Error {
     .join(" | ");
   return new Error(detail);
 }
+
+/** 交错启动的默认间隔：上一个候选尚未结算时，最多等这么久就并行启动下一个。 */
+export const DEFAULT_SOURCE_STAGGER_MS = 800;
+
+export interface StaggeredPriorityRaceOptions<T> {
+  getQuality: (value: T) => unknown;
+  /** 本轮可接受的最高档：命中且没有更靠前的候选在途时立即定稿。 */
+  ceiling?: unknown;
+  /** 本轮可接受的最低档：低于它的结果不参与裁决。 */
+  floor?: unknown;
+  /** 上一个候选未结算时，最多等多久就启动下一个（默认 DEFAULT_SOURCE_STAGGER_MS）。 */
+  staggerMs?: number;
+  /** 首个可接受结果后，等待更高档或更靠前候选的窗口（默认 DEFAULT_QUALITY_UPGRADE_WINDOW_MS）。 */
+  upgradeWindowMs?: number;
+  /** 本轮总预算（自调用起算）：到期停止启动新候选，用已得结果定稿，没有则拒绝。 */
+  deadlineMs?: number;
+  /** 聚合失败时构造错误，便于各端给出带上下文的提示。 */
+  formatError?: (errors: unknown[]) => Error;
+}
+
+/**
+ * 按序交错竞速：候选按数组顺序启动，前一个结算立即启动下一个，
+ * 未结算则最多等 staggerMs 并行启动下一个——用户的顺序意图是「优先权」而非
+ * 「独占权」，慢候选不再阻塞后续候选，也不会被固定预算击杀。
+ *
+ * 裁决规则（重复结果按等级→顺序取优）：
+ *  - 等级不低于 ceiling 且更靠前的候选都已结算 → 立即定稿；
+ *  - 首个可接受结果开启升级窗口，窗口内更高等级、或同等级更靠前的候选可翻盘；
+ *  - 低于 floor 的结果不参与裁决；
+ *  - 全部候选结算仍无结果才拒绝；deadline 到期时以已有结果定稿或拒绝。
+ *
+ * 与 raceForBestQuality 的区别：候选是惰性按序启动的（来源优先级 = 用户排序），
+ * 而不是全部并发；这是「按序 + 预算」串行方案的替代——固定预算会击杀
+ * 响应较慢但可用的候选（例如走第三方代理的 LX 脚本，正常耗时 3s+）。
+ */
+export function raceStaggeredPriority<T>(
+  launchers: Array<() => Promise<T>>,
+  options: StaggeredPriorityRaceOptions<T>,
+): Promise<T> {
+  const formatError = options.formatError ?? defaultQualityRaceError;
+  if (!launchers.length) return Promise.reject(formatError([]));
+
+  const floorRank = options.floor == null ? 0 : getPlaybackQualityRank(options.floor);
+  const ceilingRank = options.ceiling == null
+    ? PLAYBACK_QUALITY_LADDER.length - 1
+    : getPlaybackQualityRank(options.ceiling);
+  const staggerMs = options.staggerMs ?? DEFAULT_SOURCE_STAGGER_MS;
+  const upgradeWindowMs = options.upgradeWindowMs ?? DEFAULT_QUALITY_UPGRADE_WINDOW_MS;
+
+  const errors: unknown[] = [];
+  const settled: boolean[] = launchers.map(() => false);
+  let launchedCount = 0;
+  let pending = 0;
+  let done = false;
+  let best: T | undefined;
+  let bestRank = -1;
+  let bestIndex = Number.POSITIVE_INFINITY;
+  let windowTimer: ReturnType<typeof setTimeout> | null = null;
+
+  return new Promise<T>((resolve, reject) => {
+    const finish = () => {
+      if (done) return;
+      done = true;
+      if (windowTimer !== null) clearTimeout(windowTimer);
+      if (deadlineTimer !== null) clearTimeout(deadlineTimer);
+      if (bestRank >= 0) resolve(best as T);
+      else reject(formatError(errors));
+    };
+
+    const isBetter = (rank: number, index: number) =>
+      rank > bestRank || (rank === bestRank && index < bestIndex);
+
+    const noEarlierPending = (index: number) => {
+      for (let i = 0; i < index; i += 1) {
+        if (!settled[i]) return false;
+      }
+      return true;
+    };
+
+    const maybeLaunchNext = (index: number) => {
+      if (!done && index === launchedCount - 1) launchNext();
+    };
+
+    const onValue = (index: number, value: T) => {
+      if (done) return;
+      pending -= 1;
+      settled[index] = true;
+      const rank = getPlaybackQualityRank(options.getQuality(value));
+      if (rank < floorRank) {
+        errors.push(
+          new Error(
+            `第 ${index + 1} 个候选音质不足(${normalizePlaybackQuality(options.getQuality(value))} < ${normalizePlaybackQuality(options.floor)})`,
+          ),
+        );
+      } else if (isBetter(rank, index)) {
+        best = value;
+        bestRank = rank;
+        bestIndex = index;
+      }
+      if (bestRank >= ceilingRank && noEarlierPending(bestIndex)) {
+        finish();
+        return;
+      }
+      if (bestRank >= floorRank && windowTimer === null) {
+        windowTimer = setTimeout(finish, upgradeWindowMs);
+      }
+      if (pending === 0 && launchedCount === launchers.length) {
+        finish();
+        return;
+      }
+      maybeLaunchNext(index);
+    };
+
+    const onError = (index: number, error: unknown) => {
+      if (done) return;
+      pending -= 1;
+      settled[index] = true;
+      errors.push(error);
+      if (pending === 0 && launchedCount === launchers.length) {
+        finish();
+        return;
+      }
+      maybeLaunchNext(index);
+    };
+
+    const launchNext = () => {
+      if (done || launchedCount >= launchers.length) return;
+      const index = launchedCount;
+      launchedCount += 1;
+      pending += 1;
+      let task: Promise<T>;
+      try {
+        task = launchers[index]();
+      } catch (error) {
+        task = Promise.reject(error);
+      }
+      task.then(
+        (value) => onValue(index, value),
+        (error) => onError(index, error),
+      );
+      if (index + 1 < launchers.length) {
+        setTimeout(() => maybeLaunchNext(index), staggerMs);
+      }
+    };
+
+    const deadlineTimer = options.deadlineMs == null
+      ? null
+      : setTimeout(() => {
+          if (done) return;
+          errors.push(new Error(`等待候选超出本轮时间预算(${options.deadlineMs}ms)`));
+          finish();
+        }, options.deadlineMs);
+
+    launchNext();
+  });
+}
