@@ -315,7 +315,7 @@ function nativeNavigationSetup(blockAt, { autoSkip = false } = {}) {
     "@react-native-async-storage/async-storage": { getItem: async () => null, setItem: async () => {} },
     "react-native-track-player": { __esModule: true, default: native, State: { Playing: "playing", Paused: "paused", Stopped: "stopped", Buffering: "buffering", Error: "error" }, RepeatMode: { Off: 0 },
       Event: Object.fromEntries(events.map(event => [event, event])), AppKilledPlaybackBehavior: {}, Capability: {} },
-    "@lx/core": { ...coreLoad("../../packages/core/src/switch-step-queue.ts"), ...coreLoad("../../packages/core/src/playback-quality.ts"), ...coreLoad("../../packages/core/src/recommendations/heartbeat-queue.ts"), isPreviewDuration: () => false },
+    "@lx/core": { ...coreLoad("../../packages/core/src/switch-step-queue.ts"), ...coreLoad("../../packages/core/src/playback-quality.ts"), ...coreLoad("../../packages/core/src/recommendations/heartbeat-queue.ts"), ...coreLoad("../../packages/core/src/song-variant.ts"), isPreviewDuration: () => false },
     "@/services/logger": { logger: { info() {}, warn() {}, error() {} } },
     "@/services/androidPitchService": { syncPlaybackParameters() {} },
     "@/services/playbackUrlCache": cache, "./playbackUrlCache": cache,

@@ -188,6 +188,52 @@
   font-weight: 700;
 }
 
+/* 单曲区标题行：标题左、来源筛选 chip 右 */
+.af-search-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 10px;
+}
+
+.af-search-section-head .af-search-section-title {
+  margin: 0;
+}
+
+.af-source-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.af-source-filter-chip {
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--af-border-secondary);
+  background: transparent;
+  color: var(--af-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--af-transition-base);
+}
+
+.af-source-filter-chip:hover:not(:disabled) {
+  border-color: var(--af-border-primary);
+  color: var(--af-text-primary);
+}
+
+.af-source-filter-chip.is-active {
+  color: var(--af-accent-primary);
+  border-color: var(--af-accent-primary);
+  background: rgba(var(--af-accent-primary-rgb), 0.1);
+}
+
+.af-source-filter-chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .af-search-overview-list {
   display: flex;
   flex-direction: column;

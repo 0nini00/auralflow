@@ -1,34 +1,10 @@
 import type { MusicInfo } from "@lx/core";
+import { isSameSong } from "@lx/core";
 
-function normalizeText(text: string): string {
-  return text
-    .normalize("NFKC")
-    .toLowerCase()
-    .replace(/[（(【\[].*?[）)】\]]/g, "")
-    .replace(/[\s\-—_·.,，。:：'"《》<>]/g, "")
-    .trim();
-}
-
-function splitSingerTokens(singer: string): string[] {
-  return singer
-    .split(/[、/,，&＋+]/)
-    .map(normalizeText)
-    .filter(Boolean);
-}
-
-function hasSingerOverlap(a: MusicInfo, b: MusicInfo): boolean {
-  const singersA = splitSingerTokens(a.singer);
-  const singersB = splitSingerTokens(b.singer);
-  if (singersA.length === 0 || singersB.length === 0) return false;
-  return singersA.some((singerA) => singersB.some((singerB) => singerA === singerB));
-}
-
-export function isSameSong(a: MusicInfo, b: MusicInfo): boolean {
-  if (normalizeText(a.name) !== normalizeText(b.name)) return false;
-  if (!hasSingerOverlap(a, b)) return false;
-  if (a.interval && b.interval) return Math.abs(a.interval - b.interval) <= 6;
-  return true;
-}
+/**
+ * 桌面端搜索结果元数据合并。
+ * 匹配规则统一由 @lx/core（song-variant）提供，本模块只负责合并编排。
+ */
 
 function mergeMetadata(primary: MusicInfo, metadata: MusicInfo): MusicInfo {
   const cover = primary.picUrl || primary.img || metadata.picUrl || metadata.img;

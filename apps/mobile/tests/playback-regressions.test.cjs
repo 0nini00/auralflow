@@ -7,6 +7,7 @@ const coreLoader = createLoader({});
 const core = {
   ...coreLoader("../../packages/core/src/switch-step-queue.ts"),
   ...coreLoader("../../packages/core/src/playback-quality.ts"),
+  ...coreLoader("../../packages/core/src/song-variant.ts"),
   isPreviewDuration: () => false,
 };
 

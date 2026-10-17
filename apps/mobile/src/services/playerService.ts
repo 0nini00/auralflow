@@ -13,7 +13,7 @@ import { requestCustomSourceMusicUrl } from "./customSourceRuntime";
 import { cacheCover, cacheLyrics, getCachedLyrics, cacheAudioFile, getCachedAudioFile, isLocalFilePlayable, CACHEABLE_AUDIO_SOURCES } from "./cacheService";
 import { getCachedPlaybackUrl, saveCachedPlaybackUrl, invalidateCachedPlaybackUrl } from "./playbackUrlCache";
 import { getHeartbeatModeList, getPersonalFmSongs, trashPersonalFmSong } from "./wyPlaylistService";
-import { appendHeartbeatRefill, consumeHeartbeatNext } from "@lx/core";
+import { appendHeartbeatRefill, buildSongKey, consumeHeartbeatNext, orderPlaybackCandidates } from "@lx/core";
 import { getNextQueueNavigationState, getPreviousQueueNavigationState } from "@/services/queueNavigationModel";
 import { dequeueTempPlayList, insertSongToPlayNext } from "@/services/songQueueActions";
 import { buildPlaybackQualityTiers, getPlaybackQualityFallbacks, normalizePlaybackQuality, resolveEffectivePlaybackQuality, type PlaybackQuality } from "@/services/playbackQualityModel";
@@ -27,6 +27,7 @@ import {
 } from "@lx/core";
 import { applySwitchStepRequest, createSwitchStepQueueState, finishSwitchStep } from "@lx/core";
 import { usePlaybackSettingsStore } from "@/stores/playbackSettingsStore";
+import { useVariantPinStore } from "@/stores/variantPinStore";
 import { buildPlaybackPrefetchKey, isPlaybackPrefetchKeyForSong } from "@/services/playbackPrefetchModel";
 import {
   describeCrossSourceFailure,
@@ -51,6 +52,12 @@ interface PrefetchedUrl {
   headers?: Record<string, string>;
   fetchedAt: number;
 }
+/** 解析结果：url/headers 是可用地址，song 是真正解析出的实体（可能是搜索变体）。 */
+interface ResolvedSongPlayback {
+  url: string;
+  headers?: Record<string, string>;
+  song: MusicInfo;
+}
 const PREFETCH_TTL_MS = 10 * 60 * 1000;
 /**
  * 并发竞速整条降级链的总时间预算。
@@ -65,16 +72,27 @@ const prefetchCache = new Map<string, PrefetchedUrl>();
 
 /** 在线音频流统一浏览器 UA / wy、tx CDN 防盗链头由 musicApi 共享（播放与下载共用）。 */
 
+/** 解析候选链：pin 首选 → 主条目 → 搜索变体（匹配度原序，去重）。 */
+function buildPlaybackCandidates(song: MusicInfo): MusicInfo[] {
+  return orderPlaybackCandidates(
+    song,
+    useVariantPinStore.getState().getPinnedVariantKey(buildSongKey(song)),
+  );
+}
+
 function getCachedPrefetch(
-  song: MusicInfo,
+  songs: readonly MusicInfo[],
   qualities: string | readonly string[],
-): PrefetchedUrl | undefined {
-  const candidates = typeof qualities === "string" ? [qualities] : qualities;
-  for (const quality of candidates) {
-    const key = buildPlaybackPrefetchKey(song, quality);
-    const entry = prefetchCache.get(key);
-    if (entry && Date.now() - entry.fetchedAt < PREFETCH_TTL_MS) return entry;
-    if (entry) prefetchCache.delete(key);
+): { entry: PrefetchedUrl; song: MusicInfo } | undefined {
+  const qualityCandidates = typeof qualities === "string" ? [qualities] : qualities;
+  for (const song of songs) {
+    for (const quality of qualityCandidates) {
+      const key = buildPlaybackPrefetchKey(song, quality);
+      const entry = prefetchCache.get(key);
+      if (!entry) continue;
+      if (Date.now() - entry.fetchedAt < PREFETCH_TTL_MS) return { entry, song };
+      prefetchCache.delete(key);
+    }
   }
   return undefined;
 }
@@ -241,7 +259,7 @@ async function resolveSongUrl(
   song: MusicInfo,
   qualityOverride?: string | null,
   options?: { skipPrefetchInflight?: boolean },
-): Promise<{ url: string; headers?: Record<string, string> }> {
+): Promise<ResolvedSongPlayback> {
   // 计算音质降级链（显式指定音质时跳过预读/持久化缓存，避免旧码率命中）
   const quality = qualityOverride
     ? resolveEffectivePlaybackQuality(qualityOverride, qualityOverride)
@@ -249,6 +267,8 @@ async function resolveSongUrl(
   const qualityCandidates = getPlaybackQualityFallbacks(quality);
   // 分轮次表：首轮为「不低于选定音质」的全部档位，之后逐档下调。
   const qualityTiers = buildPlaybackQualityTiers(quality);
+  // 候选播放链：pin 首选 → 主条目 → 搜索变体（匹配度原序，去重）。
+  const playbackCandidates = buildPlaybackCandidates(song);
 
   // 1. 命中预读缓存直接返回。
   // 缓存命中不再探活（对齐 lx 的 URL 信任策略）：过期死链由 PlaybackError
@@ -256,9 +276,9 @@ async function resolveSongUrl(
   // （黑盒死代理「TCP 连上不返回数据、ExoPlayer 无错误无限缓冲」主要发生在新解析，
   // 探活继续挡在那一步）。
   if (!qualityOverride) {
-    const prefetched = getCachedPrefetch(song, qualityCandidates);
+    const prefetched = getCachedPrefetch(playbackCandidates, qualityCandidates);
     if (prefetched) {
-      return { url: prefetched.url, headers: prefetched.headers };
+      return { url: prefetched.entry.url, headers: prefetched.entry.headers, song: prefetched.song };
     }
     // 1.1 同一首歌的预读解析正在进行中：直接 await 同一条链的结果，而不是
     // 另起一条重复的解析链——用户在预读进行中点下一首时，等的是已经跑了
@@ -273,18 +293,19 @@ async function resolveSongUrl(
     }
     // 1.2 直接命中本地音频缓存文件（lx isCached 等价）：优先整曲落盘的 wy/tx 等可缓存音源，
     // 离线可播、省流量，不必依赖持久化 URL 缓存中的 file:// 条目（该条目可能被清理/过期）。
-    // 按降级链逐个候选查（cacheAudioFile 写盘用的是实际解析成功的音质，可能低于有效音质），
-    // 与持久化 URL 缓存的降级语义一致，避免降级播放后下次播放查不到本地文件。
-    if (CACHEABLE_AUDIO_SOURCES.has(song.source)) {
-      for (const candidate of qualityCandidates) {
-        const cachedAudioPath = await getCachedAudioFile(song, candidate);
+    // 候选×音质两层枚举：写盘用的是实际解析成功的实体与音质（可能是变体/降档），
+    // 与持久化 URL 缓存的变体与降级语义一致，避免降级播放后下次播放查不到本地文件。
+    for (const candidate of playbackCandidates) {
+      if (!CACHEABLE_AUDIO_SOURCES.has(candidate.source)) continue;
+      for (const qualityCandidate of qualityCandidates) {
+        const cachedAudioPath = await getCachedAudioFile(candidate, qualityCandidate);
         if (!cachedAudioPath) continue;
-        prefetchCache.set(buildPlaybackPrefetchKey(song, candidate), {
+        prefetchCache.set(buildPlaybackPrefetchKey(candidate, qualityCandidate), {
           url: cachedAudioPath,
           headers: undefined,
           fetchedAt: Date.now(),
         });
-        return { url: cachedAudioPath, headers: undefined };
+        return { url: cachedAudioPath, headers: undefined, song: candidate };
       }
     }
     // 1.5 命中持久化 URL 缓存：冷启动/重启后免重新解析网关，对齐桌面端 persistentCache。
@@ -298,28 +319,30 @@ async function resolveSongUrl(
     // - 已知取舍：黑盒死代理（TCP 连上不返回数据）不触发 PlaybackError，重播该缓存
     //   条目会停在缓冲。该场景主要来自新解析（下方实际解析路径的探活继续挡住），
     //   缓存条目多为曾播通过的链接，风险可接受（lx 同策略）。
-    const persisted = await getCachedPlaybackUrl(song, qualityCandidates);
+    const persisted = await getCachedPlaybackUrl(song, qualityCandidates, playbackCandidates);
     if (persisted) {
+      // legacy 条目可能没写 music：回退主条目
+      const persistedSong = persisted.music ?? song;
       // 持久化缓存可能存的是本地音频文件（#2 媒体缓存）：校验文件未被清理策略回收
       if (persisted.url.startsWith("file://")) {
         if (await isLocalFilePlayable(persisted.url)) {
-          prefetchCache.set(buildPlaybackPrefetchKey(song, persisted.quality), {
+          prefetchCache.set(buildPlaybackPrefetchKey(persistedSong, persisted.quality), {
             url: persisted.url,
             headers: undefined,
             fetchedAt: Date.now(),
           });
-          return { url: persisted.url, headers: undefined };
+          return { url: persisted.url, headers: undefined, song: persistedSong };
         }
-        void invalidateCachedPlaybackUrl(song, persisted.quality).catch(() => undefined);
+        void invalidateCachedPlaybackUrl(persistedSong, persisted.quality).catch(() => undefined);
       } else {
-        // 旧持久化条目可能没存 headers（修复前写入）：按音源补齐防盗链头，避免命中旧缓存仍 403
-        const persistedHeaders = persisted.headers ?? buildStreamHeaders(song.source);
-        prefetchCache.set(buildPlaybackPrefetchKey(song, persisted.quality), {
+        // 旧持久化条目可能没存 headers（修复前写入）：按实际来源补齐防盗链头，避免命中旧缓存仍 403
+        const persistedHeaders = persisted.headers ?? buildStreamHeaders(persistedSong.source);
+        prefetchCache.set(buildPlaybackPrefetchKey(persistedSong, persisted.quality), {
           url: persisted.url,
           headers: persistedHeaders,
           fetchedAt: Date.now(),
         });
-        return { url: persisted.url, headers: persistedHeaders };
+        return { url: persisted.url, headers: persistedHeaders, song: persistedSong };
       }
     }
   }
@@ -328,66 +351,71 @@ async function resolveSongUrl(
   let url!: string;
   let headers: Record<string, string> | undefined;
   let resolvedQuality: string | undefined;
+  let resolvedSong = song;
   if (song.isLocal && song.url) {
     url = song.url;
   } else {
-    // 分轮次竞速（用户要求 2026-08）：首轮把「不低于选定音质」的全部档位
-    // 同时交给内置网关与自定义音源，取音质最高的成功结果；本轮全败才降下一档。
+    // 候选×音质双层循环（对齐桌面端 backend 语义）：每个候选先按「不低于选定音质」的
+    // 全部档位竞速，全败才逐档下调；一个候选的完整音质链失败后才轮到下一个候选——
+    // 「宁可降音质也不换版本」优先于「换版本保音质」，变体只做真兜底。
     const resolveDeadline = Date.now() + RESOLVE_RACE_BUDGET_MS;
     let lastTierError: unknown = null;
     let raced: { url: string; quality: string; fromCustomSource: boolean } | null = null;
-    for (const tier of qualityTiers) {
-      if (Date.now() >= resolveDeadline) {
-        lastTierError = lastTierError ?? new Error(`解析播放地址超时，请重试`);
-        break;
-      }
-      try {
-        const racedResult = await raceQualityTier(song, tier);
-        // 防盗链 headers 统一按音源补齐：LX 自定义音源返回的也多为 wy/tx 官方 CDN 链接，
-        // 缺 Referer 会直接 403（竞速版本初期的回归点）；其他源 CDN 无 Referer 要求，多带无害。
-        const candidateHeaders = buildStreamHeaders(song.source);
-        // 探活：1 字节 Range 同时给出「地址是否真的可用」与「完整资源字节数」——后者是
-        // 试听判定的唯一数据来源（见 @lx/core stream-integrity），跳过探活等于放弃解析期试听判定。
-        // 两条通道都跑，但拒绝尺度不同：
-        // - 自定义音源：黑盒代理 TCP 握手成功后可能永不返数据（ExoPlayer 会无限缓冲、
-        //   进度永远 00:00 且无错误回调），因此任何探活失败都换下一档。
-        // - 网关直连 CDN：稳定可靠，只有服务端明确拒绝（4xx）才换档；超时 / 抖动 / 5xx
-        //   下不了结论，不能据此否掉一个可能正常的地址（部分 CDN 忽略 Range 或对大文件响应慢），
-        //   放行给播放器错误回调兜底。
-        const probe = await probeStreamUrl(racedResult.url, candidateHeaders);
-        if (!probe.ok && (racedResult.fromCustomSource || probe.definitive)) {
-          // 带上地址来源（协议 + 主机，不含可能含 token 的路径与查询串）：
-          // 明文 http 被 Android 拦截、代理域名不可达等失败在错误文案上无法区分，
-          // 没有来源信息只能靠猜。
-          lastTierError = new Error(
-            `解析的播放地址不可用（${probe.reason}）[${describeUrlOrigin(racedResult.url)}]`,
-          );
-          continue;
+    candidateLoop: for (const candidate of playbackCandidates) {
+      for (const tier of qualityTiers) {
+        if (Date.now() >= resolveDeadline) {
+          lastTierError = lastTierError ?? new Error(`解析播放地址超时，请重试`);
+          break candidateLoop;
         }
-        // 试听判定：30s 试听与完整版同样返回 206，靠 Content-Range / Content-Length
-        // 估算流时长后与期望时长（song.interval）比对，是试听则本档作废继续降档。
-        if (
-          probe.ok &&
-          probe.totalBytes != null &&
-          isPreviewStream({
-            totalBytes: probe.totalBytes,
-            quality: racedResult.quality,
-            expectedDurationSeconds: song.interval,
-          })
-        ) {
-          const previewSeconds = estimateStreamDurationSeconds(probe.totalBytes, racedResult.quality);
-          lastTierError = new Error(
-            `解析到试听片段（约 ${Math.round(previewSeconds ?? 0)}s），已跳过并降档重试`,
-          );
-          continue;
+        try {
+          const racedResult = await raceQualityTier(candidate, tier);
+          // 防盗链 headers 按候选实际来源补齐：LX 自定义音源返回的也多为 wy/tx 官方 CDN 链接，
+          // 缺 Referer 会直接 403（竞速版本初期的回归点）；其他源 CDN 无 Referer 要求，多带无害。
+          const candidateHeaders = buildStreamHeaders(candidate.source);
+          // 探活：1 字节 Range 同时给出「地址是否真的可用」与「完整资源字节数」——后者是
+          // 试听判定的唯一数据来源（见 @lx/core stream-integrity），跳过探活等于放弃解析期试听判定。
+          // 两条通道都跑，但拒绝尺度不同：
+          // - 自定义音源：黑盒代理 TCP 握手成功后可能永不返数据（ExoPlayer 会无限缓冲、
+          //   进度永远 00:00 且无错误回调），因此任何探活失败都换下一档。
+          // - 网关直连 CDN：稳定可靠，只有服务端明确拒绝（4xx）才换档；超时 / 抖动 / 5xx
+          //   下不了结论，不能据此否掉一个可能正常的地址（部分 CDN 忽略 Range 或对大文件响应慢），
+          //   放行给播放器错误回调兜底。
+          const probe = await probeStreamUrl(racedResult.url, candidateHeaders);
+          if (!probe.ok && (racedResult.fromCustomSource || probe.definitive)) {
+            // 带上地址来源（协议 + 主机，不含可能含 token 的路径与查询串）：
+            // 明文 http 被 Android 拦截、代理域名不可达等失败在错误文案上无法区分，
+            // 没有来源信息只能靠猜。
+            lastTierError = new Error(
+              `解析的播放地址不可用（${probe.reason}）[${describeUrlOrigin(racedResult.url)}]`,
+            );
+            continue;
+          }
+          // 试听判定：30s 试听与完整版同样返回 206，靠 Content-Range / Content-Length
+          // 估算流时长后与期望时长（本候选的 interval）比对，是试听则本档作废继续降档。
+          if (
+            probe.ok &&
+            probe.totalBytes != null &&
+            isPreviewStream({
+              totalBytes: probe.totalBytes,
+              quality: racedResult.quality,
+              expectedDurationSeconds: candidate.interval,
+            })
+          ) {
+            const previewSeconds = estimateStreamDurationSeconds(probe.totalBytes, racedResult.quality);
+            lastTierError = new Error(
+              `解析到试听片段（约 ${Math.round(previewSeconds ?? 0)}s），已跳过并降档重试`,
+            );
+            continue;
+          }
+          raced = racedResult;
+          url = racedResult.url;
+          headers = candidateHeaders;
+          resolvedQuality = racedResult.quality;
+          resolvedSong = candidate;
+          break candidateLoop;
+        } catch (error) {
+          lastTierError = error;
         }
-        raced = racedResult;
-        url = racedResult.url;
-        headers = candidateHeaders;
-        resolvedQuality = racedResult.quality;
-        break;
-      } catch (error) {
-        lastTierError = error;
       }
     }
     if (!raced) {
@@ -420,31 +448,31 @@ async function resolveSongUrl(
 
   const cacheQuality = resolvedQuality ?? qualityOverride ?? quality;
 
-  // 3. 写入预读缓存
-  prefetchCache.set(buildPlaybackPrefetchKey(song, cacheQuality), { url, headers, fetchedAt: Date.now() });
+  // 3. 写入预读缓存（以实际解析成功的实体为键，候选链查询自会命中）
+  prefetchCache.set(buildPlaybackPrefetchKey(resolvedSong, cacheQuality), { url, headers, fetchedAt: Date.now() });
 
   // 3.5 写入持久化 URL 缓存（本地文件不缓存）
-  if (!song.isLocal && song.source !== "local") {
-    void saveCachedPlaybackUrl(song, { url, quality: cacheQuality, headers }).catch(() => {});
+  if (!resolvedSong.isLocal && resolvedSong.source !== "local") {
+    void saveCachedPlaybackUrl(resolvedSong, { url, quality: cacheQuality, headers }).catch(() => {});
 
     // 3.6 后台缓存音频文件到本地（仅 wy/tx，对齐桌面端 CACHEABLE_AUDIO_SOURCES），
     // 下载完成后把本地 file:// 写回持久化缓存与预读缓存，下次播放离线即开。
-    if (CACHEABLE_AUDIO_SOURCES.has(song.source) && /^https?:\/\//i.test(url)) {
-      void cacheAudioFile(url, song, cacheQuality, headers)
+    if (CACHEABLE_AUDIO_SOURCES.has(resolvedSong.source) && /^https?:\/\//i.test(url)) {
+      void cacheAudioFile(url, resolvedSong, cacheQuality, headers)
         .then((localPath) => {
           if (!localPath) return;
-          prefetchCache.set(buildPlaybackPrefetchKey(song, cacheQuality), {
+          prefetchCache.set(buildPlaybackPrefetchKey(resolvedSong, cacheQuality), {
             url: localPath,
             headers: undefined,
             fetchedAt: Date.now(),
           });
-          void saveCachedPlaybackUrl(song, { url: localPath, quality: cacheQuality }).catch(() => undefined);
+          void saveCachedPlaybackUrl(resolvedSong, { url: localPath, quality: cacheQuality }).catch(() => undefined);
         })
         .catch(() => undefined);
     }
   }
 
-  return { url, headers };
+  return { url, headers, song: resolvedSong };
 }
 
 /**
@@ -633,7 +661,7 @@ function prefetchNearbySongs(): void {
  */
 const prefetchInflight = new Map<
   string,
-  Promise<{ url: string; headers?: Record<string, string> } | null>
+  Promise<ResolvedSongPlayback | null>
 >();
 
 /**
@@ -651,7 +679,7 @@ export function prefetchSong(song: MusicInfo): void {
     song.quality,
     usePlaybackSettingsStore.getState().defaultQuality,
   );
-  if (getCachedPrefetch(song, quality)) return;
+  if (getCachedPrefetch(buildPlaybackCandidates(song), quality)) return;
   // 同一「歌 + 音质」的解析已在途则复用，不再发起第二条解析链
   const inflightKey = buildPlaybackPrefetchKey(song, quality);
   if (prefetchInflight.has(inflightKey)) return;
@@ -780,9 +808,9 @@ async function resolveCrossSourceSubstitute(
   for (const candidate of candidates) {
     if (!isCurrentPlaybackRequest(intent)) throw new Error(primaryMessage);
     try {
-      const { url, headers } = await resolveSongUrl(candidate);
+      const resolved = await resolveSongUrl(candidate);
       if (!isCurrentPlaybackRequest(intent)) throw new Error(primaryMessage);
-      return { song: candidate, url, headers };
+      return resolved;
     } catch {
       // 该候选解析不出来（多数是没导入可用的 QQ 音源脚本）：继续试下一条，
       // 全部失败才判终局，避免只因排序第一的候选恰是付费曲就放弃整首歌
@@ -811,7 +839,7 @@ async function playSongCore(song: MusicInfo, startPosition?: number, requestId?:
     logger.info("开始解析播放", { requestId: intent, song: `${song.source}:${song.id}` });
     const resolved = await runPlaybackResolution(async () => {
       try {
-        return { song, ...await resolveSongUrl(song) };
+        return await resolveSongUrl(song);
       } catch (primaryError) {
         if (!isCurrentPlaybackRequest(intent)) throw primaryError;
         const message = primaryError instanceof Error ? primaryError.message : String(primaryError);
@@ -829,6 +857,10 @@ async function playSongCore(song: MusicInfo, startPosition?: number, requestId?:
         duration: effectiveSong.interval || 0,
         lyrics: [],
       });
+      // 透明化换源：用户听到的是 QQ 音乐版本，必须被告知（wy→tx 是唯一的自动接管方向）
+      if (effectiveSong.source !== song.source && effectiveSong.source === "tx") {
+        usePlayerStore.getState().notifyPlaybackNotice("已切换 QQ 音乐源");
+      }
     }
     // 2. 播放（远端音源需带防盗链 headers；startPosition 用于快照恢复续播）
     await play(effectiveSong, url, headers, startPosition, intent);
@@ -906,10 +938,23 @@ export async function switchCurrentPlaybackQuality(quality: string): Promise<voi
   try {
     setLoading(true);
     setError(null);
-    const { url, headers } = await runPlaybackResolution(() => resolveSongUrl(nextSong, quality), intent);
+    const resolved = await runPlaybackResolution(() => resolveSongUrl(nextSong, quality), intent);
     if (!isCurrentPlaybackRequest(intent)) return;
+    // 候选链兜底可能解析到其它变体：与 playSongCore 相同，把 UI/歌词切到实际发声的实体
+    const effectiveSong = resolved.song;
+    if (effectiveSong !== nextSong) {
+      usePlayerStore.setState({
+        currentSong: effectiveSong,
+        duration: effectiveSong.interval || 0,
+        lyrics: [],
+      });
+      if (effectiveSong.source !== nextSong.source && effectiveSong.source === "tx") {
+        usePlayerStore.getState().notifyPlaybackNotice("已切换 QQ 音乐源");
+      }
+      loadLyrics(effectiveSong, intent);
+    }
     // 直接以原进度开播（play 内部 seek 后才淡入），避免「先从头播再跳回」的回跳感
-    await play(nextSong, url, headers, resumePosition > 1 ? resumePosition : undefined, intent);
+    await play(effectiveSong, resolved.url, resolved.headers, resumePosition > 1 ? resumePosition : undefined, intent);
     if (!isCurrentPlaybackRequest(intent)) return;
     if (!wasPlaying) {
       // 暂停态切音质：立即压回暂停（淡入刚起即被按住，几乎无感）

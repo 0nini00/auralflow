@@ -341,6 +341,8 @@ export interface PlayerState {
   isPlaying: boolean;
   loading: boolean;
   error: string | null;
+  /** 跨源降级等一次性播放提示；约 10s 后自动清除 */
+  playbackNotice: string | null;
   playbackRate: number;
   volume: number;
   previousVolume: number;
@@ -452,10 +454,15 @@ interface PlayerActions {
   setLyrics: (lyrics: Array<{ time: number; text: string; tr?: string }>) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
+  notifyPlaybackNotice: (text: string) => void;
   syncPlayerState: (state: State) => void;
 }
 
 type PlayerStore = PlayerState & PlayerActions;
+
+/** 跨源降级注记停留时长（对齐桌面端）：足够被看见，又不至于常驻压住迷你栏 */
+const PLAYBACK_NOTICE_HOLD_MS = 10_000;
+let playbackNoticeToken = 0;
 
 export const usePlayerStore = create<PlayerStore>((set, get) => ({
   // 初始状态
@@ -465,6 +472,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   isPlaying: false,
   loading: false,
   error: null,
+  playbackNotice: null,
   playbackRate: DEFAULT_PLAYBACK_RATE,
   volume: DEFAULT_VOLUME,
   previousVolume: DEFAULT_VOLUME,
@@ -1137,6 +1145,14 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
 
   setError: (error: string | null) => {
     set({ error });
+  },
+
+  notifyPlaybackNotice: (text: string) => {
+    const token = ++playbackNoticeToken;
+    set({ playbackNotice: text });
+    setTimeout(() => {
+      if (playbackNoticeToken === token) set({ playbackNotice: null });
+    }, PLAYBACK_NOTICE_HOLD_MS);
   },
 
   syncPlayerState: (state: State) => {

@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { createLoader, deferred, mobileRequire } = require("./helpers/loadTs.cjs");
 const pure = createLoader({});
-const core = { ...pure("../../packages/core/src/switch-step-queue.ts"), ...pure("../../packages/core/src/playback-quality.ts"), ...pure("../../packages/core/src/recommendations/heartbeat-queue.ts"), isPreviewDuration: () => false };
+const core = { ...pure("../../packages/core/src/switch-step-queue.ts"), ...pure("../../packages/core/src/playback-quality.ts"), ...pure("../../packages/core/src/recommendations/heartbeat-queue.ts"), ...pure("../../packages/core/src/song-variant.ts"), isPreviewDuration: () => false };
 const song = (id, source = "tx") => ({ id, source, name: id, singer: "Artist", interval: 180 });
 async function flush() { await new Promise(setImmediate); }
 async function until(predicate) { for (let i=0;i<100;i++) { if(predicate())return; await flush(); } assert.fail("播放链未到达检查点"); }

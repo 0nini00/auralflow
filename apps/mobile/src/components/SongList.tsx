@@ -1,12 +1,14 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, ActivityIndicator, Alert, InteractionManager, useWindowDimensions, FlatList, type StyleProp, type ViewStyle, type RefreshControlProps } from "react-native";
 import type { MusicInfo } from "@lx/core";
+import { getSongVariants } from "@lx/core";
 import { AudioLines, CheckCircle2, Circle, Ellipsis, Heart, Music2 } from "lucide-react-native";
 import { CachedImage } from "./CachedImage";
 import { DownloadQualityModal } from "./DownloadQualityModal";
 import { AddToLocalPlaylistModal } from "./AddToLocalPlaylistModal";
 import { ActionMenuSheet, type ActionMenuAnchor, type ActionMenuItem } from "./ActionMenuSheet";
 import { LyricsChoiceSheet } from "./LyricsChoiceSheet";
+import { VariantPickerSheet } from "./VariantPickerSheet";
 import { isLocalMediaSong } from "@/services/localMediaPlaybackModel";
 import { IconButton } from "./IconButton";
 import { Touchable } from "./Touchable";
@@ -133,6 +135,8 @@ export function SongList({
   const [actionSong, setActionSong] = useState<MusicInfo | null>(null);
   // 「选择歌词」面板与其它弹窗一样单例化：每行都挂一个 Modal 会让长列表付出整棵组件树的代价。
   const [lyricsChoiceSong, setLyricsChoiceSong] = useState<MusicInfo | null>(null);
+  // 「其他版本」面板同样单例化：只对携带跨源变体的歌曲开放入口
+  const [variantPickerSong, setVariantPickerSong] = useState<MusicInfo | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<ActionMenuAnchor | null>(null);
   const [menuVisible, setMenuVisible] = useState(false);
   const [addToPlaylistVisible, setAddToPlaylistVisible] = useState(false);
@@ -298,6 +302,10 @@ export function SongList({
       { label: buildSongQueueActionLabels().playNextLabel, icon: "playNext", onPress: () => playNextInQueue(song) },
       { label: "收藏到歌单", icon: "playlist", onPress: () => openAddToPlaylist(song) },
     ];
+    // 跨源变体存在时才给「其他版本」入口（无变体时该面板无从选择）
+    if (getSongVariants(song).length > 0) {
+      items.push({ label: "其他版本", icon: "variant", onPress: () => setVariantPickerSong(song) });
+    }
     if (showDownloadAction) {
       items.push({
         label: downloadLabel,
@@ -432,6 +440,12 @@ export function SongList({
           song={lyricsChoiceSong}
           onClose={() => setLyricsChoiceSong(null)}
         />
+        {/* 单例弹窗：其他版本（跨源变体选择与本机首选） */}
+        <VariantPickerSheet
+          visible={variantPickerSong !== null}
+          song={variantPickerSong}
+          onClose={() => setVariantPickerSong(null)}
+        />
       </View>
     );
   }
@@ -507,6 +521,12 @@ export function SongList({
         visible={Boolean(lyricsChoiceSong)}
         song={lyricsChoiceSong}
         onClose={() => setLyricsChoiceSong(null)}
+      />
+      {/* 单例弹窗：其他版本（跨源变体选择与本机首选） */}
+      <VariantPickerSheet
+        visible={variantPickerSong !== null}
+        song={variantPickerSong}
+        onClose={() => setVariantPickerSong(null)}
       />
     </View>
   );

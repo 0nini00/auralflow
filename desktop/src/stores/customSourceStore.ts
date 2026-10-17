@@ -12,6 +12,7 @@ import {
 } from '@/services/customSourceRuntime';
 import { attachLibraryPersistence } from './libraryPersistence';
 import { createCustomSourceAccess } from '@/services/customSourceAccess';
+import { clearCrossSourceVariantCache } from '@/services/playback/crossSourceFallbackService';
 
 export type CustomSourceTestStatus = 'idle' | 'testing' | 'ok' | 'failed';
 export type CustomSourceUpdateStatus = 'idle' | 'checking' | 'latest' | 'available' | 'failed';
@@ -202,6 +203,8 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
           set((state) => ({
             sources: state.sources.map((source) => (source.id === sameName.id ? updated : source)),
           }));
+          // 脚本集合变更会改变可解析的候选版本，清掉降级搜索缓存
+          clearCrossSourceVariantCache();
           return updated;
         }
 
@@ -221,6 +224,8 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
           updatedAt: now,
         };
         set((state) => ({ sources: [...state.sources, item] }));
+        // 脚本集合变更会改变可解析的候选版本，清掉降级搜索缓存
+        clearCrossSourceVariantCache();
         return item;
       },
 
@@ -244,11 +249,13 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
         customSourceAccess.capture();
         invalidateRuntimeCache(id);
         set((state) => ({ sources: state.sources.filter((source) => source.id !== id) }));
+        clearCrossSourceVariantCache();
       },
 
       toggleSource: (id, enabled) => {
         customSourceAccess.capture();
         set((state) => ({ sources: patchSource(state.sources, id, { enabled }) }));
+        clearCrossSourceVariantCache();
       },
 
       toggleUpdateAlert: (id, enabled) => {
@@ -382,6 +389,7 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
         customSourceAccess.capture();
         invalidateAllRuntimeCaches();
         set({ sources: (sources ?? []).map(normalizeCustomSourceForStore) });
+        clearCrossSourceVariantCache();
       },
 }));
 

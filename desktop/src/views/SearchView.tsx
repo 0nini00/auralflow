@@ -6,6 +6,7 @@ import { usePlayerStore } from "../stores/playerStore";
 import { useWyAccountStore } from "../stores/wyAccountStore";
 import { usePlaylistStore } from "../stores/playlistStore";
 import { SongAddMenuButton } from "@/components/SongAddMenuButton";
+import { VariantPickerButton } from "@/components/VariantPickerButton";
 import { DownloadQualityButton } from "@/components/DownloadQualityButton";
 import { formatDuration } from "@/lib/utils";
 import { formatPlaylistSearchMeta } from "@/services/neteasePlaylistUtils";
@@ -25,18 +26,13 @@ import {
   type SearchSuggestion,
 } from "@/services/search/searchSuggestions";
 import type { MusicInfo, PlaylistInfo, ArtistInfo, AlbumInfo, SearchResult } from "@lx/core";
+import { groupHasSource, groupSongResults, withSongVariants } from "@lx/core";
 import {
   getSearchHistory,
   addSearchHistory,
   removeSearchHistory,
   clearSearchHistory,
 } from "@/services/search/searchHistory";
-
-interface CombinedSongResult {
-  key: string;
-  primary: MusicInfo;
-  variants: MusicInfo[];
-}
 
 type ResultFilter = "overview" | "song" | "artist" | "album" | "playlist";
 
@@ -48,70 +44,14 @@ const SEARCH_RESULT_FILTERS: Array<{ id: ResultFilter; label: string }> = [
   { id: "playlist", label: "歌单" },
 ];
 
-function normalizeText(text: string): string {
-  return text
-    .normalize("NFKC")
-    .toLowerCase()
-    .replace(/[（(【\[].*?[）)】\]]/g, "")
-    .replace(/[\s\-—_·.,，。:：'"《》<>]/g, "")
-    .trim();
-}
+type SongSourceFilter = "all" | "wy" | "tx";
 
-function splitSingerTokens(singer: string): string[] {
-  return singer
-    .split(/[、/,，&＋+]/)
-    .map(normalizeText)
-    .filter(Boolean);
-}
-
-function hasSingerOverlap(a: MusicInfo, b: MusicInfo): boolean {
-  const singersA = splitSingerTokens(a.singer);
-  const singersB = splitSingerTokens(b.singer);
-  if (singersA.length === 0 || singersB.length === 0) return false;
-  return singersA.some((singerA) => singersB.some((singerB) => singerA === singerB));
-}
-
-function isSameSong(a: MusicInfo, b: MusicInfo): boolean {
-  if (normalizeText(a.name) !== normalizeText(b.name)) return false;
-  if (!hasSingerOverlap(a, b)) return false;
-
-  if (a.interval && b.interval) {
-    return Math.abs(a.interval - b.interval) <= 6;
-  }
-
-  return true;
-}
-
-function sourceRank(source: MusicInfo["source"]): number {
-  if (source === "wy") return 0;
-  if (source === "tx") return 1;
-  return 2;
-}
-
-function groupSongResults(songs: MusicInfo[]): CombinedSongResult[] {
-  const groups: CombinedSongResult[] = [];
-
-  for (const song of songs) {
-    const existing = groups.find((group) => group.variants.some((variant) => isSameSong(variant, song)));
-    if (!existing) {
-      groups.push({
-        key: `${normalizeText(song.name)}:${normalizeText(song.singer)}:${song.interval ?? 0}`,
-        primary: song,
-        variants: [song],
-      });
-      continue;
-    }
-
-    if (!existing.variants.some((variant) => variant.source === song.source && variant.id === song.id)) {
-      existing.variants.push(song);
-    }
-
-    existing.variants.sort((a, b) => sourceRank(a.source) - sourceRank(b.source));
-    existing.primary = existing.variants[0];
-  }
-
-  return groups;
-}
+/** 单曲来源筛选：只过滤已聚合的结果列表，不触发重搜（对齐移动端）。 */
+const SONG_SOURCE_FILTERS: Array<{ id: SongSourceFilter; label: string }> = [
+  { id: "all", label: "全部" },
+  { id: "wy", label: "网易云" },
+  { id: "tx", label: "QQ" },
+];
 
 function buildSearchKey(keyword: string): string {
   return keyword;
@@ -221,6 +161,7 @@ export function SearchView() {
 
   const [query, setQuery] = useState(initialQuery);
   const [songResults, setSongResults] = useState<MusicInfo[]>([]);
+  const [songSourceFilter, setSongSourceFilter] = useState<SongSourceFilter>("all");
   const [playlistResults, setPlaylistResults] = useState<PlaylistInfo[]>([]);
   const [artistResults, setArtistResults] = useState<ArtistInfo[]>([]);
   const [albumResults, setAlbumResults] = useState<AlbumInfo[]>([]);
@@ -292,6 +233,7 @@ export function SearchView() {
         setSearched(true);
         setSearchError("");
         setActiveResultFilter(restoredFilter);
+        setSongSourceFilter("all");
         setSearchCategories((cached.result as CategorizedSearchResult).categories);
         applySearchResult(cached.result);
         return;
@@ -326,6 +268,7 @@ export function SearchView() {
     setSearchCategories([]);
 
     setSongResults([]);
+    setSongSourceFilter("all");
 
     setPlaylistResults([]);
     setArtistResults([]);
@@ -471,12 +414,23 @@ export function SearchView() {
   };
 
   const songGroups = useMemo(() => groupSongResults(songResults), [songResults]);
-  const playableSongQueue = useMemo(
-    () => songGroups.map((group) => ({
-      ...group.primary,
-      variants: group.variants,
-    } as MusicInfo & { variants: MusicInfo[] })),
+  const songSourceCounts = useMemo(
+    () => ({
+      wy: songGroups.filter((group) => groupHasSource(group, "wy")).length,
+      tx: songGroups.filter((group) => groupHasSource(group, "tx")).length,
+    }),
     [songGroups],
+  );
+  const filteredSongGroups = useMemo(
+    () =>
+      songSourceFilter === "all"
+        ? songGroups
+        : songGroups.filter((group) => groupHasSource(group, songSourceFilter)),
+    [songGroups, songSourceFilter],
+  );
+  const playableSongQueue = useMemo(
+    () => filteredSongGroups.map((group) => withSongVariants(group.primary, group.variants)),
+    [filteredSongGroups],
   );
   const resultCount = songGroups.length + playlistResults.length + artistResults.length + albumResults.length;
   const resultFilterCounts: Record<ResultFilter, number> = {
@@ -973,9 +927,29 @@ export function SearchView() {
 
       {!loading && !searchError && showSongResults && songGroups.length > 0 && (
         <section className="af-search-section">
-          <h2 className="af-search-section-title">单曲</h2>
+          <div className="af-search-section-head">
+            <h2 className="af-search-section-title">单曲</h2>
+            <div className="af-source-filter" role="group" aria-label="按来源筛选单曲">
+              {SONG_SOURCE_FILTERS.map((filter) => {
+                // 无该来源匹配时置灰：点进去只会看到空列表，不如提前说明
+                const disabled = filter.id !== "all" && songSourceCounts[filter.id] === 0;
+                return (
+                  <button
+                    key={filter.id}
+                    type="button"
+                    className={`af-source-filter-chip${songSourceFilter === filter.id ? " is-active" : ""}`}
+                    onClick={() => setSongSourceFilter(filter.id)}
+                    disabled={disabled}
+                    aria-pressed={songSourceFilter === filter.id}
+                  >
+                    {filter.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           <ul className="af-search-results">
-            {songGroups.map((group, index) => {
+            {filteredSongGroups.map((group, index) => {
             const music = playableSongQueue[index];
             return (
               <li
@@ -1016,6 +990,11 @@ export function SearchView() {
                     song={music}
                     iconSize={16}
                     title="添加到我的喜欢或歌单"
+                  />
+                  <VariantPickerButton
+                    song={music}
+                    iconSize={16}
+                    title="其他版本"
                   />
                   <DownloadQualityButton
                     song={music}

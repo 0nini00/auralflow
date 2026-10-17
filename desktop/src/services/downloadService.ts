@@ -1,4 +1,5 @@
 import type { MusicInfo } from '@lx/core';
+import { buildSongKey, orderPlaybackCandidates } from '@lx/core';
 import {
   cancelDownload,
   downloadFile,
@@ -10,6 +11,7 @@ import {
 import { outboundRequest } from '@/services/outboundHttp';
 import { resolvePlaybackUrl } from '@/services/playback/playbackResolver';
 import { getSource } from '@/services/sources/sourceService';
+import { useVariantPinStore } from '@/stores/variantPinStore';
 import { logger } from '@/services/logger';
 
 export interface PreparedDownload {
@@ -111,9 +113,11 @@ export async function prepareDownload(
     throw new Error('本地音乐已经在设备上，无需下载');
   }
 
-  const variants = Array.isArray((music as any).variants)
-    ? ((music as any).variants as MusicInfo[])
-    : undefined;
+  // 下载与播放共用候选链语义：搜索变体（pin 首选置顶）均可作为下载目标
+  const variants = orderPlaybackCandidates(
+    music,
+    useVariantPinStore.getState().getPinnedVariantKey(buildSongKey(music)),
+  );
   const resolved = await resolvePlaybackUrl(music, variants, quality);
 
   if (!resolved?.url) {

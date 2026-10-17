@@ -8,6 +8,7 @@ import {
   Alert,
 } from "react-native";
 import type { MusicInfo } from "@lx/core";
+import { groupHasSource, groupSongResults, withSongVariants } from "@lx/core";
 import { layout, radius, spacing, touch, typography } from "@/theme/tokens";
 
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
@@ -18,7 +19,6 @@ import { SearchX, X } from "lucide-react-native";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
 import { SongList } from "@/components/SongList";
-import { groupSongResults, type SongGroup } from "@/services/songGroupModel";
 import {
   AlbumResultList,
   ArtistResultList,
@@ -87,6 +87,15 @@ const SEARCH_TABS: Array<{ key: SearchTab; label: string }> = [
   { key: "playlists", label: "歌单" },
 ];
 
+type SongSourceFilter = "all" | "wy" | "tx";
+
+/** 单曲来源筛选：只过滤已聚合的结果列表，不触发重搜（对齐桌面端）。 */
+const SONG_SOURCE_FILTERS: Array<{ id: SongSourceFilter; label: string }> = [
+  { id: "all", label: "全部" },
+  { id: "wy", label: "网易云" },
+  { id: "tx", label: "QQ" },
+];
+
 const EMPTY_RESULTS: SearchResults = {
   songs: [],
   artists: [],
@@ -106,6 +115,7 @@ export function SearchScreen({
   const [submittedQuery, setSubmittedQuery] = useState("");
   const [results, setResults] = useState<SearchResults>(EMPTY_RESULTS);
   const [activeTab, setActiveTab] = useState<SearchTab>("all");
+  const [songSourceFilter, setSongSourceFilter] = useState<SongSourceFilter>("all");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
@@ -176,6 +186,7 @@ export function SearchScreen({
       setLoading(true);
       setError(null);
       setActiveTab("all");
+      setSongSourceFilter("all");
       setFromCache(hasCachedResult("all", query, "all"));
 
       try {
@@ -227,7 +238,25 @@ export function SearchScreen({
 
   // 跨源去重：同名同歌手歌曲合并为一行
   const songGroups = useMemo(() => groupSongResults(results.songs), [results.songs]);
-  const dedupedSongs = useMemo(() => songGroups.map((g) => g.primary), [songGroups]);
+  const songSourceCounts = useMemo(
+    () => ({
+      wy: songGroups.filter((group) => groupHasSource(group, "wy")).length,
+      tx: songGroups.filter((group) => groupHasSource(group, "tx")).length,
+    }),
+    [songGroups]
+  );
+  const filteredSongGroups = useMemo(
+    () =>
+      songSourceFilter === "all"
+        ? songGroups
+        : songGroups.filter((group) => groupHasSource(group, songSourceFilter)),
+    [songGroups, songSourceFilter]
+  );
+  // 变体随主条目进入队列与解析链：播放时主版本解析失败会自动尝试 QQ 版本（不再只是徽标）
+  const dedupedSongs = useMemo(
+    () => filteredSongGroups.map((g) => withSongVariants(g.primary, g.variants)),
+    [filteredSongGroups]
+  );
 
   const runPlayback = useCallback(async (action: () => Promise<void>) => {
     setPlaybackError(null);
@@ -380,6 +409,36 @@ export function SearchScreen({
                 </Text>
               </Pressable>
             ))}
+          </View>
+        )}
+
+        {showResults && (activeTab === "all" || activeTab === "songs") && songGroups.length > 0 && (
+          <View style={styles.sourceFilterRow}>
+            {SONG_SOURCE_FILTERS.map((filter) => {
+              // 无该来源匹配时置灰：点进去只会看到空列表，不如提前说明
+              const disabled = filter.id !== "all" && songSourceCounts[filter.id] === 0;
+              const active = songSourceFilter === filter.id;
+              return (
+                <Pressable
+                  key={filter.id}
+                  style={[
+                    styles.sourceFilterChip,
+                    { borderColor: palette.border, backgroundColor: palette.surface },
+                    active && { borderColor: palette.primary, backgroundColor: palette.surfaceStrong },
+                    disabled && styles.sourceFilterChipDisabled,
+                  ]}
+                  onPress={() => setSongSourceFilter(filter.id)}
+                  disabled={disabled}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active, disabled }}
+                  accessibilityLabel={`筛选${filter.label}来源`}
+                >
+                  <Text style={[styles.sourceFilterText, { color: palette.textMuted }, active && { color: palette.text }]}>
+                    {filter.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
         )}
 
@@ -627,6 +686,25 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   tabText: {
+    fontSize: typography.meta,
+    fontWeight: "500",
+  },
+  sourceFilterRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+  },
+  sourceFilterChip: {
+    minHeight: layout.compactControlHeight,
+    paddingHorizontal: spacing.m,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sourceFilterChipDisabled: {
+    opacity: 0.45,
+  },
+  sourceFilterText: {
     fontSize: typography.meta,
     fontWeight: "500",
   },

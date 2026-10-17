@@ -12,12 +12,13 @@ import { takeResumeProgress } from "./playerResumeTarget";
 import { removeCachedAudioForMusic } from "@/services/mediaCache";
 
 import { debugLog, patchSettings } from "@lx/tauri-bridge";
-import { applySwitchStepRequest, createSwitchStepQueueState, finishSwitchStep } from "@lx/core";
+import { applySwitchStepRequest, buildSongKey, createSwitchStepQueueState, finishSwitchStep, orderPlaybackCandidates } from "@lx/core";
 import { findTxVariants, describeCrossSourceFailure } from "@/services/playback/crossSourceFallbackService";
 import { useHistoryStore } from "./historyStore";
 import { useSleepTimerStore } from "./sleepTimerStore";
 import { useDiscoveryStore } from "./discoveryStore";
 import { customSourceAccess, customSourcePersistence, useCustomSourceStore } from "./customSourceStore";
+import { useVariantPinStore } from "./variantPinStore";
 import { CustomSourceDisabledError, type CustomSourceOperation } from "@/services/customSourceAccess";
 
 export type RepeatMode = "off" | "all" | "one";
@@ -39,6 +40,10 @@ interface PlayerStore {
   repeatMode: RepeatMode;
   isShuffle: boolean;
   error: string | null;
+
+  /** 跨源降级等一次性播放提示；约 10s 后自动清除 */
+  playbackNotice: string | null;
+
   /** 私人 FM 模式：true 时播放结束/手动 next 走 discoveryStore.fmNext */
 
   fmMode: boolean;
@@ -73,10 +78,14 @@ interface PlayerStore {
   toggleShuffle: () => void;
   enterFmMode: (options?: { soft?: boolean }) => void;
   exitFmMode: () => void;
+  notifyPlaybackNotice: (text: string) => void;
 }
 
 let volumePersistTimer: ReturnType<typeof setTimeout> | null = null;
 let activePlayRequestId = 0;
+/** 跨源降级注记停留时长：足够被看见，又不至于常驻压住播放条 */
+const PLAYBACK_NOTICE_HOLD_MS = 10_000;
+let playbackNoticeToken = 0;
 /**
  * 引擎当前“应当”播放的曲目 key。
  *
@@ -351,6 +360,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
     repeatMode: "all",
     isShuffle: false,
     error: null,
+    playbackNotice: null,
 
     fmMode: false,
 
@@ -400,7 +410,12 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
           // 优先使用预加载缓存，命中则跳过网络解析
 
-          const variants = Array.isArray((music as any).variants) ? (music as any).variants as MusicInfo[] : undefined;
+          // 搜索变体（pin 首选置顶）进入解析候选链：主版本全链失败时同链尝试其它版本；
+          // 「宁可降音质也不换版本」由 backend 内候选×音质双层循环保证（对齐移动端）。
+          const variants = orderPlaybackCandidates(
+            music,
+            useVariantPinStore.getState().getPinnedVariantKey(buildSongKey(music)),
+          );
           let cachedTarget = selectCachedPlaybackTarget(music, getPrefetchedTrack(music));
           if (cachedTarget?.backend === 'customSource' && (
             !operation?.isActive() || cachedTarget.customSourceVersion !== customSourceAccess.version
@@ -483,6 +498,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
                     await playResolved(fallbackResolved);
                     if (requestId !== activePlayRequestId) return;
                     set({ current: fallbackResolved.music });
+                    get().notifyPlaybackNotice("已切换 QQ 音乐源");
                     useHistoryStore.getState().add(fallbackResolved.music);
                     void preloadNext(get).catch(() => undefined);
                     debugLog(`[fallback] 跨源降级成功: ${music.name} -> QQ音乐: ${candidate.name} (${candidate.id})`);
@@ -1014,6 +1030,13 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
     },
     exitFmMode: () => {
       set({ fmMode: false });
+    },
+    notifyPlaybackNotice: (text) => {
+      const token = ++playbackNoticeToken;
+      set({ playbackNotice: text });
+      setTimeout(() => {
+        if (playbackNoticeToken === token) set({ playbackNotice: null });
+      }, PLAYBACK_NOTICE_HOLD_MS);
     },
   };
 });

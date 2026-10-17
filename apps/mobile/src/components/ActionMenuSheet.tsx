@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Download,
   FolderPlus,
+  Layers,
   ListEnd,
   ListStart,
   Music2,
@@ -35,6 +36,7 @@ export type ActionMenuIconKey =
   | "playNext"
   | "addToQueue"
   | "playlist"
+  | "variant"
   | "download"
   | "mv"
   | "share"
@@ -47,6 +49,7 @@ const ACTION_MENU_ICONS: Record<ActionMenuIconKey, LucideIcon> = {
   playNext: ListStart,
   addToQueue: ListEnd,
   playlist: FolderPlus,
+  variant: Layers,
   download: Download,
   mv: Video,
   share: Share2,

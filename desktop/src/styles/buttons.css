@@ -440,3 +440,72 @@ button:focus-visible {
 .af-add-menu-error {
   color: var(--af-error);
 }
+
+/* 「其他版本」菜单：条目 = 来源徽标 + 歌名 + 歌手 + 时长，行尾星标 pin 本机首选 */
+.af-variant-menu {
+  max-height: min(360px, calc(100vh - 16px));
+  overflow-y: auto;
+}
+
+.af-variant-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.af-variant-row .af-variant-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 8px 9px 10px;
+  font-size: 13px;
+}
+
+.af-variant-source {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--af-border-secondary);
+  font-size: 11px;
+  color: var(--af-text-secondary);
+}
+
+.af-variant-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-variant-meta {
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 96px;
+  font-size: 12px;
+  color: var(--af-text-tertiary);
+}
+
+.af-variant-duration {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--af-text-tertiary);
+}
+
+.af-variant-row .af-variant-pin {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--af-text-tertiary);
+}
+
+.af-variant-row .af-variant-pin.is-pinned {
+  color: var(--af-accent-primary);
+}

@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { MusicInfo } from "@lx/core";
+import { orderPlaybackCandidates, type MusicInfo } from "@lx/core";
 
 /**
  * 移动端持久化播放 URL 缓存。
@@ -36,6 +36,8 @@ export interface CachedPlaybackUrl {
   url: string;
   quality: string;
   headers?: Record<string, string>;
+  /** 缓存写入时实际解析成功的那一条（可能是搜索变体）；旧版条目可能缺失 */
+  music?: MusicInfo;
   fromCache: true;
 }
 
@@ -111,25 +113,9 @@ export function normalizeQualityKey(quality: string): string {
   return trimmed;
 }
 
-/** 提取搜索去重后的多源变体（对齐桌面端 variants[]），扩大缓存命中面。 */
-function getVariants(song: MusicInfo): MusicInfo[] {
-  const variants = (song as { variants?: unknown }).variants;
-  if (!Array.isArray(variants)) return [song];
-  const seen = new Set<string>([getTrackKey(song)]);
-  const result: MusicInfo[] = [song];
-  for (const variant of variants as MusicInfo[]) {
-    if (!variant?.source || !variant.id) continue;
-    const key = getTrackKey(variant);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(variant);
-  }
-  return result;
-}
-
 /**
- * 按音质降级链查询持久化 URL 缓存。命中即返回（含请求头），
- * 过期条目就地清理。variants 缺省时从 song.variants 推断。
+ * 按音质降级链查询持久化 URL 缓存。命中即返回（含请求头与命中条目），
+ * 过期条目就地清理。variants 缺省时从 song.variants 推断主条目优先的候选序。
  */
 export async function getCachedPlaybackUrl(
   song: MusicInfo,
@@ -138,7 +124,7 @@ export async function getCachedPlaybackUrl(
   now = Date.now(),
 ): Promise<CachedPlaybackUrl | null> {
   const cache = await loadCache();
-  const candidates = variants && variants.length ? variants : getVariants(song);
+  const candidates = variants && variants.length ? variants : orderPlaybackCandidates(song);
 
   for (const music of candidates) {
     for (const quality of qualityPreference) {
@@ -154,6 +140,7 @@ export async function getCachedPlaybackUrl(
         url: entry.url,
         quality: entry.quality,
         headers: entry.headers,
+        music: entry.music,
         fromCache: true,
       };
     }
@@ -163,8 +150,9 @@ export async function getCachedPlaybackUrl(
 }
 
 /**
- * 写入持久化 URL 缓存。同时以歌曲主键与解析出的真实源（可能是 variant）建索引，
- * 提升后续命中率（对齐桌面端 saveCachedPlaybackUrl 的双键写入）。
+ * 写入持久化 URL 缓存，索引在「实际解析成功的那条」上。
+ * 调用方传解析确实用到的实体（可能是变体），主条目下次再来查时
+ * 由候选链枚举命中（getCachedPlaybackUrl 的 candidates 覆盖变体主键）。
  */
 export async function saveCachedPlaybackUrl(
   song: MusicInfo,
@@ -183,7 +171,6 @@ export async function saveCachedPlaybackUrl(
   };
 
   cache.playbackUrls[getCacheKey(song, qualityKey)] = entry;
-  cache.playbackUrls[getCacheKey({ source: song.source, id: song.id }, qualityKey)] = entry;
   await saveCache(cache, now);
 }
 

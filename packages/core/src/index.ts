@@ -1,5 +1,6 @@
 // @lx/core 公共入口
 export * from "./sources";
+export * from "./song-variant";
 export * from "./lyrics";
 export * from "./cover-image";
 export * from "./mobile-api";

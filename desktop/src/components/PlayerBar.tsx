@@ -106,6 +106,7 @@ export const PlayerBar: React.FC = () => {
     prev: previous,
     setPlayMode,
     setProgress,
+    playbackNotice,
   } = usePlayerStore();
 
   // 队列逐字段订阅：迷你栏只在意队列本身，避免整表订阅被每帧进度推送带着重渲染
@@ -314,6 +315,11 @@ export const PlayerBar: React.FC = () => {
             <div className="af-track-details">
               <div className="af-track-name">{currentTrack.name}</div>
               <div className="af-track-artist">{currentTrack.singer}</div>
+              {playbackNotice && (
+                <div className="af-track-notice" role="status">
+                  {playbackNotice}
+                </div>
+              )}
             </div>
             <SongAddMenuButton
               song={currentTrack}

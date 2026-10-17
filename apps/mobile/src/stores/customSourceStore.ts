@@ -11,6 +11,7 @@ import {
   type DesktopUserApiHeaderInfo,
   type CustomSourceUpdateAlert,
 } from "@/services/customSourceRuntime";
+import { clearCrossSourceVariantCache } from "@/services/crossSourceFallbackService";
 
 const STORAGE_KEY = "auralflow.mobile.customSources";
 
@@ -219,6 +220,8 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
     };
     const next = [...get().sources, item];
     set({ sources: next });
+    // 脚本集合变更会改变可解析的候选版本，清掉降级搜索缓存
+    clearCrossSourceVariantCache();
     await persistState(next, get().customSourceAutoCheck);
     return item;
   },
@@ -233,6 +236,7 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
     invalidateRuntimeCache(id);
     const next = get().sources.filter((source) => source.id !== id);
     set({ sources: next });
+    clearCrossSourceVariantCache();
     void persistState(next, get().customSourceAutoCheck);
   },
 
@@ -240,6 +244,7 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
     if (!enabled) invalidateRuntimeCache(id);
     const next = patchSource(get().sources, id, { enabled });
     set({ sources: next });
+    clearCrossSourceVariantCache();
     void persistState(next, get().customSourceAutoCheck);
   },
 
@@ -374,6 +379,7 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
     for (const source of get().sources) invalidateRuntimeCache(source.id);
     const next = (sources ?? []).map(normalizeCustomSourceForStore);
     set({ sources: next });
+    clearCrossSourceVariantCache();
     void persistState(next, get().customSourceAutoCheck);
   },
 }));

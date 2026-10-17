@@ -65,6 +65,7 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
   const coverUrl = usePlayerStore(selectPlaybackArtwork);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const loading = usePlayerStore((state) => state.loading);
+  const playbackNotice = usePlayerStore((state) => state.playbackNotice);
   const pause = usePlayerStore((state) => state.pause);
   const resume = usePlayerStore((state) => state.resume);
   const queue = usePlayerStore((state) => state.queue);
@@ -292,8 +293,15 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
             >
               {`${currentSong.name} - ${currentSong.singer?.trim() || "未知歌手"}`}
             </Text>
-            {/* 对齐 lx Status：播放时滚动显示当前歌词行，未播放回退状态文案 */}
-            <MiniLyricStatus overlayVisible={overlayVisible} color={palette.textMuted} />
+            {/* 对齐 lx Status：播放时滚动显示当前歌词行，未播放回退状态文案。
+                跨源降级注记（约 10s）优先占用此行，确保用户看到「实际在播哪一版」。 */}
+            {playbackNotice ? (
+              <Text style={[styles.trackNotice, { color: palette.primary }]} numberOfLines={1}>
+                {playbackNotice}
+              </Text>
+            ) : (
+              <MiniLyricStatus overlayVisible={overlayVisible} color={palette.textMuted} />
+            )}
           </View>
         </Touchable>
 
@@ -508,6 +516,11 @@ const styles = StyleSheet.create({
   trackArtist: {
     marginTop: 2,
     fontSize: typography.caption,
+  },
+  trackNotice: {
+    marginTop: 2,
+    fontSize: typography.caption,
+    fontWeight: "600",
   },
   transportControls: {
     flexDirection: "row",
