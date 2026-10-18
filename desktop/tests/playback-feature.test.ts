@@ -230,6 +230,29 @@ describe('持久化缓存 backend 过滤及提交', () => {
   });
 });
 
+describe('自定义源整链单次竞速', () => {
+  it('低档结果在单次竞速内定稿,不再等每轮烧完预算才降档', async () => {
+    vi.useFakeTimers();
+    try {
+      const runtimeCalls: string[] = [];
+      fixture.runtime.mockImplementation((_api: unknown, _music: unknown, quality: string) => {
+        runtimeCalls.push(quality);
+        if (quality === '320k') return Promise.resolve({ url: 'https://audio/320k', quality: '320k' });
+        return new Promise(() => {});
+      });
+      const { resolvePlaybackUrl } = await import('../src/services/playback/playbackResolver');
+      const pending = resolvePlaybackUrl(music, undefined, 'flac24bit');
+      await vi.advanceTimersByTimeAsync(2500);
+      const result = await pending;
+      expect(result.quality).toBe('320k');
+      expect(result.backend).toBe('customSource');
+      expect(runtimeCalls.filter((quality) => quality === '320k')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('预取身份与提交', () => {
   it('关闭重开期间失败的解析不留下阻止新预取的空条目', async () => {
     const gate = deferred<void>();

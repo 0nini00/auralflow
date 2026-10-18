@@ -27,14 +27,16 @@ export const customSourceBackend: PlaybackBackend = {
   /**
    * 按前端排列顺序交错启动的竞速(raceStaggeredPriority):
    *
-   * 前一个源结算立即启动下一个;未结算则最多等 STAGGER 并行启动下一个。
+   * 前一个源结算立即启动下一个;未结算则最多等交错间隔并行启动下一个,
+   * 交错总展开由 CUSTOM_SOURCE_SPREAD_MS 封顶(实测 7 源 × 800ms 会把队尾
+   * 唯一可用源(HYW,tx)推后 4.8s,叠加服务端 2-10s 慢回退直接顶穿预算)。
    * 前端排序 = 优先权(同档结果更靠前的源优先定稿),而非独占权——旧实现给每源
    * 2.5s 固定预算,走第三方代理的 LX 脚本正常耗时可达 3s+,会被系统性击杀。
    * 达标(不低于本轮最低档)即从该源定稿,其后的源零唤醒。
    *
-   * request.qualityPreference 由 playbackResolver 按轮次传入且从高到低排序,
-   * 此处不再自行增删档位——旧实现会给每一轮追加 128k,导致用户选无损时
-   * 第一轮就可能拿到 128k。
+   * request.qualityPreference 由 playbackResolver 传入完整降级链(从选定音质到
+   * 128k,高到低)且轮次间只竞速一次;此处不自行增删档位——旧实现会给每一轮
+   * 追加 128k,导致用户选无损时第一轮就可能拿到 128k。
    */
   async resolve(request: PlaybackRequest): Promise<PlaybackResolvedUrl> {
     if (!useCustomSourceStore.getState().featureReady) await customSourcePersistence.ready;
@@ -97,6 +99,7 @@ export const customSourceBackend: PlaybackBackend = {
             floor: floorQuality,
             ceiling: qualities[0],
             staggerMs: DEFAULT_SOURCE_STAGGER_MS,
+            maxSpreadMs: CUSTOM_SOURCE_SPREAD_MS,
             upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
             formatError: (errors) =>
               new Error(errors.map((error) => (error instanceof Error ? error.message : String(error))).join(' | ')),
@@ -114,6 +117,7 @@ export const customSourceBackend: PlaybackBackend = {
           floor: floorQuality,
           ceiling: qualities[0],
           staggerMs: DEFAULT_SOURCE_STAGGER_MS,
+          maxSpreadMs: CUSTOM_SOURCE_SPREAD_MS,
           upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
           deadlineMs: remaining,
           formatError: (errors) =>
@@ -149,8 +153,11 @@ export const customSourceBackend: PlaybackBackend = {
   },
 };
 
-/** 自定义源阶段总预算:外层 12s deadline 内为探活与媒体缓存留余量。 */
-const CUSTOM_SOURCE_TOTAL_BUDGET_MS = 8000;
+/** 自定义源阶段总预算:外层 14s deadline 内为探活与媒体缓存留余量。 */
+const CUSTOM_SOURCE_TOTAL_BUDGET_MS = 10000;
+
+/** 交错启动总展开上限:7 个源全部展开不超过该值(实测队尾慢源场景的关键)。 */
+const CUSTOM_SOURCE_SPREAD_MS = 1600;
 
 /** 剩余时间不足该值时不再启动新变体尝试,避免刚启动就撞外层 deadline。 */
 const CUSTOM_SOURCE_MIN_ATTEMPT_MS = 1000;

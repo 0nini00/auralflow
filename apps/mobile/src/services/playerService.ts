@@ -66,8 +66,9 @@ const PREFETCH_TTL_MS = 10 * 60 * 1000;
  *
  * 每档内网关与自定义源并发，单次请求超时 15s；多档串行最坏仍会叠加，
  * 给整条链一个总 deadline，超时停止降档直接报错，切歌在可预期时间内出结果。
+ * 自定义源为整链单次竞速（10000ms 预算），总预算需在其之上留出探活余量。
  */
-const RESOLVE_RACE_BUDGET_MS = 10_000;
+const RESOLVE_RACE_BUDGET_MS = 12_000;
 /** FM 当前批次（播放历史）上限：只保留最新 50 条，对齐桌面端 fmHistory 上限。 */
 const FM_HISTORY_MAX = 50;
 const prefetchCache = new Map<string, PrefetchedUrl>();
@@ -157,6 +158,7 @@ export async function resolveUrlWithCustomSource(
         floor: floorQuality,
         ceiling: qualities[0],
         staggerMs: DEFAULT_SOURCE_STAGGER_MS,
+        maxSpreadMs: CUSTOM_SOURCE_SPREAD_MS,
         upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
         formatError: (errors) => {
           const detail = errors
@@ -177,6 +179,7 @@ export async function resolveUrlWithCustomSource(
       floor: floorQuality,
       ceiling: qualities[0],
       staggerMs: DEFAULT_SOURCE_STAGGER_MS,
+      maxSpreadMs: CUSTOM_SOURCE_SPREAD_MS,
       upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
       deadlineMs: CUSTOM_SOURCE_RESOLVE_BUDGET_MS,
       formatError: (errors) => {
@@ -199,10 +202,16 @@ export async function resolveUrlWithCustomSource(
  * 旧链路是串行降级（网关全链失败才轮到自定义源），慢通道会阻塞切歌；
  * 用户要求（2026-08）：不低于所选音质的档位一起竞速，本轮全败才降下一档。
  * 择优而非先到先得：否则网关的低档结果会抢在自定义音源的高档结果前面。
+ *
+ * 自定义源由 getCustomAttempt 惰性提供：调用方按「完整降级链」只竞速一次并在
+ * 轮次间复用（对齐桌面端 playbackResolver）。旧实现每轮次重新唤醒一遍全部音源，
+ * 实测 tx 场景第一轮烧完预算失败后第二轮才从零开始，可用结果被轮次序列推过
+ * 总 deadline。
  */
 async function raceQualityTier(
   song: MusicInfo,
   qualities: string[],
+  getCustomAttempt: () => Promise<{ url: string; quality: string; fromCustomSource: boolean }>,
 ): Promise<{ url: string; quality: string; fromCustomSource: boolean }> {
   // 网关通道内部按音质从高到低顺序尝试，第一个成功的即本轮最高可用档。
   // 不对每档并发：gdstudio 是免费网关，同一首歌并发多档容易触发限流，
@@ -225,13 +234,6 @@ async function raceQualityTier(
     }
     throw new Error(`内置音乐 API 解析失败：${errors.join(" | ")}`);
   })();
-  const customAttempt = resolveUrlWithCustomSource(song, qualities).then(
-    (result) => ({ ...result, fromCustomSource: true }),
-    (error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`自定义音源解析失败：${message}`);
-    },
-  );
 
   // 懒切(对齐桌面端 playbackResolver):网关先行 2.5s,达标即定稿,自定义源零唤醒
   const gatewayHit = await withBudget(gatewayAttempt, PRIMARY_BUDGET_MS);
@@ -244,6 +246,7 @@ async function raceQualityTier(
     : gatewayAttempt.catch((error: unknown) => {
         throw new Error(error instanceof Error ? error.message : String(error));
       });
+  const customAttempt = getCustomAttempt();
 
   return raceForBestQuality([gatewayRetry, customAttempt], {
     getQuality: (value) => value.quality,
@@ -278,8 +281,11 @@ async function withBudget<T>(task: Promise<T>, budgetMs: number): Promise<T | nu
 /** 懒切预算:内置网关先单独跑,超时/不足才唤醒自定义源(对齐桌面端 2500ms)。 */
 const PRIMARY_BUDGET_MS = 2500;
 
-/** 自定义源阶段单次预算:外层 10s 预算内为主源懒切与探活留余量(对齐桌面端 8000ms)。 */
-const CUSTOM_SOURCE_RESOLVE_BUDGET_MS = 7000;
+/** 自定义源阶段单次预算:整链单次竞速下需覆盖队尾慢源展开+服务端 2-10s 慢回退(对齐桌面端 10000ms)。 */
+const CUSTOM_SOURCE_RESOLVE_BUDGET_MS = 10000;
+
+/** 交错启动总展开上限:源/档位再多也不把队尾候选推到预算尾巴(对齐桌面端 1600ms)。 */
+const CUSTOM_SOURCE_SPREAD_MS = 1600;
 
 async function resolveSongUrl(
   song: MusicInfo,
@@ -388,13 +394,29 @@ async function resolveSongUrl(
     let lastTierError: unknown = null;
     let raced: { url: string; quality: string; fromCustomSource: boolean } | null = null;
     candidateLoop: for (const candidate of playbackCandidates) {
+      // 自定义源按完整降级链只竞速一次,轮次间复用同一 promise(对齐桌面端
+      // playbackResolver)。旧实现每轮次重新唤醒一遍全部音源,tx 场景第一轮
+      // (无损)烧完预算后第二轮(320k)才从零开始,可用结果被轮次序列推过总 deadline。
+      let customAttemptPromise: Promise<{ url: string; quality: string; fromCustomSource: boolean }> | null = null;
+      const getCustomAttempt = () => {
+        if (!customAttemptPromise) {
+          customAttemptPromise = resolveUrlWithCustomSource(candidate, qualityCandidates).then(
+            (result) => ({ ...result, fromCustomSource: true }),
+            (error: unknown) => {
+              const message = error instanceof Error ? error.message : String(error);
+              throw new Error(`自定义音源解析失败：${message}`);
+            },
+          );
+        }
+        return customAttemptPromise;
+      };
       for (const tier of qualityTiers) {
         if (Date.now() >= resolveDeadline) {
           lastTierError = lastTierError ?? new Error(`解析播放地址超时，请重试`);
           break candidateLoop;
         }
         try {
-          const racedResult = await raceQualityTier(candidate, tier);
+          const racedResult = await raceQualityTier(candidate, tier, getCustomAttempt);
           // 防盗链 headers 按候选实际来源补齐：LX 自定义音源返回的也多为 wy/tx 官方 CDN 链接，
           // 缺 Referer 会直接 403（竞速版本初期的回归点）；其他源 CDN 无 Referer 要求，多带无害。
           const candidateHeaders = buildStreamHeaders(candidate.source);

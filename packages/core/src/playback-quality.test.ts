@@ -139,6 +139,22 @@ describe("raceStaggeredPriority", () => {
     await pending;
   });
 
+  it("maxSpreadMs 压缩总展开:4 个候选在展开上限内按序全部启动", async () => {
+    const calls: number[] = [];
+    const launchers = [0, 1, 2, 3].map((index) => () => {
+      calls.push(index);
+      return new Promise<Hit>(() => {});
+    });
+    const rejection = raceStaggeredPriority(launchers, options({ maxSpreadMs: 900, deadlineMs: 1000 }));
+    const assertion = expect(rejection).rejects.toThrow(/时间预算/);
+    await vi.advanceTimersByTimeAsync(899);
+    expect(calls).toEqual([0, 1, 2]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(calls).toEqual([0, 1, 2, 3]);
+    await vi.advanceTimersByTimeAsync(100);
+    await assertion;
+  });
+
   it("占位源快速失败后立即启动下一个,不空等 stagger", async () => {
     const calls: string[] = [];
     const track = tracker<Hit>();

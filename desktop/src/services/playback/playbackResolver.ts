@@ -19,8 +19,8 @@ export async function resolvePlaybackUrl(
   preferredQuality?: string,
   options: { bypassCache?: boolean; cacheMedia?: boolean } = {},
 ): Promise<PlaybackResolvedUrl> {
-  // 解析链总预算:并发竞速已大幅压缩最坏等待,但个别网关/音源脚本卡死时
-  // 仍需兜底;12s 内未出结果直接抛错走错误分支,不再无限等。
+  // 解析链总预算:竞速 + 慢源回退(实测第三方源 2-10s)后仍需在预算内留出
+  // 探活与媒体缓存的时间;14s 内未出结果直接抛错走错误分支,不再无限等。
   if (!useCustomSourceStore.getState().featureReady) await customSourcePersistence.ready;
   const operation = useCustomSourceStore.getState().featureEnabled ? customSourceAccess.capture() : undefined;
   const resolved = await withResolveDeadline(resolvePlaybackUrlUncapped(music, variants, preferredQuality, options, operation));
@@ -28,7 +28,7 @@ export async function resolvePlaybackUrl(
   return resolved;
 }
 
-const PLAYBACK_RESOLVE_TOTAL_BUDGET_MS = 12_000;
+const PLAYBACK_RESOLVE_TOTAL_BUDGET_MS = 14_000;
 
 const STREAM_REFERERS: Record<string, string> = {
   wy: 'https://music.163.com',
@@ -98,10 +98,15 @@ async function resolveBackendWithBudget(
  *  - 预算内成功且音质达到本轮期望 → 直接用,自定义源零唤醒;
  *  - 主源失败 / 超时 / 音质不足本轮期望 → 并行唤醒自定义源一起竞速,
  *    二者谁能拿到本轮更高音质用谁(仍是音质优先,不是先到先得)。
+ *
+ * 自定义源由 getCustomAttempt 惰性提供:调用方按「完整降级链」只发起一次竞速并在
+ * 轮次间复用。旧实现每轮次重新唤醒一遍全部音源,tx 场景下第一轮(无损)烧完 8s
+ * 预算失败后第二轮(320k)才从零开始——实测 320k 只需 2-7s 即可得,却被轮次
+ * 序列推到总 deadline 之后,用户侧永远失败。
  */
 async function raceQualityTierLazy(
   primary: { id: PlaybackBackendId; resolve: (request: import('./types').PlaybackRequest) => Promise<PlaybackResolvedUrl> },
-  custom: { id: PlaybackBackendId; resolve: (request: import('./types').PlaybackRequest) => Promise<PlaybackResolvedUrl> },
+  getCustomAttempt: () => Promise<PlaybackResolvedUrl>,
   request: import('./types').PlaybackRequest,
   operation?: CustomSourceOperation,
 ): Promise<PlaybackResolvedUrl> {
@@ -128,10 +133,7 @@ async function raceQualityTierLazy(
       throw new Error(`${primary.id}: ${message}`);
     });
   }
-  const customAttempt = custom.resolve(request).catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`${custom.id}: ${message}`);
-  });
+  const customAttempt = getCustomAttempt();
 
   return raceForBestQuality([primaryRetry, customAttempt], {
     getQuality: (resolved) => resolved.quality,
@@ -202,6 +204,24 @@ async function resolvePlaybackUrlUncapped(
   const tierErrors: string[] = [];
   const builtinPrimary = getBackend('builtinNetease');
   const customBackend = getBackend('customSource');
+  // 自定义源按完整降级链只竞速一次,轮次间复用同一 promise:
+  // 音质轮次只约束内置主源(每轮单档、逐档下调);自定义源自身的交错竞速已按
+  // 「档位顺序=优先权、整链一起竞速」在链内择优,轮次层再重复唤醒只会把队尾
+  // 慢源(实测 HYW 排第 6、7 位,是 tx 唯一可用源)反复推后,被总 deadline 绞杀。
+  let customAttemptPromise: Promise<PlaybackResolvedUrl> | null = null;
+  const getCustomAttempt = (): Promise<PlaybackResolvedUrl> => {
+    if (!customAttemptPromise) {
+      customAttemptPromise = customBackend.resolve({
+        primary: music,
+        variants: allVariants,
+        qualityPreference,
+      }).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`${customBackend.id}: ${message}`);
+      });
+    }
+    return customAttemptPromise;
+  };
   for (const tier of qualityTiers) {
     const request: import('./types').PlaybackRequest = {
       primary: music,
@@ -209,7 +229,7 @@ async function resolvePlaybackUrlUncapped(
       qualityPreference: tier,
     };
     try {
-      const resolved = await raceQualityTierLazy(builtinPrimary, customBackend, request, operation);
+      const resolved = await raceQualityTierLazy(builtinPrimary, getCustomAttempt, request, operation);
       getCustomSourceOperation(resolved, operation);
       debugLog(`[resolve] 命中 ${music.name} 轮=${tier.join('+')} 命中=${resolved.quality} backend=${resolved.backend} url=${resolved.url.slice(0, 60)}`);
       // 试听片段判定(与移动端同语义,见 @lx/core stream-integrity):

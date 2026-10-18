@@ -219,6 +219,48 @@ describe('自定义源按序交错竞速', () => {
     ]);
   });
 
+  it('队尾慢源场景(对齐 2026-10 实测):前排源挂死/快败,展开上限保证唯一可用源在预算内定稿', async () => {
+    const calls: Array<{ name: string; quality: string }> = [];
+    fixture.state.sources = [
+      source('hang1', '挂死源'),
+      source('fastfail1', '快败源甲'),
+      source('hang2', '拒初始化源'),
+      source('fastfail2', '快败源乙'),
+      source('fastfail3', '快败源丙'),
+      source('hyw1', 'HYWmusic甲'),
+      source('hyw2', 'HYWmusic乙'),
+    ];
+    installRuntime({
+      挂死源: { flac24bit: { delayMs: 60000 } },
+      快败源甲: { flac24bit: { delayMs: 20, error: '后端失败: 所有音质均获取失败' } },
+      拒初始化源: { flac24bit: { delayMs: 60000 } },
+      快败源乙: { flac24bit: { delayMs: 20, error: '需要 apikey' } },
+      快败源丙: { flac24bit: { delayMs: 20, error: 'QQ音乐接口 403' } },
+      HYWmusic甲: {
+        flac24bit: { delayMs: 60, error: '无 flac24bit' },
+        flac: { delayMs: 2000, url: 'https://cdn/hyw1.flac', quality: 'flac' },
+      },
+      HYWmusic乙: {
+        flac24bit: { delayMs: 60, error: '无 flac24bit' },
+        flac: { delayMs: 2600, url: 'https://cdn/hyw2.flac', quality: 'flac' },
+      },
+    }, calls);
+    const backend = await loadBackend();
+    const track = tracker();
+    const pending = track.watch(
+      backend.resolve({
+        primary: music,
+        qualityPreference: ['flac24bit', 'flac', '320k', '192k', '128k'],
+      }) as Promise<{ url: string; quality: string }>,
+    );
+    await vi.advanceTimersByTimeAsync(3400);
+    expect(track.state.settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(track.state.value?.url).toBe('https://cdn/hyw1.flac');
+    expect(track.state.value?.quality).toBe('flac');
+    await pending;
+  });
+
   it('全部源失败时错误包含每个源名与原因', async () => {
     const calls: Array<{ name: string; quality: string }> = [];
     fixture.state.sources = [source('a', '甲源'), source('b', '乙源')];

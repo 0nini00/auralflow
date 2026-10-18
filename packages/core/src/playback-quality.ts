@@ -196,6 +196,12 @@ export interface StaggeredPriorityRaceOptions<T> {
   floor?: unknown;
   /** 上一个候选未结算时，最多等多久就启动下一个（默认 DEFAULT_SOURCE_STAGGER_MS）。 */
   staggerMs?: number;
+  /**
+   * 交错启动的总展开上限：候选数多时按比例压缩有效间隔（保持相对顺序），
+   * 保证队尾候选不被优先权排序拖到预算尾巴（如 7 个音源 × 800ms = 4.8s，
+   * 实测唯一可用的源恰在队尾时，展开时间直接吃掉大半预算）。
+   */
+  maxSpreadMs?: number;
   /** 首个可接受结果后，等待更高档或更靠前候选的窗口（默认 DEFAULT_QUALITY_UPGRADE_WINDOW_MS）。 */
   upgradeWindowMs?: number;
   /** 本轮总预算（自调用起算）：到期停止启动新候选，用已得结果定稿，没有则拒绝。 */
@@ -206,8 +212,8 @@ export interface StaggeredPriorityRaceOptions<T> {
 
 /**
  * 按序交错竞速：候选按数组顺序启动，前一个结算立即启动下一个，
- * 未结算则最多等 staggerMs 并行启动下一个——用户的顺序意图是「优先权」而非
- * 「独占权」，慢候选不再阻塞后续候选，也不会被固定预算击杀。
+ * 未结算则最多等 staggerMs 并行启动下一个（maxSpreadMs 可压缩总展开时间）——
+ * 用户的顺序意图是「优先权」而非「独占权」，慢候选不再阻塞后续候选，也不会被固定预算击杀。
  *
  * 裁决规则（重复结果按等级→顺序取优）：
  *  - 等级不低于 ceiling 且更靠前的候选都已结算 → 立即定稿；
@@ -231,6 +237,10 @@ export function raceStaggeredPriority<T>(
     ? PLAYBACK_QUALITY_LADDER.length - 1
     : getPlaybackQualityRank(options.ceiling);
   const staggerMs = options.staggerMs ?? DEFAULT_SOURCE_STAGGER_MS;
+  const launchSpan = Math.max(launchers.length - 1, 0);
+  const effectiveStaggerMs = options.maxSpreadMs != null && launchSpan > 0
+    ? Math.min(staggerMs, options.maxSpreadMs / launchSpan)
+    : staggerMs;
   const upgradeWindowMs = options.upgradeWindowMs ?? DEFAULT_QUALITY_UPGRADE_WINDOW_MS;
 
   const errors: unknown[] = [];
@@ -325,7 +335,7 @@ export function raceStaggeredPriority<T>(
         (error) => onError(index, error),
       );
       if (index + 1 < launchers.length) {
-        setTimeout(() => maybeLaunchNext(index), staggerMs);
+        setTimeout(() => maybeLaunchNext(index), effectiveStaggerMs);
       }
     };
 
