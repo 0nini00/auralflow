@@ -10,6 +10,7 @@ import type { RootStackParamList } from "@/navigation/types";
 import { AlbumDetailScreen } from "@/screens/AlbumDetailScreen";
 import { ArtistDetailScreen } from "@/screens/ArtistDetailScreen";
 import { DailyRecommendScreen } from "@/screens/DailyRecommendScreen";
+import { CloudDriveScreen } from "@/screens/CloudDriveScreen";
 import { ImmersiveLyricsScreen } from "@/screens/ImmersiveLyricsScreen";
 import { LikedSongsScreen } from "@/screens/LikedSongsScreen";
 import { ListeningStatsScreen } from "@/screens/ListeningStatsScreen";
@@ -57,6 +58,10 @@ export function RootNavigator() {
 
       <Stack.Screen name="DailyRecommend">
         {() => <DailyRecommendScreen onNavigateToPlayer={openPlayerScreen} />}
+      </Stack.Screen>
+
+      <Stack.Screen name="CloudDrive">
+        {() => <CloudDriveScreen onNavigateToPlayer={openPlayerScreen} />}
       </Stack.Screen>
 
       <Stack.Screen name="PersonalFm">

@@ -1,4 +1,4 @@
-import { BarChart3, Home, Search, Settings, User, Music, ListMusic, Download, Calendar, Radio } from "lucide-react";
+import { BarChart3, Cloud, Home, Search, Settings, User, Music, ListMusic, Download, Calendar, Radio } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useEffect, useState } from "react";
@@ -20,6 +20,7 @@ const navItems: NavItem[] = [
   { to: "/search", icon: Search, label: "搜索" },
   { to: "/daily", icon: Calendar, label: "每日推荐", requiresAccount: true },
   { to: "/fm", icon: Radio, label: "私人 FM", requiresAccount: true },
+  { to: "/cloud", icon: Cloud, label: "音乐云盘", requiresAccount: true },
   { to: "/playlists", icon: ListMusic, label: "歌单" },
   { to: "/downloads", icon: Download, label: "下载" },
   { to: "/local", icon: Music, label: "本地音乐" },

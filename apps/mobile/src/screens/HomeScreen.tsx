@@ -1,14 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, RefreshControl, StyleSheet, Text, View } from "react-native";
 import type { MusicInfo } from "@lx/core";
-import { CalendarDays, Clock3, LayoutGrid, Radio, Search, Trophy } from "lucide-react-native";
+import { CalendarDays, Clock3, Cloud, LayoutGrid, Radio, Search, Trophy } from "lucide-react-native";
 import { AlbumRail, HomeQuickActions, HomeSectionError, PlaylistRail } from "@/components/HomeFeedSections";
 import { ActionButton } from "@/components/ActionButton";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
 import { SectionHeader } from "@/components/SectionHeader";
 import { SongList } from "@/components/SongList";
-import { openDailyRecommendScreen, openLeaderboardScreen, openPlaylistDetailScreen, openPlaylistSquareScreen } from "@/navigation/navigationRef";
+import { openCloudDriveScreen, openDailyRecommendScreen, openLeaderboardScreen, openPlaylistDetailScreen, openPlaylistSquareScreen } from "@/navigation/navigationRef";
 import { getHomeFeedScope } from "@/services/homeFeedModels";
 import type { HomeFeedSection, HomeFeedSectionId } from "@/services/homeFeedService";
 import { fetchWyLeaderboardBoards } from "@/services/wyLeaderboardService";
@@ -91,6 +91,7 @@ export function HomeScreen({ onNavigateToSearch, onNavigateToFm, onNavigateToHis
       ? [
           { id: "daily", label: "每日推荐", icon: <CalendarDays size={18} color={palette.background} /> },
           { id: "fm", label: "私人 FM", icon: <Radio size={18} color={palette.background} /> },
+          { id: "cloud", label: "音乐云盘", icon: <Cloud size={18} color={palette.background} /> },
         ]
       : []),
     { id: "leaderboard", label: "排行榜", icon: <Trophy size={18} color={palette.background} /> },
@@ -101,6 +102,7 @@ export function HomeScreen({ onNavigateToSearch, onNavigateToFm, onNavigateToHis
     if (id === "history") { onNavigateToHistory(); return; }
     if (id === "fm") { onNavigateToFm(); return; }
     if (id === "daily") { openDailyRecommendScreen(); return; }
+    if (id === "cloud") { openCloudDriveScreen(); return; }
     if (id === "leaderboard") { openLeaderboardScreen(); return; }
     if (id === "square") { openPlaylistSquareScreen(); return; }
   };

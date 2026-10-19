@@ -287,6 +287,17 @@ const CUSTOM_SOURCE_RESOLVE_BUDGET_MS = 10000;
 /** 交错启动总展开上限:源/档位再多也不把队尾候选推到预算尾巴(对齐桌面端 1600ms)。 */
 const CUSTOM_SOURCE_SPREAD_MS = 1600;
 
+/**
+ * 云盘曲取链：官方直连（带 Cookie），不做试听判定。
+ *
+ * 单独导出给 `downloadService` 用，而不是让它直接 import `wyDirectProvider`：
+ * 下载链路会连带把 weapi 的加密依赖（crypto-js）拉进模块图，而下载用例的加载器
+ * 只放行显式 mock 过的模块。放在这里复用已有的依赖边，不必改测试脚手架。
+ */
+export async function resolveCloudSongUrl(song: MusicInfo, quality: string): Promise<string> {
+  return resolveWySongUrl(song, quality as PlaybackQuality);
+}
+
 async function resolveSongUrl(
   song: MusicInfo,
   qualityOverride?: string | null,
@@ -386,6 +397,22 @@ async function resolveSongUrl(
   let resolvedSong = song;
   if (song.isLocal && song.url) {
     url = song.url;
+  } else if (song.wyCloud === true) {
+    // 云盘曲：直接走官方直连，不参与网关/自定义源竞速，也不做试听判定。
+    //
+    // 为什么短路竞速：云盘文件不在任何第三方源里——网关缺 gateway 元数据必然失败，
+    // 自定义源脚本只会白跑一轮（最多 1600ms 交错展开 + 10s 阶段预算）。而
+    // resolveWySongUrl 的 weapi 分支带 Cookie 就能拿到账号自己的文件。
+    //
+    // 为什么跳过试听判定：isPreviewStream 用「请求档位的标称码率」估算时长，而云盘
+    // 返回的是原文件码率。128k 的 3.4MB / 223s 上传在 flac 档会被估算成 32s（低于
+    // 60s 阈值），误判成 30s 试听并导致整档作废。云盘文件是账号自己的完整文件。
+    // 详见 @lx/core sources/types.ts 中 MusicInfo.wyCloud 的说明。
+    const directQuality = (qualityCandidates[0] ?? quality) as PlaybackQuality;
+    url = await resolveWySongUrl(song, directQuality);
+    headers = buildStreamHeaders(song.source);
+    resolvedQuality = String(directQuality);
+    resolvedSong = song;
   } else {
     // 候选×音质双层循环（对齐桌面端 backend 语义）：每个候选先按「不低于选定音质」的
     // 全部档位竞速，全败才逐档下调；一个候选的完整音质链失败后才轮到下一个候选——
@@ -846,8 +873,12 @@ async function resolveCrossSourceSubstitute(
   intent: number,
   primaryMessage: string,
 ): Promise<{ song: MusicInfo; url: string; headers?: Record<string, string> }> {
-  // 仅接手网易云源：反向降级与「用户明确选了 QQ 曲目」的预期冲突，且网易云侧已有官方兜底
-  if (song.source !== "wy") throw new Error(primaryMessage);
+  // 仅接手网易云源：反向降级与「用户明确选了 QQ 曲目」的预期冲突，且网易云侧已有官方兜底。
+  //
+  // 云盘曲（wyCloud）明确排除：那是账号私有的上传文件，QQ 侧的同名曲是另一份录音，
+  // 替过去等于播错歌；未匹配到在线曲目的上传（实测占 75%）靠歌名/歌手匹配尤其不可靠。
+  // 云盘解析失败就如实失败，让用户看到「登录过期 / 文件不可用」而不是悄悄换一首歌。
+  if (song.source !== "wy" || song.wyCloud === true) throw new Error(primaryMessage);
 
   const candidates = await findTxVariants(song);
   // 搜索期间用户可能已改点其它歌曲，结果作废

@@ -173,7 +173,12 @@ async function cachePlaybackAudio(
     // 磁盘上这份也可能是「试听片段」（同一首歌此前拿到过 30s 试听并落了盘）：
     // 解析期的探活判定只覆盖新地址，落盘文件必须靠体积离线判定，否则仍会出现
     //「播十几秒就跳」——播放器按实际时长判定试听 → 停播清缓存 → 自动下一首。
+    // 云盘曲跳过这条判定：云盘不做转码，resolved.quality 是「请求档位」而文件是原码率，
+    // 低码率上传（128k / 3.4MB / 223s）在 flac 档会被估算成 32s，判成试听片段后每次
+    // 都把刚下好的文件删掉、日志刷一条警告，缓存永远命中不了。云盘文件是账号自己的
+    // 完整文件，这条「落盘文件可能是 30s 试听」的判定对它不适用。
     if (
+      music.wyCloud !== true &&
       isPreviewStream({
         totalBytes: cached.bytes,
         quality: resolved.quality,

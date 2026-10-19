@@ -483,7 +483,11 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
           if (requestId !== activePlayRequestId) return;
 
           // 网易云曲目常规解析失败时，自动直连 QQ 音乐检索并严格校验同名曲接管播放
-          if (music.source === "wy") {
+          // 云盘曲（wyCloud）明确排除：那是账号私有的上传文件，QQ 侧的同名曲是另一份录音，
+          // 替过去等于播错歌；未匹配到在线曲目的上传（实测占 75%）靠歌名/歌手匹配尤其不可靠。
+          // 解析失败就如实报错（通常是登录过期或文件不可用），不悄悄换一首歌。
+          // 与移动端 playerService.resolveCrossSourceSubstitute 的判定保持一致。
+          if (music.source === "wy" && music.wyCloud !== true) {
             try {
               debugLog(`[fallback] 网易云曲目解析失败，尝试自动跨源降级 QQ 音乐: ${music.name}`);
               const candidates = await findTxVariants(music);

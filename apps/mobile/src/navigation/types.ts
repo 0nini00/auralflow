@@ -57,6 +57,7 @@ export type RootStackParamList = {
   Player: undefined;
   MvPlayer: { mvId: string; title: string; artist: string; posterUrl?: string };
   DailyRecommend: undefined;
+  CloudDrive: undefined;
   PersonalFm: undefined;
   ArtistDetail: { artist: SearchArtistResult };
   AlbumDetail: { album: SearchAlbumResult; parentArtist?: SearchArtistResult | null };

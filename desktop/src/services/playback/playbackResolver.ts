@@ -198,6 +198,39 @@ async function resolvePlaybackUrlUncapped(
     }
   }
 
+  // 云盘曲：直接走官方直连，不参与任何竞速，也不做试听判定。
+  //
+  // 为什么短路编排：云盘文件不在任何第三方源里。内置网关因缺 `gateway` 元数据
+  // 必然抛「无该歌曲的解析元数据」，自定义源脚本也只会白跑一轮（最多 1600ms
+  // 交错展开 + 10s 阶段预算）。而官方直连的 weapi 接口带 Cookie 就能拿到账号
+  // 自己的文件（实测账号内 161 条全部取链成功），所以这两层对云盘曲纯属浪费。
+  //
+  // 为什么跳过试听判定：`isPreviewStream` 用「请求档位的标称码率」估算时长，
+  // 而云盘返回的是原文件码率。128k 的 3.4MB / 223s 上传，在 flac 档会被估算成
+  // 32s（低于 60s 阈值），误判成 30s 试听并导致整档作废、报出误导性的
+  // 「解析到试听片段(约 32s)」。云盘文件是账号自己的完整文件，这一层不适用。
+  //
+  // 音质标签仍沿用请求档位而不是文件真实码率：持久化缓存的 key、降级链查询都按
+  // 标签匹配，标成真实码率（例如把 320k 的请求标成 flac）反而永远命中不了缓存，
+  // 变成每播一次就重新解析。真实码率由 UI 从 music.cloudMeta.bitrate 单独展示。
+  if (music.wyCloud === true) {
+    const resolved = await builtinProviderBackend.resolve({
+      primary: music,
+      variants: allVariants,
+      qualityPreference,
+    });
+    debugLog(`[resolve] 云盘曲官方直连 ${music.name} url=${resolved.url.slice(0, 60)}`);
+    const playable = await prepareResolvedPlaybackMedia(
+      music,
+      resolved,
+      options.cacheMedia !== false,
+      operation,
+    );
+    void saveCachedPlaybackUrl(music, playable, Date.now(), operation).catch((error) => {
+      debugLog(`[resolve] 播放地址缓存未提交: ${error instanceof Error ? error.message : String(error)}`);
+    });
+    return playable;
+  }
   // 懒切编排(对齐移动端 playerService):
   // 每轮先只跑内置音乐 API(主源),2.5s 内给出「达标音质」即定稿,自定义源零唤醒;
   // 主源失败 / 超时 / 音质不足本轮期望时才并行唤醒自定义源一起竞速兜底。

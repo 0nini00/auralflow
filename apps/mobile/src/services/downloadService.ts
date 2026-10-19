@@ -3,7 +3,7 @@ import RNFS from "react-native-fs";
 import type { LyricLine, MusicInfo } from "@lx/core";
 import { DEFAULT_QUALITY_UPGRADE_WINDOW_MS, estimateStreamDurationSeconds, isPreviewStream, raceForBestQuality } from "@lx/core";
 import { fetchSongLyrics, parseUrl, buildStreamHeaders } from "./musicApi";
-import { resolveUrlWithCustomSource } from "./playerService";
+import { resolveCloudSongUrl, resolveUrlWithCustomSource } from "./playerService";
 import { probeStreamUrl } from "./streamProbe";
 import { commitDownloadedFile, createPartialDownloadPath, removeOrphanedPartialDownloads, validateDownloadedFile } from "./fileDownloadCommit";
 
@@ -451,6 +451,16 @@ async function downloadSongInternal(task: QueueTask): Promise<string> {
   let resolvedExt: string | null = null;
   if (song.isLocal && song.url) {
     url = song.url;
+  } else if (song.wyCloud === true) {
+    // 云盘曲：网关与自定义源都拿不到账号私有的上传文件，直接走官方直连（带 Cookie）。
+    //
+    // 同时不做试听判定——云盘不做转码，`quality` 是请求档位而文件是原码率，128k 的
+    // 3.4MB / 223s 上传在无损档会被估算成 32s、误判成试听片段而拒绝下载。与播放链路
+    // 同款处置，见 @lx/core sources/types.ts 中 MusicInfo.wyCloud 的说明。
+    url = await waitForTask(task, resolveCloudSongUrl(song, quality));
+    assertTaskActive(task);
+    headers = buildStreamHeaders(song.source);
+    resolvedExt = inferExtFromUrl(url) ?? qualityExt(quality);
   } else {
     // 同档音质内并发竞速（与播放链路一致，用户要求 2026-08）：网关与自定义音源同时
     // 发起，谁先返回有效 URL 用谁；下载完成后 headers 用胜出方的防盗链配置。

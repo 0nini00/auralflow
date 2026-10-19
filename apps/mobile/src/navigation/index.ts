@@ -19,6 +19,7 @@ export {
   openArtistDetailScreen,
   openAlbumDetailScreen,
   openPlaylistDetailScreen,
+  openCloudDriveScreen,
   openLocalPlaylistDetailScreen,
   openLikedSongsScreen,
   openSearchFallbackDetailScreen,

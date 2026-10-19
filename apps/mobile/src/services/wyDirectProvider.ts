@@ -148,6 +148,14 @@ export async function resolveWySongUrl(
   }
 
   // 2. eapi 免登录
+  // 云盘曲不走 eapi：eapi 不带 Cookie，拿不到账号的私有文件；而 matched 上传（占 25%）
+  // 的同一个数字 id 在线上也有一份录音，eapi 可能返回线上版本而不是用户上传的那份。
+  // 宁可如实失败，让用户看到「登录过期」而不是听到另一份音频。
+  if (song.wyCloud === true) {
+    throw new Error(
+      `网易云直连解析失败：${weapiFailure || "未登录网易云"}（云盘文件只能通过账号 Cookie 读取）`,
+    );
+  }
   try {
     const json = (await postWyEapi("/api/song/enhance/player/url", {
       ids: [idNum],

@@ -849,6 +849,24 @@ button.af-playlist-card {
   color: var(--af-text-primary);
 }
 
+/*
+ * 云盘曲的「诚实音质」标签。
+ *
+ * 云盘不做转码，请求哪档都返回上传文件本身，所以这里显示的是文件真实码率
+ * （由 @lx/core 的 cloudQualityLabel 换算），而不是用户选的音质档位。
+ * 选择器比 `.af-col-title span` 更具体，避免继承歌名的省略号与字重。
+ */
+.af-col-title .af-song-quality-tag {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--af-border-primary);
+  background: var(--af-bg-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--af-text-secondary);
+}
+
 .af-col-artist,
 .af-col-album,
 .af-col-duration {

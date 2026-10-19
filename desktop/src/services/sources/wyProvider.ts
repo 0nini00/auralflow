@@ -272,6 +272,8 @@ export const wyProvider: MusicSource = {
   async getMusicUrl(music: MusicInfo, quality = "320k"): Promise<string | null> {
     const idNum = parseInt(music.id, 10);
     if (isNaN(idNum)) return null;
+    // 云盘曲（wyCloud）走同一套接口，但取链语义不同，见下方两处判定。
+    const isCloudSong = music.wyCloud === true;
 
     // 请求哪档就发哪档的 level（映射见文件顶部的 WY_LEVEL_BY_QUALITY 与反向索引）；
     // 拿到更低的档位会由 isWyLevelBelowRequested 拒绝，交由轮次表用更低的档位诚实重试。
@@ -289,12 +291,22 @@ export const wyProvider: MusicSource = {
       });
       const entry = body?.data?.[0] as { url?: string; level?: unknown } | undefined;
       const url = entry?.url;
-      if (url && url.length > 0 && !isWyLevelBelowRequested(entry?.level, requestedRank)) return url;
+      // 云盘曲不做转码：返回的 level 就是文件本身（实测请求 exhigh 分别得到
+      // lossless / hires / standard，取决于上传码率）。这里若沿用「返回档位低于
+      // 请求档位就返回 null」的规则，128k 上传在默认 320k 下会被档位表反复重试到
+      // 128k 才成功，白白多两轮解析。云盘文件是账号自己的，直接采信。
+      if (url && url.length > 0 && (isCloudSong || !isWyLevelBelowRequested(entry?.level, requestedRank))) {
+        return url;
+      }
     } catch {
       // weapi 失败，回退 eapi
     }
 
     // 2. 回退 eapi（免登录，部分免费歌曲可用）
+    // 云盘曲不走这一步：eapi 不带 Cookie，拿不到账号的私有文件；而 matched 上传（占 25%）
+    // 的同一个数字 id 在线上也有一份录音，eapi 可能返回线上版本而不是用户上传的那份——
+    // 听起来「能播」，实际播的是另一份音频。宁可如实失败。
+    if (isCloudSong) return null;
     try {
       // 旧 eapi 只有 br 一个维度，按 5 档阶梯一一映射；原实现用 else 兜底 128000，
       // 导致请求 192k / flac24bit 时实际拿到 128k（选了最高档，听到的是最低档）。
@@ -323,11 +335,13 @@ export const wyProvider: MusicSource = {
       const json: any = await resp.json();
       const entry = json?.data?.[0] as { url?: string; level?: unknown } | undefined;
       const url = entry?.url;
-      if (url && url.length > 0 && !isWyLevelBelowRequested(entry?.level, requestedRank)) return url;
+      // 云盘曲同理：返回的 level 就是文件本身，不按档位拒绝（见上面 weapi 分支的说明）。
+      if (url && url.length > 0 && (isCloudSong || !isWyLevelBelowRequested(entry?.level, requestedRank))) {
+        return url;
+      }
     } catch {
       // eapi 也失败
     }
-
     return null;
   },
 
@@ -348,6 +362,14 @@ export const wyProvider: MusicSource = {
         ytv: -1,
         yrv: -1,
       });
+      // 占位歌词一律当「没有歌词」。
+      //
+      // 实测：云盘里未被匹配到在线曲目的条目（账号内 75%）歌词接口返回
+      // `{ lrc: { lyric: "[00:00.00]暂无歌词" }, uncollected: true }`。原样返回会让
+      // lyricsService 的 `lines.length > 0 ? 用它 : 走自动匹配` 判定成「已有歌词」，
+      // 于是既显示不出真歌词、也不触发 searchAndMatchLyrics（LRCLIB → 平台搜索）。
+      // 收敛成空对象后，解析层得到 0 行，照常走自动匹配链。
+      if (body?.uncollected === true || body?.nolyric === true) return {};
 
       return {
         lyric: (body?.lrc?.lyric as string) ?? undefined,

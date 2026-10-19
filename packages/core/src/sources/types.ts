@@ -61,6 +61,42 @@ export interface MusicInfo {
   gateway?: MusicGatewayInfo;
   /** QQ 音乐取链元数据，传给 lx 自定义音源脚本；仅 source === "tx" 时存在 */
   txMeta?: TxTrackMeta;
+  /**
+   * 网易云「音乐云盘」条目。
+   *
+   * 云盘曲复用在线曲那套数字 id 与同一个播放地址接口，但**取链行为不同**：
+   * `/song/enhance/player/url/v1` 对云盘曲不做转码——无论请求哪个 `level`，
+   * 返回的都是上传文件原样（实测请求 exhigh，拿到的 level 是 lossless /
+   * hires / standard，全看文件本身码率）。由此两端播放链路必须做两件与
+   * 普通在线曲不同的事：
+   *
+   * 1. **跳过网关与自定义源**：云盘文件不在任何第三方源库里，`gdstudio`
+   *    网关因缺 `gateway` 元数据必然失败，自定义源脚本也只会白跑一轮。
+   * 2. **跳过按标称码率做的试听判定**：`isPreviewStream` 用「请求档位的标称
+   *    码率」估算时长，而云盘返回的是原文件码率；128k 的 3.4MB / 223s 上传，
+   *    在 flac 档会被估算成 32s（低于 60s 阈值）而误判成试听片段。
+   */
+  wyCloud?: boolean;
+  /** 云盘条目自身的文件信息；仅 `wyCloud === true` 时存在 */
+  cloudMeta?: MusicCloudMeta;
+}
+
+/** 云盘条目的文件与匹配信息，由云盘列表接口填充，供 UI 展示与歌词策略使用。 */
+export interface MusicCloudMeta {
+  /** 上传文件的真实码率（kbps）。与请求档位无关，云盘不做转码。 */
+  bitrate?: number;
+  /** 上传时的原始文件名 */
+  fileName?: string;
+  /** 文件字节数 */
+  size?: number;
+  /**
+   * 网易云是否把这次上传匹配到了在线曲目。
+   *
+   * `matched`：同时是线上可搜索曲目，详情/歌词/封面都能按 id 取到；
+   * `unmatched`：仅自己可见，`cloudsearch` 命中不到自己，歌词接口只回空壳，
+   * 必须走歌词自动匹配链（内嵌/旁挂 → LRCLIB → 平台搜索）。
+   */
+  matchStatus?: "matched" | "unmatched";
 }
 
 export interface PlaylistInfo {

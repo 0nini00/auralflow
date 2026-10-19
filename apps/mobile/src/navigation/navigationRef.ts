@@ -139,6 +139,10 @@ export function openDailyRecommendScreen() {
   navigateStackScreen("DailyRecommend");
 }
 
+export function openCloudDriveScreen() {
+  pushRoot("CloudDrive");
+}
+
 export function openLeaderboardScreen() {
   pushRoot("Leaderboard");
 }

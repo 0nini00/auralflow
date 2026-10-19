@@ -479,7 +479,16 @@ async function fetchWyOfficialLyric(song: MusicInfo): Promise<OfficialLyricResul
     ytlrc?: { lyric?: string };
     lrc?: { lyric?: string };
     tlyric?: { lyric?: string };
+    /** 网易云判定「暂无歌词」时的标记，此时 lrc 里只有占位文本 */
+    uncollected?: boolean;
+    nolyric?: boolean;
   };
+  // 占位歌词一律当「没有歌词」，交给网关兜底。
+  //
+  // 实测：云盘里未被匹配到在线曲目的条目歌词接口返回
+  // `{ lrc: { lyric: "[00:00.00]暂无歌词" }, uncollected: true }`。原样返回会解析出
+  // 一行「暂无歌词」冒充真歌词，既显示不出内容也不再走 builtinClient 兜底。
+  if (body?.uncollected === true || body?.nolyric === true) return null;
   const yrc = body?.yrc?.lyric || "";
   const lyric = yrc || body?.lrc?.lyric || "";
   if (!lyric.trim()) return null;
