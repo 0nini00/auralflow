@@ -1,7 +1,7 @@
 {
   "name": "@auralflow/mobile",
-  "version": "0.7.6",
-  "androidVersionCode": 32,
+  "version": "0.7.7",
+  "androidVersionCode": 33,
   "private": true,
   "scripts": {
     "android": "react-native run-android",
