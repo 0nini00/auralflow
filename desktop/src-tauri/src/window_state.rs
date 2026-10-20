@@ -19,12 +19,25 @@ use tauri_plugin_log::log;
 const MAIN_LABEL: &str = "main";
 /// 移动/缩放的落盘节流：事件停下这么久之后才写一次，而不是每个事件都写盘。
 const PERSIST_DEBOUNCE_MS: u64 = 500;
-/// 默认与最小尺寸逐字对齐 tauri.conf.json 的 width/height/minWidth/minHeight：
-/// 读不到设置、或设置里的值不可用时，恢复结果与首次启动完全一致。
-const DEFAULT_WIDTH: f64 = 1200.0;
-const DEFAULT_HEIGHT: f64 = 800.0;
+/// 设计尺寸：**每次启动都按这个尺寸打开**，不沿用上次被拉成什么样。
+///
+/// 为什么要这么做：窗口尺寸是可拖拽的，用户一次误拖就会留下一个别扭的大小，
+/// 而恢复逻辑会把这个大小一直带下去——界面上没有任何「还原」入口，用户只能
+/// 自己再拖回来，拖不准就再也回不到设计尺寸。所以尺寸归应用管、位置归用户管：
+/// 宽度/高度恒为下面两个常量，位置沿用上次的（还在屏幕内的话）。
+///
+/// 1360×860 的取值依据：布局的断点在 980 / 920 / 900 / 768，1360 宽可以完整放下
+/// 「侧边栏 + 内容区多列」，860 高能在 1080p 屏幕上给任务栏与播放条留出余量。
+///
+/// 与 tauri.conf.json 的 width/height/minWidth/minHeight 逐字对齐：读不到设置、
+/// 或设置里的值不可用时，结果与首次启动完全一致。
+const DEFAULT_WIDTH: f64 = 1360.0;
+const DEFAULT_HEIGHT: f64 = 860.0;
 const MIN_WIDTH: f64 = 900.0;
 const MIN_HEIGHT: f64 = 600.0;
+/// 小屏上给设计尺寸留的余量：任务栏/Dock 与窗口边框。扣掉之后仍不小于最小尺寸。
+const STARTUP_MARGIN_WIDTH: f64 = 48.0;
+const STARTUP_MARGIN_HEIGHT: f64 = 80.0;
 /// 判定「位置还算看得见」的最小重叠尺寸：只搭上一两个像素的窗口用户既看不到标题栏，
 /// 也没法把它拖回来，等同于丢在屏幕外。
 const MIN_VISIBLE_WIDTH: f64 = 120.0;
@@ -162,8 +175,33 @@ fn resolve_main_window_geometry(
     }
 }
 
-/// 接上主窗口的几何持久化：先恢复上次状态，再监听移动 / 缩放 / 最大化 / 关闭。
-/// 失败只记日志——窗口照旧按 tauri.conf.json 的默认尺寸居中显示。
+/// 启动时用的几何：**尺寸恒为设计尺寸**，只沿用上次的位置。
+///
+/// 与 `resolve_main_window_geometry` 的分工：后者是「把一份存下来的状态还原到
+/// 当前显示器上」的通用逻辑（含越界收窄、最小尺寸抬升），本函数是启动策略——
+/// 它故意不接收保存的尺寸，从签名上就堵死「把上次拉出来的大小带回来」这条路径。
+/// 位置仍复用后者：窗口在屏幕内就原位打开，被拔掉的显示器则回退居中。
+///
+/// 小屏上设计尺寸要收一点，否则窗口会和任务栏/窗口边框打架：扣掉
+/// `STARTUP_MARGIN_*` 之后再交给后者做上下界收敛。
+fn resolve_startup_geometry(
+    saved_x: Option<f64>,
+    saved_y: Option<f64>,
+    anchor: Rect,
+    monitors: &[Rect],
+) -> MainWindowGeometry {
+    let widest = monitors.iter().fold(anchor.width, |acc, m| acc.max(m.width));
+    let tallest = monitors.iter().fold(anchor.height, |acc, m| acc.max(m.height));
+    let width = DEFAULT_WIDTH.min((widest - STARTUP_MARGIN_WIDTH).max(MIN_WIDTH));
+    let height = DEFAULT_HEIGHT.min((tallest - STARTUP_MARGIN_HEIGHT).max(MIN_HEIGHT));
+    resolve_main_window_geometry(saved_x, saved_y, Some(width), Some(height), anchor, monitors)
+}
+
+/// 接上主窗口的几何处理：启动时按设计尺寸 + 上次位置摆好，之后监听移动 / 缩放 /
+/// 最大化 / 关闭来记录**位置**。失败只记日志——窗口照旧按 tauri.conf.json 的
+/// 默认几何显示。
+///
+/// 尺寸不参与持久化：见 `DEFAULT_WIDTH` 的说明。
 pub fn attach(app: &AppHandle) {
     let Some(window) = app.get_webview_window(MAIN_LABEL) else {
         log::warn!("[window] 找不到主窗口，跳过窗口几何恢复");
@@ -189,7 +227,11 @@ pub fn attach(app: &AppHandle) {
     });
 }
 
-/// 读取上次保存的状态并应用。任何一步失败都只记日志，窗口继续用配置里的默认几何。
+/// 按「设计尺寸 + 上次位置」摆好主窗口。任何一步失败都只记日志，
+/// 窗口继续用 tauri.conf.json 的默认几何。
+///
+/// 刻意**不恢复尺寸，也不恢复最大化**：尺寸归应用管（见 DEFAULT_WIDTH 的说明），
+/// 用户把窗口拉变形之后，下次启动就是干净的 1360×860，不需要自己再拖回来。
 fn restore(app: &AppHandle, window: &tauri::WebviewWindow) {
     let settings = match crate::config::load_settings(app) {
         Ok(settings) => settings,
@@ -203,27 +245,18 @@ fn restore(app: &AppHandle, window: &tauri::WebviewWindow) {
         log::warn!("[window] 读不到显示器信息，跳过窗口几何恢复");
         return;
     };
-    let geometry = resolve_main_window_geometry(
+    let geometry = resolve_startup_geometry(
         settings.main_window_x,
         settings.main_window_y,
-        settings.main_window_width,
-        settings.main_window_height,
         anchor,
         &monitor_rects(app),
     );
 
     if let Err(err) = window.set_size(LogicalSize::new(geometry.width, geometry.height)) {
-        log::warn!("[window] 恢复主窗口尺寸失败: {}", err);
+        log::warn!("[window] 应用主窗口设计尺寸失败: {}", err);
     }
     if let Err(err) = window.set_position(LogicalPosition::new(geometry.x, geometry.y)) {
         log::warn!("[window] 恢复主窗口位置失败: {}", err);
-    }
-    // 最大化放在最后：先摆好还原态的尺寸/位置，再交给系统最大化。
-    // 此刻窗口还是隐藏的（tauri.conf.json 的 visible: false），设置最大化不会让它提前露出来。
-    if settings.main_window_maximized {
-        if let Err(err) = window.maximize() {
-            log::warn!("[window] 恢复主窗口最大化状态失败: {}", err);
-        }
     }
 }
 
@@ -277,38 +310,35 @@ fn schedule_persist(app: &AppHandle, pending: &Mutex<Option<JoinHandle<()>>>) {
     }));
 }
 
-/// 把主窗口当前状态写回设置。
+/// 把主窗口的**位置**写回设置。
 ///
-/// 每次都在任务醒来时重新读窗口，而不是用事件里那份快照：拖拽结束前状态还会再变，
-/// 读实时值才能落到最终结果上，也才能判定此刻是不是最大化。
+/// 只存位置，不存尺寸、也不存最大化状态：尺寸由 `DEFAULT_WIDTH`/`DEFAULT_HEIGHT`
+/// 恒定决定（见那里的说明），存下来也不会被用上；留在设置里的旧尺寸只会误导
+/// 后来读这段代码的人以为它会生效。
+///
+/// 每次都在任务醒来时重新读窗口，而不是用事件里那份快照：拖拽结束前位置还会再变，
+/// 读实时值才能落到最终结果上。
 fn persist_now(app: &AppHandle) {
     let Some(window) = app.get_webview_window(MAIN_LABEL) else {
         return;
     };
-    // 最小化时系统会把窗口矩形报成屏幕外的哨兵值，写下去下次启动只能靠居中兜底：
-    // 直接跳过，保留上一次可见时的状态。
-    if window.is_minimized().unwrap_or(false) {
+    // 最小化时系统把窗口矩形报成屏幕外的哨兵值；最大化时报的是整屏矩形。
+    // 两种都不是用户摆出来的位置，写下去下次启动会很怪：跳过，保留上一次正常的位置。
+    if window.is_minimized().unwrap_or(false) || window.is_maximized().unwrap_or(false) {
         return;
     }
 
-    let maximized = window.is_maximized().unwrap_or(false);
+    let Some((x, y, _width, _height)) = window_pixel_state(&window) else {
+        log::warn!("[window] 读取主窗口位置失败，本次不记录窗口位置");
+        return;
+    };
+
     let mut patch = serde_json::Map::new();
-    patch.insert("mainWindowMaximized".to_string(), json!(maximized));
-    // 最大化时不记尺寸/位置：记的是系统给的最大化矩形，还原后窗口就再也回不到用户调的大小。
-    if !maximized {
-        match window_pixel_state(&window) {
-            Some((x, y, width, height)) => {
-                patch.insert("mainWindowX".to_string(), json!(x));
-                patch.insert("mainWindowY".to_string(), json!(y));
-                patch.insert("mainWindowWidth".to_string(), json!(width));
-                patch.insert("mainWindowHeight".to_string(), json!(height));
-            }
-            None => log::warn!("[window] 读取主窗口位置/尺寸失败，本次只记录最大化状态"),
-        }
-    }
+    patch.insert("mainWindowX".to_string(), json!(x));
+    patch.insert("mainWindowY".to_string(), json!(y));
 
     if let Err(err) = crate::config::patch_settings(app, serde_json::Value::Object(patch)) {
-        log::warn!("[window] 保存主窗口几何失败: {}", err);
+        log::warn!("[window] 保存主窗口位置失败: {}", err);
     }
 }
 
@@ -517,6 +547,48 @@ mod tests {
         );
         assert_eq!(geometry.width, 2400.0);
         assert_eq!(geometry.height, 1200.0);
+    }
+
+    // ── 启动策略：尺寸恒为设计尺寸，位置才沿用上次 ──
+
+    #[test]
+    fn startup_always_uses_the_designed_size() {
+        // 上次把窗口拉成什么样都不影响：启动尺寸就是设计值。
+        let primary = rect(0.0, 0.0, 1920.0, 1080.0);
+        let geometry = resolve_startup_geometry(Some(40.0), Some(30.0), primary, &[]);
+        assert_eq!(geometry.width, DEFAULT_WIDTH);
+        assert_eq!(geometry.height, DEFAULT_HEIGHT);
+        // 位置是用户的，照旧沿用。
+        assert_eq!(geometry.x, 40.0);
+        assert_eq!(geometry.y, 30.0);
+    }
+
+    #[test]
+    fn startup_size_shrinks_on_a_small_screen() {
+        // 1280×720：设计高度放不下，扣掉任务栏与边框余量后收窄。
+        let primary = rect(0.0, 0.0, 1280.0, 720.0);
+        let geometry = resolve_startup_geometry(None, None, primary, &[]);
+        assert_eq!(geometry.width, 1280.0 - STARTUP_MARGIN_WIDTH);
+        assert_eq!(geometry.height, 720.0 - STARTUP_MARGIN_HEIGHT);
+    }
+
+    #[test]
+    fn startup_never_goes_below_minimum_on_a_tiny_screen() {
+        // 屏幕比最小尺寸还小：以最小尺寸为准，而不是把窗口缩到不可用。
+        let primary = rect(0.0, 0.0, 800.0, 500.0);
+        let geometry = resolve_startup_geometry(None, None, primary, &[]);
+        assert_eq!(geometry.width, MIN_WIDTH);
+        assert_eq!(geometry.height, MIN_HEIGHT);
+    }
+
+    #[test]
+    fn startup_centers_when_saved_position_is_unreachable() {
+        // 上次位置在已拔掉的显示器上：回退居中，尺寸仍是设计值。
+        let primary = rect(0.0, 0.0, 1920.0, 1080.0);
+        let geometry = resolve_startup_geometry(Some(9000.0), Some(9000.0), primary, &[]);
+        assert_eq!(geometry.width, DEFAULT_WIDTH);
+        assert_eq!(geometry.height, DEFAULT_HEIGHT);
+        assert_eq!(geometry.x, (1920.0 - DEFAULT_WIDTH) / 2.0);
     }
 
     #[test]
