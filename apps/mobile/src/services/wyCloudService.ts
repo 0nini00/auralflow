@@ -27,6 +27,8 @@ interface WyCloudResponse {
   count?: number;
   size?: number;
   maxSize?: number;
+  /** 接口自己给出的「还有下一页」结论（最后一页为 false） */
+  hasMore?: boolean;
 }
 
 /**
@@ -42,7 +44,9 @@ export async function getCloudSongs(
   options: { offset?: number; limit?: number } = {}
 ): Promise<WyCloudSongsPage> {
   const offset = Math.max(0, Math.trunc(options.offset ?? 0));
-  const limit = Math.min(200, Math.max(1, Math.trunc(options.limit ?? 50)));
+  // 默认一次要 200 条：实测接口对 200 的请求会直接返回整个云盘（161 首一次到位），
+  // 更大的库由 hasMore/nextOffset 继续翻页。之前默认 50 会让每次进页面只看到头 50 首。
+  const limit = Math.min(200, Math.max(1, Math.trunc(options.limit ?? 200)));
 
   const cookie = await getWyCookie();
   if (!cookie) throw new Error("未登录网易云账号，无法读取音乐云盘");
@@ -60,6 +64,7 @@ export async function getCloudSongs(
     usedBytes: Number(body.size ?? 0) || undefined,
     maxBytes: Number(body.maxSize ?? 0) || undefined,
     nextOffset,
-    hasMore: nextOffset < count,
+    // 接口自己回 `hasMore`，比自己算的可靠；缺失时才退回「下一页起点 < 总数」。
+    hasMore: typeof body.hasMore === "boolean" ? body.hasMore : nextOffset < count,
   };
 }

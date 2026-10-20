@@ -6,7 +6,7 @@ import { cloudQualityLabel, type MusicInfo } from "@lx/core";
 import { ActionButton } from "@/components/ActionButton";
 import { CachedImage } from "@/components/CachedImage";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
-import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
+import { ScreenScaffold } from "@/components/ScreenScaffold";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
 import { SectionHeader } from "@/components/SectionHeader";
 import { SongList } from "@/components/SongList";
@@ -15,7 +15,7 @@ import { runPlaybackUiAction } from "@/services/playbackUiAction";
 import { getCloudSongs } from "@/services/wyCloudService";
 import { useAccountStore } from "@/stores/accountStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { radius, spacing, typography } from "@/theme/tokens";
+import { layout, radius, spacing, typography } from "@/theme/tokens";
 
 interface CloudDriveScreenProps {
   onNavigateToPlayer: () => void;
@@ -203,10 +203,124 @@ export function CloudDriveScreen({ onNavigateToPlayer: _onNavigateToPlayer }: Cl
     return `已用 ${used ?? "—"} / ${max ?? "—"}`;
   }, [usedBytes, maxBytes]);
 
+  // 头部内容随列表滚动：SongList 的 virtualized 路径把 FlatList 本体当作滚动容器
+  // （见 SongList 顶部注释）。再套一层 ScreenScrollView 会让内层列表拿不到滚动，
+  // 触底加载永远不触发，表现就是「只能看到首屏那一批」。
+  const listHeader = (
+    <>
+      <PlaybackErrorState message={playbackError} onDismiss={() => setPlaybackError(null)} />
+
+      <View style={styles.header}>
+        {coverUrl ? (
+          <CachedImage
+            uri={coverUrl}
+            style={styles.cover}
+            fallback={
+              <View style={[styles.cover, styles.coverFallback, { backgroundColor: palette.surface }]}>
+                <Cloud size={28} color={palette.primary} strokeWidth={1.8} />
+              </View>
+            }
+          />
+        ) : (
+          <View style={[styles.cover, styles.coverFallback, { backgroundColor: palette.surface }]}>
+            <Cloud size={28} color={palette.primary} strokeWidth={1.8} />
+          </View>
+        )}
+        <View style={styles.headerText}>
+          <Text style={[styles.title, { color: palette.text }]}>音乐云盘</Text>
+          <Text style={[styles.subtitle, { color: palette.textMuted }]}>
+            {isLoggedIn
+              ? `${count} 首${capacityText ? ` · ${capacityText}` : ""}`
+              : "登录网易云账号后查看你上传到云盘的文件。"}
+          </Text>
+        </View>
+      </View>
+
+      {isLoggedIn && songs.length > 0 && (
+        <View style={styles.actions}>
+          <ActionButton
+            shrink
+            small
+            variant="primary"
+            accessibilityLabel="播放全部云盘歌曲"
+            onPress={handlePlayAll}
+            label="播放全部"
+          />
+          <ActionButton
+            shrink
+            small
+            accessibilityLabel="随机播放云盘歌曲"
+            onPress={handleShufflePlay}
+            label="随机播放"
+          />
+        </View>
+      )}
+
+      {isLoggedIn && (
+        <SectionHeader
+          title="歌曲列表"
+          description={`${songs.length} 首${hasMore ? `，还有 ${Math.max(count - songs.length, 0)} 首未加载` : ""}`}
+          action={
+            <ActionButton
+              small
+              accessibilityLabel="刷新云盘列表"
+              onPress={() => void loadFirstPage(true)}
+              loading={refreshing}
+              disabled={loading}
+              label="刷新"
+            />
+          }
+          style={styles.listHeader}
+        />
+      )}
+
+      {!isLoggedIn && !loading && (
+        <EmptyState
+          title="未登录网易云账号"
+          description="音乐云盘里的文件只对你自己可见，请在「设置 → 账号与服务」登录后查看。"
+        />
+      )}
+
+      {loading && <LoadingState label="正在读取云盘" />}
+
+      {!!error && !loading && (
+        <ErrorState message={error} onRetry={() => void loadFirstPage(true)} />
+      )}
+    </>
+  );
+
+  const listFooter =
+    !loading && isLoggedIn && !error && songs.length === 0 ? (
+      <EmptyState
+        icon={Cloud}
+        title="云盘里没有歌曲"
+        description="在网易云音乐客户端里把本地文件「上传到音乐云盘」之后会出现在这里。"
+      />
+    ) : isLoggedIn && hasMore && !loading ? (
+      <View style={styles.loadMore}>
+        <ActionButton
+          small
+          accessibilityLabel="加载更多云盘歌曲"
+          onPress={() => void handleLoadMore()}
+          loading={loadingMore}
+          disabled={loadingMore}
+          label="加载更多"
+        />
+      </View>
+    ) : null;
+
   return (
     <ScreenScaffold>
-      <ScreenScrollView
-        contentContainerStyle={styles.container}
+      <SongList
+        virtualized
+        songs={songs}
+        onPlay={handlePlay}
+        emptyText="云盘为空"
+        hideSourceTag
+        getExtraMetadata={getExtraMetadata}
+        ListHeaderComponent={listHeader}
+        ListFooterComponent={listFooter}
+        onEndReached={() => void handleLoadMore()}
         refreshControl={
           isLoggedIn ? (
             <RefreshControl
@@ -217,125 +331,20 @@ export function CloudDriveScreen({ onNavigateToPlayer: _onNavigateToPlayer }: Cl
             />
           ) : undefined
         }
-      >
-        <PlaybackErrorState message={playbackError} onDismiss={() => setPlaybackError(null)} />
-
-        <View style={styles.header}>
-          {coverUrl ? (
-            <CachedImage
-              uri={coverUrl}
-              style={styles.cover}
-              fallback={
-                <View style={[styles.cover, styles.coverFallback, { backgroundColor: palette.surface }]}>
-                  <Cloud size={28} color={palette.primary} strokeWidth={1.8} />
-                </View>
-              }
-            />
-          ) : (
-            <View style={[styles.cover, styles.coverFallback, { backgroundColor: palette.surface }]}>
-              <Cloud size={28} color={palette.primary} strokeWidth={1.8} />
-            </View>
-          )}
-          <View style={styles.headerText}>
-            <Text style={[styles.title, { color: palette.text }]}>音乐云盘</Text>
-            <Text style={[styles.subtitle, { color: palette.textMuted }]}>
-              {isLoggedIn
-                ? `${count} 首${capacityText ? ` · ${capacityText}` : ""}`
-                : "登录网易云账号后查看你上传到云盘的文件。"}
-            </Text>
-          </View>
-        </View>
-
-        {isLoggedIn && songs.length > 0 && (
-          <View style={styles.actions}>
-            <ActionButton
-              shrink
-              small
-              variant="primary"
-              accessibilityLabel="播放全部云盘歌曲"
-              onPress={handlePlayAll}
-              label="播放全部"
-            />
-            <ActionButton
-              shrink
-              small
-              accessibilityLabel="随机播放云盘歌曲"
-              onPress={handleShufflePlay}
-              label="随机播放"
-            />
-          </View>
-        )}
-
-        {isLoggedIn && (
-          <SectionHeader
-            title="歌曲列表"
-            description={`${songs.length} 首${hasMore ? `，还有 ${count - songs.length} 首未加载` : ""}`}
-            action={
-              <ActionButton
-                small
-                accessibilityLabel="刷新云盘列表"
-                onPress={() => void loadFirstPage(true)}
-                loading={refreshing}
-                disabled={loading}
-                label="刷新"
-              />
-            }
-            style={styles.listHeader}
-          />
-        )}
-
-        {!isLoggedIn && !loading && (
-          <EmptyState
-            title="未登录网易云账号"
-            description="音乐云盘里的文件只对你自己可见，请在「设置 → 账号与服务」登录后查看。"
-          />
-        )}
-
-        {loading && <LoadingState label="正在读取云盘" />}
-
-        {!!error && !loading && <ErrorState message={error} onRetry={() => void loadFirstPage(true)} />}
-
-        {!loading && isLoggedIn && !error && songs.length === 0 && (
-          <EmptyState
-            icon={Cloud}
-            title="云盘里没有歌曲"
-            description="在网易云音乐客户端里把本地文件「上传到音乐云盘」之后会出现在这里。"
-          />
-        )}
-
-        {!loading && isLoggedIn && songs.length > 0 && (
-          <View style={styles.section}>
-            <SongList
-              songs={songs}
-              onPlay={handlePlay}
-              emptyText="云盘为空"
-              hideSourceTag
-              getExtraMetadata={getExtraMetadata}
-            />
-          </View>
-        )}
-
-        {isLoggedIn && hasMore && !loading && (
-          <View style={styles.loadMore}>
-            <ActionButton
-              small
-              accessibilityLabel="加载更多云盘歌曲"
-              onPress={() => void handleLoadMore()}
-              loading={loadingMore}
-              disabled={loadingMore}
-              label="加载更多"
-            />
-          </View>
-        )}
-      </ScreenScrollView>
+        contentContainerStyle={styles.listContent}
+      />
     </ScreenScaffold>
   );
 }
 
 function makeStyles(palette: ReturnType<typeof getThemePalette>) {
   return StyleSheet.create({
-    container: {
-      gap: spacing.l,
+    // SongList 的 virtualized 路径自己就是滚动容器，页面内边距从这里给
+    // （与 LikedSongsScreen / PlaylistDetailScreen 的 listContent 一致）。
+    listContent: {
+      paddingHorizontal: layout.pagePadding,
+      paddingTop: spacing.xs,
+      paddingBottom: spacing.l,
     },
     header: {
       flexDirection: "row",

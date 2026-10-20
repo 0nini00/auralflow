@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, RefreshControl, StyleSheet, Text, View } from "react-native";
 import type { MusicInfo } from "@lx/core";
-import { CalendarDays, Clock3, Cloud, LayoutGrid, Radio, Search, Trophy } from "lucide-react-native";
+import { CalendarDays, Clock3, Cloud, LayoutGrid, Radio, Trophy } from "lucide-react-native";
 import { AlbumRail, HomeQuickActions, HomeSectionError, PlaylistRail } from "@/components/HomeFeedSections";
 import { ActionButton } from "@/components/ActionButton";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
@@ -28,7 +28,7 @@ interface HomeScreenProps {
 
 const SONG_PREVIEW_LIMIT = 5;
 
-export function HomeScreen({ onNavigateToSearch, onNavigateToFm, onNavigateToHistory }: HomeScreenProps) {
+export function HomeScreen({ onNavigateToSearch: _onNavigateToSearch, onNavigateToFm, onNavigateToHistory }: HomeScreenProps) {
   const isLoggedIn = useAccountStore((state) => state.isLoggedIn);
   const userId = useAccountStore((state) => state.user?.userId ?? null);
   const sections = useHomeFeedStore((state) => state.sections);
@@ -85,7 +85,6 @@ export function HomeScreen({ onNavigateToSearch, onNavigateToFm, onNavigateToHis
   // （连入口带文案一起不渲染，不再对未登录用户做"登录后可用"的宣传）。
   // 「我喜欢 / 收藏」是本地功能，不在其列。
   const quickActions = [
-    { id: "search", label: "搜索", icon: <Search size={18} color={palette.background} /> },
     { id: "history", label: "播放历史", icon: <Clock3 size={18} color={palette.background} /> },
     ...(isLoggedIn
       ? [
@@ -98,7 +97,6 @@ export function HomeScreen({ onNavigateToSearch, onNavigateToFm, onNavigateToHis
     { id: "square", label: "歌单广场", icon: <LayoutGrid size={18} color={palette.background} /> },
   ];
   const handleQuickAction = (id: string) => {
-    if (id === "search") { onNavigateToSearch(); return; }
     if (id === "history") { onNavigateToHistory(); return; }
     if (id === "fm") { onNavigateToFm(); return; }
     if (id === "daily") { openDailyRecommendScreen(); return; }

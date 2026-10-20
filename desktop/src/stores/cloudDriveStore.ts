@@ -2,8 +2,11 @@ import { create } from "zustand";
 import type { MusicInfo } from "@lx/core";
 import { getCloudSongs } from "@/services/wyAccountService";
 
-/** 云盘每页条数。接口上限 200，取 50 是为了首屏快、滚动加载平滑。 */
-const PAGE_SIZE = 50;
+/**
+ * 云盘每页条数。接口实测接受 200，且对 200 的请求会一次返回整个云盘（161 首），
+ * 所以「进页面就能看到全部」；更大的库由 hasMore/nextOffset 继续翻页。
+ */
+const PAGE_SIZE = 200;
 
 interface CloudDriveState {
   songs: MusicInfo[];
@@ -37,6 +40,24 @@ interface CloudDriveState {
 }
 
 /**
+ * 追加一页并按 `source:id` 去重。
+ *
+ * 接口按 offset 翻页，理论上不会重复；但翻页期间账号里增删条目会让 offset 错位，
+ * 不去重就会出现两条一模一样的行（React key 也会撞）。
+ */
+function mergePage(current: MusicInfo[], incoming: MusicInfo[]): MusicInfo[] {
+  const seen = new Set(current.map((song) => `${song.source}:${song.id}`));
+  const merged = [...current];
+  for (const song of incoming) {
+    const key = `${song.source}:${song.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(song);
+  }
+  return merged;
+}
+
+/**
  * 请求世代。
  *
  * 每次账号切换 / 退出登录都递增：晚到的响应如果世代已经变了就直接丢弃。
@@ -56,7 +77,7 @@ export const useCloudDriveStore = create<CloudDriveState>((set, get) => {
     const page = await getCloudSongs({ offset, limit: PAGE_SIZE });
     if (requestGeneration !== generation) return; // 账号已切换，结果作废
     set((state) => ({
-      songs: replace ? page.songs : [...state.songs, ...page.songs],
+      songs: replace ? page.songs : mergePage(state.songs, page.songs),
       count: page.count,
       usedBytes: page.usedBytes,
       maxBytes: page.maxBytes,

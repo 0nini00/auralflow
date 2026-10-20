@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Cloud, Clock, Loader2, Play, RefreshCw, Shuffle } from 'lucide-react';
 import { cloudQualityLabel } from '@lx/core';
@@ -57,6 +57,22 @@ export function CloudDriveView() {
   // 用接口给的 hasMore，而不是「已加载条数 < 总数」：映射会丢掉缺 id 的条目，
   // 两者不相等时前者才是真实结论（见 getCloudSongs 的 nextOffset 说明）。
   const hasMore = useCloudDriveStore((s) => s.hasMore);
+
+  // 触底自动加载：接口按 200 条一页，绝大多数云盘一次就到位；这条兜底只对
+  // 更大的库生效，避免用户必须反复点「加载更多」才能翻到底。
+  const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const node = loadMoreSentinelRef.current;
+    if (!node || !hasMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) void loadMore();
+      },
+      { rootMargin: '400px' },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore, loadMore, songs.length]);
 
   // 换账号 / 退出登录都要重算列表：store 用 uid 判定归属，传空串会清空。
   useEffect(() => {
@@ -252,7 +268,7 @@ export function CloudDriveView() {
       )}
 
       {hasMore && (
-        <div className="af-empty-state" style={{ paddingTop: 8, paddingBottom: 24 }}>
+        <div ref={loadMoreSentinelRef} className="af-empty-state" style={{ paddingTop: 8, paddingBottom: 24 }}>
           <button
             className="af-btn-secondary"
             onClick={() => void loadMore()}

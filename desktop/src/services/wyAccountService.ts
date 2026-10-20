@@ -568,7 +568,10 @@ export async function getCloudSongs(
   options: { offset?: number; limit?: number } = {},
 ): Promise<WyCloudSongsPage> {
   const offset = Math.max(0, Math.trunc(options.offset ?? 0));
-  const limit = Math.min(200, Math.max(1, Math.trunc(options.limit ?? 50)));
+  // 默认一次要 200 条：实测接口对 200 的请求会直接返回整个云盘（161 首一次到位），
+  // 对更大的库则由 hasMore/nextOffset 继续翻页。之前默认 50 会让每次进页面只看到
+  // 头 50 首，必须手点「加载更多」才往下走。
+  const limit = Math.min(200, Math.max(1, Math.trunc(options.limit ?? 200)));
   const body = await weapiPost("/v1/cloud/get", { offset, limit });
 
   const items = (Array.isArray(body.data) ? body.data : []) as WyCloudItem[];
@@ -576,6 +579,9 @@ export async function getCloudSongs(
   const count = Number(body.count ?? songs.length) || songs.length;
 
   const nextOffset = offset + items.length;
+  // 接口自己回 `hasMore`（实测逐页 false 只在最后一页出现），比自己算的可靠；
+  // 缺失时退回「下一页起点 < 总数」。
+  const hasMore = typeof body.hasMore === "boolean" ? body.hasMore : nextOffset < count;
 
   return {
     songs,
@@ -583,7 +589,7 @@ export async function getCloudSongs(
     usedBytes: Number(body.size ?? 0) || undefined,
     maxBytes: Number(body.maxSize ?? 0) || undefined,
     nextOffset,
-    hasMore: nextOffset < count,
+    hasMore,
   };
 }
 
