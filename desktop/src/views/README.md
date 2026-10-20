@@ -18,6 +18,8 @@
 | `/artist/:id` | ArtistDetailView | 歌手详情 |
 | `/album/:id` | AlbumDetailView | 专辑详情 |
 | `/daily` | DailyRecommendView | 每日推荐 |
+| `/charts` | LeaderboardView | 排行榜：官方榜大卡（封面 / 更新频率）+ 语种 / 流派 / 场景网格，点开即歌单详情 |
+| `/playlist-square` | PlaylistSquareView | 歌单广场：16 个内置分类 + 热门 / 最新，触底续页 |
 | `/fm` | PersonalFmView | 私人 FM |
 | `/settings` | SettingsView | 顶部标签栏（8 个分区，横向可滚动、吸顶，`←/→`/`Home`/`End` 可切换）+ 仅活动 section 挂载 |
 

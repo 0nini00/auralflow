@@ -1,4 +1,4 @@
-import { BarChart3, Cloud, Home, Search, Settings, User, Music, ListMusic, Download, Calendar, Radio } from "lucide-react";
+import { BarChart3, Cloud, Home, Search, Settings, User, Music, ListMusic, Download, Calendar, Radio, Trophy, LayoutGrid } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -21,6 +21,10 @@ interface NavItem {
 const navItems: NavItem[] = [
   { to: "/", icon: Home, label: "发现" },
   { to: "/search", icon: Search, label: "搜索" },
+  // 排行榜与歌单广场是公开数据（不读 Cookie），所以没有 requiresAccount：
+  // 未登录用户同样该有内容看。
+  { to: "/charts", icon: Trophy, label: "排行榜" },
+  { to: "/playlist-square", icon: LayoutGrid, label: "歌单广场" },
   { to: "/daily", icon: Calendar, label: "每日推荐", requiresAccount: true },
   { to: "/fm", icon: Radio, label: "私人 FM", requiresAccount: true },
   { to: "/cloud", icon: Cloud, label: "音乐云盘", requiresAccount: true },

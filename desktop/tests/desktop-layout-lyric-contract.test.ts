@@ -20,7 +20,10 @@ const rule = (css: string, selector: string) =>
 
 const contentScroll = rule(read('src/index.css'), '.af-content-scroll');
 const homeCss = read('src/styles/home.css');
-const homeGrid = rule(homeCss, '.af-home-recent-grid');
+const discoverCss = read('src/styles/discover.css');
+// 「最近播放」区块已从发现页撤掉，网格配方搬到 discover.css 的 `.af-discover-grid`，
+// 这两条契约跟着搬家，断言内容不变。
+const discoverGrid = rule(discoverCss, '.af-discover-grid');
 const statsView = rule(read('src/styles/stats.css'), '.af-stats-view');
 const playerCss = read('src/styles/player.css');
 
@@ -32,13 +35,15 @@ describe('滚动容器:两个轴都要显式声明', () => {
   });
 });
 
-describe('主页「最近播放」网格', () => {
+describe('发现页卡片网格（原「最近播放」位置）', () => {
   it('用 auto-fit,放不满的行不留空轨道', () => {
-    expect(homeGrid).toContain('repeat(auto-fit, minmax(150px, 1fr))');
-    expect(stripComments(homeCss)).not.toContain('auto-fill');
+    expect(discoverGrid).toContain('repeat(auto-fit, minmax(150px, 1fr))');
+    // 榜单页与歌单广场的网格用 auto-fill 是另一回事:那两处卡片自带固定列宽、
+    // 不该被 auto-fit 拉伸,所以这条断言只看发现页自己的网格。
+    expect(discoverGrid).not.toContain('auto-fill');
     // 卡片少时 auto-fit 会把轨道拉到整行宽,必须有宽度上限兜住
-    expect(homeCss).toContain('.af-home-recent-grid .af-music-card');
-    expect(homeCss).toContain('max-width: 240px');
+    expect(discoverCss).toContain('.af-discover-grid .af-music-card');
+    expect(discoverCss).toContain('max-width: 220px');
   });
 
   it('卡片右缘的提示气泡右对齐,不撑出内容右边界', () => {

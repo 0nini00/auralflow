@@ -1,0 +1,405 @@
+/*
+ * 发现页（推荐歌单 / 排行榜）、排行榜页、歌单广场。
+ *
+ * 视觉沿用设计语言 v2：页面级元素只用 1px 描边 + 表面底色，不加阴影；圆角走
+ * 4/8/12/16 尺度；间距走 4px 网格。榜单与歌单卡片都是「可点的一整块」，所以统一
+ * 用真 <button>：焦点环、回车/空格激活、读屏名称全部由 buttons.css 那套语言接管，
+ * 不需要在这里另写一套。
+ */
+
+.af-discover-page {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.af-discover-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.af-discover-head-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.af-discover-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.af-discover-notice {
+  padding: 12px 16px;
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-md);
+  background: var(--af-bg-surface);
+  color: var(--af-text-secondary);
+  font-size: var(--af-font-size-sm);
+}
+
+.af-discover-empty {
+  padding: 48px 24px;
+}
+
+.af-discover-empty p {
+  margin: 0;
+}
+
+.af-discover-empty span {
+  font-size: var(--af-font-size-sm);
+  color: var(--af-text-tertiary);
+}
+
+.af-discover-loading {
+  padding: 40px 0;
+  color: var(--af-text-tertiary);
+  font-size: var(--af-font-size-sm);
+}
+
+/* 发现页里的卡片网格：推荐歌单与榜单试读共用。
+   auto-fit 会折叠放不满的空轨道，让卡片撑满整行；再给单卡一个上限，
+   免得只有 1–2 张时被拉成巨型方块。 */
+.af-discover-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 20px;
+}
+
+.af-discover-grid .af-music-card {
+  max-width: 220px;
+}
+
+/* ─── 排行榜页 ───────────────────────────────────────────── */
+
+/* 官方榜：两列大卡。minmax(320px) 是「封面 96 + 三行曲目不换行」的下限。 */
+.af-board-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.af-board-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-lg);
+  background: var(--af-bg-surface);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--af-transition-base), background var(--af-transition-base);
+}
+
+.af-board-card:hover {
+  border-color: var(--af-border-primary);
+  background: var(--af-bg-surface-hover);
+}
+
+.af-board-card-cover {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  flex-shrink: 0;
+  border-radius: var(--af-radius-md);
+  overflow: hidden;
+  background: var(--af-bg-elevated);
+}
+
+.af-board-card-cover img,
+.af-board-tile-cover img,
+.af-playlist-square-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.af-board-card-cover .af-cover-placeholder,
+.af-board-tile-cover .af-cover-placeholder,
+.af-playlist-square-cover .af-cover-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--af-text-tertiary);
+}
+
+.af-board-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.af-board-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.af-board-card-title {
+  font-size: var(--af-font-size-lg);
+  font-weight: var(--af-font-weight-semibold);
+  color: var(--af-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-board-card-badge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-full);
+  font-size: var(--af-font-size-xs);
+  color: var(--af-text-tertiary);
+}
+
+.af-board-card-songs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.af-board-card-song {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: var(--af-font-size-sm);
+}
+
+/* 名次用等宽数字，1/2/3 才不会把曲名起点抖成锯齿。 */
+.af-board-card-rank {
+  width: 16px;
+  flex-shrink: 0;
+  color: var(--af-text-tertiary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.af-board-card-song-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--af-text-secondary);
+}
+
+.af-board-card-artist {
+  margin-left: auto;
+  flex-shrink: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--af-font-size-xs);
+  color: var(--af-text-tertiary);
+}
+
+.af-board-card-hint {
+  font-size: var(--af-font-size-sm);
+  color: var(--af-text-tertiary);
+}
+
+/* 语种/流派/场景：紧凑网格。 */
+.af-board-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 16px;
+}
+
+.af-board-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.af-board-tile-cover {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: var(--af-radius-md);
+  overflow: hidden;
+  background: var(--af-bg-surface);
+  border: 1px solid var(--af-border-secondary);
+  transition: border-color var(--af-transition-base);
+}
+
+.af-board-tile:hover .af-board-tile-cover {
+  border-color: var(--af-border-primary);
+}
+
+.af-board-tile-name {
+  font-size: var(--af-font-size-sm);
+  font-weight: var(--af-font-weight-medium);
+  color: var(--af-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-board-tile-freq {
+  font-size: var(--af-font-size-xs);
+  color: var(--af-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── 歌单广场 ───────────────────────────────────────────── */
+
+.af-square-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.af-chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.af-chip-group-compact {
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+
+.af-chip {
+  padding: 6px 12px;
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-full);
+  background: var(--af-bg-elevated);
+  color: var(--af-text-secondary);
+  font-size: var(--af-font-size-sm);
+  font-weight: var(--af-font-weight-medium);
+  cursor: pointer;
+  transition: all var(--af-transition-base);
+}
+
+.af-chip:hover {
+  background: var(--af-bg-surface-hover);
+  color: var(--af-text-primary);
+  border-color: var(--af-border-primary);
+}
+
+/* 选中态用强调色的「描边 + 淡底」，不用整块填充：一屏 16 个分类胶囊，
+   填充色一多就会盖过下面的歌单封面。 */
+.af-chip-active,
+.af-chip-active:hover {
+  border-color: rgba(var(--af-accent-primary-rgb), 0.5);
+  background: rgba(var(--af-accent-primary-rgb), 0.12);
+  color: var(--af-text-primary);
+}
+
+.af-playlist-square-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 20px;
+}
+
+.af-playlist-square-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.af-playlist-square-cover {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: var(--af-radius-lg);
+  overflow: hidden;
+  background: var(--af-bg-surface);
+  border: 1px solid var(--af-border-secondary);
+  transition: border-color var(--af-transition-base);
+}
+
+.af-playlist-square-card:hover .af-playlist-square-cover {
+  border-color: var(--af-border-primary);
+}
+
+/* 播放量角标压在封面上：封面本身可能是浅色，所以用深底浅字而不是主题色，
+   保证在任意封面图上都是可读的。 */
+.af-playlist-square-count {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--af-radius-full);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: var(--af-font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.af-playlist-square-name {
+  font-size: var(--af-font-size-sm);
+  font-weight: var(--af-font-weight-medium);
+  color: var(--af-text-primary);
+  line-height: 1.4;
+  /* 歌单名普遍偏长，两行是「看得懂」和「不挤掉下一张卡」的折中。 */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.af-playlist-square-author {
+  font-size: var(--af-font-size-xs);
+  color: var(--af-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-square-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px 0;
+  min-height: 64px;
+}
+
+.af-square-footer-error {
+  font-size: var(--af-font-size-sm);
+  color: var(--af-text-secondary);
+}
+
+.af-square-footer-end {
+  font-size: var(--af-font-size-sm);
+  color: var(--af-text-tertiary);
+}

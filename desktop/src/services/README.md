@@ -23,6 +23,7 @@ services/
 | 自定义源运行时 | `customSourceRuntime.ts` | 892 | LX 脚本 `new Function` 参数遮蔽（`fakeWindow = Object.create(null)` 无原型；**非安全边界**：可经 constructor 链取回真实 globalThis，静态正则黑名单已移除，真正隔离未实施）+ 宿主全局传 undefined + HTTP 代理 `outboundRequest`（Rust SSRF）+ LRU(8) `key=id::djb2a-hash` + `parseDesktopUserApiInfo` 头部 + `testCustomSourceDeep` 两阶段 init + `musicUrl`（wy 2034742057 林俊杰《江南》 / tx 0039MnYb0qxYhV）20s |
 | WebDAV 同步 | `webdavSyncService.ts` | 865 | 同步锁 `withSyncLock` + `lastModified` 冲突 `assertCloudNotStale` + 下载 merge / 上传 overwrite + localStorage 备份 + `/AuralFlow/` 写 / `/LX_Music/` 读回退 |
 | 网易账号 | `wyAccountService.ts` | 632 | weapi/eapi 双通道 + QR 登录（type=3 unikey → SVG 二维码 → 轮询 800/801/802/803）+ 歌单 CRUD + 日推/FM + `extractSetCookie`（`Headers.getSetCookie`） |
+| 公开发现 | `wyDiscoverService.ts` | 150 | 免登录的 `/api/toplist`、`/api/playlist/list`：榜单清单（内置表打底 + 接口补封面/更新频率，失败返回 `degraded`）、按分类分页、推荐歌单。**不带 Cookie**，`hasMore` 按接口原始条数判断 |
 | 歌词 | `lyricsService.ts` | 501 | 多源嵌入式 → provider `getLyric` → LRC Lib 两轮直查（主歌手不带时长 → 完整歌手带时长）→ 网易搜索候选交 `localMediaMatch.ts` 判定（不再本地打分；同曲异唱档带 `origin` 标注）+ `scoreLyricContentQuality` 组内择优 + 翻译合并 |
 | 歌词来源标注 | `lyrics/lyricOriginNote.ts` | 23 | 同曲异唱档（`LyricOrigin.tier === "other-performer"`）生成一条 10s 停留的「歌词来自 X 的演唱版本」提示，供歌词窗与沉浸歌词浮层显示；同一录音档不提示 |
 | 歌词选择 | `localLyricsChoiceModel.ts` | 198 | 本地曲三态 `lyricsMode` 的判定与 patch 生成（`auto` / `picked` / `local-only`，缺省 `auto`）+ 桌面指纹 `"<size>:<md5>"` 的构造、解析与绑定判定 `isLocalLyricsChoiceBound`；空串不再冒充「不匹配」 |

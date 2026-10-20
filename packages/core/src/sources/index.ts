@@ -3,3 +3,4 @@ export * from "./tx-meta";
 export * from "./registry";
 export * from "./custom-source";
 export * from "./cloud";
+export * from "./leaderboard";

@@ -12,6 +12,7 @@ import "./styles/theme.css";
 import "./styles/layout.css";
 import "./styles/player.css";
 import "./styles/home.css";
+import "./styles/discover.css";
 import "./styles/local-music.css";
 import "./styles/search.css";
 import "./styles/settings.css";

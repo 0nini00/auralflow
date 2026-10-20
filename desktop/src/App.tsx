@@ -15,6 +15,8 @@ import { PlaylistDetailView } from "./views/PlaylistDetailView";
 import { CloudDriveView } from "./views/CloudDriveView";
 import { DailyRecommendView } from "./views/DailyRecommendView";
 import { PersonalFmView } from "./views/PersonalFmView";
+import { LeaderboardView } from "./views/LeaderboardView";
+import { PlaylistSquareView } from "./views/PlaylistSquareView";
 import { ArtistDetailView } from "./views/ArtistDetailView";
 import { AlbumDetailView } from "./views/AlbumDetailView";
 import { LyricWindowView } from "./views/LyricWindowView";
@@ -200,6 +202,8 @@ function MainApp() {
             <Route path="album/:id" element={<AlbumDetailView />} />
             <Route path="daily" element={<DailyRecommendView />} />
             <Route path="cloud" element={<CloudDriveView />} />
+            <Route path="charts" element={<LeaderboardView />} />
+            <Route path="playlist-square" element={<PlaylistSquareView />} />
             <Route path="fm" element={<PersonalFmView />} />
             <Route path="settings" element={<SettingsView />} />
             <Route path="*" element={<Navigate to="/" replace />} />

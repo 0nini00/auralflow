@@ -12,6 +12,7 @@ import { formatDuration } from "@/lib/utils";
 import { formatPlaylistSearchMeta } from "@/services/neteasePlaylistUtils";
 import { ROW_COVER_CSS_SIZE, coverSrc } from "@/utils/imageReferrerPolicy";
 import { buildImportedPlaylistMarker } from "@/utils/shared";
+import { buildPlaylistDetailPath } from "@/utils/playlistRoute";
 import {
   createEmptySearchResult,
   mergeSearchResultInto,
@@ -59,10 +60,6 @@ function buildSearchKey(keyword: string): string {
 
 function isResultFilter(value: string): value is ResultFilter {
   return SEARCH_RESULT_FILTERS.some((filter) => filter.id === value);
-}
-
-function buildPlaylistDetailPath(playlist: PlaylistInfo): string {
-  return `/playlist/${encodeURIComponent(playlist.id)}?source=${playlist.source}`;
 }
 
 function buildAlbumDetailPath(album: AlbumInfo): string {

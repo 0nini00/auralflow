@@ -1,140 +1,40 @@
+import { mapLeaderboardBoards, type WyLeaderboardBoard, type WyPlaylistOrder } from "@lx/core";
 import type { WyPlaylistInfo } from "./wyPlaylistService";
-import {
-  asRecord,
-  getJson,
-  mapPlaylist,
-  type JsonRecord,
-} from "./wyHomeFeedService";
+import { asRecord, getJson, mapPlaylist } from "./wyHomeFeedService";
 
 /**
- * 网易云排行榜 + 歌单广场服务。
+ * 网易云排行榜 + 歌单广场服务（移动端）。
  *
- * 榜单清单内置（对齐 lx leaderboard.js 的 bangid），保证不依赖接口也能展示；
- * `/api/toplist` 用于补充封面与更新频率（已验证可用，含 coverImgUrl 字段）。
- * 榜单详情直接复用 PlaylistDetailScreen：榜单本质是歌单，id 可直接用于
- * `/api/v6/playlist/detail?id=`（PlaylistDetailScreen 内部自行拉取歌曲）。
+ * 榜单分组清单、分类清单、TOP3 归一化、播放量格式化都搬去了 `@lx/core`：
+ * 桌面端现在有同样的两个页面，这份硬编码清单只能有一份，否则「手机有、桌面没有」
+ * 只是时间问题。这里只剩「网易云公开接口」这一层——拉取、分页、错误映射，
+ * 以及移动端自己的 `WyPlaylistInfo` 适配。
+ *
+ * 榜单详情不在这里：榜单就是歌单（`boardToPlaylistInfo` 转出来的 id 可直接进
+ * PlaylistDetailScreen），详情由详情页自己拉 `/v3/playlist/detail`。
  */
 
-export type WyBoardGroupKey = "official" | "language" | "genre" | "scene";
+export {
+  WY_BOARD_GROUPS,
+  WY_PLAYLIST_CATEGORIES,
+  type WyBoardGroup,
+  type WyBoardGroupKey,
+  type WyPlaylistOrder,
+} from "@lx/core";
 
-export interface WyBoardGroup {
-  key: WyBoardGroupKey;
-  title: string;
-  boards: { id: string; name: string }[];
-}
-
-export interface WyLeaderboardBoard {
-  id: string;
-  name: string;
-  group: WyBoardGroupKey;
-  coverUrl?: string;
-  updateFrequency?: string;
-  topSongs?: { title: string; artist: string }[];
-}
-
-/** 内置榜单分组（对齐 lx leaderboard.js）。id 即网易云歌单 id。 */
-export const WY_BOARD_GROUPS: readonly WyBoardGroup[] = [
-  {
-    key: "official",
-    title: "官方榜",
-    boards: [
-      { id: "19723756", name: "飙升榜" },
-      { id: "3779629", name: "新歌榜" },
-      { id: "2884035", name: "原创榜" },
-      { id: "3778678", name: "热歌榜" },
-    ],
-  },
-  {
-    key: "language",
-    title: "语种榜",
-    boards: [
-      { id: "5059644681", name: "日语榜" },
-      { id: "745956260", name: "韩语榜" },
-      { id: "5059642708", name: "国风榜" },
-      { id: "6732051320", name: "俄语榜" },
-      { id: "7095271308", name: "泰语榜" },
-      { id: "6732014811", name: "越南语榜" },
-      { id: "60198", name: "美国 Billboard 榜" },
-      { id: "180106", name: "UK 排行榜" },
-      { id: "60131", name: "日本 Oricon 榜" },
-      { id: "27135204", name: "法国 NRJ 周榜" },
-    ],
-  },
-  {
-    key: "genre",
-    title: "流派榜",
-    boards: [
-      { id: "991319590", name: "说唱榜" },
-      { id: "71384707", name: "古典榜" },
-      { id: "1978921795", name: "电音榜" },
-      { id: "71385702", name: "ACG 榜" },
-      { id: "5059633707", name: "摇滚榜" },
-      { id: "5059661515", name: "民谣榜" },
-      { id: "10520166", name: "国电榜" },
-      { id: "21845217", name: "KTV 唛榜" },
-    ],
-  },
-  {
-    key: "scene",
-    title: "场景榜",
-    boards: [
-      { id: "6723173524", name: "网络热歌榜" },
-      { id: "5338990334", name: "潜力爆款榜" },
-      { id: "6688069460", name: "听歌识曲榜" },
-      { id: "5453912201", name: "黑胶 VIP 爱听榜" },
-      { id: "7785123708", name: "黑胶 VIP 新歌榜" },
-      { id: "7785066739", name: "黑胶 VIP 热歌榜" },
-    ],
-  },
-];
+export type { WyLeaderboardBoard };
 
 /**
- * 拉取全部榜单（内置清单 + `/api/toplist` 补充封面/更新频率/真实 id）。
- * toplist 失败时回退到内置清单（无封面，页面用占位色块展示）。
+ * 拉取全部榜单：内置清单打底，`/api/toplist` 只负责补封面、更新频率与 TOP3 试读。
+ * 接口失败时返回只有 id + name 的内置清单，页面用占位色块也能进、也能点。
  */
 export async function fetchWyLeaderboardBoards(): Promise<WyLeaderboardBoard[]> {
-  let remoteById = new Map<string, JsonRecord>();
   try {
     const data = await getJson("/api/toplist");
-    if (Array.isArray(data.list)) {
-      const next = new Map<string, JsonRecord>();
-      data.list.forEach((item) => {
-        const record = asRecord(item);
-        if (record && record.id != null) next.set(String(record.id), record);
-      });
-      remoteById = next;
-    }
+    return mapLeaderboardBoards(data.list);
   } catch {
-    // 接口失败时以内置清单兜底，不影响页面可用性。
+    return mapLeaderboardBoards(undefined);
   }
-
-  return WY_BOARD_GROUPS.flatMap((group) =>
-    group.boards.map((board) => {
-      const meta = remoteById.get(board.id);
-      return {
-        id: board.id,
-        name: board.name,
-        group: group.key,
-        coverUrl: typeof meta?.coverImgUrl === "string"
-          ? meta.coverImgUrl
-          : typeof meta?.picUrl === "string" ? meta.picUrl : undefined,
-        updateFrequency: typeof meta?.updateFrequency === "string"
-          ? meta.updateFrequency
-          : undefined,
-        topSongs: Array.isArray(meta?.tracks)
-          ? meta.tracks
-              .map((t: unknown) => {
-                const r = asRecord(t);
-                return {
-                  title: typeof r?.first === "string" ? r.first : "",
-                  artist: typeof r?.second === "string" ? r.second : "",
-                };
-              })
-              .filter((t) => t.title.length > 0)
-          : undefined,
-      };
-    }),
-  );
 }
 
 /** 榜单 → WyPlaylistInfo，直接复用 PlaylistDetailScreen。 */
@@ -149,32 +49,6 @@ export function boardToPlaylistInfo(board: WyLeaderboardBoard): WyPlaylistInfo {
     source: "wy",
   };
 }
-
-/**
- * 歌单广场分类清单。
- * 网易云 `/api/playlist/catlist` 分类接口已下线（404），故内置常用分类，
- * 与 lx 桌面端「推荐歌单」的分类口径一致。
- */
-export const WY_PLAYLIST_CATEGORIES = [
-  "全部",
-  "华语",
-  "欧美",
-  "日语",
-  "韩语",
-  "粤语",
-  "摇滚",
-  "民谣",
-  "电子",
-  "影视",
-  "说唱",
-  "国风",
-  "轻音乐",
-  "ACG",
-  "怀旧",
-  "网络歌曲",
-] as const;
-
-export type WyPlaylistOrder = "hot" | "new";
 
 export interface WyPlaylistPage {
   playlists: WyPlaylistInfo[];
