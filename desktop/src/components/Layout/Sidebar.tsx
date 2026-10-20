@@ -28,7 +28,7 @@ const navItems: NavItem[] = [
   { to: "/daily", icon: Calendar, label: "每日推荐", requiresAccount: true },
   { to: "/fm", icon: Radio, label: "私人 FM", requiresAccount: true },
   { to: "/cloud", icon: Cloud, label: "音乐云盘", requiresAccount: true },
-  { to: "/playlists", icon: ListMusic, label: "歌单" },
+  { to: "/playlists", icon: ListMusic, label: "我的歌单" },
   { to: "/downloads", icon: Download, label: "下载" },
   { to: "/local", icon: Music, label: "本地音乐" },
   { to: "/stats", icon: BarChart3, label: "听歌统计" },
