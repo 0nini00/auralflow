@@ -37,6 +37,7 @@ desktop/src-tauri/gen/
 .superpowers/
 .ui_review/
 .tmp-*
+.docs-audit/
 
 # 本机 AI 工具链配置（含本机绝对路径与符号链接）
 .agents/
