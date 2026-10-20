@@ -6,7 +6,7 @@ const { createLoader, deferred, mobileRequire } = require('./helpers/loadTs.cjs'
 const options = { timeout: 15000 };
 // 本地曲封面只来自记录里的内嵌标签 / 同目录旁挂图（扫描与下载元数据写入）：记录里没有就是没有。
 const song = id => ({ id, source: 'local', isLocal: true, name: id, singer: 'Singer', albumName: 'Album', interval: 100, url: `file:///music/${id}.mp3`, picUrl: `file:///music/${id}-cover.jpg` });
-const result = text => ({ status: 'matched', lyrics: [{ time: 1, text }], message: '', issues: [] });
+const result = text => ({ status: 'local', lyrics: [{ time: 1, text }], message: '', issues: [] });
 function setup() {
   const calls = [], requests = [];
   const coreLoader = createLoader({});

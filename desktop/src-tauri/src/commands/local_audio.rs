@@ -480,8 +480,8 @@ pub async fn set_audio_cover(path: String, cover_data: String) -> Result<(), Str
         Some("bmp") => audiotags::MimeType::Bmp,
         Some("gif") => audiotags::MimeType::Gif,
         // audiotags 0.5 的 `MimeType` 只有 Png/Jpeg/Tiff/Bmp/Gif，没有 Webp 变体，
-        // 而前端 `manualMediaMatchService.imageMime` 会真的产出 image/webp。这里沿用
-        // Jpeg 兜底而不是拒绝：拒绝会让「手动匹配封面」从「能写入」退化成「写入失败」。
+        // 而前端封面写标签时（`set_audio_cover` 的调用方）会真的产出 image/webp。这里沿用
+        // Jpeg 兜底而不是拒绝：拒绝会让「把封面写进文件标签」从「能写入」退化成「写入失败」。
         // 代价是这一种格式的 MIME 标注不准，属已知残留。
         Some("webp") => audiotags::MimeType::Jpeg,
         _ => {

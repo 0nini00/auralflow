@@ -2,9 +2,8 @@ import type { MusicInfo } from '@lx/core';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { scanDirectory, getAudioInfo, type RustAudioFile } from '@lx/tauri-bridge';
-import { type LocalLyricsChoiceFields, resolveLocalLyricsChoice } from '@/services/localLyricsChoiceModel';
 
-export interface LocalSong extends LocalLyricsChoiceFields {
+export interface LocalSong {
   id: string;
   path: string;
   title: string;
@@ -60,21 +59,14 @@ export function getLocalSongCover(song: LocalSong): string | undefined {
 }
 
 /**
- * 播放入口用的 `MusicInfo`：`@lx/core` 的 `MusicInfo` 不认识歌词选择三字段，
- * 用交叉类型在本端补齐（不改 packages/，也不污染核心类型）。
- */
-export type LocalMusicInfo = MusicInfo & LocalLyricsChoiceFields;
-
-/**
  * 曲库记录 → 播放链路元信息。
  *
- * 歌词选择的三态与指纹绑定在这里一次判定完（见 resolveLocalLyricsChoice）：下游的歌词服务、
- * 缓存与 UI 只看 `lyricsMode`，不必各自再判一遍；绑定不成立时这里就已经退回 auto，并把选中
- * 的那份文本丢掉——它属于上一份文件内容，继续用就是把别人的词当成这首歌的。
+ * 歌词只带上「文件自己的词」：内嵌标签 / 同目录旁挂 `.lrc`，或用户手写的按曲文本。
+ * 曾经这里还要按 `lyricsMode` 三态判定并带上指纹与来源标注——那是平台匹配时代的
+ * 产物，匹配删除后连字段都不存在了，播放链路拿到的就是最终答案。
  */
-export function localSongToMusicInfo(song: LocalSong): LocalMusicInfo {
+export function localSongToMusicInfo(song: LocalSong): MusicInfo {
   const cover = getLocalSongCover(song);
-  const choice = resolveLocalLyricsChoice(song);
   return {
     id: song.id,
     name: song.title,
@@ -87,13 +79,10 @@ export function localSongToMusicInfo(song: LocalSong): LocalMusicInfo {
     url: song.url || convertFileSrc(song.path),
     picUrl: cover,
     img: cover,
-    localLyrics: choice.text,
+    // 空串是「用户主动清除」，必须原样带出去（否则清不干净）；没有覆盖项时才用文件自己的词。
+    localLyrics: song.lyricsOverride !== undefined ? song.lyricsOverride : song.embeddedLyrics,
     localLyricsTranslation: song.lyricsTranslationOverride,
     localLyricsRomanization: song.lyricsRomanizationOverride,
-    // auto 下不携带三字段：UI 的「当前状态」与运行时行为必须始终一致
-    ...(choice.mode === 'auto' ? {} : { lyricsMode: choice.mode }),
-    ...(choice.lyricsFingerprint ? { lyricsFingerprint: choice.lyricsFingerprint } : {}),
-    ...(choice.lyricsSourceLabel ? { lyricsSourceLabel: choice.lyricsSourceLabel } : {}),
   };
 }
 

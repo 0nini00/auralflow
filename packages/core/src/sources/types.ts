@@ -93,8 +93,7 @@ export interface MusicCloudMeta {
    * 网易云是否把这次上传匹配到了在线曲目。
    *
    * `matched`：同时是线上可搜索曲目，详情/歌词/封面都能按 id 取到；
-   * `unmatched`：仅自己可见，`cloudsearch` 命中不到自己，歌词接口只回空壳，
-   * 必须走歌词自动匹配链（内嵌/旁挂 → LRCLIB → 平台搜索）。
+   * `unmatched`：仅自己可见，`cloudsearch` 命中不到自己，歌词接口只回空壳。
    */
   matchStatus?: "matched" | "unmatched";
 }

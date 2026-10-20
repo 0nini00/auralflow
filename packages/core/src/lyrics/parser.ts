@@ -25,23 +25,9 @@ export interface LyricLine {
   ruby?: LyricRubySegment[];
 }
 
-/**
- * 歌词来源标注。同曲异唱档必须带它，UI 据此提示用户「歌词来自另一位的演唱版本」；
- * 同一录音档也可以带（用于显示实际取自哪个平台），但不强制。
- */
-export interface LyricOrigin {
-  tier: "same-recording" | "other-performer";
-  /** tier=other-performer：演唱者。 */
-  performer?: string;
-  /** 歌词实际取自哪个平台（wy / tx / lrclib 等）。 */
-  source?: string;
-}
-
 export interface LyricResponse {
   lines: LyricLine[];
   error?: string;
-  /** 来源标注；手动/本地覆盖与解析失败时不设。 */
-  origin?: LyricOrigin;
 }
 
 export type LyricSourceType = 'lrc' | 'enhanced-lrc' | 'yrc' | 'qrc' | 'krc' | 'vtt';

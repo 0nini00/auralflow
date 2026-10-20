@@ -18,8 +18,6 @@ interface LocalLibraryBrowserProps {
   onPlay: (track: LocalSong, visibleSongs: LocalSong[]) => void;
   onEdit: (track: LocalSong) => void;
   onRemove: (trackId: string) => void;
-  /** 透传给 LocalLibraryTracks 的「选择歌词」入口；缺省时行内不渲染该按钮。 */
-  onChooseLyrics?: (track: LocalSong) => void;
 }
 
 function groupDescription(group: LocalLibraryGroup, category: LocalLibraryCategory) {

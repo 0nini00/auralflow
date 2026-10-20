@@ -144,24 +144,6 @@ export const styles = StyleSheet.create({
 
   },
 
-  // 歌词来源标注（同曲异唱 / LRCLIB）：绝对定位，不参与歌词页布局流——
-  // 歌词页高度参与封面/控制区预算，为它预留一行会改动既有布局契约。
-  lyricOriginNote: {
-
-    position: "absolute",
-
-    left: 12,
-
-    right: 12,
-
-    bottom: 4,
-
-    textAlign: "center",
-
-    fontSize: typography.caption,
-
-  },
-
   topRightIconButton: {
 
     width: 40,

@@ -43,27 +43,27 @@ describe('歌词来源及手动覆盖优先级', () => {
   });
 });
 
-// 「不匹配」现在由 lyricsMode 表达（空串只表示「没有文本」）：这两条把权威空的语义钉在 mode 上，
-// 无论文本是空串还是只有空白，都必须短路在缓存、内嵌词与所有自动来源之前。
-it.each([['', '空串'], ['   \n\t', '仅空白']])('不匹配（local-only）在 %s 下优先于持久化缓存、内嵌词及所有自动来源', async (localLyrics) => {
+// 平台匹配删除后，「本地曲没有文本」就是确定答案：权威空必须短路在持久化缓存、旧 `lyrics` 字段
+// 与所有自动来源之前——否则一次网络抖动就会把别人的词贴到本地曲上。
+it.each([['', '空串'], ['   \n\t', '仅空白']])('本地曲没有歌词文本（%s）时给出权威空，不碰缓存与音源', async (localLyrics) => {
   deps.getCachedLyrics.mockResolvedValue({ lines: [{ time: 1, text: '旧缓存' }] });
-  const track = music({ source: 'local', lyrics: '[00:01]旧内嵌', localLyrics, lyricsMode: 'local-only' });
-  expect(await getLyrics(track, [music()])).toEqual({ lines: [] });
-  expect(await __lyricsInternals.getLyricsForSingle(track)).toEqual({ lines: [] });
+  const track = music({ source: 'local', lyrics: '[00:01]旧内嵌', localLyrics });
+  expect(await getLyrics(track, [music()])).toEqual({ lines: [], error: '本地文件没有歌词' });
+  expect(await __lyricsInternals.getLyricsForSingle(track)).toEqual({ lines: [], error: '本地文件没有歌词' });
   expect(deps.getCachedLyrics).not.toHaveBeenCalled();
   expect(deps.saveCachedLyrics).not.toHaveBeenCalled();
   expect(deps.getSource).not.toHaveBeenCalled();
   expect(deps.fetch).not.toHaveBeenCalled();
 });
-it('不匹配（local-only）优先于已命中的内存缓存，恢复自动匹配（去掉 mode）后仍回到自动词', async () => {
+it('本地曲清空文本后立即变无歌词，即使内存里还留着上一次的自动结果', async () => {
   const track = music();
   await getLyrics(track);
   vi.clearAllMocks();
-  expect(await getLyrics({ ...track, localLyrics: '', lyricsMode: 'local-only' })).toEqual({ lines: [] });
+  expect(await getLyrics({ ...track, source: 'local', localLyrics: '' }))
+    .toEqual({ lines: [], error: '本地文件没有歌词' });
   expect(deps.getSource).not.toHaveBeenCalled();
   expect(deps.getCachedLyrics).not.toHaveBeenCalled();
   expect(deps.saveCachedLyrics).not.toHaveBeenCalled();
-  expect((await getLyrics({ ...track, localLyrics: '' })).lines[0].text).toBe('日');
 });
 it('手动候选的翻译和罗马音按时间合并，原文、注音和逐字时间不丢失', async () => {
   const track = music({
@@ -82,11 +82,11 @@ it('手动候选的翻译和罗马音按时间合并，原文、注音和逐字�
   expect(deps.saveCachedLyrics).not.toHaveBeenCalled();
   expect(deps.getSource).not.toHaveBeenCalled();
 });
-it('不匹配（local-only）时保留的辅助轨不能恢复歌词或触发自动来源', async () => {
+it('只有辅助轨、没有原文时不得恢复歌词或触发自动来源', async () => {
   expect(await getLyrics(music({
-    lyricsMode: 'local-only', localLyrics: '',
+    source: 'local', localLyrics: '',
     localLyricsTranslation: '[00:01]翻译', localLyricsRomanization: '[00:01]roma',
-  }))).toEqual({ lines: [] });
+  }))).toEqual({ lines: [], error: '本地文件没有歌词' });
   expect(deps.getCachedLyrics).not.toHaveBeenCalled();
   expect(deps.getSource).not.toHaveBeenCalled();
 });

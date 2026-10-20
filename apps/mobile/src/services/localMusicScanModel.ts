@@ -1,5 +1,4 @@
 import type { MusicInfo } from "@lx/core";
-import { isLocalLyricsMode, type LocalLyricsChoiceFields } from "./localLyricsChoiceModel";
 
 export const MEDIA_STORE_SCOPE = "mediaStore:external:music";
 /** 仅覆盖下载记录与已入库下载曲指向的已知文件，不枚举整个下载目录。 */
@@ -10,20 +9,20 @@ export type LocalMusicOrigin = "mediaStore" | "manual" | "download" | "legacy";
  *
  * 封面（picUrl / img）不在这里：本地曲封面只来自音频文件自己的内嵌标签与同目录旁挂图，
  * 由扫描 / 下载元数据维护，不再接受用户覆盖。
- *
- * 歌词选择三字段必须在这里：否则重新扫描会按「未编辑」把它们清掉，用户选好的词一次扫描就白选。
  */
-const LOCAL_EDITABLE_FIELDS = [
-  "name", "singer", "albumName", "localLyrics", "lyricsMode", "lyricsFingerprint", "lyricsSourceLabel",
-] as const;
+const LOCAL_EDITABLE_FIELDS = ["name", "singer", "albumName", "localLyrics"] as const;
 type LocalEditableField = typeof LOCAL_EDITABLE_FIELDS[number];
 type LocalMetadataPatch = Partial<Pick<LocalMusicInfo, LocalEditableField>>;
 
-/** 旧版本把封面记成用户编辑字段；它们已不是可编辑字段，读盘时按未知字段丢弃而不是让整库加载失败。 */
-const LEGACY_IGNORED_EDITABLE_FIELDS = ["picUrl", "img"];
+/**
+ * 旧版本记在记录上、现在已经删除的字段：曲目编辑字段（封面、歌词三态选择）与歌词选择本体。
+ * 读盘时按未知字段丢弃，而不是让整库加载失败，也不再写回。
+ */
+const LEGACY_IGNORED_EDITABLE_FIELDS = ["picUrl", "img", "lyricsMode", "lyricsFingerprint", "lyricsSourceLabel"];
+const LEGACY_IGNORED_FIELDS = ["lyricsMode", "lyricsFingerprint", "lyricsSourceLabel"];
 
 /** 仅移动端持久化：记录本身同时持有元数据、来源和签名，不维护第二份标签缓存。 */
-export interface LocalMusicInfo extends MusicInfo, LocalLyricsChoiceFields {
+export interface LocalMusicInfo extends MusicInfo {
   localOrigin?: LocalMusicOrigin;
   localScan?: { scope: string; signature?: string };
   /** 只记录用户编辑过的字段名，值仍由本歌曲记录唯一持有。 */
@@ -63,16 +62,12 @@ export function parseLocalSongs(raw: string | null): LocalMusicInfo[] {
         && !LEGACY_IGNORED_EDITABLE_FIELDS.includes(field)))) {
       throw new Error("本地音乐编辑字段格式错误");
     }
-    if (song.lyricsMode !== undefined && !isLocalLyricsMode(song.lyricsMode)) {
-      throw new Error("本地音乐歌词选择格式错误");
-    }
-    if ((song.lyricsFingerprint !== undefined && typeof song.lyricsFingerprint !== "string")
-      || (song.lyricsSourceLabel !== undefined && typeof song.lyricsSourceLabel !== "string")) {
-      throw new Error("本地音乐歌词来源标注格式错误");
-    }
+    // 已删除的歌词选择字段不再属于记录形状：读到就丢弃，不让死数据继续跟着写盘。
+    const record = { ...song } as LocalMusicInfo & Record<string, unknown>;
+    for (const field of LEGACY_IGNORED_FIELDS) delete record[field];
     // 历史记录可能来自手动选择器，数字 ID / dl 前缀不能证明归属扫描范围。
     return {
-      ...song,
+      ...record,
       ...(song.localEditedFields
         ? { localEditedFields: song.localEditedFields.filter((field) => !LEGACY_IGNORED_EDITABLE_FIELDS.includes(field)) }
         : {}),
@@ -96,41 +91,22 @@ export function applyLocalMetadataEdit(song: LocalMusicInfo, patch: LocalMetadat
   return { ...song, ...patch, localEditedFields };
 }
 
-/**
- * 歌词选择随旧记录保留。
- *
- * 扫描只看得见文件与媒体库标签，永远不知道为什么用户选了某一份词：只要扫描结果里没有这三个
- * 字段，就必须从旧记录带过来，否则每次重新扫描都会把用户的选择退回自动匹配。
- */
-function keepLyricsChoice(old: LocalMusicInfo): LocalLyricsChoiceFields {
-  return {
-    ...(old.lyricsMode !== undefined ? { lyricsMode: old.lyricsMode } : {}),
-    ...(old.lyricsFingerprint !== undefined ? { lyricsFingerprint: old.lyricsFingerprint } : {}),
-    ...(old.lyricsSourceLabel !== undefined ? { lyricsSourceLabel: old.lyricsSourceLabel } : {}),
-  };
-}
-
 function mergeScannedSong(old: LocalMusicInfo, next: LocalMusicInfo): LocalMusicInfo {
   const origin = old.localOrigin ?? "legacy";
   // 下载索引是入库元数据，不是用户编辑的真相源；只保留已编辑字段，其余字段照常刷新。
   const edits = next.localOrigin === "download"
     ? Object.fromEntries((old.localEditedFields ?? []).map((field) => [field, old[field]]))
     : {};
-  return { ...old, ...next, ...edits, ...keepLyricsChoice(old), localEditedFields: old.localEditedFields,
+  return { ...old, ...next, ...edits, localEditedFields: old.localEditedFields,
     localOrigin: origin === "manual" || origin === "legacy" ? origin : next.localOrigin };
 }
 
 /**
  * 范围对账：只删除「显式声明成功的范围」内不再出现的记录，manual / legacy 即使同键命中过也不移交所有权。
- *
- * @param onRemoved 可选：本范围内消失的记录（改名 / 移动 / 移出扫描范围）会回调一次。
- *   对账本身是纯函数、不碰持久化；调用方据此把「带歌词选择的记录消失」转成孤儿表登记 ——
- *   扫描只看得见文件，看不见用户在这条记录上表达过的歌词意志，只能由回调带出去。
  */
 export function reconcileLocalMusic(
   existing: LocalMusicInfo[],
   scans: LocalMusicScanResult[],
-  onRemoved?: (song: LocalMusicInfo) => void,
 ): LocalMusicInfo[] {
   const incoming = new Map<string, LocalMusicInfo>();
   for (const scan of scans) {
@@ -154,7 +130,6 @@ export function reconcileLocalMusic(
     }
     const inCompletedScope = scans.some((scan) => origin === scan.source && old.localScan?.scope === scan.scope);
     if (!inCompletedScope) merged.push({ ...old, localOrigin: origin });
-    else onRemoved?.(old);
   }
   return [...merged, ...incoming.values()];
 }

@@ -356,7 +356,7 @@ export function LibraryScreen({
               multiline
               style={[styles.createInput, styles.editLocalSongLyricsInput, { borderColor: palette.border, color: palette.text }]}
             />
-            <Text style={[styles.editLocalSongHint, { color: palette.textMuted }]}>标题、歌手、专辑会更新到系统媒体库；歌词会写入音频文件（可能需授权修改媒体文件），留空可清除内嵌歌词。封面来自音频文件的内嵌标签或同目录旁挂图，不能在这里指定；要换歌词请用列表操作菜单里的「选择歌词」。</Text>
+            <Text style={[styles.editLocalSongHint, { color: palette.textMuted }]}>标题、歌手、专辑会更新到系统媒体库；歌词会写入音频文件（可能需授权修改媒体文件），留空可清除内嵌歌词。本地曲的歌词只来自音频文件自己：内嵌标签或同目录旁挂的 .lrc，不会联网匹配；封面同样只取文件的内嵌标签或同目录旁挂图，都不能在这里指定。</Text>
             <View style={styles.createModalActions}>
               <Pressable
                 style={styles.createModalButton}

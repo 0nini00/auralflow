@@ -10,13 +10,12 @@ import { buildImmersiveVolumeControlModel } from "@/services/playerVolumeModel";
 import { buildMobileSleepTimerControl } from "@/services/songSleepTimerModel";
 import { playFromQueue, playNext, playPrevious, loadLyricsForRestoredSong } from "@/services/playerService";
 import { useLyricLineIndex } from "@/hooks/useLyricLineIndex";
-import { useLyricOriginNote } from "@/screens/immersive/useLyricOriginNote";
 import { shareMusic } from "@/services/shareMusicService";
 import { saveCoverToDownloads } from "@/services/downloadService";
 import { buildImmersiveTranslationControl, buildImmersiveChineseConversionControl } from "@/services/lyricSettingsModel";
 import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
 import { usePlayerStore } from "@/stores/playerStore";
-import { selectPlaybackArtwork, selectLocalMediaMessage, selectLocalMediaLyricOriginNote } from "@/services/localMediaPlaybackModel";
+import { selectPlaybackArtwork, selectLocalMediaMessage } from "@/services/localMediaPlaybackModel";
 import { useLyricOverlayStore } from "@/stores/lyricOverlayStore";
 import {
   canDrawOverlays,
@@ -148,9 +147,6 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
 
   const artwork = usePlayerStore(selectPlaybackArtwork);
   const localMediaMessage = usePlayerStore(selectLocalMediaMessage);
-  const localMediaLyricOriginNoteModel = usePlayerStore(selectLocalMediaLyricOriginNote);
-  // 标注只在歌词出现的那一刻提示一次，随后自行退场（见 useLyricOriginNote）。
-  const lyricOriginNote = useLyricOriginNote(localMediaLyricOriginNoteModel, visible);
 
   const currentSongActions = useMemo(
     () => buildImmersiveCurrentSongActions(currentSong, isLiked),
@@ -449,7 +445,6 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
     currentLyricIndex,
     artwork,
     localMediaMessage,
-    lyricOriginNote,
     isLyricsPage,
     currentPage,
     setCurrentPage,

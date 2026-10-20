@@ -75,13 +75,12 @@ flowchart TB
 | `release-notes.ts` | 94 | 发布说明清洗（降成纯文本摘要，丢表格 / 分隔线 / 代码块） |
 | `github-mirror.ts` | 61 | GitHub 加速镜像地址改写（刻意手写解析而不用 `new URL`，RN 的 polyfill 不完整） |
 | `removed-source.ts` | 57 | 已下线来源的历史条目清理（`isRemovedSource` / `dropRemovedSourceEntries`） |
-| `local-media-match.ts` | 353 | 本地文件与在线候选的择优判定：同一录音档（歌名 / 版本 / 演唱者 / 时长全对得上，可静默采信）与同曲异唱档（原唱不可得时才启用，要求时长差 ≤3s 加证据，且必须在 UI 上标注来源）。两端共用，取代了桌面端那套会把同名不同曲判成匹配的加权打分。**只服务歌词**——2026-10-16 起本地曲封面只取音频文件自身（内嵌 / 旁挂图），这个判定也用于给「选择歌词」的候选排序与标注 |
 
-合计 44 文件 5229 行（25 个模块文件 + 14 个测试文件；另含 5 个 barrel：`index.ts` / `lyrics/index.ts` / `sources/index.ts` / `history/index.ts` / `recommendations/index.ts`）。
+合计 49 文件 6271 行（27 个模块文件 + 17 个测试文件；另含 5 个 barrel：`index.ts` / `lyrics/index.ts` / `sources/index.ts` / `history/index.ts` / `recommendations/index.ts`）。
 
 `@lx/core` 独立于 UI 框架与平台运行时，**无构建步骤**（`main` / `types` 直接指向 `src/index.ts`）。播放队列、播放状态、缓存 IO、自定义音源运行时（桌面同 WebView 非沙箱执行、移动端隐藏 WebView）、平台网络请求仍由双端分别实现。跨源匹配与搜索结果合并去重曾位于 `sources/resolver.ts`，f91c469 判定其解析链不可达后删除，该职责现由双端各自实现。
 
-带自动化测试的是两侧，而非只有一个包：JS/TS 侧 `pnpm test:core`（vitest 3.2.4，14 个测试文件 163 例——`stats/aggregate` 24 / `outbound-host` 21 / `webdav-merge` 17 / `local-media-match` 16 / `cover-image` 14 / `overlay-clock` 10 / `release-notes` 9 / `netease-rich-lyric` 9 / `removed-source` 8 / `listen-threshold` 8 / `heartbeat-queue` 8 / `annotations` 8 / `github-mirror` 8 / `webdav-sync-error` 3）；Rust 侧 `pnpm test:rust`（70 个 `#[test]`，分布在 11 个文件——`window_state.rs` 13 / `commands/local_audio.rs` 11 / `smtc.rs` 9 / `taskbar.rs` 9 / `secret_store.rs` 6 / `audio_session.rs` 5 / `logging.rs` 5 / `outbound.rs` 5 / `models.rs` 3 / `commands/media_cache.rs` 3 / `main.rs` 1）。其中 `outbound-host.test.ts` 锚定「guard 判定的 host 必须等于真实请求的 host」这一不变量——用 Node 的 WHATWG `URL` 作参照物做差分断言；`outbound-host.test.ts` 与 `outbound.rs` 另外**共读同一份跨端清单** `packages/core/outbound-host.cases.tsv`（49 条 URL，两侧各断言一遍），补上了「同一批 URL 两边结论相同」这条此前缺失的校验；`main.rs` 的 `launch_contract_tests` 钉住 AUMID 与 `tauri.conf.json` 的一致性（identifier 与主窗 `additionalBrowserArgs` 必须逐字相同）；`webdav-sync-error.test.ts` 锚定同步拒绝的类型层级（两个错误类的 instanceof 关系），因为自动同步正是靠它决定吞掉哪一种拒绝。根目录 `pnpm test:all` 串起「双端类型检查 + 移动端 lint + 两侧测试」，`.github/workflows/ci.yml` 在 CI 里跑同一批命令（Rust 任务必须 windows runner：`smtc.rs` / `taskbar.rs` / `audio_session.rs` / `secret_store.rs` 的测试都依赖 Windows API）。**两端另有各自的套件**：桌面前端 `pnpm test:desktop`（vitest，默认 `environment: node`，其中 8 个文件用 `@vitest-environment jsdom` 逐文件覆盖；60 个文件 531 例）、移动端 `pnpm mobile:test`（`node --test`，28 个文件 615 例，其中两个文件会用真 `javac` + jaudiotagger + `ffmpeg` 编译并运行原生源码片段）。真正依赖真机运行时的行为仍只有类型检查、lint 与真机手测。
+带自动化测试的是两侧，而非只有一个包：JS/TS 侧 `pnpm test:core`（vitest 3.2.4，17 个测试文件 198 例，逐文件条数以 `pnpm test:core` 输出为准）；Rust 侧 `pnpm test:rust`（70 个 `#[test]`，分布在 11 个文件——`window_state.rs` 13 / `commands/local_audio.rs` 11 / `smtc.rs` 9 / `taskbar.rs` 9 / `secret_store.rs` 6 / `audio_session.rs` 5 / `logging.rs` 5 / `outbound.rs` 5 / `models.rs` 3 / `commands/media_cache.rs` 3 / `main.rs` 1）。其中 `outbound-host.test.ts` 锚定「guard 判定的 host 必须等于真实请求的 host」这一不变量——用 Node 的 WHATWG `URL` 作参照物做差分断言；`outbound-host.test.ts` 与 `outbound.rs` 另外**共读同一份跨端清单** `packages/core/outbound-host.cases.tsv`（49 条 URL，两侧各断言一遍），补上了「同一批 URL 两边结论相同」这条此前缺失的校验；`main.rs` 的 `launch_contract_tests` 钉住 AUMID 与 `tauri.conf.json` 的一致性（identifier 与主窗 `additionalBrowserArgs` 必须逐字相同）；`webdav-sync-error.test.ts` 锚定同步拒绝的类型层级（两个错误类的 instanceof 关系），因为自动同步正是靠它决定吞掉哪一种拒绝。根目录 `pnpm test:all` 串起「双端类型检查 + 移动端 lint + 两侧测试」，`.github/workflows/ci.yml` 在 CI 里跑同一批命令（Rust 任务必须 windows runner：`smtc.rs` / `taskbar.rs` / `audio_session.rs` / `secret_store.rs` 的测试都依赖 Windows API）。**两端另有各自的套件**：桌面前端 `pnpm test:desktop`（vitest，默认 `environment: node`，其中 8 个文件用 `@vitest-environment jsdom` 逐文件覆盖；56 个文件 460 例）、移动端 `pnpm mobile:test`（`node --test`，26 个文件 521 例，其中两个文件会用真 `javac` + jaudiotagger + `ffmpeg` 编译并运行原生源码片段）。真正依赖真机运行时的行为仍只有类型检查、lint 与真机手测。
 
 ## 各端职责说明
 
@@ -173,6 +172,21 @@ React Native 0.86 + React 19.2.3，面向 Android（minSdk 24）。
 **顺带修掉的旧缺陷**：移动端原先靠空串表达「明确不匹配」，而 `normalizeOptionalText` 会把空串变成 `undefined`，于是「不要匹配」在移动端根本表达不出来（会退回自动搜索）。语义现在统一到 `lyricsMode`，空串不再冒充「不匹配」。
 
 **指纹与生效范围**：选择按「文件路径 + 内容指纹」记住，**改名 / 移动后能自动认回**。桌面指纹是 `"<size>:<md5>"` 复合串（`hash_local_file` 只在用户做出选择、以及重绑核对时调用）；记录消失时把选择移进按内容哈希索引的孤儿表（`lyricsChoicesByHash`，与 `localSongs` 同一个 `library` 命名空间，上限 200 条），扫描合并后先比 `size`、只有吻合才哈希确认——**不对整库每个文件哈希**。移动端同构（`auralflow.mobile.localLyricsChoiceOrphans`，上限 200），认领用的是解析本地曲时**已经拿到**的原生 SHA-256 `signature`，不额外读取。内容被替换（size / signature 变）则自动静默失效、回到 `auto`。
+### 9. 本地曲歌词匹配整体删除（2026-11）
+
+**决定**：删掉「为本地曲联网找歌词」整条链路，双端一致。本地曲的歌词**只来自文件自己**——内嵌标签、同目录旁挂 `.lrc`，或用户在「编辑元数据」里手写的按曲文本；没有就显示「无歌词」，不再联网猜。
+
+**为什么**：上一版（§8）已经承认这套「自动匹配」会匹错，只能用「按曲手动选择」给用户一条退路；而退路本身就是复杂度——三态 `lyricsMode`、内容指纹、改名/移动后的孤儿认回表、候选面板、同曲异唱来源标注，全部为了给一个不可靠的判断兜底。判断不可靠的根因（只能靠歌名/歌手/时长区分同名不同曲）无法消除，于是选择把功能整个撤掉：行为可预期、没有「听起来像另一首歌」的歌词，也不再向 LRCLIB 与网易云发送本地文件名与标签。
+
+**删掉的东西**：
+
+- `@lx/core`：`local-media-match.ts` 整文件（判定 + 排序 + 同曲异唱档，16 条测试）、`LyricOrigin` 类型与 `LyricResponse.origin`。
+- 桌面：`services/localMediaMatch.ts`、`services/localLyricsChoiceService.ts`、`services/localLyricsChoiceModel.ts`、`services/localLyricsChoiceOrphan.ts`、`components/LyricsChoiceDialog.tsx`、`components/ManualMediaMatchDialog.tsx`、`services/lyrics/lyricOriginNote.ts`、`hooks/useLyricOriginNote.ts`；`lyricsService` 删掉 LRCLIB 两轮直查、网易搜索兜底与候选 API（692 → 330 行）；`libraryStore` 删掉 `lyricsChoicesByHash` 孤儿表与重绑；`MetadataEditModal` 删掉「搜索匹配歌词」；`LocalSong` / 播放元信息删掉 `lyricsMode` / `lyricsFingerprint` / `lyricsSourceLabel`。
+- 移动端：`services/localMediaSearchService.ts`（453 行，平台搜索 + LRCLIB + 候选编排）、`services/lrclibLyricsService.ts`、`localLyricsChoiceModel` / `localLyricsChoiceOrphanModel` / `localLyricsChoiceOrphanStore`、`components/LyricsChoiceSheet.tsx`、沉浸页的来源标注管线；`localMediaAssetsService` 从 198 行压到 88 行的 resolver（只剩「记录上的按曲文本 → 原生读出的文件歌词」两条来源）。
+- 文档：FAQ 里「匹配错了怎么办」整节改写成「本地歌没有歌词（不再联网匹配）」。
+
+**保留**：内嵌标签与旁挂 `.lrc` 的解析（`@lx/core` 的 `lyrics/parser.ts`）、「编辑元数据」里的手写歌词与写回文件（`manualMediaEditService`）、本地曲封面只取文件自身（§8 的结论不变）。**已知取舍**：升级后旧版本里做过的「选择歌词」与手工纠正全部失效，歌词回落到文件自身那份或用户手写的那份；`localEditedFields` 里残留的三个选择字段在读取时被静默忽略并清掉，不会阻塞曲库加载。
+
 ## 对齐状态
 
 已对齐：wy / tx + local 源、扫码 / Cookie 登录（扫码仅桌面；移动仅 Cookie 粘贴，网易云剪贴板一键读取 + MUSIC_U 检测）、日推、私人 FM、WebDAV、4 播放模式、淡入淡出、倍速、音效、5 级下载。

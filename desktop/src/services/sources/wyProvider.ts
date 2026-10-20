@@ -366,9 +366,9 @@ export const wyProvider: MusicSource = {
       //
       // 实测：云盘里未被匹配到在线曲目的条目（账号内 75%）歌词接口返回
       // `{ lrc: { lyric: "[00:00.00]暂无歌词" }, uncollected: true }`。原样返回会让
-      // lyricsService 的 `lines.length > 0 ? 用它 : 走自动匹配` 判定成「已有歌词」，
-      // 于是既显示不出真歌词、也不触发 searchAndMatchLyrics（LRCLIB → 平台搜索）。
-      // 收敛成空对象后，解析层得到 0 行，照常走自动匹配链。
+      // lyricsService 的 `lines.length > 0 ? 用它 : 报无歌词` 判定成「已有歌词」，
+      // 于是显示出一句「暂无歌词」而不是明确的「没有歌词」。
+      // 收敛成空对象后，解析层得到 0 行，调用方如实报告无歌词（本地/云盘都不再有联网补词路径）。
       if (body?.uncollected === true || body?.nolyric === true) return {};
 
       return {

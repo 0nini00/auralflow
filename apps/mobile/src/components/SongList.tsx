@@ -7,9 +7,7 @@ import { CachedImage } from "./CachedImage";
 import { DownloadQualityModal } from "./DownloadQualityModal";
 import { AddToLocalPlaylistModal } from "./AddToLocalPlaylistModal";
 import { ActionMenuSheet, type ActionMenuAnchor, type ActionMenuItem } from "./ActionMenuSheet";
-import { LyricsChoiceSheet } from "./LyricsChoiceSheet";
 import { VariantPickerSheet } from "./VariantPickerSheet";
-import { isLocalMediaSong } from "@/services/localMediaPlaybackModel";
 import { IconButton } from "./IconButton";
 import { Touchable } from "./Touchable";
 import { useFavoritesStore } from "@/stores/favoritesStore";
@@ -133,8 +131,6 @@ export function SongList({
 
   // 三个操作弹窗提升到列表根部作为单例，避免每行都实例化 Modal 组件树。
   const [actionSong, setActionSong] = useState<MusicInfo | null>(null);
-  // 「选择歌词」面板与其它弹窗一样单例化：每行都挂一个 Modal 会让长列表付出整棵组件树的代价。
-  const [lyricsChoiceSong, setLyricsChoiceSong] = useState<MusicInfo | null>(null);
   // 「其他版本」面板同样单例化：只对携带跨源变体的歌曲开放入口
   const [variantPickerSong, setVariantPickerSong] = useState<MusicInfo | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<ActionMenuAnchor | null>(null);
@@ -334,10 +330,6 @@ export function SongList({
       });
     }
     items.push({ label: "分享", icon: "share", onPress: () => void shareMusic(song).catch(() => undefined) });
-    // 「选择歌词」只对本地曲有意义：在线曲的歌词来自音源本身，选择面板无从纠正。
-    if (isLocalMediaSong(song)) {
-      items.push({ label: "选择歌词", icon: "lyrics", onPress: () => setLyricsChoiceSong(song) });
-    }
     if (onEdit) {
       const songIndex = songs.indexOf(song);
       items.push({ label: "编辑", icon: "edit", onPress: () => onEdit(song, songIndex >= 0 ? songIndex : 0) });
@@ -434,12 +426,6 @@ export function SongList({
           onClose={() => setQualityModalVisible(false)}
           onDownload={handleDownloadSelected}
         />
-        {/* 单例弹窗：选择歌词（仅本地曲） */}
-        <LyricsChoiceSheet
-          visible={Boolean(lyricsChoiceSong)}
-          song={lyricsChoiceSong}
-          onClose={() => setLyricsChoiceSong(null)}
-        />
         {/* 单例弹窗：其他版本（跨源变体选择与本机首选） */}
         <VariantPickerSheet
           visible={variantPickerSong !== null}
@@ -515,12 +501,6 @@ export function SongList({
         defaultQuality={defaultQuality}
         onClose={() => setQualityModalVisible(false)}
         onDownload={handleDownloadSelected}
-      />
-      {/* 单例弹窗：选择歌词（仅本地曲） */}
-      <LyricsChoiceSheet
-        visible={Boolean(lyricsChoiceSong)}
-        song={lyricsChoiceSong}
-        onClose={() => setLyricsChoiceSong(null)}
       />
       {/* 单例弹窗：其他版本（跨源变体选择与本机首选） */}
       <VariantPickerSheet

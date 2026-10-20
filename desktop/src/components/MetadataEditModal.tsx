@@ -4,13 +4,19 @@ import { useDialogFocus } from '@/hooks/useDialogFocus';
 import { getAudioInfo } from '@lx/tauri-bridge';
 import type { LocalSong } from '@/services/localMusicService';
 import { useLibraryStore } from '@/stores/libraryStore';
-import { ManualMediaMatchDialog } from './ManualMediaMatchDialog';
-import { ManualMediaRequestToken, manualMediaError, type ManualLyricExtras } from '@/services/manualMediaMatchModel';
-import { ManualMediaSaveError, saveManualMediaEdits } from '@/services/manualMediaMatchService';
+import { ManualMediaRequestToken, manualMediaError } from '@/services/manualMediaEditModel';
+import { ManualMediaSaveError, saveManualMediaEdits } from '@/services/manualMediaEditService';
 
 interface Props { song: LocalSong | null; onClose: () => void }
 
-/** 切歌直接换编辑会话，不让前一首的草稿或异步响应继承到下一首。 */
+/**
+ * 本地曲元数据编辑。
+ *
+ * 原来这里有一条「搜索匹配歌词」：搜平台候选、挑一条把词套到本地曲上。那条链路
+ * （以及它的翻译/罗马音附加项）已经整体删除——本地曲的歌词只认文件自己的内嵌标签、
+ * 同目录旁挂 `.lrc`，或者用户在这个框里手写的内容。所以现在没有二级弹窗，
+ * 也不会替用户联网找词。
+ */
 export function MetadataEditModal({ song, onClose }: Props) {
   return song ? <MetadataEditor key={`${song.id}:${song.path}`} song={song} onClose={onClose} /> : null;
 }
@@ -22,10 +28,8 @@ function MetadataEditor({ song, onClose }: { song: LocalSong; onClose: () => voi
   const [album, setAlbum] = useState(song.album);
   const [lyrics, setLyrics] = useState(song.lyricsOverride ?? song.embeddedLyrics ?? '');
   const lyricsEdited = useRef(false);
-  const [lyricExtras, setLyricExtras] = useState<ManualLyricExtras>({ translation: song.lyricsTranslationOverride, romanization: song.lyricsRomanizationOverride });
 
   const [writeToFile, setWriteToFile] = useState(false);
-  const [matching, setMatching] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const [readError, setReadError] = useState('');
@@ -33,7 +37,6 @@ function MetadataEditor({ song, onClose }: { song: LocalSong; onClose: () => voi
   const busy = useRef(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const readToken = useRef(new ManualMediaRequestToken());
-
   const saveToken = useRef(new ManualMediaRequestToken());
 
   function invalidate() {
@@ -53,7 +56,7 @@ function MetadataEditor({ song, onClose }: { song: LocalSong; onClose: () => voi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [song.id, song.path]);
 
-  function changeLyrics(value: string) { lyricsEdited.current = true; setLyrics(value); if (!value.trim()) setLyricExtras({ translation: "", romanization: "" }); }
+  function changeLyrics(value: string) { lyricsEdited.current = true; setLyrics(value); }
   function close() { if (!busy.current) { invalidate(); onClose(); } }
 
   async function save() {
@@ -65,8 +68,6 @@ function MetadataEditor({ song, onClose }: { song: LocalSong; onClose: () => voi
       const patch = await saveManualMediaEdits(song, {
         title, artist, album,
         lyrics: lyricsEdited.current ? lyrics : undefined,
-        translation: lyricsEdited.current ? lyricExtras.translation : undefined,
-        romanization: lyricsEdited.current ? lyricExtras.romanization : undefined,
       }, writeToFile, isCurrent);
       if (!isCurrent()) return;
       updateSong(song.id, patch);
@@ -86,8 +87,7 @@ function MetadataEditor({ song, onClose }: { song: LocalSong; onClose: () => voi
   useDialogFocus({ open: true, containerRef: dialogRef, onClose: close, closeOnEscape: !saving });
 
   return (
-    <>
-    <div className="af-dialog-overlay" style={matching ? { display: 'none' } : undefined} onClick={close}>
+    <div className="af-dialog-overlay" onClick={close}>
       <div ref={dialogRef} className="af-dialog af-metadata-dialog" aria-busy={saving} role="dialog" aria-modal="true" aria-label="编辑元数据" onClick={(event) => event.stopPropagation()}>
         <div className="af-metadata-header">
           <h2>编辑元数据</h2>
@@ -101,11 +101,10 @@ function MetadataEditor({ song, onClose }: { song: LocalSong; onClose: () => voi
             <div className="af-form-group">
               <label htmlFor="metadata-lyrics">歌词</label>
               <textarea id="metadata-lyrics" className="af-settings-textarea" value={lyrics} onChange={(event) => changeLyrics(event.target.value)} placeholder="LRC 或纯文本歌词；主动编辑为空才会清除" rows={6} />
-              <button type="button" className="af-settings-small-button" onClick={() => setMatching(true)}>搜索匹配歌词</button>
             </div>
             <p className="af-settings-hint">默认只应用到本机曲库，不修改原音频。</p>
             <label><input type="checkbox" checked={writeToFile} onChange={(event) => setWriteToFile(event.target.checked)} /> 同时写回音频文件（不可撤回）</label>
-            <p className="af-settings-hint">匹配的翻译与罗马音仅保存在本机，写回文件只写原文。勾选后将直接修改已编辑的标题/艺术家/专辑、歌词标签；写入可能部分成功，不能撤回，请先备份文件。未编辑字段保持不变。</p>
+            <p className="af-settings-hint">勾选后将直接修改已编辑的标题/艺术家/专辑、歌词标签；写入可能部分成功，不能撤回，请先备份文件。未编辑字段保持不变。</p>
           </fieldset>
           {readError && <p role="alert" className="af-settings-error">{readError}</p>}
           {error && <p role="alert" className="af-settings-error">{error}</p>}
@@ -116,10 +115,5 @@ function MetadataEditor({ song, onClose }: { song: LocalSong; onClose: () => voi
         </div>
       </div>
     </div>
-      {matching && <ManualMediaMatchDialog initialQuery={`${title} ${artist}`.trim()}
-    onLyrics={(raw, extras) => { changeLyrics(raw); setLyricExtras({ translation: extras?.translation ?? "", romanization: extras?.romanization ?? "" }); }}
-    onClose={() => setMatching(false)} />}
-
-    </>
   );
 }

@@ -14,8 +14,6 @@ import {
   normalizeLyricAnimationIntensity,
   type LyricAnimationIntensity,
 } from "@/services/lyrics/animationIntensity";
-import { buildLyricOriginNote } from "@/services/lyrics/lyricOriginNote";
-import { useLyricOriginNote } from "@/hooks/useLyricOriginNote";
 import { dispatchLyricAction } from "@/stores/playerSync";
 import { subscribeLyricSettings, broadcastLyricSettings } from "@/stores/lyricSettingsSync";
 import { buildDesktopLyricLines, type DesktopLyricDisplayLine } from "@/utils/desktopLyric";
@@ -37,12 +35,7 @@ export function LyricWindowView() {
   const lyricProgress = useInterpolatedPlaybackProgress({ status, progress, progressSampledAt, duration, playbackRate });
   const [manualOffsetMs, setManualOffsetMs] = useState(0);
   const lyricTime = lyricProgress + manualOffsetMs / 1000;
-  const { lyrics, currentLine, origin } = useLyrics(current, lyricTime);
-  // 来源标注只提示一次就退场；换歌（resetKey 变化）时为新歌再提示一次。
-  const lyricOriginNote = useLyricOriginNote(
-    buildLyricOriginNote(origin),
-    current ? `${current.source}:${current.id}` : undefined,
-  );
+  const { lyrics, currentLine } = useLyrics(current, lyricTime);
   const isPlaying = status === "playing";
 
   // 持久化：置顶状态 + 字号
@@ -361,7 +354,6 @@ export function LyricWindowView() {
       </div>
 
       {/* 歌词来源标注：同曲异唱档必须让用户看到「这不是原唱版本」；绝对定位、只停留几秒就退场 */}
-      {lyricOriginNote && <div className="af-lyric-origin-hint">{lyricOriginNote.text}</div>}
 
       {/* 锁定态光标悬停时的悬浮解锁条 */}
       {locked && (
@@ -582,21 +574,6 @@ export function LyricWindowView() {
           font-size: 0.52em;
           font-weight: 500;
           opacity: 0.72;
-        }
-        .af-lyric-origin-hint {
-          position: absolute;
-          left: 8px;
-          bottom: 6px;
-          z-index: 3;
-          max-width: 60%;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          font-size: 10px;
-          line-height: 1.4;
-          color: rgba(255, 255, 255, 0.72);
-          text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);
-          pointer-events: none;
         }
         .af-lyric-unlock-bar {
           position: absolute;

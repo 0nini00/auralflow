@@ -22,20 +22,13 @@ describe("本地歌曲播放模型", () => {
     expect(result.url).toBe(`asset:${song.path}`);
     expect(local.getLocalSongCover(enriched)).toBe(song.cover);
   });
-  it("空串文本只表示「没有文本」，不再冒充「明确不匹配」", () => {
-    // 「不匹配」由 lyricsMode: "local-only" 表达（见 tests/lyrics-annotations-service.test.ts）：
-    // 被清空的按曲文本不算文本，于是回落到文件自身的词——内嵌标签本来就是自动链的第一档。
-    expect(local.localSongToMusicInfo({ ...song, lyricsOverride: "", embeddedLyrics: "旧词" }).localLyrics).toBe("旧词");
+  it("空串覆盖表示「用户主动清除」，没有覆盖时才用文件自身的词", () => {
+    // 匹配删除后不再有 lyricsMode：本地曲的歌词只有「文件自己的词」与「用户手写的按曲文本」两种来源，
+    // 后者为空就等于清除——不再有「清空后回落到自动匹配」这条路。
+    expect(local.localSongToMusicInfo({ ...song, lyricsOverride: "", embeddedLyrics: "旧词" }).localLyrics).toBe("");
     expect(local.localSongToMusicInfo({ ...song, embeddedLyrics: "内嵌歌词" }).localLyrics).toBe("内嵌歌词");
-    // 不匹配档：指纹绑定成立时只用本机已有的词，按曲覆盖被清掉后回落到文件自身的词。
-    const localOnly = { ...song, lyricsOverride: "", embeddedLyrics: "内嵌歌词", lyricsMode: "local-only" as const, lyricsFingerprint: "1000:abc" };
-    const resolved = local.localSongToMusicInfo(localOnly);
-    expect(resolved.localLyrics).toBe("内嵌歌词");
-    expect(resolved).toMatchObject({ lyricsMode: "local-only", lyricsFingerprint: "1000:abc" });
-    // 内容变了（size 对不上指纹）→ 选择静默失效，退回自动匹配
-    const expired = local.localSongToMusicInfo({ ...localOnly, size: 2000 });
-    expect(expired.localLyrics).toBe("内嵌歌词");
-    expect(expired.lyricsMode).toBeUndefined();
-    expect(expired.lyricsFingerprint).toBeUndefined();
+    expect(local.localSongToMusicInfo({ ...song, lyricsOverride: "[00:00]手写" }).localLyrics).toBe("[00:00]手写");
+    // 既没有覆盖也没有内嵌词：就是没有歌词，不会有任何联网兜底。
+    expect(local.localSongToMusicInfo({ ...song }).localLyrics).toBeUndefined();
   });
 });

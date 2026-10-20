@@ -8,73 +8,67 @@ vi.mock('@/services/sources/sourceService', () => ({ getSource: vi.fn() }));
 vi.mock('@/services/persistentCache', () => ({ getCachedLyrics: vi.fn(), saveCachedLyrics: vi.fn(), isCacheableEmptyLyricResult: () => false }));
 import { useLyrics } from '../src/hooks/useLyrics';
 const track = { id: 'one', source: 'local', name: '歌', singer: '人' } as MusicInfo;
+const online = { id: 'two', source: 'wy', name: '歌', singer: '人' } as MusicInfo;
 let renderer: ReactTestRenderer;
 let latest: ReturnType<typeof useLyrics>;
 function Probe({ music }: { music: MusicInfo }) { latest = useLyrics(music, 1); return <div>{latest.lyrics.map(line => line.text).join('')}</div>; }
 beforeEach(() => { vi.resetAllMocks(); vi.stubGlobal('window', { localStorage: deps }); });
 afterEach(() => { act(() => renderer?.unmount()); vi.unstubAllGlobals(); });
-it('同曲换手动词立即生效，旧网络不能回写或写入共享缓存', async () => {
-  let resolve!: (value: unknown) => void;
-  deps.getLyrics.mockReturnValue(new Promise(yes => { resolve = yes; }));
-  await act(async () => { renderer = create(<Probe music={track} />); });
-  await act(async () => { renderer.update(<Probe music={{ ...track, localLyrics: '[00:01]新手动' }} />); });
-  expect(latest!.lyrics[0]?.text).toBe('新手动');
-  await act(async () => { resolve({ lines: [{ time: 1, text: '旧自动' }] }); });
-  expect(latest!.lyrics[0]?.text).toBe('新手动');
-  expect(deps.setItem).not.toHaveBeenCalled();
-  expect(deps.getLyrics).toHaveBeenCalledTimes(1);
-});
-it('初次手动覆盖不读取共享旧缓存，切换新词立即重新解析', async () => {
-  deps.getItem.mockReturnValue(JSON.stringify({ lines: [{ time: 1, text: '缓存' }] }));
-  deps.getLyrics.mockResolvedValue({ lines: [{ time: 1, text: '网络' }] });
+
+/**
+ * 本地曲的歌词只来自文件自己：内嵌/旁挂文本写进 `localLyrics`，用户手写的按曲文本也走同一个字段。
+ *
+ * 平台匹配删除后最关键的契约是「**本地曲完全不走网络**」：没有词就是没有词，
+ * 既不读共享缓存也不发请求——所以下面每个用例都同时断言 getLyrics / getItem 没被调用。
+ */
+it('本地曲手写词立即生效，且全程不取词、不读共享缓存', async () => {
   await act(async () => { renderer = create(<Probe music={{ ...track, localLyrics: '[00:01]手动一' }} />); });
   expect(latest!.lyrics[0]?.text).toBe('手动一');
   await act(async () => { renderer.update(<Probe music={{ ...track, localLyrics: '[00:01]手动二' }} />); });
   expect(latest!.lyrics[0]?.text).toBe('手动二');
-  expect(deps.getItem).not.toHaveBeenCalled();
   expect(deps.getLyrics).not.toHaveBeenCalled();
+  expect(deps.getItem).not.toHaveBeenCalled();
 });
-it('移除覆盖重新走原自动歌词流程', async () => {
-  deps.getLyrics.mockResolvedValue({ lines: [{ time: 1, text: '自动' }] });
+
+it('移除手写词后是「本地文件没有歌词」，不回落到缓存或网络', async () => {
+  deps.getItem.mockReturnValue(JSON.stringify({ lines: [{ time: 1, text: '缓存' }] }));
+  deps.getLyrics.mockResolvedValue({ lines: [{ time: 1, text: '网络' }] });
   await act(async () => { renderer = create(<Probe music={{ ...track, localLyrics: '[00:01]手动' }} />); });
-  deps.getLyrics.mockClear();
   await act(async () => { renderer.update(<Probe music={track} />); });
-  expect(deps.getLyrics).toHaveBeenCalledOnce();
-  expect(latest!.lyrics[0]?.text).toBe('自动');
+  expect(latest!.lyrics).toEqual([]);
+  expect(latest!.error).toBe('本地文件没有歌词');
+  expect(deps.getLyrics).not.toHaveBeenCalled();
+  expect(deps.getItem).not.toHaveBeenCalled();
 });
 
-
-// 空串不再表示「明确不匹配」（那由 lyricsMode: "local-only" 表达）：它只是「没有文本」，
-// 因此同曲的空串覆盖仍然走自动流程，共享缓存与网络照常可用。
-it('初次空串只表示没有文本：共享缓存与网络照常参与自动流程', async () => {
+it('空串（用户主动清除）显示无歌词，不联网', async () => {
   deps.getItem.mockReturnValue(JSON.stringify({ lines: [{ time: 1, text: '缓存' }] }));
   deps.getLyrics.mockResolvedValue({ lines: [{ time: 1, text: '网络' }] });
   await act(async () => { renderer = create(<Probe music={{ ...track, localLyrics: '' }} />); });
-  expect(latest!.lyrics[0]?.text).toBe('网络');
-  expect(deps.getItem).toHaveBeenCalled();
-  expect(deps.getLyrics).toHaveBeenCalledOnce();
-});
-it('同曲切成不匹配（local-only）立即清除原文；恢复自动匹配（去掉 mode）后回到自动流程', async () => {
-  deps.getLyrics.mockResolvedValue({ lines: [{ time: 1, text: '自动' }] });
-  await act(async () => { renderer = create(<Probe music={{ ...track, localLyrics: '[00:01]手动' }} />); });
-  await act(async () => { renderer.update(<Probe music={{ ...track, localLyrics: '', lyricsMode: 'local-only' }} />); });
   expect(latest!.lyrics).toEqual([]);
+  expect(latest!.error).toBe('本地文件没有歌词');
   expect(deps.getLyrics).not.toHaveBeenCalled();
+  expect(deps.getItem).not.toHaveBeenCalled();
+});
+
+it('清空后改回手写词立即恢复', async () => {
+  await act(async () => { renderer = create(<Probe music={{ ...track, localLyrics: '[00:01]原文' }} />); });
   await act(async () => { renderer.update(<Probe music={{ ...track, localLyrics: '' }} />); });
-  expect(latest!.lyrics[0]?.text).toBe('自动');
-  expect(deps.getLyrics).toHaveBeenCalledOnce();
-});
-it('切到不匹配（local-only）时隔离正在返回的旧自动歌词，不回写共享缓存', async () => {
-  let resolve!: (value: unknown) => void;
-  deps.getLyrics.mockReturnValue(new Promise(yes => { resolve = yes; }));
-  await act(async () => { renderer = create(<Probe music={track} />); });
-  await act(async () => { renderer.update(<Probe music={{ ...track, localLyrics: '', lyricsMode: 'local-only' }} />); });
-  expect(latest!.isLoading).toBe(false);
-  await act(async () => { resolve({ lines: [{ time: 1, text: '旧自动' }] }); });
   expect(latest!.lyrics).toEqual([]);
-  expect(deps.getLyrics).toHaveBeenCalledTimes(1);
-  expect(deps.setItem).not.toHaveBeenCalled();
+  await act(async () => { renderer.update(<Probe music={{ ...track, localLyrics: '[00:01]改回' }} />); });
+  expect(latest!.lyrics[0]?.text).toBe('改回');
+  expect(deps.getLyrics).not.toHaveBeenCalled();
 });
+
+it('在线曲换歌时，上一首的在途结果不能回写到新曲', async () => {
+  const pending: ((value: unknown) => void)[] = [];
+  deps.getLyrics.mockImplementation(() => new Promise(resolve => { pending.push(resolve); }));
+  await act(async () => { renderer = create(<Probe music={online} />); });
+  await act(async () => { renderer.update(<Probe music={{ ...online, id: 'three' }} />); });
+  await act(async () => { pending[0]({ lines: [{ time: 1, text: '上一首' }] }); });
+  expect(latest!.lyrics.map(line => line.text)).not.toContain('上一首');
+});
+
 it('非空无时间戳覆盖显示明确错误，不复用旧词', async () => {
   deps.getItem.mockReturnValue(JSON.stringify({ lines: [{ time: 1, text: '旧缓存' }] }));
   await act(async () => { renderer = create(<Probe music={{ ...track, localLyrics: '无时间戳原文' }} />); });
@@ -83,6 +77,7 @@ it('非空无时间戳覆盖显示明确错误，不复用旧词', async () => {
   expect(deps.getItem).not.toHaveBeenCalled();
   expect(deps.getLyrics).not.toHaveBeenCalled();
 });
+
 it.each([
   ['localLyricsRomanization', 'roma', 'hi', 'hi e'],
   ['localLyricsTranslation', 'tr', '太阳', '向着太阳'],

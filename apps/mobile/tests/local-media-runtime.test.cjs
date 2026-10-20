@@ -4,37 +4,47 @@ const path = require('node:path');
 const test = require('node:test');
 const { createLoader, mobileRequire, mobileRoot } = require('./helpers/loadTs.cjs');
 function setup() {
-  const files = new Map(), calls = [], nativeCalls = [];
+  const nativeCalls = [], parsed = [];
   const native = { readAudioAssets: async uri => { nativeCalls.push(uri); return { signature: 'sha', warnings: [] }; } };
-  const fsModule = {
-    CachesDirectoryPath: '/app/cache', mkdir: async () => {}, exists: async path => files.has(path),
-    readFile: async path => files.get(path), writeFile: async (path, data) => { calls.push(['write', path]); files.set(path, data); },
-    unlink: async path => { calls.push(['unlink', path]); files.delete(path); },
-  };
   const mocks = {
-    'react-native-fs': fsModule, 'crypto-js': mobileRequire('crypto-js'),
-    // 只提供原生模块：封面解码器（Image）之类的能力已不再是本地补全的依赖，mock 里也不留。
+    // 只提供原生模块：本地曲歌词只来自文件自己，网络、文件系统缓存都不再是依赖。
     'react-native': { NativeModules: { LocalMusicModule: native } },
-    './musicApi': { getLyrics: async song => song.localLyrics ? [{ time: 1, text: song.localLyrics }] : [] },
-    './localMediaSearchService': { findLocalMediaAssets: async () => ({ status: 'matched', lyrics: [{ time: 1, text: 'online', tr: 'translation' }], issues: [] }) },
-    './cacheService': { enforceCacheSizeLimit: async () => {} },
-    './fileDownloadCommit': { createPartialDownloadPath: path => path + '.part', commitDownloadedFile: async (from, to) => { files.set(to, files.get(from)); files.delete(from); }, discardPartialDownload: async path => files.delete(path) },
+    './musicApi': {
+      getLyrics: async song => {
+        if (!song.localLyrics) return [];
+        parsed.push(song.localLyrics);
+        return song.localLyrics.split('\n').map((text, index) => ({ time: index + 1, text }));
+      },
+    },
   };
   const load = createLoader(mocks);
-  return { load, files, calls, nativeCalls, native, mocks };
+  return { load, nativeCalls, native, mocks, parsed };
 }
 const song = { source: 'local', id: 'local-id', url: 'file:///music/a.flac', name: 'A', singer: '', albumName: '', interval: 100 };
 
-test('运行时只调用只读原生API，结果仅存应用缓存且可离线复用', async () => {
+test('运行时只调用只读原生 API，歌词直接来自文件、不落任何缓存文件', async () => {
   const h = setup(), runtime = h.load('src/services/localMediaRuntime.ts');
-  const first = await runtime.resolveLocalMediaAssets(song, () => {}, () => true);
-  assert.equal(first.status, 'matched');
-  assert.ok(h.calls.filter(c => c[0] === 'write').every(c => c[1].startsWith('/app/cache/auralflow/lyrics/local-media-')));
-  assert.ok(h.nativeCalls.every(uri => uri === song.url));
-  const second = await runtime.resolveLocalMediaAssets(song, () => {}, () => true);
-  assert.equal(second.status, 'cached'); assert.equal(second.lyrics[0].tr, 'translation');
-  assert.equal(h.calls.some(c => c[1].startsWith('/music')), false);
+  h.native.readAudioAssets = async uri => {
+    h.nativeCalls.push(uri);
+    return { signature: 'sha', lyrics: '第一行\n第二行', warnings: [] };
+  };
+  const result = await runtime.resolveLocalMediaAssets(song, () => {}, () => true);
+  assert.equal(result.status, 'local');
+  assert.deepEqual(result.lyrics, [{ time: 1, text: '第一行' }, { time: 2, text: '第二行' }]);
+  assert.deepEqual(h.nativeCalls, [song.url]);
+  assert.deepEqual(h.parsed, ['第一行\n第二行']);
 });
+
+test('文件里没有歌词时不解析、不联网，如实报告「无歌词」', async () => {
+  const h = setup(), runtime = h.load('src/services/localMediaRuntime.ts');
+  const result = await runtime.resolveLocalMediaAssets(song, () => {}, () => true);
+  assert.equal(result.status, 'not-found');
+  assert.equal(result.message, '无歌词');
+  assert.deepEqual(result.lyrics, []);
+  assert.deepEqual(h.parsed, []);
+  assert.deepEqual(h.nativeCalls, [song.url]);
+});
+
 test('非法本地URI和缺失原生模块显式失败，不向网络传本地ID', async () => {
   const h = setup(), runtime = h.load('src/services/localMediaRuntime.ts');
   const result = await runtime.resolveLocalMediaAssets({ ...song, url: 'https://example.test/song' }, () => {}, () => true);
@@ -43,14 +53,14 @@ test('非法本地URI和缺失原生模块显式失败，不向网络传本地ID
   const missing = await runtime.resolveLocalMediaAssets(song, () => {}, () => true);
   assert.equal(missing.status, 'error'); assert.match(missing.issues.join(' '), /原生|新版/);
 });
-test('损坏缓存明确报告后重建，不把坏数据当歌词', async () => {
+
+test('原生读取结果结构不合法时按失败处理，不把坏数据当歌词', async () => {
   const h = setup(), runtime = h.load('src/services/localMediaRuntime.ts');
-  await runtime.resolveLocalMediaAssets(song, () => {}, () => true);
-  const key = [...h.files.keys()].find(path => path.includes('local-media-'));
-  h.files.set(key, '{broken');
+  h.native.readAudioAssets = async () => ({ warnings: [] });
   const result = await runtime.resolveLocalMediaAssets(song, () => {}, () => true);
-  assert.equal(result.lyrics[0].text, 'online'); assert.match(result.issues.join(' '), /缓存读取失败/);
-  assert.doesNotThrow(() => JSON.parse(h.files.get(key)));
+  assert.equal(result.status, 'error');
+  assert.match(result.issues.join(' '), /无效/);
+  assert.deepEqual(result.lyrics, []);
 });
 
 test('getLyrics 对缺少歌词的本地歌曲不提交本地 ID 到网关', async () => {
@@ -73,38 +83,10 @@ test('封面不再是本地补全的一部分：运行时不再读取或校验�
   }
 });
 
-test('重新发布的完整结果覆盖同键缓存的旧结果', async () => {
-  const { deferred } = require('./helpers/loadTs.cjs');
-  const h = setup(), entered = deferred(), gate = deferred();
-  let firstWrite = true, oldCurrent = true, queries = 0;
-  const originalWrite = h.mocks['react-native-fs'].writeFile;
-  h.mocks['react-native-fs'].writeFile = async (...args) => {
-    if (firstWrite) { firstWrite = false; entered.resolve(); await gate.promise; }
-    return originalWrite(...args);
-  };
-  h.mocks['./localMediaSearchService'].findLocalMediaAssets = async () => ++queries === 1
-    ? { status: 'matched', lyrics: [{ time: 1, text: 'old' }], issues: [] }
-    : { status: 'matched', lyrics: [{ time: 1, text: 'new' }], issues: [] };
-  const runtime = h.load('src/services/localMediaRuntime.ts');
-  const old = runtime.resolveLocalMediaAssets(song, () => {}, () => oldCurrent);
-  await entered.promise; oldCurrent = false;
-  const next = runtime.resolveLocalMediaAssets(song, () => {}, () => true);
-  await new Promise(setImmediate);
-  gate.resolve(); await Promise.all([old, next]);
-  const name = [...h.files.keys()].find(item => item.includes('local-media-') && item.endsWith('.json'));
-  const cached = JSON.parse(h.files.get(name));
-  assert.equal(cached.lyrics[0].text, 'new');
-});
-
-test('「选择歌词」面板读取指纹与文件里的歌词，且只在调用时读一次', async () => {
-  const h = setup(), runtime = h.load('src/services/localMediaRuntime.ts');
-  h.native.readAudioAssets = async uri => {
-    h.nativeCalls.push(uri);
-    return { signature: 'sha-2', lyrics: '旁挂 .lrc 第一行', warnings: [] };
-  };
-  const read = await runtime.readLocalLyricsFile(song);
-  assert.deepEqual(read, { fingerprint: 'sha-2', lyrics: '旁挂 .lrc 第一行' });
-  assert.deepEqual(h.nativeCalls, [song.url]);
-  h.native.readAudioAssets = async () => ({ signature: 'sha-3', warnings: [] });
-  assert.deepEqual(await runtime.readLocalLyricsFile(song), { fingerprint: 'sha-3' });
+test('运行时不再有缓存目录、联网搜索与孤儿认领', () => {
+  const source = fs.readFileSync(path.join(mobileRoot, 'src/services/localMediaRuntime.ts'), 'utf8');
+  for (const removed of ['react-native-fs', 'crypto-js', 'CacheDirectory', 'writeCache', 'readCache',
+    'findLocalMediaAssets', 'lrclib', 'readLocalLyricsFile', 'claimOrphanedLyricsChoice', 'cacheService']) {
+    assert.equal(source.includes(removed), false, `运行时不得重新引入：${removed}`);
+  }
 });

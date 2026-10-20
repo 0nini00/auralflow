@@ -165,7 +165,6 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     currentLyricIndex,
     artwork,
     localMediaMessage,
-    lyricOriginNote,
     currentPage,
     setCurrentPage,
     isLyricsPage,
@@ -451,17 +450,6 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
         onSeek={handleSeek}
         style={styles.pagerLyricList}
       />
-      {lyricOriginNote ? (
-        // 来源标注绝对定位、且只停留几秒就退场（useLyricOriginNote）：既不参与歌词页布局流
-        // （歌词页高度参与封面/控制区预算，为它预留一行会改动既有布局契约），也不长期压住歌词。
-        <Text
-          pointerEvents="none"
-          numberOfLines={1}
-          style={[styles.lyricOriginNote, { color: palette.textMuted }]}
-        >
-          {lyricOriginNote.text}
-        </Text>
-      ) : null}
     </View>
   );
   // 下拉只绑定封面，歌词滚动/捏合、进度拖动及控制区滚动不参与关闭手势。

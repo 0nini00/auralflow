@@ -3,7 +3,6 @@ import { act, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { MetadataEditModal } from '../src/components/MetadataEditModal';
-import { ManualMediaMatchDialog } from '../src/components/ManualMediaMatchDialog';
 import { UpdateModal } from '../src/components/UpdateModal';
 import { CustomSourceUpdateModal } from '../src/components/CustomSourceUpdateModal';
 import { PactModal } from '../src/components/PactModal';
@@ -17,9 +16,8 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock('@lx/tauri-bridge', () => ({ getAudioInfo: api.audio, loadSettings: api.settings, patchSettings: api.patch }));
 vi.mock('@/stores/libraryStore', () => ({ useLibraryStore: (selector: any) => selector({ updateSong: api.updateSong }) }));
-vi.mock('@/services/manualMediaMatchService', () => ({
+vi.mock('@/services/manualMediaEditService', () => ({
   saveManualMediaEdits: api.save, ManualMediaSaveError: class extends Error {},
-  searchManualMedia: api.search, getManualLyrics: vi.fn(),
 }));
 vi.mock('@/stores/updateStore', () => ({ useUpdateStore: (selector: any) => selector({ available: api.update, setAvailable: api.closeUpdate }) }));
 vi.mock('@/stores/libraryPersistence', () => ({ flushLibraryPersistence: api.flush }));
@@ -55,20 +53,6 @@ it('元数据编辑器初始字段聚焦，保存中所有关闭入口受既有 
   await act(async () => { reject(new Error('保存失败')); });
   expect(document.querySelector('[role="alert"]')?.textContent).toContain('保存失败');
   escape(); expect(close).toHaveBeenCalledOnce();
-});
-it('元数据匹配子窗 Escape 返回原入口、草稿不丢失', async () => {
-  const close = vi.fn(); await render(<MetadataEditModal song={song} onClose={close} />);
-  const match = button('搜索匹配歌词'); match.focus(); act(() => match.click());
-  expect(document.activeElement?.id).toBe('manual-media-query');
-  escape(); expect(close).not.toHaveBeenCalled();
-  expect(document.activeElement).toBe(button('搜索匹配歌词'));
-  expect((document.getElementById('metadata-title') as HTMLInputElement).value).toBe('歌曲');
-});
-it('手动匹配 Escape 关闭，IME Enter 不发起搜索', async () => {
-  const close = vi.fn(); await render(<ManualMediaMatchDialog initialQuery="歌曲" onLyrics={vi.fn()} onClose={close} />);
-  const input = document.getElementById('manual-media-query')!;
-  act(() => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true })); });
-  expect(api.search).not.toHaveBeenCalled(); escape(input); expect(close).toHaveBeenCalledOnce();
 });
 it('软件更新弹窗在安装中不关闭，失败后恢复 Escape', async () => {
   let reject!: (error: Error) => void; api.install.mockReturnValue(new Promise((_, no) => { reject = no; }));

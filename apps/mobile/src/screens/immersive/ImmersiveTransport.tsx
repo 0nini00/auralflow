@@ -24,8 +24,6 @@ import { formatTime } from "@/services/playerService";
 import { usePlayerStore } from "@/stores/playerStore";
 import { ImmersiveMoreMenu } from "@/screens/immersive/ImmersiveMoreMenu";
 import { styles } from "@/screens/immersive/immersiveStyles";
-import { LyricsChoiceSheet } from "@/components/LyricsChoiceSheet";
-import { isLocalMediaSong } from "@/services/localMediaPlaybackModel";
 import { getNextMobilePlayMode, getMobilePlayModeLabel } from "@/services/mobilePlayModeModel";
 
 export interface ImmersiveTransportProps {
@@ -139,9 +137,6 @@ export function ImmersiveTransport({
   onOpenQueue,
   queueLabel,
 }: ImmersiveTransportProps) {
-  // 「选择歌词」只在正在听本地曲时可用：入口摆在更多菜单里，就地换掉错的词。
-  const currentSong = usePlayerStore((s) => s.currentSong);
-  const [lyricsChoiceVisible, setLyricsChoiceVisible] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMode, setToastMode] = useState<MobilePlayMode>(playMode);
   const toastOpacity = useRef(new Animated.Value(0)).current;
@@ -318,15 +313,6 @@ export function ImmersiveTransport({
         onOpenSimilarSongs={onOpenSimilarSongs}
         onOpenQueue={onOpenQueue}
         queueLabel={queueLabel}
-        canChooseLyrics={isLocalMediaSong(currentSong)}
-        onChooseLyrics={() => setLyricsChoiceVisible(true)}
-      />
-
-      {/* 「选择歌词」面板：与更多菜单同一层挂在播放页内，关闭后回到播放器 */}
-      <LyricsChoiceSheet
-        visible={lyricsChoiceVisible}
-        song={currentSong}
-        onClose={() => setLyricsChoiceVisible(false)}
       />
     </View>
   );

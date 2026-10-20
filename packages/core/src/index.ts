@@ -17,5 +17,4 @@ export * from "./custom-source";
 export * from "./playlist-link";
 export * from "./history";
 export * from "./stats/aggregate";
-export * from "./local-media-match";
 export * from "./recommendations";

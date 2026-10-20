@@ -1,12 +1,9 @@
 import { useDialogFocus } from '@/hooks/useDialogFocus';
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { ImmersivePlayerControls, type ImmersivePlayerControlsHandle, type LyricDisplayOption } from '@/components/ImmersivePlayerControls';
 import { PlayerVisualizerRenderer } from '@/components/playerVisualizers/PlayerVisualizerRenderer';
 import { SongAddMenuButton } from '@/components/SongAddMenuButton';
-import { LyricsChoiceDialog } from '@/components/LyricsChoiceDialog';
 import { useInterpolatedPlaybackProgress } from '@/hooks/useInterpolatedPlaybackProgress';
-import { useLibraryStore } from '@/stores/libraryStore';
-import type { LocalSong } from '@/services/localMusicService';
 import { useLyrics } from '@/hooks/useLyrics';
 import { getNextPlayMode, getPlayModeControl } from '@/services/playback/playModeControl';
 import { resolveImmersiveKeyboardAction } from '@/services/playback/immersiveKeyboard';
@@ -15,8 +12,6 @@ import {
   normalizeLyricAnimationIntensity,
   type LyricAnimationIntensity,
 } from '@/services/lyrics/animationIntensity';
-import { buildLyricOriginNote } from '@/services/lyrics/lyricOriginNote';
-import { useLyricOriginNote } from '@/hooks/useLyricOriginNote';
 import { broadcastLyricSettings, subscribeLyricSettings } from '@/stores/lyricSettingsSync';
 import { usePlayerStore } from '@/stores/playerStore';
 import { buildMusicShareText } from '@/utils/shareLink';
@@ -93,27 +88,12 @@ export function ImmersiveLyricsOverlay({
   const [desktopLyricLocked, setDesktopLyricLocked] = useState(false);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubProgress, setScrubProgress] = useState(0);
-  const [lyricsChoiceSong, setLyricsChoiceSong] = useState<LocalSong | null>(null);
-  // 「选择歌词」只对本地曲开放：在线曲的歌词来自音源本身，没有候选可挑。
-  const localSongs = useLibraryStore((state) => state.localSongs);
-  const localSong = useMemo(() => (
-    currentTrack?.source === 'local'
-      ? localSongs.find((item) => item.id === currentTrack.id) ?? null
-      : null
-  ), [localSongs, currentTrack?.source, currentTrack?.id]);
-  // 换歌时收起面板：那份候选属于上一首歌，留着会让人以为它对新歌生效了。
-  useEffect(() => { setLyricsChoiceSong(null); }, [currentTrack?.source, currentTrack?.id]);
   const isPlaying = status === 'playing';
   const coverUrl = coverSrc(currentTrack?.img || currentTrack?.picUrl || '', IMMERSIVE_COVER_CSS_SIZE);
   const playModeControl = getPlayModeControl({ repeatMode, isShuffle });
   const lyricProgress = useInterpolatedPlaybackProgress({ status, progress, progressSampledAt, duration, playbackRate });
   const lyricTime = lyricProgress + manualOffsetMs / 1000;
-  const { lyrics, currentLine: currentLyricIndex, origin } = useLyrics(currentTrack, lyricTime);
-  // 来源标注只提示一次就退场；换歌（resetKey 变化）时为新歌再提示一次。
-  const lyricOriginNote = useLyricOriginNote(
-    buildLyricOriginNote(origin),
-    currentTrack ? `${currentTrack.source}:${currentTrack.id}` : undefined,
-  );
+  const { lyrics, currentLine: currentLyricIndex } = useLyrics(currentTrack, lyricTime);
 
   useEffect(() => {
     if (!open) return;
@@ -333,7 +313,6 @@ export function ImmersiveLyricsOverlay({
       )}
       <div className="af-immersive-noise" aria-hidden="true" />
       {/* 歌词来源标注：同曲异唱档必须可见；绝对定位在顶部预留区、只停留几秒就退场 */}
-      {lyricOriginNote && <p className="af-immersive-lyric-origin">{lyricOriginNote.text}</p>}
 
       <main className="af-immersive-stage af-showcase-layout">
         <section className="af-immersive-cover-section" aria-label="歌曲封面">
@@ -382,7 +361,6 @@ export function ImmersiveLyricsOverlay({
         lyrics={{ showTranslation, showRomanization, showRuby, pending: lyricSettingsPending, onToggle: handleLyricDisplayToggle }}
         queue={{ tracks: queue, currentIndex, play: playByIndex, remove: removeFromQueue }}
         desktopLyrics={{ open: desktopLyricOpen, label: desktopLyricButtonLabel, toggle: handleDesktopLyricToggle }}
-        lyricsChoice={localSong ? { label: '选择歌词', open: () => setLyricsChoiceSong(localSong) } : undefined}
         onPanelOpenChange={setPanelOpen}
         error={lyricError}
         shareStatus={shareStatus}
@@ -390,7 +368,6 @@ export function ImmersiveLyricsOverlay({
         {currentTrack && <SongAddMenuButton song={currentTrack} className="af-immersive-more-action" iconSize={18} title="添加到我的喜欢或歌单" label="收藏 / 加入歌单" />}
       </ImmersivePlayerControls>
       {/* 面板挂在沉浸页内部：它自带 dialog 语义与焦点陷阱，会被 useDialogFocus 压在这一层之上。 */}
-      <LyricsChoiceDialog song={lyricsChoiceSong} onClose={() => setLyricsChoiceSong(null)} />
     </div>
   );
 }
