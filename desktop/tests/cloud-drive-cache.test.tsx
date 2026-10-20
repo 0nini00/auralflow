@@ -20,6 +20,16 @@ const api = vi.hoisted(() => ({
 }));
 
 vi.mock('@/services/wyAccountService', () => ({ getCloudSongs: api.cloudSongs }));
+const cache = vi.hoisted(() => ({
+  load: vi.fn(),
+  save: vi.fn(),
+  clear: vi.fn(),
+}));
+vi.mock('@/services/cloudDriveCache', () => ({
+  loadCloudDriveSnapshot: cache.load,
+  saveCloudDriveSnapshot: cache.save,
+  clearCloudDriveSnapshot: cache.clear,
+}));
 vi.mock('@/stores/wyAccountStore', () => ({
   useWyAccountStore: (selector: (state: { account: unknown; isLoaded: boolean }) => unknown) =>
     selector({ account: api.account.current, isLoaded: api.loaded.current }),
@@ -75,6 +85,9 @@ function refreshButton() {
 beforeEach(() => {
   vi.clearAllMocks();
   resetStore();
+  cache.load.mockResolvedValue(null);
+  cache.save.mockResolvedValue(undefined);
+  cache.clear.mockResolvedValue(undefined);
   api.account.current = { uid: 'uid-A', nickname: 'A' };
   api.loaded.current = true;
   api.cloudSongs.mockResolvedValue({
@@ -132,5 +145,51 @@ describe('云盘列表复用', () => {
       resolveA({ songs: [song('A1')], count: 1, usedBytes: 1, maxBytes: 2, nextOffset: 200, hasMore: false });
     });
     expect(useCloudDriveStore.getState().songs.map((item) => item.id)).toEqual(['B1']);
+  });
+
+  it('冷启动命中保鲜期内的落盘缓存：一次请求都不发', async () => {
+    cache.load.mockResolvedValue({
+      fresh: true,
+      snapshot: { songs: [song('cached')], count: 1, usedBytes: 1, maxBytes: 2, nextOffset: 200, hasMore: false, cachedAt: Date.now() },
+    });
+    await mount();
+    expect(api.cloudSongs).not.toHaveBeenCalled();
+    expect(useCloudDriveStore.getState().songs.map((item) => item.id)).toEqual(['cached']);
+    expect(useCloudDriveStore.getState().loading).toBe(false);
+  });
+
+  it('缓存过期：先把旧列表显示出来，同时后台刷新', async () => {
+    cache.load.mockResolvedValue({
+      fresh: false,
+      snapshot: { songs: [song('stale')], count: 1, usedBytes: 1, maxBytes: 2, nextOffset: 200, hasMore: false, cachedAt: 0 },
+    });
+    let resolveFetch!: (value: unknown) => void;
+    api.cloudSongs.mockReturnValue(new Promise((resolve) => { resolveFetch = resolve; }));
+    await mount();
+
+    expect(useCloudDriveStore.getState().songs.map((item) => item.id)).toEqual(['stale']);
+    expect(useCloudDriveStore.getState().loading).toBe(true);
+    expect(api.cloudSongs).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveFetch({ songs: [song('fresh')], count: 1, usedBytes: 1, maxBytes: 2, nextOffset: 200, hasMore: false });
+    });
+    expect(useCloudDriveStore.getState().songs.map((item) => item.id)).toEqual(['fresh']);
+  });
+
+  it('拉取成功后写入落盘缓存；退出登录删掉它', async () => {
+    await mount();
+    expect(cache.save).toHaveBeenCalledWith('uid-A', expect.objectContaining({ count: 2 }));
+
+    await act(async () => { await useCloudDriveStore.getState().initialize(''); });
+    expect(cache.clear).toHaveBeenCalledWith('uid-A');
+  });
+
+  it('点刷新时不读缓存，直接请求新数据', async () => {
+    await mount();
+    cache.load.mockClear();
+    await act(async () => { await useCloudDriveStore.getState().refresh(); });
+    expect(cache.load).not.toHaveBeenCalled();
+    expect(api.cloudSongs).toHaveBeenCalledTimes(2);
   });
 });

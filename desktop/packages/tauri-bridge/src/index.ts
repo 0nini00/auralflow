@@ -285,7 +285,9 @@ export type LibraryNamespace =
   | "recent"
   | "cache"
   | "dailyRecommend"
-  | "playback";
+  | "playback"
+  // 云盘列表缓存（只存列表与容量，带保鲜期；见 services/cloudDriveCache）。
+  | "cloudDrive";
 
 /** 读取某个 namespace；文件不存在或为空返回 null */
 export async function libraryLoad<T = unknown>(

@@ -17,7 +17,7 @@
 | wyAccountStore | — | 网易账号 | 非持久化（cookie 在 settings） |
 | discoveryStore | — | 日推 / FM | 非持久化 |
 | discoverFeedStore | — | 发现页推荐歌单 + 榜单清单 + 榜单试读（10 分钟 TTL，与账号无关） | 非持久化 |
-| cloudDriveStore | — | 音乐云盘列表 + 容量（按 uid 归属，同账号加载过就复用，只有刷新/换账号才重拉） | 非持久化 |
+| cloudDriveStore | — | 音乐云盘列表 + 容量（按 uid 归属，同账号加载过就复用，只有刷新/换账号才重拉；`services/cloudDriveCache` 落盘，10 分钟保鲜，退出登录删） | `library/cloudDrive.json`（按 uid 分区，缓存语义、不进 WebDAV 同步） |
 | sleepTimerStore | — | 睡眠定时器 | 非持久化 |
 | lyricSettingsSync | — | 歌词设置跨窗口同步 | BroadcastChannel |
 | updateStore | `updateStore.ts` | 待安装的可用更新（更新弹窗的数据源） | 非持久化 |

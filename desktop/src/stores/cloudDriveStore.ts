@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { MusicInfo } from "@lx/core";
 import { getCloudSongs } from "@/services/wyAccountService";
+import { clearCloudDriveSnapshot, loadCloudDriveSnapshot, saveCloudDriveSnapshot } from "@/services/cloudDriveCache";
 
 /**
  * 云盘每页条数。接口实测接受 200，且对 200 的请求会一次返回整个云盘（161 首），
@@ -88,6 +89,16 @@ export const useCloudDriveStore = create<CloudDriveState>((set, get) => {
       error: "",
       loaded: true,
     }));
+    // 落盘缓存：下次冷启动先显示它（见 services/cloudDriveCache）。写失败不影响本次结果。
+    const settled = get();
+    void saveCloudDriveSnapshot(settled.accountUid, {
+      songs: settled.songs,
+      count: settled.count,
+      usedBytes: settled.usedBytes,
+      maxBytes: settled.maxBytes,
+      nextOffset: settled.nextOffset,
+      hasMore: settled.hasMore,
+    }).catch(() => undefined);
   };
 
   const run = (task: Promise<void>, onError: (error: unknown) => void) => {
@@ -125,7 +136,9 @@ export const useCloudDriveStore = create<CloudDriveState>((set, get) => {
       const sameAccount = state.accountUid === accountUid;
 
       if (!accountUid) {
-        // 退出登录：立刻清空并作废在飞的请求，别让上一个账号的文件留在界面上
+        // 退出登录：立刻清空并作废在飞的请求，别让上一个账号的文件留在界面上；
+        // 盘上那份也要删——把云盘内容留在磁盘上比多拉一次请求更糟。
+        const previousUid = state.accountUid;
         generation += 1;
         inflight = null;
         inflightGeneration = -1;
@@ -142,6 +155,7 @@ export const useCloudDriveStore = create<CloudDriveState>((set, get) => {
           loading: false,
           loadingMore: false,
         });
+        if (previousUid) void clearCloudDriveSnapshot(previousUid).catch(() => undefined);
         return;
       }
 
@@ -165,6 +179,30 @@ export const useCloudDriveStore = create<CloudDriveState>((set, get) => {
         hasMore: false,
         loaded: sameAccount ? state.loaded : false,
       });
+
+      /*
+       * 冷启动 / 换账号：先读盘上的列表。
+       * 10 分钟内直接采信（一次请求都不发）；过期则先把旧列表显示出来，再照常刷新——
+       * 这就是「打开云盘不再每次都转圈」的关键：过期数据仍然比空白有用。
+       * 用户点「刷新」时跳过这一步（force）：他明确要求新数据。
+       */
+      const hydrateGeneration = generation;
+      const cached = options?.force ? null : await loadCloudDriveSnapshot(accountUid);
+      if (hydrateGeneration !== generation || get().accountUid !== accountUid) return;
+      if (cached) {
+        set({
+          songs: cached.snapshot.songs,
+          count: cached.snapshot.count,
+          usedBytes: cached.snapshot.usedBytes,
+          maxBytes: cached.snapshot.maxBytes,
+          nextOffset: cached.snapshot.nextOffset,
+          hasMore: cached.snapshot.hasMore,
+          loaded: true,
+          // 保鲜期内没有后续请求了，别把「加载中」留给界面。
+          loading: !cached.fresh,
+        });
+        if (cached.fresh) return;
+      }
 
       return run(fetchPage(0, true), (error) => {
         set({
