@@ -17,7 +17,7 @@
   display: inline-flex;
   margin-bottom: 8px;
   color: var(--af-accent-primary);
-  font-size: 12px;
+  font-size: var(--af-font-size-xs);
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -26,7 +26,7 @@
 .af-playlists-header h1 {
   margin: 0;
   color: var(--af-text-primary);
-  font-size: 34px;
+  font-size: var(--af-font-size-3xl);
   font-weight: 800;
   letter-spacing: -0.04em;
 }
@@ -34,7 +34,7 @@
 .af-playlists-header p {
   margin: 8px 0 0;
   color: var(--af-text-secondary);
-  font-size: 14px;
+  font-size: var(--af-font-size-base);
 }
 
 .af-create-playlist-btn {
@@ -46,8 +46,8 @@
   background: var(--af-button-secondary-bg);
   color: var(--af-text-primary);
   border: 1px solid var(--af-button-secondary-border);
-  border-radius: 999px;
-  font-size: 14px;
+  border-radius: var(--af-radius-full);
+  font-size: var(--af-font-size-base);
   font-weight: 700;
   cursor: pointer;
   box-shadow: none;
@@ -88,7 +88,7 @@
 
 .af-transfer-status {
   margin: 8px 0 0;
-  font-size: 12px;
+  font-size: var(--af-font-size-xs);
   color: var(--af-text-tertiary);
 }
 
@@ -107,7 +107,7 @@
 .af-section-heading h2 {
   margin: 0;
   color: var(--af-text-primary);
-  font-size: 20px;
+  font-size: var(--af-font-size-xl);
   font-weight: 800;
   letter-spacing: -0.02em;
 }
@@ -115,7 +115,7 @@
 .af-section-heading p {
   margin: 5px 0 0;
   color: var(--af-text-secondary);
-  font-size: 13px;
+  font-size: var(--af-font-size-sm);
 }
 
 .af-section-heading > div:first-child {
@@ -137,7 +137,7 @@
   margin-left: 4px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--af-radius-sm);
   background: transparent;
   color: var(--af-text-secondary);
   cursor: pointer;
@@ -165,9 +165,9 @@
   min-width: 30px;
   padding: 4px 10px;
   border: 1px solid var(--af-border-secondary);
-  border-radius: 999px;
+  border-radius: var(--af-radius-full);
   color: var(--af-text-secondary);
-  font-size: 12px;
+  font-size: var(--af-font-size-xs);
   font-weight: 700;
   text-align: center;
 }
@@ -194,7 +194,7 @@
   padding: 18px;
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.02));
   border: 1px solid var(--af-border-secondary);
-  border-radius: 20px;
+  border-radius: var(--af-radius-lg);
   color: var(--af-text-primary);
   text-align: left;
   cursor: pointer;
@@ -225,7 +225,7 @@
   flex: 0 0 auto;
   width: 52px;
   height: 52px;
-  border-radius: 16px;
+  border-radius: var(--af-radius-lg);
   background: rgba(255, 255, 255, 0.08);
   color: currentColor;
 }
@@ -237,7 +237,7 @@
   flex: 0 0 auto;
   width: 52px;
   height: 52px;
-  border-radius: 16px;
+  border-radius: var(--af-radius-lg);
   overflow: hidden;
   background: rgba(var(--af-accent-primary-rgb), 0.1);
   color: var(--af-accent-primary);
@@ -267,14 +267,14 @@
 }
 
 .af-quick-content strong {
-  font-size: 16px;
+  font-size: var(--af-font-size-lg);
   font-weight: 800;
 }
 
 .af-quick-content small {
   color: currentColor;
   opacity: 0.72;
-  font-size: 12px;
+  font-size: var(--af-font-size-xs);
   line-height: 1.35;
 }
 
@@ -294,7 +294,7 @@
   padding: 10px;
   background: rgba(255, 255, 255, 0.028);
   border: 1px solid transparent;
-  border-radius: 18px;
+  border-radius: var(--af-radius-lg);
   color: inherit;
   text-align: left;
   transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease;
@@ -322,7 +322,7 @@ button.af-playlist-card {
   position: relative;
   width: 100%;
   aspect-ratio: 1;
-  border-radius: 14px;
+  border-radius: var(--af-radius-md);
   overflow: hidden;
   background: var(--af-bg-secondary);
   cursor: pointer;
@@ -395,7 +395,7 @@ button.af-playlist-card {
 .af-playlist-name {
   margin: 0 0 5px;
   color: var(--af-text-primary);
-  font-size: 14px;
+  font-size: var(--af-font-size-base);
   font-weight: 700;
   line-height: 1.32;
   cursor: pointer;
@@ -412,7 +412,7 @@ button.af-playlist-card {
 .af-playlist-meta {
   margin: 0;
   color: var(--af-text-secondary);
-  font-size: 12px;
+  font-size: var(--af-font-size-xs);
   line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -422,7 +422,7 @@ button.af-playlist-card {
 .af-subsection-title {
   margin: 18px 0 12px;
   color: var(--af-text-secondary);
-  font-size: 13px;
+  font-size: var(--af-font-size-sm);
   font-weight: 800;
 }
 
@@ -434,9 +434,9 @@ button.af-playlist-card {
   padding: 16px 18px;
   background: rgba(255, 255, 255, 0.025);
   border: 1px dashed var(--af-border-secondary);
-  border-radius: 18px;
+  border-radius: var(--af-radius-lg);
   color: var(--af-text-secondary);
-  font-size: 14px;
+  font-size: var(--af-font-size-base);
 }
 
 .af-inline-error {
@@ -498,7 +498,7 @@ button.af-playlist-card {
   background: transparent;
   border: none;
   color: var(--af-text-primary);
-  font-size: 14px;
+  font-size: var(--af-font-size-base);
   text-align: left;
   border-radius: var(--af-radius-sm);
   cursor: pointer;
@@ -571,13 +571,13 @@ button.af-playlist-card {
 
 .af-link-hint {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--af-font-size-xs);
   line-height: 1.5;
   color: var(--af-text-secondary);
 }
 
 .af-dialog h2 {
-  font-size: 24px;
+  font-size: var(--af-font-size-2xl);
   font-weight: 700;
   color: var(--af-text-primary);
   margin-bottom: 24px;
@@ -593,7 +593,7 @@ button.af-playlist-card {
 
 .af-form-group label {
   display: block;
-  font-size: 14px;
+  font-size: var(--af-font-size-base);
   font-weight: 600;
   color: var(--af-text-primary);
   margin-bottom: 8px;
@@ -603,7 +603,7 @@ button.af-playlist-card {
 .af-form-group textarea {
   width: 100%;
   padding: 12px;
-  font-size: 15px;
+  font-size: var(--af-font-size-base);
   border: 2px solid var(--af-border-secondary);
   border-radius: var(--af-radius-md);
   background: var(--af-bg-surface);
@@ -692,21 +692,21 @@ button.af-playlist-card {
 }
 
 .af-playlist-detail-meta h1 {
-  font-size: 36px;
+  font-size: var(--af-font-size-3xl);
   font-weight: 700;
   color: var(--af-text-primary);
   margin-bottom: 12px;
 }
 
 .af-playlist-description {
-  font-size: 15px;
+  font-size: var(--af-font-size-base);
   color: var(--af-text-secondary);
   margin-bottom: 12px;
   line-height: 1.5;
 }
 
 .af-playlist-stats {
-  font-size: 14px;
+  font-size: var(--af-font-size-base);
   color: var(--af-text-secondary);
   margin-bottom: 24px;
 }
@@ -718,7 +718,7 @@ button.af-playlist-card {
   gap: 8px;
   margin-bottom: 12px;
   color: var(--af-text-secondary);
-  font-size: 13px;
+  font-size: var(--af-font-size-sm);
 }
 
 .af-daily-history-controls select {
@@ -754,7 +754,7 @@ button.af-playlist-card {
   gap: 16px;
   padding: 12px 24px 12px 16px;
   border-bottom: 1px solid var(--af-border-secondary);
-  font-size: 12px;
+  font-size: var(--af-font-size-xs);
   font-weight: 600;
   color: var(--af-text-secondary);
   text-transform: uppercase;
@@ -799,7 +799,7 @@ button.af-playlist-card {
   top: 14px;
   bottom: 14px;
   width: 3px;
-  border-radius: 999px;
+  border-radius: var(--af-radius-full);
   background: var(--af-accent-primary);
   opacity: 0.92;
 }
@@ -836,7 +836,7 @@ button.af-playlist-card {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: var(--af-font-size-lg);
   color: var(--af-text-tertiary);
 }
 
@@ -844,7 +844,7 @@ button.af-playlist-card {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 14px;
+  font-size: var(--af-font-size-base);
   font-weight: 500;
   color: var(--af-text-primary);
 }
@@ -859,10 +859,10 @@ button.af-playlist-card {
 .af-col-title .af-song-quality-tag {
   flex-shrink: 0;
   padding: 1px 6px;
-  border-radius: 999px;
+  border-radius: var(--af-radius-full);
   border: 1px solid var(--af-border-primary);
   background: var(--af-bg-secondary);
-  font-size: 11px;
+  font-size: var(--af-font-size-xs);
   font-weight: 500;
   color: var(--af-text-secondary);
 }
@@ -870,7 +870,7 @@ button.af-playlist-card {
 .af-col-artist,
 .af-col-album,
 .af-col-duration {
-  font-size: 13px;
+  font-size: var(--af-font-size-sm);
   color: var(--af-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -911,7 +911,7 @@ button.af-playlist-card {
 .af-song-action-empty {
   padding: 10px 12px;
   color: var(--af-text-secondary);
-  font-size: 13px;
+  font-size: var(--af-font-size-sm);
   white-space: nowrap;
 }
 

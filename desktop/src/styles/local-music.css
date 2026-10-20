@@ -92,7 +92,7 @@
   background: var(--af-button-secondary-bg);
   color: var(--af-text-primary);
   border: 1px solid var(--af-button-secondary-border);
-  border-radius: 6px;
+  border-radius: var(--af-radius-sm);
 }
 
 .af-library-button-sm:hover {

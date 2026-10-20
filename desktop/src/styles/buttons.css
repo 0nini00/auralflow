@@ -418,7 +418,7 @@ button:focus-visible {
   gap: 8px;
   padding: 8px 12px 5px;
   color: var(--af-text-tertiary);
-  font-size: 11px;
+  font-size: var(--af-font-size-xs);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -432,7 +432,7 @@ button:focus-visible {
 .af-add-menu-status {
   padding: 8px 12px;
   color: var(--af-text-tertiary);
-  font-size: 13px;
+  font-size: var(--af-font-size-sm);
   line-height: 1.45;
   white-space: normal;
 }
@@ -460,15 +460,15 @@ button:focus-visible {
   align-items: center;
   gap: 8px;
   padding: 9px 8px 9px 10px;
-  font-size: 13px;
+  font-size: var(--af-font-size-sm);
 }
 
 .af-variant-source {
   flex-shrink: 0;
   padding: 1px 6px;
-  border-radius: 999px;
+  border-radius: var(--af-radius-full);
   border: 1px solid var(--af-border-secondary);
-  font-size: 11px;
+  font-size: var(--af-font-size-xs);
   color: var(--af-text-secondary);
 }
 
@@ -484,14 +484,14 @@ button:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 96px;
-  font-size: 12px;
+  font-size: var(--af-font-size-xs);
   color: var(--af-text-tertiary);
 }
 
 .af-variant-duration {
   flex-shrink: 0;
   margin-left: auto;
-  font-size: 12px;
+  font-size: var(--af-font-size-xs);
   color: var(--af-text-tertiary);
 }
 

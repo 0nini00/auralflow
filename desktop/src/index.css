@@ -95,7 +95,7 @@ button {
 .af-window-app-mark {
   width: 12px;
   height: 12px;
-  border-radius: 4px;
+  border-radius: var(--af-radius-xs);
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.78), transparent 45%),
     var(--af-accent-gradient);
@@ -105,7 +105,7 @@ button {
 .af-window-title {
   overflow: hidden;
   color: var(--af-text-secondary);
-  font-size: 12px;
+  font-size: var(--af-font-size-xs);
   font-weight: 650;
   letter-spacing: 0;
   text-overflow: ellipsis;
@@ -202,7 +202,7 @@ button {
   display: flex;
   flex-direction: column;
   background: var(--af-bg-elevated);
-  border-radius: var(--af-radius-xl);
+  border-radius: var(--af-radius-md);
   border: 1px solid var(--af-border-secondary);
   /* 侧边栏与内容区之间有 16px 画布间距 + 1px 描边，已经足够分层；再叠阴影就是第三层装饰。 */
   padding: 24px 12px;
@@ -250,7 +250,7 @@ button {
 }
 
 .af-logo-text {
-  font-size: 20px;
+  font-size: var(--af-font-size-xl);
   font-weight: 700;
   background: var(--af-accent-gradient);
   -webkit-background-clip: text;
@@ -279,7 +279,7 @@ button {
 
 .af-sidebar-nav::-webkit-scrollbar-thumb {
   background: var(--af-border-primary);
-  border-radius: 3px;
+  border-radius: var(--af-radius-xs);
 }
 
 .af-sidebar-link {
@@ -291,7 +291,7 @@ button {
   color: var(--af-text-secondary);
   text-decoration: none;
   border-radius: var(--af-radius-md);
-  font-size: 14px;
+  font-size: var(--af-font-size-base);
   font-weight: 500;
   transition: all var(--af-transition-base);
   cursor: pointer;
@@ -322,7 +322,7 @@ button {
   top: 50%;
   width: 3px;
   height: 18px;
-  border-radius: 999px;
+  border-radius: var(--af-radius-full);
   background: var(--af-accent-primary);
   transform: translateY(-50%);
 }
@@ -348,7 +348,7 @@ button {
   border: 1px solid var(--af-border-secondary);
   border-radius: var(--af-radius-md);
   color: var(--af-text-secondary);
-  font-size: 14px;
+  font-size: var(--af-font-size-base);
   font-weight: 500;
   cursor: pointer;
   transition: all var(--af-transition-base);
@@ -370,7 +370,7 @@ button {
   background: none;
   border: none;
   color: var(--af-text-secondary);
-  font-size: 12px;
+  font-size: var(--af-font-size-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -384,11 +384,11 @@ button {
 
 .af-sidebar-count {
   margin-left: auto;
-  font-size: 11px;
+  font-size: var(--af-font-size-xs);
   color: var(--af-text-tertiary);
   background: var(--af-bg-surface);
   padding: 1px 6px;
-  border-radius: 8px;
+  border-radius: var(--af-radius-sm);
 }
 
 .af-sidebar-subnav {
@@ -402,7 +402,7 @@ button {
   padding: 6px 12px;
   border-radius: var(--af-radius-sm);
   color: var(--af-text-secondary);
-  font-size: 13px;
+  font-size: var(--af-font-size-sm);
   text-decoration: none;
   transition: background 0.2s, color 0.2s;
   overflow: hidden;
@@ -443,9 +443,10 @@ button {
   flex-direction: column;
   overflow: hidden;
   background: var(--af-bg-page);
-  border-radius: var(--af-radius-xl);
+  /* 内容面板是最大的一块，与顶栏/侧边栏同属「横条」层级：12px 圆角 + 1px 描边就够，
+     再叠阴影会让整块内容像浮在桌面上的一个窗口。 */
+  border-radius: var(--af-radius-md);
   border: 1px solid var(--af-border-secondary);
-  box-shadow: var(--af-shadow-sm);
 }
 
 .af-content-scroll {
@@ -474,7 +475,7 @@ button {
 
 .af-content-scroll::-webkit-scrollbar-thumb {
   background: var(--af-border-primary);
-  border-radius: 4px;
+  border-radius: var(--af-radius-xs);
 }
 
 .af-content-scroll::-webkit-scrollbar-thumb:hover {

@@ -5,7 +5,7 @@
   flex-shrink: 0;
   background: var(--af-bg-elevated);
   border: 1px solid var(--af-border-secondary);
-  border-radius: var(--af-radius-xl);
+  border-radius: var(--af-radius-md);
   /*
    * 播放条是最常驻的一块，原来叠了「背景 + 描边 + 20px 圆角 + 中号阴影 + 20px 模糊」五层。
    * 其中 blur 在 bg-elevated 这种不透明底上根本不产生视觉效果，只是白付合成开销；
@@ -98,7 +98,7 @@
 }
 
 .af-track-name {
-  font-size: 14px;
+  font-size: var(--af-font-size-base);
   font-weight: 600;
   color: var(--af-text-primary);
   overflow: hidden;
@@ -108,7 +108,7 @@
 }
 
 .af-track-artist {
-  font-size: 12px;
+  font-size: var(--af-font-size-xs);
   color: var(--af-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -117,7 +117,7 @@
 
 .af-track-notice {
   margin-top: 2px;
-  font-size: 11px;
+  font-size: var(--af-font-size-xs);
   color: var(--af-accent-primary, var(--af-text-secondary));
   overflow: hidden;
   text-overflow: ellipsis;
@@ -197,7 +197,7 @@
 .af-play-button {
   width: 42px;
   height: 42px;
-  border-radius: 14px;
+  border-radius: var(--af-radius-md);
   background: rgba(var(--af-accent-primary-rgb), 0.12);
   color: var(--af-accent-primary);
   border: 1px solid rgba(var(--af-accent-primary-rgb), 0.32);
@@ -228,7 +228,7 @@
 }
 
 .af-time {
-  font-size: 11px;
+  font-size: var(--af-font-size-xs);
   color: var(--af-text-secondary);
   font-weight: 500;
   min-width: 40px;
@@ -240,7 +240,7 @@
   flex: 1;
   height: 4px;
   background: var(--af-bg-hover);
-  border-radius: 2px;
+  border-radius: var(--af-radius-xs);
   cursor: pointer;
   position: relative;
 }
@@ -248,7 +248,7 @@
 .af-progress-fill {
   height: 100%;
   background: var(--af-accent-primary);
-  border-radius: 2px;
+  border-radius: var(--af-radius-xs);
   pointer-events: none;
 }
 
@@ -277,7 +277,7 @@
   width: 100px;
   height: 4px;
   background: var(--af-bg-hover);
-  border-radius: 2px;
+  border-radius: var(--af-radius-xs);
   cursor: pointer;
   position: relative;
 }
@@ -285,7 +285,7 @@
 .af-volume-fill {
   height: 100%;
   background: var(--af-text-secondary);
-  border-radius: 2px;
+  border-radius: var(--af-radius-xs);
   transition: width 0.1s;
   pointer-events: none;
 }
@@ -389,7 +389,7 @@
   height: var(--af-immersive-cover-size);
   flex: 0 0 auto;
   overflow: hidden;
-  border-radius: 5px;
+  border-radius: var(--af-radius-xs);
   background: rgba(8, 24, 28, 0.28);
   box-shadow: 0 12px 32px rgba(3, 18, 19, 0.17), 0 2px 5px rgba(3, 18, 19, 0.13);
 }
@@ -397,7 +397,7 @@
 .af-immersive-cover img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .af-immersive-cover-placeholder {
   height: 100%; display: flex; align-items: center; justify-content: center;
-  color: var(--af-immersive-muted); font-size: 22px; letter-spacing: 0.04em;
+  color: var(--af-immersive-muted); font-size: var(--af-font-size-2xl); letter-spacing: 0.04em;
 }
 
 .af-immersive-heading {
@@ -411,8 +411,8 @@
 .af-immersive-heading-artist,
 .af-immersive-heading-album { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .af-immersive-heading-title { font-size: clamp(21px, 2vw, 29px); font-weight: 600; line-height: 1.45; letter-spacing: 0.015em; }
-.af-immersive-heading-artist { margin-top: 7px; font-size: 15px; line-height: 1.6; font-weight: 400; color: var(--af-immersive-muted); }
-.af-immersive-heading-album { margin-top: 2px; font-size: 13px; line-height: 1.6; color: rgba(229, 241, 229, 0.6); }
+.af-immersive-heading-artist { margin-top: 7px; font-size: var(--af-font-size-base); line-height: 1.6; font-weight: 400; color: var(--af-immersive-muted); }
+.af-immersive-heading-album { margin-top: 2px; font-size: var(--af-font-size-sm); line-height: 1.6; color: rgba(229, 241, 229, 0.6); }
 
 .af-immersive-lyric-section { display: flex; min-width: 0; min-height: 0; height: 100%; padding: 0 10px; overflow: hidden; }
 /* 歌词来源标注：同曲异唱档的可见提示，绝对定位在顶部预留区，不参与布局流。 */
@@ -426,7 +426,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--af-font-size-xs);
   line-height: 1.5;
   color: var(--af-immersive-muted);
   pointer-events: none;
@@ -459,8 +459,8 @@
 .af-immersive-progress-track:has(input:focus-visible) { outline: 2px solid var(--af-immersive-control-focus); outline-offset: 5px; }
 .af-immersive-control-row { display: grid; grid-template-columns: minmax(100px, 1fr) auto minmax(176px, 1fr); align-items: center; gap: 20px; height: 60px; min-width: 0; }
 .af-immersive-time-group { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-variant-numeric: tabular-nums; line-height: 1.35; }
-.af-immersive-time-current { font-size: 19px; font-weight: 400; letter-spacing: 0.025em; }
-.af-immersive-time-total { font-size: 12px; font-weight: 400; opacity: 0.72; margin-top: 1px; }
+.af-immersive-time-current { font-size: var(--af-font-size-xl); font-weight: 400; letter-spacing: 0.025em; }
+.af-immersive-time-total { font-size: var(--af-font-size-xs); font-weight: 400; opacity: 0.72; margin-top: 1px; }
 .af-immersive-control-center,
 .af-immersive-control-right { display: flex; align-items: center; min-width: 0; gap: 8px; }
 .af-immersive-control-center { justify-content: center; opacity: 1; transition: opacity 150ms ease; }
@@ -470,11 +470,11 @@
 /* 音量轨道同上：鼠标点击滑杆不算 :focus-visible，只有键盘导航才画环。 */
 .af-immersive-volume-track:has(input:focus-visible) { outline: 2px solid var(--af-immersive-control-focus); outline-offset: 5px; }
 .af-immersive-icon-btn,
-.af-immersive-play-btn { width: 40px; height: 40px; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 6px; color: var(--af-immersive-control-ink); background: transparent; box-shadow: none; cursor: pointer; transition: background 150ms ease, color 150ms ease; }
+.af-immersive-play-btn { width: 40px; height: 40px; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: var(--af-radius-sm); color: var(--af-immersive-control-ink); background: transparent; box-shadow: none; cursor: pointer; transition: background 150ms ease, color 150ms ease; }
 .af-immersive-icon-btn svg { stroke-width: 1.5; }
 .af-immersive-play-btn { width: 46px; height: 46px; }
 .af-immersive-play-btn svg { width: 25px; height: 25px; stroke-width: 1.4; }
-.af-immersive-icon-btn span { font-size: 16px; font-weight: 500; }
+.af-immersive-icon-btn span { font-size: var(--af-font-size-lg); font-weight: 500; }
 .af-immersive-icon-btn:hover,
 .af-immersive-play-btn:hover { background: rgba(233, 246, 230, 0.09); color: #fff; }
 .af-immersive-icon-btn.af-active { color: #f2f8e9; }
@@ -493,12 +493,12 @@
 .af-immersive-popover {
   position: absolute; bottom: calc(100% + 18px); right: 0; z-index: 3;
   min-width: 176px; padding: 10px;
-  border: 1px solid rgba(230, 242, 227, 0.16); border-radius: 12px;
+  border: 1px solid rgba(230, 242, 227, 0.16); border-radius: var(--af-radius-md);
   background: rgba(21, 42, 41, 0.97); color: #f2f5eb;
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
   backdrop-filter: blur(22px);
 }
-.af-immersive-lyrics-panel > button { width: 100%; min-height: 38px; border: 0; border-radius: 6px; color: rgba(237, 246, 233, 0.82); background: transparent; font: inherit; text-align: left; padding: 8px 12px; cursor: pointer; }
+.af-immersive-lyrics-panel > button { width: 100%; min-height: 38px; border: 0; border-radius: var(--af-radius-sm); color: rgba(237, 246, 233, 0.82); background: transparent; font: inherit; text-align: left; padding: 8px 12px; cursor: pointer; }
 .af-immersive-popover button:not(.af-immersive-queue-play):hover { background: rgba(233, 246, 230, 0.08); }
 .af-immersive-lyrics-panel button.af-active { color: #fff; background: rgba(233,246,230,.12); box-shadow: inset 2px 0 var(--af-immersive-control-ink); }
 .af-immersive-popover button:focus-visible,
@@ -515,11 +515,11 @@
   min-height: 46px;
   padding: 8px 12px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--af-radius-sm);
   background: transparent;
   color: #edf4e5;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--af-font-size-sm);
   font-weight: 500;
   text-align: left;
 }
@@ -535,11 +535,11 @@
   height: 32px;
   padding: 4px 7px;
   border: 1px solid rgba(233, 246, 230, 0.16);
-  border-radius: 6px;
+  border-radius: var(--af-radius-sm);
   color: #edf4e5;
   background: #24423f;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--af-font-size-xs);
   font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
@@ -549,27 +549,27 @@
   border-top-right-radius: 0;
 }
 .af-immersive-status,
-.af-immersive-share-status { position: absolute; bottom: calc(100% + 14px); left: 24px; z-index: 4; max-width: min(600px, calc(100vw - 48px)); font-size: 12px; padding: 9px 12px; border-radius: 8px; background: rgba(16,34,33,.95); color: #f2f5eb; }
+.af-immersive-share-status { position: absolute; bottom: calc(100% + 14px); left: 24px; z-index: 4; max-width: min(600px, calc(100vw - 48px)); font-size: var(--af-font-size-xs); padding: 9px 12px; border-radius: var(--af-radius-sm); background: rgba(16,34,33,.95); color: #f2f5eb; }
 .af-immersive-status { color: #ffe1a6; }
 .af-immersive-queue-panel { width: min(390px, calc(100vw - 48px)); right: -96px; padding: 12px; }
 .af-immersive-queue-header { display: flex; justify-content: space-between; align-items: center; padding: 7px 6px 13px; border-bottom: 1px solid rgba(233,246,230,.12); }
-.af-immersive-queue-header strong { font-size: 14px; font-weight: 600; }
-.af-immersive-queue-header > span { color: rgba(237,246,233,.6); font-size: 12px; }
+.af-immersive-queue-header strong { font-size: var(--af-font-size-base); font-weight: 600; }
+.af-immersive-queue-header > span { color: rgba(237,246,233,.6); font-size: var(--af-font-size-xs); }
 .af-immersive-queue-list { max-height: min(48vh, 400px); overflow-x: hidden; overflow-y: auto; padding-top: 8px; scrollbar-width: thin; scrollbar-color: rgba(233, 246, 230, 0.32) transparent; }
 /* 沉浸浮层不随主题变：滚动条取 --af-immersive-* ink 色族，不用 --af-border-primary（light 主题下它是亮白灰）。 */
 .af-immersive-queue-list::-webkit-scrollbar { width: 6px; }
 .af-immersive-queue-list::-webkit-scrollbar-track { background: transparent; }
-.af-immersive-queue-list::-webkit-scrollbar-thumb { background: rgba(233, 246, 230, 0.32); border-radius: 3px; }
+.af-immersive-queue-list::-webkit-scrollbar-thumb { background: rgba(233, 246, 230, 0.32); border-radius: var(--af-radius-xs); }
 .af-immersive-queue-list::-webkit-scrollbar-thumb:hover { background: rgba(233, 246, 230, 0.5); }
-.af-immersive-queue-item { display: flex; align-items: center; border-radius: 8px; gap: 6px; }
+.af-immersive-queue-item { display: flex; align-items: center; border-radius: var(--af-radius-sm); gap: 6px; }
 .af-immersive-queue-item:hover, .af-immersive-queue-item.af-playing { background: rgba(233,246,230,.08); }
 .af-immersive-queue-play { display: flex; align-items: center; min-width: 0; flex: 1; text-align: left; gap: 10px; padding: 10px 6px; color: #edf4e5; background: transparent; border: 0; cursor: pointer; }
-.af-immersive-queue-index { flex: 0 0 22px; text-align: center; color: rgba(237,246,233,.5); font-size: 11px; font-variant-numeric: tabular-nums; }
+.af-immersive-queue-index { flex: 0 0 22px; text-align: center; color: rgba(237,246,233,.5); font-size: var(--af-font-size-xs); font-variant-numeric: tabular-nums; }
 .af-immersive-queue-info { display: flex; flex-direction: column; min-width: 0; gap: 4px; }
 .af-immersive-queue-info strong, .af-immersive-queue-info span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.af-immersive-queue-info strong { font-size: 13px; font-weight: 500; }
-.af-immersive-queue-info span { font-size: 11px; color: rgba(237,246,233,.6); }
-.af-immersive-queue-remove { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex: 0 0 auto; border: 0; border-radius: 6px; background: transparent; color: rgba(237,246,233,.65); cursor: pointer; }
+.af-immersive-queue-info strong { font-size: var(--af-font-size-sm); font-weight: 500; }
+.af-immersive-queue-info span { font-size: var(--af-font-size-xs); color: rgba(237,246,233,.6); }
+.af-immersive-queue-remove { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex: 0 0 auto; border: 0; border-radius: var(--af-radius-sm); background: transparent; color: rgba(237,246,233,.65); cursor: pointer; }
 .af-immersive-queue-remove:hover { color: #ffb5ac; }
 
 @media (max-width: 1000px), (max-height: 650px) {
@@ -577,7 +577,7 @@
   .af-immersive-stage.af-showcase-layout { padding-top: 8px; padding-bottom: 18px; gap: 22px; }
   .af-immersive-cover-section { --af-immersive-cover-size: min(31vw, calc(100dvh - 278px)); }
   .af-immersive-heading { margin-top: 18px; }
-  .af-immersive-heading-title { font-size: 21px; }
+  .af-immersive-heading-title { font-size: var(--af-font-size-2xl); }
   .af-immersive-control-row { gap: 8px; }
   .af-immersive-control-center { gap: 4px; }
   .af-immersive-volume-track { flex-basis: 44px; width: 44px; margin-right: 4px; }
@@ -587,9 +587,9 @@
   .af-immersive-cover-section { flex: 0 0 auto; align-items: flex-start; padding: 0 6px; }
   .af-immersive-cover-section .af-immersive-cover { display: none; }
   .af-immersive-heading { width: 100%; margin: 0; }
-  .af-immersive-heading-title { font-size: 19px; }
-  .af-immersive-heading-artist { display: inline; font-size: 12px; }
-  .af-immersive-heading-album { display: inline; margin-left: 10px; font-size: 12px; }
+  .af-immersive-heading-title { font-size: var(--af-font-size-xl); }
+  .af-immersive-heading-artist { display: inline; font-size: var(--af-font-size-xs); }
+  .af-immersive-heading-album { display: inline; margin-left: 10px; font-size: var(--af-font-size-xs); }
   .af-immersive-lyric-section { flex: 1; padding: 0; }
   .af-immersive-controls { padding-inline: 16px; }
   .af-immersive-progress-row { width: calc(100% + 32px); margin-inline: -16px; }
@@ -598,7 +598,7 @@
   .af-immersive-volume-track { display: none; }
   .af-immersive-icon-btn { width: 34px; }
   .af-immersive-play-btn { width: 38px; }
-  .af-immersive-time-current { font-size: 16px; }
+  .af-immersive-time-current { font-size: var(--af-font-size-lg); }
   .af-immersive-queue-panel { right: -68px; }
 }
 @media (max-width: 440px) {
@@ -876,7 +876,7 @@
 /* 滚动条也走主题变量：浅色主题下 --af-border-primary 是浅灰，两套主题共用一条规则 */
 .af-bar-queue-list::-webkit-scrollbar { width: 6px; }
 .af-bar-queue-list::-webkit-scrollbar-track { background: transparent; }
-.af-bar-queue-list::-webkit-scrollbar-thumb { background: var(--af-border-primary); border-radius: 3px; }
+.af-bar-queue-list::-webkit-scrollbar-thumb { background: var(--af-border-primary); border-radius: var(--af-radius-xs); }
 .af-bar-queue-list::-webkit-scrollbar-thumb:hover { background: var(--af-text-quaternary); }
 .af-bar-queue-item { display: flex; align-items: center; gap: 4px; border-radius: var(--af-radius-sm); }
 .af-bar-queue-item:hover,
@@ -886,7 +886,7 @@
 .af-bar-queue-play { display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; padding: 8px 6px; border: 0; background: transparent; color: var(--af-text-primary); font: inherit; text-align: left; cursor: pointer; }
 .af-bar-queue-play:focus-visible,
 .af-bar-queue-remove:focus-visible { outline: 2px solid var(--af-border-focus); outline-offset: -2px; }
-.af-bar-queue-index { flex: 0 0 22px; text-align: center; color: var(--af-text-tertiary); font-size: 11px; font-variant-numeric: tabular-nums; }
+.af-bar-queue-index { flex: 0 0 22px; text-align: center; color: var(--af-text-tertiary); font-size: var(--af-font-size-xs); font-variant-numeric: tabular-nums; }
 .af-bar-queue-info { display: flex; flex-direction: column; min-width: 0; gap: 3px; }
 .af-bar-queue-info strong, .af-bar-queue-info span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .af-bar-queue-info strong { font-size: var(--af-font-size-sm); font-weight: 500; }
@@ -1031,7 +1031,7 @@
   justify-content: center;
   color: rgba(248, 250, 252, 0.56);
   font-family: var(--af-immersive-lyric-font-family, "Inter", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif);
-  font-size: 18px;
+  font-size: var(--af-font-size-xl);
 }
 
 @media (max-width: 900px) {

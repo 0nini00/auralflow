@@ -184,7 +184,7 @@
 .af-search-section-title {
   margin: 0 0 10px;
   color: var(--af-text-secondary);
-  font-size: 14px;
+  font-size: var(--af-font-size-base);
   font-weight: 700;
 }
 
@@ -209,11 +209,11 @@
 
 .af-source-filter-chip {
   padding: 4px 12px;
-  border-radius: 999px;
+  border-radius: var(--af-radius-full);
   border: 1px solid var(--af-border-secondary);
   background: transparent;
   color: var(--af-text-secondary);
-  font-size: 12px;
+  font-size: var(--af-font-size-xs);
   cursor: pointer;
   transition: all var(--af-transition-base);
 }
@@ -377,7 +377,7 @@
 }
 
 .af-search-open-text {
-  font-size: 13px;
+  font-size: var(--af-font-size-sm);
   color: var(--af-text-secondary);
   white-space: nowrap;
   cursor: pointer;
@@ -555,7 +555,7 @@
   border: none;
   color: var(--af-text-tertiary);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--af-font-size-base);
   line-height: 1;
   padding: 2px 4px;
   border-radius: var(--af-radius-sm);
