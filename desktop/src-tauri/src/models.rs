@@ -106,6 +106,9 @@ pub struct AppSettings {
     /// 主窗口：上次退出时是否最大化。最大化时尺寸/位置记的是系统矩形，所以形状由这个开关决定
     #[serde(default)]
     pub main_window_maximized: bool,
+    /// 侧边栏宽度（逻辑像素）。None=从未拖过，前端用默认 240
+    #[serde(default)]
+    pub sidebar_width: Option<f64>,
     /// 用户协议是否已同意
     pub pact_accepted: bool,
     /// 鼠标特效: "off" / "trail"
@@ -174,6 +177,8 @@ impl Default for AppSettings {
             main_window_width: None,
             main_window_height: None,
             main_window_maximized: false,
+            // 侧边栏宽度：None 表示从未拖过，前端回落到默认 240
+            sidebar_width: None,
             pact_accepted: false,
             cursor_effect: "off".to_string(),
             webdav_url: None,

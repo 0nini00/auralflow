@@ -55,6 +55,8 @@ export interface RustAppSettings {
   mainWindowY?: number | null;
   mainWindowWidth?: number | null;
   mainWindowHeight?: number | null;
+  /** 侧边栏宽度（逻辑像素）。null/缺省=用默认 240 */
+  sidebarWidth?: number | null;
   /** 主窗口：上次退出时是否最大化 */
   mainWindowMaximized: boolean;
   pactAccepted: boolean;
