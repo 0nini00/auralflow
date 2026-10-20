@@ -58,6 +58,17 @@
 .af-track-cover-wrapper {
   cursor: pointer;
   flex-shrink: 0;
+  /*
+   * 这张封面不接受任何焦点装饰。它是「点了就进全屏」的鼠标入口，退出沉浸页时焦点陷阱
+   * 会把焦点还给它（useDialogFocus 记录的 previousFocus），浏览器随即画 UA 默认的
+   * 1px 近黑 auto 环 —— 就是用户看到的「封面四周黑框」；而封面图自己带 12px 圆角，
+   * 直角黑环压在圆角上更像渲染坏了。
+   * 焦点仍然照旧还给这里（键盘用户的 Tab 位置不丢），只是画面上不再添任何一圈：
+   * 退出全屏播放后，世界回到按下封面之前的样子。
+   * 代价是 Tab 到封面时看不见焦点，这里接受——唯一的动作有 aria-label 兜底，
+   * 装饰性提示比每次退出都多一圈框更不值。
+   */
+  outline: none;
   transition: transform 0.2s;
 }
 
