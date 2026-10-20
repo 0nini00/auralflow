@@ -17,7 +17,7 @@
 .af-section-action {
   border: 1px solid var(--af-border-secondary);
   border-radius: var(--af-radius-full);
-  padding: 8px 14px;
+  padding: 8px 16px;
   background: var(--af-bg-elevated);
   color: var(--af-text-secondary);
   font-size: var(--af-font-size-sm);
@@ -108,14 +108,14 @@
 }
 
 .af-music-card-info {
-  padding-top: 10px;
+  padding-top: 12px;
 }
 
 .af-music-card-title-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 28px;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -228,7 +228,7 @@
 
 .af-home-eyebrow {
   display: inline-flex;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
   color: var(--af-accent-primary);
   font-size: var(--af-font-size-xs);
   font-weight: var(--af-font-weight-bold);
@@ -249,7 +249,7 @@
   align-items: center;
   gap: 8px;
   border-radius: var(--af-radius-full);
-  padding: 11px 18px;
+  padding: 12px 20px;
   font-size: var(--af-font-size-base);
   font-weight: var(--af-font-weight-semibold);
   cursor: pointer;
@@ -283,7 +283,7 @@
   /* auto-fit 而非 auto-fill:auto-fill 会为放不满的列保留空轨道(全屏时 9 张卡片
      摊在 13 列里,右侧留一大片空白),auto-fit 会折叠空轨道让卡片撑满整行。 */
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 18px;
+  gap: 20px;
 }
 
 /* auto-fit 在卡片很少(1–2 张)时会把轨道拉到整行宽,而封面是 1:1,
