@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshControl, StyleSheet, Text, View } from "react-native";
 import { Cloud } from "lucide-react-native";
 import { cloudQualityLabel, type MusicInfo } from "@lx/core";
@@ -12,17 +12,14 @@ import { SectionHeader } from "@/components/SectionHeader";
 import { SongList } from "@/components/SongList";
 import { playQueue, playShuffledQueue } from "@/services/playerService";
 import { runPlaybackUiAction } from "@/services/playbackUiAction";
-import { getCloudSongs } from "@/services/wyCloudService";
 import { useAccountStore } from "@/stores/accountStore";
+import { useCloudDriveStore } from "@/stores/cloudDriveStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { layout, radius, spacing, typography } from "@/theme/tokens";
 
 interface CloudDriveScreenProps {
   onNavigateToPlayer: () => void;
 }
-
-/** 每页条数，与桌面端 `stores/cloudDriveStore` 保持一致。 */
-const PAGE_SIZE = 50;
 
 /** 容量展示：1024 进制，GB 以上保留一位小数，否则退到 MB。 */
 function formatBytes(bytes?: number): string | undefined {
@@ -35,14 +32,16 @@ function formatBytes(bytes?: number): string | undefined {
 /**
  * 音乐云盘（对齐桌面端 `/cloud`）。
  *
- * 云盘是账号私有资源：未登录不渲染内容，也不请求接口——`getCloudSongs` 在没有
- * Cookie 时直接抛错。
+ * 列表与「是否还有下一页」都在 `stores/cloudDriveStore` 里，进页面不再必然重新请求：
+ * 同一账号加载过就直接复用，只有换账号或用户点「刷新」/ 下拉刷新才重拉。
  *
- * 列表来自 weapi `/v1/cloud/get`，**不是搜索结果**：只有被网易云匹配到在线曲目的
- * 上传才会被 `cloudsearch` 命中，仅自己可见的条目搜不到。所以这里是「浏览云盘」。
+ * 账号状态仍要确认一次：`accountStore` 的登录态没有全局启动引导，冷启动直接进云盘时
+ * 它还是 `false`。所以这里只在「看起来未登录」时问一次 `checkStatus()`；已登录的会话里
+ * 进页面是零额外请求。
  */
 export function CloudDriveScreen({ onNavigateToPlayer: _onNavigateToPlayer }: CloudDriveScreenProps) {
   const isLoggedIn = useAccountStore((state) => state.isLoggedIn);
+  const userId = useAccountStore((state) => state.user?.userId ?? "");
   const checkStatus = useAccountStore((state) => state.checkStatus);
 
   const themeMode = useThemeStore((state) => state.mode);
@@ -54,119 +53,40 @@ export function CloudDriveScreen({ onNavigateToPlayer: _onNavigateToPlayer }: Cl
   );
   const styles = useMemo(() => makeStyles(palette), [palette]);
 
-  const [songs, setSongs] = useState<MusicInfo[]>([]);
-  const [count, setCount] = useState(0);
-  const [usedBytes, setUsedBytes] = useState<number | undefined>(undefined);
-  const [maxBytes, setMaxBytes] = useState<number | undefined>(undefined);
-  const [nextOffset, setNextOffset] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const songs = useCloudDriveStore((state) => state.songs);
+  const count = useCloudDriveStore((state) => state.count);
+  const usedBytes = useCloudDriveStore((state) => state.usedBytes);
+  const maxBytes = useCloudDriveStore((state) => state.maxBytes);
+  const hasMore = useCloudDriveStore((state) => state.hasMore);
+  const loading = useCloudDriveStore((state) => state.loading);
+  const loadingMore = useCloudDriveStore((state) => state.loadingMore);
+  const error = useCloudDriveStore((state) => state.error);
+  const loaded = useCloudDriveStore((state) => state.loaded);
+  const initialize = useCloudDriveStore((state) => state.initialize);
+  const loadMore = useCloudDriveStore((state) => state.loadMore);
+  const refresh = useCloudDriveStore((state) => state.refresh);
+
   const [playbackError, setPlaybackError] = useState<string | null>(null);
-  const mountedRef = useRef(true);
-  /** 并发闸门：翻页与刷新互斥，避免同一 offset 被拉两次导致列表重复 */
-  const inflightRef = useRef(false);
-  /**
-   * 请求世代：账号变化（含退出登录）时递增，晚到的响应一律丢弃。
-   * 不加这个的话，切账号时旧账号在飞的请求会把别人的列表写回来。
-   */
-  const requestGenRef = useRef(0);
+
+  // 账号变化（含退出登录）才重新判定归属：store 自己按 uid 决定复用还是重拉。
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      if (!useAccountStore.getState().isLoggedIn) {
+        // 登录态未知：问一次；已登录时这条不会发（见组件注释）。
+        await checkStatus().catch(() => undefined);
+        if (cancelled) return;
+      }
+      const state = useAccountStore.getState();
+      await initialize(state.isLoggedIn ? state.user?.userId ?? "" : "");
+    })();
+    return () => { cancelled = true; };
+  }, [initialize, checkStatus, userId, isLoggedIn]);
 
   const coverUrl = songs[0]?.picUrl || songs[0]?.img;
-
-  const loadFirstPage = useCallback(async (isRefresh = false) => {
-    const gen = requestGenRef.current;
-    if (inflightRef.current) return;
-    inflightRef.current = true;
-    if (mountedRef.current) {
-      if (isRefresh) setRefreshing(true);
-      else setLoading(true);
-      setError(null);
-    }
-    try {
-      const page = await getCloudSongs({ offset: 0, limit: PAGE_SIZE });
-      if (!mountedRef.current || gen !== requestGenRef.current) return;
-      setSongs(page.songs);
-      setCount(page.count);
-      setUsedBytes(page.usedBytes);
-      setMaxBytes(page.maxBytes);
-      setNextOffset(page.nextOffset);
-      setHasMore(page.hasMore);
-    } catch (err) {
-      if (!mountedRef.current || gen !== requestGenRef.current) return;
-      // 刷新失败不要毁掉已加载的列表：网络抖一下就把 50 条清空，空状态还会显示
-      // 「云盘里没有歌曲」，属于误导。只有首屏（还没有数据）才清空。
-      if (!isRefresh) {
-        setSongs([]);
-        setCount(0);
-        setNextOffset(0);
-        setHasMore(false);
-      }
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      if (gen === requestGenRef.current) {
-        inflightRef.current = false;
-        if (mountedRef.current) {
-          setLoading(false);
-          setRefreshing(false);
-        }
-      }
-    }
-  }, []);
-
-  // 账号变化必须重载：checkStatus 只在挂载时跑一次，切账号后页面还留在栈里时会
-  // 沿用上一个账号的列表。accountKey 同时承担「退出登录清空」的职责。
-  const accountKey = useAccountStore((state) => state.user?.userId ?? "");
-  useEffect(() => {
-    mountedRef.current = true;
-    requestGenRef.current += 1; // 作废上一个账号在飞的请求
-    inflightRef.current = false;
-    void (async () => {
-      await checkStatus();
-      if (!mountedRef.current) return;
-      if (!useAccountStore.getState().isLoggedIn) {
-        setSongs([]);
-        setCount(0);
-        setNextOffset(0);
-        setHasMore(false);
-        setError(null);
-        setLoading(false);
-        return;
-      }
-      await loadFirstPage();
-    })();
-    return () => {
-      mountedRef.current = false;
-    };
-  }, [checkStatus, loadFirstPage, accountKey]);
-
-  const handleLoadMore = useCallback(async () => {
-    if (inflightRef.current || loading || loadingMore || !hasMore) return;
-    const gen = requestGenRef.current;
-    inflightRef.current = true;
-    setLoadingMore(true);
-    setError(null);
-    try {
-      const page = await getCloudSongs({ offset: nextOffset, limit: PAGE_SIZE });
-      if (!mountedRef.current || gen !== requestGenRef.current) return;
-      setSongs((prev) => [...prev, ...page.songs]);
-      setCount(page.count);
-      setUsedBytes(page.usedBytes);
-      setMaxBytes(page.maxBytes);
-      setNextOffset(page.nextOffset);
-      setHasMore(page.hasMore);
-    } catch (err) {
-      if (!mountedRef.current || gen !== requestGenRef.current) return;
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      if (gen === requestGenRef.current) {
-        inflightRef.current = false;
-        if (mountedRef.current) setLoadingMore(false);
-      }
-    }
-  }, [hasMore, loading, loadingMore, nextOffset]);
+  // 刷新时列表还在，用下拉指示器而不是把整页换成「正在读取云盘」。
+  const refreshing = loading && songs.length > 0;
+  const showLoading = loading || (isLoggedIn && !loaded);
 
   const runPlayback = useCallback(async (action: () => Promise<void>) => {
     setPlaybackError(null);
@@ -190,6 +110,10 @@ export function CloudDriveScreen({ onNavigateToPlayer: _onNavigateToPlayer }: Cl
     if (songs.length === 0) return;
     void runPlayback(() => playShuffledQueue(songs));
   }, [runPlayback, songs]);
+
+  const handleLoadMore = useCallback(() => {
+    void loadMore();
+  }, [loadMore]);
 
   // 云盘不做转码，所以这里显示的是上传文件的真实码率，而不是用户选的音质档位。
   const getExtraMetadata = useCallback((song: MusicInfo) => {
@@ -264,7 +188,7 @@ export function CloudDriveScreen({ onNavigateToPlayer: _onNavigateToPlayer }: Cl
             <ActionButton
               small
               accessibilityLabel="刷新云盘列表"
-              onPress={() => void loadFirstPage(true)}
+              onPress={() => void refresh()}
               loading={refreshing}
               disabled={loading}
               label="刷新"
@@ -274,34 +198,34 @@ export function CloudDriveScreen({ onNavigateToPlayer: _onNavigateToPlayer }: Cl
         />
       )}
 
-      {!isLoggedIn && !loading && (
+      {!isLoggedIn && !showLoading && (
         <EmptyState
           title="未登录网易云账号"
           description="音乐云盘里的文件只对你自己可见，请在「设置 → 账号与服务」登录后查看。"
         />
       )}
 
-      {loading && <LoadingState label="正在读取云盘" />}
+      {showLoading && <LoadingState label="正在读取云盘" />}
 
-      {!!error && !loading && (
-        <ErrorState message={error} onRetry={() => void loadFirstPage(true)} />
+      {!!error && !showLoading && (
+        <ErrorState message={error} onRetry={() => void refresh()} />
       )}
     </>
   );
 
   const listFooter =
-    !loading && isLoggedIn && !error && songs.length === 0 ? (
+    !showLoading && isLoggedIn && !error && songs.length === 0 ? (
       <EmptyState
         icon={Cloud}
         title="云盘里没有歌曲"
         description="在网易云音乐客户端里把本地文件「上传到音乐云盘」之后会出现在这里。"
       />
-    ) : isLoggedIn && hasMore && !loading ? (
+    ) : isLoggedIn && hasMore && !showLoading ? (
       <View style={styles.loadMore}>
         <ActionButton
           small
           accessibilityLabel="加载更多云盘歌曲"
-          onPress={() => void handleLoadMore()}
+          onPress={handleLoadMore}
           loading={loadingMore}
           disabled={loadingMore}
           label="加载更多"
@@ -320,14 +244,14 @@ export function CloudDriveScreen({ onNavigateToPlayer: _onNavigateToPlayer }: Cl
         getExtraMetadata={getExtraMetadata}
         ListHeaderComponent={listHeader}
         ListFooterComponent={listFooter}
-        onEndReached={() => void handleLoadMore()}
+        onEndReached={handleLoadMore}
         refreshControl={
           isLoggedIn ? (
             <RefreshControl
               refreshing={refreshing}
               tintColor={palette.primary}
               colors={[palette.primary]}
-              onRefresh={() => void loadFirstPage(true)}
+              onRefresh={() => void refresh()}
             />
           ) : undefined
         }

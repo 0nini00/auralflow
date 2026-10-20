@@ -1,6 +1,6 @@
 # stores/
 
-全局状态层：13 个 Zustand store（同目录下另有 `libraryPersistence` / `libraryRefreshModel` / `playerPersistence` / `playerResumeTarget` / `playerSync` / `lyricSettingsSync` 六个非 store 的辅助模块），集中持有播放、歌单、收藏、历史、设置等状态；store 不含 React 逻辑，组件订阅、services 读写。
+全局状态层：14 个 Zustand store（同目录下另有 `libraryPersistence` / `libraryRefreshModel` / `playerPersistence` / `playerResumeTarget` / `playerSync` / `lyricSettingsSync` 六个非 store 的辅助模块），集中持有播放、歌单、收藏、历史、设置等状态；store 不含 React 逻辑，组件订阅、services 读写。
 
 ## Store 清单
 
@@ -17,6 +17,7 @@
 | wyAccountStore | — | 网易账号 | 非持久化（cookie 在 settings） |
 | discoveryStore | — | 日推 / FM | 非持久化 |
 | discoverFeedStore | — | 发现页推荐歌单 + 榜单清单 + 榜单试读（10 分钟 TTL，与账号无关） | 非持久化 |
+| cloudDriveStore | — | 音乐云盘列表 + 容量（按 uid 归属，同账号加载过就复用，只有刷新/换账号才重拉） | 非持久化 |
 | sleepTimerStore | — | 睡眠定时器 | 非持久化 |
 | lyricSettingsSync | — | 歌词设置跨窗口同步 | BroadcastChannel |
 | updateStore | `updateStore.ts` | 待安装的可用更新（更新弹窗的数据源） | 非持久化 |
