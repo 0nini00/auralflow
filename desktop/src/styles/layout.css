@@ -10,7 +10,7 @@
   background: var(--af-bg-elevated);
   border: 1px solid var(--af-border-secondary);
   border-radius: var(--af-radius-xl);
-  box-shadow: var(--af-shadow-sm);
+  /* 顶栏与内容区之间靠 1px 描边 + 背景色区分已足够；阴影是多余的第二层装饰。 */
 }
 
 .af-header-left,

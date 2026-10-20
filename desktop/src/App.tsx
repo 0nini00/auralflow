@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { tryGetCurrentWindow } from "@/utils/appWindow";
 import { listen } from "@tauri-apps/api/event";
 import { Layout } from "./components/Layout/Layout";
 import { HomeView } from "./views/HomeView";
@@ -220,7 +220,8 @@ function App() {
 
   useEffect(() => {
     const resolveRole = () => {
-      const label = getCurrentWindow().label;
+      // 非 Tauri 环境（浏览器里的纯 UI 调试）读不到窗口标签，按主窗口处理。
+      const label = tryGetCurrentWindow()?.label ?? "";
       const nextRole = detectWindowRoleFromParts(label, window.location.hash);
       if (nextRole !== "lyric-unlock") {
         setupPlayerSync(nextRole);

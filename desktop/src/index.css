@@ -204,7 +204,7 @@ button {
   background: var(--af-bg-elevated);
   border-radius: var(--af-radius-xl);
   border: 1px solid var(--af-border-secondary);
-  box-shadow: var(--af-shadow-sm);
+  /* 侧边栏与内容区之间有 16px 画布间距 + 1px 描边，已经足够分层；再叠阴影就是第三层装饰。 */
   padding: 24px 12px;
   gap: 24px;
   overflow: hidden;

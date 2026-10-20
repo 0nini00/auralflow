@@ -1,22 +1,30 @@
 import type { MouseEvent } from "react";
 import { Minus, Square, X } from "lucide-react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 
-const appWindow = getCurrentWindow();
+import { tryGetCurrentWindow } from "@/utils/appWindow";
 
-function runWindowCommand(command: () => Promise<void>) {
-  void command().catch(() => undefined);
+type AppWindow = NonNullable<ReturnType<typeof tryGetCurrentWindow>>;
+
+/**
+ * 浏览器里（`pnpm desktop:dev` 的纯 UI 调试）拿不到窗口句柄，
+ * 三个窗口按钮与拖拽区统一降级为无操作，而不是抛错把整页打白。
+ */
+const appWindow = tryGetCurrentWindow();
+
+function runWindowCommand(command: (win: AppWindow) => Promise<void>) {
+  if (!appWindow) return;
+  void command(appWindow).catch(() => undefined);
 }
 
 export function AppTitleBar() {
   const handleDragStart = (event: MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     if ((event.target as HTMLElement).closest("button")) return;
-    runWindowCommand(() => appWindow.startDragging());
+    runWindowCommand((win) => win.startDragging());
   };
 
   const handleToggleMaximize = () => {
-    runWindowCommand(() => appWindow.toggleMaximize());
+    runWindowCommand((win) => win.toggleMaximize());
   };
 
   return (
@@ -35,7 +43,7 @@ export function AppTitleBar() {
         <button
           type="button"
           className="af-window-control"
-          onClick={() => runWindowCommand(() => appWindow.minimize())}
+          onClick={() => runWindowCommand((win) => win.minimize())}
           aria-label="最小化窗口"
           data-tooltip="最小化" data-tooltip-placement="bottom-end"
         >
@@ -53,7 +61,7 @@ export function AppTitleBar() {
         <button
           type="button"
           className="af-window-control af-window-control-close"
-          onClick={() => runWindowCommand(() => appWindow.close())}
+          onClick={() => runWindowCommand((win) => win.close())}
           aria-label="关闭窗口"
           data-tooltip="关闭" data-tooltip-placement="bottom-end"
         >

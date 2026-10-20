@@ -6,8 +6,11 @@
   background: var(--af-bg-elevated);
   border: 1px solid var(--af-border-secondary);
   border-radius: var(--af-radius-xl);
-  box-shadow: var(--af-shadow-md);
-  backdrop-filter: blur(20px);
+  /*
+   * 播放条是最常驻的一块，原来叠了「背景 + 描边 + 20px 圆角 + 中号阴影 + 20px 模糊」五层。
+   * 其中 blur 在 bg-elevated 这种不透明底上根本不产生视觉效果，只是白付合成开销；
+   * 阴影与下方内容区又没有重叠关系，属于为阴影而阴影。留「背景 + 描边」两层即可。
+   */
   z-index: 1000;
 }
 

@@ -146,7 +146,7 @@
 .af-stats-rank-index {
   flex: 0 0 24px;
   padding-top: 2px;
-  color: var(--af-text-quaternary);
+  /* 这是序号文本，不是装饰：quaternary 在白底只有 2.56:1，读不出来，改用 tertiary（4.51）。 */
   font-size: var(--af-font-size-sm);
   font-variant-numeric: tabular-nums;
   text-align: right;

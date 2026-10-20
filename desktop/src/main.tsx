@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { tryGetCurrentWindow } from "@/utils/appWindow";
 import { loadSettings } from "@lx/tauri-bridge";
 
 import App from "./App";
@@ -27,8 +27,10 @@ applyInitialAppearance();
 // 未捕获异常与未处理的 Promise 拒绝进日志（文件日志由 Rust 侧 tauri-plugin-log 落盘）
 installGlobalErrorHandlers();
 
-const appWindow = getCurrentWindow();
-const windowRole = detectWindowRoleFromParts(appWindow.label, window.location.hash);
+// 浏览器里（`pnpm desktop:dev` 的纯 UI 调试）没有 Tauri 运行时，
+// tryGetCurrentWindow 会降级成 null，窗口角色按「主窗口」处理。
+const appWindow = tryGetCurrentWindow();
+const windowRole = detectWindowRoleFromParts(appWindow?.label, window.location.hash);
 
 async function prepareMainWindowBackground() {
   if (windowRole !== "main") return;
@@ -56,7 +58,8 @@ async function startApp() {
       window.requestAnimationFrame(() => resolve());
     });
   });
-  if (windowRole === "main") {
+  // 浏览器里（`pnpm desktop:dev` 的纯 UI 调试）没有 Tauri 窗口，跳过 show()。
+  if (windowRole === "main" && appWindow) {
     await appWindow.show();
   }
 }

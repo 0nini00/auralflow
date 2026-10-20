@@ -15,8 +15,12 @@
   /* Text System - High contrast for light mode */
   --af-text-primary: #0f172a;
   --af-text-secondary: #475569;
-  --af-text-tertiary: #94a3b8;
-  --af-text-quaternary: #cbd5e1;
+  /* 4 级文字按「正文 ≥4.5:1」定值（WCAG AA，白底实测算得）：
+     tertiary 原来 #94a3b8 只有 2.56:1，49 处用它写时长/歌手/说明，是界面「灰蒙蒙」的主因；
+     抬到 #64748b 后 4.76:1（页面底 4.51）。quaternary #cbd5e1 只有 1.48，
+     降级为纯装饰灰（分隔、禁用态），不再用于正文。 */
+  --af-text-tertiary: #64748b;
+  --af-text-quaternary: #94a3b8;
   /*
     强调色系变量（--af-accent-*、--af-border-focus、--af-text-on-accent）全部由
     themeStore.applyAppearance 在启动时写入，默认值只在那一边维护一份；
@@ -30,10 +34,12 @@
   --af-border-accent: var(--af-accent-primary);
 
   /* Shadow System - Subtle depth */
-  --af-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --af-shadow-md: 0 4px 8px rgba(0, 0, 0, 0.08);
-  --af-shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.1);
-  --af-shadow-xl: 0 16px 32px rgba(0, 0, 0, 0.12);
+  /* 阴影只服务「浮在页面上」的东西（菜单、弹窗、拖拽层）。页面内的横条与卡片
+     一律不用阴影——它们靠 1px 描边与背景色区分就够了，叠阴影只会让每条边都在抢眼。 */
+  --af-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --af-shadow-md: 0 8px 24px rgba(15, 23, 42, 0.10);
+  --af-shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.14);
+  --af-shadow-xl: 0 24px 56px rgba(15, 23, 42, 0.18);
 
   /* Feedback Colors - Light Mode */
   --af-success: #10b981;
@@ -68,8 +74,11 @@
   /* Text System - Dark Mode high contrast */
   --af-text-primary: #f8fafc;
   --af-text-secondary: #cbd5e1;
-  --af-text-tertiary: #64748b;
-  --af-text-quaternary: #475569;
+  /* 深色模式的 4 级文字同样按「正文 ≥4.5:1」定值：
+     tertiary #64748b 在 #1e1e1e 上只有 3.50，抬到 #8b95a5（5.51）；
+     quaternary #475569 只有 2.47，抬到 #64748b（3.50），仅用于分隔与装饰。 */
+  --af-text-tertiary: #8b95a5;
+  --af-text-quaternary: #64748b;
 
   /* Border System - Dark mode borders */
   --af-border-primary: #334155;
@@ -77,10 +86,10 @@
   --af-border-accent: var(--af-accent-primary);
 
   /* Shadow System - Dark mode depth */
-  --af-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --af-shadow-md: 0 4px 8px rgba(0, 0, 0, 0.4);
-  --af-shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.5);
-  --af-shadow-xl: 0 16px 32px rgba(0, 0, 0, 0.6);
+  --af-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --af-shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --af-shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.6);
+  --af-shadow-xl: 0 24px 56px rgba(0, 0, 0, 0.7);
 
   /* Feedback Colors - Dark Mode adjusted */
   --af-success: #34d399;
@@ -112,10 +121,13 @@
 :root {
   --af-radius-sm: 8px;
   --af-radius-md: 12px;
-  --af-radius-lg: 16px;
-  --af-radius-xl: 20px;
+  --af-radius-lg: 12px;
+  /* 圆角收敛到 8 / 12 / 999 三档。原来 16 与 20 只出现在顶栏、播放条、侧边栏这些
+     「横条」上，把 56px 高的工具条做成胶囊，和内容区的卡片互相抢注意力。 */
+  --af-radius-xl: 12px;
   --af-radius-full: 9999px;
-  --af-button-radius: 10px;
+  /* 按钮与输入框统一 8px：原来 10px 与 sm(8)/md(12) 都不对齐，视觉上是第三套圆角。 */
+  --af-button-radius: 8px;
 }
 
 /* Typography System */
