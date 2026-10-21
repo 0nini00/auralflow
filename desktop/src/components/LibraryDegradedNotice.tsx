@@ -29,7 +29,8 @@ export function LibraryDegradedNotice() {
       role="alert"
       style={{
         position: "fixed",
-        top: 12,
+        // 顶栏占住窗口最上沿 56px，告警条落在它下面，别把面包屑和搜索盖住
+        top: "calc(var(--af-topbar-height, 56px) + 8px)",
         left: "50%",
         transform: "translateX(-50%)",
         zIndex: 9999,
@@ -38,7 +39,7 @@ export function LibraryDegradedNotice() {
         gap: 10,
         alignItems: "flex-start",
         padding: "10px 14px",
-        borderRadius: 10,
+        borderRadius: "var(--af-radius-md, 10px)",
         border: "1px solid var(--af-error, #e74c3c)",
         background: "var(--af-bg-elevated, #1f1f1f)",
         color: "var(--af-text-primary, #f5f5f5)",
