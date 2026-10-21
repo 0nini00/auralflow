@@ -30,9 +30,12 @@ vi.mock("@/stores/themeStore", () => ({ useThemeStore: Object.assign(
   { getState: () => ({ accentColor: "#123456" }) },
 ) }));
 vi.mock("@/stores/historyStore", () => ({ useHistoryStore: { getState: vi.fn() } }));
+vi.mock("@/stores/playerStore", () => ({ setPlaybackFailedAutoNext: vi.fn() }));
 vi.mock("@/stores/lyricSettingsSync", () => ({ broadcastLyricSettings: vi.fn() }));
 vi.mock("@/services/playerEngine", () => ({ playerEngine: { setPauseOnExternalPlayback: vi.fn() } }));
-vi.mock("@/services/persistentCache", () => ({ clearPersistentCache: vi.fn() }));
+vi.mock("@/services/persistentCache", () => ({ clearPersistentCache: vi.fn(), clearCachedLyrics: vi.fn() }));
+vi.mock("@/hooks/useLyrics", () => ({ clearLyricsBrowserCache: vi.fn() }));
+vi.mock("@/services/lyricsService", () => ({ clearLyricsMemoryCache: vi.fn() }));
 vi.mock("@/services/playback/prefetchService", () => ({ clearPlaybackPrefetchCache: vi.fn() }));
 vi.mock("@/services/appBackground", () => ({
   notifyAppBackgroundChanged: vi.fn(), toAppBackgroundImageUrl: () => "",

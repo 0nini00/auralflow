@@ -16,7 +16,7 @@
 .af-page-kicker {
   display: inline-flex;
   margin-bottom: 8px;
-  color: var(--af-accent-primary);
+  color: var(--af-accent-strong);
   font-size: var(--af-font-size-xs);
   font-weight: 700;
   letter-spacing: 0.12em;
@@ -210,7 +210,7 @@
 .af-liked-card {
   background: rgba(var(--af-accent-primary-rgb), 0.12);
   border-color: rgba(var(--af-accent-primary-rgb), 0.28);
-  color: var(--af-accent-primary);
+  color: var(--af-accent-strong);
 }
 
 .af-liked-card:hover {
@@ -240,7 +240,7 @@
   border-radius: var(--af-radius-lg);
   overflow: hidden;
   background: rgba(var(--af-accent-primary-rgb), 0.1);
-  color: var(--af-accent-primary);
+  color: var(--af-accent-strong);
 }
 
 .af-quick-cover img {
@@ -256,7 +256,7 @@
 
 .af-history-cover {
   background: rgba(var(--af-accent-primary-rgb), 0.12);
-  color: var(--af-accent-primary);
+  color: var(--af-accent-strong);
 }
 
 .af-quick-content {
@@ -405,7 +405,7 @@ button.af-playlist-card {
 }
 
 .af-playlist-name:hover {
-  color: var(--af-accent-primary);
+  color: var(--af-accent-strong);
 }
 
 .af-playlist-count,
@@ -614,7 +614,7 @@ button.af-playlist-card {
 .af-form-group input:focus,
 .af-form-group textarea:focus {
   outline: none;
-  border-color: var(--af-accent-primary);
+  border-color: var(--af-accent-strong);
 }
 
 .af-form-group textarea {
@@ -636,7 +636,113 @@ button.af-playlist-card {
 }
 
 .af-playlist-detail-header {
+  position: relative;
+  overflow: hidden;
   margin-bottom: 32px;
+  padding: 28px 32px 32px;
+  border-radius: var(--af-radius-xl);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--af-accent-primary) 22%, #101513), #101513 72%);
+  isolation: isolate;
+}
+
+.af-playlist-detail-backdrop {
+  position: absolute;
+  inset: -12%;
+  z-index: -3;
+  width: 124%;
+  height: 124%;
+  object-fit: cover;
+  filter: blur(48px) saturate(1.15) brightness(0.5);
+  transform: scale(1.08);
+  pointer-events: none;
+}
+
+.af-playlist-detail-shade {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background:
+    linear-gradient(90deg, rgba(7, 11, 9, 0.9) 0%, rgba(7, 11, 9, 0.58) 55%, rgba(7, 11, 9, 0.22) 100%),
+    linear-gradient(0deg, rgba(7, 11, 9, 0.5) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+.af-playlist-detail-header > .af-back-btn,
+.af-playlist-detail-header .af-playlist-detail-info {
+  position: relative;
+  z-index: 1;
+}
+
+.af-playlist-detail-header > .af-back-btn {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(248, 250, 252, 0.82);
+}
+
+.af-playlist-detail-header > .af-back-btn:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+
+.af-playlist-detail-header .af-playlist-detail-cover {
+  border-radius: var(--af-radius-lg);
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.45);
+}
+
+.af-playlist-detail-header .af-playlist-detail-meta h1 {
+  color: #f8fafc;
+  font-size: clamp(32px, 3.4vw, 44px);
+  letter-spacing: -0.03em;
+  line-height: 1.12;
+}
+
+.af-playlist-detail-header .af-playlist-description,
+.af-playlist-detail-header .af-playlist-stats {
+  color: rgba(248, 250, 252, 0.72);
+}
+
+.af-playlist-detail-header .af-playlist-actions .af-btn-primary {
+  border-color: transparent;
+  background: #f8fafc;
+  color: #0f172a;
+  box-shadow: none;
+}
+
+.af-playlist-detail-header .af-playlist-actions .af-btn-primary:hover:not(:disabled) {
+  border-color: transparent;
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: none;
+}
+
+.af-playlist-detail-header .af-playlist-actions .af-btn-secondary {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.10);
+  color: #f8fafc;
+}
+
+.af-playlist-detail-header .af-playlist-actions .af-btn-secondary:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+}
+
+@media (max-width: 900px) {
+  .af-playlist-detail-header {
+    padding: 20px;
+  }
+
+  .af-playlist-detail-header .af-playlist-detail-info {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 20px;
+  }
+
+  .af-playlist-detail-header .af-playlist-detail-cover {
+    width: 180px;
+    height: 180px;
+  }
 }
 
 .af-back-btn {
@@ -889,7 +995,7 @@ button.af-playlist-card {
 }
 
 .af-action-btn.af-liked {
-  color: var(--af-accent-primary);
+  color: var(--af-accent-strong);
 }
 
 .af-action-btn-disabled {

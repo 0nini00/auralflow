@@ -1,6 +1,7 @@
 import { ArrowDown, ArrowUp, Bell, BellOff, ExternalLink, FlaskConical, RefreshCw, Trash2 } from "lucide-react";
 import type { SourcesSettingsModel } from "../useSettingsViewModel";
 import { openCustomSourceUpdateModal } from "@/components/CustomSourceUpdateModal";
+import { SettingRow } from "./SettingRow";
 
 export function SourcesSettingsSection({ model }: { model: SourcesSettingsModel }) {
   const {
@@ -34,25 +35,30 @@ export function SourcesSettingsSection({ model }: { model: SourcesSettingsModel 
 <section className="af-settings-section" id="sources">
   <h2 className="af-settings-section-title">音源</h2>
 
-  <div className="af-settings-group">
-    <label className="af-settings-checkbox-label" htmlFor="custom-source-feature-enabled">
+  <div className="af-settings-card">
+    <SettingRow
+      label="启用 LX 自定义音源"
+      hint="关闭后保留已导入的音源和设置；内置音源与本地播放不受影响。"
+    >
       <input
         id="custom-source-feature-enabled"
         type="checkbox"
+        className="af-switch"
+        role="switch"
+        aria-label="启用 LX 自定义音源"
         checked={featureEnabled}
         disabled={!featureReady || customSourceFeaturePending}
         onChange={(event) => { void handleCustomSourceFeatureChange(event.target.checked); }}
-        aria-describedby="custom-source-feature-hint"
       />
-      启用 LX 自定义音源
-    </label>
-    <p className="af-settings-hint" id="custom-source-feature-hint">
-      关闭后保留已导入的音源和设置；内置音源与本地播放不受影响。
-    </p>
-    {!featureReady && !customSourceFeatureError && <p className="af-settings-hint" role="status">正在恢复 LX 自定义音源设置...</p>}
-    {customSourceFeaturePending && <p className="af-settings-hint" role="status">正在保存 LX 自定义音源开关...</p>}
-    {customSourceFeatureError && <p className="af-settings-hint" role="alert">{customSourceFeatureError}</p>}
+    </SettingRow>
   </div>
+  <p className="af-settings-warning" role="note">
+    自定义音源脚本会在应用内执行，拥有与本应用相同的权限；只导入你信任的来源。
+    脚本也会随 WebDAV 同步以明文上传。
+  </p>
+  {!featureReady && !customSourceFeatureError && <p className="af-settings-hint" role="status">正在恢复 LX 自定义音源设置...</p>}
+  {customSourceFeaturePending && <p className="af-settings-hint" role="status">正在保存 LX 自定义音源开关...</p>}
+  {customSourceFeatureError && <p className="af-settings-hint" role="alert">{customSourceFeatureError}</p>}
 
   {featureReady && featureEnabled && (
     <>
@@ -81,23 +87,31 @@ export function SourcesSettingsSection({ model }: { model: SourcesSettingsModel 
           <RefreshCw size={14} />
           检查全部更新
         </button>
-        <button
-          type="button"
-          className={`af-settings-small-button af-custom-source-auto-check ${customSourceAutoCheck ? "af-active" : ""}`}
-          onClick={handleCustomSourceAutoCheckToggle}
-          aria-pressed={customSourceAutoCheck}
-          title={customSourceAutoCheck ? "关闭启动自动检测" : "开启启动自动检测"}
-        >
-          自动检测：{customSourceAutoCheck ? "开" : "关"}
-        </button>
       </div>
     )}
+    <label className="af-settings-label" htmlFor="custom-source-script-input">粘贴脚本</label>
     <textarea
+      id="custom-source-script-input"
       className="af-settings-textarea af-custom-source-textarea"
+      aria-label="粘贴 LX 自定义音源脚本"
+      placeholder="在此粘贴 LX Music 自定义音源脚本，或使用上方按钮导入文件"
       value={customScriptText}
       onChange={(e) => setCustomScriptText(e.target.value)}
     />
     {customSourceStatus && <p className="af-settings-hint">{customSourceStatus}</p>}
+  </div>
+
+  <div className="af-settings-card">
+    <SettingRow label="自动检测音源更新" hint="启动后自动检查已导入音源的远端脚本版本">
+      <input
+        type="checkbox"
+        className="af-switch"
+        role="switch"
+        aria-label="自动检测音源更新"
+        checked={customSourceAutoCheck}
+        onChange={() => handleCustomSourceAutoCheckToggle()}
+      />
+    </SettingRow>
   </div>
 
   <div className="af-settings-group">

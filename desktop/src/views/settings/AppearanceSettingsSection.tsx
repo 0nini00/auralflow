@@ -112,6 +112,7 @@ export function AppearanceSettingsSection({ model }: { model: AppearanceSettings
     appBackgroundImagePath,
     appBackgroundStatus,
     appBackgroundPreviewUrl,
+    appearanceStatus,
     handleAccentColorTextChange,
     handleAccentColorTextCommit,
     handleAccentColorTextCancel,
@@ -138,7 +139,7 @@ export function AppearanceSettingsSection({ model }: { model: AppearanceSettings
 
   const restoreAllAppearance = () => {
     resetAppearance();
-    if (!lyricFontIsDefault) handleImmersiveLyricFontFamilyChange(DEFAULT_LYRIC_FONT_FAMILY);
+    if (!lyricFontIsDefault) void handleImmersiveLyricFontFamilyChange(DEFAULT_LYRIC_FONT_FAMILY);
   };
 
   return (
@@ -420,7 +421,7 @@ export function AppearanceSettingsSection({ model }: { model: AppearanceSettings
         <select
           className="af-settings-select af-appearance-select"
           value={immersiveLyricFontFamily}
-          onChange={(event) => handleImmersiveLyricFontFamilyChange(event.target.value)}
+          onChange={(event) => { void handleImmersiveLyricFontFamilyChange(event.target.value); }}
           aria-label="歌词字体"
         >
           {IMMERSIVE_LYRIC_FONT_OPTIONS.map((option) => (
@@ -432,7 +433,7 @@ export function AppearanceSettingsSection({ model }: { model: AppearanceSettings
         <AppearanceResetButton
           label="歌词字体"
           disabled={lyricFontIsDefault}
-          onClick={() => handleImmersiveLyricFontFamilyChange(DEFAULT_LYRIC_FONT_FAMILY)}
+          onClick={() => { void handleImmersiveLyricFontFamilyChange(DEFAULT_LYRIC_FONT_FAMILY); }}
         />
       </SettingRow>
       <div
@@ -447,6 +448,7 @@ export function AppearanceSettingsSection({ model }: { model: AppearanceSettings
   </div>
 
   <div className="af-appearance-footer">
+    {appearanceStatus && <p className="af-settings-hint" role="status">{appearanceStatus}</p>}
     <button type="button" className="af-settings-button" onClick={restoreAllAppearance} disabled={appearanceIsDefault}>
       <RotateCcw size={14} />
       全部恢复默认

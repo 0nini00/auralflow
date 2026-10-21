@@ -134,6 +134,11 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_deep_link::init())
+        // 开机自启：Windows 走注册表，macOS 走 LaunchAgent。
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         // 应用内自更新（Tauri updater）。
         // 检查/下载/验签/静默安装全部在 Rust 侧完成，因此不受 capabilities 里
         // http:default 出站白名单的约束；前端只拿 downloadAndInstall 的进度事件。
@@ -190,13 +195,28 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // 关闭主窗口时最小化到托盘，而不是退出整个应用。
-            // 真正的退出走托盘菜单 → app.exit(0)。
-            if window.label() == "main" {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            use tauri::{Emitter, Manager};
+            if window.label() != "main" {
+                return;
+            }
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // 默认最小化到托盘；用户可以在设置里改成关闭即退出。
+                let close_to_tray = crate::config::load_settings(window.app_handle())
+                    .map(|settings| settings.close_to_tray)
+                    .unwrap_or(true);
+                if close_to_tray {
                     api.prevent_close();
                     let _ = window.hide();
+                    return;
                 }
+                // 退出前给前端 flush 的机会（收藏/歌单/历史是 debounce 写盘）。
+                api.prevent_close();
+                let _ = window.app_handle().emit("app-before-quit", ());
+                let handle = window.app_handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(700));
+                    handle.exit(0);
+                });
             }
         })
         .invoke_handler(tauri::generate_handler![

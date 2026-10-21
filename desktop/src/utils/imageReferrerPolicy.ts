@@ -46,12 +46,16 @@ export function coverSrc(src: string | null | undefined, cssSize: number): strin
 }
 
 /** 播放条封面（`.af-track-cover`）的 CSS 边长。 */
-export const PLAYER_COVER_CSS_SIZE = 56;
+export const PLAYER_COVER_CSS_SIZE = 64;
 /** 歌曲行缩略图（`.af-song-cover` 等）的 CSS 边长。 */
 export const ROW_COVER_CSS_SIZE = 40;
+/** 搜索结果行封面（`.af-result-cover`）的 CSS 边长。 */
+export const RESULT_COVER_CSS_SIZE = 64;
 /** 卡片 / 列表项封面（`.af-music-card-cover`）的 CSS 边长。 */
 export const CARD_COVER_CSS_SIZE = 150;
 /** 详情页封面（`.af-playlist-detail-cover` 等）的 CSS 边长。 */
 export const DETAIL_COVER_CSS_SIZE = 240;
+/** 首页主推 hero（`.af-home-featured`）的封面 CSS 边长；按整块宽度取最大档。 */
+export const HERO_COVER_CSS_SIZE = 800;
 /** 沉浸播放页封面（`.af-immersive-cover`）的 CSS 边长（最窄断点下为 128，按主尺寸取）。 */
 export const IMMERSIVE_COVER_CSS_SIZE = 240;

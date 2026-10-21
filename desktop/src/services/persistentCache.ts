@@ -142,6 +142,13 @@ export async function clearPersistentCache(): Promise<void> {
   resetPersistentCacheMemory();
 }
 
+/** 只清歌词缓存，保留播放 URL；音频/封面文件不在这里，由媒体缓存单独清理。 */
+export async function clearCachedLyrics(): Promise<void> {
+  const cache = await loadCache();
+  cache.lyrics = {};
+  await saveCache(cache);
+}
+
 export function normalizeQualityKey(quality: string): string {
   const trimmed = quality.trim().toLowerCase();
   if (trimmed === '999') return 'flac24bit';

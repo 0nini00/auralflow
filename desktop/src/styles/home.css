@@ -191,9 +191,152 @@
   min-height: 148px;
   padding: 24px 32px;
   border-radius: var(--af-radius-xl);
-  border: 1px solid var(--af-border-secondary);
+  border: 0;
   background: linear-gradient(135deg, rgba(var(--af-accent-primary-rgb), 0.14), var(--af-bg-surface));
-  box-shadow: var(--af-shadow-sm);
+  box-shadow: none;
+}
+
+/* 封面驱动的首页主推：模糊封面铺底 + 深色遮罩保证文字对比度，
+   右侧保留一张清晰封面。主推只承担“今天先听这张”的入口，不重复出现在下方网格。 */
+.af-home-featured {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 32px;
+  min-height: 320px;
+  padding: 36px 40px;
+  overflow: hidden;
+  border-radius: var(--af-radius-xl);
+  background: #101513;
+  isolation: isolate;
+}
+
+.af-home-featured-art {
+  position: absolute;
+  inset: -12%;
+  z-index: -3;
+  width: 124%;
+  height: 124%;
+  object-fit: cover;
+  filter: blur(48px) saturate(1.15) brightness(0.55);
+  transform: scale(1.08);
+  pointer-events: none;
+}
+
+.af-home-featured-shade {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background:
+    linear-gradient(90deg, rgba(7, 11, 9, 0.88) 0%, rgba(7, 11, 9, 0.62) 48%, rgba(7, 11, 9, 0.18) 100%),
+    linear-gradient(0deg, rgba(7, 11, 9, 0.5) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+.af-home-featured-copy {
+  position: relative;
+  z-index: 1;
+  max-width: 640px;
+  min-width: 0;
+}
+
+.af-home-featured-title {
+  margin: 10px 0 12px;
+  color: #f8fafc;
+  font-size: clamp(32px, 3.6vw, 46px);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.af-home-featured-meta {
+  color: rgba(248, 250, 252, 0.74);
+  font-size: var(--af-font-size-sm);
+}
+
+.af-home-featured-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 24px;
+}
+
+.af-home-featured .af-home-eyebrow {
+  color: rgba(248, 250, 252, 0.68);
+}
+
+.af-home-featured .af-home-primary-action {
+  border-color: transparent;
+  background: #f8fafc;
+  color: #0f172a;
+  box-shadow: none;
+}
+
+.af-home-featured .af-home-primary-action:hover:not(:disabled) {
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.af-home-featured .af-home-secondary-action {
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.10);
+  color: #f8fafc;
+  backdrop-filter: blur(8px);
+}
+
+.af-home-featured .af-home-secondary-action:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.34);
+}
+
+.af-home-featured-cover {
+  position: relative;
+  z-index: 1;
+  width: 240px;
+  height: 240px;
+  object-fit: cover;
+  border-radius: var(--af-radius-lg);
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.45);
+}
+
+/* 没有推荐数据时的兜底 hero：同样去掉描边与阴影，靠表面渐变分层。 */
+.af-home-hero .af-heading-1 {
+  font-size: clamp(32px, 3.2vw, 42px);
+  letter-spacing: -0.03em;
+}
+
+/* 首页卡片让封面承担视觉重量：去掉封面阴影，悬停只做轻微放大。 */
+.af-home-view .af-music-card-cover {
+  box-shadow: none;
+}
+
+.af-home-view .af-music-card-cover img {
+  transition: transform var(--af-transition-slow);
+}
+
+.af-home-view .af-music-card:hover .af-music-card-cover img {
+  transform: scale(1.035);
+}
+
+.af-home-view .af-discover-grid {
+  gap: 24px;
+}
+
+@media (max-width: 1100px) {
+  .af-home-featured {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 28px;
+  }
+
+  .af-home-featured-cover {
+    display: none;
+  }
 }
 
 /* 第三层遮罩：叠在已经半透明的 content 上，透过率是相乘的，取值要更薄 */
@@ -229,7 +372,7 @@
 .af-home-eyebrow {
   display: inline-flex;
   margin-bottom: 12px;
-  color: var(--af-accent-primary);
+  color: var(--af-accent-strong);
   font-size: var(--af-font-size-xs);
   font-weight: var(--af-font-weight-bold);
   letter-spacing: 0.08em;

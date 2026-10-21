@@ -1,26 +1,23 @@
 :root {
   color-scheme: light;
 
-  /* Background System - Clean & Minimal */
-  --af-bg-base: #f8f9fa;
-  --af-bg-page: #ffffff;
+  /* Background System - 暖白纸面，避免中性灰的“后台管理”感 */
+  --af-bg-base: #eef2ed;
+  --af-bg-page: #f8faf6;
   --af-bg-elevated: #ffffff;
-  --af-bg-surface: #f8f9fa;
-  --af-bg-surface-hover: #f1f3f5;
-  --af-bg-surface-pressed: #e9ecef;
-  --af-bg-overlay: rgba(0, 0, 0, 0.04);
+  --af-bg-surface: #f1f5ef;
+  --af-bg-surface-hover: #e7ede5;
+  --af-bg-surface-pressed: #dde5db;
+  --af-bg-overlay: rgba(16, 24, 20, 0.04);
   --af-bg-hover: var(--af-bg-surface-hover);
   --af-bg-secondary: var(--af-bg-surface);
 
-  /* Text System - High contrast for light mode */
-  --af-text-primary: #0f172a;
-  --af-text-secondary: #475569;
-  /* 4 级文字按「正文 ≥4.5:1」定值（WCAG AA，白底实测算得）：
-     tertiary 原来 #94a3b8 只有 2.56:1，49 处用它写时长/歌手/说明，是界面「灰蒙蒙」的主因；
-     抬到 #64748b 后 4.76:1（页面底 4.51）。quaternary #cbd5e1 只有 1.48，
-     降级为纯装饰灰（分隔、禁用态），不再用于正文。 */
-  --af-text-tertiary: #64748b;
-  --af-text-quaternary: #94a3b8;
+  /* Text System - 正文与辅助文字仍按 WCAG AA 定值 */
+  --af-text-primary: #111a15;
+  --af-text-secondary: #46574d;
+  /* tertiary 在白底约 4.9:1、页面底约 4.6:1；quaternary 只服务分隔与禁用态 */
+  --af-text-tertiary: #5f7368;
+  --af-text-quaternary: #98aaa0;
   /*
     强调色系变量（--af-accent-*、--af-border-focus、--af-text-on-accent）全部由
     themeStore.applyAppearance 在启动时写入，默认值只在那一边维护一份；
@@ -28,18 +25,30 @@
   */
   --af-accent-text: var(--af-text-on-accent);
 
-  /* Border System - Light mode clean borders */
-  --af-border-primary: #e2e8f0;
-  --af-border-secondary: #f1f5f9;
+  /* Border System - 低对比描边，只做结构提示 */
+  --af-border-primary: #d9e2da;
+  --af-border-secondary: #e8eee8;
   --af-border-accent: var(--af-accent-primary);
 
+  /* 环境光强度：大面板背后的强调色/封面光晕，暗色下更明显 */
+  --af-ambient-a: 0.06;
+  --af-ambient-b: 0.03;
+  /* 浅底上的强调色文字：直接使用亮强调色对比度不足，压深后再用于文字/图标 */
+  --af-accent-strong: color-mix(in srgb, var(--af-accent-primary) 58%, #111a15);
+
   /* Shadow System - Subtle depth */
-  /* 阴影只服务「浮在页面上」的东西（菜单、弹窗、拖拽层）。页面内的横条与卡片
-     一律不用阴影——它们靠 1px 描边与背景色区分就够了，叠阴影只会让每条边都在抢眼。 */
-  --af-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --af-shadow-md: 0 8px 24px rgba(15, 23, 42, 0.10);
-  --af-shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.14);
-  --af-shadow-xl: 0 24px 56px rgba(15, 23, 42, 0.18);
+  /* 阴影只服务「浮在页面上」的东西（主内容面板、播放条、菜单、弹窗、拖拽层）。
+     普通卡片默认靠表面色与间距分层，只在悬停时抬起。 */
+  --af-shadow-sm: 0 1px 2px rgba(16, 24, 20, 0.06);
+  --af-shadow-md: 0 12px 32px rgba(16, 24, 20, 0.10);
+  --af-shadow-lg: 0 24px 60px rgba(16, 24, 20, 0.14);
+  --af-shadow-xl: 0 32px 80px rgba(16, 24, 20, 0.18);
+
+  /* 浮层玻璃：只给菜单/弹层用。内容面板保持不透明——玻璃需要背后有东西可透，
+     高密度列表全量使用会牺牲可读性，也会重演 v0.7.10 之前「处处模糊」的问题。 */
+  --af-glass-bg: color-mix(in srgb, var(--af-bg-elevated) 84%, transparent);
+  --af-glass-border: color-mix(in srgb, var(--af-border-primary) 68%, transparent);
+  --af-glass-blur: blur(22px) saturate(150%);
 
   /* Feedback Colors - Light Mode */
   --af-success: #10b981;
@@ -51,8 +60,8 @@
   --af-warning: #f59e0b;
   --af-warning-bg: rgba(245, 158, 11, 0.1);
   /* Tooltip 用反色，保证浮在任何面板上都有足够对比度 */
-  --af-tooltip-bg: #1e293b;
-  --af-tooltip-text: #f8fafc;
+  --af-tooltip-bg: #16201b;
+  --af-tooltip-text: #f1f7f3;
   --af-info: #3b82f6;
   --af-info-bg: rgba(59, 130, 246, 0.1);
 }
@@ -60,36 +69,46 @@
 [data-theme="dark"] {
   color-scheme: dark;
 
-  /* Background System - Dark mode clean */
-  --af-bg-base: #0a0a0a;
-  --af-bg-page: #121212;
-  --af-bg-elevated: #1a1a1a;
-  --af-bg-surface: #1e1e1e;
-  --af-bg-surface-hover: #2a2a2a;
-  --af-bg-surface-pressed: #333333;
-  --af-bg-overlay: rgba(255, 255, 255, 0.04);
+  /* Background System - 墨绿夜色，比中性黑更接近“听歌的房间” */
+  --af-bg-base: #070c09;
+  --af-bg-page: #0c1310;
+  --af-bg-elevated: #121b16;
+  --af-bg-surface: #17221c;
+  --af-bg-surface-hover: #1e2c24;
+  --af-bg-surface-pressed: #26362c;
+  --af-bg-overlay: rgba(255, 255, 255, 0.05);
   --af-bg-hover: var(--af-bg-surface-hover);
   --af-bg-secondary: var(--af-bg-surface);
 
   /* Text System - Dark Mode high contrast */
-  --af-text-primary: #f8fafc;
-  --af-text-secondary: #cbd5e1;
-  /* 深色模式的 4 级文字同样按「正文 ≥4.5:1」定值：
-     tertiary #64748b 在 #1e1e1e 上只有 3.50，抬到 #8b95a5（5.51）；
-     quaternary #475569 只有 2.47，抬到 #64748b（3.50），仅用于分隔与装饰。 */
-  --af-text-tertiary: #8b95a5;
-  --af-text-quaternary: #64748b;
+  --af-text-primary: #f1f7f3;
+  --af-text-secondary: #c3d1c9;
+  /* tertiary 在 #17221c 上约 6.3:1；quaternary 约 3.2:1，仅用于分隔与装饰 */
+  --af-text-tertiary: #93a89c;
+  --af-text-quaternary: #63776b;
 
-  /* Border System - Dark mode borders */
-  --af-border-primary: #334155;
-  --af-border-secondary: #1e293b;
+  /* Border System - 深色下用带绿调的细描边 */
+  --af-border-primary: #2a3a31;
+  --af-border-secondary: #1c2922;
   --af-border-accent: var(--af-accent-primary);
 
+  /* 环境光在暗色下更强，作为大面板后的唯一装饰层 */
+  --af-ambient-a: 0.10;
+  --af-ambient-b: 0.05;
+  /* 暗底直接用亮强调色 */
+  --af-accent-strong: var(--af-accent-primary);
+
   /* Shadow System - Dark mode depth */
-  --af-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --af-shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5);
-  --af-shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.6);
-  --af-shadow-xl: 0 24px 56px rgba(0, 0, 0, 0.7);
+  --af-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --af-shadow-md: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --af-shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.55);
+  --af-shadow-xl: 0 32px 80px rgba(0, 0, 0, 0.65);
+
+  /* 浮层玻璃在暗色下必须重新声明：自定义属性在声明处完成 var() 替换，
+     只写在 :root 会一直沿用亮色算出的值。 */
+  --af-glass-bg: color-mix(in srgb, var(--af-bg-elevated) 84%, transparent);
+  --af-glass-border: color-mix(in srgb, var(--af-border-primary) 68%, transparent);
+  --af-glass-blur: blur(22px) saturate(150%);
 
   /* Feedback Colors - Dark Mode adjusted */
   --af-success: #34d399;
@@ -100,8 +119,8 @@
   --af-error-bg: rgba(248, 113, 113, 0.15);
   --af-warning: #fbbf24;
   --af-warning-bg: rgba(251, 191, 36, 0.15);
-  --af-tooltip-bg: #e2e8f0;
-  --af-tooltip-text: #0f172a;
+  --af-tooltip-bg: #e8eee8;
+  --af-tooltip-text: #111a15;
   --af-info: #60a5fa;
   --af-info-bg: rgba(96, 165, 250, 0.15);
 }

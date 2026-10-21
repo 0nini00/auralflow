@@ -73,6 +73,12 @@ export const logger = {
  *
  * 用 addEventListener 而不是赋 `window.onerror`：不覆盖别处可能已经挂上的处理函数。
  */
+function taggedCustomSourceName(reason: unknown): string {
+  if (typeof reason !== "object" || reason === null) return "";
+  const value = (reason as { customSourceName?: unknown }).customSourceName;
+  return typeof value === "string" ? value.trim() : "";
+}
+
 export function installGlobalErrorHandlers(): void {
   window.addEventListener("error", (event) => {
     // 资源加载失败（img/script）不带 error 对象，位置信息是唯一线索。
@@ -80,6 +86,15 @@ export function installGlobalErrorHandlers(): void {
     logger.error("[未捕获异常]", event.message || "资源加载失败", detail);
   });
   window.addEventListener("unhandledrejection", (event) => {
+    const sourceName = taggedCustomSourceName(event.reason);
+    if (sourceName) {
+      // 脚本自己的异步链没有 catch（常见于音源自带的更新检查）。请求错误已经在
+      // customSourceRuntime 里打了来源标签，这里只负责指认，不改变拒绝本身。
+      // 阻止 WebView 再打一条无来源的 "Uncaught (in promise)"；带堆栈的 warn 仍然保留。
+      event.preventDefault();
+      logger.warn(`[自定义音源: ${sourceName}] 脚本未处理的 Promise 拒绝`, event.reason);
+      return;
+    }
     logger.error("[未处理的 Promise 拒绝]", event.reason);
   });
 }

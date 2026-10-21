@@ -1,138 +1,127 @@
 import { useEffect, useState } from "react";
-import { loadSettings, openLogDir, patchSettings } from "@lx/tauri-bridge";
+import { loadSettings, patchSettings } from "@lx/tauri-bridge";
+import {
+  disableAutostart,
+  enableAutostart,
+  isAutostartEnabled,
+} from "@/services/autostartService";
 import { SettingRow } from "./SettingRow";
-import { setPlaybackFailedAutoNext } from "../../stores/playerStore";
-import { logger } from "@/services/logger";
-import { checkForUpdate } from "@/services/updateService";
-import { useUpdateStore } from "../../stores/updateStore";
 
 export function MiscSettingsSection() {
   const [cursorEffect, setCursorEffect] = useState<"off" | "trail">("off");
-  const [autoNextOnFailed, setAutoNextOnFailed] = useState(false);
   const [followSystemMediaControl, setFollowSystemMediaControl] = useState(true);
   const [taskbarThumbnails, setTaskbarThumbnails] = useState(true);
-  const [updateStatus, setUpdateStatus] = useState("");
+  const [closeToTray, setCloseToTray] = useState(true);
+  const [startMinimized, setStartMinimized] = useState(false);
+  const [autostart, setAutostart] = useState(false);
+  const [status, setStatus] = useState("");
+  // 开发模式注册的是 target/debug 下的调试程序，不能把开发构建写进开机启动项。
+  const autostartAvailable = !import.meta.env.DEV;
 
   useEffect(() => {
     loadSettings()
-      .then((s) => {
-        setCursorEffect(s.cursorEffect === "trail" ? "trail" : "off");
-        setAutoNextOnFailed(s.playbackFailedAutoNext === true);
-        setFollowSystemMediaControl(s.followSystemMediaControl !== false);
-        setTaskbarThumbnails(s.taskbarThumbnails !== false);
+      .then((settings) => {
+        setCursorEffect(settings.cursorEffect === "trail" ? "trail" : "off");
+        setFollowSystemMediaControl(settings.followSystemMediaControl !== false);
+        setTaskbarThumbnails(settings.taskbarThumbnails !== false);
+        setCloseToTray(settings.closeToTray !== false);
+        setStartMinimized(settings.startMinimized === true);
       })
       .catch((error) => {
-        setUpdateStatus(`读取设置失败：${error instanceof Error ? error.message : String(error)}`);
+        setStatus(`读取设置失败：${error instanceof Error ? error.message : String(error)}`);
       });
-  }, []);
+    if (autostartAvailable) {
+      isAutostartEnabled().then(setAutostart).catch(() => undefined);
+    }
+  }, [autostartAvailable]);
+
+  const saveBoolean = async (key: string, value: boolean, errorText: string): Promise<boolean> => {
+    setStatus("");
+    try {
+      await patchSettings({ [key]: value });
+      return true;
+    } catch (error) {
+      setStatus(`${errorText}：${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    }
+  };
 
   const handleCursorChange = async (mode: "off" | "trail") => {
-    const previousMode = cursorEffect;
+    const previous = cursorEffect;
     setCursorEffect(mode);
-    setUpdateStatus("");
+    setStatus("");
     try {
       await patchSettings({ cursorEffect: mode });
       window.dispatchEvent(new Event("af-cursor-change"));
     } catch (error) {
-      setCursorEffect(previousMode);
-      setUpdateStatus(`保存鼠标特效失败：${error instanceof Error ? error.message : String(error)}`);
-    }
-  };
-
-  const handleAutoNextChange = async (enabled: boolean) => {
-    const previous = autoNextOnFailed;
-    setAutoNextOnFailed(enabled);
-    setPlaybackFailedAutoNext(enabled);
-    setUpdateStatus("");
-    try {
-      await patchSettings({ playbackFailedAutoNext: enabled });
-    } catch (error) {
-      setAutoNextOnFailed(previous);
-      setPlaybackFailedAutoNext(previous);
-      setUpdateStatus(`保存播放失败设置失败：${error instanceof Error ? error.message : String(error)}`);
+      setCursorEffect(previous);
+      setStatus(`保存鼠标特效失败：${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
   const handleFollowSystemMediaControlChange = async (enabled: boolean) => {
     const previous = followSystemMediaControl;
     setFollowSystemMediaControl(enabled);
-    setUpdateStatus("");
-    try {
-      await patchSettings({ followSystemMediaControl: enabled });
-      // 通知 smtcService 重新读设置并启用 / 释放系统媒体控制会话
-      window.dispatchEvent(new Event("af-smtc-change"));
-    } catch (error) {
+    if (!(await saveBoolean("followSystemMediaControl", enabled, "保存系统媒体控制设置失败"))) {
       setFollowSystemMediaControl(previous);
-      setUpdateStatus(
-        `保存系统媒体控制设置失败：${error instanceof Error ? error.message : String(error)}`,
-      );
+      return;
     }
+    window.dispatchEvent(new Event("af-smtc-change"));
   };
 
   const handleTaskbarThumbnailsChange = async (enabled: boolean) => {
     const previous = taskbarThumbnails;
     setTaskbarThumbnails(enabled);
-    setUpdateStatus("");
-    try {
-      await patchSettings({ taskbarThumbnails: enabled });
-      // 通知 taskbarService 重新读设置并启用 / 卸载任务栏缩略图钩子
-      window.dispatchEvent(new Event("af-taskbar-change"));
-    } catch (error) {
+    if (!(await saveBoolean("taskbarThumbnails", enabled, "保存任务栏缩略图设置失败"))) {
       setTaskbarThumbnails(previous);
-      setUpdateStatus(
-        `保存任务栏缩略图设置失败：${error instanceof Error ? error.message : String(error)}`,
-      );
+      return;
+    }
+    window.dispatchEvent(new Event("af-taskbar-change"));
+  };
+
+  const handleCloseToTrayChange = async (enabled: boolean) => {
+    const previous = closeToTray;
+    setCloseToTray(enabled);
+    if (!(await saveBoolean("closeToTray", enabled, "保存关闭行为失败"))) {
+      setCloseToTray(previous);
     }
   };
 
-  const handleCheckUpdate = async () => {
-    setUpdateStatus("检查中…");
-    try {
-      const result = await checkForUpdate();
-      if (result.kind === "available") {
-        setUpdateStatus(`发现新版本 ${result.latestVersion}（当前 ${result.currentVersion}）`);
-        // 手动检查发现新版本就直接把弹窗打开，省得用户再去别处找入口
-        useUpdateStore.getState().setAvailable(result);
-      } else if (result.kind === "latest") {
-        setUpdateStatus(`已是最新版本（当前 ${result.currentVersion || "未知"}）`);
-      } else {
-        setUpdateStatus(`检查更新失败：${result.reason}`);
-      }
-    } catch (error) {
-      // checkForUpdate 契约上不抛错；留着兜底是为了将来改动不会把设置页整块打崩
-      setUpdateStatus(error instanceof Error ? error.message : String(error));
+  const handleStartMinimizedChange = async (enabled: boolean) => {
+    const previous = startMinimized;
+    setStartMinimized(enabled);
+    if (!(await saveBoolean("startMinimized", enabled, "保存启动行为失败"))) {
+      setStartMinimized(previous);
     }
   };
 
-  const handleOpenLogDir = async () => {
+  const handleAutostartChange = async (enabled: boolean) => {
+    if (!autostartAvailable) return;
+    const previous = autostart;
+    setAutostart(enabled);
+    setStatus("");
     try {
-      await openLogDir();
+      if (enabled) await enableAutostart();
+      else await disableAutostart();
     } catch (error) {
-      // 打开目录失败只记日志：日志是诊断设施，不该为它弹错误框打断用户
-      logger.warn("[设置] 打开日志目录失败", error);
+      setAutostart(previous);
+      setStatus(`设置开机自启失败：${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
   return (
     <section className="af-settings-section" id="misc">
       <h2 className="af-settings-section-title">其他</h2>
+
       <div className="af-settings-card">
         <SettingRow label="鼠标拖尾特效" hint="跟随鼠标的衰减圆点，纯装饰">
           <input
             type="checkbox"
             className="af-switch"
             role="switch"
+            aria-label="鼠标拖尾特效"
             checked={cursorEffect === "trail"}
-            onChange={(e) => handleCursorChange(e.target.checked ? "trail" : "off")}
-          />
-        </SettingRow>
-        <SettingRow label="播放失败自动下一首" hint="开启后，播放中出错会自动跳下一首；私人 FM 始终连播">
-          <input
-            type="checkbox"
-            className="af-switch"
-            role="switch"
-            checked={autoNextOnFailed}
-            onChange={(e) => void handleAutoNextChange(e.target.checked)}
+            onChange={(e) => { void handleCursorChange(e.target.checked ? "trail" : "off"); }}
           />
         </SettingRow>
         <SettingRow
@@ -143,8 +132,9 @@ export function MiscSettingsSection() {
             type="checkbox"
             className="af-switch"
             role="switch"
+            aria-label="跟随系统媒体控制"
             checked={followSystemMediaControl}
-            onChange={(e) => void handleFollowSystemMediaControlChange(e.target.checked)}
+            onChange={(e) => { void handleFollowSystemMediaControlChange(e.target.checked); }}
           />
         </SettingRow>
         <SettingRow
@@ -155,26 +145,54 @@ export function MiscSettingsSection() {
             type="checkbox"
             className="af-switch"
             role="switch"
+            aria-label="任务栏缩略图按钮"
             checked={taskbarThumbnails}
-            onChange={(e) => void handleTaskbarThumbnailsChange(e.target.checked)}
+            onChange={(e) => { void handleTaskbarThumbnailsChange(e.target.checked); }}
           />
         </SettingRow>
-        <SettingRow label="软件更新" hint={updateStatus || "检查 AuralFlow 新版本"}>
-          <button type="button" className="af-settings-small-button" onClick={handleCheckUpdate}>检查更新</button>
+      </div>
+
+      <h3 className="af-settings-subsection-title">窗口与启动</h3>
+      <div className="af-settings-card">
+        <SettingRow label="关闭时最小化到托盘" hint="关闭主窗口后继续在托盘运行；关闭此项则关闭窗口即退出应用">
+          <input
+            type="checkbox"
+            className="af-switch"
+            role="switch"
+            aria-label="关闭时最小化到托盘"
+            checked={closeToTray}
+            onChange={(e) => { void handleCloseToTrayChange(e.target.checked); }}
+          />
+        </SettingRow>
+        <SettingRow label="启动时最小化" hint="启动时不显示主窗口，只保留托盘图标">
+          <input
+            type="checkbox"
+            className="af-switch"
+            role="switch"
+            aria-label="启动时最小化"
+            checked={startMinimized}
+            onChange={(e) => { void handleStartMinimizedChange(e.target.checked); }}
+          />
         </SettingRow>
         <SettingRow
-          label="运行日志"
-          hint="落盘到本地 logs 目录（单文件 2 MiB、保留 3 份），排查问题时可取用"
+          label="开机自启"
+          hint={autostartAvailable
+            ? "登录 Windows 后自动启动 AuralFlow（仍受上面的启动时最小化设置影响）"
+            : "开发模式下不可用，打包安装后生效"}
         >
-          <button
-            type="button"
-            className="af-settings-small-button"
-            onClick={() => void handleOpenLogDir()}
-          >
-            打开日志目录
-          </button>
+          <input
+            type="checkbox"
+            className="af-switch"
+            role="switch"
+            aria-label="开机自启"
+            checked={autostart}
+            disabled={!autostartAvailable}
+            onChange={(e) => { void handleAutostartChange(e.target.checked); }}
+          />
         </SettingRow>
       </div>
+
+      {status && <p className="af-settings-hint" role="status">{status}</p>}
     </section>
   );
 }

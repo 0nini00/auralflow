@@ -32,7 +32,8 @@ export interface AppearanceSettings {
 }
 
 export const APPEARANCE_DEFAULTS: AppearanceSettings = {
-  theme: "auto",
+  // 深色是音乐播放器的第一印象；想跟随系统仍在设置里选「自动」。
+  theme: "dark",
   accentColor: "#3bd877",
   artworkAmbienceEnabled: true,
   artworkAmbienceIntensity: 100,
@@ -159,7 +160,12 @@ const applyAccentColor = (color: string, effectiveTheme: EffectiveTheme) => {
   root.style.setProperty("--af-accent-hover", hover);
   root.style.setProperty("--af-accent-gradient", `linear-gradient(135deg, ${normalizedAccent} 0%, ${secondary} 100%)`);
   root.style.setProperty("--af-accent-gradient-hover", `linear-gradient(135deg, ${hover} 0%, ${normalizedAccent} 100%)`);
-  root.style.setProperty("--af-border-focus", `rgba(${red}, ${green}, ${blue}, ${effectiveTheme === "dark" ? 0.5 : 0.4})`);
+  // 焦点环用实色而不是低透明强调色：强调色本身可能偏亮，50% 透明度在浅底上
+  // 只有约 1.3:1，达不到 WCAG 对焦点指示的 3:1。亮色下压深、暗色下提亮。
+  const focusColor = effectiveTheme === "dark"
+    ? mixColor(normalizedAccent, [255, 255, 255], 0.28)
+    : mixColor(normalizedAccent, [17, 26, 21], 0.32);
+  root.style.setProperty("--af-border-focus", focusColor);
   // 旧 token --af-accent-text 在 theme.css 里指向这个变量，两个名字共用一个值
   root.style.setProperty("--af-text-on-accent", pickOnAccentText(rgb));
 };
@@ -274,7 +280,11 @@ export const useThemeStore = create<ThemeStore>()(
 
       return {
         ...APPEARANCE_DEFAULTS,
-        effectiveTheme: getSystemTheme(),
+        // 首次启动（没有存档）也要按默认主题算，不能直接读系统主题，
+        // 否则默认 dark 会被系统的 light 覆盖。
+        effectiveTheme: APPEARANCE_DEFAULTS.theme === "auto"
+          ? getSystemTheme()
+          : APPEARANCE_DEFAULTS.theme,
 
         setTheme: (theme) => {
           get().patchAppearance({ theme });
@@ -306,6 +316,16 @@ export const useThemeStore = create<ThemeStore>()(
     },
     {
       name: "af-theme",
+      version: 2,
+      migrate: (persistedState, version) => {
+        const raw = asRecord(persistedState);
+        // v2：默认主题从「跟随系统」改为深色。旧存档没有版本号，
+        // 只有当时停在 auto 的会迁移一次；之后用户再选 auto 会按 v2 正常保留。
+        if (version < 2 && raw.theme === "auto") {
+          return normalizeAppearance({ ...raw, theme: "dark" });
+        }
+        return normalizeAppearance(persistedState);
+      },
       partialize: (state) => normalizeAppearance(state),
       merge: (persistedState, currentState) => ({
         ...currentState,

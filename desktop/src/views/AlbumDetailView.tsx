@@ -128,7 +128,7 @@ export function AlbumDetailView() {
                 <button
                   type="button"
                   onClick={(e) => { e.preventDefault(); navigate(`/artist/${info.artistId}`); }}
-                  style={{ color: "var(--af-accent-primary)", background: "none", border: "none", padding: 0, cursor: "pointer" }}
+                  style={{ color: "var(--af-accent-strong)", background: "none", border: "none", padding: 0, cursor: "pointer" }}
                 >
                   {info.artist}
                 </button>
@@ -164,7 +164,7 @@ export function AlbumDetailView() {
                   style={{
                     background: "none",
                     border: "none",
-                    color: "var(--af-accent-primary)",
+                    color: "var(--af-accent-strong)",
                     fontSize: 13,
                     padding: "4px 0",
                     cursor: "pointer",

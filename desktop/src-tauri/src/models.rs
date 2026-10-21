@@ -125,6 +125,12 @@ pub struct AppSettings {
     /// 自定义音源：启动后自动检测更新
     #[serde(default = "default_true")]
     pub custom_source_auto_check: bool,
+    /// 关闭主窗口时最小化到托盘（false = 直接退出应用）
+    #[serde(default = "default_true")]
+    pub close_to_tray: bool,
+    /// 启动时不显示主窗口，只保留托盘
+    #[serde(default)]
+    pub start_minimized: bool,
 }
 
 impl Default for AppSettings {
@@ -186,6 +192,8 @@ impl Default for AppSettings {
             webdav_password: None,
             webdav_auto_sync_playlists: false,
             custom_source_auto_check: true,
+            close_to_tray: true,
+            start_minimized: false,
         }
     }
 }

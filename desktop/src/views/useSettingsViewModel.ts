@@ -14,7 +14,10 @@ import { useCustomSourceStore } from "@/stores/customSourceStore";
 import { broadcastLyricSettings } from "@/stores/lyricSettingsSync";
 import { playerEngine } from "@/services/playerEngine";
 import { normalizePauseOnExternalPlayback } from "@/services/mediaInterruptionPolicy";
-import { clearPersistentCache } from "@/services/persistentCache";
+import { clearPersistentCache, clearCachedLyrics } from "@/services/persistentCache";
+import { clearLyricsBrowserCache } from "@/hooks/useLyrics";
+import { clearLyricsMemoryCache } from "@/services/lyricsService";
+import { setPlaybackFailedAutoNext as applyPlaybackFailedAutoNext } from "@/stores/playerStore";
 import { clearPlaybackPrefetchCache } from "@/services/playback/prefetchService";
 import { notifyAppBackgroundChanged, toAppBackgroundImageUrl } from "@/services/appBackground";
 
@@ -104,6 +107,9 @@ const normalizeQualityValue = (value: string) => {
 // 播放设置
 const [defaultQuality, setDefaultQuality] = useState("320k");
 const [pauseOnExternalPlayback, setPauseOnExternalPlayback] = useState(true);
+const [playbackFailedAutoNext, setPlaybackFailedAutoNext] = useState(false);
+const [playbackSettingsStatus, setPlaybackSettingsStatus] = useState("");
+const [appearanceStatus, setAppearanceStatus] = useState("");
 const [customScriptText, setCustomScriptText] = useState("");
 const [customSourceStatus, setCustomSourceStatus] = useState("");
 const [customSourceFeaturePending, setCustomSourceFeaturePending] = useState(false);
@@ -143,6 +149,9 @@ useEffect(() => {
     const nextPauseOnExternalPlayback = normalizePauseOnExternalPlayback(settings.pauseOnExternalPlayback);
     setPauseOnExternalPlayback(nextPauseOnExternalPlayback);
     playerEngine.setPauseOnExternalPlayback(nextPauseOnExternalPlayback);
+    const nextAutoNext = settings.playbackFailedAutoNext === true;
+    setPlaybackFailedAutoNext(nextAutoNext);
+    applyPlaybackFailedAutoNext(nextAutoNext);
     setCustomSourceAutoCheck(settings.customSourceAutoCheck !== false);
     setAppBackgroundImagePath(settings.appBackgroundImagePath ?? "");
     setImmersiveLyricFontFamily(settings.immersiveLyricFontFamily || DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
@@ -217,21 +226,40 @@ const handleClearAppBackground = async () => {
   }
 };
 
-const patchPlaybackSetting = (patch: Record<string, unknown>) => {
-  patchSettings(patch).catch((error) => {
-    console.error("保存播放设置失败", error);
-  });
+const patchPlaybackSetting = async (patch: Record<string, unknown>): Promise<boolean> => {
+  setPlaybackSettingsStatus("");
+  try {
+    await patchSettings(patch);
+    return true;
+  } catch (error) {
+    setPlaybackSettingsStatus(`保存失败：${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  }
+};
+
+const handleDefaultQualityChange = async (quality: string) => {
+  const previous = defaultQuality;
+  setDefaultQuality(quality);
+  if (!(await patchPlaybackSetting({ defaultQuality: quality }))) setDefaultQuality(previous);
 };
 
 const handlePauseOnExternalPlaybackChange = async (next: boolean) => {
   const previous = pauseOnExternalPlayback;
   setPauseOnExternalPlayback(next);
   playerEngine.setPauseOnExternalPlayback(next);
-  try {
-    await patchSettings({ pauseOnExternalPlayback: next });
-  } catch (error) {
+  if (!(await patchPlaybackSetting({ pauseOnExternalPlayback: next }))) {
     setPauseOnExternalPlayback(previous);
     playerEngine.setPauseOnExternalPlayback(previous);
+  }
+};
+
+const handlePlaybackFailedAutoNextChange = async (enabled: boolean) => {
+  const previous = playbackFailedAutoNext;
+  setPlaybackFailedAutoNext(enabled);
+  applyPlaybackFailedAutoNext(enabled);
+  if (!(await patchPlaybackSetting({ playbackFailedAutoNext: enabled }))) {
+    setPlaybackFailedAutoNext(previous);
+    applyPlaybackFailedAutoNext(previous);
   }
 };
 
@@ -250,23 +278,25 @@ const handleCustomSourceFeatureChange = async (enabled: boolean) => {
 const handleCustomSourceAutoCheckToggle = () => {
   const next = !customSourceAutoCheck;
   setCustomSourceAutoCheck(next);
-  patchSettings({ customSourceAutoCheck: next }).catch(() => {
+  setCustomSourceStatus("");
+  patchSettings({ customSourceAutoCheck: next }).catch((error) => {
     setCustomSourceAutoCheck(!next);
+    setCustomSourceStatus(`保存自动检测开关失败：${error instanceof Error ? error.message : String(error)}`);
   });
 };
 
-const patchImmersiveLyricStyle = (patch: {
-  immersiveLyricFontFamily?: string;
-}) => {
-  broadcastLyricSettings(patch);
-  patchSettings(patch).catch((error) => {
-    console.error("保存沉浸式歌词设置失败", error);
-  });
-};
-
-const handleImmersiveLyricFontFamilyChange = (next: string) => {
+const handleImmersiveLyricFontFamilyChange = async (next: string) => {
+  const previous = immersiveLyricFontFamily;
   setImmersiveLyricFontFamily(next);
-  patchImmersiveLyricStyle({ immersiveLyricFontFamily: next });
+  setAppearanceStatus("");
+  try {
+    broadcastLyricSettings({ immersiveLyricFontFamily: next });
+    await patchSettings({ immersiveLyricFontFamily: next });
+  } catch (error) {
+    setImmersiveLyricFontFamily(previous);
+    broadcastLyricSettings({ immersiveLyricFontFamily: previous });
+    setAppearanceStatus(`保存歌词字体失败：${error instanceof Error ? error.message : String(error)}`);
+  }
 };
 
 const handleImportCustomSourceFile = async () => {
@@ -291,18 +321,50 @@ const handleImportCustomSourceText = async () => {
   }
 };
 
-const handleClearHistoryAndCache = async () => {
-  if (!confirm('确定清空播放历史与缓存？\n\n清空历史、播放链接、歌词、音频和封面。')) return;
+const handleClearPlaybackHistory = async () => {
+  if (!confirm('确定清空播放历史？\n\n不会删除收藏、歌单或缓存。')) return;
   setDataStatus("清理中...");
   setDataPending(true);
   try {
     await libraryReset("recent");
     useHistoryStore.getState().replaceAll([]);
+    setDataStatus("已清空播放历史。");
+  } catch (err) {
+    setDataStatus(`清理失败：${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    setDataPending(false);
+  }
+};
+
+const handleClearAllCache = async () => {
+  if (!confirm('确定清空全部缓存？\n\n播放链接、歌词、音频和封面都会删除，不影响歌单、收藏和历史。')) return;
+  setDataStatus("清理中...");
+  setDataPending(true);
+  try {
     await clearPersistentCache();
+    clearLyricsMemoryCache();
+    clearLyricsBrowserCache();
     clearPlaybackPrefetchCache();
     const stats = await clearSongCache();
     setSongCacheStats(stats);
-    setDataStatus("已清空播放历史与缓存。");
+    setDataStatus("已清空全部缓存。");
+  } catch (err) {
+    setDataStatus(`清理失败：${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    setDataPending(false);
+  }
+};
+
+const handleClearLyricsCache = async () => {
+  if (!confirm('确定清空歌词缓存？\n\n下次播放会重新获取歌词，不影响音频和封面缓存。')) return;
+  setDataStatus("清理中...");
+  setDataPending(true);
+  try {
+    await clearCachedLyrics();
+    clearLyricsMemoryCache();
+    clearLyricsBrowserCache();
+    await refreshSongCacheStats();
+    setDataStatus("已清空歌词缓存。");
   } catch (err) {
     setDataStatus(`清理失败：${err instanceof Error ? err.message : String(err)}`);
   } finally {
@@ -358,10 +420,15 @@ const getCapabilityTitle = (source: typeof customSources[number]) => {
     setAppBackgroundImagePath,
     appBackgroundStatus,
     appBackgroundPreviewUrl,
+    appearanceStatus,
     defaultQuality,
     setDefaultQuality,
     pauseOnExternalPlayback,
     setPauseOnExternalPlayback,
+    playbackFailedAutoNext,
+    playbackSettingsStatus,
+    handleDefaultQualityChange,
+    handlePlaybackFailedAutoNextChange,
     featureEnabled,
     featureReady,
     customSourceFeaturePending,
@@ -396,14 +463,14 @@ const getCapabilityTitle = (source: typeof customSources[number]) => {
     handleAccentColorTextCancel,
     handleSelectAppBackground,
     handleClearAppBackground,
-    patchPlaybackSetting,
     handlePauseOnExternalPlaybackChange,
     handleCustomSourceAutoCheckToggle,
-    patchImmersiveLyricStyle,
     handleImmersiveLyricFontFamilyChange,
     handleImportCustomSourceFile,
     handleImportCustomSourceText,
-    handleClearHistoryAndCache,
+    handleClearPlaybackHistory,
+    handleClearAllCache,
+    handleClearLyricsCache,
     getUpdateStatusMessage,
     getTestStatusMessage,
     getVersionLabel,
@@ -435,6 +502,7 @@ export type AppearanceSettingsModel = Pick<SettingsViewModel,
   | "appBackgroundImagePath"
   | "appBackgroundStatus"
   | "appBackgroundPreviewUrl"
+  | "appearanceStatus"
   | "handleAccentColorTextChange"
   | "handleAccentColorTextCommit"
   | "handleAccentColorTextCancel"
@@ -446,10 +514,12 @@ export type AppearanceSettingsModel = Pick<SettingsViewModel,
 
 export type PlaybackSettingsModel = Pick<SettingsViewModel,
   | "defaultQuality"
-  | "setDefaultQuality"
+  | "handleDefaultQualityChange"
   | "pauseOnExternalPlayback"
-  | "patchPlaybackSetting"
   | "handlePauseOnExternalPlaybackChange"
+  | "playbackFailedAutoNext"
+  | "handlePlaybackFailedAutoNextChange"
+  | "playbackSettingsStatus"
 >;
 
 export type SourcesSettingsModel = Pick<SettingsViewModel,
@@ -483,5 +553,7 @@ export type DataSettingsModel = Pick<SettingsViewModel,
   | "songCacheStats"
   | "dataPending"
   | "dataStatus"
-  | "handleClearHistoryAndCache"
+  | "handleClearPlaybackHistory"
+  | "handleClearAllCache"
+  | "handleClearLyricsCache"
 >;

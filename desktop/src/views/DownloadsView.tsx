@@ -308,7 +308,7 @@ export function DownloadsView() {
 
         .af-status-completed {
 
-          color: var(--af-accent-primary);
+          color: var(--af-accent-strong);
 
         }
 

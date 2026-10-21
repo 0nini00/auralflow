@@ -10,7 +10,7 @@ import { VariantPickerButton } from "@/components/VariantPickerButton";
 import { DownloadQualityButton } from "@/components/DownloadQualityButton";
 import { formatDuration } from "@/lib/utils";
 import { formatPlaylistSearchMeta } from "@/services/neteasePlaylistUtils";
-import { ROW_COVER_CSS_SIZE, coverSrc } from "@/utils/imageReferrerPolicy";
+import { RESULT_COVER_CSS_SIZE, coverSrc } from "@/utils/imageReferrerPolicy";
 import { buildImportedPlaylistMarker } from "@/utils/shared";
 import { buildPlaylistDetailPath } from "@/utils/playlistRoute";
 import {
@@ -665,7 +665,7 @@ export function SearchView() {
               >
                 <span className="af-result-index"><User size={16} /></span>
                 <div className="af-result-cover">
-                  {overviewArtist.picUrl ? <img src={coverSrc(overviewArtist.picUrl, ROW_COVER_CSS_SIZE)} alt="" /> : <div className="af-cover-placeholder" />}
+                  {overviewArtist.picUrl ? <img src={coverSrc(overviewArtist.picUrl, RESULT_COVER_CSS_SIZE)} alt="" /> : <div className="af-cover-placeholder" />}
                 </div>
                 <div className="af-result-info">
                   <div className="af-result-kicker">歌手</div>
@@ -690,7 +690,7 @@ export function SearchView() {
               >
                 <span className="af-result-index"><Disc3 size={16} /></span>
                 <div className="af-result-cover">
-                  {overviewAlbum.picUrl ? <img src={coverSrc(overviewAlbum.picUrl, ROW_COVER_CSS_SIZE)} alt="" /> : <div className="af-cover-placeholder" />}
+                  {overviewAlbum.picUrl ? <img src={coverSrc(overviewAlbum.picUrl, RESULT_COVER_CSS_SIZE)} alt="" /> : <div className="af-cover-placeholder" />}
                 </div>
                 <div className="af-result-info">
                   <div className="af-result-kicker">新专辑</div>
@@ -738,7 +738,7 @@ export function SearchView() {
                   >
                     <span className="af-result-index"><Music2 size={16} /></span>
                     <div className="af-result-cover">
-                      {overviewPlaylist.picUrl ? <img src={coverSrc(overviewPlaylist.picUrl, ROW_COVER_CSS_SIZE)} alt="" /> : <div className="af-cover-placeholder" />}
+                      {overviewPlaylist.picUrl ? <img src={coverSrc(overviewPlaylist.picUrl, RESULT_COVER_CSS_SIZE)} alt="" /> : <div className="af-cover-placeholder" />}
                     </div>
                     <div className="af-result-info">
                       <div className="af-result-kicker">歌单</div>
@@ -790,7 +790,7 @@ export function SearchView() {
             >
               <span className="af-result-index"><User size={16} /></span>
               <div className="af-result-cover">
-                {artist.picUrl ? <img src={coverSrc(artist.picUrl, ROW_COVER_CSS_SIZE)} alt="" /> : <div className="af-cover-placeholder" />}
+                {artist.picUrl ? <img src={coverSrc(artist.picUrl, RESULT_COVER_CSS_SIZE)} alt="" /> : <div className="af-cover-placeholder" />}
               </div>
               <div className="af-result-info">
                 <div className="af-result-title" title={artist.name}>{artist.name}</div>
@@ -832,7 +832,7 @@ export function SearchView() {
               >
                 <span className="af-result-index"><Disc3 size={16} /></span>
                 <div className="af-result-cover">
-                  {album.picUrl ? <img src={coverSrc(album.picUrl, ROW_COVER_CSS_SIZE)} alt="" /> : <div className="af-cover-placeholder" />}
+                  {album.picUrl ? <img src={coverSrc(album.picUrl, RESULT_COVER_CSS_SIZE)} alt="" /> : <div className="af-cover-placeholder" />}
                 </div>
                 <div className="af-result-info">
                   <div className="af-result-title" title={album.name}>{album.name}</div>
@@ -888,7 +888,7 @@ export function SearchView() {
                   >
                     <span className="af-result-index"><Music2 size={16} /></span>
                     <div className="af-result-cover">
-                      {playlist.picUrl ? <img src={coverSrc(playlist.picUrl, ROW_COVER_CSS_SIZE)} alt="" /> : <div className="af-cover-placeholder" />}
+                      {playlist.picUrl ? <img src={coverSrc(playlist.picUrl, RESULT_COVER_CSS_SIZE)} alt="" /> : <div className="af-cover-placeholder" />}
                     </div>
                     <div className="af-result-info">
                       <div className="af-result-title" title={playlist.name}>{playlist.name}</div>
@@ -958,7 +958,7 @@ export function SearchView() {
                 <span className="af-result-index">{index + 1}</span>
                 <div className="af-result-cover">
                   {music.img || music.picUrl ? (
-                    <img src={coverSrc(music.img || music.picUrl, ROW_COVER_CSS_SIZE)} alt="" />
+                    <img src={coverSrc(music.img || music.picUrl, RESULT_COVER_CSS_SIZE)} alt="" />
                   ) : (
                     <div className="af-cover-placeholder" />
                   )}

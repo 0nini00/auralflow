@@ -5,7 +5,7 @@ import { estimateStreamDurationSeconds, isPreviewStream } from '@lx/core';
 import { builtinNeteaseBackend } from './builtinNeteaseBackend';
 import { builtinProviderBackend } from './builtinProviderBackend';
 import { customSourceBackend } from './customSourceBackend';
-import { probeStreamUrl } from './streamProbe';
+import { probeStreamUrl, PROBE_TIMEOUT_MS } from './streamProbe';
 import type { PlaybackBackendId, PlaybackResolvedUrl } from './types';
 import { getSource } from '@/services/sources/sourceService';
 import { getCachedPlaybackUrl, invalidateCachedPlaybackUrl, saveCachedPlaybackUrl } from '@/services/persistentCache';
@@ -23,12 +23,20 @@ export async function resolvePlaybackUrl(
   // 探活与媒体缓存的时间;14s 内未出结果直接抛错走错误分支,不再无限等。
   if (!useCustomSourceStore.getState().featureReady) await customSourcePersistence.ready;
   const operation = useCustomSourceStore.getState().featureEnabled ? customSourceAccess.capture() : undefined;
-  const resolved = await withResolveDeadline(resolvePlaybackUrlUncapped(music, variants, preferredQuality, options, operation));
+  const deadlineAt = Date.now() + PLAYBACK_RESOLVE_TOTAL_BUDGET_MS;
+  const resolved = await withResolveDeadline(
+    resolvePlaybackUrlUncapped(music, variants, preferredQuality, options, operation, deadlineAt),
+  );
   getCustomSourceOperation(resolved, operation);
   return resolved;
 }
 
 const PLAYBACK_RESOLVE_TOTAL_BUDGET_MS = 14_000;
+
+/** 探活最多用剩余预算，且不低于 500ms：避免总超时后还新起一个 5s 探活。 */
+function probeBudgetMs(deadlineAt: number): number {
+  return Math.max(500, Math.min(PROBE_TIMEOUT_MS, deadlineAt - Date.now()));
+}
 
 const STREAM_REFERERS: Record<string, string> = {
   wy: 'https://music.163.com',
@@ -155,6 +163,7 @@ async function resolvePlaybackUrlUncapped(
   preferredQuality?: string,
   options: { bypassCache?: boolean; cacheMedia?: boolean } = {},
   operation?: CustomSourceOperation,
+  deadlineAt = Date.now() + PLAYBACK_RESOLVE_TOTAL_BUDGET_MS,
 ): Promise<PlaybackResolvedUrl> {
   const settings = await loadSettings();
   const qualityFloor = preferredQuality ?? settings.defaultQuality;
@@ -218,6 +227,7 @@ async function resolvePlaybackUrlUncapped(
       primary: music,
       variants: allVariants,
       qualityPreference,
+      deadlineAt,
     });
     debugLog(`[resolve] 云盘曲官方直连 ${music.name} url=${resolved.url.slice(0, 60)}`);
     const playable = await prepareResolvedPlaybackMedia(
@@ -248,6 +258,7 @@ async function resolvePlaybackUrlUncapped(
         primary: music,
         variants: allVariants,
         qualityPreference,
+        deadlineAt,
       }).catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`${customBackend.id}: ${message}`);
@@ -260,16 +271,30 @@ async function resolvePlaybackUrlUncapped(
       primary: music,
       variants: allVariants,
       qualityPreference: tier,
+      deadlineAt,
     };
     try {
       const resolved = await raceQualityTierLazy(builtinPrimary, getCustomAttempt, request, operation);
       getCustomSourceOperation(resolved, operation);
+      // 本轮可接受的最低档是 tier 的最后一个元素（首轮是「不低于选定音质」的
+      // 全部档位，最后一个是用户门槛；后续轮次只有一个档）。
+      // 低于它说明是自定义源提前拿到的降档结果：不能在这里定稿，
+      // 否则用户选 flac、主源慢时会被 128k 直接截胡，后面的轮次再也不跑。
+      const tierFloorRank = getPlaybackQualityRank(tier[tier.length - 1]);
+      if (getPlaybackQualityRank(resolved.quality) < tierFloorRank) {
+        debugLog(
+          `[resolve] ${music.name} 轮=${tier.join('+')} 命中 ${resolved.quality} 低于本轮门槛，继续下一轮`,
+        );
+        continue;
+      }
       debugLog(`[resolve] 命中 ${music.name} 轮=${tier.join('+')} 命中=${resolved.quality} backend=${resolved.backend} url=${resolved.url.slice(0, 60)}`);
       // 试听片段判定(与移动端同语义,见 @lx/core stream-integrity):
       // 30s 试听与完整版同样返回 206,靠 Content-Range / Content-Length 估算流时长,
       // 明显短于期望时长(music.interval)则视为试听:不写缓存、不进播放器,降档重试。
-      const probeHeaders = buildStreamHeaders(music.source);
-      const probe = await probeStreamUrl(resolved.url, probeHeaders);
+      // 探活必须带「实际解析到的变体」的 Referer：wy 主源可能解析到 tx 变体，
+      // 用主源 Referer 会被 QQ CDN 判 403，把可用地址误杀。
+      const probeHeaders = buildStreamHeaders(resolved.music.source);
+      const probe = await probeStreamUrl(resolved.url, probeHeaders, probeBudgetMs(deadlineAt));
       if (!probe.ok && probe.definitive) {
         // 服务端明确拒绝（403/404/410/451）：该地址确实拿不到资源，换下一档
         tierErrors.push(`探活失败(${probe.reason})`);
@@ -310,12 +335,17 @@ async function resolvePlaybackUrlUncapped(
         primary: music,
         variants: allVariants,
         qualityPreference,
+        deadlineAt,
       });
       debugLog(`[resolve] 官方直连兜底成功 ${music.name} url=${resolved.url.slice(0, 60)}`);
       // 官方直连兜底同样要过试听判定：wy eapi 无 VIP 正是返回 30s 试听的场景
       // （见 @lx/core stream-integrity 的说明），而这条路径不参与竞速、此前完全没做判定。
       // 判定为试听则按失败处理，与档位循环的「试听即作废、不写缓存、不进播放器」语义一致。
-      const fallbackProbe = await probeStreamUrl(resolved.url, buildStreamHeaders(music.source));
+      const fallbackProbe = await probeStreamUrl(
+        resolved.url,
+        buildStreamHeaders(resolved.music.source),
+        probeBudgetMs(deadlineAt),
+      );
       if (
         fallbackProbe.ok &&
         fallbackProbe.totalBytes != null &&

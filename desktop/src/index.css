@@ -12,8 +12,8 @@ body {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu",
-    "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "PingFang SC",
+    "Noto Sans CJK SC", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color: var(--af-text-primary);
@@ -47,7 +47,12 @@ button {
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
-  background: var(--af-bg-base);
+  /* 环境光：左上跟随封面/强调色，右上只留一点强调色余温。
+     有壁纸时被 .af-app-background 覆盖，有 mesh 时叠在 ::before 之下。 */
+  background:
+    radial-gradient(62% 52% at 10% 0%, rgba(var(--af-ambience-rgb, var(--af-accent-primary-rgb)), var(--af-ambient-a)), transparent 62%),
+    radial-gradient(48% 42% at 100% 6%, rgba(var(--af-accent-primary-rgb), var(--af-ambient-b)), transparent 68%),
+    var(--af-bg-base);
   isolation: isolate;
 }
 
@@ -73,12 +78,12 @@ button {
   justify-content: space-between;
   min-height: var(--af-window-titlebar-height);
   color: var(--af-text-secondary);
-  background: color-mix(in srgb, var(--af-bg-base) 92%, transparent);
+  background: transparent;
   user-select: none;
 }
 
 [data-theme="dark"] .af-window-titlebar {
-  background: color-mix(in srgb, var(--af-bg-base) 94%, transparent);
+  background: transparent;
 }
 
 .af-window-drag-region {
@@ -203,12 +208,12 @@ button {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  background: var(--af-bg-elevated);
-  border-radius: var(--af-radius-md);
-  border: 1px solid var(--af-border-secondary);
-  /* 侧边栏与内容区之间有 16px 画布间距 + 1px 描边，已经足够分层；再叠阴影就是第三层装饰。 */
-  padding: 24px 12px;
-  gap: 24px;
+  /* 侧栏不再是独立卡片：让它沉到环境光里，内容面板才是唯一的主表面。 */
+  background: transparent;
+  border: 0;
+  border-radius: var(--af-radius-xl);
+  padding: 20px 8px 16px;
+  gap: 20px;
   overflow: hidden;
 }
 
@@ -338,13 +343,13 @@ body.af-resizing-sidebar {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 16px;
+  padding: 11px 14px;
   color: var(--af-text-secondary);
   text-decoration: none;
   border-radius: var(--af-radius-md);
   font-size: var(--af-font-size-base);
   font-weight: 500;
-  transition: all var(--af-transition-base);
+  transition: background var(--af-transition-base), color var(--af-transition-base);
   cursor: pointer;
   overflow: hidden;
 }
@@ -360,8 +365,8 @@ body.af-resizing-sidebar {
 }
 
 .af-sidebar-link.active {
-  color: var(--af-accent-primary);
-  background: rgba(var(--af-accent-primary-rgb), 0.10);
+  color: var(--af-accent-strong);
+  background: rgba(var(--af-accent-primary-rgb), 0.12);
   box-shadow: none;
   font-weight: 650;
 }
@@ -396,13 +401,13 @@ body.af-resizing-sidebar {
   gap: 12px;
   padding: 12px 16px;
   background: var(--af-bg-surface);
-  border: 1px solid var(--af-border-secondary);
+  border: 1px solid transparent;
   border-radius: var(--af-radius-md);
   color: var(--af-text-secondary);
   font-size: var(--af-font-size-base);
   font-weight: 500;
   cursor: pointer;
-  transition: all var(--af-transition-base);
+  transition: background var(--af-transition-base), color var(--af-transition-base);
   width: 100%;
 }
 
@@ -472,7 +477,7 @@ body.af-resizing-sidebar {
 
 .af-user-button:hover {
   background: var(--af-bg-surface-hover);
-  border-color: var(--af-border-primary);
+  border-color: transparent;
   color: var(--af-text-primary);
 }
 
@@ -494,10 +499,15 @@ body.af-resizing-sidebar {
   flex-direction: column;
   overflow: hidden;
   background: var(--af-bg-page);
-  /* 内容面板是最大的一块，与顶栏/侧边栏同属「横条」层级：12px 圆角 + 1px 描边就够，
-     再叠阴影会让整块内容像浮在桌面上的一个窗口。 */
-  border-radius: var(--af-radius-md);
-  border: 1px solid var(--af-border-secondary);
+  /* 主表面只留一层软阴影：描边、阴影、间距三件套里只保留阴影和间距。 */
+  border: 1px solid transparent;
+  border-radius: var(--af-radius-xl);
+  box-shadow: var(--af-shadow-md);
+}
+
+[data-theme="dark"] .af-content {
+  /* 暗色下补一条极淡的边，避免面板与背景完全糊在一起 */
+  border-color: rgba(255, 255, 255, 0.04);
 }
 
 .af-content-scroll {
@@ -507,7 +517,7 @@ body.af-resizing-sidebar {
      并因横向滚动条占高又挤出纵向滚动条(主页「右滑块 + 下滑块」)。 */
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 32px;
+  padding: 32px 36px;
   scrollbar-width: thin;
   scrollbar-color: var(--af-border-primary) transparent;
 }
@@ -540,17 +550,18 @@ body.af-resizing-sidebar {
 .af-card {
   background: var(--af-bg-surface);
   border-radius: var(--af-radius-lg);
-  border: 1px solid var(--af-border-secondary);
+  border: 1px solid transparent;
   padding: 20px;
-  transition: all var(--af-transition-slow);
+  transition: background var(--af-transition-slow), border-color var(--af-transition-slow),
+    transform var(--af-transition-slow), box-shadow var(--af-transition-slow);
   cursor: pointer;
 }
 
 .af-card:hover {
   background: var(--af-bg-surface-hover);
-  border-color: var(--af-border-primary);
+  border-color: transparent;
   transform: translateY(-2px);
-  box-shadow: var(--af-shadow-lg);
+  box-shadow: var(--af-shadow-md);
 }
 
 /* ============================================================
@@ -773,11 +784,19 @@ html[data-gradient-background] .af-app::before {
 /* 面板轻微透出渐变，mesh 才不会只在 16px 的缝隙里可见；
    有背景图时由 .af-app-has-background 的规则接管。 */
 html[data-gradient-background] .af-app:not(.af-app-has-background) .af-sidebar {
-  background: color-mix(in srgb, var(--af-bg-elevated) 90%, transparent);
+  background: color-mix(in srgb, var(--af-bg-elevated) 82%, transparent);
+  backdrop-filter: blur(28px) saturate(150%);
 }
 
 html[data-gradient-background] .af-app:not(.af-app-has-background) .af-content {
-  background: color-mix(in srgb, var(--af-bg-page) 88%, transparent);
+  background: color-mix(in srgb, var(--af-bg-page) 80%, transparent);
+  backdrop-filter: blur(28px) saturate(150%);
+}
+
+/* 播放条与内容面板同层，渐变模式下也透出一点网格背景，形成完整的玻璃表面。 */
+html[data-gradient-background] .af-app:not(.af-app-has-background) .af-player-bar {
+  background: color-mix(in srgb, var(--af-bg-elevated) 84%, transparent);
+  backdrop-filter: blur(28px) saturate(150%);
 }
 
 @media (prefers-reduced-motion: reduce) {

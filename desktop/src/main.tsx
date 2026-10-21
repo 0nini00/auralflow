@@ -33,18 +33,22 @@ installGlobalErrorHandlers();
 const appWindow = tryGetCurrentWindow();
 const windowRole = detectWindowRoleFromParts(appWindow?.label, window.location.hash);
 
-async function prepareMainWindowBackground() {
-  if (windowRole !== "main") return;
+async function prepareMainWindowBackground(): Promise<boolean> {
+  if (windowRole !== "main") return false;
 
+  const settings = await loadSettings();
   await prepareInitialAppBackground({
-    loadPersistedPath: async () => (await loadSettings()).appBackgroundImagePath,
+    loadPersistedPath: async () => settings.appBackgroundImagePath,
   });
+  return settings.startMinimized === true;
 }
 
 async function startApp() {
+  let startMinimized = false;
   try {
-    await prepareMainWindowBackground();
+    startMinimized = await prepareMainWindowBackground();
   } catch (error) {
+    // 读设置失败时默认显示窗口，避免用户启动后看不到应用。
     console.error("启动背景预加载失败", error);
   }
 
@@ -60,7 +64,7 @@ async function startApp() {
     });
   });
   // 浏览器里（`pnpm desktop:dev` 的纯 UI 调试）没有 Tauri 窗口，跳过 show()。
-  if (windowRole === "main" && appWindow) {
+  if (windowRole === "main" && appWindow && !startMinimized) {
     await appWindow.show();
   }
 }

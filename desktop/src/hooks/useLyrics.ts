@@ -40,6 +40,17 @@ function writeCachedLyrics(music: MusicInfo, lines: LyricLine[]) {
   }
 }
 
+/** 清空 useLyrics 的 localStorage 缓存；只删本模块的 key，不动其他本地数据。 */
+export function clearLyricsBrowserCache(): void {
+  if (typeof window === "undefined") return;
+  const keys: string[] = [];
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index);
+    if (key?.startsWith(LYRICS_CACHE_PREFIX)) keys.push(key);
+  }
+  for (const key of keys) window.localStorage.removeItem(key);
+}
+
 /**
  * 当前曲的歌词。
  *

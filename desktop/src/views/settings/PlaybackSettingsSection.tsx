@@ -5,10 +5,12 @@ import { SettingRow } from "./SettingRow";
 export function PlaybackSettingsSection({ model }: { model: PlaybackSettingsModel }) {
   const {
     defaultQuality,
-    setDefaultQuality,
+    handleDefaultQualityChange,
     pauseOnExternalPlayback,
-    patchPlaybackSetting,
     handlePauseOnExternalPlaybackChange,
+    playbackFailedAutoNext,
+    handlePlaybackFailedAutoNextChange,
+    playbackSettingsStatus,
   } = model;
 
   return (
@@ -19,13 +21,10 @@ export function PlaybackSettingsSection({ model }: { model: PlaybackSettingsMode
     <SettingRow label="音质偏好" hint="在线播放与下载的默认音质">
       <select
         className="af-settings-select"
+        aria-label="音质偏好"
         style={{ minWidth: 160 }}
         value={defaultQuality}
-        onChange={(e) => {
-          const quality = e.target.value;
-          setDefaultQuality(quality);
-          patchPlaybackSetting({ defaultQuality: quality });
-        }}
+        onChange={(e) => { void handleDefaultQualityChange(e.target.value); }}
       >
         <option value="128k">标准 128K</option>
         <option value="192k">较高 192K</option>
@@ -56,7 +55,18 @@ export function PlaybackSettingsSection({ model }: { model: PlaybackSettingsMode
         </button>
       </div>
     </SettingRow>
+    <SettingRow label="播放失败自动下一首" hint="播放中出错时自动跳下一首；私人 FM 始终连播">
+      <input
+        type="checkbox"
+        className="af-switch"
+        role="switch"
+        aria-label="播放失败自动下一首"
+        checked={playbackFailedAutoNext}
+        onChange={(e) => { void handlePlaybackFailedAutoNextChange(e.target.checked); }}
+      />
+    </SettingRow>
   </div>
+  {playbackSettingsStatus && <p className="af-settings-hint" role="status">{playbackSettingsStatus}</p>}
 </section>
   );
 }

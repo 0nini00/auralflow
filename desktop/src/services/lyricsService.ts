@@ -17,6 +17,11 @@ export type { LyricLine, LyricResponse, LyricWord };
 
 const lyricsCache = new Map<string, LyricResponse>();
 
+/** 清空进程内歌词缓存；设置页「只清歌词缓存」需要连这一层一起清，否则同一会话仍命中旧词。 */
+export function clearLyricsMemoryCache(): void {
+  lyricsCache.clear();
+}
+
 function getCacheKey(music: MusicInfo): string {
   return `${music.source}:${music.id}`;
 }

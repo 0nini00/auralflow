@@ -385,17 +385,41 @@ function wantsBinaryResponse(responseType: string | undefined): boolean {
   return normalized === 'arraybuffer' || normalized === 'stream' || normalized === 'blob';
 }
 
+type CustomSourceTaggedError = Error & { customSourceName?: string };
+
+/** 给脚本收到的请求错误打上来源标签，全局 unhandledrejection 才能指认是哪个音源。 */
+function tagCustomSourceError(error: unknown, sourceName: string): Error {
+  const normalized = error instanceof Error ? error : new Error(String(error));
+  (normalized as CustomSourceTaggedError).customSourceName = sourceName;
+  return normalized;
+}
+
 function runHttpRequest(
   url: string,
   options: HttpRequestOptions,
   callback: (error: Error | null, response: unknown, body: unknown) => void,
   operation: CustomSourceOperation,
+  sourceName: string,
 ): () => void {
   operation.assertActive();
+  // 脚本调用 lx.request 时漏传回调：异步 IIFE 会在错误分支里以 TypeError 结束，
+  // 变成一条无法归因的未处理拒绝。这里提前放弃并留下来源，不伪造成功响应。
+  if (typeof callback !== 'function') {
+    console.warn(`[自定义音源: ${sourceName}] lx.request 缺少回调`, url);
+    return () => {};
+  }
   // 出站校验（含 SSRF 与重定向逐跳）在 Rust 侧 outbound.rs 统一完成，这里不再重复判定。
   // 代价：请求发出后无法真正中止，cancel 只丢弃回调。
   let cancelled = false;
   const timeoutMs = typeof options.timeout === 'number' && options.timeout > 0 ? Math.min(options.timeout, 60_000) : 60_000;
+  // 脚本回调自己抛错时不能再走一次 callback —— 那会把回调错误变成新的未处理拒绝。
+  const deliver = (error: Error | null, response: unknown, body: unknown) => {
+    try {
+      callback(error, response, body);
+    } catch (callbackError) {
+      console.warn(`[自定义音源: ${sourceName}] lx.request 回调抛错`, callbackError);
+    }
+  };
 
   void (async () => {
     try {
@@ -421,7 +445,7 @@ function runHttpRequest(
       if (binary) {
         // 脚本按 Buffer 使用（length / 下标 / utils.buffer.bufToString），Uint8Array 都满足
         const bytes = toBytes(response.base64(), 'base64');
-        callback(null, createRequestResponse(bytes, response.status, response.statusText, response.headers), bytes);
+        deliver(null, createRequestResponse(bytes, response.status, response.statusText, response.headers), bytes);
         return;
       }
       const text = await response.text();
@@ -432,10 +456,10 @@ function runHttpRequest(
       } catch {
         parsed = text;
       }
-      callback(null, createRequestResponse(parsed, response.status, response.statusText, response.headers), parsed);
+      deliver(null, createRequestResponse(parsed, response.status, response.statusText, response.headers), parsed);
     } catch (error) {
       if (cancelled || !operation.isActive()) return;
-      callback(error instanceof Error ? error : new Error(String(error)), null, null);
+      deliver(tagCustomSourceError(error, sourceName), null, null);
     }
   })();
 
@@ -485,7 +509,7 @@ function createRuntime(api: CustomSourceItem, parentOperation: CustomSourceOpera
   const lx = {
     EVENT_NAMES,
     request(url: string, options: any = {}, callback: (error: Error | null, response: unknown, body: unknown) => void) {
-      return runHttpRequest(url, options, callback, operation);
+      return runHttpRequest(url, options, callback, operation, api.name);
     },
     send(eventName: string, data?: unknown) {
       return new Promise<void>((resolve, reject) => {
@@ -704,7 +728,11 @@ function getCachedRuntime(api: CustomSourceItem, operation: CustomSourceOperatio
   }
   if (runtimeCache.size >= RUNTIME_CACHE_MAX) {
     const oldest = runtimeCache.keys().next().value;
-    if (oldest !== undefined) runtimeCache.delete(oldest);
+    if (oldest !== undefined) {
+      // 淘汰的是仍在运行的脚本：只删 Map 会留下监听器、定时器和在途请求。
+      runtimeCache.get(oldest)?.dispose();
+      runtimeCache.delete(oldest);
+    }
   }
   cached?.dispose();
   const runtime = createRuntime(api, operation, { onUpdateAlert });
@@ -739,14 +767,28 @@ function primeRuntimeCache(api: CustomSourceItem, runtime: RuntimeInstance): voi
   const key = getCacheKey(api);
   if (runtimeCache.size >= RUNTIME_CACHE_MAX) {
     const oldest = runtimeCache.keys().next().value;
-    if (oldest !== undefined) runtimeCache.delete(oldest);
+    if (oldest !== undefined) {
+      // 淘汰的是仍在运行的脚本：只删 Map 会留下监听器、定时器和在途请求。
+      runtimeCache.get(oldest)?.dispose();
+      runtimeCache.delete(oldest);
+    }
+  }
+  // 同一 key 已有运行时：优先保留正在使用的那个（可能在播放），不要用测试实例覆盖它。
+  const existing = runtimeCache.get(key);
+  if (existing && existing !== runtime) {
+    if (existing.operation.isActive()) {
+      runtime.dispose();
+      return;
+    }
+    existing.dispose();
   }
   runtimeCache.set(key, runtime);
 }
 
 export async function testCustomSource(api: CustomSourceItem, operation: CustomSourceOperation, updateAlertWaitMs = TEST_UPDATE_ALERT_WAIT_MS): Promise<RuntimeInitResult> {
   operation.assertActive();
-  invalidateRuntimeCache(api.id);
+  // 测试/更新检查使用独立的 runtime，不能动播放缓存里的实例：
+  // 之前这里的 invalidateRuntimeCache 会在后台检查时中断正在进行的播放解析。
   const runtime = createRuntime(api, operation);
   try {
     const result = await awaitCustomSourceOperation(operation, runtime.init);
@@ -800,8 +842,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: 
 
 export async function testCustomSourceDeep(api: CustomSourceItem, operation: CustomSourceOperation, updateAlertWaitMs = TEST_UPDATE_ALERT_WAIT_MS): Promise<DeepTestResult> {
   operation.assertActive();
-  // 阶段一：复用现有 init 流程
-  invalidateRuntimeCache(api.id);
+  // 阶段一：复用现有 init 流程；同样不碰播放缓存里的 runtime。
   const runtime = createRuntime(api, operation);
   let initResult: RuntimeInitResult;
   try {

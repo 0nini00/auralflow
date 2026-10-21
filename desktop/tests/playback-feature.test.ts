@@ -28,7 +28,7 @@ vi.mock('../src/stores/customSourceStore', () => ({ useCustomSourceStore: { getS
 vi.mock('../src/services/customSourceRuntime', () => ({ requestCustomSourceMusicUrl: fixture.runtime }));
 vi.mock('../src/services/playback/builtinNeteaseBackend', () => ({ builtinNeteaseBackend: { id: 'builtinNetease', resolve: fixture.builtin } }));
 vi.mock('../src/services/playback/builtinProviderBackend', () => ({ builtinProviderBackend: { id: 'builtinProvider', resolve: fixture.provider } }));
-vi.mock('../src/services/playback/streamProbe', () => ({ probeStreamUrl: fixture.probe }));
+vi.mock('../src/services/playback/streamProbe', () => ({ probeStreamUrl: fixture.probe, PROBE_TIMEOUT_MS: 5_000 }));
 vi.mock('../src/services/sources/sourceService', () => ({ getSource: () => ({}) }));
 vi.mock('../src/services/mediaCache', () => ({ cacheResolvedPlaybackMedia: fixture.media }));
 vi.mock('../src/services/playerEngine', () => ({ playerEngine: { preload: fixture.preload } }));

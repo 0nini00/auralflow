@@ -79,8 +79,8 @@
 
 /* 选中态：强调色文字 + 细下划线，不做实心填充 */
 .af-settings-tab.af-active {
-  color: var(--af-accent-primary);
-  border-bottom-color: var(--af-accent-primary);
+  color: var(--af-accent-strong);
+  border-bottom-color: var(--af-accent-strong);
 }
 
 .af-settings-tab:focus-visible {
@@ -423,7 +423,7 @@
 }
 
 .af-appearance-color-hex:focus {
-  border-color: var(--af-accent-primary);
+  border-color: var(--af-accent-strong);
   box-shadow: 0 0 0 3px rgba(var(--af-accent-primary-rgb), 0.1);
 }
 
@@ -484,7 +484,7 @@
 }
 
 .af-settings-select:focus {
-  border-color: var(--af-accent-primary);
+  border-color: var(--af-accent-strong);
   box-shadow: 0 0 0 3px rgba(var(--af-accent-primary-rgb), 0.1);
 }
 
@@ -510,7 +510,7 @@
 }
 
 .af-settings-input:focus {
-  border-color: var(--af-accent-primary);
+  border-color: var(--af-accent-strong);
   box-shadow: 0 0 0 3px rgba(var(--af-accent-primary-rgb), 0.1);
 }
 
@@ -573,7 +573,7 @@
 }
 
 .af-settings-textarea:focus {
-  border-color: var(--af-accent-primary);
+  border-color: var(--af-accent-strong);
   box-shadow: 0 0 0 3px rgba(var(--af-accent-primary-rgb), 0.1);
 }
 
@@ -626,7 +626,7 @@
   border-color: var(--af-button-active-border);
   background: var(--af-button-active-bg);
   box-shadow: var(--af-button-active-shadow);
-  color: var(--af-accent-primary);
+  color: var(--af-accent-strong);
 }
 
 .af-custom-source-card {
@@ -749,7 +749,7 @@
 .af-custom-source-details summary::after {
   content: "展开";
   margin-left: 6px;
-  color: var(--af-accent-primary);
+  color: var(--af-accent-strong);
 }
 
 .af-custom-source-details[open] summary::after {
@@ -821,7 +821,7 @@
   border-color: var(--af-button-active-border);
   background: var(--af-button-active-bg);
   box-shadow: var(--af-button-active-shadow);
-  color: var(--af-accent-primary);
+  color: var(--af-accent-strong);
 }
 
 .af-custom-source-icon-button:disabled {
@@ -983,12 +983,12 @@
 }
 
 .af-settings-checkbox:hover {
-  border-color: var(--af-accent-primary);
+  border-color: var(--af-accent-strong);
 }
 
 .af-settings-checkbox:checked {
   background: var(--af-accent-gradient);
-  border-color: var(--af-accent-primary);
+  border-color: var(--af-accent-strong);
 }
 
 .af-settings-checkbox:checked::after {
@@ -1204,7 +1204,7 @@
   border-color: var(--af-button-active-border);
   background: var(--af-button-active-bg);
   box-shadow: var(--af-button-active-shadow);
-  color: var(--af-accent-primary);
+  color: var(--af-accent-strong);
 }
 
 .af-lyric-status {
@@ -1544,4 +1544,45 @@
   .af-qr-login-copy {
     align-items: center;
   }
+}
+
+/* ── 设置页：信任提示、分组与新版外壳对齐 ── */
+.af-settings-warning {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-left: 3px solid var(--af-warning);
+  border-radius: var(--af-radius-sm);
+  background: var(--af-warning-bg);
+  color: var(--af-text-secondary);
+  font-size: var(--af-font-size-sm);
+  line-height: 1.55;
+}
+
+.af-settings-subsection-title {
+  margin: 24px 0 12px;
+  color: var(--af-text-primary);
+  font-size: var(--af-font-size-lg);
+  font-weight: 600;
+}
+
+.af-settings-action-group {
+  margin-top: 18px;
+}
+
+.af-settings-action-group .af-settings-input-group {
+  margin-top: 8px;
+}
+
+.af-data-cache-block {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* 卡片不再画整圈描边，靠表面色/行分隔与背景分层 */
+.af-settings-card {
+  border-color: transparent;
+}
+
+.af-settings-section-title {
+  border-bottom-width: 1px;
 }

@@ -15,6 +15,8 @@ export interface PlaybackRequest {
   primary: MusicInfo;
   variants?: MusicInfo[];
   qualityPreference: string[];
+  /** 本次解析的绝对截止时间（Date.now() 时间戳），后端据此给探活/媒体缓存留余量。 */
+  deadlineAt?: number;
 }
 
 export interface PlaybackResolvedUrl {

@@ -166,7 +166,7 @@ export function ArtistDetailView() {
                   style={{
                     background: "none",
                     border: "none",
-                    color: "var(--af-accent-primary)",
+                    color: "var(--af-accent-strong)",
                     fontSize: 13,
                     padding: "4px 0",
                     cursor: "pointer",
@@ -319,7 +319,7 @@ export function ArtistDetailView() {
           background: var(--af-button-secondary-hover-bg);
         }
         .af-artist-tabs button.af-tab-active {
-          color: var(--af-accent-primary);
+          color: var(--af-accent-strong);
           border-color: var(--af-button-active-border);
           background: var(--af-button-active-bg);
           box-shadow: var(--af-button-active-shadow);

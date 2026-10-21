@@ -1,16 +1,16 @@
 /* Header */
 .af-header {
-  min-height: 56px;
+  min-height: 52px;
   flex-shrink: 0;
   display: grid;
   grid-template-columns: auto minmax(240px, 520px) auto;
   align-items: center;
   gap: 16px;
-  padding: 0 16px;
-  background: var(--af-bg-elevated);
-  border: 1px solid var(--af-border-secondary);
-  border-radius: var(--af-radius-md);
-  /* 顶栏与内容区之间靠 1px 描边 + 背景色区分已足够；阴影是多余的第二层装饰。 */
+  padding: 0 4px;
+  /* 顶栏与内容区之间用间距分层，不再画一条独立横条。 */
+  background: transparent;
+  border: 0;
+  border-radius: var(--af-radius-xl);
 }
 
 .af-header-left,
@@ -34,9 +34,10 @@
   padding: 0 14px;
   color: var(--af-text-tertiary);
   background: var(--af-bg-surface);
-  border: 1px solid var(--af-border-secondary);
+  border: 1px solid transparent;
   border-radius: var(--af-radius-full);
-  transition: all var(--af-transition-base);
+  transition: background var(--af-transition-base), border-color var(--af-transition-base),
+    box-shadow var(--af-transition-base), color var(--af-transition-base);
 }
 
 .af-header-search-popover {
@@ -176,7 +177,7 @@
   border-color: transparent;
   background: transparent;
   box-shadow: none;
-  color: var(--af-accent-primary);
+  color: var(--af-accent-strong);
 }
 
 .af-icon-btn:active:not(:disabled),
@@ -265,7 +266,7 @@
 .af-update-chip-new {
   border-color: rgba(var(--af-accent-primary-rgb), 0.45);
   background: rgba(var(--af-accent-primary-rgb), 0.14);
-  color: var(--af-accent-primary);
+  color: var(--af-accent-strong);
   font-weight: 600;
 }
 
@@ -386,7 +387,7 @@
   padding: 0;
   border: none;
   background: none;
-  color: var(--af-accent-primary);
+  color: var(--af-accent-strong);
   font-size: var(--af-font-size-sm);
   font-weight: 600;
   cursor: pointer;
@@ -483,7 +484,7 @@
   transform: scale(0.92);
 }
 .af-action-btn.af-liked {
-  color: var(--af-accent-primary);
+  color: var(--af-accent-strong);
 }
 .af-action-btn.af-delete-btn:hover {
   color: var(--af-error);

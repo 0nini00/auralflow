@@ -386,6 +386,12 @@ export function PlaylistDetailView() {
   return (
     <div className="af-playlist-detail-view">
       <div className="af-playlist-detail-header">
+        {playlistCoverUrl && (
+          <>
+            <img className="af-playlist-detail-backdrop" src={playlistCoverUrl} alt="" aria-hidden="true" />
+            <div className="af-playlist-detail-shade" aria-hidden="true" />
+          </>
+        )}
         <button className="af-back-btn" onClick={() => remoteSource ? navigate(-1) : navigate('/playlists')}>
           <ArrowLeft size={20} />
         </button>

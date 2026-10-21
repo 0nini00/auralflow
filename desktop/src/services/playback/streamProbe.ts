@@ -55,13 +55,14 @@ function readTotalBytes(headers: Record<string, string>, rangeRequested: boolean
 export async function probeStreamUrl(
   url: string,
   headers: Record<string, string> | undefined,
+  timeoutMs = PROBE_TIMEOUT_MS,
 ): Promise<StreamProbeResult> {
   if (!/^https?:\/\//i.test(url)) return { ok: true };
   try {
     const response = await outboundRequest(url, {
       method: "GET",
       headers: { ...headers, Range: "bytes=0-0" },
-      timeoutMs: PROBE_TIMEOUT_MS,
+      timeoutMs,
       maxBytes: PROBE_BODY_LIMIT_BYTES,
     });
     if (response.ok) {

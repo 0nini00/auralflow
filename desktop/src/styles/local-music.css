@@ -27,7 +27,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--af-accent-primary);
+  color: var(--af-accent-strong);
 }
 
 .af-library-actions {

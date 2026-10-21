@@ -66,6 +66,10 @@ export interface RustAppSettings {
   webdavPassword?: string | null;
   webdavAutoSyncPlaylists: boolean;
   customSourceAutoCheck: boolean;
+  /** 关闭主窗口时最小化到托盘（false = 直接退出应用） */
+  closeToTray: boolean;
+  /** 启动时不显示主窗口，只保留托盘 */
+  startMinimized: boolean;
 }
 
 export interface RustLyricWindowPlayerToggleResult {

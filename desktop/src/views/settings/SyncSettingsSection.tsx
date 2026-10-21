@@ -235,7 +235,7 @@ export function SyncSettingsSection() {
   return (
     <section className="af-settings-section">
       <h2 className="af-settings-section-title">WebDAV 同步</h2>
-      <p className="af-settings-hint">用于备份/恢复自定义音源、收藏、本地歌单和播放历史。下载前会检查云端是否比本地旧，并自动备份当前本地数据。</p>
+      <p className="af-settings-hint">用于备份/恢复自定义音源、收藏、本地歌单和播放历史。下载前会检查云端是否比本地旧，并自动备份当前本地数据。自定义音源脚本会以明文上传到 WebDAV。</p>
 
       <p className="af-settings-hint" role="status" aria-live="polite">
         {loadState === "loading" ? "正在读取配置，可先编辑；读取完成后才会保存。" : ""}
@@ -292,26 +292,35 @@ export function SyncSettingsSection() {
 
       <div className="af-settings-group">
         <label className="af-settings-label">启动时自动同步歌单历史</label>
-        <div className="af-settings-row" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div className="af-settings-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+          <span className="af-settings-hint" style={{ margin: 0 }}>
+            开启后每次启动应用自动与云端合并下载并上传收敛（需填完上方配置）
+          </span>
           <input
             type="checkbox"
+            className="af-switch"
+            role="switch"
+            aria-label="启动时自动同步歌单历史"
             checked={autoSyncPlaylists}
             disabled={loadState !== "ready" || savingCount > 0 || syncBusy}
             onChange={(e) => { void handleToggleAutoSync(e.target.checked); }}
           />
-          <span className="af-settings-hint" style={{ margin: 0 }}>
-            开启后每次启动应用自动与云端合并下载并上传收敛（需填完上方配置）
-          </span>
         </div>
       </div>
 
-      <div className="af-settings-group">
-        <div className="af-input-group" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <div className="af-settings-action-group">
+        <span className="af-settings-label">连接</span>
+        <div className="af-settings-input-group">
           <button type="button" className="af-settings-small-button" onClick={handleTest} disabled={syncBusy}>测试连接</button>
+        </div>
+      </div>
+
+      <div className="af-settings-action-group">
+        <span className="af-settings-label">音源</span>
+        <p className="af-settings-hint">自定义音源脚本会以明文上传到 WebDAV，请确认云端存储可信。</p>
+        <div className="af-settings-input-group">
           <button type="button" className="af-settings-small-button" onClick={handleUploadSources} disabled={syncBusy || !sourcesSyncEnabled}>上传音源</button>
           <button type="button" className="af-settings-small-button" onClick={handleDownloadSources} disabled={syncBusy || !sourcesSyncEnabled}>下载音源</button>
-          <button type="button" className="af-settings-small-button" onClick={handleUploadPlaylists} disabled={syncBusy}>上传歌单历史</button>
-          <button type="button" className="af-settings-small-button" onClick={handleDownloadPlaylists} disabled={syncBusy}>下载歌单历史</button>
         </div>
         {!sourcesSyncEnabled && (
           <p className="af-settings-hint">
@@ -320,8 +329,17 @@ export function SyncSettingsSection() {
               : "LX 自定义音源已停用，音源上传和下载已暂停；本地及云端音源数据保留，歌单和历史同步不受影响。已发送的远端请求无法撤回。"}
           </p>
         )}
-        {syncStatus && <p className="af-settings-hint">{syncBusy ? "同步中：" : ""}{syncStatus}</p>}
       </div>
+
+      <div className="af-settings-action-group">
+        <span className="af-settings-label">歌单与历史</span>
+        <div className="af-settings-input-group">
+          <button type="button" className="af-settings-small-button" onClick={handleUploadPlaylists} disabled={syncBusy}>上传歌单历史</button>
+          <button type="button" className="af-settings-small-button" onClick={handleDownloadPlaylists} disabled={syncBusy}>下载歌单历史</button>
+        </div>
+      </div>
+
+      {syncStatus && <p className="af-settings-hint" role="status">{syncBusy ? "同步中：" : ""}{syncStatus}</p>}
     </section>
   );
 }

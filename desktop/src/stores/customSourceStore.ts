@@ -67,6 +67,10 @@ interface CustomSourceStore {
 
 // 远端更新检查节流间隔：同一源距上次远端检查不足 24 小时不再重复拉取
 const REMOTE_CHECK_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
+// 失败源的重试间隔：不跟随启动频率，避免永久失效的源每次启动都重新执行脚本。
+const FAILED_CHECK_RETRY_MS = 30 * 60 * 1000;
+// 同一音源的检查进行中时复用同一个 Promise，避免启动检查与手动检查并发跑两遍脚本。
+const updateChecksInFlight = new Map<string, Promise<void>>();
 
 function makeId(): string {
   return `user_api_${Math.random().toString(36).slice(2, 10)}_${Date.now()}`;
@@ -329,52 +333,65 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
         }
       },
 
-      checkSourceUpdate: async (id) => {
-        await customSourcePersistence.ready;
-        const operation = customSourceAccess.capture();
-        const source = get().sources.find((item) => item.id === id);
-        if (!source) return;
-        set((state) => ({
-          sources: patchSource(state.sources, id, {
-            updateStatus: 'checking',
-            updateMessage: '检测中...',
-          }),
-        }));
+      checkSourceUpdate: (id) => {
+        const existing = updateChecksInFlight.get(id);
+        if (existing) return existing;
+        const task = (async () => {
+          await customSourcePersistence.ready;
+          const operation = customSourceAccess.capture();
+          const source = get().sources.find((item) => item.id === id);
+          if (!source) return;
+          set((state) => ({
+            sources: patchSource(state.sources, id, {
+              updateStatus: 'checking',
+              updateMessage: '检测中...',
+            }),
+          }));
 
-        try {
-          const result = await checkCustomSourceUpdate(source, operation);
-          if (!operation.isActive()) return;
-          set((state) => ({
-            sources: patchSource(state.sources, id, {
-              sources: result.sources,
-              testStatus: 'ok',
-              testMessage: '初始化正常',
-              ...buildUpdatePatch(result.updateAlert),
-            }),
-          }));
-        } catch (error) {
-          if (!operation.isActive()) return;
-          set((state) => ({
-            sources: patchSource(state.sources, id, {
-              updateStatus: 'failed',
-              updateMessage: formatError(error),
-              updateCheckedAt: Date.now(),
-            }),
-          }));
-        }
+          try {
+            const result = await checkCustomSourceUpdate(source, operation);
+            if (!operation.isActive()) return;
+            set((state) => ({
+              sources: patchSource(state.sources, id, {
+                sources: result.sources,
+                testStatus: 'ok',
+                testMessage: '初始化正常',
+                ...buildUpdatePatch(result.updateAlert),
+              }),
+            }));
+          } catch (error) {
+            if (!operation.isActive()) return;
+            set((state) => ({
+              sources: patchSource(state.sources, id, {
+                updateStatus: 'failed',
+                updateMessage: formatError(error),
+                updateCheckedAt: Date.now(),
+              }),
+            }));
+          }
+        })();
+        updateChecksInFlight.set(id, task);
+        const cleanup = () => {
+          if (updateChecksInFlight.get(id) === task) updateChecksInFlight.delete(id);
+        };
+        void task.then(cleanup, cleanup);
+        return task;
       },
 
       checkAllUpdates: async () => {
         await customSourcePersistence.ready;
         const operation = customSourceAccess.capture();
         const now = Date.now();
-        // 距上次远端检查不足 24 小时且上次未失败的源跳过检查，保留现有状态（不写盘）
+        // 成功的源 24 小时内不重复检查；失败的源 30 分钟后才重试，
+        // 避免一个永久失效的源每次启动都重新执行脚本、发一轮请求。
         const ids = get().sources
-          .filter((source) => (
-            !source.updateCheckedAt
-            || source.updateStatus === 'failed'
-            || now - source.updateCheckedAt >= REMOTE_CHECK_MIN_INTERVAL_MS
-          ))
+          .filter((source) => {
+            if (!source.updateCheckedAt) return true;
+            const interval = source.updateStatus === 'failed'
+              ? FAILED_CHECK_RETRY_MS
+              : REMOTE_CHECK_MIN_INTERVAL_MS;
+            return now - source.updateCheckedAt >= interval;
+          })
           .map((source) => source.id);
         // 限制并发，避免一次拉起过多自定义音源更新请求
         const CONCURRENCY = 2;

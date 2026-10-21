@@ -429,7 +429,7 @@ export function PersonalFmView() {
           cursor: not-allowed;
         }
         .af-fm-action-secondary.af-liked {
-          color: var(--af-accent-primary);
+          color: var(--af-accent-strong);
           border-color: var(--af-button-active-border);
           background: var(--af-button-active-bg);
           box-shadow: var(--af-button-active-shadow);

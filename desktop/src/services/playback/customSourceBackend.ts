@@ -41,8 +41,8 @@ export const customSourceBackend: PlaybackBackend = {
   async resolve(request: PlaybackRequest): Promise<PlaybackResolvedUrl> {
     if (!useCustomSourceStore.getState().featureReady) await customSourcePersistence.ready;
     const operation = customSourceAccess.capture();
-    const customSources = useCustomSourceStore.getState().sources.filter((source) => source.enabled);
-    if (!customSources.length) {
+    const enabledSources = useCustomSourceStore.getState().sources.filter((source) => source.enabled);
+    if (!enabledSources.length) {
       throw new Error('当前备用播放方式为自定义音源,但尚未导入或启用任何 LX Music 自定义音源');
     }
 
@@ -51,7 +51,16 @@ export const customSourceBackend: PlaybackBackend = {
     if (!qualities.length) throw new Error('没有可尝试的音质档位');
     const floorQuality = qualities[qualities.length - 1];
     const trace: PlaybackAttempt[] = [];
-    const budgetEndsAt = Date.now() + CUSTOM_SOURCE_TOTAL_BUDGET_MS;
+    // 自定义源不独占总预算：外层 deadline 之前还要留出探活与媒体缓存的时间。
+    // 之前固定 10s 会把 2.5s 主源 + 10s 自定义源 + 5s 探活叠加到 17.5s，超过 14s。
+    const availableBudget = request.deadlineAt
+      ? request.deadlineAt - Date.now() - CUSTOM_SOURCE_PROBE_RESERVE_MS
+      : CUSTOM_SOURCE_TOTAL_BUDGET_MS;
+    const budget = Math.min(CUSTOM_SOURCE_TOTAL_BUDGET_MS, availableBudget);
+    if (budget <= CUSTOM_SOURCE_MIN_ATTEMPT_MS) {
+      throw new Error('播放解析总预算不足，未尝试自定义音源');
+    }
+    const budgetEndsAt = Date.now() + budget;
     const failures: string[] = [];
 
     for (const music of variants) {
@@ -59,6 +68,17 @@ export const customSourceBackend: PlaybackBackend = {
       if (remaining <= CUSTOM_SOURCE_MIN_ATTEMPT_MS) {
         failures.push(`时间预算耗尽,未尝试变体 ${music.name}`);
         break;
+      }
+
+      // 有 sources 元数据时先按平台过滤：没有声明 musicUrl 的源不必执行脚本再失败。
+      // 元数据缺失（从未测试/初始化）的源保持参与，运行时仍会做最终校验。
+      const customSources = enabledSources.filter((api) => {
+        const info = api.sources?.[music.source];
+        return !info || info.actions.includes('musicUrl');
+      });
+      if (!customSources.length) {
+        failures.push(`${music.source} 没有声明支持 musicUrl 的自定义音源`);
+        continue;
       }
 
       // 每个源:源内部也走同一个交错竞速——最高档先发,未回就在交错期后并发降档;
@@ -153,8 +173,11 @@ export const customSourceBackend: PlaybackBackend = {
   },
 };
 
-/** 自定义源阶段总预算:外层 14s deadline 内为探活与媒体缓存留余量。 */
+/** 自定义源阶段最大预算。实际预算还会被外层 deadline 压缩。 */
 const CUSTOM_SOURCE_TOTAL_BUDGET_MS = 10000;
+
+/** 给探活与媒体缓存预留的时间：外层 14s 内自定义源最多用「剩余时间 - 该值」。 */
+const CUSTOM_SOURCE_PROBE_RESERVE_MS = 6000;
 
 /** 交错启动总展开上限:7 个源全部展开不超过该值(实测队尾慢源场景的关键)。 */
 const CUSTOM_SOURCE_SPREAD_MS = 1600;
