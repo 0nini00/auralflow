@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Radio, Search } from "lucide-react";
+import { ArrowRight, Radio } from "lucide-react";
 import type { PlaylistInfo } from "@lx/core";
 import { useWyAccountStore } from "@/stores/wyAccountStore";
 import { useDiscoverFeedStore } from "@/stores/discoverFeedStore";
@@ -78,10 +78,6 @@ export function HomeView() {
                   私人 FM
                 </button>
               ) : null}
-              <button type="button" className="af-home-secondary-action" onClick={() => navigate("/search")}>
-                <Search size={18} />
-                搜索音乐
-              </button>
             </div>
           </div>
           <img className="af-home-featured-cover" src={featuredCover} alt="" aria-hidden="true" />
@@ -102,10 +98,6 @@ export function HomeView() {
                 私人 FM
               </button>
             ) : null}
-            <button type="button" className="af-home-secondary-action" onClick={() => navigate("/search")}>
-              <Search size={18} />
-              搜索音乐
-            </button>
           </div>
         </section>
       )}

@@ -1,35 +1,44 @@
 /* Cards and section headers */
 .af-section-header {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .af-section-title {
-  font-size: var(--af-font-size-2xl);
-  font-weight: var(--af-font-weight-semibold);
+  font-size: 19px;
+  font-weight: 700;
   color: var(--af-text-primary);
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
 }
 
+/* 区块右上角不再是"按钮"：它是导航，用文字链 + 箭头，避免和主行动抢注意力 */
 .af-section-action {
-  border: 1px solid var(--af-border-secondary);
-  border-radius: var(--af-radius-full);
-  padding: 8px 16px;
-  background: var(--af-bg-elevated);
-  color: var(--af-text-secondary);
-  font-size: var(--af-font-size-sm);
-  font-weight: var(--af-font-weight-medium);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 0;
+  border-radius: var(--af-radius-sm);
+  padding: 4px 6px;
+  background: transparent;
+  color: var(--af-text-tertiary);
+  font-size: 12.5px;
+  font-weight: 600;
   cursor: pointer;
-  transition: all var(--af-transition-base);
+  transition: color var(--af-transition-fast), background var(--af-transition-fast);
+}
+
+.af-section-action::after {
+  content: "›";
+  font-size: 15px;
+  line-height: 1;
 }
 
 .af-section-action:hover {
-  background: var(--af-bg-surface-hover);
-  color: var(--af-text-primary);
-  border-color: var(--af-border-primary);
+  background: var(--af-bg-hover);
+  color: var(--af-accent-ink);
 }
 
 .af-music-card {
@@ -181,19 +190,18 @@
   gap: 32px;
 }
 
+/* 没有推荐数据时的兜底 hero：一张干净的表面，不抢主推的位置 */
 .af-home-hero {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  /* 内容实际高度约 88px（eyebrow + 标题 + 描述），原先 min-height 180 + padding 32
-     是硬撑出来的空白，首屏被压掉近一行卡片。收到刚好包住内容的尺寸。 */
-  min-height: 148px;
-  padding: 24px 32px;
+  min-height: 168px;
+  padding: 26px 30px;
   border-radius: var(--af-radius-xl);
-  border: 0;
-  background: linear-gradient(135deg, rgba(var(--af-accent-primary-rgb), 0.14), var(--af-bg-surface));
-  box-shadow: none;
+  border: 1px solid var(--af-border-secondary);
+  background: var(--af-bg-elevated);
+  box-shadow: var(--af-shadow-sm);
 }
 
 /* 封面驱动的首页主推：模糊封面铺底 + 深色遮罩保证文字对比度，
@@ -204,8 +212,8 @@
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 32px;
-  min-height: 320px;
-  padding: 36px 40px;
+  min-height: 272px;
+  padding: 0 34px;
   overflow: hidden;
   border-radius: var(--af-radius-xl);
   background: #101513;
@@ -237,14 +245,14 @@
 .af-home-featured-copy {
   position: relative;
   z-index: 1;
-  max-width: 640px;
+  max-width: 600px;
   min-width: 0;
 }
 
 .af-home-featured-title {
-  margin: 10px 0 12px;
+  margin: 10px 0 10px;
   color: #f8fafc;
-  font-size: clamp(32px, 3.6vw, 46px);
+  font-size: clamp(24px, 2.5vw, 34px);
   font-weight: 700;
   line-height: 1.1;
   letter-spacing: -0.03em;
@@ -255,16 +263,16 @@
 }
 
 .af-home-featured-meta {
-  color: rgba(248, 250, 252, 0.74);
-  font-size: var(--af-font-size-sm);
+  color: rgba(248, 250, 252, 0.72);
+  font-size: 13px;
 }
 
 .af-home-featured-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
-  margin-top: 24px;
+  margin-top: 20px;
 }
 
 .af-home-featured .af-home-eyebrow {
@@ -273,14 +281,14 @@
 
 .af-home-featured .af-home-primary-action {
   border-color: transparent;
-  background: #f8fafc;
-  color: #0f172a;
-  box-shadow: none;
+  background: var(--af-accent-primary);
+  color: var(--af-text-on-accent);
+  box-shadow: 0 6px 18px -8px rgba(var(--af-accent-primary-rgb), 0.6);
 }
 
 .af-home-featured .af-home-primary-action:hover:not(:disabled) {
-  background: #ffffff;
-  box-shadow: none;
+  background: var(--af-accent-hover);
+  box-shadow: 0 8px 22px -8px rgba(var(--af-accent-primary-rgb), 0.7);
 }
 
 .af-home-featured .af-home-secondary-action {
@@ -298,8 +306,8 @@
 .af-home-featured-cover {
   position: relative;
   z-index: 1;
-  width: 240px;
-  height: 240px;
+  width: 184px;
+  height: 184px;
   object-fit: cover;
   border-radius: var(--af-radius-lg);
   box-shadow: 0 24px 56px rgba(0, 0, 0, 0.45);
@@ -307,8 +315,9 @@
 
 /* 没有推荐数据时的兜底 hero：同样去掉描边与阴影，靠表面渐变分层。 */
 .af-home-hero .af-heading-1 {
-  font-size: clamp(32px, 3.2vw, 42px);
-  letter-spacing: -0.03em;
+  font-size: clamp(26px, 2.4vw, 32px);
+  letter-spacing: -0.028em;
+  margin: 6px 0 8px;
 }
 
 /* 首页卡片让封面承担视觉重量：去掉封面阴影，悬停只做轻微放大。 */
@@ -325,13 +334,18 @@
 }
 
 .af-home-view .af-discover-grid {
-  gap: 24px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 18px;
+}
+
+.af-home-view .af-discover-grid .af-music-card {
+  max-width: none;
 }
 
 @media (max-width: 1100px) {
   .af-home-featured {
     grid-template-columns: minmax(0, 1fr);
-    padding: 28px;
+    padding: 0 26px;
   }
 
   .af-home-featured-cover {

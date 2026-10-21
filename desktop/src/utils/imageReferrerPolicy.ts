@@ -53,6 +53,8 @@ export const ROW_COVER_CSS_SIZE = 40;
 export const RESULT_COVER_CSS_SIZE = 64;
 /** 卡片 / 列表项封面（`.af-music-card-cover`）的 CSS 边长。 */
 export const CARD_COVER_CSS_SIZE = 150;
+/** 「正在播放」右栏封面（`.af-np-cover`）的 CSS 边长。 */
+export const NP_COVER_CSS_SIZE = 240;
 /** 详情页封面（`.af-playlist-detail-cover` 等）的 CSS 边长。 */
 export const DETAIL_COVER_CSS_SIZE = 240;
 /** 首页主推 hero（`.af-home-featured`）的封面 CSS 边长；按整块宽度取最大档。 */

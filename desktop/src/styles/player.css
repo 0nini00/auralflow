@@ -1,13 +1,18 @@
-/* Player Bar */
+/* ============================================================
+   Player Bar —— 全宽 88px，三列：曲目 / 控制+进度 / 工具
+   ============================================================ */
 .af-player-bar {
   position: relative;
-  min-height: 84px;
-  flex-shrink: 0;
-  /* 播放条是唯一常驻的“浮层”：玻璃底 + 软阴影，让它从内容面板下方浮起来。 */
+  flex: 0 0 var(--af-player-height);
+  height: var(--af-player-height);
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(400px, 1.5fr) minmax(260px, 1fr);
+  align-items: center;
+  gap: 20px;
+  padding: 0 16px;
   background: var(--af-glass-bg);
-  border: 1px solid var(--af-glass-border);
-  border-radius: var(--af-radius-xl);
-  box-shadow: var(--af-shadow-md);
+  border-top: 1px solid var(--af-border-primary);
+  box-shadow: 0 -6px 24px -18px rgba(20, 25, 15, 0.35);
   backdrop-filter: var(--af-glass-blur);
   z-index: 1000;
 }
@@ -19,7 +24,6 @@
   content: "";
   position: absolute;
   inset: 0;
-  border-radius: inherit;
   pointer-events: none;
   background: linear-gradient(
     120deg,
@@ -33,9 +37,9 @@
 .af-player-bar::after {
   content: "";
   position: absolute;
-  top: 0;
-  left: 24px;
-  right: 24px;
+  top: -1px;
+  left: 0;
+  right: 0;
   height: 1px;
   pointer-events: none;
   background: linear-gradient(
@@ -46,49 +50,23 @@
   );
 }
 
-.af-player-container {
+.af-player-left {
   position: relative;
-  display: grid;
-  grid-template-rows: 18px auto;
-  row-gap: 5px;
-  max-width: 100%;
-  margin: 0 auto;
-  padding: 13px 24px 12px;
-}
-
-.af-player-grid {
-  display: grid;
-  grid-template-columns: minmax(360px, 1.35fr) minmax(280px, 1.6fr) minmax(120px, 0.7fr);
-  gap: 16px;
-  align-items: center;
-}
-
-.af-player-track-info {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
 }
 
 .af-track-cover-wrapper {
   cursor: pointer;
   flex-shrink: 0;
-  /*
-   * 这张封面不接受任何焦点装饰。它是「点了就进全屏」的鼠标入口，退出沉浸页时焦点陷阱
-   * 会把焦点还给它（useDialogFocus 记录的 previousFocus），浏览器随即画 UA 默认的
-   * 1px 近黑 auto 环 —— 就是用户看到的「封面四周黑框」；而封面图自己带 12px 圆角，
-   * 直角黑环压在圆角上更像渲染坏了。
-   * 焦点仍然照旧还给这里（键盘用户的 Tab 位置不丢），只是画面上不再添任何一圈：
-   * 退出全屏播放后，世界回到按下封面之前的样子。
-   * 代价是 Tab 到封面时看不见焦点，这里接受——唯一的动作有 aria-label 兜底，
-   * 装饰性提示比每次退出都多一圈框更不值。
-   */
   outline: none;
   transition: transform 0.2s;
 }
 
 .af-track-cover-wrapper:hover {
-  transform: scale(1.05);
+  transform: scale(1.04);
 }
 
 .af-track-cover-wrapper:active {
@@ -96,18 +74,18 @@
 }
 
 .af-track-cover {
-  width: 64px;
-  height: 64px;
-  border-radius: var(--af-radius-md);
+  width: 54px;
+  height: 54px;
+  border-radius: var(--af-radius-sm);
   object-fit: cover;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--af-shadow-sm);
   display: block;
 }
 
 .af-track-cover-placeholder {
-  width: 64px;
-  height: 64px;
-  border-radius: var(--af-radius-md);
+  width: 54px;
+  height: 54px;
+  border-radius: var(--af-radius-sm);
   background: linear-gradient(135deg, var(--af-accent-primary), var(--af-accent-secondary));
   display: flex;
   align-items: center;
@@ -118,24 +96,24 @@
 }
 
 .af-track-details {
-  flex: 1 1 140px;
-  min-width: 120px;
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
 }
 
 .af-track-name {
-  font-size: var(--af-font-size-lg);
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 650;
   color: var(--af-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-bottom: 4px;
 }
 
 .af-track-artist {
-  font-size: var(--af-font-size-sm);
-  color: var(--af-text-secondary);
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--af-text-tertiary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -144,22 +122,22 @@
 .af-track-notice {
   margin-top: 2px;
   font-size: var(--af-font-size-xs);
-  color: var(--af-accent-primary, var(--af-text-secondary));
+  color: var(--af-accent-ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .af-like-button {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   padding: 0;
   border: 1px solid transparent;
   background: transparent;
   color: var(--af-text-secondary);
-  border-radius: var(--af-button-radius);
+  border-radius: var(--af-radius-full);
   cursor: pointer;
-  transition: background var(--af-transition-fast), border-color var(--af-transition-fast), color var(--af-transition-fast), transform var(--af-transition-fast);
+  transition: background var(--af-transition-fast), color var(--af-transition-fast), transform var(--af-transition-fast);
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -168,41 +146,46 @@
 
 .af-like-button:hover {
   background: var(--af-bg-hover);
-  border-color: var(--af-border-primary);
   color: var(--af-text-primary);
 }
 
+.af-like-button:active {
+  transform: scale(0.94);
+}
+
+.af-like-button.af-active {
+  color: var(--af-accent-ink);
+}
+
 .af-like-button.af-liked {
-  color: var(--af-error);
+  color: var(--af-accent-ink);
 }
 
-.af-like-button.af-liked:hover {
-  color: var(--af-error-hover);
-}
-
-.af-player-controls {
+/* 中列：控制在上、进度在下，两者共享同一轴线 */
+.af-player-center {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
+  gap: 6px;
   min-width: 0;
 }
 
 .af-control-buttons {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
 }
 
 .af-control-btn {
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: 1px solid transparent;
   background: transparent;
   color: var(--af-text-secondary);
-  border-radius: var(--af-button-radius);
+  border-radius: var(--af-radius-full);
   cursor: pointer;
-  transition: background var(--af-transition-fast), border-color var(--af-transition-fast), color var(--af-transition-fast), transform var(--af-transition-fast);
+  transition: background var(--af-transition-fast), color var(--af-transition-fast), transform var(--af-transition-fast);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -210,73 +193,84 @@
 
 .af-control-btn:hover {
   background: var(--af-bg-hover);
-  border-color: var(--af-border-primary);
   color: var(--af-text-primary);
 }
 
+.af-control-btn:active {
+  transform: scale(0.94);
+}
+
 .af-control-btn.af-active {
-  color: var(--af-accent-strong);
+  color: var(--af-accent-ink);
   background: rgba(var(--af-accent-primary-rgb), 0.1);
-  border-color: rgba(var(--af-accent-primary-rgb), 0.28);
+  border-color: transparent;
 }
 
 .af-play-button {
-  width: 42px;
-  height: 42px;
-  border-radius: var(--af-radius-md);
-  background: color-mix(in srgb, rgb(var(--af-ambience-rgb, var(--af-accent-primary-rgb))) 14%, var(--af-bg-elevated));
-  color: rgb(var(--af-ambience-rgb, var(--af-accent-primary-rgb)));
-  border: 1px solid color-mix(in srgb, rgb(var(--af-ambience-rgb, var(--af-accent-primary-rgb))) 34%, transparent);
+  width: 40px;
+  height: 40px;
+  margin: 0 6px;
+  border-radius: var(--af-radius-full);
+  background: var(--af-text-primary);
+  color: var(--af-bg-page);
+  border: 0;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background var(--af-transition-fast), box-shadow var(--af-transition-fast), transform var(--af-transition-fast);
-  box-shadow: none;
+  transition: transform var(--af-transition-fast), background var(--af-transition-fast);
+  box-shadow: 0 6px 16px -6px rgba(20, 25, 15, 0.45);
 }
 
 .af-play-button:hover {
-  background: color-mix(in srgb, rgb(var(--af-ambience-rgb, var(--af-accent-primary-rgb))) 22%, var(--af-bg-elevated));
-  transform: translateY(-1px);
-  box-shadow: none;
+  transform: scale(1.06);
+  background: var(--af-text-primary);
 }
 
 .af-play-button:active {
-  transform: translateY(0) scale(0.98);
+  transform: scale(0.97);
 }
 
 .af-progress-bar {
-  width: 100%; /* 与下方控制栅格同宽，避免窄条悬浮错位 */
+  width: 100%;
+  max-width: 520px;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .af-time {
-  font-size: var(--af-font-size-xs);
-  color: var(--af-text-secondary);
+  font-size: 11px;
+  color: var(--af-text-tertiary);
   font-weight: 500;
-  min-width: 40px;
+  min-width: 34px;
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
 
+.af-time-end {
+  text-align: center;
+}
+
 .af-progress-track {
   flex: 1;
-  height: 4px;
-  background: var(--af-bg-hover);
-  border-radius: var(--af-radius-xs);
+  height: 3px;
+  background: var(--af-border-primary);
+  border-radius: var(--af-radius-full);
   cursor: pointer;
   position: relative;
 }
 
 .af-progress-fill {
   height: 100%;
-  background: rgb(var(--af-ambience-rgb, var(--af-accent-primary-rgb)));
-  border-radius: var(--af-radius-xs);
+  background: var(--af-accent-primary);
+  border-radius: var(--af-radius-full);
   pointer-events: none;
-  box-shadow: 0 0 10px rgba(var(--af-ambience-rgb, var(--af-accent-primary-rgb)), 0.35);
+}
+
+.af-progress-track:hover .af-progress-fill {
+  background: var(--af-accent-hover);
 }
 
 .af-progress-input {
@@ -293,18 +287,27 @@
   appearance: none;
 }
 
-.af-player-volume {
+/* 右列：工具 */
+.af-player-right {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 2px;
+  min-width: 0;
+}
+
+.af-player-volume {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 2px;
 }
 
 .af-volume-track {
-  width: 100px;
-  height: 4px;
-  background: var(--af-bg-hover);
-  border-radius: var(--af-radius-xs);
+  width: 78px;
+  height: 3px;
+  background: var(--af-border-primary);
+  border-radius: var(--af-radius-full);
   cursor: pointer;
   position: relative;
 }
@@ -312,19 +315,399 @@
 .af-volume-fill {
   height: 100%;
   background: var(--af-text-secondary);
-  border-radius: var(--af-radius-xs);
-  transition: width 0.1s;
+  border-radius: var(--af-radius-full);
   pointer-events: none;
+}
+
+.af-volume-track:hover .af-volume-fill {
+  background: var(--af-text-primary);
 }
 
 .af-volume-input {
   position: absolute;
-  inset: 0;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 16px;
   width: 100%;
-  height: 100%;
+  transform: translateY(-50%);
   opacity: 0;
   cursor: pointer;
   margin: 0;
+  appearance: none;
+}
+
+/* 定时关闭弹层：贴播放条上沿朝上开 */
+.af-sleep-timer-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.af-sleep-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+}
+
+.af-sleep-menu {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: -8px;
+  z-index: 1201;
+  min-width: 176px;
+  padding: 6px;
+  background: var(--af-glass-bg);
+  border: 1px solid var(--af-glass-border);
+  border-radius: var(--af-radius-lg);
+  box-shadow: var(--af-shadow-lg);
+  backdrop-filter: var(--af-glass-blur);
+}
+
+.af-sleep-menu-title {
+  padding: 6px 10px 8px;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--af-text-tertiary);
+}
+
+.af-sleep-menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--af-radius-sm);
+  background: transparent;
+  color: var(--af-text-secondary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.af-sleep-menu-item:hover {
+  background: var(--af-bg-hover);
+  color: var(--af-text-primary);
+}
+
+.af-sleep-menu-cancel {
+  color: var(--af-error);
+}
+
+/* ============================================================
+   Now Playing 右栏
+   ============================================================ */
+.af-now-playing {
+  flex: 0 0 var(--af-now-playing-width);
+  width: var(--af-now-playing-width);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--af-bg-base);
+  border-left: 1px solid var(--af-border-secondary);
+}
+
+.af-np-head {
+  height: 46px;
+  flex: 0 0 46px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px 0 18px;
+}
+
+.af-np-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--af-text-tertiary);
+}
+
+.af-np-head .af-icon-btn {
+  margin-left: auto;
+}
+
+.af-np-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 14px 10px;
+}
+
+.af-np-tab {
+  flex: 1;
+  height: 30px;
+  border: 0;
+  border-radius: var(--af-radius-sm);
+  background: transparent;
+  color: var(--af-text-tertiary);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--af-transition-fast), color var(--af-transition-fast);
+}
+
+.af-np-tab:hover {
+  color: var(--af-text-primary);
+}
+
+.af-np-tab.af-active {
+  background: var(--af-bg-elevated);
+  color: var(--af-text-primary);
+  box-shadow: var(--af-shadow-sm);
+}
+
+.af-np-cover {
+  width: calc(100% - 36px);
+  max-width: 238px;
+  aspect-ratio: 1;
+  margin: 0 auto 14px;
+  border-radius: var(--af-radius-lg);
+  overflow: hidden;
+  box-shadow: var(--af-shadow-md);
+  background: var(--af-bg-surface);
+}
+
+.af-np-cover-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.af-np-cover-placeholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  background: var(--af-bg-surface);
+  color: var(--af-text-quaternary);
+}
+
+.af-np-song {
+  padding: 0 18px;
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--af-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-np-artist {
+  padding: 0 18px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--af-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-np-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 16px 10px;
+}
+
+.af-np-tools .af-icon-btn {
+  border: 1px solid var(--af-border-primary);
+  background: var(--af-bg-elevated);
+}
+
+.af-np-tools .af-icon-btn:hover {
+  background: var(--af-bg-hover);
+}
+
+.af-np-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 18px 16px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--af-border-primary) transparent;
+}
+
+.af-np-queue-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0 8px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: var(--af-text-tertiary);
+}
+
+.af-np-row {
+  display: grid;
+  grid-template-columns: 18px 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  height: 46px;
+  margin: 0 -6px;
+  padding: 0 6px;
+  border-radius: var(--af-radius-sm);
+  transition: background var(--af-transition-fast);
+}
+
+.af-np-row:hover {
+  background: var(--af-bg-hover);
+}
+
+.af-np-row-index {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--af-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.af-np-row-main {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.af-np-row-cover {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border-radius: var(--af-radius-xs);
+  overflow: hidden;
+  background: var(--af-bg-surface);
+}
+
+.af-np-row-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.af-np-row-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.af-np-row-name {
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--af-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-np-row-artist {
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--af-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-np-row-dur {
+  font-size: 11px;
+  color: var(--af-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.af-np-row-remove {
+  width: 22px;
+  height: 22px;
+  opacity: 0;
+  transition: opacity var(--af-transition-fast);
+}
+
+.af-np-row:hover .af-np-row-remove {
+  opacity: 1;
+}
+
+.af-np-row.af-active .af-np-row-name {
+  color: var(--af-accent-ink);
+  font-weight: 650;
+}
+
+.af-np-row.af-active .af-np-row-index {
+  color: var(--af-accent-ink);
+}
+
+.af-playing-bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+}
+
+.af-playing-bars i {
+  width: 2px;
+  border-radius: 1px;
+  background: var(--af-accent-primary);
+  transform-origin: bottom;
+  animation: af-eq 1s ease-in-out infinite;
+}
+
+.af-playing-bars i:nth-child(1) { height: 100%; animation-delay: -0.35s; }
+.af-playing-bars i:nth-child(2) { height: 62%; animation-delay: -0.1s; }
+.af-playing-bars i:nth-child(3) { height: 84%; animation-delay: -0.55s; }
+
+@keyframes af-eq {
+  0%, 100% { transform: scaleY(0.32); }
+  50% { transform: scaleY(1); }
+}
+
+.af-np-hint,
+.af-np-empty {
+  padding: 14px 18px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--af-text-tertiary);
+}
+
+.af-np-lyrics {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 18px 20px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--af-border-primary) transparent;
+}
+
+.af-np-lyric {
+  margin: 0;
+  padding: 5px 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--af-text-tertiary);
+  transition: color var(--af-transition-fast);
+}
+
+.af-np-lyric.af-active {
+  color: var(--af-text-primary);
+  font-weight: 600;
+}
+
+/* 窄窗口：右列让出空间，音量条收起 */
+@media (max-width: 1180px) {
+  .af-player-bar {
+    grid-template-columns: minmax(200px, 1fr) minmax(360px, 1.4fr) auto;
+    gap: 12px;
+    padding: 0 12px;
+  }
+
+  .af-volume-track {
+    width: 56px;
+  }
 }
 
 /* 沉浸式播放：单一全窗表面，封面与歌词共享可用高度。 */

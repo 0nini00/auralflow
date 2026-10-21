@@ -614,6 +614,19 @@ export function SearchView() {
 
 
 
+      {!searched && searchHistory.length === 0 && (
+        <div className="af-search-idle">
+          <div className="af-search-idle-mark" aria-hidden="true">
+            <Music2 size={22} strokeWidth={1.7} />
+          </div>
+          <h2>搜点什么</h2>
+          <p>输入歌名、歌手或专辑；也可以直接粘贴歌单链接。</p>
+          <p className="af-search-idle-kbd">
+            顶栏搜索随时可用 · <kbd>Ctrl</kbd> + <kbd>K</kbd>
+          </p>
+        </div>
+      )}
+
       {actionStatus && <div className="af-search-action-status">{actionStatus}</div>}
 
 

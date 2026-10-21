@@ -2,11 +2,13 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { Header } from '../src/components/Layout/Header';
+import { Topbar } from '../src/components/Layout/Topbar';
 
 const api = vi.hoisted(() => ({ fetch: vi.fn(), navigate: vi.fn(), record: vi.fn() }));
 vi.mock('react-router-dom', () => ({
   useNavigate: () => api.navigate, useLocation: () => ({ pathname: '/' }), useSearchParams: () => [new URLSearchParams()],
+  // 顶栏面包屑用了 Link；这里只需要一个可渲染的锚点
+  Link: ({ to, children }: any) => <a href={to}>{children}</a>,
 }));
 vi.mock('@/stores/themeStore', () => ({ useThemeStore: () => ({ effectiveTheme: 'dark', setTheme: vi.fn() }) }));
 vi.mock('@/services/search/searchSuggestions', () => ({
@@ -33,7 +35,7 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   document.body.innerHTML = '<div id="root"></div><button id="outside">外部</button>';
   root = createRoot(document.getElementById('root')!);
-  act(() => root.render(<Header />));
+  act(() => root.render(<Topbar />));
   input = document.querySelector('input')!; act(() => input.focus());
 });
 afterEach(() => { act(() => root.unmount()); vi.useRealTimers(); vi.unstubAllGlobals(); });

@@ -35,13 +35,24 @@
   flex-shrink: 0;
 }
 
+/* 出错不是"一行灰字"：给一条左侧强调边 + 主按钮，让人知道下一步做什么 */
 .af-discover-notice {
-  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
   border: 1px solid var(--af-border-secondary);
+  border-left: 3px solid var(--af-warning);
   border-radius: var(--af-radius-md);
-  background: var(--af-bg-surface);
+  background: var(--af-bg-elevated);
   color: var(--af-text-secondary);
-  font-size: var(--af-font-size-sm);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.af-discover-notice .af-btn-secondary {
+  margin-left: auto !important;
+  flex: 0 0 auto;
 }
 
 .af-discover-empty {

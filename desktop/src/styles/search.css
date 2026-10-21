@@ -638,3 +638,54 @@
   color: var(--af-text-primary);
   background: var(--af-bg-surface-hover);
 }
+
+/* 搜索页空态：没有历史、也没搜过时，页面不能是一片空白 */
+.af-search-idle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 72px 24px;
+  text-align: center;
+}
+
+.af-search-idle-mark {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 6px;
+  border-radius: var(--af-radius-full);
+  background: rgba(var(--af-accent-primary-rgb), 0.1);
+  color: var(--af-accent-ink);
+}
+
+.af-search-idle h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--af-text-primary);
+}
+
+.af-search-idle p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--af-text-tertiary);
+}
+
+.af-search-idle-kbd {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.af-search-idle-kbd kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--af-border-primary);
+  border-radius: 5px;
+  background: var(--af-bg-surface);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+}

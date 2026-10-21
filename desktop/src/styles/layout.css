@@ -1,43 +1,116 @@
-/* Header */
-.af-header {
-  min-height: 52px;
-  flex-shrink: 0;
-  display: grid;
-  grid-template-columns: auto minmax(240px, 520px) auto;
-  align-items: center;
-  gap: 16px;
-  padding: 0 4px;
-  /* 顶栏与内容区之间用间距分层，不再画一条独立横条。 */
-  background: transparent;
-  border: 0;
-  border-radius: var(--af-radius-xl);
-}
-
-.af-header-left,
-.af-header-right {
+/* ============================================================
+   Topbar —— 合并原「窗口标题栏」与「页面顶栏」
+   34px 标题栏 + 52px 顶栏 = 86px 的垂直 chrome 压到 56px，
+   拖拽区、面包屑、搜索、窗口按钮同处一行。
+   ============================================================ */
+.af-topbar {
+  height: var(--af-topbar-height);
+  flex: 0 0 var(--af-topbar-height);
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-
-.af-header-right {
-  justify-content: flex-end;
-}
-
-.af-header-search {
+  gap: 10px;
+  padding: 0 6px 0 12px;
+  background: var(--af-bg-page);
+  border-bottom: 1px solid var(--af-border-secondary);
   position: relative;
+  z-index: 20;
+  user-select: none;
+}
+
+.af-topbar-nav {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.af-topbar-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   min-width: 0;
-  height: 38px;
-  padding: 0 14px;
+  font-size: 13px;
+  flex: 0 1 auto;
+}
+
+.af-crumb {
   color: var(--af-text-tertiary);
-  background: var(--af-bg-surface);
-  border: 1px solid transparent;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color var(--af-transition-fast);
+}
+
+.af-crumb:hover {
+  color: var(--af-text-primary);
+}
+
+.af-crumb-sep {
+  color: var(--af-text-tertiary);
+  opacity: 0.5;
+}
+
+.af-crumb-current {
+  font-weight: 600;
+  color: var(--af-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.af-topbar-search {
+  position: relative;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: min(400px, 34vw);
+  height: 36px;
+  padding: 0 10px 0 12px;
+  color: var(--af-text-tertiary);
+  /* 搜索框必须"看得见"：现在它与页面同色（对比 1.03:1），只能靠 placeholder 辨认 */
+  background: var(--af-bg-elevated);
+  border: 1px solid var(--af-border-primary);
   border-radius: var(--af-radius-full);
-  transition: background var(--af-transition-base), border-color var(--af-transition-base),
-    box-shadow var(--af-transition-base), color var(--af-transition-base);
+  box-shadow: var(--af-shadow-sm);
+  transition: border-color var(--af-transition-fast), box-shadow var(--af-transition-fast),
+    background var(--af-transition-fast);
+}
+
+.af-topbar-search:hover {
+  border-color: var(--af-text-tertiary);
+}
+
+.af-topbar-search:focus-within {
+  border-color: var(--af-accent-primary);
+  box-shadow: var(--af-focus-ring);
+  color: var(--af-text-secondary);
+}
+
+.af-topbar-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--af-text-primary);
+  font-size: 13px;
+}
+
+.af-topbar-search-input::placeholder {
+  color: var(--af-text-tertiary);
+}
+
+.af-topbar-kbd {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border: 1px solid var(--af-border-primary);
+  border-radius: 5px;
+  background: var(--af-bg-surface);
+  color: var(--af-text-tertiary);
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.5;
 }
 
 .af-header-search-popover {
@@ -45,37 +118,42 @@
   min-width: min(360px, calc(100vw - 32px));
 }
 
-.af-header-search:focus-within {
-  color: var(--af-text-secondary);
-  background: var(--af-bg-elevated);
-  border-color: var(--af-border-focus);
-  box-shadow: 0 0 0 3px rgba(var(--af-accent-primary-rgb), 0.12);
+.af-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
-.af-header-search-input {
-  width: 100%;
-  min-width: 0;
-  border: none;
-  outline: none;
-  background: transparent;
-  color: var(--af-text-primary);
-  font-size: var(--af-font-size-sm);
+/* 搜索页自带主搜索框：顶栏那个在这页收起，避免同屏两个搜索入口 */
+.af-route-search .af-topbar-search {
+  display: none;
 }
 
-.af-header-search-input::placeholder {
-  color: var(--af-text-tertiary);
+.af-topbar-divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 6px;
+  background: var(--af-border-primary);
 }
 
-@media (max-width: 768px) {
-  .af-header {
-    grid-template-columns: auto 1fr auto;
-    gap: 10px;
-    padding: 0 10px;
+@media (max-width: 900px) {
+  .af-topbar {
+    gap: 6px;
+    padding: 0 4px 0 8px;
   }
 
-  .af-header-search {
-    height: 36px;
-    padding: 0 10px;
+  .af-topbar-crumbs {
+    display: none;
+  }
+
+  .af-topbar-search {
+    width: min(320px, 40vw);
+  }
+
+  .af-topbar-kbd {
+    display: none;
   }
 }
 

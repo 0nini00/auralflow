@@ -1,10 +1,11 @@
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import { Sidebar } from "./Sidebar";
-import { Header } from "./Header";
+import { Topbar } from "./Topbar";
 import { PlayerBar } from "../PlayerBar";
-import { AppTitleBar } from "./AppTitleBar";
+import { NowPlayingPanel } from "../NowPlayingPanel";
 import { loadSettings } from "@lx/tauri-bridge";
+import { useUiStore } from "@/stores/uiStore";
 import {
   APP_BACKGROUND_CHANGE_EVENT,
   cacheAppBackgroundPath,
@@ -22,6 +23,10 @@ export function Layout() {
     () => toAppBackgroundImageUrl(appBackgroundImagePath),
     [appBackgroundImagePath],
   );
+  const nowPlayingOpen = useUiStore((s) => s.nowPlayingOpen);
+  const location = useLocation();
+  // 搜索页自带一个主搜索框，顶栏那个在这页会变成重复入口，收起
+  const isSearchRoute = location.pathname === "/search";
 
   useEffect(() => {
     loadSettings()
@@ -43,7 +48,7 @@ export function Layout() {
   }, []);
 
   return (
-    <div className={`af-app ${appBackgroundImageUrl ? "af-app-has-background" : ""}`}>
+    <div className={`af-app ${appBackgroundImageUrl ? "af-app-has-background" : ""} ${isSearchRoute ? "af-route-search" : ""}`}>
       {appBackgroundImageUrl && (
         <div
           className="af-app-background"
@@ -51,19 +56,21 @@ export function Layout() {
           aria-hidden="true"
         />
       )}
-      <AppTitleBar />
       <div className="af-main-container">
         <Sidebar />
         <div className="af-workspace">
-          <Header />
-          <main className="af-content">
-            <div className="af-content-scroll">
-              <Outlet />
-            </div>
-          </main>
-          <PlayerBar />
+          <Topbar />
+          <div className={`af-stage ${nowPlayingOpen ? "af-stage-with-panel" : ""}`}>
+            <main className="af-content">
+              <div className="af-content-scroll">
+                <Outlet />
+              </div>
+            </main>
+            {nowPlayingOpen && <NowPlayingPanel />}
+          </div>
         </div>
       </div>
+      <PlayerBar />
     </div>
   );
 }

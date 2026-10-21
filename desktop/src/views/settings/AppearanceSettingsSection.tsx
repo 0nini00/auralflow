@@ -12,14 +12,14 @@ const THEME_OPTIONS: Array<{ value: Theme; label: string; Icon: typeof Sun }> = 
 
 /** 预设色板（第一个是默认强调色）。任意取色与 hex 输入不受色板限制。 */
 const ACCENT_PRESETS = [
-  { label: "极光绿（默认）", value: "#3bd877" },
+  { label: "深林绿（默认）", value: "#17a34a" },
+  { label: "荧光绿", value: "#3bd877" },
   { label: "天空蓝", value: "#3b82f6" },
   { label: "青碧", value: "#14b8a6" },
   { label: "紫罗兰", value: "#8b5cf6" },
   { label: "樱粉", value: "#ec4899" },
   { label: "暖橙", value: "#f59e0b" },
   { label: "珊瑚红", value: "#ef4444" },
-  { label: "石墨", value: "#64748b" },
 ];
 
 const DEFAULT_LYRIC_FONT_FAMILY = IMMERSIVE_LYRIC_FONT_OPTIONS[0].value;

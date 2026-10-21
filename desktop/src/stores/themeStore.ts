@@ -34,7 +34,8 @@ export interface AppearanceSettings {
 export const APPEARANCE_DEFAULTS: AppearanceSettings = {
   // 深色是音乐播放器的第一印象；想跟随系统仍在设置里选「自动」。
   theme: "dark",
-  accentColor: "#3bd877",
+  // 交互层用更深、更可读的绿（浅底文字 5.4:1）；品牌荧光绿 #3bd877 仍可在设置里选。
+  accentColor: "#17a34a",
   artworkAmbienceEnabled: true,
   artworkAmbienceIntensity: 100,
   artworkAmbienceScope: "player-immersive",
@@ -60,6 +61,8 @@ const ACCENT_TEXT_DARK = "#0f172a";
 const ACCENT_TEXT_LIGHT = "#ffffff";
 const LEGACY_DEFAULT_ACCENT_COLOR = "#1db954";
 const LEGACY_RED_ACCENT_COLOR = "#d83b40";
+/** 重设计前的默认强调色：只用于 af-theme v3 的一次性迁移，之后它仍是可选预设 */
+const LEGACY_DEFAULT_ACCENT_COLOR_V3 = "#3bd877";
 
 interface ThemeStore extends AppearanceSettings {
   effectiveTheme: EffectiveTheme;
@@ -316,15 +319,21 @@ export const useThemeStore = create<ThemeStore>()(
     },
     {
       name: "af-theme",
-      version: 2,
+      version: 3,
       migrate: (persistedState, version) => {
         const raw = asRecord(persistedState);
+        let next: Record<string, unknown> = raw;
         // v2：默认主题从「跟随系统」改为深色。旧存档没有版本号，
         // 只有当时停在 auto 的会迁移一次；之后用户再选 auto 会按 v2 正常保留。
         if (version < 2 && raw.theme === "auto") {
-          return normalizeAppearance({ ...raw, theme: "dark" });
+          next = { ...next, theme: "dark" };
         }
-        return normalizeAppearance(persistedState);
+        // v3：默认强调色从荧光绿 #3bd877 换成更可读的深绿 #17a34a（界面重设计 A 方向）。
+        // 只在「还是旧默认值」时迁移一次；迁移后用户再手动选荧光绿会正常保留。
+        if (version < 3 && next.accentColor === LEGACY_DEFAULT_ACCENT_COLOR_V3) {
+          next = { ...next, accentColor: APPEARANCE_DEFAULTS.accentColor };
+        }
+        return normalizeAppearance(next);
       },
       partialize: (state) => normalizeAppearance(state),
       merge: (persistedState, currentState) => ({

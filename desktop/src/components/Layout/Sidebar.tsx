@@ -1,4 +1,4 @@
-import { BarChart3, Cloud, Home, Search, Settings, User, Music, ListMusic, Download, Calendar, Radio, Trophy, LayoutGrid } from "lucide-react";
+import { BarChart3, Cloud, Home, Settings, User, Music, ListMusic, Download, Calendar, Radio, Trophy, LayoutGrid, Clock } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -6,7 +6,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import { loadSettings, patchSettings } from "@lx/tauri-bridge";
 import { useWyAccountStore } from "@/stores/wyAccountStore";
+import { usePlaylistStore } from "@/stores/playlistStore";
+import { useLibraryStore } from "@/stores/libraryStore";
 import { getWyCookie } from "@/services/wyAccountService";
+import { useWindowDrag } from "@/hooks/useWindowDrag";
 import { WyCookieLoginModal } from "@/components/WyCookieLoginModal";
 import logoImg from "@/assets/logo.png";
 
@@ -16,25 +19,52 @@ interface NavItem {
   icon: LucideIcon;
   label: string;
   requiresAccount?: boolean;
+  /** 末尾计数徽标的数据来源，没有就不显示 */
+  count?: "playlists" | "localSongs";
 }
 
-const navItems: NavItem[] = [
-  { to: "/", icon: Home, label: "发现" },
-  { to: "/search", icon: Search, label: "搜索" },
-  // 排行榜与歌单广场是公开数据（不读 Cookie），所以没有 requiresAccount：
-  // 未登录用户同样该有内容看。
-  { to: "/charts", icon: Trophy, label: "排行榜" },
-  { to: "/playlist-square", icon: LayoutGrid, label: "歌单广场" },
-  { to: "/daily", icon: Calendar, label: "每日推荐", requiresAccount: true },
-  { to: "/fm", icon: Radio, label: "私人 FM", requiresAccount: true },
-  { to: "/cloud", icon: Cloud, label: "音乐云盘", requiresAccount: true },
-  { to: "/playlists", icon: ListMusic, label: "我的歌单" },
-  { to: "/downloads", icon: Download, label: "下载" },
-  { to: "/local", icon: Music, label: "本地音乐" },
-  { to: "/stats", icon: BarChart3, label: "听歌统计" },
+interface NavGroup {
+  label: string;
+  items: NavItem[];
+  /** 整组都依赖账号时，未登录整组不渲染 */
+  requiresAccount?: boolean;
+}
+
+/**
+ * 导航按「发现 / 为你 / 我的音乐」分组：11 个一级项平铺时，
+ * 「发现类」和「曲库类」混在一个列表里，扫读成本高。
+ * 搜索不在这里——顶栏是唯一入口（Ctrl K）。
+ */
+const NAV_GROUPS: NavGroup[] = [
+  {
+    label: "发现",
+    items: [
+      { to: "/", icon: Home, label: "首页" },
+      { to: "/charts", icon: Trophy, label: "排行榜" },
+      { to: "/playlist-square", icon: LayoutGrid, label: "歌单广场" },
+    ],
+  },
+  {
+    label: "为你",
+    requiresAccount: true,
+    items: [
+      { to: "/daily", icon: Calendar, label: "每日推荐" },
+      { to: "/fm", icon: Radio, label: "私人 FM" },
+      { to: "/cloud", icon: Cloud, label: "音乐云盘" },
+    ],
+  },
+  {
+    label: "我的音乐",
+    items: [
+      { to: "/playlists", icon: ListMusic, label: "我的歌单", count: "playlists" },
+      { to: "/local", icon: Music, label: "本地音乐", count: "localSongs" },
+      { to: "/downloads", icon: Download, label: "下载" },
+      { to: "/history", icon: Clock, label: "最近播放" },
+    ],
+  },
 ];
 
-const SIDEBAR_DEFAULT_WIDTH = 240;
+const SIDEBAR_DEFAULT_WIDTH = 236;
 /** 下限按「图标 + 汉字标签 + 内边距」估：再窄就会把「听歌统计」挤成两行。 */
 const SIDEBAR_MIN_WIDTH = 200;
 /** 上限留出内容区：1360 的设计窗口下侧栏超过 360 后，歌单列表的多列会被压扁。 */
@@ -49,11 +79,19 @@ function clampSidebarWidth(value: unknown): number {
 
 export function Sidebar() {
   const { account, load } = useWyAccountStore();
+  const playlistCount = usePlaylistStore((s) => s.playlists.length);
+  const localSongCount = useLibraryStore((s) => s.localSongs.length);
   const [loginOpen, setLoginOpen] = useState(false);
   const [width, setWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
   const widthRef = useRef(width);
   widthRef.current = width;
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const windowDrag = useWindowDrag();
+
+  const counts: Record<NonNullable<NavItem["count"]>, number> = {
+    playlists: playlistCount,
+    localSongs: localSongCount,
+  };
 
   useEffect(() => {
     getWyCookie().then((c) => load(c)).catch(() => {});
@@ -123,29 +161,44 @@ export function Sidebar() {
 
   return (
     <aside className="af-sidebar" style={{ width }}>
-      <div className="af-sidebar-header">
-        <div className="af-logo">
-          <div className="af-logo-icon">
-            <img src={logoImg} alt="AuralFlow" className="af-logo-img" />
-          </div>
-          <span className="af-logo-text">AuralFlow</span>
+      <div
+        className="af-sidebar-brand"
+        onMouseDown={windowDrag.onMouseDown}
+        onDoubleClick={windowDrag.onDoubleClick}
+      >
+        <div className="af-logo-icon">
+          <img src={logoImg} alt="" className="af-logo-img" />
         </div>
+        <span className="af-logo-text">AuralFlow</span>
       </div>
 
       <nav className="af-sidebar-nav" aria-label="主导航">
-        {navItems
-          .filter((item) => !item.requiresAccount || account)
-          .map((item) => (
-            <NavLink key={item.to} to={item.to} className="af-sidebar-link" end={item.to === "/"}>
-              <item.icon size={20} strokeWidth={2} />
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
+        {NAV_GROUPS.map((group) => {
+          if (group.requiresAccount && !account) return null;
+          return (
+            <div className="af-nav-group" key={group.label}>
+              <div className="af-nav-label">{group.label}</div>
+              {group.items.map((item) => (
+                <NavLink key={item.to} to={item.to} className="af-sidebar-link" end={item.to === "/"}>
+                  <item.icon size={18} strokeWidth={1.7} />
+                  <span>{item.label}</span>
+                  {item.count && counts[item.count] > 0 ? (
+                    <span className="af-nav-count">{counts[item.count]}</span>
+                  ) : null}
+                </NavLink>
+              ))}
+            </div>
+          );
+        })}
       </nav>
 
       <div className="af-sidebar-footer">
+        <NavLink to="/stats" className="af-sidebar-link">
+          <BarChart3 size={18} strokeWidth={1.7} />
+          <span>听歌统计</span>
+        </NavLink>
         <NavLink to="/settings" className="af-sidebar-link">
-          <Settings size={20} strokeWidth={2} />
+          <Settings size={18} strokeWidth={1.7} />
           <span>设置</span>
         </NavLink>
         <button
@@ -158,9 +211,12 @@ export function Sidebar() {
           {account?.avatarUrl ? (
             <img src={account.avatarUrl} alt="" className="af-user-avatar" />
           ) : (
-            <User size={18} strokeWidth={2} />
+            <User size={16} strokeWidth={1.8} />
           )}
-          <span>{account ? account.nickname : "未登录"}</span>
+          <span className="af-user-text">
+            <span className="af-user-name">{account ? account.nickname : "未登录"}</span>
+            <span className="af-user-sub">{account ? "网易云 · 已连接" : "点击登录"}</span>
+          </span>
         </button>
       </div>
 
