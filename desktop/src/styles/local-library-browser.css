@@ -60,9 +60,11 @@
 .af-local-breadcrumb > span { margin-left: auto; color: var(--af-text-secondary); font-size: var(--af-font-size-sm); white-space: nowrap; }
 .af-local-breadcrumb > button { flex-shrink: 0; }
 .af-local-browser .af-local-content { flex: 1; min-height: 0; overflow-y: auto; padding: 0 24px 100px; }
-.af-local-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 64px 20px; text-align: center; color: var(--af-text-secondary); }
+.af-local-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 72px 20px; text-align: center; color: var(--af-text-tertiary); }
 .af-local-empty h3, .af-local-empty p { margin: 0; }
-.af-local-empty h3 { color: var(--af-text-primary); }
+.af-local-empty h3 { color: var(--af-text-primary); font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+.af-local-empty p { max-width: 380px; font-size: 13px; line-height: 1.6; }
+.af-local-empty svg { color: var(--af-text-quaternary); margin-bottom: 8px; }
 .af-local-groups { display: grid; gap: 12px; }
 .af-local-groups-grid, .af-local-tracks-grid { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
 .af-local-group { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--af-border-secondary); border-radius: var(--af-radius-md); background: var(--af-bg-surface); text-align: left; min-width: 0; color: var(--af-text-primary); }

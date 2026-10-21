@@ -638,10 +638,10 @@ button.af-playlist-card {
 .af-playlist-detail-header {
   position: relative;
   overflow: hidden;
-  margin-bottom: 32px;
-  padding: 28px 32px 32px;
+  margin-bottom: 24px;
+  padding: 26px 32px 28px;
   border-radius: var(--af-radius-xl);
-  background: linear-gradient(135deg, color-mix(in srgb, var(--af-accent-primary) 22%, #101513), #101513 72%);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--af-accent-primary) 16%, #14181a), #121615 72%);
   isolation: isolate;
 }
 
@@ -687,12 +687,14 @@ button.af-playlist-card {
 
 .af-playlist-detail-header .af-playlist-detail-cover {
   border-radius: var(--af-radius-lg);
+  /* 头部是深色封面底：容器本身也要透明，否则占位块下面透出一块浅色 */
+  background: rgba(255, 255, 255, 0.07);
   box-shadow: 0 24px 56px rgba(0, 0, 0, 0.45);
 }
 
 .af-playlist-detail-header .af-playlist-detail-meta h1 {
   color: #f8fafc;
-  font-size: clamp(32px, 3.4vw, 44px);
+  font-size: clamp(28px, 3vw, 38px);
   letter-spacing: -0.03em;
   line-height: 1.12;
 }
@@ -704,16 +706,16 @@ button.af-playlist-card {
 
 .af-playlist-detail-header .af-playlist-actions .af-btn-primary {
   border-color: transparent;
-  background: #f8fafc;
-  color: #0f172a;
-  box-shadow: none;
+  background: var(--af-accent-primary);
+  color: var(--af-text-on-accent);
+  box-shadow: 0 6px 18px -8px rgba(var(--af-accent-primary-rgb), 0.6);
 }
 
 .af-playlist-detail-header .af-playlist-actions .af-btn-primary:hover:not(:disabled) {
   border-color: transparent;
-  background: #ffffff;
-  color: #0f172a;
-  box-shadow: none;
+  background: var(--af-accent-hover);
+  color: var(--af-text-on-accent);
+  box-shadow: 0 8px 22px -8px rgba(var(--af-accent-primary-rgb), 0.7);
 }
 
 .af-playlist-detail-header .af-playlist-actions .af-btn-secondary {
@@ -762,8 +764,8 @@ button.af-playlist-card {
 
 .af-playlist-detail-info {
   display: flex;
-  gap: 32px;
-  align-items: flex-start;
+  gap: 26px;
+  align-items: flex-end;
 }
 
 .af-playlist-detail-meta {
@@ -772,8 +774,8 @@ button.af-playlist-card {
 }
 
 .af-playlist-detail-cover {
-  width: 240px;
-  height: 240px;
+  width: 196px;
+  height: 196px;
   border-radius: var(--af-radius-xl);
   overflow: hidden;
   background: var(--af-bg-secondary);
@@ -792,9 +794,12 @@ button.af-playlist-card {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 64px;
-  color: var(--af-text-tertiary);
-  background: linear-gradient(135deg, var(--af-bg-secondary), var(--af-bg-hover));
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  /* 头部是深色封面底：占位块用半透明白，避免一块亮色方块跳出来 */
+  color: rgba(248, 250, 252, 0.42);
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .af-playlist-detail-meta h1 {
@@ -856,13 +861,15 @@ button.af-playlist-card {
 
 .af-song-list-header {
   display: grid;
-  grid-template-columns: 40px minmax(0, 2fr) minmax(0, 1.2fr) minmax(0, 1.2fr) 64px 140px;
-  gap: 16px;
-  padding: 12px 24px 12px 16px;
+  grid-template-columns: 34px minmax(0, 2.4fr) minmax(0, 1.3fr) minmax(0, 1.3fr) 62px 132px;
+  gap: 12px;
+  height: 32px;
+  padding: 0 10px;
   border-bottom: 1px solid var(--af-border-secondary);
-  font-size: var(--af-font-size-xs);
-  font-weight: 600;
-  color: var(--af-text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  color: var(--af-text-tertiary);
   text-transform: uppercase;
 }
 
@@ -872,12 +879,13 @@ button.af-playlist-card {
 
 .af-song-list-row {
   display: grid;
-  grid-template-columns: 40px minmax(0, 2fr) minmax(0, 1.2fr) minmax(0, 1.2fr) 64px 140px;
-  gap: 16px;
-  padding: 12px 24px 12px 16px;
+  grid-template-columns: 34px minmax(0, 2.4fr) minmax(0, 1.3fr) minmax(0, 1.3fr) 62px 132px;
+  gap: 12px;
+  height: 52px;
+  padding: 0 10px;
   border-radius: var(--af-radius-md);
   cursor: pointer;
-  transition: background 0.2s;
+  transition: background var(--af-transition-fast);
   align-items: center;
   position: relative;
 }
@@ -891,23 +899,22 @@ button.af-playlist-card {
 }
 
 .af-song-list-row.af-current-playing {
-  background: rgba(var(--af-accent-primary-rgb), 0.09);
+  background: rgba(var(--af-accent-primary-rgb), 0.07);
 }
 
 .af-song-list-row.af-current-playing:hover {
-  background: rgba(var(--af-accent-primary-rgb), 0.13);
+  background: rgba(var(--af-accent-primary-rgb), 0.11);
 }
 
 .af-song-list-row.af-current-playing::before {
   content: "";
   position: absolute;
-  left: 6px;
-  top: 14px;
-  bottom: 14px;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
   width: 3px;
-  border-radius: var(--af-radius-full);
+  border-radius: 0 3px 3px 0;
   background: var(--af-accent-primary);
-  opacity: 0.92;
 }
 
 .af-song-list-row.af-locate-hit {
@@ -917,13 +924,13 @@ button.af-playlist-card {
 .af-col-title {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 11px;
   min-width: 0;
 }
 
 .af-song-cover {
-  width: 40px;
-  height: 40px;
+  width: 34px;
+  height: 34px;
   border-radius: var(--af-radius-sm);
   overflow: hidden;
   background: var(--af-bg-secondary);
@@ -1050,4 +1057,41 @@ button.af-playlist-card {
 
 .af-song-action-portal {
   min-width: 180px;
+}
+
+/* 歌曲行：序号列、时长列、操作列 */
+.af-col-index {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 4px;
+  font-size: 12px;
+  color: var(--af-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.af-col-duration {
+  text-align: right;
+  font-size: 12px;
+  color: var(--af-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 行内操作默认不占视觉：悬停、当前播放行或键盘聚焦时才显形 */
+.af-song-list-row .af-col-actions {
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--af-transition-fast);
+}
+
+.af-song-list-row:hover .af-col-actions,
+.af-song-list-row.af-current-playing .af-col-actions,
+.af-song-list-row:focus-within .af-col-actions,
+.af-song-list-row.af-menu-open .af-col-actions {
+  opacity: 1;
+}
+
+.af-song-list-row .af-action-btn {
+  width: 28px;
+  height: 28px;
 }

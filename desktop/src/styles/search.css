@@ -401,25 +401,38 @@
   font-size: var(--af-font-size-sm);
 }
 
+/* 空态统一形态：图标 + 一句话 + 说明 + 可选主行动。10+ 个页面共用这一套。 */
 .af-empty-state {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 80px 24px;
+  padding: 72px 24px;
   text-align: center;
 }
 
+.af-empty-state > svg {
+  color: var(--af-text-quaternary);
+  margin-bottom: 14px;
+}
+
 .af-empty-state p {
-  font-size: var(--af-font-size-xl);
-  font-weight: var(--af-font-weight-semibold);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   color: var(--af-text-primary);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .af-empty-state span {
-  font-size: var(--af-font-size-base);
+  max-width: 380px;
+  font-size: 13px;
+  line-height: 1.6;
   color: var(--af-text-tertiary);
+}
+
+.af-empty-state button {
+  margin-top: 16px;
 }
 
 .af-skeleton-list {
@@ -688,4 +701,16 @@
   font-family: inherit;
   font-size: 11px;
   font-weight: 600;
+}
+
+.af-empty-state-action {
+  margin-top: 16px;
+}
+
+.af-empty-state-error > svg {
+  color: var(--af-warning);
+}
+
+.af-empty-state span {
+  overflow-wrap: anywhere;
 }

@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { DownloadQualityMenu } from "@/components/DownloadQualityButton";
 import { SongAddMenu } from "@/components/SongAddMenuButton";
 import { VirtualList } from "@/components/VirtualList";
+import { EmptyState } from "@/components/ui";
 import { formatDuration } from "@/lib/utils";
 import { useHistoryStore } from "@/stores/historyStore";
 import { usePlayerStore } from "@/stores/playerStore";
@@ -64,11 +65,11 @@ export function HistoryView() {
 
       <div className="af-playlist-songs">
         {history.length === 0 ? (
-          <div className="af-empty-state">
-            <History size={32} />
-            <p>还没有播放历史</p>
-            <span>播放歌曲后，这里会显示最近听过的内容。</span>
-          </div>
+          <EmptyState
+            icon={History}
+            title="还没有播放历史"
+            description="播放歌曲后，这里会显示最近听过的内容。"
+          />
         ) : (
           <>
             <div className="af-song-list-header">

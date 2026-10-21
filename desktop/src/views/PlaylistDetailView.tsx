@@ -556,7 +556,15 @@ export function PlaylistDetailView() {
                     onClick={() => handlePlayTrack(index)}
                     title="单击播放"
                   >
-                    <div className="af-col-index">{index + 1}</div>
+                    <div className="af-col-index">
+                      {isCurrentSong ? (
+                        <span className="af-playing-bars" aria-label="正在播放">
+                          <i /><i /><i />
+                        </span>
+                      ) : (
+                        index + 1
+                      )}
+                    </div>
 
                     <div className="af-col-title">
                       <div className="af-song-cover">

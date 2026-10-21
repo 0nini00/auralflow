@@ -52,8 +52,9 @@ button:focus-visible {
   justify-content: center;
   gap: 8px;
   min-height: 36px;
-  padding: 9px 15px;
-  border-radius: var(--af-button-radius);
+  padding: 9px 16px;
+  /* 按钮统一胶囊：与输入框、标签、播放条控件同一套圆角语言 */
+  border-radius: var(--af-radius-full);
   font-size: var(--af-font-size-sm);
   font-weight: var(--af-font-weight-semibold);
   line-height: 1;
@@ -96,7 +97,7 @@ button:focus-visible {
   border: 1px solid transparent;
   background: var(--af-accent-primary);
   color: var(--af-text-on-accent);
-  box-shadow: 0 10px 24px rgba(var(--af-accent-primary-rgb), 0.22);
+  box-shadow: 0 6px 18px -8px rgba(var(--af-accent-primary-rgb), 0.55);
 }
 
 .af-btn-secondary,
@@ -505,4 +506,80 @@ button:focus-visible {
   background: var(--af-glass-bg);
   border-color: var(--af-glass-border);
   backdrop-filter: var(--af-glass-blur);
+}
+
+/* ============================================================
+   UI 原语：Button（components/ui/Button.tsx）
+   与 af-btn-* 同一套尺寸与圆角，只补 ghost / danger / 三档尺寸
+   ============================================================ */
+.af-ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 9px 16px;
+  border-radius: var(--af-radius-full);
+  font-size: var(--af-font-size-sm);
+  font-weight: var(--af-font-weight-semibold);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--af-transition-fast),
+    border-color var(--af-transition-fast),
+    color var(--af-transition-fast),
+    box-shadow var(--af-transition-fast),
+    transform var(--af-transition-fast),
+    opacity var(--af-transition-fast);
+}
+
+.af-ui-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.af-ui-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.af-ui-btn-sm {
+  min-height: 30px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+}
+
+.af-ui-btn-lg {
+  min-height: 40px;
+  padding: 10px 20px;
+  font-size: 13.5px;
+}
+
+.af-ui-btn-block {
+  width: 100%;
+}
+
+.af-ui-btn-ghost {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--af-text-secondary);
+  box-shadow: none;
+}
+
+.af-ui-btn-ghost:hover:not(:disabled) {
+  background: var(--af-bg-hover);
+  color: var(--af-text-primary);
+}
+
+.af-ui-btn-danger {
+  border: 1px solid rgba(var(--af-error-rgb), 0.28);
+  background: transparent;
+  color: var(--af-error);
+  box-shadow: none;
+}
+
+.af-ui-btn-danger:hover:not(:disabled) {
+  border-color: rgba(var(--af-error-rgb), 0.45);
+  background: var(--af-error-bg);
+  color: var(--af-error-hover);
 }

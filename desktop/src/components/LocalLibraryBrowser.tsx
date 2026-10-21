@@ -4,6 +4,7 @@ import type { LocalSong } from '@/services/localMusicService';
 import { getLocalSongCover } from '@/services/localMusicService';
 import { filterLocalSongs, groupLocalSongs, type LocalLibraryCategory, type LocalLibraryGroup } from '@/services/localLibraryGrouping';
 import { LocalLibraryTracks } from './LocalLibraryTracks';
+import { EmptyState } from '@/components/ui';
 import '@/styles/local-library-browser.css';
 
 const categories = [
@@ -95,11 +96,11 @@ export function LocalLibraryBrowser({ localSongs, ...trackActions }: LocalLibrar
       </div>
       <div ref={contentRef} className="af-local-content">
         {visibleSongs.length === 0 ? (
-          <div className="af-local-empty" role="status">
-            <ListMusic size={40} aria-hidden="true" />
-            <h3>{emptyTitle}</h3>
-            <p>{localSongs.length === 0 ? '扫描文件夹或添加音乐文件以建立本地曲库' : '尝试调整搜索条件或返回其他分类'}</p>
-          </div>
+          <EmptyState
+            icon={ListMusic}
+            title={emptyTitle}
+            description={localSongs.length === 0 ? '扫描文件夹或添加音乐文件以建立本地曲库' : '尝试调整搜索条件或返回其他分类'}
+          />
         ) : showGroups ? (
           <div className={`af-local-groups af-local-groups-${viewMode}`}>
             {visibleGroups.map((group) => {
