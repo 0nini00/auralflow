@@ -1,7 +1,7 @@
 {
   "name": "@auralflow/desktop",
   "private": true,
-  "version": "0.7.10",
+  "version": "0.8.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,7 +16,7 @@
   "dependencies": {
     "@lx/core": "workspace:*",
     "@lx/tauri-bridge": "workspace:*",
-    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-deep-link": "^2.4.9",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-fs": "^2.5.1",
