@@ -307,8 +307,9 @@ export function PersonalFmView() {
       )}
 
       <style>{`
+        /* 横向留白由 .af-content-scroll 统一给（32px），这里只保留纵向节奏 */
         .af-fm-view {
-          padding: 32px 48px;
+          padding: 32px 0;
           max-width: 1200px;
           margin: 0 auto;
         }

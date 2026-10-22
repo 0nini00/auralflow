@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, Clock, History, Play, Shuffle, ListPlus, Download } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Clock, History, Play, Shuffle, ListPlus, Download, CornerDownRight } from "lucide-react";
 import { DownloadQualityMenu } from "@/components/DownloadQualityButton";
 import { SongAddMenu } from "@/components/SongAddMenuButton";
 import { VirtualList } from "@/components/VirtualList";
@@ -13,8 +12,8 @@ import { DETAIL_COVER_CSS_SIZE, coverSrc } from "@/utils/imageReferrerPolicy";
 import { fisherYatesShuffle } from "@/utils/shared";
 
 export function HistoryView() {
-  const navigate = useNavigate();
   const history = useHistoryStore((s) => s.history);
+  const playNext = usePlayerStore((s) => s.playNext);
   const playQueue = usePlayerStore((s) => s.playQueue);
   const [addMenu, setAddMenu] = useState<{ song: MusicInfo; anchor: HTMLElement } | null>(null);
   const [downloadMenu, setDownloadMenu] = useState<{ song: MusicInfo; anchor: HTMLElement } | null>(null);
@@ -23,10 +22,6 @@ export function HistoryView() {
   return (
     <div className="af-playlist-detail-view af-history-view">
       <div className="af-playlist-detail-header">
-        <button className="af-back-btn" onClick={() => navigate(-1)}>
-          <ArrowLeft size={20} />
-        </button>
-
         <div className="af-playlist-detail-info">
           <div className="af-playlist-detail-cover af-history-cover">
             {historyCover ? (
@@ -114,10 +109,11 @@ export function HistoryView() {
                     <div className="af-col-actions" onClick={(event) => event.stopPropagation()}>
                       <button
                         className="af-action-btn"
-                        onClick={() => { void playQueue(history, index); }}
-                        title="播放"
+                        onClick={() => playNext(song)}
+                        title="下一首播放"
+                        aria-label="下一首播放"
                       >
-                        <Play size={14} fill="currentColor" />
+                        <CornerDownRight size={14} />
                       </button>
                       <button
                         className="af-action-btn"

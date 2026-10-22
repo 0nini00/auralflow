@@ -28,9 +28,10 @@ const DEFAULT_WIDTH: f64 = 380.0;
 const DEFAULT_HEIGHT: f64 = 76.0;
 const MIN_WIDTH: f64 = 280.0;
 const MIN_HEIGHT: f64 = 44.0;
-/// 恢复窗口尺寸时的上限——旧版本保存的 900×150 等超大值会被 clamp 到此范围。
+/// 恢复窗口尺寸时的上限——挡住旧版本保存的 900×150 之类异常值；
+/// 同时也是「高度按字号自适应」的上限（4 行 × 52px 字号 + 译文 + 工具栏仍有余量）。
 const MAX_RESTORE_WIDTH: f64 = 720.0;
-const MAX_RESTORE_HEIGHT: f64 = 120.0;
+const MAX_RESTORE_HEIGHT: f64 = 560.0;
 const UNLOCK_WINDOW_SIZE: f64 = 46.0;
 const ALWAYS_ON_TOP_LOOP_MS: u64 = 1500;
 // 锁定态下光标轮询间隔：在窗口内时临时解除穿透以支持 hover 工具栏
@@ -172,6 +173,27 @@ pub fn set_pinned(app: &AppHandle, pinned: bool) -> Result<(), String> {
     } else {
         clear_always_on_top_loop();
     }
+    Ok(())
+}
+
+/// 只改高度、宽度沿用当前值：歌词行数/字号变了，窗口要跟着长高或收窄。
+/// 目标高度由前端按「实测行高 × 可见行数」算好再调进来，避免在 Rust 侧重复算字体度量。
+pub fn set_height(app: &AppHandle, height: f64) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(LYRIC_LABEL) else {
+        // 窗口没开就不用改尺寸
+        return Ok(());
+    };
+    let inner = window
+        .inner_size()
+        .map_err(|e| format!("读取歌词窗口尺寸失败: {}", e))?;
+    let scale = window
+        .scale_factor()
+        .map_err(|e| format!("读取歌词窗口缩放失败: {}", e))?;
+    let width = inner.width as f64 / scale;
+    let clamped = height.clamp(MIN_HEIGHT, MAX_RESTORE_HEIGHT);
+    window
+        .set_size(LogicalSize::new(width, clamped))
+        .map_err(|e| format!("设置歌词窗口高度失败: {}", e))?;
     Ok(())
 }
 

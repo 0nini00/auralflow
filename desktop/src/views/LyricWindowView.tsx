@@ -19,11 +19,13 @@ import { subscribeLyricSettings, broadcastLyricSettings } from "@/stores/lyricSe
 import { buildDesktopLyricLines, type DesktopLyricDisplayLine } from "@/utils/desktopLyric";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
-import { getLyricWindowState, loadSettings, patchSettings, prepareLyricWindowLock, setLyricWindowPinned, setLyricWindowLocked, toggleLyricWindow } from "@lx/tauri-bridge";
+import { getLyricWindowState, loadSettings, patchSettings, prepareLyricWindowLock, setLyricWindowHeight, setLyricWindowPinned, setLyricWindowLocked, toggleLyricWindow } from "@lx/tauri-bridge";
 import { Play, Pause, SkipBack, SkipForward, X, Pin, PinOff, Plus, Minus, Lock, Unlock } from "lucide-react";
 import type { CSSProperties, MouseEvent } from "react";
-import { useEffect, useState, memo } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 
+/** 歌词区上下各 2px 内边距（见 .af-lyric-stage），算窗口高度时要算进去 */
+const STAGE_VERTICAL_PADDING = 4;
 export function LyricWindowView() {
   const current = usePlayerStore((s) => s.current);
   const status = usePlayerStore((s) => s.status);
@@ -74,7 +76,7 @@ export function LyricWindowView() {
         if (s.lyricFontSize && s.lyricFontSize > 0) setFontSize(s.lyricFontSize);
         setShowNextLine(s.lyricShowNextLine);
         setSingleLine(s.lyricSingleLine);
-        setMaxLineNum(s.lyricMaxLineNum || 2);
+        setMaxLineNum(s.lyricMaxLineNum || 3);
         setShowTranslation(s.lyricShowTranslation);
         setShowRomanization(s.lyricShowRomanization === true);
         setShowRuby(s.lyricShowRuby === true);
@@ -138,16 +140,48 @@ export function LyricWindowView() {
     };
   }, []);
 
-  const displayLines = buildDesktopLyricLines({
+  const { lines: displayLines, currentIndex } = buildDesktopLyricLines({
     lines: lyrics,
     currentLine,
     hasCurrentMusic: Boolean(current),
-    showNextLine,
-    singleLine,
-    maxLineNum,
     showTranslation,
     currentTime: lyricTime,
   });
+
+  /** 窗口一次显示几行：单行模式、或关掉「显示下一行」时固定 1 行 */
+  const visibleLines = singleLine || !showNextLine ? 1 : Math.max(1, Math.min(4, Math.trunc(maxLineNum || 1)));
+  /** 当前行落在第几行位（0 基）：偶数行时偏上一格，2 行窗口才与旧行为一致（当前行 + 下一行） */
+  const currentRow = Math.floor((visibleLines - 1) / 2);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  // 把「窗口顶部那一行」当锚点滚到位，当前行自然落在 currentRow 上；首尾会被夹住，不会滚出边界
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const total = displayLines.length;
+    const anchor = Math.max(0, Math.min(currentIndex - currentRow, Math.max(0, total - visibleLines)));
+    const target = container.querySelector<HTMLElement>(`[data-lyric-index="${anchor}"]`);
+    if (!target) return;
+    container.scrollTo({
+      top: target.offsetTop,
+      // 用浏览器平滑滚动：不做自绘补间，省一套动画状态
+      behavior: enableAnimation ? "smooth" : "auto",
+    });
+  }, [currentIndex, currentRow, visibleLines, displayLines.length, enableAnimation, fontSize, lineGap, showTranslation]);
+
+  // 窗口高度跟着「字号 × 可见行数 × 行距」走：量一行的真实高度再乘，比按字体度量硬算稳
+  useEffect(() => {
+    const container = scrollRef.current;
+    const sample = container?.querySelector<HTMLElement>(".af-lyric-line-slot");
+    if (!container || !sample) return;
+    const lineHeight = sample.offsetHeight;
+    if (!lineHeight) return;
+    const band = document.querySelector<HTMLElement>(".af-lyric-drag-band");
+    const bandHeight = band?.offsetHeight ?? 0;
+    const desired =
+      Math.ceil(visibleLines * lineHeight + (visibleLines - 1) * lineGap + bandHeight + STAGE_VERTICAL_PADDING);
+    void setLyricWindowHeight(desired).catch(() => undefined);
+  }, [visibleLines, lineGap, fontSize, showTranslation, displayLines.length]);
 
   useEffect(() => {
     const window = getCurrentWindow();
@@ -237,44 +271,49 @@ export function LyricWindowView() {
       <div
         className="af-lyric-stage"
         style={{
-          gap: `${lineGap}px`,
           opacity: textOpacity,
           transform: `translate(${textPositionX}%, ${textPositionY}%)`,
         }}
       >
-        {displayLines.map((line, index) =>
-          line.role === "current" && line.words?.length ? (
-            <KaraokeLine
-              key={line.key}
-              line={line}
-              sourceLine={lyrics[Math.min(lyrics.length - 1, Math.max(0, currentLine)) + index]}
-              showRomanization={showRomanization}
-              showRuby={showRuby}
-              progress={lyricTime}
-              align={align}
-              activeColor={activeColor}
-              enableAnimation={enableAnimation}
-              fontSize={fontSize}
-              fontWeight={fontWeight}
-              shadowColor={shadowColor}
-            />
-          ) : (
-            <LyricLineText
-              key={line.key}
-              line={line}
-              sourceLine={lyrics[Math.min(lyrics.length - 1, Math.max(0, currentLine)) + index]}
-              showRomanization={showRomanization}
-              showRuby={showRuby}
-              align={align}
-              activeColor={activeColor}
-              nextColor={nextColor}
-              enableAnimation={enableAnimation}
-              fontSize={fontSize}
-              fontWeight={fontWeight}
-              shadowColor={shadowColor}
-            />
-          )
-        )}
+        {/*
+          整篇歌词铺进滚动容器，当前行被滚到固定行位（见 currentRow 的 effect）：
+          这样上面能看到刚唱过的那句，下面的行数只由窗口高度决定。
+        */}
+        <div className="af-lyric-scroll" ref={scrollRef} style={{ gap: `${lineGap}px` }}>
+          {displayLines.map((line) => (
+            <div className="af-lyric-line-slot" key={line.key} data-lyric-index={line.index}>
+              {line.role === "current" && line.words?.length ? (
+                <KaraokeLine
+                  line={line}
+                  sourceLine={line.index >= 0 ? lyrics[line.index] : undefined}
+                  showRomanization={showRomanization}
+                  showRuby={showRuby}
+                  progress={lyricTime}
+                  align={align}
+                  activeColor={activeColor}
+                  enableAnimation={enableAnimation}
+                  fontSize={fontSize}
+                  fontWeight={fontWeight}
+                  shadowColor={shadowColor}
+                />
+              ) : (
+                <LyricLineText
+                  line={line}
+                  sourceLine={line.index >= 0 ? lyrics[line.index] : undefined}
+                  showRomanization={showRomanization}
+                  showRuby={showRuby}
+                  align={align}
+                  activeColor={activeColor}
+                  nextColor={nextColor}
+                  enableAnimation={enableAnimation}
+                  fontSize={fontSize}
+                  fontWeight={fontWeight}
+                  shadowColor={shadowColor}
+                />
+              )}
+            </div>
+          ))}
+        </div>
         {/* 工具栏：紧跟歌词下方，流式排列 */}
         <div className="af-lyric-drag-band">
           <div className="af-lyric-drag" data-tauri-drag-region>
@@ -496,10 +535,24 @@ export function LyricWindowView() {
           flex-direction: column;
           align-items: center;
           justify-content: flex-start;
-          gap: 2px;
           min-height: 0;
           padding: 2px 8px;
           pointer-events: none;
+        }
+        /* 整篇歌词的滚动容器：overflow:hidden 不显滚动条，但仍可用 scrollTop 滚动 */
+        .af-lyric-scroll {
+          flex: 1 1 auto;
+          min-height: 0;
+          width: 100%;
+          position: relative;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+        }
+        .af-lyric-line-slot {
+          width: 100%;
+          flex: 0 0 auto;
         }
         .af-lyric-line {
           width: 100%;

@@ -128,16 +128,18 @@
   --af-info-bg: rgba(96, 165, 250, 0.15);
 }
 
-/* Spacing System */
-:root {
-  --af-spacing-xs: 4px;
-  --af-spacing-sm: 8px;
-  --af-spacing-md: 16px;
-  --af-space-md: 16px;
-  --af-spacing-lg: 24px;
-  --af-spacing-xl: 32px;
-  --af-spacing-2xl: 48px;
-}
+/* 间距：不设令牌，按 2px 网格直接内联写
+ *
+ * 这里曾经声明了一套 --af-spacing-xs/sm/md/lg/xl/2xl（+ 别名 --af-space-md），
+ * 但全仓 var() 引用数为 0 —— 实际 727 处间距声明全是内联 px 值。一套没人用的
+ * 刻度会让人误以为间距受统一约束，所以这里删掉它，改为记录真实约定：
+ *
+ *   · 取值落在 2px 网格上：4 / 6 / 8 / 10 / 12 / 16 / 20 / 24 / 32（高频在前）；
+ *   · 组件内间距写成内联值，同一组件内保持一致即可，不跨组件强制对齐；
+ *   · 壳层尺寸（顶栏 / 播放条 / 右栏）另有令牌，见文件末尾。
+ *
+ * 若将来要引入真正的间距刻度，做法是「先改用法、再删内联值」，不要反过来。
+ */
 
 /* Border Radius System */
 :root {
@@ -174,16 +176,41 @@
   --af-line-height-relaxed: 1.75;
 }
 
-/* Z-index System */
+/* Z-index System
+ *
+ * 这份表**按真实层级从下往上**写，每一档都能在代码里找到对应元素；
+ * 数值刻意留出间隙，插新层不必重排。
+ *
+ * 硬约束（决定了下面所有数值）：`.af-main-container` 有 position/z-index:1，
+ * 因此**内容区里的一切自成一个层叠上下文** —— 内容区内的元素无论 z-index 多大，
+ * 都压不过容器外的 `.af-player-bar`(1000)。所以：
+ *   · 需要浮在播放条之上的东西（portal 菜单、对话框、沉浸页）必须挂在 body，
+ *     不能留在内容区里靠调大 z-index 解决；
+ *   · 内容区内部的层级（topbar 20 / 行内浮层 50 / 行内菜单 100）只需彼此可比。
+ */
 :root {
-  --af-z-base: 0;
-  --af-z-dropdown: 1000;
-  --af-z-sticky: 1100;
-  --af-z-fixed: 1200;
-  --af-z-modal-backdrop: 1300;
-  --af-z-modal: 1400;
-  --af-z-popover: 1500;
-  --af-z-tooltip: 1600;
+  /* 内容区内部：只需彼此可比（都压不过容器外的播放条，见上方硬约束）。
+     内容区自身不设 z-index —— 它是 .af-content 的默认流内层，基线即 0。 */
+  --af-z-topbar: 20;            /* 顶栏：吸顶在内容之上 */
+  --af-z-inline-popover: 50;    /* 行内浮层：搜索联想、行内菜单的 hover 占位 */
+  --af-z-menu: 100;             /* 列表行内下拉菜单（未 portal，受内容区裁剪） */
+
+  --af-z-player: 1000;          /* 播放条：内容区之外，压住整块内容 */
+  --af-z-player-backdrop: 1199; /* 播放条上弹层的点击遮罩 */
+  --af-z-player-overlay: 1200;  /* 播放条上弹层本体（队列弹层 / 睡眠菜单） */
+  --af-z-player-overlay-top: 1201;
+
+  /* 对话框：本项目把「遮罩」和遮罩里的面板画在同一个元素（.af-dialog-overlay）上，
+     所以只需要一档。这里刻意不预留 modal/popover 空档 —— 没人用的令牌会让人
+     误以为层级已受管；将来真要独立的面板层，再按需加在这一行下面。 */
+  --af-z-modal-backdrop: 1300;  /* 对话框遮罩（.af-dialog-overlay） */
+  --af-z-tooltip: 1600;         /* tooltip：压过所有内容与菜单 */
+
+  --af-z-immersive: 1800;       /* 沉浸歌词整页层 */
+  --af-z-pact: 3000;            /* 首次启动的协议弹窗：必须压过沉浸页 */
+
+  --af-z-portal-backdrop: 9998; /* portal 菜单的全屏点击遮罩（菜单本体在 TSX 里写 9999） */
+  --af-z-cursor: 9999;          /* 光标特效 canvas：纯装饰，最高层且不吃事件 */
 }
 
 /* Transition System */
@@ -199,3 +226,17 @@
   --af-player-height: 88px;
   --af-now-playing-width: 320px;
 }
+
+/* 断点契约
+ *
+ * 打包后窗口最小 900×600（tauri.conf.json 的 minWidth/minHeight），
+ * 而 `pnpm desktop:dev` 是浏览器模式、窗口可任意缩放。因此：
+ *
+ *   · ≥900px 的断点（900 / 920 / 980 / 1000 / 1100 / 1180）两侧都生效；
+ *   · <900px 的断点（440 / 560 / 720 / 759 / 768 / 800）**只服务浏览器调试**，
+ *     打包后不可达 —— 保留它们是为了 `desktop:dev` 下缩窗口不塌，
+ *     不要因为「线上永远命中不了」而当成死代码删掉；
+ *     也不要指望它们能修打包版的布局问题（那种问题必须在 ≥900px 解决）。
+ *
+ * 新增断点时优先复用上面已有档位；确需新档请同时更新这里。
+ */

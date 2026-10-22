@@ -57,6 +57,8 @@ export interface RustAppSettings {
   mainWindowHeight?: number | null;
   /** 侧边栏宽度（逻辑像素）。null/缺省=用默认 240 */
   sidebarWidth?: number | null;
+  /** 侧边栏是否收起。缺省/false=展开 */
+  sidebarCollapsed?: boolean | null;
   /** 主窗口：上次退出时是否最大化 */
   mainWindowMaximized: boolean;
   pactAccepted: boolean;
@@ -354,6 +356,11 @@ export async function isLyricWindowOpen(): Promise<boolean> {
 /** 设置桌面歌词窗口的置顶状态（持久化） */
 export async function setLyricWindowPinned(pinned: boolean): Promise<void> {
   await invoke<void>("set_lyric_window_pinned", { pinned });
+}
+
+/** 按内容高度调整桌面歌词窗口（宽度保持不变）；行数/字号变化时由渲染层调用 */
+export async function setLyricWindowHeight(height: number): Promise<void> {
+  await invoke<void>("set_lyric_window_height", { height });
 }
 
 /** 设置桌面歌词窗口锁定状态（鼠标穿透，持久化） */

@@ -120,7 +120,6 @@ button:focus-visible {
   box-shadow: var(--af-button-secondary-shadow);
 }
 
-.af-back-btn,
 .af-music-card-action-btn,
 .af-custom-source-icon-button,
 .af-fm-action-primary,
@@ -177,7 +176,6 @@ button:focus-visible {
   transform: translateY(-1px);
 }
 
-.af-back-btn:hover:not(:disabled),
 .af-music-card-action-btn:hover:not(:disabled),
 .af-custom-source-icon-button:hover:not(:disabled),
 .af-fm-action-primary:hover:not(:disabled),
@@ -383,7 +381,7 @@ button:focus-visible {
 .af-add-menu-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 9998;
+  z-index: var(--af-z-portal-backdrop);
   background: transparent;
 }
 

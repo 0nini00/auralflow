@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Cloud, Clock, Loader2, Play, RefreshCw, Shuffle } from 'lucide-react';
+import { Cloud, Clock, Loader2, Play, RefreshCw, Shuffle, CornerDownRight } from 'lucide-react';
 import { cloudQualityLabel } from '@lx/core';
 import { useWyAccountStore } from '@/stores/wyAccountStore';
 import { useCloudDriveStore } from '@/stores/cloudDriveStore';
@@ -49,6 +49,7 @@ export function CloudDriveView() {
   const loadMore = useCloudDriveStore((s) => s.loadMore);
   const refresh = useCloudDriveStore((s) => s.refresh);
 
+  const playNext = usePlayerStore((s) => s.playNext);
   const playQueue = usePlayerStore((s) => s.playQueue);
   const [pendingPlayAction, setPendingPlayAction] = useState<PendingPlayAction>(null);
   const isPlayAllPending = pendingPlayAction === 'play-all';
@@ -247,15 +248,11 @@ export function CloudDriveView() {
                   <div className="af-col-actions" onClick={(e) => e.stopPropagation()}>
                     <button
                       className="af-action-btn"
-                      onClick={() => runPlayQueueAction(`track:${index}`, songs, index)}
-                      disabled={pendingPlayAction === `track:${index}`}
-                      title="播放"
+                      onClick={() => playNext(song)}
+                      title="下一首播放"
+                      aria-label="下一首播放"
                     >
-                      {pendingPlayAction === `track:${index}` ? (
-                        <Loader2 size={14} className="af-spin" />
-                      ) : (
-                        <Play size={14} fill="currentColor" />
-                      )}
+                      <CornerDownRight size={14} />
                     </button>
                     <SongAddMenuButton song={song} iconSize={14} title="添加到我的喜欢或歌单" />
                     <DownloadQualityButton song={song} iconSize={14} title="下载" />

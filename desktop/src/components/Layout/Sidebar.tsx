@@ -1,4 +1,4 @@
-import { BarChart3, Cloud, Home, Settings, User, Music, ListMusic, Download, Calendar, Radio, Trophy, LayoutGrid, Clock } from "lucide-react";
+import { BarChart3, Cloud, Home, Settings, User, Music, ListMusic, Download, Calendar, Radio, Trophy, LayoutGrid, Clock, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -71,6 +71,8 @@ const SIDEBAR_MIN_WIDTH = 200;
 const SIDEBAR_MAX_WIDTH = 360;
 /** 键盘微调步长。 */
 const SIDEBAR_KEY_STEP = 8;
+/** 收起后只留一条窄带：30px 的图标按钮 + 两侧各 3px 呼吸位，其余让给内容区。 */
+const SIDEBAR_COLLAPSED_WIDTH = 36;
 
 function clampSidebarWidth(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return SIDEBAR_DEFAULT_WIDTH;
@@ -83,6 +85,7 @@ export function Sidebar() {
   const localSongCount = useLibraryStore((s) => s.localSongs.length);
   const [loginOpen, setLoginOpen] = useState(false);
   const [width, setWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
+  const [collapsed, setCollapsed] = useState(false);
   const widthRef = useRef(width);
   widthRef.current = width;
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -102,7 +105,10 @@ export function Sidebar() {
     let cancelled = false;
     loadSettings()
       .then((settings) => {
-        if (!cancelled) setWidth(clampSidebarWidth(settings.sidebarWidth));
+        if (!cancelled) {
+          setWidth(clampSidebarWidth(settings.sidebarWidth));
+          setCollapsed(settings.sidebarCollapsed === true);
+        }
       })
       .catch(() => undefined);
     return () => {
@@ -113,6 +119,13 @@ export function Sidebar() {
   const persistWidth = useCallback((next: number) => {
     void patchSettings({ sidebarWidth: next }).catch(() => undefined);
   }, []);
+
+  // 收起只是视图开关：width 状态原样保留，展开时回到用户上次拖到的宽度。
+  const toggleCollapsed = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    void patchSettings({ sidebarCollapsed: next }).catch(() => undefined);
+  };
 
   const stopDrag = useCallback(() => {
     if (!dragRef.current) return;
@@ -160,7 +173,7 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="af-sidebar" style={{ width }}>
+    <aside className={`af-sidebar${collapsed ? " af-sidebar-collapsed" : ""}`} style={{ width: collapsed ? SIDEBAR_COLLAPSED_WIDTH : width }}>
       <div
         className="af-sidebar-brand"
         onMouseDown={windowDrag.onMouseDown}
@@ -170,6 +183,21 @@ export function Sidebar() {
           <img src={logoImg} alt="" className="af-logo-img" />
         </div>
         <span className="af-logo-text">AuralFlow</span>
+
+        {/*
+          收起/展开：与右栏「正在播放」头部那颗收起键同款（.af-icon-btn-sm，30×30 + 16px 图标）。
+          放进品牌行而不是挂在 aside 下层，是为了直接复用品牌行的 56px 高与 8px 右内边距，
+          纵向居中、贴右对齐都不用再算偏移；useWindowDrag 本身会跳过 button，不会误触发窗口拖拽。
+        */}
+        <button
+          type="button"
+          className="af-icon-btn af-icon-btn-sm af-sidebar-collapse-toggle"
+          onClick={toggleCollapsed}
+          aria-label={collapsed ? "展开侧边栏" : "收起侧边栏"}
+          title={collapsed ? "展开侧边栏" : "收起侧边栏"}
+        >
+          {collapsed ? <PanelLeftOpen size={16} strokeWidth={1.8} /> : <PanelLeftClose size={16} strokeWidth={1.8} />}
+        </button>
       </div>
 
       <nav className="af-sidebar-nav" aria-label="主导航">

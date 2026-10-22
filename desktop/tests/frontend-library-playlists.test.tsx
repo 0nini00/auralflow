@@ -41,6 +41,14 @@ function mount() {
 function text(node: ReactTestInstance): string { return node.children.map(child => typeof child === 'string' ? child : text(child)).join(''); }
 function button(label: string) { return renderer.root.findAllByType('button').filter(node => text(node) === label).slice(-1)[0]; }
 function click(label: string) { act(() => button(label).props.onClick()); }
+
+/** 菜单触发器要用事件里的 currentTarget 定位；测试环境没有布局，给个零尺寸锚点即可 */
+function openMenu() {
+  const anchor = { getBoundingClientRect: () => ({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }) };
+  // 复制歌单后会有两张卡，取第一张的菜单（原测试用的也是第一个匹配项）
+  const trigger = renderer.root.findAllByProps({ 'aria-label': '歌单菜单' })[0];
+  act(() => trigger.props.onClick({ stopPropagation() {}, currentTarget: anchor }));
+}
 function change(id: string, value: string) { act(() => renderer.root.findByProps({ id }).props.onChange({ target: { value } })); }
 function openImport() {
   click('链接');
@@ -52,7 +60,10 @@ beforeEach(() => {
   vi.mocked(useDialogFocus).mockClear();
   network.fetch.mockReset(); network.export.mockReset().mockResolvedValue(true); network.import.mockReset();
   usePlaylistStore.setState({ playlists: [] });
-  vi.stubGlobal('document', { documentElement: { classList: { add: vi.fn(), remove: vi.fn() } } });
+  // nodeType:1 过 react-dom 的容器校验，children 给 test-renderer 的 appendChild/removeChild 用
+  vi.stubGlobal('document', { documentElement: { classList: { add: vi.fn(), remove: vi.fn() } }, body: { nodeType: 1, children: [] } });
+  // 卡片菜单按视口算位置、并监听滚动/Esc，node 环境下没有 window
+  vi.stubGlobal('window', { innerWidth: 1366, innerHeight: 768, addEventListener: vi.fn(), removeEventListener: vi.fn() });
   vi.stubGlobal('confirm', vi.fn(() => true));
 });
 afterEach(() => { act(() => renderer?.unmount()); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -128,21 +139,20 @@ describe('歌单页面真实组件与 store', () => {
     expect(links.some(link => text(link) === 'Local list')).toBe(true);
     const cover = links.find(link => link.props.className === 'af-playlist-cover-wrap')!;
     expect(cover.props['aria-label']).toContain('Local list');
-    const menu = () => renderer.root.findAllByType('button').find(node => node.props['aria-label'] === '歌单菜单')!;
-    act(() => menu().props.onClick()); click('编辑信息');
+    openMenu(); click('编辑信息');
     change('playlist-name', 'Renamed'); change('playlist-desc', 'Updated'); click('保存');
     expect(usePlaylistStore.getState().playlists[0]).toMatchObject({ name: 'Renamed', description: 'Updated' });
-    act(() => menu().props.onClick()); await act(async () => button('导出歌单').props.onClick());
+    openMenu(); await act(async () => button('导出歌单').props.onClick());
     expect(network.export).toHaveBeenCalledWith([usePlaylistStore.getState().playlists[0]]);
-    act(() => menu().props.onClick()); click('复制歌单');
+    openMenu(); click('复制歌单');
     expect(usePlaylistStore.getState().playlists).toHaveLength(2);
-    act(() => menu().props.onClick()); click('删除歌单');
+    openMenu(); click('删除歌单');
     expect(usePlaylistStore.getState().playlists).toHaveLength(1);
   });
   it('标题链接沿原路由打开歌单，操作菜单本身不触发导航', () => {
     const playlist = usePlaylistStore.getState().createPlaylist('Keyboard list');
     mount();
-    act(() => renderer.root.findByProps({ 'aria-label': '歌单菜单' }).props.onClick());
+    openMenu();
     expect(pathname).toBe('/playlists');
     const title = renderer.root.findAllByType('a').find(node => text(node) === 'Keyboard list')!;
     act(() => title.props.onClick({ button: 0, defaultPrevented: false, preventDefault() {} }));

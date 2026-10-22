@@ -5,13 +5,17 @@
   min-height: 0;
   overflow: hidden;
 }
+/*
+ * 横向留白统一交给 .af-content-scroll 的 32px（与其他页面同一口径），
+ * 本文件内所有区块只保留纵向 padding —— 否则内容左边缘会比别的页多缩进 24px。
+ */
 .af-local-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
-  padding: 24px 24px 16px;
+  padding: 24px 0 16px;
   border-bottom: 1px solid var(--af-border-secondary);
 }
 .af-local-header h1 { margin-bottom: 4px; }
@@ -20,9 +24,9 @@
 .af-local-music-view .af-metadata-header h2 { margin: 0; font-size: var(--af-font-size-xl); font-weight: 700; color: var(--af-text-primary); }
 .af-local-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .af-local-actions button:disabled { opacity: .5; cursor: not-allowed; }
-.af-local-error { margin: 12px 24px 0; color: var(--af-text-primary); border-left: 3px solid var(--af-accent-primary); padding-left: 12px; white-space: pre-line; }
+.af-local-error { margin: 12px 0 0; color: var(--af-text-primary); border-left: 3px solid var(--af-accent-primary); padding-left: 12px; white-space: pre-line; }
 .af-local-browser { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.af-local-browser-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 16px 24px; }
+.af-local-browser-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 16px 0; }
 .af-local-categories, .af-local-layout-toggle { display: flex; gap: 4px; }
 .af-local-browser button { cursor: pointer; }
 .af-local-categories button, .af-local-layout-toggle button, .af-local-search button {
@@ -55,11 +59,11 @@
 .af-local-search:focus-within { border-color: var(--af-border-focus); }
 .af-local-search input { width: 100%; min-width: 0; height: 36px; border: 0; background: transparent; color: var(--af-text-primary); font: inherit; font-size: var(--af-font-size-sm); outline: none; }
 .af-local-search input::placeholder { color: var(--af-text-tertiary); }
-.af-local-breadcrumb { display: flex; align-items: center; gap: 12px; padding: 0 24px 12px; }
+.af-local-breadcrumb { display: flex; align-items: center; gap: 12px; padding: 0 0 12px; }
 .af-local-breadcrumb h2 { margin: 0; min-width: 0; font-size: var(--af-font-size-lg); color: var(--af-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .af-local-breadcrumb > span { margin-left: auto; color: var(--af-text-secondary); font-size: var(--af-font-size-sm); white-space: nowrap; }
 .af-local-breadcrumb > button { flex-shrink: 0; }
-.af-local-browser .af-local-content { flex: 1; min-height: 0; overflow-y: auto; padding: 0 24px 100px; }
+.af-local-browser .af-local-content { flex: 1; min-height: 0; overflow-y: auto; padding: 0 0 100px; }
 .af-local-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 72px 20px; text-align: center; color: var(--af-text-tertiary); }
 .af-local-empty h3, .af-local-empty p { margin: 0; }
 .af-local-empty h3 { color: var(--af-text-primary); font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
@@ -110,8 +114,7 @@
   .af-local-tracks-heading { grid-template-columns: 24px 40px minmax(0, 2fr) minmax(0, 1fr) 48px 72px; gap: 8px; }
 }
 @media (max-width: 560px) {
-  .af-local-header, .af-local-browser-toolbar { padding-left: 16px; padding-right: 16px; }
-  .af-local-browser .af-local-content, .af-local-breadcrumb { padding-left: 16px; padding-right: 16px; }
+  /* 横向留白已统一由 .af-content-scroll 提供，窄屏也不再各自收放 */
   .af-local-breadcrumb { flex-wrap: wrap; }
   .af-local-tracks-list .af-local-track-artist, .af-local-tracks-heading > span:nth-child(4) { display: none; }
   .af-local-track-play { grid-template-columns: 24px 40px minmax(0, 1fr) 48px; }
@@ -121,7 +124,7 @@
 /* 封面驱动：本地曲库的头部与分组卡去掉分割线和描边，让封面与表面色承担层次。 */
 .af-local-header {
   border-bottom: 0;
-  padding: 28px 24px 20px;
+  padding: 28px 0 20px;
 }
 
 .af-local-header .af-heading-1 {
@@ -170,6 +173,7 @@
 
 @media (max-width: 560px) {
   .af-local-header {
-    padding: 24px 16px 16px;
+    /* 横向已由 .af-content-scroll 统一，这里只收纵向 */
+    padding: 24px 0 16px;
   }
 }

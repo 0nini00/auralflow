@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useDialogFocus } from '@/hooks/useDialogFocus';
@@ -26,6 +27,25 @@ import {
   RefreshCw,
 } from 'lucide-react';
 
+const CARD_MENU_ID = "af-playlist-card-menu";
+const CARD_MENU_WIDTH = 180;
+/** 4 个菜单项 + 内边距的估算高度，只用于判断下方放不放得下 */
+const CARD_MENU_HEIGHT_ESTIMATE = 200;
+
+/**
+ * 卡片菜单贴触发按钮右缘展开，下方放不下就向上翻。
+ * 最后一个歌单卡片正好贴着内容区底部，不翻转的话菜单会落到滚动容器外面。
+ */
+function getCardMenuPosition(anchor: HTMLElement) {
+  const rect = anchor.getBoundingClientRect();
+  const left = Math.max(8, Math.min(rect.right - CARD_MENU_WIDTH, window.innerWidth - CARD_MENU_WIDTH - 8));
+  const belowTop = rect.bottom + 6;
+  const top = belowTop + CARD_MENU_HEIGHT_ESTIMATE > window.innerHeight
+    ? Math.max(8, rect.top - CARD_MENU_HEIGHT_ESTIMATE - 6)
+    : belowTop;
+  return { top, left };
+}
+
 export function PlaylistsView() {
   const navigate = useNavigate();
   const { playlists, createPlaylist, deletePlaylist, duplicatePlaylist, renamePlaylist, updatePlaylistDescription, importPlaylist } = usePlaylistStore();
@@ -42,7 +62,31 @@ export function PlaylistsView() {
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [newPlaylistDesc, setNewPlaylistDesc] = useState('');
   const [editingPlaylist, setEditingPlaylist] = useState<string | null>(null);
-  const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  // 菜单连同触发按钮一起记下来：菜单是 portal 到 body 的 fixed 层，
+  // 既要 anchor 定位，也要在关闭时把焦点还回去。
+  const [activeMenu, setActiveMenu] = useState<{ id: string; anchor: HTMLElement; top: number; left: number } | null>(null);
+
+  // 卡片菜单的关闭生命周期。它现在固定定位在 body 上，不会随卡片滚动/卸载自动消失，
+  // 所以 Esc、页面滚动、点空白（backdrop）三条路都要显式关掉。
+  useEffect(() => {
+    if (!activeMenu) return;
+    const anchor = activeMenu.anchor;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setActiveMenu(null);
+      anchor.focus();
+    };
+    const onScroll = () => setActiveMenu(null);
+    window.addEventListener("keydown", onKeyDown);
+    // 捕获阶段才收得到 .af-content-scroll 自己的滚动
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [activeMenu]);
+  // 一次性反馈：只在真的发生了操作时写入，取消/无内容一律清空。
+  // 这一行没有任何自动清理机制（只在下次导入导出时被覆盖），写进去就会一直挂在页面上。
   const [transferStatus, setTransferStatus] = useState('');
   const [wyRefreshing, setWyRefreshing] = useState(false);
   // 链接导入歌单
@@ -174,7 +218,7 @@ export function PlaylistsView() {
     setTransferStatus('导出中...');
     try {
       const saved = await exportPlaylists(playlists);
-      setTransferStatus(saved ? `已导出 ${playlists.length} 个歌单` : '已取消导出');
+      setTransferStatus(saved ? `已导出 ${playlists.length} 个歌单` : '');
     } catch (e) {
       setTransferStatus(e instanceof Error ? e.message : String(e));
     }
@@ -184,7 +228,7 @@ export function PlaylistsView() {
     setTransferStatus('导入中...');
     try {
       const count = await importPlaylists();
-      setTransferStatus(count > 0 ? `已导入 ${count} 个歌单` : '已取消导入');
+      setTransferStatus(count > 0 ? `已导入 ${count} 个歌单` : '');
     } catch (e) {
       setTransferStatus(e instanceof Error ? e.message : String(e));
     }
@@ -196,7 +240,7 @@ export function PlaylistsView() {
     if (!pl) return;
     try {
       const saved = await exportPlaylists([pl]);
-      setTransferStatus(saved ? `已导出「${pl.name}」` : '已取消导出');
+      setTransferStatus(saved ? `已导出「${pl.name}」` : '');
     } catch (e) {
       setTransferStatus(e instanceof Error ? e.message : String(e));
     }
@@ -435,36 +479,62 @@ export function PlaylistsView() {
                   <div className="af-playlist-menu">
                     <button
                       className="af-menu-trigger"
-                      onClick={() => setActiveMenu(activeMenu === playlist.id ? null : playlist.id)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        const anchor = event.currentTarget;
+                        setActiveMenu((current) => (
+                          current?.id === playlist.id
+                            ? null
+                            : { id: playlist.id, anchor, ...getCardMenuPosition(anchor) }
+                        ));
+                      }}
                       aria-label="歌单菜单"
+                      aria-haspopup="menu"
+                      aria-expanded={activeMenu?.id === playlist.id}
+                      aria-controls={activeMenu?.id === playlist.id ? CARD_MENU_ID : undefined}
                     >
                       <MoreVertical size={18} />
                     </button>
+                  </div>
 
-                    {activeMenu === playlist.id && (
-                      <div className="af-dropdown-menu">
-                        <button onClick={() => handleStartEdit(playlist.id)}>
+                  {/* portal 到 body：菜单在滚动容器里会被 overflow 裁剪，且压不过播放条 */}
+                  {activeMenu?.id === playlist.id && createPortal(
+                    <>
+                      <div className="af-add-menu-backdrop" onClick={() => setActiveMenu(null)} aria-hidden="true" />
+                      <div
+                        id={CARD_MENU_ID}
+                        className="af-dropdown-menu"
+                        role="menu"
+                        style={{
+                          position: "fixed",
+                          top: activeMenu.top,
+                          left: activeMenu.left,
+                          marginTop: 0,
+                          width: CARD_MENU_WIDTH,
+                          zIndex: 9999,
+                        }}
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <button type="button" autoFocus onClick={() => handleStartEdit(playlist.id)}>
                           <Edit2 size={16} />
                           <span>编辑信息</span>
                         </button>
-                        <button onClick={() => handleDuplicate(playlist.id)}>
+                        <button type="button" onClick={() => handleDuplicate(playlist.id)}>
                           <Copy size={16} />
                           <span>复制歌单</span>
                         </button>
-                        <button onClick={() => handleExportOne(playlist.id)}>
+                        <button type="button" onClick={() => handleExportOne(playlist.id)}>
                           <Download size={16} />
                           <span>导出歌单</span>
                         </button>
-                        <button
-                          className="af-menu-danger"
-                          onClick={() => handleDelete(playlist.id)}
-                        >
+                        <button type="button" className="af-menu-danger" onClick={() => handleDelete(playlist.id)}>
                           <Trash2 size={16} />
                           <span>删除歌单</span>
                         </button>
                       </div>
-                    )}
-                  </div>
+                    </>,
+                    document.body
+                  )}
                 </div>
               </div>
             ))}
@@ -543,8 +613,10 @@ export function PlaylistsView() {
                     placeholder="粘贴网易云 / QQ 音乐歌单链接或纯数字 ID"
                     autoFocus
                   />
+                  {/* 令牌用真实存在的语义色：--af-primary / --af-danger 全仓无定义，
+                      写成 var(x, 兜底) 会让提示色永远是写死的绿/红、不跟主题走。 */}
                   {importLink.trim() ? (
-                    <p className="af-link-hint" style={{ color: parsed ? 'var(--af-primary, #1db954)' : 'var(--af-danger, #e74c3c)' }}>
+                    <p className="af-link-hint" style={{ color: parsed ? 'var(--af-accent-strong)' : 'var(--af-error)' }}>
                       {parsed
                         ? parsed.source === 'wy' ? '已识别：网易云歌单' : '已识别：QQ 音乐歌单'
                         : '无法识别链接，请检查后重试'}

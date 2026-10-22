@@ -47,7 +47,11 @@ function postSyncMessage(channel: BroadcastChannel | null, message: SyncMessage)
   }
   try {
     channel?.postMessage(message);
-  } catch (err) {
+  } catch (error) {
+    // BroadcastChannel 在消息不可序列化时会抛（结构化克隆限制）。
+    // 不能静默：状态快照发不出去时歌词窗口会停在旧状态，与主窗不同步，
+    // 而这种症状从界面上看不出原因。
+    console.error('[player-sync] BroadcastChannel 发送播放状态失败，改由 Tauri 事件兜底', error);
   }
   // 状态消息保留双通道，提高跨 WebView 到达可靠性；动作不在此发送。
   void emit(TAURI_EVENT, message).catch(() => undefined);

@@ -60,7 +60,9 @@ export function Layout() {
         <Sidebar />
         <div className="af-workspace">
           <Topbar />
-          <div className={`af-stage ${nowPlayingOpen ? "af-stage-with-panel" : ""}`}>
+          {/* 右栏宽度由 .af-now-playing 自己的 flex-basis 决定；此前这里还挂了一个
+              af-stage-with-panel 修饰类，但它在 CSS 里从无定义（空类），已删。 */}
+          <div className="af-stage">
             <main className="af-content">
               <div className="af-content-scroll">
                 <Outlet />

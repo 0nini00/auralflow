@@ -303,7 +303,8 @@ const handleImportCustomSourceFile = async () => {
   setCustomSourceStatus("导入中...");
   try {
     const source = await importFromFile();
-    setCustomSourceStatus(source ? `已导入：${source.name}` : "已取消导入");
+    // 取消不是一次操作：不写状态行，否则「已取消导入」会一直留在设置页
+    setCustomSourceStatus(source ? `已导入：${source.name}` : "");
   } catch (error) {
     setCustomSourceStatus(error instanceof Error ? error.message : String(error));
   }

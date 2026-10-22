@@ -8,6 +8,7 @@ import {
   type RustLyricWindowState,
 } from "@lx/tauri-bridge";
 import { broadcastLyricSettings } from "@/stores/lyricSettingsSync";
+import { logger } from "@/services/logger";
 
 export type DesktopLyricPlayerToggleAction = "opened" | "closed" | "unlocked";
 
@@ -73,6 +74,9 @@ export async function toggleDesktopLyricFromPlayer(
       };
     }
   } catch (error) {
+    // 解锁探测失败是预期分支（窗口未开 / IPC 超时）：继续往下按「后端没报告锁定」处理。
+    // 但必须留痕——否则「点了歌词按钮却只关掉窗口没解锁」这种情况无从排查。
+    logger.debug("[桌面歌词] 解锁探测失败，按未锁定继续", error);
   }
 
   try {
@@ -81,6 +85,10 @@ export async function toggleDesktopLyricFromPlayer(
       context.stateQueryTimeoutMs ?? 700,
     );
   } catch (error) {
+    // 状态查询超时/失败：backendState 保持 null，下面的判断只信 knownLocked。
+    // 不能把「查不到」当成「未锁定」以外的结论（那会让已锁定窗口被误关），
+    // 也不能静默——同一处失败若持续发生，用户看到的是「按钮点了但要再点一次才生效」。
+    logger.debug("[桌面歌词] 窗口状态查询失败，本次只依据调用方缓存判断", error);
   }
 
   const shouldUnlock = Boolean(backendState?.locked || context.knownLocked);

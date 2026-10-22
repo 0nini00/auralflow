@@ -61,3 +61,8 @@ pub fn set_lyric_window_locked(
         lock_source.as_deref().unwrap_or("ipc"),
     )
 }
+
+#[tauri::command]
+pub fn set_lyric_window_height(app: AppHandle, height: f64) -> Result<(), String> {
+    crate::lyric_window::set_height(&app, height)
+}

@@ -26,7 +26,7 @@ body {
 }
 
 :root {
-  --af-window-titlebar-height: 34px;
+  /* --af-window-titlebar-height 已随 AppTitleBar 删除而移除 */
 }
 
 code {
@@ -69,61 +69,10 @@ button {
 /* 背景图用 background-size: cover 铺满，兜底色只在图加载失败或加载中可见。
    这里不再硬编码深蓝：让它继承 .af-app 的 --af-bg-base，降级时回到正常的
    亮色/深色主题，而不是「白色半透明面板叠深蓝底」混出的中性灰。 */
-.af-window-titlebar {
-  position: relative;
-  z-index: 2200;
-  display: flex;
-  flex: 0 0 var(--af-window-titlebar-height);
-  align-items: center;
-  justify-content: space-between;
-  min-height: var(--af-window-titlebar-height);
-  color: var(--af-text-secondary);
-  background: transparent;
-  user-select: none;
-}
 
-[data-theme="dark"] .af-window-titlebar {
-  background: transparent;
-}
-
-.af-window-drag-region {
-  display: flex;
-  min-width: 0;
-  height: 100%;
-  flex: 1;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  cursor: default;
-}
-
-.af-window-app-mark {
-  width: 12px;
-  height: 12px;
-  border-radius: var(--af-radius-xs);
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.78), transparent 45%),
-    var(--af-accent-gradient);
-  box-shadow: 0 0 0 1px rgba(var(--af-accent-primary-rgb), 0.14);
-}
-
-.af-window-title {
-  overflow: hidden;
-  color: var(--af-text-secondary);
-  font-size: var(--af-font-size-xs);
-  font-weight: 650;
-  letter-spacing: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.af-window-controls {
-  display: flex;
-  height: 100%;
-  flex: 0 0 auto;
-  align-items: stretch;
-}
-
+/* ============================================================
+   窗口控制按钮（已合并进 Topbar，不再依赖 af-window-titlebar 容器）
+   ============================================================ */
 .af-window-control {
   display: inline-flex;
   width: 46px;
@@ -157,17 +106,7 @@ button {
   outline-offset: -2px;
 }
 
-.af-app:has(.af-immersive-lyrics) .af-window-titlebar {
-  color: rgba(248, 250, 252, 0.78);
-  background: transparent;
-}
-
-.af-app:has(.af-immersive-lyrics) .af-window-app-mark,
-.af-app:has(.af-immersive-lyrics) .af-window-title {
-  display: none;
-}
-
-.af-app:has(.af-immersive-lyrics) .af-window-title,
+/* 沉浸式歌词：顶栏中的窗口按钮变浅 */
 .af-app:has(.af-immersive-lyrics) .af-window-control {
   color: rgba(248, 250, 252, 0.72);
 }
@@ -217,19 +156,6 @@ button {
   padding: 0 10px 12px;
   gap: 0;
   overflow: hidden;
-}}> 内联给出（可拖拽、可持久化）；这里只是兜底值。 */
-  width: 240px;
-  position: relative;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  /* 侧栏不再是独立卡片：让它沉到环境光里，内容面板才是唯一的主表面。 */
-  background: transparent;
-  border: 0;
-  border-radius: var(--af-radius-xl);
-  padding: 20px 8px 16px;
-  gap: 20px;
-  overflow: hidden;
 }
 
 /*
@@ -275,6 +201,42 @@ button {
   border-radius: var(--af-radius-xs);
 }
 
+/*
+ * 收起/展开侧边栏。
+ *
+ * 按钮与右栏「正在播放」头部那颗收起键同款（.af-icon-btn-sm：30×30 + 16px 图标），
+ * 它住在 .af-sidebar-brand 里，纵向居中与右侧 8px 留白直接复用品牌行自己的盒模型。
+ *
+ * 收起态不能把 aside 收成 0：它是唯一的展开入口，aside 一旦消失就再也点不回来。
+ * 所以保留一条窄带，只留品牌行（及其中的按钮），其余子元素 display:none，既不可见也不可聚焦。
+ */
+.af-sidebar-collapsed {
+  padding: 0;
+}
+
+.af-sidebar-collapsed > *:not(.af-sidebar-brand) {
+  display: none;
+}
+
+.af-sidebar-collapsed .af-sidebar-brand {
+  padding: 0;
+  justify-content: center;
+}
+
+.af-sidebar-collapsed .af-sidebar-brand > *:not(.af-sidebar-collapse-toggle) {
+  display: none;
+}
+
+/* 常态：顶到品牌行右端（品牌行的 8px 右内边距即按钮到分界线的距离） */
+.af-sidebar-collapse-toggle {
+  margin-left: auto;
+}
+
+/* 收起态：窄带里只有它，改为居中 */
+.af-sidebar-collapsed .af-sidebar-collapse-toggle {
+  margin-left: 0;
+}
+
 /* 拖拽期间保持整窗 col-resize，并禁止选中文字（否则会拖出一片蓝色选区）。 */
 body.af-resizing-sidebar {
   cursor: col-resize;
@@ -306,19 +268,6 @@ body.af-resizing-sidebar {
   justify-content: center;
   overflow: hidden;
   box-shadow: 0 2px 8px -2px rgba(var(--af-accent-primary-rgb), 0.35);
-}
-
-.af-app-has-background .af-window-titlebar {
-  background: transparent;
-}
-
-[data-theme="dark"] .af-app-has-background .af-window-titlebar {
-  background: transparent;
-}
-
-.af-app-has-background .af-window-app-mark,
-.af-app-has-background .af-window-title {
-  display: none;
 }
 
 .af-logo-img {
@@ -441,9 +390,15 @@ body.af-resizing-sidebar {
   text-align: left;
 }
 
-/* Sidebar Section (Account Playlists) */
+/*
+ * Sidebar Section（网易云账号歌单列表）。
+ *
+ * 注意：这组 .af-sidebar-section* 规则当前没有任何组件渲染（Sidebar 已改为
+ * 「发现 / 为你 / 我的音乐」分组导航）。保留是因为它在 `af-sidebar` 结构里
+ * 仍是一块完整的可复用容器；但不要再往里加新用法，先确认是否真的需要。
+ */
 .af-sidebar-section {
-  padding: 0 var(--af-space-md);
+  padding: 0 16px;
   overflow-y: auto;
   max-height: 40vh;
 }
@@ -684,7 +639,6 @@ body.af-resizing-sidebar {
    遮罩还会逐层相乘（content 之上还有 hero / card）。基准压得很薄，可读性交给
    brightness 调整背景明度 + 文字描边来兜，而不是靠加厚遮罩把背景盖掉。 */
 .af-app-has-background .af-sidebar,
-.af-app-has-background .af-header,
 .af-app-has-background .af-content,
 .af-app-has-background .af-player-bar {
   border-color: rgba(255, 255, 255, 0.4);
@@ -699,9 +653,7 @@ body.af-resizing-sidebar {
 
 /* 面板内的二级元素叠在已模糊的面板上，只做极轻的一层，
    避免和 content 的遮罩相乘后把背景吃光 */
-.af-app-has-background .af-header-search,
 .af-app-has-background .af-user-button,
-.af-app-has-background .af-sidebar-count,
 .af-app-has-background .af-card {
   border-color: rgba(255, 255, 255, 0.34);
   background: rgba(255, 255, 255, calc(0.18 * var(--af-app-bg-mask)));
@@ -729,7 +681,6 @@ body.af-resizing-sidebar {
 }
 
 [data-theme="dark"] .af-app-has-background .af-sidebar,
-[data-theme="dark"] .af-app-has-background .af-header,
 [data-theme="dark"] .af-app-has-background .af-content,
 [data-theme="dark"] .af-app-has-background .af-player-bar {
   border-color: rgba(226, 232, 240, 0.14);
@@ -744,9 +695,7 @@ body.af-resizing-sidebar {
   background: rgba(15, 23, 42, calc(0.16 * var(--af-app-bg-mask)));
 }
 
-[data-theme="dark"] .af-app-has-background .af-header-search,
 [data-theme="dark"] .af-app-has-background .af-user-button,
-[data-theme="dark"] .af-app-has-background .af-sidebar-count,
 [data-theme="dark"] .af-app-has-background .af-card {
   border-color: rgba(226, 232, 240, 0.12);
   background: rgba(15, 23, 42, calc(0.16 * var(--af-app-bg-mask)));

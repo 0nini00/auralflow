@@ -13,7 +13,7 @@
   background: var(--af-bg-page);
   border-bottom: 1px solid var(--af-border-secondary);
   position: relative;
-  z-index: 20;
+  z-index: var(--af-z-topbar);
   user-select: none;
 }
 
@@ -124,6 +124,11 @@
   gap: 2px;
   flex: 0 0 auto;
   margin-left: auto;
+  /* 必须撑满顶栏高度：里面的窗口按钮写的是 height:100%，父级一旦是
+     auto 高度（默认由 align-items:center 决定），百分比就退化成内容高度，
+     实测三个按钮只有 12/14/15px 高 —— 顶栏 56px 里只剩图标那一条可点，
+     悬停高亮也变成细缝。align-self 不受父级 align-items 影响即可撑满。 */
+  align-self: stretch;
 }
 
 /* 搜索页自带主搜索框：顶栏那个在这页收起，避免同屏两个搜索入口 */
@@ -164,7 +169,7 @@
   width: 100%;
   height: 100%;
   pointer-events: none;
-  z-index: 9999;
+  z-index: var(--af-z-cursor);
 }
 
 /* ── 虚拟列表 ── */
@@ -183,7 +188,7 @@
 
 /* ── 用户协议弹窗 ── */
 .af-pact-overlay {
-  z-index: 3000;
+  z-index: var(--af-z-pact);
 }
 .af-pact-dialog {
   max-width: 520px;

@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Download, MoreHorizontal, Music2, X } from "lucide-react";
+import { Music2, X } from "lucide-react";
 import { usePlayerStore } from "@/stores/playerStore";
 import { useUiStore } from "@/stores/uiStore";
 import { useLyrics } from "@/hooks/useLyrics";
 import { coverSrc, NP_COVER_CSS_SIZE, ROW_COVER_CSS_SIZE } from "@/utils/imageReferrerPolicy";
 import { formatTime } from "@/utils/formatTime";
+import { DownloadQualityButton } from "@/components/DownloadQualityButton";
 import { SongAddMenuButton } from "@/components/SongAddMenuButton";
 
 /**
@@ -66,12 +67,7 @@ export function NowPlayingPanel() {
           <div className="af-np-artist" title={current.singer}>{current.singer}</div>
           <div className="af-np-tools">
             <SongAddMenuButton song={current} className="af-icon-btn af-icon-btn-sm" iconSize={16} title="添加到我的喜欢或歌单" />
-            <button type="button" className="af-icon-btn af-icon-btn-sm" aria-label="下载" title="下载">
-              <Download size={16} strokeWidth={1.8} />
-            </button>
-            <button type="button" className="af-icon-btn af-icon-btn-sm" aria-label="更多" title="更多">
-              <MoreHorizontal size={16} strokeWidth={1.8} />
-            </button>
+            <DownloadQualityButton song={current} className="af-icon-btn af-icon-btn-sm" iconSize={16} title="下载" />
           </div>
         </>
       ) : (

@@ -58,7 +58,7 @@ export function DesktopLyricSettingsSection() {
         setFontSize(s.lyricFontSize || 28);
         setShowNextLine(s.lyricShowNextLine);
         setSingleLine(s.lyricSingleLine);
-        setMaxLineNum(s.lyricMaxLineNum || 2);
+        setMaxLineNum(s.lyricMaxLineNum || 3);
         setShowTranslation(s.lyricShowTranslation);
         setShowRomanization(s.lyricShowRomanization === true);
         setShowRuby(s.lyricShowRuby === true);
@@ -248,7 +248,7 @@ export function DesktopLyricSettingsSection() {
       lyricFontSize: 28,
       lyricShowNextLine: true,
       lyricSingleLine: false,
-      lyricMaxLineNum: 2,
+      lyricMaxLineNum: 3,
       lyricShowTranslation: true,
       lyricShowRomanization: false,
       lyricShowRuby: false,

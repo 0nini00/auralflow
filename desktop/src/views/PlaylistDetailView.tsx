@@ -1,6 +1,5 @@
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { usePlaylistStore } from '@/stores/playlistStore';
 import { useFavoritesStore } from '@/stores/favoritesStore';
 import { usePlayerStore } from '@/stores/playerStore';
@@ -15,7 +14,7 @@ import { getPlaylistCover } from '@/utils/playlistCover';
 import { formatPlaylistSearchMeta } from '@/services/neteasePlaylistUtils';
 import { DETAIL_COVER_CSS_SIZE, ROW_COVER_CSS_SIZE, coverSrc } from '@/utils/imageReferrerPolicy';
 import type { MusicInfo, PlaylistInfo, SourceTag } from '@lx/core';
-import { ArrowLeft, Play, Shuffle, Trash2, Clock, Loader2, CornerDownRight, MoreHorizontal, Bookmark, BookmarkCheck, BookmarkX, RefreshCw, LocateFixed, ListPlus, Download } from 'lucide-react';
+import { Play, Shuffle, Trash2, Clock, Loader2, CornerDownRight, Bookmark, BookmarkCheck, BookmarkX, RefreshCw, LocateFixed, ListPlus, Download } from 'lucide-react';
 
 interface PlaylistSongsRequest {
   identity: string;
@@ -63,8 +62,6 @@ export function PlaylistDetailView() {
   const [wyActionPending, setWyActionPending] = useState(false);
   const [actionStatus, setActionStatus] = useState('');
   const [pendingPlayAction, setPendingPlayAction] = useState<PendingPlayAction>(null);
-  const [openMenuIndex, setOpenMenuIndex] = useState<number | null>(null);
-  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const [addMenu, setAddMenu] = useState<{ song: MusicInfo; anchor: HTMLElement } | null>(null);
   const [downloadMenu, setDownloadMenu] = useState<{ song: MusicInfo; anchor: HTMLElement } | null>(null);
   const [locateScrollIndex, setLocateScrollIndex] = useState<number | undefined>(undefined);
@@ -156,7 +153,6 @@ export function PlaylistDetailView() {
 
   useEffect(() => {
     setActionStatus('');
-    setOpenMenuIndex(null);
     setAddMenu(null);
     setDownloadMenu(null);
     setLocateScrollIndex(undefined);
@@ -280,7 +276,6 @@ export function PlaylistDetailView() {
   };
 
   const handleLocateCurrentSong = () => {
-    setOpenMenuIndex(null);
     if (!currentTrack) {
       setActionStatus('当前没有正在播放的歌曲。');
       return;
@@ -307,7 +302,6 @@ export function PlaylistDetailView() {
   };
 
   const handleRemoveSong = (index: number) => {
-    setOpenMenuIndex(null);
     setActionStatus('');
     if (isFavoritesPlaylist) {
       const song = favorites[index];
@@ -392,10 +386,6 @@ export function PlaylistDetailView() {
             <div className="af-playlist-detail-shade" aria-hidden="true" />
           </>
         )}
-        <button className="af-back-btn" onClick={() => remoteSource ? navigate(-1) : navigate('/playlists')}>
-          <ArrowLeft size={20} />
-        </button>
-
         <div className="af-playlist-detail-info">
           <div className="af-playlist-detail-cover">
             {playlistCoverUrl ? (
@@ -541,7 +531,6 @@ export function PlaylistDetailView() {
               scrollToKey={locateScrollKey}
               scrollRootSelector=".af-content-scroll"
               onScroll={() => {
-                setOpenMenuIndex(null);
                 setAddMenu(null);
                 setDownloadMenu(null);
               }}
@@ -552,7 +541,7 @@ export function PlaylistDetailView() {
 
                 return (
                   <div
-                    className={`af-song-list-row ${openMenuIndex === index ? 'af-menu-open' : ''} ${isCurrentSong ? 'af-current-playing' : ''} ${isLocatedSong ? 'af-locate-hit' : ''}`}
+                    className={`af-song-list-row ${isCurrentSong ? 'af-current-playing' : ''} ${isLocatedSong ? 'af-locate-hit' : ''}`}
                     onClick={() => handlePlayTrack(index)}
                     title="单击播放"
                   >
@@ -584,10 +573,11 @@ export function PlaylistDetailView() {
                     <div className="af-col-actions" onClick={(e) => e.stopPropagation()}>
                       <button
                         className="af-action-btn"
-                        onClick={() => handlePlayTrack(index)}
-                        title="播放"
+                        onClick={() => handlePlayNext(song)}
+                        title="下一首播放"
+                        aria-label="下一首播放"
                       >
-                        <Play size={14} fill="currentColor" />
+                        <CornerDownRight size={14} />
                       </button>
                       <button
                         className="af-action-btn"
@@ -615,17 +605,17 @@ export function PlaylistDetailView() {
                       >
                         <Download size={14} />
                       </button>
-                      <button
-                        className="af-action-btn"
-                        onClick={(e) => {
-                          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                          setMenuPos({ top: r.bottom + 4, left: Math.max(8, r.right - 180) });
-                          setOpenMenuIndex(openMenuIndex === index ? null : index);
-                        }}
-                        title="更多操作"
-                      >
-                        <MoreHorizontal size={14} />
-                      </button>
+                      {((!isWyPlaylist && !isRemotePlaylist) || isWyOwned) && (
+                        <button
+                          className="af-action-btn"
+                          onClick={() => handleRemoveSong(index)}
+                          title="从歌单移除"
+                          aria-label="从歌单移除"
+                          disabled={wyActionPending}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -653,29 +643,6 @@ export function PlaylistDetailView() {
         />
       )}
 
-      {openMenuIndex != null && menuPos && songs[openMenuIndex] && createPortal(
-        <div
-          className="af-dropdown-menu af-song-action-menu af-song-action-portal"
-          style={{ position: 'fixed', top: menuPos.top, left: menuPos.left, zIndex: 9999 }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button onClick={() => handlePlayNext(songs[openMenuIndex!])}>
-            <CornerDownRight size={14} />
-            <span>下一首播放</span>
-          </button>
-          {((!isWyPlaylist && !isRemotePlaylist) || isWyOwned) && (
-            <button
-              className="af-menu-danger"
-              onClick={() => { handleRemoveSong(openMenuIndex!); setOpenMenuIndex(null); }}
-              disabled={wyActionPending}
-            >
-              <Trash2 size={14} />
-              <span>移除</span>
-            </button>
-          )}
-        </div>,
-        document.body
-      )}
     </div>
   );
 }

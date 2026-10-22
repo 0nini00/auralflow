@@ -109,6 +109,9 @@ pub struct AppSettings {
     /// 侧边栏宽度（逻辑像素）。None=从未拖过，前端用默认 240
     #[serde(default)]
     pub sidebar_width: Option<f64>,
+    /// 侧边栏是否收起。收起后只留一条 16px 窄条 + 展开按钮，内容区拿回整列宽度
+    #[serde(default)]
+    pub sidebar_collapsed: bool,
     /// 用户协议是否已同意
     pub pact_accepted: bool,
     /// 鼠标特效: "off" / "trail"
@@ -152,7 +155,7 @@ impl Default for AppSettings {
             lyric_font_size: 28,
             lyric_show_next_line: true,
             lyric_single_line: false,
-            lyric_max_line_num: 2,
+            lyric_max_line_num: 3,
             lyric_show_translation: true,
             lyric_show_romanization: false,
             lyric_show_ruby: false,
@@ -185,6 +188,8 @@ impl Default for AppSettings {
             main_window_maximized: false,
             // 侧边栏宽度：None 表示从未拖过，前端回落到默认 240
             sidebar_width: None,
+            // 侧边栏默认展开
+            sidebar_collapsed: false,
             pact_accepted: false,
             cursor_effect: "off".to_string(),
             webdav_url: None,

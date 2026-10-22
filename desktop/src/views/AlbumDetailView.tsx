@@ -12,7 +12,7 @@ import { formatDuration } from "@/lib/utils";
 import { fisherYatesShuffle } from "@/utils/shared";
 import type { MusicInfo } from "@lx/core";
 import { DETAIL_COVER_CSS_SIZE, ROW_COVER_CSS_SIZE, coverSrc } from "@/utils/imageReferrerPolicy";
-import { ArrowLeft, Play, Shuffle, Clock, Disc3, Loader2 } from "lucide-react";
+import { Play, Shuffle, Clock, Disc3, Loader2, CornerDownRight } from "lucide-react";
 
 interface AlbumInfoFull {
   id: string;
@@ -43,6 +43,7 @@ export function AlbumDetailView() {
   const [descExpanded, setDescExpanded] = useState(false);
   const [pendingPlayAction, setPendingPlayAction] = useState<PendingPlayAction>(null);
 
+  const playNext = usePlayerStore((s) => s.playNext);
   const playQueue = usePlayerStore((s) => s.playQueue);
   const isPlayAllPending = pendingPlayAction === 'play-all';
   const isShufflePending = pendingPlayAction === 'shuffle';
@@ -108,10 +109,6 @@ export function AlbumDetailView() {
   return (
     <div className="af-playlist-detail-view">
       <div className="af-playlist-detail-header">
-        <button className="af-back-btn" onClick={() => navigate(-1)}>
-          <ArrowLeft size={20} />
-        </button>
-
         <div className="af-playlist-detail-info">
           <div className="af-playlist-detail-cover">
             {info.picUrl ? (
@@ -228,8 +225,8 @@ export function AlbumDetailView() {
                   <div className="af-col-album">{song.albumName || "-"}</div>
                   <div className="af-col-duration">{formatDuration(song.interval || 0)}</div>
                   <div className="af-col-actions" onClick={(e) => e.stopPropagation()}>
-                    <button className="af-action-btn" onClick={() => { void runPlayQueueAction(`track:${index}`, songs, index); }} title="播放">
-                      <Play size={14} fill="currentColor" />
+                    <button className="af-action-btn" onClick={() => playNext(song)} title="下一首播放" aria-label="下一首播放">
+                      <CornerDownRight size={14} />
                     </button>
                     <SongAddMenuButton
                       song={song}

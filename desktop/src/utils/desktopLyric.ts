@@ -1,11 +1,13 @@
 import type { LyricLine, LyricWord } from "@/services/lyricsService";
 import { calculateLyricLineProgress } from "@/services/lyrics/playbackSync";
 
-export type DesktopLyricLineRole = "current" | "next" | "empty";
+export type DesktopLyricLineRole = "previous" | "current" | "next" | "empty";
 
 export interface DesktopLyricDisplayLine {
   key: string;
   role: DesktopLyricLineRole;
+  /** 在 lyrics 数组中的下标；占位行为 -1 */
+  index: number;
   text: string;
   translation?: string;
   progress?: number;
@@ -19,11 +21,15 @@ export interface DesktopLyricLineOptions {
   lines: LyricLine[];
   currentLine: number;
   hasCurrentMusic: boolean;
-  showNextLine: boolean;
-  singleLine: boolean;
-  maxLineNum: number;
   showTranslation: boolean;
   currentTime?: number;
+}
+
+export interface DesktopLyricBuildResult {
+  /** 整篇歌词；没有歌曲或没有歌词时是一条占位行 */
+  lines: DesktopLyricDisplayLine[];
+  /** 当前行在上面数组中的下标（占位行时为 0） */
+  currentIndex: number;
 }
 
 const NO_MUSIC_TEXT = "打开主窗口选首歌吧";
@@ -41,48 +47,50 @@ function normalizeLineText(text: string | undefined) {
   return normalized || "...";
 }
 
+/**
+ * 把整篇歌词铺成可滚动的行列表，并标出当前行。
+ *
+ * 早先这里只产出「当前行 + 后续若干行」，滚动窗口里就永远看不到刚唱过的那句；
+ * 现在改成整篇 + currentIndex，由渲染层把当前行滚到固定行位（见 LyricWindowView），
+ * 这样上下都有上下文，窗口显示几行只由窗口高度决定。
+ */
 export function buildDesktopLyricLines({
   lines,
   currentLine,
   hasCurrentMusic,
-  showNextLine,
-  singleLine,
-  maxLineNum,
   showTranslation,
   currentTime,
-}: DesktopLyricLineOptions): DesktopLyricDisplayLine[] {
+}: DesktopLyricLineOptions): DesktopLyricBuildResult {
   if (!hasCurrentMusic) {
-    return [{ key: "no-music", role: "empty", text: NO_MUSIC_TEXT }];
+    return {
+      lines: [{ key: "no-music", role: "empty", index: -1, text: NO_MUSIC_TEXT }],
+      currentIndex: 0,
+    };
   }
   if (lines.length === 0) {
-    return [{ key: "empty", role: "empty", text: EMPTY_LYRIC_TEXT }];
+    return {
+      lines: [{ key: "empty", role: "empty", index: -1, text: EMPTY_LYRIC_TEXT }],
+      currentIndex: 0,
+    };
   }
 
   const currentIndex = clampCurrentIndex(currentLine, lines.length);
-  const current = lines[currentIndex];
-  const result: DesktopLyricDisplayLine[] = [{
-    key: `current-${currentIndex}`,
-    role: "current",
-    text: normalizeLineText(current.text),
-    progress: typeof currentTime === "number"
-      ? calculateLyricLineProgress(lines, currentIndex, currentTime)
-      : 0,
-    ...(showTranslation && current.tr ? { translation: current.tr } : {}),
-    ...(current.words?.length ? { words: current.words, time: current.time } : {}),
-  }];
-
-  if (singleLine || !showNextLine) return result;
-
-  const targetCount = Math.max(1, Math.min(4, Math.trunc(maxLineNum || 1)));
-  for (let index = currentIndex + 1; index < lines.length && result.length < targetCount; index += 1) {
-    const line = lines[index];
-    result.push({
-      key: `next-${index}`,
-      role: "next",
+  const built: DesktopLyricDisplayLine[] = lines.map((line, index) => {
+    const role: DesktopLyricLineRole =
+      index === currentIndex ? "current" : index < currentIndex ? "previous" : "next";
+    return {
+      key: `${role}-${index}`,
+      role,
+      index,
       text: normalizeLineText(line.text),
       ...(showTranslation && line.tr ? { translation: line.tr } : {}),
-    });
-  }
+      // 进度与逐字只对当前行有意义，其余行不参与卡拉OK
+      ...(index === currentIndex && typeof currentTime === "number"
+        ? { progress: calculateLyricLineProgress(lines, currentIndex, currentTime) }
+        : {}),
+      ...(index === currentIndex && line.words?.length ? { words: line.words, time: line.time } : {}),
+    };
+  });
 
-  return result;
+  return { lines: built, currentIndex };
 }

@@ -1,6 +1,14 @@
 /* 歌单列表页 */
+/*
+ * 视图根容器只负责「限宽 + 居中」，不再自带横向 padding。
+ *
+ * 横向留白统一由 .af-content-scroll 的 32px 提供（唯一来源）。此前这里是
+ * 40px、详情页 48px、Downloads/FM 内联 32/48px，同一窗口下各页内容左边缘
+ * 分别落在 268 / 308 / 316，切页时内容会横向跳动 40–48px。
+ * 纵向 padding 保留：那是每一页自己的节奏，且不与壳层冲突。
+ */
 .af-playlists-view {
-  padding: 28px 40px 48px;
+  padding: 28px 0 48px;
   max-width: 1480px;
   margin: 0 auto;
 }
@@ -144,7 +152,9 @@
 }
 
 .af-section-heading .af-icon-btn:hover:not(:disabled) {
-  background: var(--af-bg-tertiary);
+  /* --af-bg-tertiary 全仓从未定义过，这条声明一直作废（hover 完全没有背景反馈）。
+     改用与其余图标按钮一致的 hover 令牌。 */
+  background: var(--af-bg-hover);
   color: var(--af-text-primary);
 }
 
@@ -486,9 +496,30 @@ button.af-playlist-card {
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
   padding: 8px;
   min-width: 160px;
-  z-index: 100;
+  z-index: var(--af-z-menu);
+  /* 菜单可能很长（每日推荐的日期列表、添加到歌单的列表），沿用全站可滚区域的细滚动条；
+     不写会露出系统默认的 15px 宽滚动条，在深色界面上非常扎眼 */
+  scrollbar-width: thin;
+  scrollbar-color: var(--af-border-primary) transparent;
 }
 
+/* WebView2/Chromium 上生效的是上面那条标准属性；下面这组是给不支持 scrollbar-width 的内核兜底 */
+.af-dropdown-menu::-webkit-scrollbar {
+  width: 6px;
+}
+
+.af-dropdown-menu::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.af-dropdown-menu::-webkit-scrollbar-thumb {
+  background: var(--af-border-primary);
+  border-radius: var(--af-radius-xs);
+}
+
+.af-dropdown-menu::-webkit-scrollbar-thumb:hover {
+  background: var(--af-text-quaternary);
+}
 .af-dropdown-menu button {
   width: 100%;
   display: flex;
@@ -515,7 +546,8 @@ button.af-playlist-card {
 
 @media (max-width: 980px) {
   .af-playlists-view {
-    padding: 24px 24px 44px;
+    /* 横向同样交给 .af-content-scroll，这里只收纵向 */
+    padding: 24px 0 44px;
   }
 
   .af-quick-grid {
@@ -628,11 +660,21 @@ button.af-playlist-card {
   justify-content: flex-end;
 }
 
-/* 歌单详情页 */
+/* 歌单 / 专辑 / 歌手 / 历史 详情页共用的根容器 */
 .af-playlist-detail-view {
-  padding: 32px 48px;
+  padding: 32px 0;
   max-width: 1400px;
   margin: 0 auto;
+  /*
+   * 让头部按「自身可用宽度」响应，而不是按窗口宽度。
+   *
+   * 原因是这个容器会被右侧「正在播放」栏挤压：窗口 1360 下打开右栏，
+   * 内容区从 1044px 掉到 724px（-31%），但窗口宽度没变，@media 不触发。
+   * 实测后果是头部从 380px 涨到 487px：标题折成 2 行、操作按钮折成 2 行。
+   * 容器查询能在容器真正变窄时收紧（见下方 @container）。
+   */
+  container-type: inline-size;
+  container-name: detail;
 }
 
 .af-playlist-detail-header {
@@ -667,22 +709,10 @@ button.af-playlist-card {
   pointer-events: none;
 }
 
-.af-playlist-detail-header > .af-back-btn,
+/* 详情页头部：只有 info 需要抬到封面背景之上（返回键已移除，顶栏自带前进/后退） */
 .af-playlist-detail-header .af-playlist-detail-info {
   position: relative;
   z-index: 1;
-}
-
-.af-playlist-detail-header > .af-back-btn {
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(248, 250, 252, 0.82);
-}
-
-.af-playlist-detail-header > .af-back-btn:hover:not(:disabled) {
-  border-color: rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.14);
-  color: #ffffff;
 }
 
 .af-playlist-detail-header .af-playlist-detail-cover {
@@ -730,42 +760,65 @@ button.af-playlist-card {
   color: #ffffff;
 }
 
-@media (max-width: 900px) {
+/*
+ * 头部自适应——用容器查询而不是媒体查询。
+ *
+ * 阈值按「头部实际可用宽度」标定（实测，见每条注释）：
+ *   · 窗口 1360、右栏关闭 → 容器 1044px → 按桌面尺寸排版
+ *   · 窗口 1360、右栏打开 → 容器 724px  → 收紧（原先这里会涨到 487px 高）
+ *   · 窗口 900、右栏关闭 → 容器 584px  → 转为纵向
+ * 原来的 @media (max-width: 900px) 只看窗口宽度，右栏挤压它感知不到。
+ */
+@container detail (max-width: 780px) {
   .af-playlist-detail-header {
-    padding: 20px;
+    padding: 22px 24px 24px;
   }
 
   .af-playlist-detail-header .af-playlist-detail-info {
-    flex-direction: column;
-    align-items: flex-start;
     gap: 20px;
   }
 
   .af-playlist-detail-header .af-playlist-detail-cover {
-    width: 180px;
-    height: 180px;
+    width: 152px;
+    height: 152px;
+  }
+
+  /* 标题降到 28px 才能在这个宽度下保持单行，操作按钮也才不会被挤成两排 */
+  .af-playlist-detail-header .af-playlist-detail-meta h1 {
+    font-size: 28px;
   }
 }
 
-.af-back-btn {
-  padding: 12px;
-  background: var(--af-bg-hover);
-  border: none;
-  border-radius: var(--af-radius-sm);
-  color: var(--af-text-primary);
-  cursor: pointer;
-  margin-bottom: 24px;
-  transition: background 0.2s;
+/* 再窄（窗口约 900 及以下）才改纵向：封面在上、信息在下 */
+@container detail (max-width: 620px) {
+  .af-playlist-detail-header .af-playlist-detail-info {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .af-playlist-detail-header .af-playlist-detail-cover {
+    width: 132px;
+    height: 132px;
+  }
 }
 
-.af-back-btn:hover {
-  background: var(--af-bg-secondary);
-}
+/* .af-back-btn 已随详情页返回键一起删除 —— 顶栏的前进/后退是唯一入口。
+   不要为详情页再加页内返回键：它会把头部顶出一条 50px 高的空白带。 */
 
 .af-playlist-detail-info {
   display: flex;
   gap: 26px;
-  align-items: flex-end;
+  /*
+   * 顶端对齐，不是底部对齐。
+   *
+   * 曾经是 flex-end：封面与右侧文字块底部齐平，而文字块（标题 + 描述 + 统计
+   * + 操作行）比封面高得多，差额全堆在封面上方。实测右栏打开时封面顶部空白
+   * 达 109px（文字块 261px、封面 152px），看起来像封面被压到了角落。
+   * flex-start 让封面顶部与标题顶部精确对齐（h1 的 margin-top 为 0），
+   * 空白移到封面下方，那里本来就是留白区，不刺眼。
+   */
+  align-items: flex-start;
 }
 
 .af-playlist-detail-meta {
@@ -822,23 +875,101 @@ button.af-playlist-card {
   margin-bottom: 24px;
 }
 
+/*
+ * 简介的「展开 / 收起」触发器（ArtistDetailView 与 AlbumDetailView 共用）。
+ *
+ * 颜色、字号、内边距由两个视图各自的内联样式给出（它们跟详情页头部的
+ * 深浅背景走，不是全局常量）；这里只补内联样式表达不了的 hover 与
+ * 键盘焦点反馈，让这个按钮在鼠标与键盘下都可辨识。
+ */
+.af-desc-toggle:hover {
+  text-decoration: underline;
+}
+
+.af-desc-toggle:focus-visible {
+  outline: 2px solid var(--af-border-focus);
+  outline-offset: 2px;
+  border-radius: var(--af-radius-xs);
+}
+
+/*
+ * 每日推荐的「推荐日期」控件。
+ *
+ * 它位于 .af-playlist-detail-header 里，而那个头部是固定深色渐变（#14181a → #121615，
+ * 与主题无关），所以这里的文字和控件都按深色底配色，不跟 var(--af-bg-*) 走——
+ * 否则浅色主题下会变成「深底上放一个白底控件 + 深灰标签」。
+ * 展开列表已从原生 <select> 换成自绘菜单（见 DailyRecommendView 的 DailyDatePicker）。
+ */
 .af-daily-history-controls {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   margin-bottom: 12px;
-  color: var(--af-text-secondary);
+  color: rgba(248, 250, 252, 0.72);
   font-size: var(--af-font-size-sm);
 }
 
-.af-daily-history-controls select {
+.af-daily-history-label {
+  color: rgba(248, 250, 252, 0.72);
+}
+
+.af-daily-date-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   min-width: 148px;
-  padding: 8px 28px 8px 12px;
-  border: 1px solid var(--af-border-primary);
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: var(--af-radius-sm);
-  background: var(--af-bg-secondary);
-  color: var(--af-text-primary);
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+  font-size: var(--af-font-size-sm);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition:
+    background var(--af-transition-fast),
+    border-color var(--af-transition-fast);
+}
+
+.af-daily-date-trigger:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.34);
+}
+
+.af-daily-date-trigger:focus-visible {
+  outline: 2px solid rgba(248, 250, 252, 0.65);
+  outline-offset: 2px;
+}
+
+.af-daily-date-trigger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* 菜单项：日期与勾选标记分开两端，数字等宽避免逐项跳动 */
+.af-daily-date-option {
+  justify-content: space-between;
+  font-variant-numeric: tabular-nums;
+}
+
+.af-daily-date-option[aria-checked="true"] {
+  color: var(--af-accent-strong);
+}
+
+/* 「返回今日」与日期触发器同一行；它不在 .af-playlist-actions 里，吃不到头部已有的
+   次级按钮覆盖，这里补上同一套深色底处理（数值与该覆盖保持一致） */
+.af-daily-history-controls .af-btn-secondary {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+}
+
+.af-daily-history-controls .af-btn-secondary:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
 }
 
 .af-playlist-actions {
@@ -890,9 +1021,6 @@ button.af-playlist-card {
   position: relative;
 }
 
-.af-song-list-row.af-menu-open {
-  z-index: 50;
-}
 
 .af-song-list-row:hover {
   background: var(--af-bg-hover);
@@ -1009,25 +1137,6 @@ button.af-playlist-card {
   opacity: 0.55;
 }
 
-.af-song-action-menu-wrap {
-  position: relative;
-}
-
-.af-song-action-menu {
-  top: calc(100% + 6px);
-  right: 0;
-  min-width: 180px;
-  max-height: 260px;
-  overflow-y: auto;
-}
-
-.af-song-action-empty {
-  padding: 12px 12px;
-  color: var(--af-text-secondary);
-  font-size: var(--af-font-size-sm);
-  white-space: nowrap;
-}
-
 @keyframes af-fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -1053,10 +1162,6 @@ button.af-playlist-card {
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-.af-song-action-portal {
-  min-width: 180px;
 }
 
 /* 歌曲行：序号列、时长列、操作列 */
@@ -1086,8 +1191,7 @@ button.af-playlist-card {
 
 .af-song-list-row:hover .af-col-actions,
 .af-song-list-row.af-current-playing .af-col-actions,
-.af-song-list-row:focus-within .af-col-actions,
-.af-song-list-row.af-menu-open .af-col-actions {
+.af-song-list-row:focus-within .af-col-actions {
   opacity: 1;
 }
 

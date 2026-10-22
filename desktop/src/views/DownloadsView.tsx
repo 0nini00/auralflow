@@ -73,7 +73,7 @@ export function DownloadsView() {
     <div className="af-downloads-view">
       <div className="af-downloads-header">
         <div>
-          <p className="af-section-kicker">Download Center</p>
+          <p className="af-page-kicker">Download Center</p>
           <h1>下载中心</h1>
           <p>管理当前设备上的音乐下载任务。</p>
         </div>
@@ -187,8 +187,9 @@ export function DownloadsView() {
       )}
 
       <style>{`
+        /* 横向留白由 .af-content-scroll 统一给（32px），这里只保留纵向节奏 */
         .af-downloads-view {
-          padding: 32px;
+          padding: 32px 0;
           max-width: 1180px;
           margin: 0 auto;
         }
@@ -207,7 +208,8 @@ export function DownloadsView() {
           color: var(--af-text-primary);
         }
 
-        .af-downloads-header p {
+        /* 排除 kicker：.af-page-kicker 自己的强调色不该被这条次级文案色覆盖 */
+        .af-downloads-header p:not(.af-page-kicker) {
           margin: 0;
           color: var(--af-text-secondary);
         }

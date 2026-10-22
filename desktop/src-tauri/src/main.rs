@@ -272,6 +272,7 @@ pub fn run() {
             commands::is_lyric_window_open,
             commands::set_lyric_window_pinned,
             commands::set_lyric_window_locked,
+            commands::set_lyric_window_height,
         ])
         .run(tauri::generate_context!());
 

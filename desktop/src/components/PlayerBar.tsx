@@ -25,7 +25,6 @@ import {
   ListMusic,
   Timer,
   Mic2,
-  Maximize2,
 } from 'lucide-react';
 import { getLyricWindowState, isLyricWindowOpen } from '@lx/tauri-bridge';
 import { useArtworkAmbience } from '@/hooks/useArtworkAmbience';
@@ -218,12 +217,6 @@ export const PlayerBar: React.FC = () => {
               </div>
             )}
           </div>
-          <SongAddMenuButton
-            song={currentTrack}
-            className="af-like-button"
-            iconSize={17}
-            title="添加到我的喜欢或歌单"
-          />
         </div>
 
         <div className="af-player-center">
@@ -302,6 +295,13 @@ export const PlayerBar: React.FC = () => {
         </div>
 
         <div className="af-player-right">
+          {/* 添加到我的喜欢/歌单：与右侧图标同尺寸，排在最左，紧贴中间控制区 */}
+          <SongAddMenuButton
+            song={currentTrack}
+            className="af-control-btn"
+            iconSize={17}
+            title="添加到我的喜欢或歌单"
+          />
           <button
             onClick={() => { void handleLyricToggle(); }}
             className={`af-control-btn ${lyricOpen ? 'af-active' : ''}`}
@@ -388,15 +388,6 @@ export const PlayerBar: React.FC = () => {
               />
             </div>
           </div>
-
-          <button
-            onClick={() => setImmersiveLyricsOpen(true)}
-            className="af-control-btn"
-            aria-label="整页歌词播放"
-            data-tooltip="整页歌词"
-          >
-            <Maximize2 size={16} />
-          </button>
         </div>
       </div>
       <ImmersiveLyricsOverlay

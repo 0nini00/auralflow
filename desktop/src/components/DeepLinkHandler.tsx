@@ -47,7 +47,10 @@ export function DeepLinkHandler() {
           default:
             break;
         }
-      } catch {
+      } catch (error) {
+        // 深链可能来自任意来源（浏览器、文件管理器、剪贴板），畸形 URL 是常态。
+        // 不能静默：用户点了链接却没反应时，只有日志能说明是哪一段坏了。
+        console.warn(`[deep-link] 无法解析深链：${raw}`, error);
       }
     };
 
