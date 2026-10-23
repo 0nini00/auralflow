@@ -1,0 +1,1766 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AuralFlow Mobile · 界面重构方案 v1</title>
+<style>
+  /* ============================================================
+     Board — 设计评审画板（浅色，独立于 App 主题）
+     ============================================================ */
+  :root {
+    --board-bg: #f1f2ed;
+    --board-card: #ffffff;
+    --board-border: #e1e4db;
+    --board-text: #121815;
+    --board-muted: #5c6862;
+    --board-subtle: #8b968f;
+    --brand: #3bd877;
+    --brand-ink: #0d7a42;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Microsoft YaHei", "Noto Sans SC", sans-serif;
+    --mono: "SFMono-Regular", "Cascadia Mono", "Consolas", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background-color: var(--board-bg);
+    background-image: radial-gradient(rgba(18, 24, 21, 0.055) 1px, transparent 1px);
+    background-size: 26px 26px;
+    color: var(--board-text);
+    font-family: var(--font);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.55;
+  }
+  .wrap { max-width: 1480px; margin: 0 auto; padding: 0 40px; }
+  a { color: inherit; }
+  .i { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8;
+       stroke-linecap: round; stroke-linejoin: round; display: block; }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(241, 242, 237, 0.84);
+    backdrop-filter: blur(16px) saturate(140%);
+    border-bottom: 1px solid rgba(18, 24, 21, 0.08);
+  }
+  .topbar-in { display: flex; align-items: center; gap: 24px; height: 64px; }
+  .mark {
+    width: 30px; height: 30px; border-radius: 9px;
+    background: linear-gradient(145deg, #3bd877, #19b464);
+    display: grid; place-items: center; color: #062a19; flex: none;
+    box-shadow: 0 4px 12px rgba(25, 180, 100, 0.28);
+  }
+  .mark .i { width: 17px; height: 17px; stroke-width: 2.2; }
+  .brandline { display: flex; flex-direction: column; line-height: 1.2; }
+  .brandline b { font-size: 14px; letter-spacing: -0.1px; }
+  .brandline span { font-size: 11px; color: var(--board-subtle); letter-spacing: 0.08em; }
+  .nav { display: flex; gap: 2px; margin-left: auto; }
+  .nav a {
+    text-decoration: none; font-size: 13px; color: var(--board-muted);
+    padding: 7px 12px; border-radius: 9px;
+  }
+  .nav a:hover { background: rgba(18, 24, 21, 0.06); color: var(--board-text); }
+  .switchgroup { display: flex; align-items: center; gap: 10px; }
+  .seg {
+    display: flex; padding: 3px; border-radius: 10px;
+    background: rgba(18, 24, 21, 0.06); gap: 2px;
+  }
+  .seg button {
+    border: 0; background: transparent; font: inherit; font-size: 12px;
+    color: var(--board-muted); padding: 5px 11px; border-radius: 7px; cursor: pointer;
+  }
+  .seg button.on { background: #fff; color: var(--board-text); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+  .toggle {
+    display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--board-muted);
+    cursor: pointer; user-select: none;
+  }
+  .toggle input { display: none; }
+  .track {
+    width: 32px; height: 18px; border-radius: 999px; background: rgba(18,24,21,.18);
+    position: relative; transition: background .18s;
+  }
+  .track::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+    border-radius: 50%; background: #fff; transition: transform .18s;
+    box-shadow: 0 1px 2px rgba(0,0,0,.25);
+  }
+  .toggle input:checked + .track { background: var(--brand-ink); }
+  .toggle input:checked + .track::after { transform: translateX(14px); }
+
+  /* ---------- Hero ---------- */
+  .hero { padding: 72px 0 56px; position: relative; overflow: hidden; }
+  .hero::before {
+    content: ""; position: absolute; width: 620px; height: 620px; right: -180px; top: -260px;
+    background: radial-gradient(circle at center, rgba(59, 216, 119, 0.30), transparent 62%);
+    filter: blur(10px); pointer-events: none;
+  }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em;
+    color: var(--brand-ink); text-transform: uppercase; margin-bottom: 20px;
+  }
+  .eyebrow::before { content: ""; width: 22px; height: 1px; background: var(--brand-ink); }
+  h1 {
+    font-size: clamp(38px, 4.4vw, 58px); line-height: 1.08; letter-spacing: -0.035em;
+    font-weight: 750; max-width: 900px;
+  }
+  h1 em { font-style: normal; color: var(--brand-ink); }
+  .lead {
+    margin-top: 22px; max-width: 720px; font-size: 16px; line-height: 1.8; color: var(--board-muted);
+  }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; }
+  .pill {
+    font-size: 12px; padding: 6px 12px; border-radius: 999px;
+    border: 1px solid var(--board-border); background: rgba(255,255,255,.7); color: var(--board-muted);
+  }
+  .pill b { color: var(--board-text); font-weight: 600; }
+
+  /* ---------- Section ---------- */
+  section { padding: 56px 0; border-top: 1px solid rgba(18,24,21,.09); }
+  .sec-head { display: flex; align-items: flex-start; gap: 18px; margin-bottom: 34px; }
+  .sec-num {
+    font-family: var(--mono); font-size: 11px; color: var(--brand-ink);
+    letter-spacing: .12em; padding-top: 8px; flex: none;
+  }
+  .sec-head h2 { font-size: 27px; line-height: 1.25; letter-spacing: -0.02em; font-weight: 700; }
+  .sec-head p { margin-top: 8px; font-size: 14px; color: var(--board-muted); max-width: 760px; }
+  .sec-head .spacer { flex: 1; }
+  .kicker { font-size: 12px; color: var(--board-subtle); }
+
+  /* ---------- Principles ---------- */
+  .principles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .pr {
+    background: var(--board-card); border: 1px solid var(--board-border); border-radius: 20px;
+    padding: 24px; position: relative; overflow: hidden;
+  }
+  .pr .idx { font-family: var(--mono); font-size: 11px; color: var(--board-subtle); }
+  .pr h3 { margin-top: 14px; font-size: 17px; letter-spacing: -0.01em; }
+  .pr p { margin-top: 8px; font-size: 13.5px; line-height: 1.7; color: var(--board-muted); }
+  .pr .glyph {
+    position: absolute; right: 18px; top: 16px; width: 40px; height: 40px; border-radius: 12px;
+    display: grid; place-items: center; background: rgba(59,216,119,.13); color: var(--brand-ink);
+  }
+  .pr .glyph .i { width: 20px; height: 20px; }
+
+  /* ---------- IA ---------- */
+  .ia-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .panel {
+    background: var(--board-card); border: 1px solid var(--board-border); border-radius: 22px;
+    padding: 26px 26px 22px;
+  }
+  .panel-tag { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--board-subtle); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--board-subtle); }
+  .dot.bad { background: #d9634f; }
+  .dot.good { background: var(--brand-ink); }
+  .tree { margin-top: 18px; font-size: 13px; }
+  .tnode {
+    display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 9px;
+    border: 1px solid transparent;
+  }
+  .tnode.root { background: rgba(18,24,21,.045); font-weight: 600; }
+  .tnode.leaf { color: var(--board-muted); }
+  .tnode .i { width: 15px; height: 15px; color: var(--board-subtle); }
+  .tchildren { margin-left: 16px; padding-left: 16px; border-left: 1px dashed rgba(18,24,21,.16); }
+  .tagx {
+    margin-left: auto; font-size: 10.5px; padding: 2px 7px; border-radius: 6px;
+    background: rgba(217,99,79,.11); color: #a8442f; white-space: nowrap;
+  }
+  .tagok {
+    margin-left: auto; font-size: 10.5px; padding: 2px 7px; border-radius: 6px;
+    background: rgba(11,127,80,.1); color: var(--brand-ink); white-space: nowrap;
+  }
+  .panel-note {
+    margin-top: 16px; font-size: 12.5px; line-height: 1.65; color: var(--board-muted);
+    border-top: 1px dashed var(--board-border); padding-top: 14px;
+  }
+  .panel-note b { color: var(--board-text); }
+  .moves { margin-top: 22px; border: 1px solid var(--board-border); border-radius: 18px; overflow: hidden; background: #fff; }
+  .moves table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .moves th, .moves td { text-align: left; padding: 12px 16px; border-bottom: 1px solid #eeeee7; }
+  .moves th { font-size: 11px; letter-spacing: .06em; color: var(--board-subtle); font-weight: 600; text-transform: uppercase; }
+  .moves tr:last-child td { border-bottom: 0; }
+  .moves td:first-child { font-weight: 600; }
+  .moves td:not(:first-child) { color: var(--board-muted); }
+  .arrow { color: var(--board-subtle); }
+
+  /* ---------- Screens gallery ---------- */
+  .gallery {
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 40px 28px; align-items: start;
+  }
+  .shot { display: flex; flex-direction: column; align-items: center; }
+  .device {
+    width: 300px; height: 638px; padding: 5px; border-radius: 36px;
+    background: linear-gradient(155deg, #34383a 0%, #101312 42%, #050706 100%);
+    box-shadow: 0 2px 2px rgba(255,255,255,.16) inset, 0 26px 50px -22px rgba(12,18,15,.55),
+      0 0 0 1px rgba(0,0,0,.55);
+    position: relative;
+  }
+  .device::after {
+    content: ""; position: absolute; right: -2px; top: 150px; width: 2px; height: 54px;
+    border-radius: 2px; background: #2c302e;
+  }
+  .screen {
+    width: 390px; height: 844px; transform: scale(0.74359); transform-origin: top left;
+    border-radius: 31px; overflow: hidden; position: relative;
+    background: var(--p-bg); color: var(--p-text);
+    font-size: 14px; line-height: 1.4;
+    --p-bg: #f3f3ef;
+    --p-surface: #ffffff;
+    --p-muted: #ebebe4;
+    --p-strong: #e0e0d6;
+    --p-border: #e3e3d9;
+    --p-text: #161a16;
+    --p-text2: #5b615a;
+    --p-text3: #8b918a;
+    --p-accent: #0d7a42;
+    --p-fill: #3bd877;
+    --p-ink: #062a19;
+    --p-tint: rgba(59, 216, 119, 0.16);
+    --p-shadow: 0 10px 30px rgba(16, 22, 20, 0.10);
+  }
+  .screen.dark {
+    --p-bg: #0b0f0d;
+    --p-surface: #121815;
+    --p-muted: #19211d;
+    --p-strong: #222c27;
+    --p-border: #26312c;
+    --p-text: #f1f5f2;
+    --p-text2: #a7b3ae;
+    --p-text3: #6e7c77;
+    --p-accent: #6fe7ac;
+    --p-tint: rgba(59, 216, 119, 0.18);
+    --p-shadow: 0 12px 34px rgba(0, 0, 0, 0.45);
+  }
+  .screen * { box-sizing: border-box; }
+  .shot-cap { margin-top: 18px; width: 300px; }
+  .shot-cap .n { font-family: var(--mono); font-size: 10.5px; color: var(--board-subtle); letter-spacing: .1em; }
+  .shot-cap h4 { margin-top: 5px; font-size: 15px; letter-spacing: -0.01em; }
+  .shot-cap p { margin-top: 5px; font-size: 12.5px; line-height: 1.65; color: var(--board-muted); }
+
+  /* ---------- Phone primitives ---------- */
+  .ph-status {
+    height: 44px; padding: 0 22px; display: flex; align-items: center; justify-content: space-between;
+    font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--p-text);
+    position: relative; z-index: 5;
+  }
+  .ph-status .icons { display: flex; align-items: center; gap: 5px; opacity: .9; }
+  .ph-status .i { width: 14px; height: 14px; }
+  .ph-cam {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    width: 9px; height: 9px; border-radius: 50%; background: #000; z-index: 6; opacity: .82;
+  }
+  .ph-scroll { position: absolute; left: 0; right: 0; top: 44px; bottom: 150px; padding: 0 20px; overflow: hidden; }
+  .ph-head { display: flex; align-items: flex-start; justify-content: space-between; padding: 4px 0 16px; }
+  .ph-sub { font-size: 12px; color: var(--p-text3); letter-spacing: .01em; }
+  .ph-h1 { font-size: 28px; line-height: 1.18; font-weight: 750; letter-spacing: -0.03em; margin-top: 3px; }
+  .ph-avatar {
+    width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+    background: linear-gradient(145deg, #d9f7e6, #b9ecd2); color: #0b5b3a;
+    font-size: 14px; font-weight: 700; border: 1px solid rgba(11,127,80,.18);
+  }
+  .ph-sec { display: flex; align-items: center; justify-content: space-between; padding: 18px 0 10px; }
+  .ph-sec h3 { font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+  .ph-sec a { font-size: 12px; color: var(--p-accent); text-decoration: none; font-weight: 600; }
+  .ph-sec .count { font-size: 12px; color: var(--p-text3); }
+
+  /* artwork */
+  .art { position: relative; overflow: hidden; background: #111; isolation: isolate; flex: none; }
+  .art::before { content: ""; position: absolute; inset: 0; background: var(--g); }
+  .art::after {
+    content: ""; position: absolute; inset: 0; opacity: .22; mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
+  }
+  .art b {
+    position: absolute; left: 9%; bottom: 8%; z-index: 2; font-size: 15px; font-weight: 800;
+    letter-spacing: .16em; color: rgba(255,255,255,.94); text-shadow: 0 2px 12px rgba(0,0,0,.4);
+  }
+  .art i {
+    position: absolute; left: 9%; top: 8%; z-index: 2; font-style: normal; font-size: 6px;
+    letter-spacing: .26em; color: rgba(255,255,255,.5);
+  }
+  .art.tiny b, .art.tiny i { display: none; }
+  .a1 { --g: radial-gradient(120% 90% at 18% 10%, #2b4c8c 0%, transparent 56%), radial-gradient(100% 100% at 92% 92%, #f97316 0%, transparent 58%), linear-gradient(150deg, #071022, #0b1e3a 55%, #1b2a4a); }
+  .a2 { --g: radial-gradient(110% 90% at 82% 12%, #7fe3c4 0%, transparent 54%), linear-gradient(160deg, #032f2b, #0e7c6b 62%, #0a4f46); }
+  .a3 { --g: radial-gradient(120% 100% at 18% 88%, #fcd34d 0%, transparent 54%), linear-gradient(150deg, #3b1d0b, #b45309 64%, #7c2d12); }
+  .a4 { --g: radial-gradient(100% 90% at 76% 18%, #c4b5fd 0%, transparent 54%), linear-gradient(160deg, #140b2b, #5b21b6 64%, #2e1065); }
+  .a5 { --g: radial-gradient(110% 90% at 24% 18%, #a3e635 0%, transparent 50%), linear-gradient(160deg, #0b1310, #2f4f3e 64%, #101613); }
+  .a6 { --g: radial-gradient(110% 90% at 82% 82%, #fda4af 0%, transparent 54%), linear-gradient(150deg, #3b0a1c, #be185d 60%, #4a1024); }
+  .a7 { --g: radial-gradient(110% 90% at 18% 14%, #cbd5e1 0%, transparent 50%), linear-gradient(160deg, #0b1220, #334155 64%, #111827); }
+  .a8 { --g: radial-gradient(120% 90% at 86% 18%, #fde68a 0%, transparent 54%), linear-gradient(150deg, #2a1205, #c2410c 64%, #7c2d12); }
+
+  /* continue card */
+  .ph-continue {
+    display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 20px;
+    background: var(--p-surface); box-shadow: var(--p-shadow); border: 1px solid var(--p-border);
+    position: relative; overflow: hidden;
+  }
+  .ph-continue .cover { width: 56px; height: 56px; border-radius: 14px; }
+  .ph-continue .body { flex: 1; min-width: 0; }
+  .ph-continue .k { font-size: 10px; font-weight: 700; letter-spacing: .12em; color: var(--p-text3); text-transform: uppercase; }
+  .ph-continue .t { margin-top: 3px; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ph-continue .m { margin-top: 2px; font-size: 11px; color: var(--p-text2); }
+  .ph-continue .bar { margin-top: 8px; height: 2px; border-radius: 2px; background: var(--p-strong); overflow: hidden; }
+  .ph-continue .bar i { display: block; height: 100%; background: var(--p-fill); border-radius: 2px; }
+  .round-play {
+    width: 40px; height: 40px; border-radius: 50%; background: var(--p-fill); color: var(--p-ink);
+    display: grid; place-items: center; flex: none; border: 0; box-shadow: 0 6px 14px rgba(59,216,119,.32);
+  }
+  .round-play .i { width: 18px; height: 18px; }
+
+  /* quick */
+  .ph-quick { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .ph-quick a { text-decoration: none; display: flex; flex-direction: column; align-items: center; gap: 7px; }
+  .ph-quick .tile {
+    width: 100%; height: 54px; border-radius: 16px; background: var(--p-surface);
+    border: 1px solid var(--p-border); display: grid; place-items: center; color: var(--p-text);
+  }
+  .ph-quick .tile .i { width: 21px; height: 21px; }
+  .ph-quick span { font-size: 10.5px; color: var(--p-text2); letter-spacing: .01em; }
+
+  /* rail */
+  .ph-rail { display: flex; gap: 10px; width: 100%; overflow: hidden; position: relative; }
+  .ph-rail::after { content: ""; position: absolute; right: 0; top: 0; bottom: 0; width: 58px; z-index: 3; pointer-events: none; background: linear-gradient(90deg, rgba(243,243,239,0) 0%, var(--p-bg) 84%); }
+  .ph-railcard { width: 132px; flex: none; }
+  .ph-railcard .cover { width: 132px; height: 132px; border-radius: 16px; box-shadow: 0 8px 20px rgba(16,22,20,.14); }
+  .ph-railcard .t { margin-top: 8px; font-size: 13.5px; font-weight: 600; line-height: 1.35; letter-spacing: -0.01em; }
+  .ph-railcard .m { margin-top: 2px; font-size: 11px; color: var(--p-text3); }
+
+  /* track rows */
+  .ph-list { display: flex; flex-direction: column; }
+  .ph-row { display: flex; align-items: center; gap: 11px; height: 58px; }
+  .ph-row .cover { width: 44px; height: 44px; border-radius: 11px; }
+  .ph-row .body { flex: 1; min-width: 0; }
+  .ph-row .t { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ph-row .m { margin-top: 2px; font-size: 11px; color: var(--p-text3); display: flex; align-items: center; gap: 5px; }
+  .ph-row .i { width: 17px; height: 17px; color: var(--p-text3); }
+  .ph-row.playing .t { color: var(--p-accent); }
+  .srcdot { width: 5px; height: 5px; border-radius: 50%; display: inline-block; background: #ff5a5f; }
+  .srcdot.tx { background: #2ecc8f; }
+  .srcdot.local { background: #8b918a; }
+
+  /* mini player */
+  .ph-mini {
+    position: absolute; left: 12px; right: 12px; bottom: 86px; height: 64px;
+    background: var(--p-surface); border: 1px solid var(--p-border); border-radius: 20px;
+    box-shadow: 0 12px 26px rgba(16,22,20,.16); display: flex; align-items: center;
+    gap: 10px; padding: 0 10px; overflow: hidden; z-index: 12;
+  }
+  .screen.dark .ph-mini { box-shadow: 0 14px 30px rgba(0,0,0,.5); }
+  .ph-mini .prog { position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--p-strong); }
+  .ph-mini .prog i { display: block; height: 100%; background: var(--p-fill); }
+  .ph-mini .cover { width: 40px; height: 40px; border-radius: 12px; }
+  .ph-mini .body { flex: 1; min-width: 0; }
+  .ph-mini .t { font-size: 12.5px; font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ph-mini .m { margin-top: 1px; font-size: 10px; color: var(--p-text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ph-mini .btn { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: var(--p-text); flex: none; }
+  .ph-mini .btn .i { width: 17px; height: 17px; }
+  .ph-mini .play { background: var(--p-fill); color: var(--p-ink); box-shadow: 0 4px 10px rgba(59,216,119,.3); }
+  .ph-mini .play .i { width: 15px; height: 15px; }
+
+  /* tab bar */
+  .ph-tab {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 80px; padding: 5px 10px 16px;
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); background: var(--p-surface);
+    border-top: 1px solid var(--p-border); z-index: 11;
+  }
+  .ph-tab a {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    text-decoration: none; color: var(--p-text3); font-size: 10.5px; font-weight: 500;
+  }
+  .ph-tab .ic { width: 34px; height: 24px; border-radius: 9px; display: grid; place-items: center; }
+  .ph-tab .i { width: 19px; height: 19px; }
+  .ph-tab a.on { color: var(--p-accent); font-weight: 700; }
+  .ph-tab a.on .ic { background: var(--p-tint); }
+  .ph-fade {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 40px; pointer-events: none;
+    background: linear-gradient(to bottom, transparent, var(--p-bg));
+  }
+
+  /* search */
+  .ph-searchbox {
+    height: 46px; border-radius: 15px; background: var(--p-muted); border: 1px solid var(--p-border);
+    display: flex; align-items: center; gap: 9px; padding: 0 13px; color: var(--p-text3); font-size: 13px;
+  }
+  .ph-searchbox .i { width: 18px; height: 18px; }
+  .ph-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+  .ph-chip {
+    height: 30px; padding: 0 11px; border-radius: 9px; background: var(--p-muted);
+    color: var(--p-text2); font-size: 11.5px; display: inline-flex; align-items: center; gap: 5px;
+    border: 1px solid transparent;
+  }
+  .ph-chip .i { width: 12px; height: 12px; opacity: .6; }
+  .ph-hot { display: flex; flex-direction: column; }
+  .ph-hot a { display: flex; align-items: center; gap: 11px; height: 44px; text-decoration: none; color: var(--p-text); }
+  .ph-hot .rank { width: 16px; font-family: var(--mono); font-size: 11px; color: var(--p-text3); }
+  .ph-hot .rank.top { color: var(--p-accent); font-weight: 700; }
+  .ph-hot .kw { font-size: 14px; font-weight: 500; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ph-hot .badge { font-size: 9px; padding: 1px 5px; border-radius: 4px; background: rgba(255,90,95,.12); color: #e04a4f; }
+  .ph-hot .badge.new { background: rgba(59,216,119,.16); color: var(--p-accent); }
+  .ph-cats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .ph-cat {
+    height: 54px; border-radius: 14px; padding: 10px 12px; color: #fff; font-size: 13px; font-weight: 700;
+    position: relative; overflow: hidden; letter-spacing: .02em;
+  }
+  .ph-cat::after { content: ""; position: absolute; right: -14px; bottom: -18px; width: 58px; height: 58px; border-radius: 50%; background: rgba(255,255,255,.16); }
+
+  /* library */
+  .ph-titlebar { display: flex; align-items: center; justify-content: space-between; padding: 2px 0 14px; }
+  .ph-titlebar .acts { display: flex; gap: 6px; }
+  .ph-titlebar .ib { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; color: var(--p-text2); background: var(--p-surface); border: 1px solid var(--p-border); }
+  .ph-titlebar .ib .i { width: 18px; height: 18px; }
+  .ph-segs { display: flex; gap: 7px; padding-bottom: 14px; }
+  .ph-seg {
+    height: 32px; padding: 0 13px; border-radius: 999px; font-size: 12px; font-weight: 600;
+    background: var(--p-surface); border: 1px solid var(--p-border); color: var(--p-text2);
+    display: inline-flex; align-items: center; white-space: nowrap;
+  }
+  .ph-seg.on { background: var(--p-text); color: var(--p-bg); border-color: var(--p-text); }
+  .screen.dark .ph-seg.on { background: var(--p-fill); color: var(--p-ink); border-color: var(--p-fill); }
+  .ph-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 2px 0 12px; }
+  .ph-toolbar .cnt { font-size: 11.5px; color: var(--p-text3); }
+  .ph-toolbar .sort { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--p-text2); }
+  .ph-toolbar .i { width: 14px; height: 14px; }
+  .ph-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; }
+  .ph-grid > * { min-width: 0; }
+  .ph-plcard .cover { width: 100%; aspect-ratio: 1/1; border-radius: 16px; box-shadow: 0 8px 18px rgba(16,22,20,.13); }
+  .ph-plcard .t { margin-top: 7px; font-size: 14px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ph-plcard .m { margin-top: 2px; font-size: 11px; color: var(--p-text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ph-new {
+    border: 1.5px dashed var(--p-border); border-radius: 16px; aspect-ratio: 1/1;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+    color: var(--p-text3); background: transparent;
+  }
+  .ph-new .i { width: 22px; height: 22px; }
+  .ph-new span { font-size: 11px; }
+
+  /* my page */
+  .ph-account {
+    display: flex; align-items: center; gap: 13px; padding: 14px; border-radius: 20px;
+    background: var(--p-surface); border: 1px solid var(--p-border); box-shadow: var(--p-shadow);
+  }
+  .ph-account .av { width: 52px; height: 52px; border-radius: 50%; background: linear-gradient(145deg,#d9f7e6,#b9ecd2); display: grid; place-items: center; color: #0b5b3a; font-weight: 700; font-size: 17px; }
+  .ph-account .body { flex: 1; }
+  .ph-account .n { font-size: 16px; font-weight: 700; letter-spacing: -0.02em; }
+  .ph-account .m { margin-top: 3px; font-size: 11px; color: var(--p-text2); display: flex; align-items: center; gap: 5px; }
+  .ph-account .i { width: 16px; height: 16px; color: var(--p-text3); }
+  .ph-stats {
+    margin-top: 12px; border-radius: 20px; background: var(--p-surface); border: 1px solid var(--p-border);
+    padding: 14px 16px; display: flex; align-items: center; gap: 10px;
+  }
+  .ph-stats .col { min-width: 0; }
+  .ph-stats .col { flex: 1; text-align: center; }
+  .ph-stats .col + .col { border-left: 1px solid var(--p-border); }
+  .ph-stats .v { font-size: 19px; font-weight: 750; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .ph-stats .l { margin-top: 2px; font-size: 10px; color: var(--p-text3); }
+  
+  .ph-group { margin-top: 18px; background: var(--p-surface); border: 1px solid var(--p-border); border-radius: 18px; overflow: hidden; }
+  .ph-item { display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 14px; }
+  .ph-item + .ph-item { border-top: 1px solid var(--p-border); }
+  .ph-item .ico { width: 30px; height: 30px; border-radius: 9px; background: var(--p-muted); display: grid; place-items: center; color: var(--p-text2); flex: none; }
+  .ph-item .ico .i { width: 16px; height: 16px; }
+  .ph-item .t { flex: 1; font-size: 14.5px; font-weight: 500; }
+  .ph-item .v { font-size: 11.5px; color: var(--p-text3); }
+  .ph-item .i.chev { width: 15px; height: 15px; color: var(--p-text3); }
+
+  /* player */
+  .ph-amb { position: absolute; inset: 0; overflow: hidden; z-index: 0; }
+  .ph-amb::before { content: ""; position: absolute; width: 560px; height: 560px; left: -170px; top: -140px; border-radius: 50%; background: #1e3a8a; filter: blur(90px); opacity: .62; }
+  .ph-amb::after { content: ""; position: absolute; width: 480px; height: 480px; right: -180px; bottom: 40px; border-radius: 50%; background: #f97316; filter: blur(95px); opacity: .34; }
+  .ph-veil { position: absolute; inset: 0; z-index: 1; background: linear-gradient(180deg, rgba(6,9,8,.55) 0%, rgba(6,9,8,.30) 38%, rgba(6,9,8,.72) 100%); }
+  .ph-pbody { position: relative; z-index: 2; height: 100%; display: flex; flex-direction: column; padding: 0 26px; }
+  .ph-pnav { height: 54px; display: flex; align-items: center; justify-content: space-between; color: rgba(255,255,255,.92); }
+  .ph-pnav .ib { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; background: rgba(255,255,255,.08); }
+  .ph-pnav .ib .i { width: 20px; height: 20px; }
+  .ph-pnav .mid { text-align: center; }
+  .ph-pnav .k { font-size: 9px; letter-spacing: .18em; color: rgba(255,255,255,.55); text-transform: uppercase; }
+  .ph-pnav .s { font-size: 11.5px; color: rgba(255,255,255,.86); margin-top: 2px; }
+  .ph-artwork { width: 318px; height: 318px; border-radius: 26px; margin: 18px auto 0; align-self: center; box-shadow: 0 34px 60px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.08); }
+  .ph-ptitle { margin-top: 26px; }
+  .ph-ptitle .t { font-size: 25px; font-weight: 750; letter-spacing: -0.03em; color: #fff; line-height: 1.25; }
+  .ph-ptitle .m { margin-top: 6px; font-size: 13px; color: rgba(255,255,255,.62); display: flex; align-items: center; gap: 7px; }
+  .ph-prog { margin-top: 22px; }
+  .ph-prog .rail { height: 3px; border-radius: 3px; background: rgba(255,255,255,.18); position: relative; }
+  .ph-prog .rail i { display: block; height: 100%; width: 46%; border-radius: 3px; background: rgba(255,255,255,.92); }
+  .ph-prog .rail b { position: absolute; left: 46%; top: 50%; width: 10px; height: 10px; border-radius: 50%; background: #fff; transform: translate(-50%,-50%); box-shadow: 0 0 0 4px rgba(255,255,255,.14); }
+  .ph-prog .times { display: flex; justify-content: space-between; margin-top: 8px; font-size: 10.5px; color: rgba(255,255,255,.55); font-variant-numeric: tabular-nums; }
+  .ph-transport { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; padding: 0 6px; color: rgba(255,255,255,.92); }
+  .ph-transport .sm { width: 44px; height: 44px; display: grid; place-items: center; }
+  .ph-transport .sm .i { width: 20px; height: 20px; }
+  .ph-transport .md { width: 48px; height: 48px; display: grid; place-items: center; }
+  .ph-transport .md .i { width: 28px; height: 28px; }
+  .ph-transport .play { width: 66px; height: 66px; border-radius: 50%; background: #f1f5f2; color: #0b0f0d; display: grid; place-items: center; box-shadow: 0 12px 26px rgba(0,0,0,.45); }
+  .ph-transport .play .i { width: 28px; height: 28px; }
+  .ph-pactions { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); margin-top: 14px; color: rgba(255,255,255,.72); }
+  .ph-pactions a { text-decoration: none; color: inherit; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 9.5px; letter-spacing: .02em; }
+  .ph-pactions .i { width: 19px; height: 19px; }
+  .ph-dots { display: flex; justify-content: center; gap: 6px; padding: 14px 0 18px; }
+  .ph-dots i { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,.28); }
+  .ph-dots i.on { width: 16px; border-radius: 3px; background: rgba(255,255,255,.85); }
+
+  /* lyrics */
+  .ph-lyrics { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 16px; padding-bottom: 8px; -webkit-mask-image: linear-gradient(180deg, transparent, #000 14%, #000 82%, transparent); }
+  .ph-lyric { color: rgba(255,255,255,.30); font-size: 17px; font-weight: 500; line-height: 1.4; letter-spacing: .01em; }
+  .ph-lyric.tr { font-size: 12px; margin-top: -10px; color: rgba(255,255,255,.20); }
+  .ph-lyric.on { color: #fff; font-size: 24px; font-weight: 750; letter-spacing: -0.01em; text-shadow: 0 4px 22px rgba(0,0,0,.45); }
+  .ph-lyric.on.tr { color: rgba(255,255,255,.62); font-size: 13px; font-weight: 500; margin-top: -8px; }
+  .ph-lyricbar { display: flex; align-items: center; gap: 12px; padding-bottom: 6px; color: rgba(255,255,255,.9); }
+  .ph-lyricbar .rail { flex: 1; height: 2px; background: rgba(255,255,255,.18); border-radius: 2px; }
+  .ph-lyricbar .rail i { display: block; height: 100%; width: 46%; background: rgba(255,255,255,.85); border-radius: 2px; }
+  .ph-lyricbar .play { width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,.92); color: #0b0f0d; display: grid; place-items: center; }
+  .ph-lyricbar .play .i { width: 18px; height: 18px; }
+  .ph-lyricbar .i { width: 20px; height: 20px; }
+
+  /* queue sheet */
+  .ph-scrim { position: absolute; inset: 0; background: rgba(0,0,0,.5); z-index: 3; }
+  .ph-sheet {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 596px; z-index: 4;
+    background: var(--p-surface); border-radius: 26px 26px 0 0; padding: 10px 20px 0;
+    box-shadow: 0 -20px 50px rgba(0,0,0,.4);
+  }
+  .ph-handle { width: 34px; height: 4px; border-radius: 2px; background: var(--p-strong); margin: 0 auto 12px; }
+  .ph-sheet-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; }
+  .ph-sheet-head h3 { font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+  .ph-sheet-head h3 span { font-size: 11px; color: var(--p-text3); font-weight: 500; margin-left: 6px; }
+  .ph-sheet-head a { font-size: 11.5px; color: var(--p-text3); text-decoration: none; }
+  .ph-now {
+    display: flex; align-items: center; gap: 11px; padding: 10px; border-radius: 14px;
+    background: var(--p-muted); position: relative; overflow: hidden;
+  }
+  .ph-now::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 3px; background: var(--p-fill); }
+  .ph-now .cover { width: 42px; height: 42px; border-radius: 10px; }
+  .ph-now .body { flex: 1; min-width: 0; }
+  .ph-now .t { font-size: 13px; font-weight: 700; color: var(--p-accent); }
+  .ph-now .m { margin-top: 2px; font-size: 10.5px; color: var(--p-text3); }
+  .ph-now .i { width: 17px; height: 17px; color: var(--p-accent); }
+  .ph-sheet-sub { font-size: 10.5px; letter-spacing: .08em; color: var(--p-text3); text-transform: uppercase; padding: 14px 0 4px; }
+  .ph-qrow { display: flex; align-items: center; gap: 10px; height: 52px; }
+  .ph-qrow .cover { width: 38px; height: 38px; border-radius: 9px; }
+  .ph-qrow .body { flex: 1; min-width: 0; }
+  .ph-qrow .t { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ph-qrow .m { margin-top: 1px; font-size: 11px; color: var(--p-text3); }
+  .ph-qrow .grip { width: 18px; color: var(--p-text3); display: grid; place-items: center; }
+  .ph-qrow .grip .i { width: 15px; height: 15px; }
+  .ph-gesture { position: absolute; bottom: 7px; left: 50%; transform: translateX(-50%); width: 108px; height: 4px; border-radius: 3px; background: rgba(255,255,255,.5); z-index: 20; }
+  .screen.lightable .ph-gesture { background: rgba(16,22,20,.28); }
+
+  /* detail */
+  .ph-detailnav { display: flex; align-items: center; justify-content: space-between; height: 46px; color: var(--p-text); }
+  .ph-detailnav .ib { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--p-muted); }
+  .ph-detailnav .ib .i { width: 18px; height: 18px; }
+  .ph-hero { display: flex; gap: 14px; padding: 6px 0 16px; }
+  .ph-hero .cover { width: 128px; height: 128px; border-radius: 18px; box-shadow: 0 14px 28px rgba(16,22,20,.22); }
+  .ph-hero .body { flex: 1; min-width: 0; padding-top: 2px; }
+  .ph-hero .k { font-size: 9.5px; letter-spacing: .12em; color: var(--p-text3); font-weight: 700; text-transform: uppercase; }
+  .ph-hero .t { margin-top: 5px; font-size: 20px; font-weight: 750; line-height: 1.25; letter-spacing: -0.025em; }
+  .ph-hero .m { margin-top: 7px; font-size: 10.5px; color: var(--p-text3); line-height: 1.6; }
+  .ph-hero .who { margin-top: 8px; display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--p-text2); }
+  .ph-hero .who .av { width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(145deg,#d9f7e6,#b9ecd2); }
+  .ph-actions { display: flex; align-items: center; gap: 8px; padding-bottom: 14px; }
+  .ph-playall {
+    flex: 1; height: 44px; border-radius: 999px; background: var(--p-fill); color: var(--p-ink);
+    display: flex; align-items: center; justify-content: center; gap: 7px; font-size: 13px; font-weight: 700;
+    box-shadow: 0 6px 14px rgba(59,216,119,.22);
+  }
+  .ph-playall .i { width: 17px; height: 17px; }
+  .ph-circ { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--p-border); background: var(--p-surface); display: grid; place-items: center; color: var(--p-text2); }
+  .ph-circ .i { width: 18px; height: 18px; }
+  .ph-drow { display: flex; align-items: center; gap: 11px; height: 54px; }
+  .ph-drow .idx { width: 18px; font-family: var(--mono); font-size: 11px; color: var(--p-text3); text-align: center; }
+  .ph-drow.on .idx { color: var(--p-accent); }
+  .ph-drow .body { flex: 1; min-width: 0; }
+  .ph-drow .t { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ph-drow.on .t { color: var(--p-accent); }
+  .ph-drow .m { margin-top: 1px; font-size: 11px; color: var(--p-text3); }
+  .ph-drow .i { width: 16px; height: 16px; color: var(--p-text3); }
+
+  /* ---------- Tokens ---------- */
+  .token-grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 20px; }
+  .tcard { background: var(--board-card); border: 1px solid var(--board-border); border-radius: 20px; padding: 24px; }
+  .tcard h3 { font-size: 15px; letter-spacing: -0.01em; }
+  .tcard .note { margin-top: 4px; font-size: 12px; color: var(--board-subtle); }
+  .swatches { margin-top: 16px; display: flex; flex-direction: column; }
+  .sw { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid #f0f0e9; font-size: 12px; }
+  .sw:last-child { border-bottom: 0; }
+  .sw .chip { width: 26px; height: 26px; border-radius: 8px; border: 1px solid rgba(18,24,21,.1); flex: none; }
+  .sw .nm { flex: 1; color: var(--board-text); }
+  .sw .hex { font-family: var(--mono); font-size: 10.5px; color: var(--board-subtle); }
+  .sw .hex.dark { width: 64px; }
+  .type-row { display: flex; align-items: baseline; gap: 14px; padding: 9px 0; border-bottom: 1px solid #f0f0e9; }
+  .type-row:last-child { border-bottom: 0; }
+  .type-row .spec { width: 88px; flex: none; font-family: var(--mono); font-size: 10px; color: var(--board-subtle); }
+  .type-row .sample { letter-spacing: -0.02em; }
+  .geo { display: flex; align-items: flex-end; gap: 8px; margin-top: 14px; }
+  .geo div { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .geo i { display: block; width: 100%; background: rgba(11,127,80,.16); border: 1px solid rgba(11,127,80,.28); border-radius: 3px; }
+  .geo span { font-family: var(--mono); font-size: 9px; color: var(--board-subtle); }
+  .radii { display: flex; gap: 10px; margin-top: 16px; }
+  .radii div { flex: 1; text-align: center; font-family: var(--mono); font-size: 9.5px; color: var(--board-subtle); }
+  .radii span { display: block; height: 46px; background: #fff; border: 1px solid var(--board-border); margin-bottom: 5px; }
+  .elev { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; margin-top: 16px; }
+  .elev div { height: 62px; border-radius: 12px; background: #fff; display: grid; place-items: center; font-family: var(--mono); font-size: 9.5px; color: var(--board-subtle); }
+
+  /* ---------- Components ---------- */
+  .comp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .ccard { background: var(--board-card); border: 1px solid var(--board-border); border-radius: 20px; padding: 22px; }
+  .ccard h4 { font-size: 13px; letter-spacing: -0.01em; }
+  .ccard .hint { margin-top: 3px; font-size: 11.5px; color: var(--board-subtle); }
+  .demo { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .btn { height: 40px; padding: 0 18px; border-radius: 999px; font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; border: 0; }
+  .btn .i { width: 16px; height: 16px; }
+  .btn.primary { background: var(--brand); color: #062a19; box-shadow: 0 6px 14px rgba(59,216,119,.3); }
+  .btn.secondary { background: #ebebe4; color: #161a16; }
+  .btn.outline { background: #fff; border: 1px solid var(--board-border); color: #161a16; }
+  .btn.ghost { background: transparent; color: var(--brand-ink); }
+  .btn.danger { background: rgba(239,68,68,.1); color: #b42318; }
+  .cchip { height: 30px; padding: 0 12px; border-radius: 9px; background: #ebebe4; color: #4b5751; font-size: 12px; display: inline-flex; align-items: center; gap: 5px; }
+  .cchip.on { background: #161a16; color: #f3f3ef; }
+  .src { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: #5c6862; }
+  .src b { width: 6px; height: 6px; border-radius: 50%; background: #ff5a5f; }
+  .src.tx b { background: #2ecc8f; }
+  .src.local b { background: #8b918a; }
+  .crow { display: flex; align-items: center; gap: 11px; margin-top: 14px; padding: 8px; border-radius: 14px; background: #f7f7f2; }
+  .crow .cov { width: 44px; height: 44px; border-radius: 11px; flex: none; position: relative; overflow: hidden; background: var(--g, linear-gradient(150deg,#071022,#0b1e3a 60%,#1b2a4a)); }
+  .crow .cov::after { content: ""; position: absolute; inset: 0; opacity: .22; mix-blend-mode: overlay; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='80' height='80' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E"); }
+  .crow .tt { font-size: 13.5px; font-weight: 600; }
+  .crow .mm { margin-top: 2px; font-size: 10.5px; color: var(--board-subtle); display: flex; gap: 6px; align-items: center; }
+  .crow .rr { margin-left: auto; color: var(--board-subtle); }
+  .cmini { margin-top: 14px; height: 60px; border-radius: 18px; background: #fff; border: 1px solid var(--board-border); box-shadow: 0 10px 24px rgba(16,22,20,.09); display: flex; align-items: center; gap: 10px; padding: 0 10px; position: relative; overflow: hidden; }
+  .cmini .cov { width: 38px; height: 38px; border-radius: 11px; background: linear-gradient(150deg,#071022,#0b1e3a 60%,#1b2a4a); }
+  .cmini .tt { font-size: 12px; font-weight: 700; }
+  .cmini .mm { font-size: 9.5px; color: var(--board-subtle); margin-top: 1px; }
+  .cmini .pp { margin-left: auto; width: 32px; height: 32px; border-radius: 50%; background: var(--brand); color: #062a19; display: grid; place-items: center; }
+  .cmini .pp .i { width: 14px; height: 14px; }
+  .ctab { margin-top: 14px; display: grid; grid-template-columns: repeat(4,1fr); border-top: 1px solid var(--board-border); padding-top: 10px; }
+  .ctab a { text-decoration: none; color: var(--board-subtle); font-size: 9.5px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .ctab .ic { width: 30px; height: 22px; border-radius: 8px; display: grid; place-items: center; }
+  .ctab .i { width: 17px; height: 17px; }
+  .ctab a.on { color: var(--brand-ink); font-weight: 700; }
+  .ctab a.on .ic { background: rgba(59,216,119,.18); }
+  .empty { margin-top: 14px; text-align: center; padding: 18px 10px; border: 1px dashed var(--board-border); border-radius: 14px; }
+  .empty .cir { width: 44px; height: 44px; border-radius: 50%; background: #ebebe4; margin: 0 auto 8px; display: grid; place-items: center; color: #5c6862; }
+  .empty b { font-size: 12.5px; }
+  .empty p { font-size: 11px; color: var(--board-subtle); margin-top: 3px; }
+  .sk { margin-top: 14px; display: flex; flex-direction: column; gap: 9px; }
+  .sk i { height: 10px; border-radius: 5px; background: linear-gradient(90deg, #e6e9e1 25%, #f4f5f0 37%, #e6e9e1 63%); background-size: 400% 100%; animation: shimmer 1.6s infinite; }
+  .sk .r { display: flex; gap: 10px; align-items: center; }
+  .sk .sq { width: 40px; height: 40px; border-radius: 10px; flex: none; }
+  .sk .lines { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+  @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+
+  /* ---------- Motion ---------- */
+  .motion-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 20px; }
+  .mcard { background: var(--board-card); border: 1px solid var(--board-border); border-radius: 20px; padding: 22px; overflow: hidden; }
+  .mcard h4 { font-size: 13px; }
+  .mcard .spec { font-family: var(--mono); font-size: 10px; color: var(--board-subtle); margin-top: 3px; }
+  .stage { height: 96px; margin-top: 14px; border-radius: 14px; background: #f4f4ef; display: grid; place-items: center; overflow: hidden; }
+  .press-demo { width: 92px; height: 38px; border-radius: 999px; background: var(--brand); color: #062a19; font-size: 12px; font-weight: 700; display: grid; place-items: center; animation: press 2.6s infinite; }
+  @keyframes press { 0%, 55%, 100% { transform: scale(1); } 68%, 82% { transform: scale(.955); } }
+  .sheet-demo { width: 150px; height: 74px; border-radius: 12px 12px 0 0; background: #fff; border: 1px solid var(--board-border); align-self: end; animation: sheet 2.8s infinite; box-shadow: 0 -10px 26px rgba(16,22,20,.16); }
+  @keyframes sheet { 0%, 20% { transform: translateY(74px); } 45%, 80% { transform: translateY(0); } 100% { transform: translateY(74px); } }
+  .lyric-demo { text-align: center; font-size: 13px; color: #b6c0ba; }
+  .lyric-demo b { display: block; font-size: 16px; color: #161a16; animation: lyric 3s infinite; }
+  @keyframes lyric { 0%, 30% { opacity: .25; transform: scale(.94); } 50%, 85% { opacity: 1; transform: scale(1); } 100% { opacity: .25; transform: scale(.94); } }
+
+  /* ---------- Roadmap ---------- */
+  .road { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; position: relative; }
+  .road::before { content: ""; position: absolute; left: 8px; right: 8px; top: 17px; height: 1px; background: var(--board-border); }
+  .phase { position: relative; padding-top: 42px; }
+  .phase .num {
+    position: absolute; top: 6px; left: 0; width: 24px; height: 24px; border-radius: 50%;
+    background: var(--board-bg); border: 1px solid var(--board-border); display: grid; place-items: center;
+    font-family: var(--mono); font-size: 10px; color: var(--board-muted); z-index: 1;
+  }
+  .phase:first-child .num { background: var(--brand); border-color: var(--brand); color: #062a19; font-weight: 700; }
+  .phase h4 { font-size: 13.5px; letter-spacing: -0.01em; }
+  .phase p { margin-top: 6px; font-size: 11.5px; line-height: 1.65; color: var(--board-muted); }
+  .phase code { display: block; margin-top: 8px; font-family: var(--mono); font-size: 9.5px; line-height: 1.6; color: var(--board-subtle); word-break: break-all; }
+
+  /* ---------- Questions ---------- */
+  .qs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .q {
+    display: flex; gap: 12px; padding: 18px; border-radius: 16px; background: var(--board-card);
+    border: 1px solid var(--board-border);
+  }
+  .q .n { font-family: var(--mono); font-size: 11px; color: var(--brand-ink); padding-top: 2px; }
+  .q b { font-size: 13px; font-weight: 600; }
+  .q p { margin-top: 5px; font-size: 12px; line-height: 1.65; color: var(--board-muted); }
+
+  footer { padding: 40px 0 60px; border-top: 1px solid rgba(18,24,21,.09); font-size: 12px; color: var(--board-subtle); display: flex; justify-content: space-between; }
+
+  @media (max-width: 1240px) {
+    .gallery { grid-template-columns: repeat(3, minmax(0,1fr)); }
+    .comp-grid, .motion-grid { grid-template-columns: repeat(2,1fr); }
+    .road { grid-template-columns: repeat(3,1fr); row-gap: 24px; }
+    .road::before { display: none; }
+  }
+  @media (max-width: 980px) {
+    .wrap { padding: 0 24px; }
+    .gallery { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .principles, .ia-grid, .token-grid, .qs { grid-template-columns: 1fr; }
+    .comp-grid, .motion-grid { grid-template-columns: 1fr; }
+    .nav { display: none; }
+  }
+  @media (max-width: 700px) {
+    .gallery { grid-template-columns: 1fr; }
+    .hero { padding-top: 44px; }
+    .topbar-in { gap: 12px; }
+    .switchgroup .toggle { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .press-demo, .sheet-demo, .lyric-demo b, .sk i { animation: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ===================== SVG SPRITE ===================== -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 10.5 12 3l8 7.5V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></symbol>
+    <symbol id="i-library" viewBox="0 0 24 24"><path d="M4 4v16M8 4v16M12.5 5l6 15"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.2 3.6-6.5 8-6.5s8 2.3 8 6.5"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.6v14.8L20 12z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><rect x="7" y="4.6" width="3.4" height="14.8" rx="1.2" fill="currentColor" stroke="none"/><rect x="13.6" y="4.6" width="3.4" height="14.8" rx="1.2" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-prev" viewBox="0 0 24 24"><path d="M19 5v14L8.4 12z" fill="currentColor" stroke="none"/><rect x="4.4" y="5" width="2.4" height="14" rx="1.2" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><path d="M5 5v14L15.6 12z" fill="currentColor" stroke="none"/><rect x="17.2" y="5" width="2.4" height="14" rx="1.2" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7-4.6-7-9.4A4.1 4.1 0 0 1 12 7a4.1 4.1 0 0 1 7 3.6C19 15.4 12 20 12 20z"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-queue" viewBox="0 0 24 24"><path d="M4 6h12M4 12h12M4 18h8"/><path d="M18 8v8"/><circle cx="16" cy="17" r="2"/></symbol>
+    <symbol id="i-shuffle" viewBox="0 0 24 24"><path d="M3 6h3.6l3 3M21 6h-4.2l-9 12H3"/><path d="m18 3 3 3-3 3"/><path d="m18 15 3 3-3 3"/></symbol>
+    <symbol id="i-repeat" viewBox="0 0 24 24"><path d="M17 3l3 3-3 3"/><path d="M4 11V9a3 3 0 0 1 3-3h13"/><path d="M7 21l-3-3 3-3"/><path d="M20 13v2a3 3 0 0 1-3 3H4"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4.6l3 1.8"/></symbol>
+    <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18a4 4 0 0 1-.5-8A5.5 5.5 0 0 1 17 10a4 4 0 0 1 .5 8z"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v11m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></symbol>
+    <symbol id="i-disc" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.2"/></symbol>
+    <symbol id="i-radio" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><path d="M7.8 16.2a6 6 0 0 1 0-8.4M16.2 7.8a6 6 0 0 1 0 8.4M4.9 19.1a10 10 0 0 1 0-14.2M19.1 4.9a10 10 0 0 1 0 14.2"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="16" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></symbol>
+    <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 5H5v2a3 3 0 0 0 3 3M16 5h3v2a3 3 0 0 1-3 3"/><path d="M12 13v4M9 21h6M10 21c0-2 1-4 2-4s2 2 2 4"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.05A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.05A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6h.05A1.7 1.7 0 0 0 10 3.05V3a2 2 0 1 1 4 0v.05A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.05a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.05a1.7 1.7 0 0 0-1.55 1z"/></symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2.5 8.5a15 15 0 0 1 19 0M5.5 12a10 10 0 0 1 13 0M8.5 15.5a5 5 0 0 1 7 0"/><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-signal" viewBox="0 0 24 24"><path d="M4 18v-3M9 18v-6M14 18v-9M19 18V6" stroke-width="2.6"/></symbol>
+    <symbol id="i-battery" viewBox="0 0 24 24"><rect x="2.5" y="7" width="17" height="10" rx="3"/><path d="M22 10.5v3"/><rect x="5" y="9.5" width="10" height="5" rx="1.5" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+    <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M7 17 17 7M8 7h9v9"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 5 5L20 7"/></symbol>
+    <symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.2" fill="currentColor" stroke="none"/><circle cx="15" cy="6" r="1.2" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="9" cy="18" r="1.2" fill="currentColor" stroke="none"/><circle cx="15" cy="18" r="1.2" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-sort" viewBox="0 0 24 24"><path d="M4 7h12M4 12h9M4 17h6"/><path d="m17 14 3 3 3-3M20 17V8"/></symbol>
+    <symbol id="i-wave" viewBox="0 0 24 24"><path d="M3 12h2l2-6 3 12 3-16 3 20 2-10h3"/></symbol>
+    <symbol id="i-hand" viewBox="0 0 24 24"><path d="M8 12V6.5a1.5 1.5 0 0 1 3 0V11"/><path d="M11 11V5.5a1.5 1.5 0 0 1 3 0V11"/><path d="M14 11V7a1.5 1.5 0 0 1 3 0v7"/><path d="M17 11V9.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-1.6a5 5 0 0 1-3.6-1.5L5 15.6a1.6 1.6 0 0 1 2.3-2.2L9 15"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></symbol>
+  </defs>
+</svg>
+
+<!-- ===================== TOP BAR ===================== -->
+<header class="topbar">
+  <div class="wrap topbar-in">
+    <div class="mark"><svg class="i"><use href="#i-wave"/></svg></div>
+    <div class="brandline"><b>AuralFlow</b><span>MOBILE UI/UX</span></div>
+    <nav class="nav">
+      <a href="#principles">原则</a>
+      <a href="#ia">信息架构</a>
+      <a href="#screens">界面</a>
+      <a href="#tokens">令牌</a>
+      <a href="#components">组件</a>
+      <a href="#roadmap">路线</a>
+    </nav>
+    <div class="switchgroup">
+      <div class="seg" id="themeSeg">
+        <button class="on" data-theme="light">浅色</button>
+        <button data-theme="dark">深色</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <!-- ===================== HERO ===================== -->
+  <section class="hero" style="border-top:0">
+    <div class="wrap">
+      <div class="eyebrow">Mobile redesign · proposal v1</div>
+      <h1>让每一首歌<em>更快开始</em>，<br />让界面退到音乐后面。</h1>
+      <p class="lead">
+        这是一份针对 AuralFlow Android 端的完整界面重构方案。它不换品牌，也不推翻现有能力，
+        而是重新组织导航、压缩常驻框架、把绿色收回到「可操作」与「正在播放」两处，
+        并用封面自身的颜色驱动播放页氛围。目标只有一个：打开 App 到听见声音，路径更短；停留在 App 时，眼睛更省力。
+      </p>
+      <div class="meta">
+        <span class="pill"><b>8</b> 个核心界面</span>
+        <span class="pill"><b>2</b> 套主题</span>
+        <span class="pill">基线 <b>390 × 844</b></span>
+        <span class="pill">常驻框架 <b>182 → 136 px</b></span>
+        <span class="pill">主色对比度 <b>1.9:1 → 5.4:1</b></span>
+        <span class="pill">2026-10-23</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== PRINCIPLES ===================== -->
+  <section id="principles">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="sec-num">01</div>
+        <div>
+          <h2>五条设计原则</h2>
+          <p>每一条都对应一个当前实现里的具体问题，而不是抽象口号。后面所有界面决策都可以回溯到这里。</p>
+        </div>
+      </div>
+      <div class="principles">
+        <article class="pr">
+          <div class="glyph"><svg class="i"><use href="#i-disc"/></svg></div>
+          <div class="idx">PRINCIPLE 01</div>
+          <h3>封面是光源，界面是暗房</h3>
+          <p>播放页与详情页的颜色从封面提取，背景随歌曲变化。列表页保持中性，让封面成为唯一的彩色区域。</p>
+        </article>
+        <article class="pr">
+          <div class="glyph"><svg class="i"><use href="#i-wave"/></svg></div>
+          <div class="idx">PRINCIPLE 02</div>
+          <h3>绿色只代表「现在」和「下一步」</h3>
+          <p>播放中、主按钮、选中态用绿色；图标、标题、分割线全部中性。当前实现里绿色铺满抽屉与标签，反而没有重点。</p>
+        </article>
+        <article class="pr">
+          <div class="glyph"><svg class="i"><use href="#i-arrow"/></svg></div>
+          <div class="idx">PRINCIPLE 03</div>
+          <h3>一个意图，只留一个入口</h3>
+          <p>设置只在「我的」，歌单只在「音乐库」，搜索只在「搜索」。抽屉退场，减少一层隐藏导航与一套重复内容。</p>
+        </article>
+        <article class="pr">
+          <div class="glyph"><svg class="i"><use href="#i-hand"/></svg></div>
+          <div class="idx">PRINCIPLE 04</div>
+          <h3>主操作落在拇指区</h3>
+          <p>播放、继续收听、播放全部固定在屏幕下三分之一；顶栏只承担返回、标题和更多，不再放全局搜索框。</p>
+        </article>
+        <article class="pr">
+          <div class="glyph"><svg class="i"><use href="#i-layers"/></svg></div>
+          <div class="idx">PRINCIPLE 05</div>
+          <h3>框架会退让，内容不打折</h3>
+          <p>大标题随滚动收起，迷你播放器浮在标签栏之上。常驻框架从 182px 降到 136px，可视内容多出约 7%。</p>
+        </article>
+        <article class="pr" style="background:linear-gradient(160deg,#0f1512,#1a241f);border-color:#22302a">
+          <div class="glyph" style="background:rgba(59,216,119,.16);color:#6fe7ac"><svg class="i"><use href="#i-check"/></svg></div>
+          <div class="idx" style="color:#7d8c85">DESIGN PRINCIPLE 06</div>
+          <h3 style="color:#f1f5f2">不为了新而新</h3>
+          <p style="color:#a7b3ae">导航层级、手势、返回逻辑保持 Android 习惯；只改信息组织、视觉权重与操作位置。所有现有功能都有落点，不删能力。</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== IA ===================== -->
+  <section id="ia">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="sec-num">02</div>
+        <div>
+          <h2>信息架构：从「四层」到「两层半」</h2>
+          <p>当前是 Drawer → NativeStack → BottomTabs → MaterialTopTabs 四层，设置藏在抽屉、歌单分散在「曲库」和「我的」两处。新结构去掉抽屉，把内容按「发现 / 拥有 / 管理」重新归位。</p>
+        </div>
+      </div>
+      <div class="ia-grid">
+        <div class="panel">
+          <div class="panel-tag"><span class="dot bad"></span>现在 · 4 层导航</div>
+          <div class="tree">
+            <div class="tnode root"><svg class="i"><use href="#i-grid"/></svg>Drawer<span class="tagx">8 类设置</span></div>
+            <div class="tchildren">
+              <div class="tnode root"><svg class="i"><use href="#i-library"/></svg>MainTabs</div>
+              <div class="tchildren">
+                <div class="tnode leaf"><svg class="i"><use href="#i-home"/></svg>首页</div>
+                <div class="tnode leaf"><svg class="i"><use href="#i-search"/></svg>搜索<span class="tagx">与顶栏搜索重复</span></div>
+                <div class="tnode leaf"><svg class="i"><use href="#i-library"/></svg>曲库</div>
+                <div class="tchildren">
+                  <div class="tnode leaf"><svg class="i"><use href="#i-folder"/></svg>本地 / 历史 / 下载<span class="tagx">3 个顶 Tab</span></div>
+                </div>
+                <div class="tnode leaf"><svg class="i"><use href="#i-user"/></svg>我的<span class="tagx">歌单 + 收藏 + 设置入口</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="panel-note">
+            <b>三个结构性问题：</b>设置同时存在于抽屉与「我的」；歌单在「我的」，本地歌单也在「我的」而曲库只放本地文件；
+            全局搜索框出现在每一个页面顶部，与搜索 Tab 争夺同一个意图。
+          </div>
+        </div>
+        <div class="panel" style="border-color:rgba(11,127,80,.28);background:linear-gradient(180deg,#fbfefc,#fff)">
+          <div class="panel-tag"><span class="dot good"></span>方案 · 2 层 + 全屏模态</div>
+          <div class="tree">
+            <div class="tnode root"><svg class="i"><use href="#i-grid"/></svg>Root Stack<span class="tagok">无 Drawer</span></div>
+            <div class="tchildren">
+              <div class="tnode root"><svg class="i"><use href="#i-library"/></svg>MainTabs</div>
+              <div class="tchildren">
+                <div class="tnode leaf"><svg class="i"><use href="#i-home"/></svg>首页<span class="tagok">继续收听 · 推荐</span></div>
+                <div class="tnode leaf"><svg class="i"><use href="#i-search"/></svg>搜索<span class="tagok">搜索 + 发现</span></div>
+                <div class="tnode leaf"><svg class="i"><use href="#i-library"/></svg>音乐库<span class="tagok">歌单/本地/收藏/历史/下载</span></div>
+                <div class="tnode leaf"><svg class="i"><use href="#i-user"/></svg>我的<span class="tagok">账号 · 统计 · 设置</span></div>
+              </div>
+              <div class="tnode leaf"><svg class="i"><use href="#i-disc"/></svg>播放页（全屏模态，左右滑切换封面 / 歌词）</div>
+              <div class="tnode leaf"><svg class="i"><use href="#i-music"/></svg>详情页（歌单 / 专辑 / 歌手）</div>
+              <div class="tnode leaf"><svg class="i"><use href="#i-settings"/></svg>设置（8 类 + 首页，从「我的」进入）</div>
+            </div>
+          </div>
+          <div class="panel-note">
+            <b>收益：</b>删除 Drawer 后少一层手势与返回分支；「曲库」升级为「音乐库」，把本地歌单、网易云歌单、收藏统一收进来；
+            「我的」只留账号、统计与设置，语义清晰。
+          </div>
+        </div>
+      </div>
+
+      <div class="moves">
+        <table>
+          <thead>
+            <tr><th style="width:22%">内容</th><th style="width:34%">现在的位置</th><th>之后的位置</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>设置（8 类）</td><td>抽屉（全局悬浮入口）</td><td>我的 → 设置 <span class="arrow">·</span> 少一层，且可被返回键正确回溯</td></tr>
+            <tr><td>本地歌单</td><td>我的 → 本地歌单</td><td>音乐库 → 歌单（与云端歌单同屏分组）</td></tr>
+            <tr><td>网易云歌单</td><td>我的 → 网易云歌单</td><td>音乐库 → 歌单 → 「收藏的歌单」分组</td></tr>
+            <tr><td>我喜欢 / 收藏</td><td>我的 → 快捷入口</td><td>音乐库 → 收藏（独立分段，带统计头）</td></tr>
+            <tr><td>歌单广场 / 排行榜</td><td>首页快捷入口</td><td>首页快捷入口 + 搜索空态（发现场景）</td></tr>
+            <tr><td>播放历史 / 下载</td><td>曲库 → 顶部 Tab</td><td>音乐库 → 分段芯片（横向可滑，不占两行高度）</td></tr>
+            <tr><td>主题切换</td><td>每个页面顶栏的图标</td><td>我的 → 外观（行内直接开关）</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== SCREENS ===================== -->
+  <section id="screens">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="sec-num">03</div>
+        <div>
+          <h2>八个核心界面</h2>
+          <p>按真实像素绘制：390 × 844，20px 页边距，44px 最小触控，底部 136px 常驻框架。深色界面为播放页，恒定深色——让封面成为唯一光源。</p>
+        </div>
+        <div class="spacer"></div>
+        <div class="kicker">点击右上角「深色」可切换全部浅色界面</div>
+      </div>
+
+      <div class="gallery" id="gallery">
+
+        <!-- ============ 01 首页 ============ -->
+        <figure class="shot">
+          <div class="device">
+            <div class="screen lightable">
+              <div class="ph-cam"></div>
+              <div class="ph-status"><span>9:41</span><span class="icons"><svg class="i"><use href="#i-signal"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+              <div class="ph-scroll">
+                <div class="ph-head">
+                  <div><div class="ph-sub">周五 · 10 月 23 日</div><div class="ph-h1">晚上好</div></div>
+                  <div class="ph-avatar">陈</div>
+                </div>
+
+                <div class="ph-continue">
+                  <div class="cover art a1"><b>夜航</b><i>AF SESSIONS</i></div>
+                  <div class="body">
+                    <div class="k">继续收听</div>
+                    <div class="t">夜航</div>
+                    <div class="m">陈默 · 2:14 / 4:12</div>
+                    <div class="bar"><i style="width:52%"></i></div>
+                  </div>
+                  <button class="round-play"><svg class="i"><use href="#i-play"/></svg></button>
+                </div>
+
+                <div class="ph-sec"><h3>快捷入口</h3></div>
+                <div class="ph-quick">
+                  <a><span class="tile"><svg class="i"><use href="#i-calendar"/></svg></span><span>每日推荐</span></a>
+                  <a><span class="tile"><svg class="i"><use href="#i-radio"/></svg></span><span>私人 FM</span></a>
+                  <a><span class="tile"><svg class="i"><use href="#i-trophy"/></svg></span><span>排行榜</span></a>
+                  <a><span class="tile"><svg class="i"><use href="#i-grid"/></svg></span><span>歌单广场</span></a>
+                </div>
+
+                <div class="ph-sec"><h3>为你精选</h3><a>全部</a></div>
+                <div class="ph-rail">
+                  <div class="ph-railcard"><div class="cover art a2"><b>深夜</b><i>PLAYLIST</i></div><div class="t">深夜驾驶</div><div class="m">32 首 · 林晚 等</div></div>
+                  <div class="ph-railcard"><div class="cover art a4"><b>通勤</b><i>PLAYLIST</i></div><div class="t">通勤低音量</div><div class="m">48 首 · 每日更新</div></div>
+                  <div class="ph-railcard"><div class="cover art a3"><b>雨天</b><i>PLAYLIST</i></div><div class="t">雨天书房</div><div class="m">26 首 · 周野</div></div>
+                </div>
+
+                <div class="ph-sec"><h3>今日推荐</h3><span class="count">30 首</span></div>
+                <div class="ph-list">
+                  <div class="ph-row">
+                    <div class="cover art a5 tiny"></div>
+                    <div class="body"><div class="t">低空飞行</div><div class="m"><span class="srcdot"></span>海盐 · 05:02</div></div>
+                    <svg class="i"><use href="#i-more"/></svg>
+                  </div>
+                </div>
+                <div class="ph-fade"></div>
+              </div>
+
+              <div class="ph-mini">
+                <div class="prog"><i style="width:52%"></i></div>
+                <div class="cover art a1 tiny"></div>
+                <div class="body"><div class="t">夜航</div><div class="m">陈默 · 还在听</div></div>
+                <div class="btn play"><svg class="i"><use href="#i-pause"/></svg></div>
+                <div class="btn"><svg class="i"><use href="#i-next"/></svg></div>
+              </div>
+              <nav class="ph-tab">
+                <a class="on"><span class="ic"><svg class="i"><use href="#i-home"/></svg></span>首页</a>
+                <a><span class="ic"><svg class="i"><use href="#i-search"/></svg></span>搜索</a>
+                <a><span class="ic"><svg class="i"><use href="#i-library"/></svg></span>音乐库</a>
+                <a><span class="ic"><svg class="i"><use href="#i-user"/></svg></span>我的</a>
+              </nav>
+              <div class="ph-gesture"></div>
+            </div>
+          </div>
+          <figcaption class="shot-cap">
+            <div class="n">01 · HOME</div>
+            <h4>首页：先回答「听什么」</h4>
+            <p>第一屏是「继续收听」而不是运营位。快捷入口从 6 个深色胶囊减为 4 个图标块，未登录时自动只留可用项。</p>
+          </figcaption>
+        </figure>
+
+        <!-- ============ 02 搜索 ============ -->
+        <figure class="shot">
+          <div class="device">
+            <div class="screen lightable">
+              <div class="ph-cam"></div>
+              <div class="ph-status"><span>9:41</span><span class="icons"><svg class="i"><use href="#i-signal"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+              <div class="ph-scroll">
+                <div class="ph-head" style="padding-bottom:12px"><div><div class="ph-h1">搜索</div></div></div>
+                <div class="ph-searchbox"><svg class="i"><use href="#i-search"/></svg><span style="flex:1">歌曲、歌手、专辑或歌单</span><svg class="i" style="width:14px;height:14px"><use href="#i-mic"/></svg></div>
+
+                <div class="ph-sec"><h3 style="font-size:13px;color:var(--p-text3);font-weight:600">最近搜索</h3><a>清空</a></div>
+                <div class="ph-chips">
+                  <span class="ph-chip">夜航<svg class="i"><use href="#i-x"/></svg></span>
+                  <span class="ph-chip">林晚<svg class="i"><use href="#i-x"/></svg></span>
+                  <span class="ph-chip">深夜驾驶<svg class="i"><use href="#i-x"/></svg></span>
+                  <span class="ph-chip">琥珀<svg class="i"><use href="#i-x"/></svg></span>
+                </div>
+
+                <div class="ph-sec"><h3>热搜榜</h3><a>完整榜单</a></div>
+                <div class="ph-hot">
+                  <a><span class="rank top">01</span><span class="kw">夜航 现场版</span><span class="badge">热</span></a>
+                  <a><span class="rank top">02</span><span class="kw">潮汐</span><span class="badge new">新</span></a>
+                  <a><span class="rank top">03</span><span class="kw">低空飞行</span></a>
+                  <a><span class="rank">04</span><span class="kw">周末计划</span></a>
+                  <a><span class="rank">05</span><span class="kw">回声</span></a>
+                </div>
+
+                <div class="ph-sec"><h3>按风格浏览</h3><a>全部</a></div>
+                <div class="ph-cats">
+                  <div class="ph-cat" style="background:linear-gradient(135deg,#1e3a8a,#3b82f6)">流行</div>
+                  <div class="ph-cat" style="background:linear-gradient(135deg,#0f766e,#2dd4bf)">电子</div>
+                  <div class="ph-cat" style="background:linear-gradient(135deg,#7c2d12,#ea580c)">摇滚</div>
+                  <div class="ph-cat" style="background:linear-gradient(135deg,#4c1d95,#8b5cf6)">民谣</div>
+                </div>
+                <div class="ph-fade"></div>
+              </div>
+
+              <div class="ph-mini">
+                <div class="prog"><i style="width:52%"></i></div>
+                <div class="cover art a1 tiny"></div>
+                <div class="body"><div class="t">夜航</div><div class="m">陈默 · 还在听</div></div>
+                <div class="btn play"><svg class="i"><use href="#i-pause"/></svg></div>
+                <div class="btn"><svg class="i"><use href="#i-next"/></svg></div>
+              </div>
+              <nav class="ph-tab">
+                <a><span class="ic"><svg class="i"><use href="#i-home"/></svg></span>首页</a>
+                <a class="on"><span class="ic"><svg class="i"><use href="#i-search"/></svg></span>搜索</a>
+                <a><span class="ic"><svg class="i"><use href="#i-library"/></svg></span>音乐库</a>
+                <a><span class="ic"><svg class="i"><use href="#i-user"/></svg></span>我的</a>
+              </nav>
+              <div class="ph-gesture"></div>
+            </div>
+          </div>
+          <figcaption class="shot-cap">
+            <div class="n">02 · SEARCH</div>
+            <h4>搜索：空态就是发现页</h4>
+            <p>输入前给最近搜索、热搜与风格入口；输入后原地切换为结果分组。不再需要顶栏第二个搜索框。</p>
+          </figcaption>
+        </figure>
+
+        <!-- ============ 03 音乐库 ============ -->
+        <figure class="shot">
+          <div class="device">
+            <div class="screen lightable">
+              <div class="ph-cam"></div>
+              <div class="ph-status"><span>9:41</span><span class="icons"><svg class="i"><use href="#i-signal"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+              <div class="ph-scroll">
+                <div class="ph-titlebar">
+                  <div class="ph-h1" style="font-size:26px">音乐库</div>
+                  <div class="acts">
+                    <span class="ib"><svg class="i"><use href="#i-search"/></svg></span>
+                    <span class="ib"><svg class="i"><use href="#i-more"/></svg></span>
+                  </div>
+                </div>
+
+                <div class="ph-segs">
+                  <span class="ph-seg on">歌单</span>
+                  <span class="ph-seg">本地</span>
+                  <span class="ph-seg">收藏</span>
+                  <span class="ph-seg">历史</span>
+                  <span class="ph-seg">下载</span>
+                </div>
+
+                <div class="ph-toolbar">
+                  <span class="cnt">12 个歌单 · 1,284 首</span>
+                  <span class="sort"><svg class="i"><use href="#i-sort"/></svg>最近更新</span>
+                </div>
+
+                <div class="ph-grid">
+                  <div class="ph-plcard"><div class="cover art a1"><b>深夜</b><i>PLAYLIST</i></div><div class="t">深夜驾驶</div><div class="m">32 首 · 2 小时前</div></div>
+                  <div class="ph-plcard"><div class="cover art a4"><b>通勤</b><i>PLAYLIST</i></div><div class="t">通勤低音量</div><div class="m">48 首 · 昨天</div></div>
+                  <div class="ph-plcard"><div class="cover art a3"><b>雨天</b><i>PLAYLIST</i></div><div class="t">雨天书房</div><div class="m">26 首 · 3 天前</div></div>
+                  <div class="ph-new"><svg class="i"><use href="#i-plus"/></svg><span>新建歌单</span></div>
+                </div>
+                <div style="padding-top:16px;text-align:center;font-size:11px;color:var(--p-text3)">共 1,284 首 · 12.6 GB</div>
+
+                <div class="ph-fade"></div>
+              </div>
+
+              <div class="ph-mini">
+                <div class="prog"><i style="width:52%"></i></div>
+                <div class="cover art a1 tiny"></div>
+                <div class="body"><div class="t">夜航</div><div class="m">陈默 · 还在听</div></div>
+                <div class="btn play"><svg class="i"><use href="#i-pause"/></svg></div>
+                <div class="btn"><svg class="i"><use href="#i-next"/></svg></div>
+              </div>
+              <nav class="ph-tab">
+                <a><span class="ic"><svg class="i"><use href="#i-home"/></svg></span>首页</a>
+                <a><span class="ic"><svg class="i"><use href="#i-search"/></svg></span>搜索</a>
+                <a class="on"><span class="ic"><svg class="i"><use href="#i-library"/></svg></span>音乐库</a>
+                <a><span class="ic"><svg class="i"><use href="#i-user"/></svg></span>我的</a>
+              </nav>
+              <div class="ph-gesture"></div>
+            </div>
+          </div>
+          <figcaption class="shot-cap">
+            <div class="n">03 · LIBRARY</div>
+            <h4>音乐库：五段合一</h4>
+            <p>歌单、本地、收藏、历史、下载收进一排可滑动的分段芯片，替代「三个顶 Tab + 我的里的两段歌单」。</p>
+          </figcaption>
+        </figure>
+
+        <!-- ============ 04 我的 ============ -->
+        <figure class="shot">
+          <div class="device">
+            <div class="screen lightable">
+              <div class="ph-cam"></div>
+              <div class="ph-status"><span>9:41</span><span class="icons"><svg class="i"><use href="#i-signal"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+              <div class="ph-scroll">
+                <div class="ph-head" style="padding-bottom:14px"><div><div class="ph-h1">我的</div></div><div class="ph-avatar">陈</div></div>
+
+                <div class="ph-account">
+                  <div class="av">陈</div>
+                  <div class="body">
+                    <div class="n">陈乐</div>
+                    <div class="m">网易云 · Lv.9 · 已登录</div>
+                  </div>
+                  <svg class="i"><use href="#i-right"/></svg>
+                </div>
+
+                <div class="ph-stats">
+                  <div class="col"><div class="v">12.4<span style="font-size:11px">h</span></div><div class="l">本周时长</div></div>
+                  <div class="col"><div class="v">486</div><div class="l">播放次数</div></div>
+                  <div class="col"><div class="v">32</div><div class="l">歌手</div></div>
+                </div>
+
+                <div class="ph-group">
+                  <div class="ph-item"><span class="ico"><svg class="i"><use href="#i-cloud"/></svg></span><span class="t">音乐云盘</span><span class="v">128 首</span><svg class="i chev"><use href="#i-right"/></svg></div>
+                  <div class="ph-item"><span class="ico"><svg class="i"><use href="#i-sparkle"/></svg></span><span class="t">自定义音源</span><span class="v">3 个</span><svg class="i chev"><use href="#i-right"/></svg></div>
+                  <div class="ph-item"><span class="ico"><svg class="i"><use href="#i-repeat"/></svg></span><span class="t">WebDAV 同步</span><span class="v">已开启</span><svg class="i chev"><use href="#i-right"/></svg></div>
+                </div>
+
+                <div class="ph-group">
+                  <div class="ph-item"><span class="ico"><svg class="i"><use href="#i-disc"/></svg></span><span class="t">外观</span><span class="v">跟随系统</span><svg class="i chev"><use href="#i-right"/></svg></div>
+                  <div class="ph-item"><span class="ico"><svg class="i"><use href="#i-sliders"/></svg></span><span class="t">播放与音质</span><svg class="i chev"><use href="#i-right"/></svg></div>
+                  <div class="ph-item"><span class="ico"><svg class="i"><use href="#i-mic"/></svg></span><span class="t">歌词与浮窗</span><svg class="i chev"><use href="#i-right"/></svg></div>
+                  <div class="ph-item"><span class="ico"><svg class="i"><use href="#i-settings"/></svg></span><span class="t">设置</span><svg class="i chev"><use href="#i-right"/></svg></div>
+                </div>
+                <div class="ph-fade"></div>
+              </div>
+
+              <div class="ph-mini">
+                <div class="prog"><i style="width:52%"></i></div>
+                <div class="cover art a1 tiny"></div>
+                <div class="body"><div class="t">夜航</div><div class="m">陈默 · 还在听</div></div>
+                <div class="btn play"><svg class="i"><use href="#i-pause"/></svg></div>
+                <div class="btn"><svg class="i"><use href="#i-next"/></svg></div>
+              </div>
+              <nav class="ph-tab">
+                <a><span class="ic"><svg class="i"><use href="#i-home"/></svg></span>首页</a>
+                <a><span class="ic"><svg class="i"><use href="#i-search"/></svg></span>搜索</a>
+                <a><span class="ic"><svg class="i"><use href="#i-library"/></svg></span>音乐库</a>
+                <a class="on"><span class="ic"><svg class="i"><use href="#i-user"/></svg></span>我的</a>
+              </nav>
+              <div class="ph-gesture"></div>
+            </div>
+          </div>
+          <figcaption class="shot-cap">
+            <div class="n">04 · ME</div>
+            <h4>我的：账号、数据、设置</h4>
+            <p>只保留「关于我」的内容。统计做成一张可直接读的卡，设置从抽屉搬到这里，主题开关在「外观」行内。</p>
+          </figcaption>
+        </figure>
+
+        <!-- ============ 05 播放页 ============ -->
+        <figure class="shot">
+          <div class="device">
+            <div class="screen dark">
+              <div class="ph-cam"></div>
+              <div class="ph-status" style="color:rgba(255,255,255,.92)"><span>9:41</span><span class="icons"><svg class="i"><use href="#i-signal"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+              <div class="ph-amb"></div>
+              <div class="ph-veil"></div>
+              <div class="ph-pbody">
+                <div class="ph-pnav">
+                  <span class="ib"><svg class="i"><use href="#i-down"/></svg></span>
+                  <div class="mid"><div class="k">正在播放</div><div class="s">来自「每日推荐」</div></div>
+                  <span class="ib"><svg class="i"><use href="#i-more"/></svg></span>
+                </div>
+
+                <div class="art ph-artwork a1"><b>夜航</b><i>AF SESSIONS · 2026</i></div>
+
+                <div class="ph-ptitle">
+                  <div class="t">夜航</div>
+                  <div class="m"><span class="srcdot"></span>陈默 · 网易云 · 无损</div>
+                </div>
+
+                <div class="ph-prog">
+                  <div class="rail"><i></i><b></b></div>
+                  <div class="times"><span>2:14</span><span>-1:58</span></div>
+                </div>
+
+                <div class="ph-transport">
+                  <span class="sm"><svg class="i"><use href="#i-shuffle"/></svg></span>
+                  <span class="md"><svg class="i"><use href="#i-prev"/></svg></span>
+                  <span class="play"><svg class="i"><use href="#i-pause"/></svg></span>
+                  <span class="md"><svg class="i"><use href="#i-next"/></svg></span>
+                  <span class="sm"><svg class="i"><use href="#i-repeat"/></svg></span>
+                </div>
+
+                <div class="ph-pactions">
+                  <a><svg class="i"><use href="#i-mic"/></svg>歌词</a>
+                  <a><svg class="i"><use href="#i-queue"/></svg>队列</a>
+                  <a><svg class="i"><use href="#i-clock"/></svg>定时</a>
+                  <a><svg class="i"><use href="#i-disc"/></svg>音质</a>
+                </div>
+                <div class="ph-dots"><i class="on"></i><i></i></div>
+              </div>
+              <div class="ph-gesture" style="background:rgba(255,255,255,.4)"></div>
+            </div>
+          </div>
+          <figcaption class="shot-cap">
+            <div class="n">05 · NOW PLAYING</div>
+            <h4>播放：一屏只有一件事</h4>
+            <p>背景由封面取色生成，恒定深色。播放键 66px 落在拇指区，左右滑切歌，上滑打开队列，下滑关闭。</p>
+          </figcaption>
+        </figure>
+
+        <!-- ============ 06 歌词 ============ -->
+        <figure class="shot">
+          <div class="device">
+            <div class="screen dark">
+              <div class="ph-cam"></div>
+              <div class="ph-status" style="color:rgba(255,255,255,.92)"><span>9:41</span><span class="icons"><svg class="i"><use href="#i-signal"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+              <div class="ph-amb" style="opacity:.9"></div>
+              <div class="ph-veil" style="background:linear-gradient(180deg,rgba(6,9,8,.62),rgba(6,9,8,.42) 40%,rgba(6,9,8,.82))"></div>
+              <div class="ph-pbody">
+                <div class="ph-pnav">
+                  <span class="ib"><svg class="i"><use href="#i-down"/></svg></span>
+                  <div class="mid"><div class="k">歌词</div><div class="s">夜航 · 陈默</div></div>
+                  <span class="ib"><svg class="i"><use href="#i-more"/></svg></span>
+                </div>
+
+                <div class="ph-lyrics">
+                  <div class="ph-lyric">把城市调成静音</div>
+                  <div class="ph-lyric">让路灯慢慢后退</div>
+                  <div class="ph-lyric on">我们在夜里起飞</div>
+                  <div class="ph-lyric on tr">We take off in the night</div>
+                  <div class="ph-lyric">云层之上没有尽头</div>
+                  <div class="ph-lyric">只有引擎和心跳</div>
+                  <div class="ph-lyric">把昨天留在原地</div>
+                </div>
+
+                <div class="ph-lyricbar">
+                  <span style="font-size:10px;font-variant-numeric:tabular-nums;opacity:.6">2:14</span>
+                  <span class="rail"><i></i></span>
+                  <span style="font-size:10px;font-variant-numeric:tabular-nums;opacity:.6">4:12</span>
+                </div>
+                <div class="ph-transport" style="margin-top:6px;padding:0 42px">
+                  <span class="sm"><svg class="i"><use href="#i-prev"/></svg></span>
+                  <span class="play" style="width:56px;height:56px"><svg class="i" style="width:24px;height:24px"><use href="#i-pause"/></svg></span>
+                  <span class="sm"><svg class="i"><use href="#i-next"/></svg></span>
+                </div>
+                <div class="ph-pactions" style="margin-top:8px">
+                  <a style="color:rgba(255,255,255,.92)"><svg class="i"><use href="#i-mic"/></svg>歌词</a>
+                  <a><svg class="i"><use href="#i-queue"/></svg>队列</a>
+                  <a><svg class="i"><use href="#i-clock"/></svg>定时</a>
+                  <a><svg class="i"><use href="#i-disc"/></svg>音质</a>
+                </div>
+                <div class="ph-dots"><i></i><i class="on"></i></div>
+              </div>
+              <div class="ph-gesture" style="background:rgba(255,255,255,.4)"></div>
+            </div>
+          </div>
+          <figcaption class="shot-cap">
+            <div class="n">06 · LYRICS</div>
+            <h4>歌词：与封面同一页</h4>
+            <p>左右滑切换，不打断播放。当前行 23px/750，译文降到 13px；点击任意行跳转，双指缩放字号。</p>
+          </figcaption>
+        </figure>
+
+        <!-- ============ 07 队列 ============ -->
+        <figure class="shot">
+          <div class="device">
+            <div class="screen dark">
+              <div class="ph-cam"></div>
+              <div class="ph-status" style="color:rgba(255,255,255,.9)"><span>9:41</span><span class="icons"><svg class="i"><use href="#i-signal"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+              <div class="ph-amb" style="opacity:.7"></div>
+              <div class="ph-veil"></div>
+              <div class="ph-pbody">
+                <div class="ph-pnav">
+                  <span class="ib"><svg class="i"><use href="#i-down"/></svg></span>
+                  <div class="mid"><div class="k">正在播放</div><div class="s">来自「每日推荐」</div></div>
+                  <span class="ib"><svg class="i"><use href="#i-more"/></svg></span>
+                </div>
+                <div class="art ph-artwork a1" style="width:270px;height:270px;opacity:.55"><b>夜航</b><i>AF SESSIONS</i></div>
+                <div class="ph-ptitle"><div class="t" style="font-size:22px">夜航</div><div class="m">陈默 · 网易云 · 无损</div></div>
+              </div>
+
+              <div class="ph-scrim"></div>
+              <div class="ph-sheet">
+                <div class="ph-handle"></div>
+                <div class="ph-sheet-head"><h3>播放队列<span>12 首 · 剩余 38 分钟</span></h3><a>清空</a></div>
+                <div class="ph-now">
+                  <div class="cover art a1 tiny"></div>
+                  <div class="body"><div class="t">夜航</div><div class="m">陈默 · 正在播放</div></div>
+                  <svg class="i"><use href="#i-wave"/></svg>
+                </div>
+                <div class="ph-sheet-sub">接下来播放</div>
+                <div class="ph-qrow"><div class="cover art a2 tiny"></div><div class="body"><div class="t">潮汐</div><div class="m">林晚 · 03:48</div></div><span class="grip"><svg class="i"><use href="#i-grip"/></svg></span></div>
+                <div class="ph-qrow"><div class="cover art a3 tiny"></div><div class="body"><div class="t">琥珀</div><div class="m">周野 · 04:35</div></div><span class="grip"><svg class="i"><use href="#i-grip"/></svg></span></div>
+                <div class="ph-qrow"><div class="cover art a4 tiny"></div><div class="body"><div class="t">回声</div><div class="m">苏念 · 03:21</div></div><span class="grip"><svg class="i"><use href="#i-grip"/></svg></span></div>
+                <div class="ph-qrow"><div class="cover art a5 tiny"></div><div class="body"><div class="t">低空飞行</div><div class="m">海盐 · 05:02</div></div><span class="grip"><svg class="i"><use href="#i-grip"/></svg></span></div>
+                <div class="ph-qrow"><div class="cover art a6 tiny"></div><div class="body"><div class="t">周末计划</div><div class="m">白桃 · 03:56</div></div><span class="grip"><svg class="i"><use href="#i-grip"/></svg></span></div>
+                <div class="ph-qrow"><div class="cover art a8 tiny"></div><div class="body"><div class="t">橘子海</div><div class="m">岛屿电台 · 04:18</div></div><span class="grip"><svg class="i"><use href="#i-grip"/></svg></span></div>
+                <div class="ph-gesture" style="background:rgba(16,22,20,.25)"></div>
+              </div>
+            </div>
+          </div>
+          <figcaption class="shot-cap">
+            <div class="n">07 · QUEUE</div>
+            <h4>队列：底部抽屉，当前曲钉住</h4>
+            <p>当前曲固定在顶部，下面是「接下来播放」。长按拖拽排序，左滑移除，点击任意行立即跳播。</p>
+          </figcaption>
+        </figure>
+
+        <!-- ============ 08 歌单详情 ============ -->
+        <figure class="shot">
+          <div class="device">
+            <div class="screen lightable">
+              <div class="ph-cam"></div>
+              <div class="ph-status"><span>9:41</span><span class="icons"><svg class="i"><use href="#i-signal"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+              <div class="ph-scroll">
+                <div class="ph-detailnav">
+                  <span class="ib"><svg class="i"><use href="#i-left"/></svg></span>
+                  <span class="ib"><svg class="i"><use href="#i-more"/></svg></span>
+                </div>
+
+                <div class="ph-hero">
+                  <div class="cover art a1"><b>深夜</b><i>PLAYLIST</i></div>
+                  <div class="body">
+                    <div class="k">歌单 · 我创建的</div>
+                    <div class="t">深夜驾驶</div>
+                    <div class="m">32 首 · 2 小时 14 分<br />更新于 2 小时前</div>
+                    <div class="who"><span class="av"></span>陈乐</div>
+                  </div>
+                </div>
+
+                <div class="ph-actions">
+                  <span class="ph-playall"><svg class="i"><use href="#i-play"/></svg>播放全部</span>
+                  <span class="ph-circ"><svg class="i"><use href="#i-shuffle"/></svg></span>
+                  <span class="ph-circ"><svg class="i"><use href="#i-download"/></svg></span>
+                </div>
+
+                <div class="ph-drow on">
+                  <span class="idx">01</span>
+                  <div class="body"><div class="t">夜航</div><div class="m">陈默 · 04:12</div></div>
+                  <svg class="i"><use href="#i-wave"/></svg>
+                </div>
+                <div class="ph-drow">
+                  <span class="idx">02</span>
+                  <div class="body"><div class="t">潮汐</div><div class="m">林晚 · 03:48</div></div>
+                  <svg class="i"><use href="#i-more"/></svg>
+                </div>
+                <div class="ph-drow">
+                  <span class="idx">03</span>
+                  <div class="body"><div class="t">琥珀</div><div class="m">周野 · 04:35</div></div>
+                  <svg class="i"><use href="#i-more"/></svg>
+                </div>
+                <div class="ph-drow">
+                  <span class="idx">04</span>
+                  <div class="body"><div class="t">回声</div><div class="m">苏念 · 03:21</div></div>
+                  <svg class="i"><use href="#i-more"/></svg>
+                </div>
+                <div class="ph-drow">
+                  <span class="idx">05</span>
+                  <div class="body"><div class="t">低空飞行</div><div class="m">海盐 · 05:02</div></div>
+                  <svg class="i"><use href="#i-more"/></svg>
+                </div>
+                <div class="ph-drow">
+                  <span class="idx">06</span>
+                  <div class="body"><div class="t">周末计划</div><div class="m">白桃 · 03:56</div></div>
+                  <svg class="i"><use href="#i-more"/></svg>
+                </div>
+                <div style="height:44px;display:flex;align-items:center;justify-content:center;gap:5px;font-size:11.5px;color:var(--p-text3)">
+                  查看全部 32 首 <svg class="i" style="width:13px;height:13px"><use href="#i-right"/></svg>
+                </div>
+                <div class="ph-fade"></div>
+              </div>
+
+              <div class="ph-mini">
+                <div class="prog"><i style="width:52%"></i></div>
+                <div class="cover art a1 tiny"></div>
+                <div class="body"><div class="t">夜航</div><div class="m">陈默 · 还在听</div></div>
+                <div class="btn play"><svg class="i"><use href="#i-pause"/></svg></div>
+                <div class="btn"><svg class="i"><use href="#i-next"/></svg></div>
+              </div>
+              <div class="ph-gesture"></div>
+            </div>
+          </div>
+          <figcaption class="shot-cap">
+            <div class="n">08 · PLAYLIST</div>
+            <h4>详情：封面塌陷式头部</h4>
+            <p>封面与信息同排，播放全部是唯一实心主按钮。上滑后头部收成 56px 条，歌名与返回始终可见。</p>
+          </figcaption>
+        </figure>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== TOKENS ===================== -->
+  <section id="tokens">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="sec-num">04</div>
+        <div>
+          <h2>设计令牌</h2>
+          <p>保留品牌绿 #3BD877 作为「填充色」，另外派生一个可读的「行动色」用于文字与图标。这是本次唯一一处必须改色值的地方：当前绿色在白色上的对比度只有 1.9:1。</p>
+        </div>
+      </div>
+
+      <div class="token-grid">
+        <div class="tcard">
+          <h3>颜色</h3>
+          <div class="note">左：浅色 / 右：深色。绿色只出现在填充、播放中与选中态。</div>
+          <div class="swatches">
+            <div class="sw"><span class="chip" style="background:#f3f3ef"></span><span class="nm">画布 canvas</span><span class="hex">#F3F3EF</span><span class="hex dark">#0B0F0D</span></div>
+            <div class="sw"><span class="chip" style="background:#ffffff"></span><span class="nm">表面 surface</span><span class="hex">#FFFFFF</span><span class="hex dark">#121815</span></div>
+            <div class="sw"><span class="chip" style="background:#ebebe4"></span><span class="nm">弱表面 muted</span><span class="hex">#EBEBE4</span><span class="hex dark">#19211D</span></div>
+            <div class="sw"><span class="chip" style="background:#161a16"></span><span class="nm">主文字 text</span><span class="hex">#161a16</span><span class="hex dark">#F1F5F2</span></div>
+            <div class="sw"><span class="chip" style="background:#5b615a"></span><span class="nm">次文字 muted</span><span class="hex">#5B615A</span><span class="hex dark">#A7B3AE</span></div>
+            <div class="sw"><span class="chip" style="background:#8b918a"></span><span class="nm">辅助 subtle</span><span class="hex">#8B918A</span><span class="hex dark">#6E7C77</span></div>
+            <div class="sw"><span class="chip" style="background:#0d7a42"></span><span class="nm">行动色 action</span><span class="hex">#0D7A42</span><span class="hex dark">#6FE7AC</span></div>
+            <div class="sw"><span class="chip" style="background:#3bd877"></span><span class="nm">品牌填充 brand</span><span class="hex">#3BD877</span><span class="hex dark">#3BD877</span></div>
+            <div class="sw"><span class="chip" style="background:#062a19"></span><span class="nm">填充上的文字 ink</span><span class="hex">#062A19</span><span class="hex dark">#062A19</span></div>
+            <div class="sw"><span class="chip" style="background:#e3e3d9"></span><span class="nm">描边 border</span><span class="hex">#E3E3D9</span><span class="hex dark">#26312C</span></div>
+            <div class="sw"><span class="chip" style="background:#ef4444"></span><span class="nm">危险 danger</span><span class="hex">#EF4444</span><span class="hex dark">#EF4444</span></div>
+            <div class="sw"><span class="chip" style="background:#ff5a5f"></span><span class="nm">来源 · 网易云</span><span class="hex">#FF5A5F</span><span class="hex dark">6 px 圆点</span></div>
+            <div class="sw"><span class="chip" style="background:#2ecc8f"></span><span class="nm">来源 · QQ 音乐</span><span class="hex">#2ECC8F</span><span class="hex dark">6 px 圆点</span></div>
+          </div>
+        </div>
+
+        <div class="tcard">
+          <h3>字号</h3>
+          <div class="note">正文从 14 提到 15；最小可读字号 11，仅用于标签。</div>
+          <div class="type-row"><span class="spec">34 / 40 · 750</span><span class="sample" style="font-size:34px;font-weight:750">夜航</span></div>
+          <div class="type-row"><span class="spec">28 / 34 · 750</span><span class="sample" style="font-size:28px;font-weight:750">晚上好</span></div>
+          <div class="type-row"><span class="spec">20 / 26 · 700</span><span class="sample" style="font-size:20px;font-weight:700">为你精选</span></div>
+          <div class="type-row"><span class="spec">17 / 24 · 700</span><span class="sample" style="font-size:17px;font-weight:700">播放队列</span></div>
+          <div class="type-row"><span class="spec">15 / 22 · 400</span><span class="sample" style="font-size:15px">点击继续播放上一首</span></div>
+          <div class="type-row"><span class="spec">13 / 18 · 400</span><span class="sample" style="font-size:13px;color:#5c6862">陈默 · 04:12</span></div>
+          <div class="type-row"><span class="spec">11 / 14 · 600</span><span class="sample" style="font-size:11px;letter-spacing:.08em;color:#8b968f">正在播放</span></div>
+
+          <h3 style="margin-top:26px">间距 · 圆角</h3>
+          <div class="note">4px 基准；页面边距 20，区块间距 32，卡片内边距 16。</div>
+          <div class="geo">
+            <div><i style="height:6px"></i><span>4</span></div>
+            <div><i style="height:10px"></i><span>8</span></div>
+            <div><i style="height:15px"></i><span>12</span></div>
+            <div><i style="height:20px"></i><span>16</span></div>
+            <div><i style="height:25px"></i><span>20</span></div>
+            <div><i style="height:30px"></i><span>24</span></div>
+            <div><i style="height:40px"></i><span>32</span></div>
+            <div><i style="height:48px"></i><span>40</span></div>
+          </div>
+          <div class="radii">
+            <div><span style="border-radius:8px"></span>8</div>
+            <div><span style="border-radius:12px"></span>12</div>
+            <div><span style="border-radius:16px"></span>16</div>
+            <div><span style="border-radius:20px"></span>20</div>
+            <div><span style="border-radius:28px"></span>28</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="token-grid" style="margin-top:20px;grid-template-columns:1fr 1fr">
+        <div class="tcard">
+          <h3>层级</h3>
+          <div class="note">用「柔和投影 + 1px 描边」代替纯边框，深色下改用亮度差。</div>
+          <div class="elev">
+            <div style="box-shadow:0 2px 6px rgba(16,22,20,.10)">e1 · 列表</div>
+            <div style="box-shadow:0 10px 26px rgba(16,22,20,.14)">e2 · 卡片</div>
+            <div style="box-shadow:0 24px 54px rgba(16,22,20,.20)">e3 · 弹层</div>
+          </div>
+        </div>
+        <div class="tcard">
+          <h3>动效</h3>
+          <div class="note">三档时长，全部走原生驱动；系统「减弱动效」时降为淡入。</div>
+          <div class="elev" style="grid-template-columns:repeat(3,1fr)">
+            <div style="height:auto;padding:10px;text-align:center"><b style="display:block;font-size:11px;color:#121815">120ms</b><span style="font-size:9.5px">按压</span></div>
+            <div style="height:auto;padding:10px;text-align:center"><b style="display:block;font-size:11px;color:#121815">220ms</b><span style="font-size:9.5px">切换</span></div>
+            <div style="height:auto;padding:10px;text-align:center"><b style="display:block;font-size:11px;color:#121815">320ms</b><span style="font-size:9.5px">弹层</span></div>
+          </div>
+          <div style="margin-top:14px;font-size:11.5px;line-height:1.7;color:#5c6862">
+            播放页展开：spring(damping 26, stiffness 260)，封面做共享元素；<br />
+            切歌：封面 220ms 交叉淡入；歌词行：240ms 颜色 + 缩放。
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== COMPONENTS ===================== -->
+  <section id="components">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="sec-num">05</div>
+        <div>
+          <h2>组件与状态</h2>
+          <p>现有 5 个 UI 原语保留，新增 7 个业务组件。所有组件统一消费同一套 token，不再各自硬编码尺寸。</p>
+        </div>
+      </div>
+
+      <div class="comp-grid">
+        <div class="ccard">
+          <h4>按钮</h4>
+          <div class="hint">主按钮 = 品牌绿填充 + 深绿文字（对比度 8.4:1）</div>
+          <div class="demo">
+            <button class="btn primary"><svg class="i"><use href="#i-play"/></svg>播放全部</button>
+            <button class="btn secondary">次要</button>
+            <button class="btn outline">描边</button>
+            <button class="btn ghost">文字</button>
+            <button class="btn danger">删除</button>
+          </div>
+          <div class="demo" style="margin-top:10px">
+            <span class="cchip on">歌单</span>
+            <span class="cchip">本地</span>
+            <span class="cchip">收藏</span>
+          </div>
+        </div>
+
+        <div class="ccard">
+          <h4>歌曲行</h4>
+          <div class="hint">44 封面 / 13.5 标题 / 10.5 元信息 / 右侧更多</div>
+          <div class="crow">
+            <div class="cov"></div>
+            <div><div class="tt">夜航</div><div class="mm"><span class="srcdot"></span>陈默 · 04:12</div></div>
+            <div class="rr"><svg class="i" style="width:17px;height:17px"><use href="#i-more"/></svg></div>
+          </div>
+          <div class="crow" style="background:transparent;padding-left:8px">
+            <div class="cov" style="background:linear-gradient(150deg,#032f2b,#0e7c6b)"></div>
+            <div><div class="tt" style="color:#0d7a42">潮汐</div><div class="mm"><span class="srcdot tx"></span>林晚 · 03:48</div></div>
+            <div class="rr"><svg class="i" style="width:17px;height:17px"><use href="#i-wave"/></svg></div>
+          </div>
+          <div class="demo" style="margin-top:12px">
+            <span class="src"><b></b>网易云</span>
+            <span class="src tx"><b></b>QQ 音乐</span>
+            <span class="src local"><b></b>本地</span>
+          </div>
+        </div>
+
+        <div class="ccard">
+          <h4>迷你播放器 + 标签栏</h4>
+          <div class="hint">浮起 12px，进度线在卡片顶部</div>
+          <div class="cmini">
+            <div style="position:absolute;left:0;right:0;top:0;height:2px;background:#ebebe4"><i style="display:block;width:52%;height:100%;background:#3bd877"></i></div>
+            <div class="cov"></div>
+            <div><div class="tt">夜航</div><div class="mm">陈默 · 还在听</div></div>
+            <div class="pp"><svg class="i"><use href="#i-pause"/></svg></div>
+          </div>
+          <div class="ctab">
+            <a class="on"><span class="ic"><svg class="i"><use href="#i-home"/></svg></span>首页</a>
+            <a><span class="ic"><svg class="i"><use href="#i-search"/></svg></span>搜索</a>
+            <a><span class="ic"><svg class="i"><use href="#i-library"/></svg></span>音乐库</a>
+            <a><span class="ic"><svg class="i"><use href="#i-user"/></svg></span>我的</a>
+          </div>
+        </div>
+
+        <div class="ccard">
+          <h4>空状态</h4>
+          <div class="hint">图标 + 一句解释 + 一个动作，不用插画</div>
+          <div class="empty">
+            <div class="cir"><svg class="i" style="width:20px;height:20px"><use href="#i-folder"/></svg></div>
+            <b>还没有本地音乐</b>
+            <p>扫描手机里的音频文件，或从文件管理器导入。</p>
+            <button class="btn primary" style="height:34px;font-size:12px;margin-top:10px">开始扫描</button>
+          </div>
+        </div>
+
+        <div class="ccard">
+          <h4>加载骨架</h4>
+          <div class="hint">与真实行同高，避免内容跳动</div>
+          <div class="sk">
+            <div class="r"><i class="sq"></i><div class="lines"><i style="width:62%"></i><i style="width:38%"></i></div></div>
+            <div class="r"><i class="sq"></i><div class="lines"><i style="width:54%"></i><i style="width:30%"></i></div></div>
+            <div class="r"><i class="sq"></i><div class="lines"><i style="width:70%"></i><i style="width:42%"></i></div></div>
+          </div>
+        </div>
+
+        <div class="ccard">
+          <h4>分段与排序</h4>
+          <div class="hint">横向可滑，选中态用实心墨色（深色下用品牌绿）</div>
+          <div class="demo">
+            <span class="cchip on">歌单</span><span class="cchip">本地</span><span class="cchip">收藏</span><span class="cchip">历史</span><span class="cchip">下载</span>
+          </div>
+          <div style="margin-top:14px;display:flex;justify-content:space-between;align-items:center;font-size:11.5px;color:#8b968f">
+            <span>12 个歌单 · 1,284 首</span>
+            <span style="display:flex;gap:5px;align-items:center;color:#5b615a"><svg class="i" style="width:14px;height:14px"><use href="#i-sort"/></svg>最近更新</span>
+          </div>
+          <div style="margin-top:16px;padding-top:14px;border-top:1px solid #eeeee7">
+            <div style="font-size:10px;letter-spacing:.08em;color:#8b968f;margin-bottom:8px">来源筛选</div>
+            <div class="demo" style="margin-top:0">
+              <span class="cchip on">全部</span><span class="cchip">网易云</span><span class="cchip">QQ 音乐</span><span class="cchip">本地</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== MOTION ===================== -->
+  <section id="motion">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="sec-num">06</div>
+        <div>
+          <h2>动效只做三件事</h2>
+          <p>确认操作、说明层级、跟随播放。不做无意义的入场动画；所有动画都可被系统「减弱动效」关闭。</p>
+        </div>
+      </div>
+      <div class="motion-grid">
+        <div class="mcard">
+          <h4>按压反馈</h4>
+          <div class="spec">scale .955 · 120ms · ease-out</div>
+          <div class="stage"><div class="press-demo">播放全部</div></div>
+        </div>
+        <div class="mcard">
+          <h4>弹层进入</h4>
+          <div class="spec">translateY · 320ms · cubic-bezier(.2,.8,.2,1)</div>
+          <div class="stage"><div class="sheet-demo"></div></div>
+        </div>
+        <div class="mcard">
+          <h4>歌词跟唱</h4>
+          <div class="spec">color + scale 1.04 · 240ms</div>
+          <div class="stage"><div class="lyric-demo">把昨天留在原地<b>我们在夜里起飞</b>云层之上没有尽头</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== ROADMAP ===================== -->
+  <section id="roadmap">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="sec-num">07</div>
+        <div>
+          <h2>实施路线</h2>
+          <p>按「令牌 → 壳 → 主页面 → 播放 → 详情与设置 → 打磨」推进。每个阶段结束都能跑起来、能截图对比，不做大爆炸式重写。</p>
+        </div>
+      </div>
+      <div class="road">
+        <div class="phase">
+          <span class="num">0</span>
+          <h4>令牌与主题</h4>
+          <p>先换色与字阶，不动布局。旧字段保留别名，避免全量改样式。</p>
+          <code>theme/tokens.ts<br />themePaletteModel.ts<br />components/ui/*</code>
+        </div>
+        <div class="phase">
+          <span class="num">1</span>
+          <h4>导航壳</h4>
+          <p>移除 Drawer 与全局顶栏，新标签栏与浮起迷你播放器。</p>
+          <code>RootNavigator.tsx<br />MainTabNavigator.tsx<br />AppShell.tsx<br />MiniPlayer.tsx</code>
+        </div>
+        <div class="phase">
+          <span class="num">2</span>
+          <h4>四个主页面</h4>
+          <p>首页、搜索、音乐库、我的按新结构重排，补齐空/错/载状态。</p>
+          <code>HomeScreen.tsx<br />SearchScreen.tsx<br />LibraryScreen.tsx<br />MyMusicScreen.tsx</code>
+        </div>
+        <div class="phase">
+          <span class="num">3</span>
+          <h4>播放与歌词</h4>
+          <p>封面氛围背景、新传输控件、歌词页与队列抽屉。</p>
+          <code>ImmersiveLyricsScreen.tsx<br />screens/immersive/*<br />QueueModal.tsx</code>
+        </div>
+        <div class="phase">
+          <span class="num">4</span>
+          <h4>详情、设置与打磨</h4>
+          <p>塌陷头部、分组设置、无障碍与深色细节。</p>
+          <code>PlaylistDetailScreen.tsx<br />screens/settings/*<br />tests/*.test.cjs</code>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== QUESTIONS ===================== -->
+  <section id="questions">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="sec-num">08</div>
+        <div>
+          <h2>需要你确认的五件事</h2>
+          <p>这五点决定后面代码怎么改。其余细节（间距、圆角、动效时长）可以按实现时的实际情况微调。</p>
+        </div>
+      </div>
+      <div class="qs">
+        <div class="q"><span class="n">Q1</span><div><b>去掉抽屉与全局顶栏搜索，接受吗？</b><p>设置统一进「我的」，搜索统一进搜索 Tab。少一层导航，但全局搜索会多一次点击。</p></div></div>
+        <div class="q"><span class="n">Q2</span><div><b>播放页恒定深色，接受吗？</b><p>让封面成为唯一光源，浅色主题下也不切白底。若希望跟随主题，需要另做一套浅色播放页。</p></div></div>
+        <div class="q"><span class="n">Q3</span><div><b>音乐库用分段芯片替代顶部 Tab？</b><p>五个分段横向可滑，省一行高度；代价是不能左右滑页切换，只能点。</p></div></div>
+        <div class="q"><span class="n">Q4</span><div><b>首页第一屏以「继续收听」为主？</b><p>没有播放记录时自动降级为「每日推荐」入口，不做空白占位。</p></div></div>
+        <div class="q"><span class="n">Q5</span><div><b>绿色收敛为「仅交互与播放中」？</b><p>图标、标题、分割线全部中性；品牌绿仍用于主按钮填充与 logo。</p></div></div>
+        <div class="q" style="background:#0f1512;border-color:#22302a"><span class="n" style="color:#6fe7ac">NEXT</span><div><b style="color:#f1f5f2">确认后我按阶段 0 开始改代码</b><p style="color:#a7b3ae">先提交令牌与主题，再逐屏替换；每阶段附真机截图与回归清单，不改播放核心逻辑。</p></div></div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="wrap">
+    <span>AuralFlow Mobile · 界面重构方案 v1 · 2026-10-23</span>
+    <span>配套文档：PROPOSAL.md</span>
+  </footer>
+</main>
+
+<script>
+  // 主题切换：只影响可切换的浅色界面，播放页保持深色
+  const themeSeg = document.getElementById("themeSeg");
+  themeSeg.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-theme]");
+    if (!button) return;
+    const dark = button.dataset.theme === "dark";
+    themeSeg.querySelectorAll("button").forEach((item) => item.classList.toggle("on", item === button));
+    document.querySelectorAll(".screen.lightable").forEach((screen) => {
+      screen.classList.toggle("dark", dark);
+    });
+  });
+
+  // 支持通过 URL 参数直接出图：?theme=dark
+  const params = new URLSearchParams(location.search);
+  if (params.get("theme") === "dark") {
+    themeSeg.querySelector('button[data-theme="dark"]').click();
+  }
+</script>
+</body>
+</html>
