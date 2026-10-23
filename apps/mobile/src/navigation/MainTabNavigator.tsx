@@ -189,6 +189,6 @@ function tabIconStyle(focused: boolean, palette: ReturnType<typeof getThemePalet
     borderRadius: 9,
     alignItems: "center" as const,
     justifyContent: "center" as const,
-    backgroundColor: focused ? withAlpha(palette.primary, 0.15) : "transparent",
+    backgroundColor: focused ? withAlpha(palette.primaryInk, 0.15) : "transparent",
   };
 }

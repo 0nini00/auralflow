@@ -46,9 +46,9 @@ export function Chip({
     : selected
       ? palette.isDark
         ? {
-            border: palette.primary,
-            background: palette.primary,
-            text: palette.primaryText,
+            border: palette.actionFill,
+            background: palette.actionFill,
+            text: palette.onActionFill,
           }
         : {
             // 浅色下选中态用实心墨色：比浅绿底更清楚，也不与主按钮争夺注意力

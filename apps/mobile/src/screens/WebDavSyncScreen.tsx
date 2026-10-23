@@ -277,6 +277,7 @@ export function WebDavSyncScreen() {
           <ActionButton
             shrink
             small
+            variant="brand"
             label="保存配置"
             disabled={actionsDisabled}
             loading={savingConfig}
@@ -321,8 +322,8 @@ export function WebDavSyncScreen() {
               checked: autoSyncPlaylists,
             }}
             style={styles.switchControl}
-            trackColor={{ false: palette.border, true: palette.primary }}
-            thumbColor={palette.surface}
+            trackColor={{ false: palette.border, true: palette.actionFill }}
+            thumbColor={palette.onActionFill}
           />
         </View>
 
@@ -414,7 +415,7 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     fontSize: typography.body,
-    fontWeight: "600",
+    fontWeight: "700",
   },
   cardCaption: {
     fontSize: typography.caption,

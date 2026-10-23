@@ -76,7 +76,7 @@ export function CustomSourceUpdateModal() {
           <Text style={[styles.title, { color: palette.text }]}>
             自定义音源发现新版本
           </Text>
-          <Text style={[styles.sourceName, { color: palette.primary }]}>
+          <Text style={[styles.sourceName, { color: palette.primaryInk }]}>
             {source.name}
           </Text>
           <ScrollView style={styles.logScroll}>

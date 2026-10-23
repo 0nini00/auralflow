@@ -473,7 +473,7 @@ export function SongList({
       })}
       {mountedCount < songs.length ? (
         <View style={styles.mountingFooter}>
-          <ActivityIndicator size="small" color={palette.primary} />
+          <ActivityIndicator size="small" color={palette.primaryInk} />
           <Text style={[styles.mountingText, { color: palette.textSubtle }]}>
             正在载入 {mountedCount}/{songs.length} 首
           </Text>
@@ -641,9 +641,9 @@ export const SongItem = memo(function SongItem({  song,
   const isSelectedRow = selectionMode && selected;
   const isActive = isPlaying || highlighted;
   const activeBackground = isSelectedRow
-    ? withAlpha(palette.primary, 0.1)
+    ? withAlpha(palette.primaryInk, 0.1)
     : isActive
-    ? withAlpha(palette.primary, 0.08)
+    ? withAlpha(palette.primaryInk, 0.08)
     : "transparent";
   const extraMetadata = getExtraMetadata?.(song, index);
 
@@ -664,7 +664,7 @@ export const SongItem = memo(function SongItem({  song,
       {selectionMode ? (
         <View style={styles.selectionIcon}>
           {selected ? (
-            <CheckCircle2 size={22} color={palette.primary} fill={withAlpha(palette.primary, 0.2)} />
+            <CheckCircle2 size={22} color={palette.primaryInk} fill={withAlpha(palette.primaryInk, 0.2)} />
           ) : (
             <Circle size={22} color={palette.textSubtle} strokeWidth={1.5} />
           )}
@@ -679,22 +679,22 @@ export const SongItem = memo(function SongItem({  song,
               style={styles.artwork}
               fallback={
                 <View style={[styles.artwork, styles.artworkFallback, { backgroundColor: palette.surfaceStrong }]}>
-                  <Music2 size={20} color={palette.primary} />
+                  <Music2 size={20} color={palette.primaryInk} />
                 </View>
               }
             />
           ) : (
             <View style={[styles.artwork, styles.artworkFallback, { backgroundColor: palette.surfaceStrong }]}>
-              <Music2 size={20} color={palette.primary} />
+              <Music2 size={20} color={palette.primaryInk} />
             </View>
           )}
         </View>
       ) : !selectionMode ? (
         <View style={styles.indexColumn}>
           {isPlaying ? (
-            <AudioLines size={16} color={palette.primary} />
+            <AudioLines size={16} color={palette.primaryInk} />
           ) : (
-            <Text style={[styles.indexText, { color: isActive ? palette.primary : palette.textSubtle }]}>
+            <Text style={[styles.indexText, { color: isActive ? palette.primaryInk : palette.textSubtle }]}>
               {index + 1}
             </Text>
           )}
@@ -703,7 +703,7 @@ export const SongItem = memo(function SongItem({  song,
 
       <View style={styles.info}>
         <Text
-          style={[styles.songName, { color: isActive ? palette.primary : palette.text }]}
+          style={[styles.songName, { color: isActive ? palette.primaryInk : palette.text }]}
           numberOfLines={1}
         >
           {song.name}
@@ -749,7 +749,7 @@ export const SongItem = memo(function SongItem({  song,
       {!selectionMode ? <View style={styles.actions}>
         {showDuration && metadata.durationLabel ? (
           <Text
-            style={[styles.duration, { color: isActive ? palette.primary : palette.textSubtle }]}
+            style={[styles.duration, { color: isActive ? palette.primaryInk : palette.textSubtle }]}
             numberOfLines={1}
           >
             {metadata.durationLabel}

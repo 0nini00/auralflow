@@ -170,13 +170,13 @@ export function DailyRecommendScreen({ onNavigateToPlayer }: DailyRecommendScree
               <View
                 style={[styles.cover, styles.coverFallback, { backgroundColor: palette.surface }]}
               >
-                <Text style={[styles.coverFallbackText, { color: palette.primary }]}>推荐</Text>
+                <Text style={[styles.coverFallbackText, { color: palette.primaryInk }]}>推荐</Text>
               </View>
             }
           />
         ) : (
           <View style={[styles.cover, styles.coverFallback, { backgroundColor: palette.surface }]}>
-            <Text style={[styles.coverFallbackText, { color: palette.primary }]}>推荐</Text>
+            <Text style={[styles.coverFallbackText, { color: palette.primaryInk }]}>推荐</Text>
           </View>
         )}
         <View style={styles.headerText}>

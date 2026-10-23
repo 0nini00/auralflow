@@ -14,8 +14,8 @@
 |---|---|
 | `theme/tokens.ts` | 正文 14→15；标题 17/20/28；页面边距 16→20；新增 `tabBarHeight: 64`、`miniPlayerGap: 6`、`radius.xxl: 28` |
 | `services/themePaletteModel.ts` | 画布改暖中性 `#F3F3EF`；深色 `#0B0F0D`；新增 `primaryInk`（`#0D7A42` / `#6FE7AC`）、`isDark`、`SOURCE_COLORS`；自定义强调色自动压深/提亮到 4.5:1 |
-| `components/ui/Button.tsx` | 新增 `brand` 变体（品牌绿实心 + 深绿文字）；`primary` 保留 2026-08 的「表面底 + 强调色文字」约定 |
-| `components/ui/Chip.tsx` | 选中态改实心：浅色墨色、深色品牌绿 |
+| `components/ui/Button.tsx` | 新增 `brand` 变体（`actionFill` 深绿实心 + 白字）；`primary` 保留 2026-08 的「表面底 + 强调色文字」约定 |
+| `components/ui/Chip.tsx` | 选中态改实心：浅色墨色、深色 `actionFill` |
 | `components/ui/IconButton.tsx` | `accent` tone 改用 `primaryInk` |
 | `components/SectionHeader.tsx` | 标题 17px / 700 |
 | `components/ActionButton.tsx` | 支持 `brand` 变体 |
@@ -59,7 +59,7 @@
 | `screens/immersive/useImmersiveController.ts` | 播放页调色板固定为 dark |
 | `screens/ImmersiveLyricsScreen.tsx` | `isDark = true`；状态栏恒 light；封面/歌词页指示点 |
 | `screens/immersive/ImmersiveTopBar.tsx` | 返回图标改 `ChevronDown`（下滑关闭语义） |
-| `screens/immersive/ImmersiveTransport.tsx` | 66px 品牌绿实心播放键；新增队列直入口 |
+| `screens/immersive/ImmersiveTransport.tsx` | 66px 主题深绿实心播放键 + 白图标；新增队列直入口 |
 | `stores/lyricSettingsStore.ts` | 氛围色背景默认开启 |
 | `components/QueueModal.tsx` | 复用现有 sheet；当前曲高亮、拖拽排序、移除/清空保留 |
 
@@ -86,6 +86,55 @@ pnpm mobile:test        # 537 例全绿
 ```
 
 导航契约测试已按新根 Stack 更新，并补了 `librarySectionStore` 的 mock；沉浸播放页的布局契约测试也全部通过。
+
+### 播放页亮度复核（2026-10-23）
+
+用户反馈：竖屏播放器的进度条和播放/暂停键太亮，其他按键显得暗。调整：
+
+- **进度条**：传入播放器固定 dark palette（不再跟全局浅色主题走）；轨道/缓冲改中性半透明白，填充改为 70% 主题色，滑块 12px→8px、颜色改 `primaryInk`；高度 4→3。
+- **播放键**：最终是 66px 深绿实心（`actionFill`）+ 白图标 + 中性阴影，去掉绿色光晕；尺寸仍 66。
+- **活跃图标**：`tone="primary"` 会映射到 `primaryText`（深色），在深色播放页上几乎看不见；新增 `tone="accent"`，播放模式/喜欢/悬浮歌词/睡眠定时改用它（`primaryInk` 浅绿）。
+- 结果：白色控件（上一首/下一首/更多/顶栏）保持清晰，绿色只做小面积强调，播放键靠尺寸与描边保持主操作层级。
+
+### 按钮填充统一（2026-10-23）
+
+用户要求：所有按钮的绿色填充默认用「文案绿」（如「音乐云盘」的 `#0D7A42`），不再用品牌荧光绿。
+
+- 新增 `palette.actionFill` / `palette.onActionFill`：浅色/深色都固定 `#0D7A42` + 白字（5.4:1）；自定义强调色会按同色相压深并保证白字 4.5:1。
+- 已替换：`Button` 的 `brand` 变体、迷你播放器播放键、竖屏播放器播放键、首页继续收听播放键、歌单编辑弹层确认键、深色选中 Chip、私人 FM 大播放键、新建歌单确认键/加号、启动重试键。
+- 全站绿色**文字 / 图标 / 选中态文字**统一到 `primaryInk`（`color: palette.primary`、`color={palette.primary}`、条件三元都已替换），避免同一屏出现「荧光绿文字 + 深绿按钮」两种绿。
+- 实心选中芯片/开关用 `actionFill` + `onActionFill`（如睡眠定时选项、歌词强度/字体、歌单广场分类、音源测试状态）；浅色底选中态仍用 `primaryInk` 文字/边框。
+- 刷新控件、进度条、色板预览与封面占位使用 `palette.primary`（跟随当前主题色，默认深绿）；批量替换时曾误伤这些填充，已逐一恢复。
+- 深色播放器的播放键现在是深绿实心 + 白图标；比原来的实心亮绿暗一档，和白色上一首/下一首保持同一明度层级。
+
+### 主题色预设与调色盘（2026-10-23）
+
+用户要求：外观里设计几个主题色，第一个默认用「上面的绿」；再加一个调色盘可选任意颜色。
+
+- `DEFAULT_ACCENT_COLOR` 从品牌荧光绿 `#3BD877` 改为深行动绿 `#0D7A42`；旧值在 `migrateAccentColor` 中自动迁移，现有安装不会停在亮绿。
+- 预设 8 色：默认绿 `#0D7A42` / 松针 `#146B52` / 湖蓝 `#1D6FA5` / 靛青 `#3B4FA8` / 暮紫 `#6B4BA8` / 赭橙 `#A9531A` / 莓红 `#A8324F` / 岩灰 `#4A5450`。
+- 新增 `components/settings/ThemeColorPicker.tsx`：可展开的 HSV 调色盘（饱和度/明度选区 + 色相条 + Hex 输入）；拖动时只更新本地预览，松手才写回主题 store，避免每帧 AsyncStorage 落盘。
+- `buildPrimaryInk` / `buildActionFill` 改为「先直接使用主题色，只有对比度不足 4.5:1 才压深/提亮」；这样预设色的文字和按钮不会被额外压暗，选什么看到什么。
+- 选中态浅底统一改用 `primaryInk` 的 alpha，深色主题下也看得见；实心选中芯片仍是 `actionFill + onActionFill`。
+
+### 设置二级页细节优化（2026-10-23）
+
+- `SettingsCard` 圆角 12→16、加 `overflow:hidden`，选中底色不再顶到方角；`SettingsPage` 卡片间距 12→16。
+- 设置顶栏标题 18→17，与全局 PageHeader 一致；二级页卡片标题统一 15/700（播放/账号/关于/同步）。
+- 卡内行统一 12px 水平内边距：音质选中行用负 margin 抵消卡片 padding，标题、行、分隔线对齐；选中行文字/图标改 `primaryInk`，浅底改 `primaryInk` alpha，深色主题可见。
+- 关于页版本行去掉多余水平缩进；单行链接卡去掉底部多余 hairline。
+- 账号卡「登录 / 验证并登录」、音源「粘贴导入 / 确认导入」、WebDAV「保存配置」改 `brand` 深绿主操作。
+- 账号卡 VIP 角标改深橙 `#B45309`（白字对比度达标），ID 行改 `textMuted`；开关/分段选中态统一 `actionFill` / `primaryInk`。
+
+### 设置返回层级修复（2026-10-23）
+
+用户反馈：从「我的」直接打开外观/播放/歌词等设置，返回时却先回「全部设置」，应该直接回「我的」。
+
+- `settingsCategoryStore` 新增 `fromSettingsHome` 来源标记：
+  - 「我的」直达二级页 → `false`，顶栏/系统返回直接 pop 回「我的」。
+  - 「全部设置」首页进入二级页 → `true`，返回先回设置首页；设置首页再返回才 pop 回「我的」。
+- 顶栏返回与 Android 返回拦截共用同一判断；新增 `tests/settings-navigation.test.cjs` 锁定两种来源的 store 行为。
+- 覆盖入口：我的 → 外观 / 播放与音质 / 歌词与浮窗 / 音乐云盘 / 自定义音源 / WebDAV 同步 / 全部设置。
 
 ### 复核修复（细节回看）
 

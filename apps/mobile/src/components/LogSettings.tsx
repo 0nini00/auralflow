@@ -69,7 +69,7 @@ export function LogSettings() {
       <SettingsCard style={styles.card}>
         <View style={styles.row}>
           <View style={styles.rowTitleWrap}>
-            <FileText size={18} color={palette.primary} />
+            <FileText size={18} color={palette.primaryInk} />
             <Text style={[styles.rowTitle, { color: palette.text }]}>日志目录</Text>
           </View>
           <Text

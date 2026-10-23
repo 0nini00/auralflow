@@ -48,12 +48,12 @@ export function PlaybackErrorSettings() {
               style={({ pressed }) => [
                 styles.segment,
                 {
-                  backgroundColor: selected ? withAlpha(palette.primary, 0.14) : "transparent",
+                  backgroundColor: selected ? withAlpha(palette.primaryInk, 0.14) : "transparent",
                   opacity: pressed ? 0.7 : 1,
                 },
               ]}
             >
-              <Text style={[styles.segmentLabel, { color: selected ? palette.primary : palette.textMuted }]}>
+              <Text style={[styles.segmentLabel, { color: selected ? palette.primaryInk : palette.textMuted }]}>
                 {option.label}
               </Text>
             </Pressable>
@@ -73,7 +73,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.s,
   },
-  title: { fontSize: typography.title, fontWeight: "700" },
+  title: { fontSize: typography.body, fontWeight: "700" },
   subtitle: { fontSize: typography.caption },
   segmentGroup: {
     flexDirection: "row",

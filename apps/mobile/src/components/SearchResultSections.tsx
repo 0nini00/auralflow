@@ -220,7 +220,7 @@ function Artwork({ uri, fallbackText, palette }: { uri?: string; fallbackText: s
 function ArtworkFallback({ text, palette }: { text: string; palette: ThemePalette }) {
   return (
     <View style={[styles.artwork, styles.artworkFallback, { backgroundColor: palette.surfaceStrong }]}>
-      <Text style={[styles.artworkFallbackText, { color: palette.primary }]}>{text}</Text>
+      <Text style={[styles.artworkFallbackText, { color: palette.primaryInk }]}>{text}</Text>
     </View>
   );
 }

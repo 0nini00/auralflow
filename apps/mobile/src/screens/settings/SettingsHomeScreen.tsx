@@ -54,7 +54,7 @@ export function SettingsHomeScreen() {
                     icon={Icon}
                     title={category.label}
                     description={category.description}
-                    onPress={() => requestCategory(name)}
+                    onPress={() => requestCategory(name, { fromSettingsHome: true })}
                   />
                 );
               })}

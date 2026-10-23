@@ -64,13 +64,13 @@ function PlaylistItem({ playlist, onPress }: PlaylistItemProps) {
           style={styles.cover}
           fallback={
             <View style={[styles.cover, styles.coverFallback, { backgroundColor: palette.surfaceStrong }]}>
-              <Music2 size={24} color={palette.primary} />
+              <Music2 size={24} color={palette.primaryInk} />
             </View>
           }
         />
       ) : (
         <View style={[styles.cover, styles.coverFallback, { backgroundColor: palette.surfaceStrong }]}>
-          <Music2 size={24} color={palette.primary} />
+          <Music2 size={24} color={palette.primaryInk} />
         </View>
       )}
 

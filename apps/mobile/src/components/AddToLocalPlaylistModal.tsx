@@ -206,8 +206,8 @@ export function AddToLocalPlaylistModal({
                 style={[
                   styles.createEntryCard,
                   {
-                    backgroundColor: withAlpha(palette.primary, 0.08),
-                    borderColor: withAlpha(palette.primary, 0.2),
+                    backgroundColor: withAlpha(palette.actionFill, 0.08),
+                    borderColor: withAlpha(palette.actionFill, 0.2),
                   },
                 ]}
                 onPress={() => setShowCreateInput(true)}
@@ -215,11 +215,11 @@ export function AddToLocalPlaylistModal({
                 accessibilityRole="button"
                 accessibilityLabel="新建歌单"
               >
-                <View style={[styles.plusCircle, { backgroundColor: palette.primary }]}>
-                  <Plus size={18} color={palette.primaryText} />
+                <View style={[styles.plusCircle, { backgroundColor: palette.actionFill }]}>
+                  <Plus size={18} color={palette.onActionFill} />
                 </View>
                 <View style={styles.createEntryInfo}>
-                  <Text style={[styles.createEntryTitle, { color: palette.primary }]}>
+                  <Text style={[styles.createEntryTitle, { color: palette.primaryInk }]}>
                     新建歌单并添加
                   </Text>
                   <Text style={[styles.createEntrySubtitle, { color: palette.textMuted }]}>
@@ -255,7 +255,7 @@ export function AddToLocalPlaylistModal({
                     style={[
                       styles.confirmCreateBtn,
                       {
-                        backgroundColor: newPlaylistName.trim() ? palette.primary : palette.border,
+                        backgroundColor: newPlaylistName.trim() ? palette.actionFill : palette.border,
                       },
                     ]}
                     onPress={handleCreateWithSong}
@@ -264,9 +264,9 @@ export function AddToLocalPlaylistModal({
                     accessibilityLabel="确认创建歌单"
                   >
                     {creating ? (
-                      <ActivityIndicator size="small" color={palette.primaryText} />
+                      <ActivityIndicator size="small" color={palette.onActionFill} />
                     ) : (
-                      <Text style={[styles.confirmCreateText, { color: palette.primaryText }]}>
+                      <Text style={[styles.confirmCreateText, { color: palette.onActionFill }]}>
                         创建
                       </Text>
                     )}
@@ -288,7 +288,7 @@ export function AddToLocalPlaylistModal({
 
             {/* 本地歌单列表 */}
             <View style={styles.sectionHeader}>
-              <FolderHeart size={16} color={palette.primary} />
+              <FolderHeart size={16} color={palette.primaryInk} />
               <Text style={[styles.sectionTitle, { color: palette.text }]}>本地歌单</Text>
             </View>
 
@@ -318,7 +318,7 @@ export function AddToLocalPlaylistModal({
                         {
                           backgroundColor: option.containsSong
                             ? palette.surfaceMuted
-                            : withAlpha(palette.primary, 0.1),
+                            : withAlpha(palette.primaryInk, 0.1),
                           overflow: "hidden",
                         },
                       ]}
@@ -331,14 +331,14 @@ export function AddToLocalPlaylistModal({
                           fallback={
                             <ListMusic
                               size={20}
-                              color={option.containsSong ? palette.textMuted : palette.primary}
+                              color={option.containsSong ? palette.textMuted : palette.primaryInk}
                             />
                           }
                         />
                       ) : (
                         <ListMusic
                           size={20}
-                          color={option.containsSong ? palette.textMuted : palette.primary}
+                          color={option.containsSong ? palette.textMuted : palette.primaryInk}
                         />
                       )}
                     </View>
@@ -354,7 +354,7 @@ export function AddToLocalPlaylistModal({
                       </Text>
                     </View>
                     {isAdding ? (
-                      <ActivityIndicator color={palette.primary} size="small" />
+                      <ActivityIndicator color={palette.primaryInk} size="small" />
                     ) : option.containsSong ? (
                       <View style={styles.badgeAdded}>
                         <Check size={14} color={palette.textMuted} />
@@ -363,7 +363,7 @@ export function AddToLocalPlaylistModal({
                         </Text>
                       </View>
                     ) : (
-                      <Text style={[styles.badgeAddAction, { color: palette.primary }]}>
+                      <Text style={[styles.badgeAddAction, { color: palette.primaryInk }]}>
                         添加
                       </Text>
                     )}
@@ -374,7 +374,7 @@ export function AddToLocalPlaylistModal({
 
             {/* 网易云自建歌单 */}
             <View style={[styles.sectionHeader, styles.remoteSectionHeader]}>
-              <Cloud size={16} color={palette.primary} />
+              <Cloud size={16} color={palette.primaryInk} />
               <Text style={[styles.sectionTitle, { color: palette.text }]}>网易云自建歌单</Text>
             </View>
 
@@ -400,10 +400,10 @@ export function AddToLocalPlaylistModal({
                     <View
                       style={[
                         styles.playlistIconBox,
-                        { backgroundColor: withAlpha(palette.primary, 0.1) },
+                        { backgroundColor: withAlpha(palette.primaryInk, 0.1) },
                       ]}
                     >
-                      <Cloud size={20} color={palette.primary} />
+                      <Cloud size={20} color={palette.primaryInk} />
                     </View>
                     <View style={styles.playlistInfo}>
                       <Text
@@ -417,9 +417,9 @@ export function AddToLocalPlaylistModal({
                       </Text>
                     </View>
                     {isAddingWy ? (
-                      <ActivityIndicator color={palette.primary} size="small" />
+                      <ActivityIndicator color={palette.primaryInk} size="small" />
                     ) : (
-                      <Text style={[styles.badgeAddAction, { color: palette.primary }]}>
+                      <Text style={[styles.badgeAddAction, { color: palette.primaryInk }]}>
                         添加
                       </Text>
                     )}

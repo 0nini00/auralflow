@@ -90,9 +90,9 @@ export function BatchActionBar({
                 styles.selectAllChip,
                 {
                   backgroundColor: allSelected
-                    ? withAlpha(palette.primary, 0.12)
+                    ? withAlpha(palette.primaryInk, 0.12)
                     : palette.surfaceMuted,
-                  borderColor: allSelected ? palette.primary : "transparent",
+                  borderColor: allSelected ? palette.primaryInk : "transparent",
                 },
               ]}
               onPress={() => {
@@ -105,12 +105,12 @@ export function BatchActionBar({
               accessibilityLabel={allSelected ? "取消全选" : selectAllLabel}
             >
               {allSelected ? (
-                <Check size={13} color={palette.primary} style={{ marginRight: 2 }} />
+                <Check size={13} color={palette.primaryInk} style={{ marginRight: 2 }} />
               ) : null}
               <Text
                 style={[
                   styles.selectAllText,
-                  { color: allSelected ? palette.primary : palette.text },
+                  { color: allSelected ? palette.primaryInk : palette.text },
                 ]}
               >
                 {allSelected ? "取消全选" : selectAllLabel}
@@ -161,7 +161,7 @@ export function BatchActionBar({
                   {
                     backgroundColor: disabled
                       ? palette.surfaceMuted
-                      : withAlpha(palette.primary, 0.1),
+                      : withAlpha(palette.primaryInk, 0.1),
                   },
                 ]}
               >
@@ -170,7 +170,7 @@ export function BatchActionBar({
                     ? React.cloneElement(
                         action.icon as React.ReactElement<{ color?: string; size?: number }>,
                         {
-                          color: disabled ? palette.textSubtle : palette.primary,
+                          color: disabled ? palette.textSubtle : palette.primaryInk,
                           size: 20,
                         },
                       )

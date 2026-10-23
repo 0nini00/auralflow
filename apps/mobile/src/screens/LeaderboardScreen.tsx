@@ -105,7 +105,7 @@ export function LeaderboardScreen() {
             <CachedImage uri={board.coverUrl} style={styles.officialCover} />
           ) : (
             <View style={[styles.officialCover, styles.coverFallback, { backgroundColor: palette.surfaceStrong }]}>
-              <Music2 size={32} color={palette.primary} />
+              <Music2 size={32} color={palette.primaryInk} />
             </View>
           )}
           {board.updateFrequency ? (
@@ -127,7 +127,7 @@ export function LeaderboardScreen() {
             {topSongs.length > 0 ? (
               topSongs.slice(0, 3).map((song, idx) => (
                 <View key={idx} style={styles.songRow}>
-                  <Text style={[styles.songIndex, { color: idx === 0 ? palette.primary : palette.textMuted }]}>
+                  <Text style={[styles.songIndex, { color: idx === 0 ? palette.primaryInk : palette.textMuted }]}>
                     {idx + 1}
                   </Text>
                   <Text style={[styles.songTitle, { color: palette.text }]} numberOfLines={1}>
@@ -169,7 +169,7 @@ export function LeaderboardScreen() {
           <CachedImage uri={board.coverUrl} style={styles.gridCover} />
         ) : (
           <View style={[styles.gridCover, styles.coverFallback, { backgroundColor: palette.surfaceStrong }]}>
-            <Music2 size={24} color={palette.primary} />
+            <Music2 size={24} color={palette.primaryInk} />
           </View>
         )}
         {board.updateFrequency ? (
@@ -199,7 +199,7 @@ export function LeaderboardScreen() {
         }
       >
         <View style={styles.titleHeader}>
-          <Trophy size={22} color={palette.primary} />
+          <Trophy size={22} color={palette.primaryInk} />
           <Text style={[styles.pageTitle, { color: palette.text }]}>排行榜</Text>
         </View>
 

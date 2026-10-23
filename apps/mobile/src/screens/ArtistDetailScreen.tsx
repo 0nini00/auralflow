@@ -206,7 +206,7 @@ export function ArtistDetailScreen({
                   accessibilityRole="button"
                   accessibilityLabel={descriptionModel.toggleLabel}
                 >
-                  <Text style={[styles.descriptionToggleText, { color: palette.primary }]}>
+                  <Text style={[styles.descriptionToggleText, { color: palette.primaryInk }]}>
                     {descriptionModel.toggleLabel}
                   </Text>
                 </Pressable>

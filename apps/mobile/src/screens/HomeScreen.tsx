@@ -136,7 +136,7 @@ export function HomeScreen({ onNavigateToSearch: _onNavigateToSearch, onNavigate
     await refreshAll(context, { force: true });
     refreshLeaderboards();
   };
-  const renderLoading = (label: string) => <View accessibilityLiveRegion="polite" style={styles.loadingPlaceholder}><ActivityIndicator size="small" color={palette.primary} /><Text style={styles.loadingText}>{label}</Text></View>;
+  const renderLoading = (label: string) => <View accessibilityLiveRegion="polite" style={styles.loadingPlaceholder}><ActivityIndicator size="small" color={palette.primaryInk} /><Text style={styles.loadingText}>{label}</Text></View>;
   const renderSectionError = (section: HomeFeedSection | undefined, id: HomeFeedSectionId) => section?.status === "error" ? <HomeSectionError message={section.error?.message ?? "加载失败"} loading={sectionLoading[id]} onRetry={() => void refreshSection(id, context)} /> : null;
 
   return (
@@ -290,12 +290,12 @@ function ContinueListeningCard({
         hitSlop={4}
         accessibilityRole="button"
         accessibilityLabel={isPlaying ? "暂停" : "继续播放"}
-        style={[styles.continuePlay, { backgroundColor: palette.primary }]}
+        style={[styles.continuePlay, { backgroundColor: palette.actionFill }]}
       >
         {isPlaying ? (
-          <Pause size={17} color={palette.primaryText} fill={palette.primaryText} />
+          <Pause size={17} color={palette.onActionFill} fill={palette.onActionFill} />
         ) : (
-          <Play size={17} color={palette.primaryText} fill={palette.primaryText} />
+          <Play size={17} color={palette.onActionFill} fill={palette.onActionFill} />
         )}
       </Touchable>
     </Touchable>

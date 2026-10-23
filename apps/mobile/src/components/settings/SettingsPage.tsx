@@ -24,7 +24,11 @@ export function SettingsPage({ title, description, children }: SettingsPageProps
 
   return (
     <ScreenScaffold>
-      <ScreenScrollView accessibilityLabel={`${title}，${description}`} contentContainerStyle={styles.container}>
+      <ScreenScrollView
+        accessibilityLabel={`${title}，${description}`}
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+      >
         <Text accessibilityRole="summary" style={[styles.description, { color: palette.textMuted }]}>
           {description}
         </Text>
@@ -40,5 +44,5 @@ const styles = StyleSheet.create({
     fontSize: typography.body,
     lineHeight: 20,
   },
-  content: { gap: spacing.s },
+  content: { gap: spacing.m },
 });

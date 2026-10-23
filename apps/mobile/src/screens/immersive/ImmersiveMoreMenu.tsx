@@ -141,7 +141,7 @@ export function ImmersiveMoreMenu({
           {/* 标题栏 */}
           <View style={styles.header}>
             <View style={styles.titleWithIcon}>
-              <MoreHorizontal size={18} color={palette.primary} />
+              <MoreHorizontal size={18} color={palette.primaryInk} />
               <Text style={[styles.title, { color: palette.text }]}>更多选项</Text>
             </View>
             <Touchable
@@ -166,7 +166,7 @@ export function ImmersiveMoreMenu({
                 key={index}
                 style={[
                   styles.item,
-                  item.active && { backgroundColor: withAlpha(palette.primary, 0.08) },
+                  item.active && { backgroundColor: withAlpha(palette.primaryInk, 0.08) },
                 ]}
                 activeScale={0.99}
                 activeOpacity={0.65}
@@ -183,20 +183,20 @@ export function ImmersiveMoreMenu({
                     styles.iconCircle,
                     {
                       backgroundColor: item.active
-                        ? withAlpha(palette.primary, 0.14)
+                        ? withAlpha(palette.primaryInk, 0.14)
                         : palette.surfaceMuted,
                     },
                   ]}
                 >
                   <item.icon
                     size={18}
-                    color={item.active ? palette.primary : palette.text}
+                    color={item.active ? palette.primaryInk : palette.text}
                   />
                 </View>
                 <Text
                   style={[
                     styles.itemLabel,
-                    { color: item.active ? palette.primary : palette.text },
+                    { color: item.active ? palette.primaryInk : palette.text },
                   ]}
                 >
                   {item.label}

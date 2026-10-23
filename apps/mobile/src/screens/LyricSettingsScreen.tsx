@@ -160,8 +160,8 @@ export function LyricSettingsContent() {
                       style={({ pressed }) => [
                         styles.intensityChip,
                         {
-                          backgroundColor: selected ? palette.primary : "transparent",
-                          borderColor: selected ? palette.primary : palette.border,
+                          backgroundColor: selected ? palette.actionFill : "transparent",
+                          borderColor: selected ? palette.actionFill : palette.border,
                           opacity: pressed ? 0.7 : 1,
                         },
                       ]}
@@ -169,7 +169,7 @@ export function LyricSettingsContent() {
                       <Text
                         style={[
                           styles.intensityChipText,
-                          { color: selected ? palette.primaryText : palette.text },
+                          { color: selected ? palette.onActionFill : palette.text },
                         ]}
                       >
                         {option.label}
@@ -259,18 +259,18 @@ export function LyricSettingsContent() {
                 style={({ pressed }) => [
                   styles.fontChip,
                   {
-                    backgroundColor: selected ? palette.primary : "transparent",
-                    borderColor: selected ? palette.primary : palette.border,
+                    backgroundColor: selected ? palette.actionFill : "transparent",
+                    borderColor: selected ? palette.actionFill : palette.border,
                     opacity: pressed ? 0.7 : 1,
                   },
                 ]}
-                android_ripple={{ color: palette.primary }}
+                android_ripple={{ color: palette.primaryInk }}
               >
                 <Text
                   style={[
                     styles.fontChipText,
                     {
-                      color: selected ? palette.primaryText : palette.text,
+                      color: selected ? palette.onActionFill : palette.text,
                       fontFamily: opt.value || undefined,
                     },
                   ]}
@@ -333,8 +333,8 @@ function SwitchRow({ palette, title, subtitle, value, onValueChange, accessibili
         accessibilityLabel={accessibilityLabel}
         value={value}
         onValueChange={onValueChange}
-        trackColor={{ false: palette.surfaceMuted, true: palette.primary }}
-        thumbColor={value ? palette.primaryText : palette.textMuted}
+        trackColor={{ false: palette.surfaceMuted, true: palette.actionFill }}
+        thumbColor={value ? palette.onActionFill : palette.textMuted}
       />
     </View>
   );
@@ -371,7 +371,7 @@ function ColorSwatchRow({ palette, label, presets, value, fallbackColor, onSelec
               style={({ pressed }) => [
                 styles.swatchRing,
                 {
-                  borderColor: selected ? palette.primary : "transparent",
+                  borderColor: selected ? palette.primaryInk : "transparent",
                   opacity: pressed ? 0.7 : 1,
                 },
               ]}

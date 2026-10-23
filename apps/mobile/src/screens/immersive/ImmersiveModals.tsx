@@ -149,7 +149,7 @@ export function ImmersiveModals({
             <View style={styles.sheetHeader}>
               <View style={styles.sheetTitleGroup}>
                 <View style={styles.titleWithIcon}>
-                  <Gauge size={18} color={palette.primary} />
+                  <Gauge size={18} color={palette.primaryInk} />
                   <Text style={[styles.sheetTitle, { color: palette.text }]}>
                     {rateModel.title || "倍速播放"}
                   </Text>
@@ -178,9 +178,9 @@ export function ImmersiveModals({
                       styles.chipOption,
                       {
                         backgroundColor: active
-                          ? withAlpha(palette.primary, 0.12)
+                          ? withAlpha(palette.primaryInk, 0.12)
                           : palette.surfaceMuted,
-                        borderColor: active ? palette.primary : "transparent",
+                        borderColor: active ? palette.primaryInk : "transparent",
                       },
                     ]}
                     onPress={() => {
@@ -196,7 +196,7 @@ export function ImmersiveModals({
                       style={[
                         styles.chipOptionText,
                         {
-                          color: active ? palette.primary : palette.text,
+                          color: active ? palette.primaryInk : palette.text,
                           fontWeight: active ? "700" : "500",
                         },
                       ]}
@@ -204,7 +204,7 @@ export function ImmersiveModals({
                       {option.label}
                     </Text>
                     {active ? (
-                      <Check size={14} color={palette.primary} style={styles.chipCheck} />
+                      <Check size={14} color={palette.primaryInk} style={styles.chipCheck} />
                     ) : null}
                   </Touchable>
                 );
@@ -248,7 +248,7 @@ export function ImmersiveModals({
                   {volumeModel.muted ? (
                     <VolumeX size={18} color={palette.danger} />
                   ) : (
-                    <Volume2 size={18} color={palette.primary} />
+                    <Volume2 size={18} color={palette.primaryInk} />
                   )}
                   <Text style={[styles.sheetTitle, { color: palette.text }]}>
                     {volumeModel.title || "播放音量"}
@@ -280,9 +280,9 @@ export function ImmersiveModals({
                       styles.chipOption,
                       {
                         backgroundColor: active
-                          ? withAlpha(palette.primary, 0.12)
+                          ? withAlpha(palette.primaryInk, 0.12)
                           : palette.surfaceMuted,
-                        borderColor: active ? palette.primary : "transparent",
+                        borderColor: active ? palette.primaryInk : "transparent",
                       },
                     ]}
                     onPress={() => {
@@ -297,7 +297,7 @@ export function ImmersiveModals({
                       style={[
                         styles.chipOptionText,
                         {
-                          color: active ? palette.primary : palette.text,
+                          color: active ? palette.primaryInk : palette.text,
                           fontWeight: active ? "700" : "500",
                         },
                       ]}
@@ -315,7 +315,7 @@ export function ImmersiveModals({
                 {
                   backgroundColor: volumeModel.muted
                     ? palette.danger
-                    : withAlpha(palette.primary, 0.1),
+                    : withAlpha(palette.primaryInk, 0.1),
                   borderColor: volumeModel.muted ? palette.danger : palette.border,
                 },
               ]}
@@ -329,12 +329,12 @@ export function ImmersiveModals({
               {volumeModel.muted ? (
                 <VolumeX size={18} color={palette.surface} />
               ) : (
-                <Volume2 size={18} color={palette.primary} />
+                <Volume2 size={18} color={palette.primaryInk} />
               )}
               <Text
                 style={[
                   styles.muteActionText,
-                  { color: volumeModel.muted ? palette.surface : palette.primary },
+                  { color: volumeModel.muted ? palette.surface : palette.primaryInk },
                 ]}
               >
                 {volumeModel.muteLabel}
@@ -380,7 +380,7 @@ export function ImmersiveModals({
               <View style={styles.sheetHeader}>
                 <View style={styles.sheetTitleGroup}>
                   <View style={styles.titleWithIcon}>
-                    <Clock size={18} color={palette.primary} />
+                    <Clock size={18} color={palette.primaryInk} />
                     <Text style={[styles.sheetTitle, { color: palette.text }]}>睡眠定时</Text>
                   </View>
                   <Text style={[styles.sheetSubtitle, { color: palette.textMuted }]}>
@@ -410,11 +410,11 @@ export function ImmersiveModals({
                     {
                       backgroundColor:
                         sleepTimerActive || sleepTimerSongActive
-                          ? withAlpha(palette.primary, 0.08)
+                          ? withAlpha(palette.primaryInk, 0.08)
                           : palette.surfaceMuted,
                       borderColor:
                         sleepTimerActive || sleepTimerSongActive
-                          ? withAlpha(palette.primary, 0.2)
+                          ? withAlpha(palette.primaryInk, 0.2)
                           : "transparent",
                     },
                   ]}
@@ -426,7 +426,7 @@ export function ImmersiveModals({
                         {
                           color:
                             sleepTimerActive || sleepTimerSongActive
-                              ? palette.primary
+                              ? palette.primaryInk
                               : palette.textMuted,
                         },
                       ]}
@@ -466,7 +466,7 @@ export function ImmersiveModals({
 
                 {/* 选项组 1：按时间停止 */}
                 <View style={styles.sectionHeader}>
-                  <Clock size={15} color={palette.primary} />
+                  <Clock size={15} color={palette.primaryInk} />
                   <Text style={[styles.sectionTitle, { color: palette.text }]}>按时间停止</Text>
                 </View>
                 <View style={styles.optionGrid}>
@@ -484,9 +484,9 @@ export function ImmersiveModals({
                           styles.chipOption,
                           {
                             backgroundColor: active
-                              ? palette.primary
+                              ? palette.actionFill
                               : palette.surfaceMuted,
-                            borderColor: active ? palette.primary : "transparent",
+                            borderColor: active ? palette.actionFill : "transparent",
                           },
                         ]}
                       >
@@ -494,7 +494,7 @@ export function ImmersiveModals({
                           style={[
                             styles.chipOptionText,
                             {
-                              color: active ? palette.primaryText : palette.text,
+                              color: active ? palette.onActionFill : palette.text,
                               fontWeight: active ? "700" : "500",
                             },
                           ]}
@@ -520,7 +520,7 @@ export function ImmersiveModals({
                     style={[
                       styles.customStartBtn,
                       {
-                        backgroundColor: customMinutesValid ? palette.primary : palette.border,
+                        backgroundColor: customMinutesValid ? palette.actionFill : palette.border,
                       },
                     ]}
                     onPress={() => {
@@ -533,7 +533,7 @@ export function ImmersiveModals({
                     <Text
                       style={[
                         styles.customStartText,
-                        { color: customMinutesValid ? palette.primaryText : palette.textMuted },
+                        { color: customMinutesValid ? palette.onActionFill : palette.textMuted },
                       ]}
                     >
                       开启
@@ -543,7 +543,7 @@ export function ImmersiveModals({
 
                 {/* 选项组 2：按歌曲数停止 */}
                 <View style={[styles.sectionHeader, { marginTop: spacing.l }]}>
-                  <Music2 size={15} color={palette.primary} />
+                  <Music2 size={15} color={palette.primaryInk} />
                   <Text style={[styles.sectionTitle, { color: palette.text }]}>
                     听完歌曲后停止
                   </Text>
@@ -563,9 +563,9 @@ export function ImmersiveModals({
                           styles.chipOption,
                           {
                             backgroundColor: active
-                              ? palette.primary
+                              ? palette.actionFill
                               : palette.surfaceMuted,
-                            borderColor: active ? palette.primary : "transparent",
+                            borderColor: active ? palette.actionFill : "transparent",
                           },
                         ]}
                       >
@@ -573,7 +573,7 @@ export function ImmersiveModals({
                           style={[
                             styles.chipOptionText,
                             {
-                              color: active ? palette.primaryText : palette.text,
+                              color: active ? palette.onActionFill : palette.text,
                               fontWeight: active ? "700" : "500",
                             },
                           ]}
@@ -599,7 +599,7 @@ export function ImmersiveModals({
                     style={[
                       styles.customStartBtn,
                       {
-                        backgroundColor: customSongCountValid ? palette.primary : palette.border,
+                        backgroundColor: customSongCountValid ? palette.actionFill : palette.border,
                       },
                     ]}
                     onPress={() => {
@@ -612,7 +612,7 @@ export function ImmersiveModals({
                     <Text
                       style={[
                         styles.customStartText,
-                        { color: customSongCountValid ? palette.primaryText : palette.textMuted },
+                        { color: customSongCountValid ? palette.onActionFill : palette.textMuted },
                       ]}
                     >
                       开启

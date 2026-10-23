@@ -67,7 +67,7 @@ export function SearchFallbackDetailScreen({
             style={styles.backButton}
             onPress={onBack}
           >
-            <Text style={[styles.backText, { color: palette.primary }]}>返回</Text>
+            <Text style={[styles.backText, { color: palette.primaryInk }]}>返回</Text>
           </Pressable>
         ) : null}
         <PlaybackErrorState

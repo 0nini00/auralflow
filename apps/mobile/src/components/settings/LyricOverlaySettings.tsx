@@ -260,8 +260,8 @@ function SwitchRow({
         disabled={disabled}
         value={value}
         onValueChange={onValueChange}
-        trackColor={{ false: palette.surfaceMuted, true: palette.primary }}
-        thumbColor={value ? palette.primaryText : palette.textMuted}
+        trackColor={{ false: palette.surfaceMuted, true: palette.actionFill }}
+        thumbColor={value ? palette.onActionFill : palette.textMuted}
       />
     </View>
   );

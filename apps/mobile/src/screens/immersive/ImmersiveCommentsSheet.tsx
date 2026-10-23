@@ -222,7 +222,7 @@ export function ImmersiveCommentsSheet({
         <View style={[styles.sheet, { backgroundColor: palette.surface }]}>
           <View style={styles.header}>
             <View style={styles.headerTitleWrap}>
-              <MessageCircle size={18} color={palette.primary} />
+              <MessageCircle size={18} color={palette.primaryInk} />
               <Text style={[styles.title, { color: palette.text }]} numberOfLines={1}>
                 {song?.name ?? "评论"}
               </Text>
@@ -237,7 +237,7 @@ export function ImmersiveCommentsSheet({
 
           {loading && items.length === 0 ? (
             <View style={styles.center}>
-              <ActivityIndicator color={palette.primary} />
+              <ActivityIndicator color={palette.primaryInk} />
             </View>
           ) : error ? (
             <View style={styles.center}>
@@ -248,7 +248,7 @@ export function ImmersiveCommentsSheet({
                 onPress={() => void load(0, false)}
                 style={[styles.retryButton, { borderColor: palette.border }]}
               >
-                <Text style={[styles.retryText, { color: palette.primary }]}>重试</Text>
+                <Text style={[styles.retryText, { color: palette.primaryInk }]}>重试</Text>
               </Pressable>
             </View>
           ) : items.length === 0 ? (
@@ -268,7 +268,7 @@ export function ImmersiveCommentsSheet({
               onRefresh={handleRefresh}
               ListFooterComponent={
                 loadingMore ? (
-                  <ActivityIndicator color={palette.primary} style={styles.footer} />
+                  <ActivityIndicator color={palette.primaryInk} style={styles.footer} />
                 ) : null
               }
               ListEmptyComponent={null}
@@ -301,9 +301,9 @@ export function ImmersiveCommentsSheet({
                 accessibilityLabel="发送评论"
               >
                 {sending ? (
-                  <ActivityIndicator color={palette.primary} size="small" />
+                  <ActivityIndicator color={palette.primaryInk} size="small" />
                 ) : (
-                  <Send size={20} color={inputText.trim() ? palette.primary : palette.textSubtle} />
+                  <Send size={20} color={inputText.trim() ? palette.primaryInk : palette.textSubtle} />
                 )}
               </Pressable>
             </View>

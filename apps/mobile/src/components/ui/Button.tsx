@@ -98,9 +98,9 @@ export function getButtonColors(variant: ButtonVariant, palette: ReturnType<type
       // 全屏唯一主操作：品牌绿实心 + 深绿文字（8.4:1）。
       // 与 primary 区分：primary 仍是 2026-08 约定的「表面底 + 强调色文字」。
       return {
-        backgroundColor: palette.primary,
-        borderColor: palette.primary,
-        textColor: palette.primaryText,
+        backgroundColor: palette.actionFill,
+        borderColor: palette.actionFill,
+        textColor: palette.onActionFill,
       };
     case "secondary":
       return { backgroundColor: palette.surface, borderColor: palette.border, textColor: palette.primaryInk };

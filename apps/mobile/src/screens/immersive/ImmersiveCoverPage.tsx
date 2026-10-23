@@ -133,7 +133,7 @@ export function ImmersiveCoverPage({
                       { backgroundColor: palette.surfaceStrong, borderRadius: coverBorderRadius },
                     ]}
                   >
-                    <Music2 size={48} color={palette.primary} />
+                    <Music2 size={48} color={palette.primaryInk} />
                   </View>
                 }
               />

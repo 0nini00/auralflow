@@ -62,11 +62,11 @@ export function BackgroundPlaybackSettings() {
       </Text>
 
       <View style={[styles.statusRow, { borderTopColor: palette.border }]}>
-        <ShieldCheck size={16} color={isGranted ? palette.primary : palette.textMuted} />
+        <ShieldCheck size={16} color={isGranted ? palette.primaryInk : palette.textMuted} />
         <Text
           style={[
             styles.statusText,
-            { color: isGranted ? palette.primary : palette.textMuted },
+            { color: isGranted ? palette.primaryInk : palette.textMuted },
           ]}
         >
           {granted == null
@@ -86,15 +86,15 @@ export function BackgroundPlaybackSettings() {
         style={({ pressed }) => [
           styles.action,
           {
-            backgroundColor: withAlpha(palette.primary, 0.12),
+            backgroundColor: withAlpha(palette.primaryInk, 0.12),
             opacity: busy ? 0.6 : pressed ? 0.75 : 1,
           },
         ]}
       >
         {busy ? (
-          <ActivityIndicator size="small" color={palette.primary} />
+          <ActivityIndicator size="small" color={palette.primaryInk} />
         ) : (
-          <Text style={[styles.actionLabel, { color: palette.primary }]}>
+          <Text style={[styles.actionLabel, { color: palette.primaryInk }]}>
             {isGranted ? "重新检查" : "去设置"}
           </Text>
         )}
@@ -112,7 +112,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.s,
   },
-  title: { fontSize: typography.title, fontWeight: "700" },
+  title: { fontSize: typography.body, fontWeight: "700" },
   subtitle: { fontSize: typography.caption, lineHeight: 18 },
   statusRow: {
     flexDirection: "row",

@@ -49,7 +49,7 @@ export function DetailHero({
             style={StyleSheet.absoluteFill}
             fallback={
               <View style={[StyleSheet.absoluteFill, styles.coverFallback, { backgroundColor: palette.surfaceStrong }]}>
-                <Music2 size={compact ? 24 : 36} color={palette.primary} />
+                <Music2 size={compact ? 24 : 36} color={palette.primaryInk} />
               </View>
             }
           />
@@ -70,7 +70,7 @@ export function DetailHero({
             { backgroundColor: palette.surfaceStrong, borderColor: withAlpha(palette.border, 0.6) },
           ]}
         >
-          <Music2 size={compact ? 24 : 36} color={palette.primary} />
+          <Music2 size={compact ? 24 : 36} color={palette.primaryInk} />
         </View>
       )}
 

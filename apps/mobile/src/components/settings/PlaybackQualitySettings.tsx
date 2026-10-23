@@ -44,21 +44,21 @@ export function PlaybackQualitySettings() {
                 style={({ pressed }) => [
                   styles.row,
                   {
-                    backgroundColor: selected ? withAlpha(palette.primary, 0.1) : "transparent",
+                    backgroundColor: selected ? withAlpha(palette.primaryInk, 0.1) : "transparent",
                     opacity: pressed ? 0.7 : 1,
                   },
                 ]}
               >
-                <Music2 size={18} color={selected ? palette.primary : palette.textSubtle} strokeWidth={2} />
+                <Music2 size={18} color={selected ? palette.primaryInk : palette.textSubtle} strokeWidth={2} />
                 <View style={styles.rowCopy}>
-                  <Text style={[styles.rowLabel, { color: palette.text }]} numberOfLines={1}>
+                  <Text style={[styles.rowLabel, { color: selected ? palette.primaryInk : palette.text }]} numberOfLines={1}>
                     {option.label}
                   </Text>
                   <Text style={[styles.rowDescription, { color: palette.textMuted }]} numberOfLines={1}>
                     {option.description}
                   </Text>
                 </View>
-                {selected ? <Check size={18} color={palette.primary} strokeWidth={2} /> : null}
+                {selected ? <Check size={18} color={palette.primaryInk} strokeWidth={2} /> : null}
               </Pressable>
               {index < PLAYBACK_QUALITY_OPTIONS.length - 1 ? (
                 <View style={[styles.hairline, { backgroundColor: palette.border }]} />
@@ -75,13 +75,14 @@ const styles = StyleSheet.create({
   card: {
     gap: spacing.xs,
   },
-  title: { fontSize: typography.title, fontWeight: "700" },
+  title: { fontSize: typography.body, fontWeight: "700" },
   subtitle: { fontSize: typography.caption },
   row: {
     flexDirection: "row",
     alignItems: "center",
     minHeight: 52,
-    paddingHorizontal: spacing.m,
+    marginHorizontal: -spacing.s,
+    paddingHorizontal: spacing.s,
     gap: spacing.s,
   },
   rowCopy: { flex: 1, minWidth: 0, gap: spacing.xxs },

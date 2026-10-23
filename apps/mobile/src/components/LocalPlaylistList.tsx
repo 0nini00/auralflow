@@ -65,13 +65,13 @@ function LocalPlaylistItem({ playlist, onPress }: LocalPlaylistItemProps) {
           style={styles.cover}
           fallback={
             <View style={[styles.cover, { backgroundColor: palette.surfaceStrong }]}>
-              <Music2 size={24} color={palette.primary} />
+              <Music2 size={24} color={palette.primaryInk} />
             </View>
           }
         />
       ) : (
         <View style={[styles.cover, { backgroundColor: palette.surfaceStrong }]}>
-          <Music2 size={24} color={palette.primary} />
+          <Music2 size={24} color={palette.primaryInk} />
         </View>
       )}
       <View style={styles.info}>

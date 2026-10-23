@@ -55,7 +55,7 @@ export function ListItemButton({
       style={({ pressed }) => [
         styles.base,
         { borderBottomColor: palette.border },
-        pressed && !isDisabled && { backgroundColor: withAlpha(palette.primary, 0.08) },
+        pressed && !isDisabled && { backgroundColor: withAlpha(palette.primaryInk, 0.08) },
         isDisabled && styles.disabled,
         style,
       ]}

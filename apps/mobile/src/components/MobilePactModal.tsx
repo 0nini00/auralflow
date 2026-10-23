@@ -34,9 +34,9 @@ export function MobilePactModal({ visible, accepting = false, onAccept }: Mobile
             disabled={accepting}
           >
             {accepting ? (
-              <ActivityIndicator color={palette.primary} size="small" />
+              <ActivityIndicator color={palette.primaryInk} size="small" />
             ) : (
-              <Text style={[styles.acceptText, { color: palette.primary }]}>我已阅读并同意</Text>
+              <Text style={[styles.acceptText, { color: palette.primaryInk }]}>我已阅读并同意</Text>
             )}
           </Pressable>
         </View>

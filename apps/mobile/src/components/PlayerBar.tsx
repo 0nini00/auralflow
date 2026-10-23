@@ -256,14 +256,14 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
             accessibilityLabel={isPlaying ? "暂停" : "播放"}
             accessibilityState={{ disabled: loading, busy: loading }}
             activeScale={0.94}
-            style={[styles.playButton, { backgroundColor: palette.primary }]}
+            style={[styles.playButton, { backgroundColor: palette.actionFill }]}
           >
             {loading ? (
-              <ActivityIndicator color={palette.primaryText} size="small" />
+              <ActivityIndicator color={palette.onActionFill} size="small" />
             ) : isPlaying ? (
-              <Pause size={15} color={palette.primaryText} fill={palette.primaryText} />
+              <Pause size={15} color={palette.onActionFill} fill={palette.onActionFill} />
             ) : (
-              <Play size={15} color={palette.primaryText} fill={palette.primaryText} />
+              <Play size={15} color={palette.onActionFill} fill={palette.onActionFill} />
             )}
           </Touchable>
           <IconButton
@@ -441,9 +441,9 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#3bd877",
+    shadowColor: "#000000",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.28,
+    shadowOpacity: 0.16,
     shadowRadius: 8,
     elevation: 3,
   },

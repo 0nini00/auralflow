@@ -86,6 +86,7 @@ function SettingsTopBar({
 }) {
   const insets = useSafeAreaInsets();
   const category = useSettingsCategoryStore((state) => state.category);
+  const fromSettingsHome = useSettingsCategoryStore((state) => state.fromSettingsHome);
   const resetToHome = useSettingsCategoryStore((state) => state.resetToHome);
   const title = SETTINGS_PAGE_TITLES[category];
 
@@ -101,7 +102,8 @@ function SettingsTopBar({
         accessibilityLabel="返回"
         tone="strong"
         onPress={() => {
-          if (category !== "SettingsHome") {
+          // 从设置首页进的二级页：先回设置首页；从「我的」直达的二级页：直接回「我的」
+          if (fromSettingsHome) {
             resetToHome();
             return;
           }
@@ -115,7 +117,7 @@ function SettingsTopBar({
   );
 }
 
-/** 安卓返回键/手势：分类页先回设置首页；设置首页再 pop 回「我的」。 */
+/** 安卓返回键/手势：仅从设置首页进入的分类页先回首页；从「我的」直达的分类页直接 pop 回「我的」。 */
 export function useSettingsBackInterceptor() {
   useEffect(() => {
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -123,8 +125,8 @@ export function useSettingsBackInterceptor() {
       const root = navigationRef.getRootState();
       const active = root.routes[root.index];
       if (active?.name !== "Settings") return false;
-      const { category, resetToHome } = useSettingsCategoryStore.getState();
-      if (category !== "SettingsHome") {
+      const { fromSettingsHome, resetToHome } = useSettingsCategoryStore.getState();
+      if (fromSettingsHome) {
         resetToHome();
         return true;
       }
@@ -149,8 +151,9 @@ const styles = StyleSheet.create({
   topBarTitle: {
     flex: 1,
     textAlign: "left",
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: "700",
+    letterSpacing: -0.2,
   },
   topBarSpacer: {
     width: 40,

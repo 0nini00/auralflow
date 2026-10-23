@@ -393,9 +393,9 @@ export function LibraryScreen({ onNavigateToPlayer }: LibraryScreenProps) {
                 disabled={savingLocalSongMetadata}
               >
                 {savingLocalSongMetadata ? (
-                  <ActivityIndicator color={palette.primary} size="small" />
+                  <ActivityIndicator color={palette.primaryInk} size="small" />
                 ) : (
-                  <Text style={[styles.createModalButtonText, { color: palette.primary }]}>保存</Text>
+                  <Text style={[styles.createModalButtonText, { color: palette.primaryInk }]}>保存</Text>
                 )}
               </Pressable>
             </View>

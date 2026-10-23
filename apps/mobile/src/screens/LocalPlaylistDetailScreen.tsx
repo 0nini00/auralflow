@@ -349,8 +349,8 @@ export function LocalPlaylistDetailScreen({
                       style={[
                         styles.selectButton,
                         {
-                          backgroundColor: withAlpha(palette.primary, 0.08),
-                          borderColor: withAlpha(palette.primary, 0.2),
+                          backgroundColor: withAlpha(palette.primaryInk, 0.08),
+                          borderColor: withAlpha(palette.primaryInk, 0.2),
                         },
                       ]}
                       onPress={() => {
@@ -361,8 +361,8 @@ export function LocalPlaylistDetailScreen({
                       accessibilityRole="button"
                       accessibilityLabel="批量选择歌曲"
                     >
-                      <SquareCheckBig size={14} color={palette.primary} />
-                      <Text style={[styles.selectButtonText, { color: palette.primary }]}>多选</Text>
+                      <SquareCheckBig size={14} color={palette.primaryInk} />
+                      <Text style={[styles.selectButtonText, { color: palette.primaryInk }]}>多选</Text>
                     </Touchable>
                   ) : undefined
                 }

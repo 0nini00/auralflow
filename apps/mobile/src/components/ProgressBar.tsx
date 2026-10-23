@@ -9,16 +9,25 @@ interface ProgressBarProps {
   duration: number;
   buffered?: number;
   onSeek: (position: number) => void;
+  /** 播放页固定深色时传入播放器的 dark palette，避免进度条轨道跟着全局浅色主题发亮 */
+  palette?: ReturnType<typeof getThemePalette>;
 }
 
-export function ProgressBar({ position, duration, buffered, onSeek }: ProgressBarProps) {
+export function ProgressBar({
+  position,
+  duration,
+  buffered,
+  onSeek,
+  palette: paletteOverride,
+}: ProgressBarProps) {
   const [seeking, setSeeking] = useState(false);
   const [seekPosition, setSeekPosition] = useState(0);
   const [trackWidth, setTrackWidth] = useState(0);
   const themeMode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
-  const palette = getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor);
+  const themePalette = getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor);
+  const palette = paletteOverride ?? themePalette;
 
   const current = seeking ? seekPosition : position;
   const progress = duration > 0 ? Math.min(1, Math.max(0, current / duration)) : 0;
@@ -94,14 +103,14 @@ export function ProgressBar({ position, duration, buffered, onSeek }: ProgressBa
       }}
       onPressOut={() => setSeeking(false)}
     >
-      <View style={[styles.track, { backgroundColor: palette.surfaceStrong }]}>
+      <View style={[styles.track, { backgroundColor: withAlpha(palette.text, 0.14) }]}>
         {bufferedProgress !== undefined ? (
           <View
             style={[
               styles.fill,
               {
                 width: `${bufferedProgress * 100}%`,
-                backgroundColor: withAlpha(palette.primary, 0.25),
+                backgroundColor: withAlpha(palette.text, 0.22),
               },
             ]}
           />
@@ -111,7 +120,7 @@ export function ProgressBar({ position, duration, buffered, onSeek }: ProgressBa
             styles.fill,
             styles.progressFill,
             {
-              backgroundColor: palette.primary,
+              backgroundColor: withAlpha(palette.primary, 0.7),
               transform: [{ scaleX: progressAnim }],
               transformOrigin: "left",
             },
@@ -121,7 +130,7 @@ export function ProgressBar({ position, duration, buffered, onSeek }: ProgressBa
           style={[
             styles.thumb,
             {
-              backgroundColor: palette.primary,
+              backgroundColor: palette.primaryInk,
               transform: [{ translateX: thumbTranslateX }],
             },
           ]}
@@ -136,7 +145,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   track: {
-    height: 4,
+    height: 3,
     borderRadius: 2,
     position: "relative",
   },
@@ -153,10 +162,10 @@ const styles = StyleSheet.create({
   },
   thumb: {
     position: "absolute",
-    top: -4,
-    left: -6,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    top: -2.5,
+    left: -4,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
 });

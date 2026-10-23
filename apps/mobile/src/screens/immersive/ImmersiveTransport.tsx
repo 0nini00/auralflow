@@ -26,6 +26,7 @@ import { usePlayerStore } from "@/stores/playerStore";
 import { ImmersiveMoreMenu } from "@/screens/immersive/ImmersiveMoreMenu";
 import { styles } from "@/screens/immersive/immersiveStyles";
 import { getNextMobilePlayMode, getMobilePlayModeLabel } from "@/services/mobilePlayModeModel";
+import { withAlpha } from "@/services/themePaletteModel";
 
 export interface ImmersiveTransportProps {
   insetsBottom: number;
@@ -75,7 +76,7 @@ function ImmersivePlayInfo({
 
   return (
     <View style={styles.playInfoWrap}>
-      <ProgressBar position={position} duration={duration} buffered={buffered} onSeek={onSeek} />
+      <ProgressBar position={position} duration={duration} buffered={buffered} onSeek={onSeek} palette={palette} />
       <View style={styles.timeRow}>
         <Text style={[styles.timeText, { color: palette.textMuted }]}>{formatTime(position)}</Text>
         <Text style={[styles.timeText, { color: palette.textMuted }]}>{formatTime(duration)}</Text>
@@ -201,11 +202,17 @@ export function ImmersiveTransport({
         />
 
         <IconButton
-          size="xl"
-          tone="primary"
+          size="lg"
+          tone="strong"
           onPress={onTogglePlay}
           accessibilityLabel={isPlaying ? "暂停" : "播放"}
-          style={[localStyles.playButton, { backgroundColor: palette.primary }]}
+          style={[
+            localStyles.playButton,
+            {
+              backgroundColor: palette.actionFill,
+              borderColor: withAlpha(palette.onActionFill, 0.12),
+            },
+          ]}
           render={({ size, color }) =>
             loading ? (
               <ActivityIndicator color={color} size="large" />
@@ -239,7 +246,7 @@ export function ImmersiveTransport({
       <View style={styles.moreBtnRow}>
         <IconButton
           onPress={handleToggleModeWithToast}
-          tone={playModeControl.active ? "primary" : "strong"}
+          tone={playModeControl.active ? "accent" : "strong"}
           selected={playModeControl.active}
           accessibilityLabel={`播放模式：${playModeControl.label}`}
           render={({ size, color }) => (
@@ -249,7 +256,7 @@ export function ImmersiveTransport({
 
         <IconButton
           onPress={onToggleLike}
-          tone={isLiked ? "primary" : "strong"}
+          tone={isLiked ? "accent" : "strong"}
           selected={isLiked}
           accessibilityLabel={isLiked ? "取消喜欢" : "喜欢"}
           render={({ size, color }) => (
@@ -259,7 +266,7 @@ export function ImmersiveTransport({
 
         <IconButton
           onPress={() => void onToggleFloatingLyric()}
-          tone={floatingLyricActive ? "primary" : "strong"}
+          tone={floatingLyricActive ? "accent" : "strong"}
           selected={floatingLyricActive}
           accessibilityLabel={floatingLyricActive ? "关闭悬浮歌词" : "打开悬浮歌词"}
           render={({ size, color }) => <Captions size={size} color={color} />}
@@ -332,11 +339,12 @@ const localStyles = StyleSheet.create({
     width: 66,
     height: 66,
     borderRadius: 33,
-    shadowColor: "#3bd877",
-    shadowOffset: { width: 0, height: 8 },
+    borderWidth: 1,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.32,
-    shadowRadius: 16,
-    elevation: 8,
+    shadowRadius: 14,
+    elevation: 6,
   },
   compactArea: { paddingTop: 4 },
   compactControls: { paddingVertical: 4 },

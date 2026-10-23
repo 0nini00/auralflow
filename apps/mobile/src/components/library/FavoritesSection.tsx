@@ -96,7 +96,7 @@ export function FavoritesSection() {
             label="播放全部"
             variant="brand"
             size="medium"
-            leading={<Play size={16} color={palette.primaryText} fill={palette.primaryText} />}
+            leading={<Play size={16} color={palette.onActionFill} fill={palette.onActionFill} />}
             onPress={handlePlayAll}
             style={styles.playAll}
           />

@@ -77,7 +77,7 @@ function StatCard({ label, value, hint, wide = false }: StatCardProps) {
         { backgroundColor: palette.surface, borderColor: palette.border },
       ]}
     >
-      <Text style={[styles.statValue, { color: palette.primary }]}>{value}</Text>
+      <Text style={[styles.statValue, { color: palette.primaryInk }]}>{value}</Text>
       <Text style={[styles.statLabel, { color: palette.text }]}>{label}</Text>
       <Text style={[styles.statHint, { color: palette.textMuted }]}>{hint}</Text>
     </View>

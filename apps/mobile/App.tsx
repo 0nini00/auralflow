@@ -351,9 +351,9 @@ export default function App() {
                       setBooting(true);
                       setBootstrapAttempt((value) => value + 1);
                     }}
-                    style={[styles.retryButton, { backgroundColor: palette.primary }]}
+                    style={[styles.retryButton, { backgroundColor: palette.actionFill }]}
                   >
-                    <Text style={[styles.retryButtonText, { color: palette.primaryText }]}>重试</Text>
+                    <Text style={[styles.retryButtonText, { color: palette.onActionFill }]}>重试</Text>
                   </Pressable>
                 </>
               ) : (

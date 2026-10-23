@@ -51,7 +51,7 @@ export function AboutSettingsScreen() {
         onPress={() => void handleCheck()}
         disabled={checking}
         trailing={
-          checking ? <ActivityIndicator color={palette.primary} /> : undefined
+          checking ? <ActivityIndicator color={palette.primaryInk} /> : undefined
         }
       />
       {updateInfo ? <UpdateModal visible info={updateInfo} onClose={() => setUpdateInfo(null)} /> : null}
@@ -68,14 +68,10 @@ const styles = StyleSheet.create({
     minHeight: 56,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: spacing.xs,
+    paddingHorizontal: spacing.xxs,
     gap: spacing.xs,
   },
-  rowDivider: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
   copy: { flex: 1, minWidth: 0, gap: spacing.xxs },
-  title: { fontSize: typography.body, fontWeight: "600" },
+  title: { fontSize: typography.body, fontWeight: "700" },
   subtitle: { fontSize: typography.caption },
-  action: { fontSize: typography.meta, fontWeight: "700" },
 });

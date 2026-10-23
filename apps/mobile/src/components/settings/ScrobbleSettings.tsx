@@ -41,7 +41,7 @@ export function ScrobbleSettings() {
         <Switch
           value={enableScrobble}
           onValueChange={(val) => void setEnableScrobble(val)}
-          trackColor={{ false: palette.surfaceMuted, true: palette.primary }}
+          trackColor={{ false: palette.surfaceMuted, true: palette.actionFill }}
           thumbColor="#FFFFFF"
           accessibilityLabel="同步听歌量到网易云开关"
         />
@@ -60,8 +60,8 @@ const styles = StyleSheet.create({
     gap: spacing.s,
   },
   title: {
-    fontSize: typography.title,
-    fontWeight: "600",
+    fontSize: typography.body,
+    fontWeight: "700",
   },
   subtitle: {
     fontSize: typography.caption,

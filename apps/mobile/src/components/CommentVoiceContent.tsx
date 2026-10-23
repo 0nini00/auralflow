@@ -36,8 +36,8 @@ export function CommentVoiceContent({ itemId, data, palette, playback, onToggle,
           accessibilityState={{ busy }}
           style={({ pressed }) => [styles.voice, { backgroundColor: palette.surfaceMuted }, pressed && styles.pressed]}
         >
-          {busy ? <ActivityIndicator size="small" color={palette.primary} /> : playing ? <Square size={18} color={palette.primary} /> : <Play size={18} color={palette.primary} />}
-          <AudioLines size={24} color={palette.primary} />
+          {busy ? <ActivityIndicator size="small" color={palette.primaryInk} /> : playing ? <Square size={18} color={palette.primaryInk} /> : <Play size={18} color={palette.primaryInk} />}
+          <AudioLines size={24} color={palette.primaryInk} />
           <Text style={[styles.duration, { color: palette.text }]}>{Math.ceil(voice.duration)} 秒</Text>
           {busy ? <Text style={[styles.status, { color: palette.textMuted }]}>{playback.phase === "stopping" ? "停止中" : "加载中"}</Text> : null}
         </Pressable>

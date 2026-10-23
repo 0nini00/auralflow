@@ -33,7 +33,7 @@ export function LoadingState({ label = "加载中" }: LoadingStateProps) {
   const palette = useScreenStatePalette();
   return (
     <View accessibilityLiveRegion="polite" style={styles.state}>
-      <ActivityIndicator color={palette.primary} size="large" />
+      <ActivityIndicator color={palette.primaryInk} size="large" />
       <Text style={[styles.description, { color: palette.textMuted }]}>{label}</Text>
     </View>
   );

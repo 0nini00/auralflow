@@ -180,7 +180,7 @@ export function AlbumDetailScreen({
           accessibilityRole="button"
           accessibilityLabel={`查看歌手 ${albumInfo.artistName}`}
         >
-          <Text style={[styles.artistName, { color: palette.primary }]}>
+          <Text style={[styles.artistName, { color: palette.primaryInk }]}>
             {albumInfo.artistName}
           </Text>
         </Pressable>
@@ -239,7 +239,7 @@ export function AlbumDetailScreen({
                   accessibilityRole="button"
                   accessibilityLabel={descriptionModel.toggleLabel}
                 >
-                  <Text style={[styles.descriptionToggleText, { color: palette.primary }]}>
+                  <Text style={[styles.descriptionToggleText, { color: palette.primaryInk }]}>
                     {descriptionModel.toggleLabel}
                   </Text>
                 </Pressable>

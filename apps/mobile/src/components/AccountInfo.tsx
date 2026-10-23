@@ -47,7 +47,7 @@ export function AccountInfo({
               accessibilityRole="image"
               accessibilityLabel="网易云账号"
             >
-              <UserRound size={24} color={palette.primary} />
+              <UserRound size={24} color={palette.primaryInk} />
             </View>
             <View style={styles.loginTextContainer}>
               <Text style={[styles.loginTitle, { color: palette.text }]}>未登录网易云账号</Text>
@@ -63,12 +63,12 @@ export function AccountInfo({
       <ListItemButton
         title="登录网易云账号"
         subtitle="登录后可同步歌单、收藏等数据"
-        leading={<View style={[styles.loginIcon, { backgroundColor: palette.surfaceStrong }]}><UserRound size={24} color={palette.primary} /></View>}
-        trailing={<ChevronRight size={24} color={palette.primary} />}
+        leading={<View style={[styles.loginIcon, { backgroundColor: palette.surfaceStrong }]}><UserRound size={24} color={palette.primaryInk} /></View>}
+        trailing={<ChevronRight size={24} color={palette.primaryInk} />}
         onPress={onAccountPress ?? onLoginPress}
         accessibilityLabel="登录网易云账号"
         disabled={loading}
-        style={[styles.loginCard, { backgroundColor: palette.surface, borderColor: palette.primary }]}
+        style={[styles.loginCard, { backgroundColor: palette.surface, borderColor: palette.primaryInk }]}
       />
     );
   }
@@ -78,13 +78,13 @@ export function AccountInfo({
     <CachedImage uri={user.avatarUrl} style={styles.avatarImage} />
   ) : (
     <View style={[styles.avatarImage, styles.avatarFallback, { backgroundColor: palette.surfaceStrong }]}>
-      <Text style={[styles.avatarFallbackText, { color: palette.primary }]}>{user.nickname.charAt(0)}</Text>
+      <Text style={[styles.avatarFallbackText, { color: palette.primaryInk }]}>{user.nickname.charAt(0)}</Text>
     </View>
   );
 
   const cardBody = (
     <>
-      <View style={[styles.avatarRing, { borderColor: withAlpha(palette.primary, 0.45) }]}>{avatar}</View>
+      <View style={[styles.avatarRing, { borderColor: withAlpha(palette.primaryInk, 0.45) }]}>{avatar}</View>
       <View style={styles.accountTextContainer}>
         <View style={styles.accountNameRow}>
           <Text numberOfLines={1} style={[styles.nickname, { color: palette.text }]}>

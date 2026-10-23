@@ -166,13 +166,13 @@ export function PlaylistSquareScreen() {
               style={styles.coverImage}
               fallback={
                 <View style={styles.coverFallback}>
-                  <Music2 size={32} color={palette.primary} />
+                  <Music2 size={32} color={palette.primaryInk} />
                 </View>
               }
             />
           ) : (
             <View style={styles.coverFallback}>
-              <Music2 size={32} color={palette.primary} />
+              <Music2 size={32} color={palette.primaryInk} />
             </View>
           )}
 
@@ -232,9 +232,9 @@ export function PlaylistSquareScreen() {
                     styles.categoryChip,
                     {
                       backgroundColor: active
-                        ? palette.primary
+                        ? palette.actionFill
                         : palette.surfaceMuted,
-                      borderColor: active ? palette.primary : "transparent",
+                      borderColor: active ? palette.actionFill : "transparent",
                     },
                   ]}
                   onPress={() => handleSelectCategory(item)}
@@ -246,7 +246,7 @@ export function PlaylistSquareScreen() {
                     style={[
                       styles.categoryChipText,
                       {
-                        color: active ? palette.primaryText : palette.text,
+                        color: active ? palette.onActionFill : palette.text,
                         fontWeight: active ? "700" : "500",
                       },
                     ]}
@@ -262,7 +262,7 @@ export function PlaylistSquareScreen() {
         {/* 骨架首屏加载状态 */}
         {loading && playlists.length === 0 ? (
           <View style={styles.centerLoading}>
-            <ActivityIndicator size="large" color={palette.primary} />
+            <ActivityIndicator size="large" color={palette.primaryInk} />
             <Text style={[styles.loadingHint, { color: palette.textMuted }]}>
               正在探索 {category} 歌单...
             </Text>
@@ -306,7 +306,7 @@ export function PlaylistSquareScreen() {
             ListFooterComponent={
               loadingMore ? (
                 <View style={styles.footerLoader}>
-                  <ActivityIndicator size="small" color={palette.primary} />
+                  <ActivityIndicator size="small" color={palette.primaryInk} />
                   <Text style={[styles.footerText, { color: palette.textMuted }]}>
                     正在载入更多歌单...
                   </Text>
@@ -320,7 +320,7 @@ export function PlaylistSquareScreen() {
                     style={styles.retryBtn}
                     onPress={() => void loadPage(category, false)}
                   >
-                    <Text style={[styles.retryBtnText, { color: palette.primary }]}>
+                    <Text style={[styles.retryBtnText, { color: palette.primaryInk }]}>
                       点击重试
                     </Text>
                   </Pressable>

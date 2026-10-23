@@ -44,7 +44,7 @@ export function LyricsSettingsScreen() {
             accessibilityRole="button"
             accessibilityLabel="恢复默认歌词样式"
           >
-            <Text style={[styles.resetLink, { color: palette.primary }]}>恢复默认</Text>
+            <Text style={[styles.resetLink, { color: palette.primaryInk }]}>恢复默认</Text>
           </Pressable>
         }
       />

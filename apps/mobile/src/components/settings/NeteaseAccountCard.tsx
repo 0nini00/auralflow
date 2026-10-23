@@ -106,7 +106,7 @@ export function NeteaseAccountCard() {
             style={styles.avatar}
             fallback={
               <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: palette.surfaceStrong }]}>
-                <Text style={[styles.avatarFallbackText, { color: palette.primary }]}>
+                <Text style={[styles.avatarFallbackText, { color: palette.primaryInk }]}>
                   {user.nickname.charAt(0)}
                 </Text>
               </View>
@@ -114,7 +114,7 @@ export function NeteaseAccountCard() {
           />
         ) : (
           <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: palette.surfaceStrong }]}>
-            <Headphones size={20} color={palette.primary} />
+            <Headphones size={20} color={palette.primaryInk} />
           </View>
         )}
         <View style={styles.copy}>
@@ -133,13 +133,13 @@ export function NeteaseAccountCard() {
             {subtitle}
           </Text>
           {user ? (
-            <Text numberOfLines={1} style={[styles.metaText, { color: palette.textSubtle }]}>
+            <Text numberOfLines={1} style={[styles.metaText, { color: palette.textMuted }]}>
               {`网易云 · ID ${user.userId}`}
             </Text>
           ) : null}
         </View>
         {loading ? (
-          <ActivityIndicator color={palette.primary} />
+          <ActivityIndicator color={palette.primaryInk} />
         ) : user ? (
           <Button
             label="退出"
@@ -152,6 +152,7 @@ export function NeteaseAccountCard() {
         ) : (
           <Button
             label="登录"
+            variant="brand"
             size="small"
             accessibilityLabel={editing ? "收起网易云账号登录" : "登录网易云账号"}
             disabled={loading}
@@ -209,6 +210,7 @@ export function NeteaseAccountCard() {
           </View>
           <Button
             label="验证并登录"
+            variant="brand"
             loading={loading}
             accessibilityLabel="验证并登录网易云账号"
             onPress={() => void handleLogin()}
@@ -255,10 +257,10 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: typography.body,
-    fontWeight: "600",
+    fontWeight: "700",
   },
   vipBadge: {
-    backgroundColor: "#ff9800",
+    backgroundColor: "#b45309",
     paddingHorizontal: spacing.xs,
     paddingVertical: 1,
     borderRadius: radius.sm,

@@ -121,7 +121,7 @@ export function DownloadList({ downloads, downloading, failedDownloads = [], onN
                       {metadata.detailLabel}
                     </Text>
                     {speedLabel ? (
-                      <Text style={[styles.speedText, { color: palette.primary }]} numberOfLines={1}>
+                      <Text style={[styles.speedText, { color: palette.primaryInk }]} numberOfLines={1}>
                         {speedLabel}
                       </Text>
                     ) : null}
@@ -224,7 +224,7 @@ export function DownloadList({ downloads, downloading, failedDownloads = [], onN
               <Text style={[styles.downloadMeta, { color: palette.textMuted }]} numberOfLines={1}>
                 {metadata.titleMeta}
               </Text>
-              <Text style={[styles.downloadStatus, { color: palette.primary }]}>{metadata.statusLabel}</Text>
+              <Text style={[styles.downloadStatus, { color: palette.primaryInk }]}>{metadata.statusLabel}</Text>
               <Text style={[styles.downloadDetail, { color: palette.textSubtle }]} numberOfLines={1}>
                 {metadata.detailLabel}
               </Text>

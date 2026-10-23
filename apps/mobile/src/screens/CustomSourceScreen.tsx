@@ -126,7 +126,7 @@ export function CustomSourceScreen() {
         />
         <ActionButton
           small
-          variant="primary"
+          variant="brand"
           label="粘贴导入"
           onPress={() => setImportModalVisible(true)}
           accessibilityLabel="粘贴导入自定义音源"
@@ -153,7 +153,7 @@ export function CustomSourceScreen() {
             accessibilityRole="switch"
             accessibilityLabel="启动自定义音源自动检测更新"
             accessibilityState={{ checked: customSourceAutoCheck, disabled: false }}
-            trackColor={{ false: palette.surfaceStrong, true: palette.primary }}
+            trackColor={{ false: palette.surfaceStrong, true: palette.actionFill }}
           />
         </View>
       </SettingsCard>
@@ -228,7 +228,7 @@ export function CustomSourceScreen() {
               />
               <ActionButton
                 small
-                variant="primary"
+                variant="brand"
                 label="确认导入"
                 loading={importing}
                 onPress={() => void handleImport()}
@@ -284,7 +284,7 @@ function SourceCard({
           </Text>
           <View style={styles.cardMetaRow}>
             {source.version ? (
-              <Text style={[styles.cardVersion, { color: palette.primary }]}>
+              <Text style={[styles.cardVersion, { color: palette.primaryInk }]}>
                 v{source.version}
               </Text>
             ) : null}
@@ -306,7 +306,7 @@ function SourceCard({
           accessibilityRole="switch"
           accessibilityLabel={`启用音源 ${source.name}`}
           accessibilityState={{ checked: source.enabled, disabled: false }}
-          trackColor={{ false: palette.surfaceStrong, true: palette.primary }}
+          trackColor={{ false: palette.surfaceStrong, true: palette.actionFill }}
         />
       </View>
 
@@ -318,7 +318,7 @@ function SourceCard({
             {
               backgroundColor:
                 source.testStatus === "ok"
-                  ? palette.primary
+                  ? palette.actionFill
                   : source.testStatus === "failed"
                     ? palette.dangerSurface
                     : palette.surfaceMuted,
@@ -330,7 +330,7 @@ function SourceCard({
               styles.statusText,
               {
                 color:
-                  source.testStatus === "ok" ? palette.primaryText : palette.textMuted,
+                  source.testStatus === "ok" ? palette.onActionFill : palette.textMuted,
               },
             ]}
             numberOfLines={2}
@@ -416,7 +416,7 @@ function SourceCard({
           accessibilityRole="switch"
           accessibilityLabel={`显示音源 ${source.name} 更新提醒`}
           accessibilityState={{ checked: source.allowShowUpdateAlert, disabled: false }}
-          trackColor={{ false: palette.surfaceStrong, true: palette.primary }}
+          trackColor={{ false: palette.surfaceStrong, true: palette.actionFill }}
         />
       </View>
     </SettingsCard>

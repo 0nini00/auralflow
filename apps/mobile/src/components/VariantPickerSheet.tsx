@@ -183,8 +183,8 @@ export function VariantPickerSheet({ song, visible, onClose }: VariantPickerShee
                   >
                     <Star
                       size={18}
-                      color={pinned ? palette.primary : palette.textMuted}
-                      fill={pinned ? palette.primary : "none"}
+                      color={pinned ? palette.primaryInk : palette.textMuted}
+                      fill={pinned ? palette.primaryInk : "none"}
                     />
                   </Touchable>
                 </View>

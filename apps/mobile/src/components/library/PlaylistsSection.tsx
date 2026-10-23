@@ -427,7 +427,7 @@ export function PlaylistsSection() {
                       styles.confirmModalButton,
                       {
                         backgroundColor: localPlaylistName.trim()
-                          ? palette.primary
+                          ? palette.actionFill
                           : palette.border,
                       },
                     ]}
@@ -435,14 +435,14 @@ export function PlaylistsSection() {
                     disabled={creatingLocalPlaylist || !localPlaylistName.trim()}
                   >
                     {creatingLocalPlaylist ? (
-                      <ActivityIndicator color={palette.primaryText} size="small" />
+                      <ActivityIndicator color={palette.onActionFill} size="small" />
                     ) : (
                       <Text
                         style={[
                           styles.createModalButtonText,
                           {
                             color: localPlaylistName.trim()
-                              ? palette.primaryText
+                              ? palette.onActionFill
                               : palette.textMuted,
                           },
                         ]}
@@ -548,7 +548,7 @@ export function PlaylistsSection() {
                       styles.confirmModalButton,
                       {
                         backgroundColor: wyPlaylistName.trim()
-                          ? palette.primary
+                          ? palette.actionFill
                           : palette.border,
                       },
                     ]}
@@ -556,14 +556,14 @@ export function PlaylistsSection() {
                     disabled={creatingWyPlaylist || !wyPlaylistName.trim()}
                   >
                     {creatingWyPlaylist ? (
-                      <ActivityIndicator color={palette.primaryText} size="small" />
+                      <ActivityIndicator color={palette.onActionFill} size="small" />
                     ) : (
                       <Text
                         style={[
                           styles.createModalButtonText,
                           {
                             color: wyPlaylistName.trim()
-                              ? palette.primaryText
+                              ? palette.onActionFill
                               : palette.textMuted,
                           },
                         ]}
@@ -653,7 +653,7 @@ export function PlaylistsSection() {
                       styles.confirmModalButton,
                       {
                         backgroundColor: localPlaylistImportJson.trim()
-                          ? palette.primary
+                          ? palette.actionFill
                           : palette.border,
                       },
                     ]}
@@ -661,14 +661,14 @@ export function PlaylistsSection() {
                     disabled={importingLocalPlaylists || !localPlaylistImportJson.trim()}
                   >
                     {importingLocalPlaylists ? (
-                      <ActivityIndicator color={palette.primaryText} size="small" />
+                      <ActivityIndicator color={palette.onActionFill} size="small" />
                     ) : (
                       <Text
                         style={[
                           styles.createModalButtonText,
                           {
                             color: localPlaylistImportJson.trim()
-                              ? palette.primaryText
+                              ? palette.onActionFill
                               : palette.textMuted,
                           },
                         ]}

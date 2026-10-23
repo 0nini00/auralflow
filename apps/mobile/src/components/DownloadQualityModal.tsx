@@ -91,7 +91,7 @@ export function DownloadQualityModal({
             </Text>
           ) : null}
           {progressText ? (
-            <Text style={[styles.progressText, { color: palette.primary }]}>{progressText}</Text>
+            <Text style={[styles.progressText, { color: palette.primaryInk }]}>{progressText}</Text>
           ) : null}
 
           <View style={styles.optionList}>
@@ -106,9 +106,9 @@ export function DownloadQualityModal({
                   style={({ pressed }) => [
                     styles.option,
                     {
-                      backgroundColor: isSelected(option.value) ? withAlpha(palette.primary, 0.08) : palette.surfaceMuted,
+                      backgroundColor: isSelected(option.value) ? withAlpha(palette.primaryInk, 0.08) : palette.surfaceMuted,
                       borderWidth: 1,
-                      borderColor: isSelected(option.value) ? palette.primary : "transparent",
+                      borderColor: isSelected(option.value) ? palette.primaryInk : "transparent",
                     },
                     pressed && { opacity: 0.7 },
                   ]}
@@ -116,7 +116,7 @@ export function DownloadQualityModal({
                   disabled={busy}
                 >
                   <View style={styles.optionTextWrap}>
-                    <Text style={[styles.optionLabel, { color: isSelected(option.value) ? palette.primary : palette.text }]}>
+                    <Text style={[styles.optionLabel, { color: isSelected(option.value) ? palette.primaryInk : palette.text }]}>
                       {option.label}
                     </Text>
                     <Text style={[styles.optionDesc, { color: palette.textSubtle }]}>
@@ -124,9 +124,9 @@ export function DownloadQualityModal({
                     </Text>
                   </View>
                   {isPending ? (
-                    <ActivityIndicator color={palette.primary} size="small" />
+                    <ActivityIndicator color={palette.primaryInk} size="small" />
                   ) : (
-                    <Text style={[styles.optionAction, { color: isSelected(option.value) ? palette.primary : palette.textMuted }]}>
+                    <Text style={[styles.optionAction, { color: isSelected(option.value) ? palette.primaryInk : palette.textMuted }]}>
                       {isSelected(option.value) ? "已选" : "下载"}
                     </Text>
                   )}

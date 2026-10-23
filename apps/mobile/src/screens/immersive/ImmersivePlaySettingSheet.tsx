@@ -135,7 +135,7 @@ export function ImmersivePlaySettingSheet({
                   onPress={() => setManualOffset(0)}
                   style={[styles.reset, { backgroundColor: palette.surfaceMuted }]}
                 >
-                  <Text style={[styles.resetText, { color: palette.primary }]}>归零</Text>
+                  <Text style={[styles.resetText, { color: palette.primaryInk }]}>归零</Text>
                 </Pressable>
               ) : null}
             </StepperRow>

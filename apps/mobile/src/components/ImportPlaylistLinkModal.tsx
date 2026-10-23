@@ -127,7 +127,7 @@ export function ImportPlaylistLinkModal({
             <View style={styles.header}>
               <View style={styles.titleGroup}>
                 <View style={styles.titleWithIcon}>
-                  <Link2 size={18} color={palette.primary} />
+                  <Link2 size={18} color={palette.primaryInk} />
                   <Text style={[styles.title, { color: palette.text }]}>从链接导入歌单</Text>
                 </View>
                 <Text style={[styles.subtitle, { color: palette.textMuted }]}>
@@ -168,7 +168,7 @@ export function ImportPlaylistLinkModal({
                     styles.linkInput,
                     {
                       backgroundColor: palette.surfaceMuted,
-                      borderColor: parsed ? palette.primary : palette.border,
+                      borderColor: parsed ? palette.primaryInk : palette.border,
                       color: palette.text,
                     },
                   ]}
@@ -179,20 +179,20 @@ export function ImportPlaylistLinkModal({
                       styles.hintBadge,
                       {
                         backgroundColor: parsed
-                          ? withAlpha(palette.primary, 0.1)
+                          ? withAlpha(palette.primaryInk, 0.1)
                           : withAlpha(palette.danger, 0.1),
                       },
                     ]}
                   >
                     {parsed ? (
-                      <CheckCircle2 size={14} color={palette.primary} />
+                      <CheckCircle2 size={14} color={palette.primaryInk} />
                     ) : (
                       <AlertCircle size={14} color={palette.danger} />
                     )}
                     <Text
                       style={[
                         styles.hintText,
-                        { color: parsed ? palette.primary : palette.danger },
+                        { color: parsed ? palette.primaryInk : palette.danger },
                       ]}
                     >
                       {sourceHint}
@@ -248,7 +248,7 @@ export function ImportPlaylistLinkModal({
                   style={[
                     styles.importBtn,
                     {
-                      backgroundColor: parsed && !importing ? palette.primary : palette.border,
+                      backgroundColor: parsed && !importing ? palette.actionFill : palette.border,
                     },
                   ]}
                   onPress={() => void handleImport()}
@@ -257,12 +257,12 @@ export function ImportPlaylistLinkModal({
                   accessibilityLabel="导入歌单"
                 >
                   {importing ? (
-                    <ActivityIndicator color={palette.primaryText} size="small" />
+                    <ActivityIndicator color={palette.onActionFill} size="small" />
                   ) : (
                     <Text
                       style={[
                         styles.importBtnText,
-                        { color: parsed ? palette.primaryText : palette.textMuted },
+                        { color: parsed ? palette.onActionFill : palette.textMuted },
                       ]}
                     >
                       开始导入

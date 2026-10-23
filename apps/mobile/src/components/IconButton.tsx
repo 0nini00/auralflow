@@ -4,7 +4,7 @@ import { type GestureResponderEvent, type StyleProp, type ViewStyle } from "reac
 import { IconButton as SharedIconButton } from "@/components/ui/IconButton";
 import { type IconButtonControlSize } from "@/theme/tokens";
 
-export type IconButtonTone = "default" | "strong" | "primary" | "danger" | "onImage";
+export type IconButtonTone = "default" | "strong" | "primary" | "accent" | "danger" | "onImage";
 export type IconButtonVariant = "plain" | "surface" | "filled" | "accent";
 
 export interface IconButtonProps {
@@ -27,10 +27,11 @@ const SIZE_MAP: Record<NonNullable<IconButtonProps["size"]>, IconButtonControlSi
   xl: "large",
 };
 
-const TONE_MAP: Record<IconButtonTone, "default" | "muted" | "inverse" | "danger" | "translucent"> = {
+const TONE_MAP: Record<IconButtonTone, "default" | "muted" | "inverse" | "accent" | "danger" | "translucent"> = {
   default: "muted",
   strong: "default",
   primary: "inverse",
+  accent: "accent",
   danger: "danger",
   onImage: "translucent",
 };

@@ -405,7 +405,7 @@ export function SearchScreen({
           style={[styles.searchButton, { backgroundColor: palette.surface, borderColor: palette.border, borderWidth: 1 }]}
           onPress={handleSearch}
         >
-          <Text style={[styles.searchButtonText, { color: palette.primary }]}>搜索</Text>
+          <Text style={[styles.searchButtonText, { color: palette.primaryInk }]}>搜索</Text>
         </Pressable>
         </View>
 
@@ -417,7 +417,7 @@ export function SearchScreen({
                 style={[
                   styles.tabButton,
                   { backgroundColor: palette.surface },
-                  activeTab === tab.key && { backgroundColor: palette.surfaceStrong, borderColor: palette.primary, borderWidth: 1 },
+                  activeTab === tab.key && { backgroundColor: palette.surfaceStrong, borderColor: palette.primaryInk, borderWidth: 1 },
                 ]}
                 onPress={() => setActiveTab(tab.key)}
                 accessibilityRole="tab"
@@ -443,7 +443,7 @@ export function SearchScreen({
                   style={[
                     styles.sourceFilterChip,
                     { borderColor: palette.border, backgroundColor: palette.surface },
-                    active && { borderColor: palette.primary, backgroundColor: palette.surfaceStrong },
+                    active && { borderColor: palette.primaryInk, backgroundColor: palette.surfaceStrong },
                     disabled && styles.sourceFilterChipDisabled,
                   ]}
                   onPress={() => setSongSourceFilter(filter.id)}
@@ -564,7 +564,7 @@ export function SearchScreen({
 
         {fromCache && !loading && !error && hasResults && (
         <View style={[styles.cacheBadgeBox, { backgroundColor: primarySubtleBackground }]}>
-          <Text style={[styles.cacheBadgeText, { color: palette.primary }]}>来自缓存</Text>
+          <Text style={[styles.cacheBadgeText, { color: palette.primaryInk }]}>来自缓存</Text>
         </View>
         )}
 
@@ -594,7 +594,7 @@ export function SearchScreen({
                     style={styles.headerAction}
                     onPress={() => setActiveTab("artists")}
                   >
-                    <Text style={[styles.resultSectionAction, { color: palette.primary }]}>查看全部</Text>
+                    <Text style={[styles.resultSectionAction, { color: palette.primaryInk }]}>查看全部</Text>
                   </Pressable>
                 )}
               />
@@ -613,7 +613,7 @@ export function SearchScreen({
                     style={styles.headerAction}
                     onPress={() => setActiveTab("albums")}
                   >
-                    <Text style={[styles.resultSectionAction, { color: palette.primary }]}>查看全部</Text>
+                    <Text style={[styles.resultSectionAction, { color: palette.primaryInk }]}>查看全部</Text>
                   </Pressable>
                 )}
               />
@@ -632,7 +632,7 @@ export function SearchScreen({
                     style={styles.headerAction}
                     onPress={() => setActiveTab("playlists")}
                   >
-                    <Text style={[styles.resultSectionAction, { color: palette.primary }]}>查看全部</Text>
+                    <Text style={[styles.resultSectionAction, { color: palette.primaryInk }]}>查看全部</Text>
                   </Pressable>
                 )}
               />
@@ -653,7 +653,7 @@ export function SearchScreen({
                   style={styles.headerAction}
                   onPress={() => setActiveTab("songs")}
                 >
-                  <Text style={[styles.resultSectionAction, { color: palette.primary }]}>查看全部</Text>
+                  <Text style={[styles.resultSectionAction, { color: palette.primaryInk }]}>查看全部</Text>
                 </Pressable>
               ) : undefined}
             />

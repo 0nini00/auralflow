@@ -28,7 +28,8 @@ export function SettingsCard({
 const styles = StyleSheet.create({
   card: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     padding: spacing.s,
+    overflow: "hidden",
   },
 });

@@ -296,12 +296,12 @@ export function UpdateModal({ visible, info, onClose }: UpdateModalProps) {
                 style={[
                   styles.heroMark,
                   {
-                    backgroundColor: withAlpha(palette.primary, 0.14),
+                    backgroundColor: withAlpha(palette.primaryInk, 0.14),
                     borderColor: withAlpha(palette.primary, 0.28),
                   },
                 ]}
               >
-                <Sparkles size={20} color={palette.primary} />
+                <Sparkles size={20} color={palette.primaryInk} />
               </View>
               <View style={styles.heroCopy}>
                 <Text style={[styles.title, { color: palette.text }]}>发现新版本</Text>
@@ -336,12 +336,12 @@ export function UpdateModal({ visible, info, onClose }: UpdateModalProps) {
                 style={[
                   styles.chip,
                   {
-                    backgroundColor: withAlpha(palette.primary, 0.14),
+                    backgroundColor: withAlpha(palette.primaryInk, 0.14),
                     borderColor: withAlpha(palette.primary, 0.32),
                   },
                 ]}
               >
-                <Text style={[styles.chipLabel, styles.chipLabelLatest, { color: palette.primary }]}>
+                <Text style={[styles.chipLabel, styles.chipLabelLatest, { color: palette.primaryInk }]}>
                   最新 {info.latestVersion}
                 </Text>
               </View>
@@ -375,7 +375,7 @@ export function UpdateModal({ visible, info, onClose }: UpdateModalProps) {
                     accessibilityRole="button"
                     accessibilityLabel={notesExpanded ? "收起更新说明" : "展开全部更新说明"}
                   >
-                    <Text style={[styles.notesToggleLabel, { color: palette.primary }]}>
+                    <Text style={[styles.notesToggleLabel, { color: palette.primaryInk }]}>
                       {notesExpanded ? "收起" : "展开全部"}
                     </Text>
                   </Pressable>
@@ -414,16 +414,16 @@ export function UpdateModal({ visible, info, onClose }: UpdateModalProps) {
                 style={[
                   styles.notice,
                   {
-                    backgroundColor: withAlpha(palette.primary, 0.10),
+                    backgroundColor: withAlpha(palette.primaryInk, 0.10),
                     borderColor: withAlpha(palette.primary, 0.22),
                   },
                 ]}
                 accessibilityLiveRegion="polite"
               >
                 {phase === "installing" ? (
-                  <ActivityIndicator size="small" color={palette.primary} />
+                  <ActivityIndicator size="small" color={palette.primaryInk} />
                 ) : (
-                  <Sparkles size={16} color={palette.primary} />
+                  <Sparkles size={16} color={palette.primaryInk} />
                 )}
                 <Text style={[styles.noticeText, { color: palette.text }]}>
                   {phase === "installing"
@@ -460,9 +460,9 @@ export function UpdateModal({ visible, info, onClose }: UpdateModalProps) {
                 disabled={phase === "downloading" || phase === "handedOff"}
                 leading={
                   phase === "failed" ? (
-                    <RefreshCw size={18} color={palette.primary} />
+                    <RefreshCw size={18} color={palette.primaryInk} />
                   ) : phase === "idle" ? (
-                    <Download size={18} color={palette.primary} />
+                    <Download size={18} color={palette.primaryInk} />
                   ) : undefined
                 }
                 onPress={handlePrimary}

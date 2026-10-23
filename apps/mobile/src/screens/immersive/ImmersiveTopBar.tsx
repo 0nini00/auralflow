@@ -73,7 +73,7 @@ export function ImmersiveTopBar({
 
       <IconButton
         onPress={onOpenSleep}
-        tone={sleepActive ? "primary" : "strong"}
+        tone={sleepActive ? "accent" : "strong"}
         selected={sleepActive}
         accessibilityLabel={sleepActive ? `睡眠定时：${sleepLabel}` : "睡眠定时"}
         render={({ size, color }) => <Timer size={size} color={color} />}

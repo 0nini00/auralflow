@@ -83,7 +83,7 @@ export function BatchDownloadModal({
             按所选音质依次加入下载队列
           </Text>
           {progressText ? (
-            <Text style={[styles.progressText, { color: palette.primary }]}>{progressText}</Text>
+            <Text style={[styles.progressText, { color: palette.primaryInk }]}>{progressText}</Text>
           ) : null}
 
           <View style={styles.optionList}>
@@ -98,9 +98,9 @@ export function BatchDownloadModal({
                   style={({ pressed }) => [
                     styles.option,
                     {
-                      backgroundColor: isSelected ? withAlpha(palette.primary, 0.08) : palette.surfaceMuted,
+                      backgroundColor: isSelected ? withAlpha(palette.primaryInk, 0.08) : palette.surfaceMuted,
                       borderWidth: 1,
-                      borderColor: isSelected ? palette.primary : "transparent",
+                      borderColor: isSelected ? palette.primaryInk : "transparent",
                     },
                     pressed && { opacity: 0.7 },
                   ]}
@@ -108,14 +108,14 @@ export function BatchDownloadModal({
                   disabled={busy}
                 >
                   <View style={styles.optionTextWrap}>
-                    <Text style={[styles.optionLabel, { color: isSelected ? palette.primary : palette.text }]}>
+                    <Text style={[styles.optionLabel, { color: isSelected ? palette.primaryInk : palette.text }]}>
                       {option.label}
                     </Text>
                     <Text style={[styles.optionDesc, { color: palette.textSubtle }]}>
                       {option.description}
                     </Text>
                   </View>
-                  <Text style={[styles.optionAction, { color: isSelected ? palette.primary : palette.textMuted }]}>
+                  <Text style={[styles.optionAction, { color: isSelected ? palette.primaryInk : palette.textMuted }]}>
                     {isSelected ? "已选" : ""}
                   </Text>
                 </Pressable>
@@ -151,9 +151,9 @@ export function BatchDownloadModal({
               disabled={busy || songs.length === 0}
             >
               {busy ? (
-                <ActivityIndicator color={palette.primary} size="small" />
+                <ActivityIndicator color={palette.primaryInk} size="small" />
               ) : (
-                <Text style={[styles.confirmText, { color: palette.primary }]}>开始下载</Text>
+                <Text style={[styles.confirmText, { color: palette.primaryInk }]}>开始下载</Text>
               )}
             </Pressable>
           </View>

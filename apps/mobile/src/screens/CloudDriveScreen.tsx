@@ -141,13 +141,13 @@ export function CloudDriveScreen({ onNavigateToPlayer: _onNavigateToPlayer }: Cl
             style={styles.cover}
             fallback={
               <View style={[styles.cover, styles.coverFallback, { backgroundColor: palette.surface }]}>
-                <Cloud size={28} color={palette.primary} strokeWidth={1.8} />
+                <Cloud size={28} color={palette.primaryInk} strokeWidth={1.8} />
               </View>
             }
           />
         ) : (
           <View style={[styles.cover, styles.coverFallback, { backgroundColor: palette.surface }]}>
-            <Cloud size={28} color={palette.primary} strokeWidth={1.8} />
+            <Cloud size={28} color={palette.primaryInk} strokeWidth={1.8} />
           </View>
         )}
         <View style={styles.headerText}>

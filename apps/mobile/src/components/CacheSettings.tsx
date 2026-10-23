@@ -173,9 +173,9 @@ export function CacheSettings() {
           >
             <Text style={[styles.rowTitle, { color: palette.text }]}>缓存占用</Text>
             {pendingAction === "stats" ? (
-              <ActivityIndicator accessibilityLabel="正在读取缓存占用" color={palette.primary} size="small" />
+              <ActivityIndicator accessibilityLabel="正在读取缓存占用" color={palette.primaryInk} size="small" />
             ) : (
-              <Text style={[styles.totalValue, { color: palette.primary }]}>
+              <Text style={[styles.totalValue, { color: palette.primaryInk }]}>
                 {formatCacheSize(cacheStats.totalSize)}
               </Text>
             )}
@@ -307,7 +307,7 @@ function NavigationRow({ title, subtitle, onPress, palette }: { title: string; s
       subtitle={subtitle}
       accessibilityLabel={`${title}，${subtitle}`}
       onPress={onPress}
-      trailing={<ChevronRight size={20} color={palette.primary} />}
+      trailing={<ChevronRight size={20} color={palette.primaryInk} />}
       style={[styles.actionRow, { backgroundColor: palette.surface, borderColor: palette.border }]}
     />
   );
@@ -376,11 +376,11 @@ function CachedAudioSection({
         onPress={handleToggle}
         trailing={
           loading ? (
-            <ActivityIndicator accessibilityLabel="正在读取缓存列表" size="small" color={palette.primary} />
+            <ActivityIndicator accessibilityLabel="正在读取缓存列表" size="small" color={palette.primaryInk} />
           ) : expanded ? (
-            <ChevronDown size={20} color={palette.primary} />
+            <ChevronDown size={20} color={palette.primaryInk} />
           ) : (
-            <ChevronRight size={20} color={palette.primary} />
+            <ChevronRight size={20} color={palette.primaryInk} />
           )
         }
         style={[styles.actionRow, { backgroundColor: palette.surface, borderColor: palette.border }]}

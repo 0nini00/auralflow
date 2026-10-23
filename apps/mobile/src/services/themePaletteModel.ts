@@ -14,20 +14,28 @@ export interface ThemePalette {
   /** 强调色在文字/图标上的可读版本（浅色下压深、深色下提亮） */
   primaryInk: string;
   primaryText: string;
+  /** 绿色按钮填充：默认与文字行动色同档（#0D7A42），不是品牌荧光绿 */
+  actionFill: string;
+  /** actionFill 上的文字/图标颜色 */
+  onActionFill: string;
   danger: string;
   dangerSurface: string;
   statusBar: "light-content" | "dark-content";
   isDark: boolean;
 }
 
-export const DEFAULT_ACCENT_COLOR = "#3bd877";
+export const DEFAULT_ACCENT_COLOR = "#0d7a42";
 const LEGACY_DEFAULT_ACCENT_COLOR = "#1db954";
 const LEGACY_RED_ACCENT_COLOR = "#d83b40";
+const LEGACY_BRAND_GREEN = "#3bd877";
 const HEX_COLOR_PATTERN = /^#?[0-9a-f]{6}$/;
 
 /** 品牌绿在浅色/深色下的可读行动色（对比度见 PROPOSAL §5.1） */
 const DEFAULT_ACCENT_INK_LIGHT = "#0d7a42";
 const DEFAULT_ACCENT_INK_DARK = "#6fe7ac";
+/** 按钮填充用的深绿：与浅色文字行动色同档，白字 5.4:1 */
+const DEFAULT_ACTION_FILL = "#0d7a42";
+const ACTION_FILL_TEXT = "#ffffff";
 
 /** 来源色只用于 6px 圆点，不做整块标签 */
 export const SOURCE_COLORS = {
@@ -37,7 +45,7 @@ export const SOURCE_COLORS = {
   custom: "#a78bfa",
 } as const;
 
-const lightBasePalette: Omit<ThemePalette, "primary" | "primaryInk" | "primaryText" | "isDark"> = {
+const lightBasePalette: Omit<ThemePalette, "primary" | "primaryInk" | "primaryText" | "actionFill" | "onActionFill" | "isDark"> = {
   // 与桌面端重设计 A 方向共用同一张暖中性画布
   background: "#f3f3ef",
   surface: "#ffffff",
@@ -52,7 +60,7 @@ const lightBasePalette: Omit<ThemePalette, "primary" | "primaryInk" | "primaryTe
   statusBar: "dark-content",
 };
 
-const darkBasePalette: Omit<ThemePalette, "primary" | "primaryInk" | "primaryText" | "isDark"> = {
+const darkBasePalette: Omit<ThemePalette, "primary" | "primaryInk" | "primaryText" | "actionFill" | "onActionFill" | "isDark"> = {
   // 近黑带一点绿调：和品牌色同色相，避免纯黑在 OLED 上的拖影
   background: "#0b0f0d",
   surface: "#121815",
@@ -121,11 +129,25 @@ function buildPrimaryInk(primary: string, theme: ResolvedTheme, surface: string)
   if (primary === DEFAULT_ACCENT_COLOR) {
     return theme === "light" ? DEFAULT_ACCENT_INK_LIGHT : DEFAULT_ACCENT_INK_DARK;
   }
-  let ink = theme === "light" ? mixHex(primary, "#000000", 0.45) : mixHex(primary, "#ffffff", 0.4);
+  let ink = primary;
   for (let step = 0; step < 8 && contrastRatio(ink, surface) < 4.5; step += 1) {
-    ink = theme === "light" ? mixHex(ink, "#000000", 0.12) : mixHex(ink, "#ffffff", 0.12);
+    ink = theme === "light" ? mixHex(ink, "#000000", 0.1) : mixHex(ink, "#ffffff", 0.1);
   }
   return ink;
+}
+
+/**
+ * 按钮填充色：默认直接复用浅色行动绿 #0D7A42。
+ * 自定义强调色时按同色相压深，保证白字至少 4.5:1；深色主题也用深绿填充，
+ * 避免 #6FE7AC 这种浅薄荷色做成大面积按钮后过亮。
+ */
+function buildActionFill(primary: string, theme: ResolvedTheme): string {
+  if (primary === DEFAULT_ACCENT_COLOR) return DEFAULT_ACTION_FILL;
+  let fill = primary;
+  for (let step = 0; step < 8 && contrastRatio(ACTION_FILL_TEXT, fill) < 4.5; step += 1) {
+    fill = mixHex(fill, "#000000", 0.1);
+  }
+  return fill;
 }
 
 export function normalizeAccentColor(color: string | null | undefined): string {
@@ -140,7 +162,9 @@ export function parseAccentColorInput(color: string | null | undefined): string 
 
 export function migrateAccentColor(color: string | null | undefined): string {
   const normalized = normalizeAccentColor(color);
-  return normalized === LEGACY_DEFAULT_ACCENT_COLOR || normalized === LEGACY_RED_ACCENT_COLOR
+  return normalized === LEGACY_DEFAULT_ACCENT_COLOR
+    || normalized === LEGACY_RED_ACCENT_COLOR
+    || normalized === LEGACY_BRAND_GREEN
     ? DEFAULT_ACCENT_COLOR
     : normalized;
 }
@@ -163,6 +187,8 @@ export function buildThemePalette(theme: ResolvedTheme, accentColor = DEFAULT_AC
     primary,
     primaryInk: buildPrimaryInk(primary, theme, base.surface),
     primaryText: getReadableTextColor(primary),
+    actionFill: buildActionFill(primary, theme),
+    onActionFill: ACTION_FILL_TEXT,
     isDark: theme === "dark",
   };
   if (themePaletteCache.size >= THEME_PALETTE_CACHE_LIMIT) {

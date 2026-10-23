@@ -27,14 +27,14 @@ export function SettingsLinkRow({ title, subtitle, onPress, trailing, disabled =
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
 
   const trailingContent =
-    trailing !== undefined ? trailing : <ChevronRight size={18} color={palette.primary} />;
+    trailing !== undefined ? trailing : <ChevronRight size={18} color={palette.primaryInk} />;
 
   return (
     <SettingsCard style={styles.rowCard}>
       <ListItemButton
         title={title}
         subtitle={subtitle}
-        subtitleColor={subtitleAccent ? palette.primary : undefined}
+        subtitleColor={subtitleAccent ? palette.primaryInk : undefined}
         trailing={trailingContent}
         disabled={disabled}
         accessibilityLabel={title}
@@ -50,6 +50,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
   },
   row: {
-    marginHorizontal: -spacing.xs,
+    marginHorizontal: -spacing.s,
+    borderBottomWidth: 0,
   },
 });

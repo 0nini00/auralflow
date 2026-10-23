@@ -239,7 +239,7 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
             style={styles.backButton}
             onPress={onBack}
           >
-            <Text style={[styles.backText, { color: palette.primary }]}>返回</Text>
+            <Text style={[styles.backText, { color: palette.primaryInk }]}>返回</Text>
           </Pressable>
         ) : null}
 
@@ -275,7 +275,7 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
                         { backgroundColor: palette.surfaceStrong },
                       ]}
                     >
-                      <Radio size={48} color={palette.primary} />
+                      <Radio size={48} color={palette.primaryInk} />
                     </View>
                   }
                 />
@@ -287,7 +287,7 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
                     { backgroundColor: palette.surfaceStrong },
                   ]}
                 >
-                  <Radio size={48} color={palette.primary} />
+                  <Radio size={48} color={palette.primaryInk} />
                 </View>
               )}
             </View>
@@ -375,8 +375,8 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
                 style={[
                   styles.mainPlayBtn,
                   {
-                    backgroundColor: palette.primary,
-                    shadowColor: palette.primary,
+                    backgroundColor: palette.actionFill,
+                    shadowColor: palette.actionFill,
                   },
                 ]}
                 onPress={() => void handleTogglePlay()}
@@ -388,11 +388,11 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
                 }
               >
                 {starting || playerLoading ? (
-                  <ActivityIndicator size="small" color={palette.primaryText} />
+                  <ActivityIndicator size="small" color={palette.onActionFill} />
                 ) : isFmPlaying && isPlaying ? (
-                  <Pause size={28} color={palette.primaryText} fill={palette.primaryText} />
+                  <Pause size={28} color={palette.onActionFill} fill={palette.onActionFill} />
                 ) : (
-                  <Play size={28} color={palette.primaryText} fill={palette.primaryText} style={{ marginLeft: 3 }} />
+                  <Play size={28} color={palette.onActionFill} fill={palette.onActionFill} style={{ marginLeft: 3 }} />
                 )}
               </Touchable>
 
@@ -406,7 +406,7 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
                 accessibilityLabel="跳到下一首"
               >
                 {skipping ? (
-                  <ActivityIndicator size="small" color={palette.primary} />
+                  <ActivityIndicator size="small" color={palette.primaryInk} />
                 ) : (
                   <SkipForward size={22} color={palette.text} />
                 )}
@@ -467,7 +467,7 @@ function makeStyles(palette: ReturnType<typeof getThemePalette>) {
     },
     backText: {
       fontSize: typography.title,
-      color: palette.primary,
+      color: palette.primaryInk,
       fontWeight: "600",
     },
     stateWithAction: {
