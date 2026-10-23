@@ -3,7 +3,7 @@
 这里收集的是已经反复被问到的问题，每条按「你看到什么 → 为什么 → 怎么办」写。
 处置都对应应用里的真实功能与开关；**本文没写的，基本就是当前版本还不支持**。
 
-- 当前版本：桌面端 **0.8.0**，Android 端 **0.7.10**（versionCode **35**）。本版只有桌面端改动，Android 未重建。
+- 当前版本：桌面端 **0.9.0**，Android 端 **0.9.0**（versionCode **36**）。本版含移动端界面重构与桌面沉浸播放页修复。
 - 安装包**没有做 Windows 代码签名**，这是现状，不是遗漏；下面「安装与安全软件」有对应说明。
 - 报 issue 之前先翻一遍本页；解决不了就带上下文「日志与报 issue」要求的信息提 issue。
 
@@ -53,10 +53,10 @@
 4. 要手动下载，把原始 GitHub 地址前面加上镜像前缀即可，格式是 `https://gh-proxy.com/<原始 GitHub 地址>`：
 
    ```text
-   https://gh-proxy.com/https://github.com/0nini00/auralflow/releases/download/v0.8.0/AuralFlow-v0.8.0-windows-x64-setup.exe
+   https://gh-proxy.com/https://github.com/0nini00/auralflow/releases/download/v0.9.0/AuralFlow-v0.9.0-windows-x64-setup.exe
    ```
 
-   把 `v0.8.0` 和文件名换成你要下的版本与资产名。桌面端资产是 `AuralFlow-v<版本>-windows-x64-setup.exe`（安装版）与 `AuralFlow-v<版本>-windows-x64-portable.exe`（便携版）；Android 端按 CPU 架构选 `AuralFlow-v<版本>-arm64-v8a.apk` 或 `AuralFlow-v<版本>-armeabi-v7a.apk`。
+   把 `v0.9.0` 和文件名换成你要下的版本与资产名。桌面端资产是 `AuralFlow-v<版本>-windows-x64-setup.exe`（安装版）与 `AuralFlow-v<版本>-windows-x64-portable.exe`（便携版）；Android 端按 CPU 架构选 `AuralFlow-v<版本>-arm64-v8a.apk` 或 `AuralFlow-v<版本>-armeabi-v7a.apk`。
 
 ### 更新下载失败 / 提示「检查更新失败」
 
