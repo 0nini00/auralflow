@@ -63,13 +63,17 @@ export function HomeQuickActions({ actions, onPress }: HomeQuickActionsProps) {
           accessibilityRole="button"
           accessibilityLabel={action.label}
           onPress={() => onPress(action.id)}
-          style={({ pressed }) => [
-            styles.actionButton,
-            { backgroundColor: palette.text, opacity: pressed ? 0.75 : 1 },
-          ]}
+          style={({ pressed }) => [styles.actionButton, { opacity: pressed ? 0.72 : 1 }]}
         >
-          <View style={styles.actionIcon}>{action.icon}</View>
-          <Text numberOfLines={1} style={[styles.actionLabel, { color: palette.background }]}>
+          <View
+            style={[
+              styles.actionTile,
+              { backgroundColor: palette.surface, borderColor: palette.border },
+            ]}
+          >
+            <View style={styles.actionIcon}>{action.icon}</View>
+          </View>
+          <Text numberOfLines={1} style={[styles.actionLabel, { color: palette.text }]}>
             {action.label}
           </Text>
         </Pressable>
@@ -174,21 +178,23 @@ export function HomeSectionError({ message, onRetry, loading }: HomeSectionError
 }
 
 const styles = StyleSheet.create({
-  actions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
+  actions: { flexDirection: "row", gap: spacing.xs },
   actionButton: {
-    minHeight: touch.minTarget,
-    minWidth: 132,
-    flexGrow: 1,
-    flexBasis: 132,
-    flexDirection: "row",
+    flex: 1,
+    minWidth: 0,
+    alignItems: "center",
+    gap: 6,
+  },
+  actionTile: {
+    width: "100%",
+    height: 54,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
-    gap: spacing.xs,
-    paddingHorizontal: spacing.s,
-    borderRadius: radius.sm,
   },
   actionIcon: { alignItems: "center", justifyContent: "center" },
-  actionLabel: { flexShrink: 1, fontSize: typography.meta, fontWeight: "600" },
+  actionLabel: { fontSize: 10.5, fontWeight: "600", textAlign: "center" },
   rail: { gap: spacing.s, paddingHorizontal: spacing.xxs },
   card: { width: 142, height: 202 },
   cover: { width: 142, height: 142, borderRadius: radius.sm },

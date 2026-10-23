@@ -17,25 +17,36 @@ import { HistorySection } from "@/components/HistorySection";
 import { ActionButton } from "@/components/ActionButton";
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
 import { ErrorState } from "@/components/ScreenState";
+import { SegmentedChips } from "@/components/SegmentedChips";
+import { FavoritesSection } from "@/components/library/FavoritesSection";
+import { PlaylistsSection } from "@/components/library/PlaylistsSection";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
-import { type LibrarySection } from "@/services/librarySectionModel";
+import { type LibrarySection as LibraryContentSection } from "@/services/librarySectionModel";
 import { writeLocalMusicLyrics, isDownloadedLocalSong } from "@/services/localMusicService";
 import {
   buildLibraryContentModelInput,
   getLibraryContentModel,
 } from "@/services/libraryContentModel";
+import { useLibrarySectionStore, type LibrarySection } from "@/stores/librarySectionStore";
 
 interface LibraryScreenProps {
   onNavigateToPlayer: () => void;
-  activeSection: LibrarySection;
-  onSelectSection: (section: LibrarySection) => void;
 }
 
-export function LibraryScreen({
-  onNavigateToPlayer,
-  activeSection,
-  onSelectSection,
-}: LibraryScreenProps) {
+const LIBRARY_SEGMENTS: readonly { key: LibrarySection; label: string }[] = [
+  { key: "playlists", label: "歌单" },
+  { key: "local", label: "本地" },
+  { key: "favorites", label: "收藏" },
+  { key: "history", label: "历史" },
+  { key: "downloads", label: "下载" },
+] as const;
+
+export function LibraryScreen({ onNavigateToPlayer }: LibraryScreenProps) {
+  const section = useLibrarySectionStore((state) => state.section);
+  const requestSection = useLibrarySectionStore((state) => state.requestSection);
+  // 内容模型只认识 local/history/downloads；歌单与收藏走独立分支
+  const contentSection: LibraryContentSection =
+    section === "history" || section === "downloads" ? section : "local";
   const history = useHistoryStore((state) => state.history);
   const historyEntries = useHistoryStore((state) => state.entries);
   const clearHistory = useHistoryStore((state) => state.clearHistory);
@@ -74,8 +85,8 @@ export function LibraryScreen({
   }, [loadDownloads]);
 
   const activeSongs = useMemo<MusicInfo[]>(
-    () => (activeSection === "history" ? history : activeSection === "local" ? localSongs : []),
-    [activeSection, history, localSongs],
+    () => (contentSection === "history" ? history : contentSection === "local" ? localSongs : []),
+    [contentSection, history, localSongs],
   );
 
   const runPlayback = useCallback(async (action: () => Promise<void>) => {
@@ -148,7 +159,7 @@ export function LibraryScreen({
   };
 
   const handleDeleteLibrarySong = useCallback((song: MusicInfo, dayStart?: number) => {
-    const request = buildLibrarySongDeleteRequest(activeSection, song);
+    const request = buildLibrarySongDeleteRequest(contentSection, song);
     if (request.type === "history") {
       void removeFromHistory(request.songId, request.source, dayStart);
       return;
@@ -167,7 +178,7 @@ export function LibraryScreen({
         },
       ]);
     }
-  }, [activeSection, removeFromHistory, removeLocalSong]);
+  }, [contentSection, removeFromHistory, removeLocalSong]);
 
   const handleScanLocal = async () => {
     try {
@@ -177,7 +188,7 @@ export function LibraryScreen({
       if (nextSongs.length === 0) {
         Alert.alert("提示", "未找到本地音乐文件");
       } else if (previousCount === 0) {
-        onSelectSection("local");
+        requestSection("local");
       }
     } catch (error) {
       Alert.alert("扫描失败", error instanceof Error ? error.message : String(error));
@@ -192,18 +203,18 @@ export function LibraryScreen({
         Alert.alert("提示", previousCount === result.total ? "未选择新文件，或所选文件已在曲库中" : "未选择文件");
         return;
       }
-      onSelectSection("local");
+      requestSection("local");
       Alert.alert("导入完成", `新增 ${result.added} 首，当前共 ${result.total} 首本地歌曲`);
     } catch (error) {
       Alert.alert("导入失败", error instanceof Error ? error.message : String(error));
     }
   };
 
-  const librarySongActions = buildLibrarySongActions(activeSection, activeSongs.length);
+  const librarySongActions = buildLibrarySongActions(contentSection, activeSongs.length);
 
   const contentModel = getLibraryContentModel(
     buildLibraryContentModelInput({
-      section: activeSection,
+      section: contentSection,
       historyCount: history.length,
       localLoading,
       localError,
@@ -231,6 +242,7 @@ export function LibraryScreen({
             songs={localSongs}
             onPlay={handlePlay}
             onEdit={handleEditLocalSong}
+            hideSourceTag
             onDelete={librarySongActions.canDeleteSongs ? handleDeleteLibrarySong : undefined}
             emptyText={contentModel.emptyText}
           />
@@ -242,7 +254,7 @@ export function LibraryScreen({
 
   // 本地曲库可达上千首：走虚拟化列表（SongList 本体即滚动容器），头部内容进 ListHeaderComponent；
   // 历史/下载等其余分支维持 ScreenScrollView 结构
-  const isLocalVirtualList = contentModel.kind === "songList" && contentModel.songSource === "local";
+  const isLocalVirtualList = section === "local" && contentModel.kind === "songList" && contentModel.songSource === "local";
   const playbackErrorNode = (
     <PlaybackErrorState
       message={playbackError}
@@ -291,12 +303,22 @@ export function LibraryScreen({
 
   return (
     <ScreenScaffold>
-      {isLocalVirtualList ? (
+      <SegmentedChips items={LIBRARY_SEGMENTS} value={section} onChange={requestSection} />
+      {section === "playlists" ? (
+        <ScreenScrollView>
+          <PlaylistsSection />
+        </ScreenScrollView>
+      ) : section === "favorites" ? (
+        <ScreenScrollView>
+          <FavoritesSection />
+        </ScreenScrollView>
+      ) : isLocalVirtualList ? (
         <SongList
           virtualized
           songs={localSongs}
           onPlay={handlePlay}
           onEdit={handleEditLocalSong}
+          hideSourceTag
           onDelete={librarySongActions.canDeleteSongs ? handleDeleteLibrarySong : undefined}
           ListHeaderComponent={
             <>

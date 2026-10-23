@@ -1,6 +1,7 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { layout, radius, spacing, typography } from "@/theme/tokens";
 import {
+  Animated,
   Pressable,
   StyleSheet,
   Text,
@@ -10,6 +11,7 @@ import type { MusicInfo } from "@lx/core";
 
 import { ActionButton } from "@/components/ActionButton";
 import { DetailHero } from "@/components/DetailHero";
+import { FloatingDetailHeader } from "@/components/FloatingDetailHeader";
 import { BatchDownloadModal } from "@/components/BatchDownloadModal";
 import { ScreenScaffold } from "@/components/ScreenScaffold";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
@@ -55,6 +57,7 @@ type AlbumRemoteState =
 export function AlbumDetailScreen({
   album,
   parentAlbum,
+  onBack,
   onNavigateToPlayer: _onNavigateToPlayer,
   onOpenArtist,
 }: AlbumDetailScreenProps) {
@@ -63,6 +66,14 @@ export function AlbumDetailScreen({
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor);
   const currentSong = usePlayerStore((state) => state.currentSong);
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const handleScroll = useMemo(
+    () => Animated.event(
+      [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+      { useNativeDriver: false },
+    ),
+    [scrollY],
+  );
 
   const requestSequenceRef = useRef(0);
   const currentIdRef = useRef(album.id);
@@ -189,8 +200,11 @@ export function AlbumDetailScreen({
 
   return (
     <ScreenScaffold>
+      <FloatingDetailHeader title={heroTitle} onBack={onBack} scrollY={scrollY} />
       <SongList
         virtualized
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         songs={songs}
         onPlay={handlePlay}
         highlightedIndex={currentSongIndex >= 0 ? currentSongIndex : null}

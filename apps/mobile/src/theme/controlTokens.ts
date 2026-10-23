@@ -27,7 +27,7 @@ export const control = {
 } as const;
 
 export type ButtonSize = keyof typeof control.button;
-export type ButtonVariant = "primary" | "secondary" | "outline" | "danger" | "ghost";
+export type ButtonVariant = "brand" | "primary" | "secondary" | "outline" | "danger" | "ghost";
 export type IconButtonControlSize = keyof typeof control.iconButton;
 export type IconButtonTone = "default" | "muted" | "inverse" | "danger" | "translucent" | "accent";
 export type ChipSize = keyof typeof control.chip;

@@ -70,6 +70,7 @@ export function Button({
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ ...accessibilityState, disabled: isDisabled, busy: loading }}
       disabled={isDisabled}
+      hitSlop={4}
       onPress={onPress}
       style={({ pressed }) => [
         styles.base,
@@ -93,19 +94,28 @@ export function Button({
 
 export function getButtonColors(variant: ButtonVariant, palette: ReturnType<typeof getThemePalette>) {
   switch (variant) {
+    case "brand":
+      // 全屏唯一主操作：品牌绿实心 + 深绿文字（8.4:1）。
+      // 与 primary 区分：primary 仍是 2026-08 约定的「表面底 + 强调色文字」。
+      return {
+        backgroundColor: palette.primary,
+        borderColor: palette.primary,
+        textColor: palette.primaryText,
+      };
     case "secondary":
-      return { backgroundColor: palette.surface, borderColor: palette.border, textColor: palette.primary };
+      return { backgroundColor: palette.surface, borderColor: palette.border, textColor: palette.primaryInk };
     case "outline":
-      return { backgroundColor: "transparent", borderColor: palette.primary, textColor: palette.primary };
+      return { backgroundColor: "transparent", borderColor: palette.primaryInk, textColor: palette.primaryInk };
     case "danger":
       return { backgroundColor: palette.dangerSurface, borderColor: palette.danger, textColor: palette.danger };
     case "ghost":
-      return { backgroundColor: "transparent", borderColor: "transparent", textColor: palette.primary };
+      return { backgroundColor: "transparent", borderColor: "transparent", textColor: palette.primaryInk };
     case "primary":
     default:
       // 强调按钮不再实心填充：表面色底 + 强调色文字 + 细边框（用户 2026-08 要求，
-      // 全局仅删除类 danger 保留红色调；实心强调色按钮全部退场）
-      return { backgroundColor: palette.surface, borderColor: palette.border, textColor: palette.primary };
+      // 全局仅删除类 danger 保留红色调；实心强调色按钮全部退场）。
+      // 新设计的「每屏一个主操作」走 brand 变体，不改这条约定。
+      return { backgroundColor: palette.surface, borderColor: palette.border, textColor: palette.primaryInk };
   }
 }
 

@@ -47,9 +47,9 @@ const styles = StyleSheet.create({
     gap: spacing.xxs,
   },
   title: {
-    fontSize: typography.heading,
-    fontWeight: "600",
-    letterSpacing: -0.2,
+    fontSize: typography.title,
+    fontWeight: "700",
+    letterSpacing: -0.3,
   },
   description: {
     fontSize: typography.meta,

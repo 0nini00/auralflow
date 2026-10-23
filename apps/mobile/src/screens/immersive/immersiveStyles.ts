@@ -166,6 +166,21 @@ export const styles = StyleSheet.create({
   pagerLyricList: {
     flex: 1,
   },
+  pageDots: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 10,
+  },
+  pageDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+  },
+  pageDotActive: {
+    width: 16,
+  },
 
   // 对齐 lx 竖屏 Player：底部播放区（文档流三段式：PlayInfo / ControlBtn / MoreBtn）
   playerArea: {

@@ -50,7 +50,6 @@ import {
 import { fetchCoverColors, type CoverColors } from "@/services/coverColorService";
 import { resolveImmersiveCoverLayout, resolveImmersiveLayout } from "@/services/immersiveLayoutModel";
 import { withAlpha } from "@/services/themePaletteModel";
-import { getResolvedTheme, useThemeStore } from "@/stores/themeStore";
 import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
 import { openMvPlayerScreen, openSimilarSongsScreen } from "@/navigation";
 
@@ -143,9 +142,8 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
   const showLyricProgress = useLyricSettingsStore((s) => s.showLyricProgress);
   const ambientCoverTint = useLyricSettingsStore((s) => s.ambientCoverTint);
   const coverSpin = useLyricSettingsStore((s) => s.coverSpin);
-  const themeMode = useThemeStore((s) => s.mode);
-  const systemTheme = useThemeStore((s) => s.systemTheme);
-  const isDark = getResolvedTheme(themeMode, systemTheme) === "dark";
+  // 播放页恒定深色（方案 Q2）：不再跟随系统主题
+  const isDark = true;
   const pagerViewRef = React.useRef<PagerView>(null);
   const { width: windowWidth, height: windowHeight, fontScale } = useWindowDimensions();
   const lyricFontSize = useLyricSettingsStore((s) => s.fontSize);
@@ -565,6 +563,24 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
                     </PagerView>
                   )}
                 </View>
+                {!isSplit ? (
+                  <View style={styles.pageDots} accessibilityRole="tablist">
+                    {[0, 1].map((index) => (
+                      <View
+                        key={index}
+                        style={[
+                          styles.pageDot,
+                          index === currentPage && styles.pageDotActive,
+                          {
+                            backgroundColor: index === currentPage
+                              ? palette.text
+                              : palette.textSubtle,
+                          },
+                        ]}
+                      />
+                    ))}
+                  </View>
+                ) : null}
                 <ScrollView
                   style={styles.transportViewport}
                   contentInsetAdjustmentBehavior="never"

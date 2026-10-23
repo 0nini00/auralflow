@@ -12,11 +12,13 @@ import type { SettingsCategoryName } from "@/navigation/settingsRouteModel";
  */
 
 interface SettingsCategoryRequestState {
-  /** 当前目标分类（初始为设置首页，实际不可达，仅兜底） */
+  /** 当前目标分类（初始为设置首页） */
   category: SettingsCategoryName | "SettingsHome";
   /** 每次点击递增，参与重挂载 key：重复点同一分类也会刷新页面 */
   navId: number;
   requestCategory: (category: SettingsCategoryName) => void;
+  /** 从任意分类回到设置首页（顶栏返回 / 再次打开设置时） */
+  resetToHome: () => void;
 }
 
 export const useSettingsCategoryStore = create<SettingsCategoryRequestState>((set) => ({
@@ -24,4 +26,6 @@ export const useSettingsCategoryStore = create<SettingsCategoryRequestState>((se
   navId: 0,
   requestCategory: (category) =>
     set((state) => ({ category, navId: state.navId + 1 })),
+  resetToHome: () =>
+    set((state) => ({ category: "SettingsHome", navId: state.navId + 1 })),
 }));

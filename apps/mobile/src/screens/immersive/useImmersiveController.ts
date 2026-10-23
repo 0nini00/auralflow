@@ -26,7 +26,7 @@ import {
 } from "@/services/lyricOverlayService";
 import { useFavoritesStore } from "@/stores/favoritesStore";
 import { useDownloadStore, type DownloadQuality } from "@/stores/downloadStore";
-import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
+import { getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { openArtistDetailScreen } from "@/navigation/navigationRef";
 import { hapticLight } from "@/services/hapticService";
 import type { SearchArtistResult } from "@/services/musicApi";
@@ -80,14 +80,13 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
 
   const cancelSleepTimer = usePlayerStore((s) => s.cancelSleepTimer);
 
-  const mode = useThemeStore((s) => s.mode);
-  const systemTheme = useThemeStore((s) => s.systemTheme);
   const accentColor = useThemeStore((s) => s.accentColor);
   // palette 引用稳定化：播放进度 0.25s 触发一次控制器重渲染，但主题不变时 palette 不应是新对象，
   // 否则所有接收 palette 的子组件（含 memo 化的背景层）都会被拖着重渲染。
+  // 播放页恒定深色：封面氛围色需要一个稳定的暗底，浅色主题下也不切白
   const palette = useMemo(
-    () => getThemePalette(getResolvedTheme(mode, systemTheme), accentColor),
-    [mode, systemTheme, accentColor],
+    () => getThemePalette("dark", accentColor),
+    [accentColor],
   );
 
   const showTranslation = useLyricSettingsStore((s) => s.showTranslation);

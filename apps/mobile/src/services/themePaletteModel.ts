@@ -11,10 +11,13 @@ export interface ThemePalette {
   textMuted: string;
   textSubtle: string;
   primary: string;
+  /** 强调色在文字/图标上的可读版本（浅色下压深、深色下提亮） */
+  primaryInk: string;
   primaryText: string;
   danger: string;
   dangerSurface: string;
   statusBar: "light-content" | "dark-content";
+  isDark: boolean;
 }
 
 export const DEFAULT_ACCENT_COLOR = "#3bd877";
@@ -22,32 +25,43 @@ const LEGACY_DEFAULT_ACCENT_COLOR = "#1db954";
 const LEGACY_RED_ACCENT_COLOR = "#d83b40";
 const HEX_COLOR_PATTERN = /^#?[0-9a-f]{6}$/;
 
-const lightBasePalette: Omit<ThemePalette, "primary" | "primaryText"> = {
-  // 对齐桌面 --af-bg-page / elevated / surface
-  background: "#f8f9fa",
+/** 品牌绿在浅色/深色下的可读行动色（对比度见 PROPOSAL §5.1） */
+const DEFAULT_ACCENT_INK_LIGHT = "#0d7a42";
+const DEFAULT_ACCENT_INK_DARK = "#6fe7ac";
+
+/** 来源色只用于 6px 圆点，不做整块标签 */
+export const SOURCE_COLORS = {
+  wy: "#ff5a5f",
+  tx: "#2ecc8f",
+  local: "#8b918a",
+  custom: "#a78bfa",
+} as const;
+
+const lightBasePalette: Omit<ThemePalette, "primary" | "primaryInk" | "primaryText" | "isDark"> = {
+  // 与桌面端重设计 A 方向共用同一张暖中性画布
+  background: "#f3f3ef",
   surface: "#ffffff",
-  surfaceMuted: "#f1f3f5",
-  surfaceStrong: "#e9ecef",
-  border: "#e2e8f0",
-  text: "#0f172a",
-  textMuted: "#475569",
-  textSubtle: "#94a3b8",
+  surfaceMuted: "#ebebe4",
+  surfaceStrong: "#e0e0d6",
+  border: "#e3e3d9",
+  text: "#161a16",
+  textMuted: "#5b615a",
+  textSubtle: "#8b918a",
   danger: "#ef4444",
   dangerSurface: "rgba(239, 68, 68, 0.1)",
   statusBar: "dark-content",
 };
 
-const darkBasePalette: Omit<ThemePalette, "primary" | "primaryText"> = {
-  // 对齐桌面 dark --af-bg-page / elevated / surface
-  background: "#121212",
-  surface: "#1a1a1a",
-  surfaceMuted: "#1e1e1e",
-  surfaceStrong: "#2a2a2a",
-  // 对齐桌面 --af-border-primary：深色下边框必须比 surface 亮一档，否则卡片/列表边界不可见
-  border: "#334155",
-  text: "#f8fafc",
-  textMuted: "#cbd5e1",
-  textSubtle: "#64748b",
+const darkBasePalette: Omit<ThemePalette, "primary" | "primaryInk" | "primaryText" | "isDark"> = {
+  // 近黑带一点绿调：和品牌色同色相，避免纯黑在 OLED 上的拖影
+  background: "#0b0f0d",
+  surface: "#121815",
+  surfaceMuted: "#19211d",
+  surfaceStrong: "#222c27",
+  border: "#26312c",
+  text: "#f1f5f2",
+  textMuted: "#a7b3ae",
+  textSubtle: "#6e7c77",
   danger: "#ef4444",
   dangerSurface: "rgba(239, 68, 68, 0.1)",
   statusBar: "light-content",
@@ -62,10 +76,56 @@ function hexToRgb(color: string): [number, number, number] {
   ];
 }
 
+function rgbToHex(red: number, green: number, blue: number): string {
+  const toHex = (value: number) =>
+    Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, "0");
+  return `#${toHex(red)}${toHex(green)}${toHex(blue)}`;
+}
+
+function mixHex(from: string, to: string, amount: number): string {
+  const [r1, g1, b1] = hexToRgb(from);
+  const [r2, g2, b2] = hexToRgb(to);
+  return rgbToHex(
+    r1 + (r2 - r1) * amount,
+    g1 + (g2 - g1) * amount,
+    b1 + (b2 - b1) * amount,
+  );
+}
+
+function relativeLuminance(color: string): number {
+  const [red, green, blue] = hexToRgb(color).map((channel) => {
+    const value = channel / 255;
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+}
+
+function contrastRatio(foreground: string, background: string): number {
+  const light = Math.max(relativeLuminance(foreground), relativeLuminance(background));
+  const dark = Math.min(relativeLuminance(foreground), relativeLuminance(background));
+  return (light + 0.05) / (dark + 0.05);
+}
+
 function getReadableTextColor(background: string): string {
   const [red, green, blue] = hexToRgb(background);
   const luminance = (0.299 * red + 0.587 * green + 0.114 * blue) / 255;
-  return luminance > 0.58 ? "#10241f" : "#ffffff";
+  return luminance > 0.58 ? "#062a19" : "#ffffff";
+}
+
+/**
+ * 强调色在文字/图标上的可读版本。
+ * 默认品牌绿直接用设计稿给定的深绿/浅绿；自定义强调色按明暗压深或提亮，
+ * 并保证与表面色至少 4.5:1，避免用户选到浅黄/浅粉后文字看不见。
+ */
+function buildPrimaryInk(primary: string, theme: ResolvedTheme, surface: string): string {
+  if (primary === DEFAULT_ACCENT_COLOR) {
+    return theme === "light" ? DEFAULT_ACCENT_INK_LIGHT : DEFAULT_ACCENT_INK_DARK;
+  }
+  let ink = theme === "light" ? mixHex(primary, "#000000", 0.45) : mixHex(primary, "#ffffff", 0.4);
+  for (let step = 0; step < 8 && contrastRatio(ink, surface) < 4.5; step += 1) {
+    ink = theme === "light" ? mixHex(ink, "#000000", 0.12) : mixHex(ink, "#ffffff", 0.12);
+  }
+  return ink;
 }
 
 export function normalizeAccentColor(color: string | null | undefined): string {
@@ -101,7 +161,9 @@ export function buildThemePalette(theme: ResolvedTheme, accentColor = DEFAULT_AC
   const palette: ThemePalette = {
     ...base,
     primary,
+    primaryInk: buildPrimaryInk(primary, theme, base.surface),
     primaryText: getReadableTextColor(primary),
+    isDark: theme === "dark",
   };
   if (themePaletteCache.size >= THEME_PALETTE_CACHE_LIMIT) {
     themePaletteCache.clear();

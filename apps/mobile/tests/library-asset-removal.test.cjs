@@ -61,14 +61,18 @@ test("普通歌手和专辑详情保持 push 导航及父歌手参数", () => {
   const dispatched = [];
   const load = createLoader({
     "@react-navigation/native": {
+      // 2026-10 重构：根容器从 Drawer 改为 Stack，push 直接派发给根栈，
+      // 不再需要 getRootState() 定位 Main 分支的 key。
       createNavigationContainerRef: () => ({
         isReady: () => true,
-        getRootState: () => ({ routes: [{ name: "Main", state: { key: "main-stack" } }] }),
         dispatch: (action) => dispatched.push(action),
       }),
       StackActions: { push: (name, params) => ({ type: "PUSH", payload: { name, params } }) },
     },
     "@/stores/settingsCategoryStore": {},
+    "@/stores/librarySectionStore": {
+      useLibrarySectionStore: { getState: () => ({ requestSection: () => {} }) },
+    },
   });
   const navigation = load("src/navigation/navigationRef.ts");
   assert.equal(navigation.openFollowedArtistsScreen, undefined);
@@ -78,8 +82,8 @@ test("普通歌手和专辑详情保持 push 导航及父歌手参数", () => {
   navigation.openArtistDetailScreen(artist);
   navigation.openAlbumDetailScreen(album, artist);
   assert.deepEqual(dispatched, [
-    { type: "PUSH", payload: { name: "ArtistDetail", params: { artist } }, target: "main-stack" },
-    { type: "PUSH", payload: { name: "AlbumDetail", params: { album, parentArtist: artist } }, target: "main-stack" },
+    { type: "PUSH", payload: { name: "ArtistDetail", params: { artist } } },
+    { type: "PUSH", payload: { name: "AlbumDetail", params: { album, parentArtist: artist } } },
   ]);
 });
 

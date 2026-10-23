@@ -8,14 +8,7 @@ import {
   Text,
   View,
 } from "react-native";
-import {
-  ListMusic,
-  Music2,
-  Pause,
-  Play,
-  SkipBack,
-  SkipForward,
-} from "lucide-react-native";
+import { Music2, Pause, Play, SkipForward } from "lucide-react-native";
 
 import { CachedImage } from "@/components/CachedImage";
 import { MiniProgressBar } from "@/components/MiniProgressBar";
@@ -26,19 +19,12 @@ import {
   hideLyricOverlay,
   setLyricOverlayLocked,
   setLyricOverlayLyrics,
-  updateLyricOverlay,
 } from "@/services/lyricOverlayService";
 import { syncLyricOverlayPlaybackClock } from "@/services/lyricOverlayPlayback";
 import { logger } from "@/services/logger";
 import { shouldCalibrateClock } from "@lx/core";
-import {
-  playFromQueue,
-  playNext,
-  playPrevious,
-} from "@/services/playerService";
-import { buildImmersiveQueuePanelModel } from "@/services/playerQueueModel";
+import { playFromQueue, playNext } from "@/services/playerService";
 import { convertChineseText } from "@/services/chineseConversionService";
-import { QueueModal } from "@/components/QueueModal";
 import { useLyricOverlayStore } from "@/stores/lyricOverlayStore";
 import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
 import { useLyricLineIndex } from "@/hooks/useLyricLineIndex";
@@ -48,11 +34,11 @@ import { PLAYER_BAR_HEIGHT } from "@/navigation/tabLayout";
 import { setImmersiveFlySource } from "@/screens/immersive/immersiveFlySource";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { hapticLight } from "@/services/hapticService";
-import { radius, spacing, touch, typography } from "@/theme/tokens";
+import { radius, spacing, typography } from "@/theme/tokens";
 
 export interface PlayerBarProps {
   onOpen: () => void;
-  /** 底部安全区高度：push 页无 Tab 栏时贴屏底需避让手势条；Tab 页内嵌于 tabBar 时为 0。 */
+  /** 底部安全区高度：作为卡片外边距把播放器抬离手势条；Tab 页内嵌于 tabBar 时为 0。 */
   bottomInset?: number;
 }
 
@@ -60,6 +46,15 @@ function showActionError(title: string, error: unknown) {
   Alert.alert(title, error instanceof Error ? error.message : String(error));
 }
 
+/**
+ * 迷你播放器（浮起卡片）。
+ *
+ * 设计要点：
+ * - 64px 高、左右 12px 外边距、圆角 20，浮在标签栏上方 6px；
+ * - 进度线在卡片顶部（2px），播放键 34px 实心品牌绿，右侧只留「下一首」；
+ * - 队列入口收敛到播放页，避免 64px 内塞四个按钮。
+ * - 保留长按/上滑打开播放页、歌词行、悬浮歌词同步与封面测量。
+ */
 export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
   const currentSong = usePlayerStore((state) => state.currentSong);
   const coverUrl = usePlayerStore(selectPlaybackArtwork);
@@ -68,10 +63,6 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
   const playbackNotice = usePlayerStore((state) => state.playbackNotice);
   const pause = usePlayerStore((state) => state.pause);
   const resume = usePlayerStore((state) => state.resume);
-  const queue = usePlayerStore((state) => state.queue);
-  const currentIndex = usePlayerStore((state) => state.currentIndex);
-  const removeFromQueue = usePlayerStore((state) => state.removeFromQueue);
-  const clearQueue = usePlayerStore((state) => state.clearQueue);
 
   const overlayVisible = useLyricOverlayStore((state) => state.visible);
   const overlayLocked = useLyricOverlayStore((state) => state.locked);
@@ -85,8 +76,6 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
     [themeMode, systemTheme, accentColor],
   );
 
-  const [queueModalOpen, setQueueModalOpen] = useState(false);
-
   // 键盘弹出时隐藏迷你栏（对齐 lx PlayerBar：搜索/输入时不遮挡键盘）
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   useEffect(() => {
@@ -97,11 +86,6 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
       hideSub.remove();
     };
   }, []);
-
-  const queueModel = useMemo(
-    () => buildImmersiveQueuePanelModel(queue, currentIndex),
-    [queue, currentIndex],
-  );
 
   useEffect(() => {
     if (currentSong || !overlayVisible) return;
@@ -140,8 +124,7 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
   ).current;
 
   // 长按定时器的卸载兜底清理：触摸被父级滑动 PanResponder 抢走时收到的是
-  // touchCancel 而非 touchEnd（已单独处理），组件卸载（如清空队列）时在此清理，
-  // 避免 500ms 后误开播放器。
+  // touchCancel 而非 touchEnd（已单独处理），组件卸载时在此清理。
   useEffect(() => {
     return () => {
       if (longPressTimer.current) {
@@ -152,11 +135,9 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
   }, []);
 
   // 测量迷你栏封面在窗口中的位置，供播放页「封面飞入/飞回」转场取起点。
-  // onLayout 在布局变化（键盘弹出/隐藏、底栏挂载）时会重新触发，坐标保持新鲜。
   const coverMeasureRef = useRef<View | null>(null);
 
   if (!currentSong || keyboardVisible) return null;
-
 
   const handleTogglePlayback = async () => {
     try {
@@ -176,44 +157,9 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
     }
   };
 
-  const handlePlayerAction = async (action: () => Promise<void>) => {
-    try {
-      await action();
-    } catch (error) {
-      showActionError("播放操作失败", error);
-    }
-  };
-
   const handleNext = () => {
     hapticLight();
-    void handlePlayerAction(playNext);
-  };
-
-  const handlePrevious = () => {
-    hapticLight();
-    void handlePlayerAction(playPrevious);
-  };
-
-  const handlePlayQueueItem = async (index: number) => {
-    try {
-      await playFromQueue(index);
-    } catch (error) {
-      showActionError("播放队列歌曲失败", error);
-    }
-    setQueueModalOpen(false);
-  };
-
-  const handleRemoveQueueItem = (index: number) => {
-    removeFromQueue(index);
-  };
-
-  const handleClearQueue = async () => {
-    try {
-      await clearQueue();
-    } catch (error) {
-      showActionError("清空播放队列失败", error);
-    }
-    setQueueModalOpen(false);
+    void playNext().catch((error) => showActionError("播放操作失败", error));
   };
 
   const handleTouchStart = () => {
@@ -245,11 +191,10 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
       style={[
         styles.root,
         {
-          // 固定高度 + 底部安全区延伸（push 页手势条区域同底色）
-          height: PLAYER_BAR_HEIGHT + bottomInset,
-          paddingBottom: bottomInset,
+          height: PLAYER_BAR_HEIGHT,
+          marginBottom: bottomInset,
           backgroundColor: palette.surface,
-          borderTopColor: palette.border,
+          borderColor: palette.border,
         },
       ]}
     >
@@ -272,19 +217,18 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
                 style={styles.cover}
                 fallback={
                   <View style={[styles.cover, styles.coverFallback, { backgroundColor: palette.surfaceStrong }]}>
-                    <Music2 size={20} color={palette.primary} />
+                    <Music2 size={18} color={palette.textSubtle} />
                   </View>
                 }
               />
             ) : (
               <View style={[styles.cover, styles.coverFallback, { backgroundColor: palette.surfaceStrong }]}>
-                <Music2 size={20} color={palette.primary} />
+                <Music2 size={18} color={palette.textSubtle} />
               </View>
             )}
           </View>
           <View style={styles.trackText}>
-            {/* 对齐 lx Title：第一行“歌名 - 歌手”（formatMusicName 格式）。
-                迷你栏空间有限，超长时自动缩小字号保整段可见，不再从尾部截掉歌手。 */}
+            {/* 迷你栏空间有限，超长时自动缩小字号保整段可见，不再从尾部截掉歌手。 */}
             <Text
               style={[styles.trackName, { color: palette.text }]}
               numberOfLines={1}
@@ -293,10 +237,9 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
             >
               {`${currentSong.name} - ${currentSong.singer?.trim() || "未知歌手"}`}
             </Text>
-            {/* 对齐 lx Status：播放时滚动显示当前歌词行，未播放回退状态文案。
-                跨源降级注记（约 10s）优先占用此行，确保用户看到「实际在播哪一版」。 */}
+            {/* 跨源降级注记（约 10s）优先占用此行，确保用户看到「实际在播哪一版」。 */}
             {playbackNotice ? (
-              <Text style={[styles.trackNotice, { color: palette.primary }]} numberOfLines={1}>
+              <Text style={[styles.trackNotice, { color: palette.primaryInk }]} numberOfLines={1}>
                 {playbackNotice}
               </Text>
             ) : (
@@ -306,70 +249,32 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
         </Touchable>
 
         <View style={styles.transportControls}>
-          <IconButton
-            size="sm"
-            tone="strong"
-            onPress={handlePrevious}
-            accessibilityLabel="上一首"
-            render={({ size, color }) =>
-              loading ? (
-                <ActivityIndicator color={color} size="small" />
-              ) : (
-                <SkipBack size={size} color={color} />
-              )
-            }
-          />
-          <IconButton
-            variant="accent"
-            disabled={loading}
+          <Touchable
             onPress={() => void handleTogglePlayback()}
+            disabled={loading}
+            accessibilityRole="button"
             accessibilityLabel={isPlaying ? "暂停" : "播放"}
-            render={({ size, color }) =>
-              loading ? (
-                <ActivityIndicator color={color} size="small" />
-              ) : isPlaying ? (
-                <Pause size={size} color={color} fill={color} />
-              ) : (
-                <Play size={size} color={color} fill={color} />
-              )
-            }
-          />
+            accessibilityState={{ disabled: loading, busy: loading }}
+            activeScale={0.94}
+            style={[styles.playButton, { backgroundColor: palette.primary }]}
+          >
+            {loading ? (
+              <ActivityIndicator color={palette.primaryText} size="small" />
+            ) : isPlaying ? (
+              <Pause size={15} color={palette.primaryText} fill={palette.primaryText} />
+            ) : (
+              <Play size={15} color={palette.primaryText} fill={palette.primaryText} />
+            )}
+          </Touchable>
           <IconButton
             size="sm"
             tone="strong"
             onPress={handleNext}
             accessibilityLabel="下一首"
-            render={({ size, color }) =>
-              loading ? (
-                <ActivityIndicator color={color} size="small" />
-              ) : (
-                <SkipForward size={size} color={color} />
-              )
-            }
-          />
-          <IconButton
-            size="sm"
-            tone="strong"
-            onPress={() => setQueueModalOpen(true)}
-            accessibilityLabel="播放列表"
-            render={({ size, color }) => <ListMusic size={size} color={color} />}
+            render={({ size, color }) => <SkipForward size={size} color={color} />}
           />
         </View>
       </View>
-
-      <QueueModal
-        visible={queueModalOpen}
-        queueModel={queueModel}
-        queue={queue}
-        palette={palette}
-        onClose={() => setQueueModalOpen(false)}
-        onPlayItem={(index) => void handlePlayQueueItem(index)}
-        onRemoveItem={handleRemoveQueueItem}
-        onClear={() => void handleClearQueue()}
-        // 与沉浸屏统一为底部弹层；迷你栏宿主容器不满屏，需套一层全屏透明 Modal 作宿主
-        presentation="sheet"
-        sheetHost="modal"
-      />
     </View>
   );
 }
@@ -385,14 +290,8 @@ interface MiniLyricStatusProps {
  *
  * 行号统一走 useLyricLineIndex（与沉浸屏同源：锚点外推 + 行边界调度 + 单调钳制），
  * 不再随 0.25s 进度事件重算。组件隔离到叶子：
- * - 只有这一行 Text 随行切换重渲染，整个 PlayerBar（封面、按钮、弹窗）不再随进度重建；
+ * - 只有这一行 Text 随行切换重渲染，整个 PlayerBar（封面、按钮）不再随进度重建；
  * - 悬浮歌词原生桥按「显示签名」去重推送：内容不变不发送。
- *
- * 悬浮窗推送语义（对齐 lx 桌面歌词）：
- * - 有归属当前曲的歌词且行号有效 → 推当前行 + 下一行；
- * - 切歌在途（新歌已入 store、歌词未加载）/ 前奏 / 无词 → 推「歌名 - 歌手」，
- *   保证上一首一结束悬浮窗就切换到新歌，而不是挂着旧歌词等新歌唱起来；
- * - 队列清空 → 推空串清窗。
  */
 function MiniLyricStatus({ overlayVisible, color }: MiniLyricStatusProps) {
   const lyrics = usePlayerStore((state) => state.lyrics);
@@ -403,7 +302,6 @@ function MiniLyricStatus({ overlayVisible, color }: MiniLyricStatusProps) {
   const manualOffsetMs = useLyricSettingsStore((s) => s.manualOffsetMs);
   const chineseConversion = useLyricSettingsStore((s) => s.chineseConversion);
 
-  const offsetSec = manualOffsetMs / 1000;
   // 统一行号源：与沉浸屏共用同一钩子，避免两套行号在行边界附近不同步
   const currentIndex = useLyricLineIndex(lyrics, manualOffsetMs);
   const convertText = useCallback(
@@ -423,8 +321,6 @@ function MiniLyricStatus({ overlayVisible, color }: MiniLyricStatusProps) {
   // 歌词归属打标：只在歌词数组身份变化那一刻按 store 当时的 currentSong 归属。
   // 切歌在途窗口（currentSong 已是新歌、歌词还是上一首的）里旧歌词不归新歌所有，
   // 悬浮窗改推歌名——否则会拿上一首的歌词按新歌进度取行（音词错位）或退化为空窗。
-  // currentSong 在 play() 内先于 loadLyrics 落库（playerStore.ts play → playSongCore 第 3 步），
-  // 歌词到达时打到的必是新歌的标；同曲重播（切音质）数组虽换但 key 不变，不会闪歌名。
   const lyricsOwnerRef = useRef({ array: lyrics, key: songKey });
   if (lyricsOwnerRef.current.array !== lyrics) {
     lyricsOwnerRef.current = { array: lyrics, key: songKey };
@@ -476,30 +372,37 @@ function MiniLyricStatus({ overlayVisible, color }: MiniLyricStatusProps) {
 
 const styles = StyleSheet.create({
   root: {
-    // 文档流布局：Tab 页作为自定义 tabBar 的上一行（导航键正上方），
-    // push 页由 AppShell 贴底渲染。不做 absolute，导航键布局完全不变、零遮挡。
-    borderTopWidth: StyleSheet.hairlineWidth,
+    // 浮起卡片：Tab 页在标签栏上方，push 页由 AppShell 贴底渲染
+    marginHorizontal: spacing.s,
+    borderRadius: radius.xl,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
     flexDirection: "column",
+    shadowColor: "#101614",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 6,
   },
   content: {
     flex: 1,
-    paddingHorizontal: spacing.xs,
+    paddingHorizontal: spacing.xs + 2,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: spacing.xxs,
+    gap: spacing.xs,
   },
   trackSummary: {
-    minHeight: touch.minTarget,
+    minHeight: 44,
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.xxs,
+    gap: spacing.xs,
   },
   cover: {
     width: 40,
     height: 40,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
   },
   coverFallback: {
     alignItems: "center",
@@ -510,16 +413,20 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   trackName: {
-    fontSize: typography.body,
+    fontSize: 12.5,
+    lineHeight: 17,
     fontWeight: "700",
+    letterSpacing: -0.1,
   },
   trackArtist: {
-    marginTop: 2,
-    fontSize: typography.caption,
+    marginTop: 1,
+    fontSize: typography.micro,
+    lineHeight: 14,
   },
   trackNotice: {
-    marginTop: 2,
-    fontSize: typography.caption,
+    marginTop: 1,
+    fontSize: typography.micro,
+    lineHeight: 14,
     fontWeight: "600",
   },
   transportControls: {
@@ -527,5 +434,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: spacing.xxs,
+  },
+  playButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#3bd877",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
+    elevation: 3,
   },
 });

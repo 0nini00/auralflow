@@ -5,6 +5,7 @@ import {
   Captions,
   FolderPlus,
   Heart,
+  ListMusic,
   MessageCircle,
   MoreHorizontal,
   Pause,
@@ -201,9 +202,10 @@ export function ImmersiveTransport({
 
         <IconButton
           size="xl"
-          tone="strong"
+          tone="primary"
           onPress={onTogglePlay}
           accessibilityLabel={isPlaying ? "暂停" : "播放"}
+          style={[localStyles.playButton, { backgroundColor: palette.primary }]}
           render={({ size, color }) =>
             loading ? (
               <ActivityIndicator color={color} size="large" />
@@ -273,6 +275,13 @@ export function ImmersiveTransport({
         ) : null}
 
         <IconButton
+          onPress={onOpenQueue}
+          tone="strong"
+          accessibilityLabel={queueLabel}
+          render={({ size, color }) => <ListMusic size={size} color={color} />}
+        />
+
+        <IconButton
           onPress={() => onMoreMenuVisibleChange(true)}
           tone="strong"
           accessibilityLabel="更多选项"
@@ -319,6 +328,16 @@ export function ImmersiveTransport({
 }
 
 const localStyles = StyleSheet.create({
+  playButton: {
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    shadowColor: "#3bd877",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.32,
+    shadowRadius: 16,
+    elevation: 8,
+  },
   compactArea: { paddingTop: 4 },
   compactControls: { paddingVertical: 4 },
   modeToast: {

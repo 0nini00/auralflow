@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useRef, useState } from "react";
-import { Alert, FlatList, StyleSheet, Text, View } from "react-native";
+import { Alert, Animated, FlatList, StyleSheet, Text, View } from "react-native";
 import type { MusicInfo } from "@lx/core";
 import {
   Download,
@@ -13,6 +13,7 @@ import {
 import { ActionButton } from "@/components/ActionButton";
 import { SongList } from "@/components/SongList";
 import { DetailHero } from "@/components/DetailHero";
+import { FloatingDetailHeader } from "@/components/FloatingDetailHeader";
 import { ScreenScaffold } from "@/components/ScreenScaffold";
 import { EmptyState } from "@/components/ScreenState";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
@@ -55,6 +56,14 @@ export function LocalPlaylistDetailScreen({
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const handleScroll = useMemo(
+    () => Animated.event(
+      [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+      { useNativeDriver: false },
+    ),
+    [scrollY],
+  );
 
   const playlist = usePlaylistStore((state) =>
     state.localPlaylists.find((item) => item.id === playlistId),
@@ -126,6 +135,7 @@ export function LocalPlaylistDetailScreen({
   if (!playlist) {
     return (
       <ScreenScaffold>
+        <FloatingDetailHeader title="歌单" onBack={onBack} />
         <View style={styles.missingState}>
           <EmptyState
             icon={ListMusic}
@@ -277,8 +287,11 @@ export function LocalPlaylistDetailScreen({
 
   return (
     <ScreenScaffold>
+      <FloatingDetailHeader title={playlist.name} onBack={onBack} scrollY={scrollY} />
       <SongList
         virtualized
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         listRef={listRef}
         songs={songs}
         onPlay={handlePlay}
@@ -304,22 +317,19 @@ export function LocalPlaylistDetailScreen({
               actions={
                 <View style={styles.heroActions}>
                   <ActionButton
-                    small
                     grow
-                    variant="primary"
+                    variant="brand"
                     label={detailActions.playAllLabel}
                     onPress={() => void handlePlayAll()}
                   />
                   <ActionButton
-                    small
                     grow
-                    variant="primary"
+                    variant="secondary"
                     label="定位"
                     disabled={currentSongIndex < 0}
                     onPress={handleLocateCurrentSong}
                   />
                   <ActionButton
-                    small
                     grow
                     variant="danger"
                     label="删除"

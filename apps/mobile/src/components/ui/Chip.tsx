@@ -9,7 +9,6 @@ import {
   type ViewStyle,
 } from "react-native";
 
-import { withAlpha } from "@/services/themePaletteModel";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { control, type ChipSize } from "@/theme/tokens";
 
@@ -44,11 +43,24 @@ export function Chip({
         background: selected ? "rgba(255, 255, 255, 0.92)" : "rgba(0, 0, 0, 0.35)",
         text: selected ? "#111111" : "#FFFFFF",
       }
-    : {
-        border: selected ? palette.primary : palette.border,
-        background: selected ? withAlpha(palette.primary, 0.14) : palette.surface,
-        text: selected ? palette.primary : palette.text,
-      };
+    : selected
+      ? palette.isDark
+        ? {
+            border: palette.primary,
+            background: palette.primary,
+            text: palette.primaryText,
+          }
+        : {
+            // 浅色下选中态用实心墨色：比浅绿底更清楚，也不与主按钮争夺注意力
+            border: palette.text,
+            background: palette.text,
+            text: palette.background,
+          }
+      : {
+          border: palette.border,
+          background: palette.surface,
+          text: palette.text,
+        };
   return (
     <Pressable
       {...rest}
@@ -56,6 +68,7 @@ export function Chip({
       accessibilityLabel={rest.accessibilityLabel ?? label}
       accessibilityState={{ ...accessibilityState, disabled: disabled === true, selected }}
       disabled={disabled}
+      hitSlop={{ top: 6, bottom: 6 }}
       style={({ pressed }) => [
         styles.base,
         {

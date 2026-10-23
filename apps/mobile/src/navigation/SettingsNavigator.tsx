@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo } from "react";
 import { BackHandler, StyleSheet, Text, View } from "react-native";
-import { CommonActions, DrawerActions } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChevronLeft } from "lucide-react-native";
 
@@ -44,12 +43,14 @@ const SETTINGS_PAGE_TITLES = {
 /**
  * 设置区：不使用嵌套导航栈。
  *
- * 分类切换 = 分类请求 store（抽屉点击写入）变化 → 直接渲染对应页面组件。
+ * 分类切换 = 分类请求 store 变化 → 直接渲染对应页面组件。
  * 之前用嵌套 native-stack + 路由 params 的方案反复出问题：reset 纠正打断转场
  * 动画（打开分类页卡顿）、嵌套 navigate 的参数合并导致重挂载不触发（退出后
  * 点另一个分类仍显示旧页面）。纯组件切换彻底消灭这类导航状态问题。
  *
- * 返回行为（页内返回键与系统返回手势一致）：切回主界面并展开侧边栏设置页。
+ * 返回行为（页内返回键与系统返回手势一致）：
+ * - 在分类页 → 回设置首页；
+ * - 在设置首页 → pop 回「我的」。
  */
 export function SettingsNavigator() {
   const mode = useThemeStore((state) => state.mode);
@@ -85,6 +86,7 @@ function SettingsTopBar({
 }) {
   const insets = useSafeAreaInsets();
   const category = useSettingsCategoryStore((state) => state.category);
+  const resetToHome = useSettingsCategoryStore((state) => state.resetToHome);
   const title = SETTINGS_PAGE_TITLES[category];
 
   return (
@@ -99,10 +101,11 @@ function SettingsTopBar({
         accessibilityLabel="返回"
         tone="strong"
         onPress={() => {
-          // 设置页层级里没有「上一页」：返回 = 切回主界面并自动展开侧边栏
-          // 设置页（底下是首页），可继续切换分类或收起侧边栏回到首页。
-          navigationRef.dispatch(CommonActions.navigate("Main"));
-          navigationRef.dispatch(DrawerActions.openDrawer());
+          if (category !== "SettingsHome") {
+            resetToHome();
+            return;
+          }
+          navigationRef.goBack();
         }}
         style={{ marginLeft: -8 }}
       />
@@ -112,7 +115,7 @@ function SettingsTopBar({
   );
 }
 
-/** 安卓返回键/手势：设置页返回 = 切回主界面并展开侧边栏（与页内返回键一致）。 */
+/** 安卓返回键/手势：分类页先回设置首页；设置首页再 pop 回「我的」。 */
 export function useSettingsBackInterceptor() {
   useEffect(() => {
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -120,9 +123,12 @@ export function useSettingsBackInterceptor() {
       const root = navigationRef.getRootState();
       const active = root.routes[root.index];
       if (active?.name !== "Settings") return false;
-      navigationRef.dispatch(CommonActions.navigate("Main"));
-      navigationRef.dispatch(DrawerActions.openDrawer());
-      return true;
+      const { category, resetToHome } = useSettingsCategoryStore.getState();
+      if (category !== "SettingsHome") {
+        resetToHome();
+        return true;
+      }
+      return false;
     });
     return () => subscription.remove();
   }, []);

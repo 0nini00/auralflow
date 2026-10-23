@@ -13,30 +13,8 @@ export type MainTabParamList = {
         initialDetailRoute?: SearchDetailRoute | null;
       }
     | undefined;
-  LibraryTab: NavigatorScreenParams<LibraryTopTabParamList> | undefined;
+  LibraryTab: undefined;
   MyMusicTab: undefined;
-};
-
-/** 曲库内部 TopTab —— 收敛为来源型：本地音乐 / 播放历史 / 下载 */
-export type LibraryTopTabParamList = {
-  Local: undefined;
-  History: undefined;
-  Downloads: undefined;
-};
-
-/**
- * 根抽屉：包住全部内容页（主页 Tab + 内容详情 + 全屏播放器 + 设置）。
- * 抽屉在根层级渲染，推入页（歌单详情等）也能直接打开侧边栏。
- */
-export type MainDrawerParamList = {
-  Main: NavigatorScreenParams<RootStackParamList> | undefined;
-  /**
-   * navId：抽屉每次点击分类时递增，SettingsStack 用它重新触发定位跳转。
-   * 否则 params.screen 不变（重复点同一分类）时 gate 不再跳转。
-   */
-  Settings:
-    | (NavigatorScreenParams<SettingsStackParamList> & { navId?: number })
-    | undefined;
 };
 
 export type SettingsStackParamList = {
@@ -51,10 +29,16 @@ export type SettingsStackParamList = {
   About: undefined;
 };
 
-/** 根 Stack：主页 Tab + 内容详情 + 全屏播放器（作为抽屉 Main 分支） */
+/**
+ * 根 Stack：主页 Tab + 内容详情 + 全屏播放器 + 设置。
+ *
+ * 2026-10 重构：删除 Drawer。设置从「我的」push 进入，返回即回「我的」，
+ * 不再需要「先关抽屉再回主界面」的双重状态。
+ */
 export type RootStackParamList = {
   MainTabs: NavigatorScreenParams<MainTabParamList> | undefined;
   Player: undefined;
+  Settings: undefined;
   MvPlayer: { mvId: string; title: string; artist: string; posterUrl?: string };
   DailyRecommend: undefined;
   CloudDrive: undefined;
@@ -73,6 +57,6 @@ export type RootStackParamList = {
 
 declare global {
   namespace ReactNavigation {
-    interface RootParamList extends MainDrawerParamList {}
+    interface RootParamList extends RootStackParamList {}
   }
 }

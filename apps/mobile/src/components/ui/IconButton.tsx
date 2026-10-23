@@ -69,7 +69,7 @@ function getIconColor(tone: IconButtonTone, palette: ReturnType<typeof getThemeP
     case "inverse":
       return palette.primaryText;
     case "accent":
-      return palette.primary;
+      return palette.primaryInk;
     case "danger":
       return palette.danger;
     case "muted":

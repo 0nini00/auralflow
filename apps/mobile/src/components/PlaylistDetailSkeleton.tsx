@@ -56,8 +56,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.m,
   },
   heroCover: {
-    width: 112,
-    height: 112,
+    width: 128,
+    height: 128,
     borderRadius: radius.md,
   },
   heroCopy: {

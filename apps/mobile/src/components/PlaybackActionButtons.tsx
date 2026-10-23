@@ -64,27 +64,24 @@ export function PlaybackActionButtons({
       <ActionButton
         label={playAllLabel}
         count={playAllCount}
-        variant="primary"
+        variant="brand"
         shrink
-        small
         loading={playAllBusy}
         onPress={onPlayAll}
         accessibilityLabel={playAllLabel}
       />
       <ActionButton
         label={shuffleLabel}
-        variant="primary"
+        variant="secondary"
         shrink
-        small
         loading={shuffleBusy}
         onPress={onShuffle}
         accessibilityLabel={shuffleLabel}
       />
       <ActionButton
         label={locateLabel}
-        variant="primary"
+        variant="secondary"
         shrink
-        small
         disabled={!canLocateCurrentSong}
         onPress={onLocate}
         accessibilityLabel={locateLabel}
@@ -94,8 +91,7 @@ export function PlaybackActionButtons({
           key={action.label}
           label={action.label}
           shrink
-          small
-          variant="primary"
+          variant="secondary"
           loading={action.loading}
           disabled={action.disabled}
           onPress={action.onPress}

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { layout, spacing, typography } from "@/theme/tokens";
 import {
+  Animated,
   Pressable,
   StyleSheet,
   Text,
@@ -9,6 +10,7 @@ import {
 import type { MusicInfo } from "@lx/core";
 
 import { DetailHero } from "@/components/DetailHero";
+import { FloatingDetailHeader } from "@/components/FloatingDetailHeader";
 import { ScreenScaffold } from "@/components/ScreenScaffold";
 import { Disc3 } from "lucide-react-native";
 
@@ -51,6 +53,7 @@ type ArtistRemoteState =
 
 export function ArtistDetailScreen({
   artist,
+  onBack,
   onNavigateToPlayer: _onNavigateToPlayer,
   onOpenAlbum,
 }: ArtistDetailScreenProps) {
@@ -59,6 +62,14 @@ export function ArtistDetailScreen({
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor);
   const currentSong = usePlayerStore((state) => state.currentSong);
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const handleScroll = useMemo(
+    () => Animated.event(
+      [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+      { useNativeDriver: false },
+    ),
+    [scrollY],
+  );
 
   const requestSequenceRef = useRef(0);
   const currentIdRef = useRef(artist.id);
@@ -157,8 +168,11 @@ export function ArtistDetailScreen({
 
   return (
     <ScreenScaffold>
+      <FloatingDetailHeader title={heroTitle} onBack={onBack} scrollY={scrollY} />
       <SongList
         virtualized
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         songs={songs}
         onPlay={handlePlay}
         highlightedIndex={currentSongIndex >= 0 ? currentSongIndex : null}

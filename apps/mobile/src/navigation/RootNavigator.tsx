@@ -1,6 +1,7 @@
 import React from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { MainTabNavigator } from "@/navigation/MainTabNavigator";
+import { SettingsNavigator } from "@/navigation/SettingsNavigator";
 import {
   openAlbumDetailScreen,
   openLocalPlaylistDetailScreen,
@@ -29,6 +30,12 @@ export function RootNavigator() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false, animation: "slide_from_right" }}>
       <Stack.Screen name="MainTabs" component={MainTabNavigator} />
+
+      <Stack.Screen
+        name="Settings"
+        component={SettingsNavigator}
+        options={{ animation: "slide_from_right" }}
+      />
 
       <Stack.Screen
         name="Player"

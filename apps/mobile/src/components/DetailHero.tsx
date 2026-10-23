@@ -127,19 +127,19 @@ const styles = StyleSheet.create({
     minWidth: 0,
     flexDirection: "row",
     flexWrap: "wrap",
-    // 顶部对齐：右侧文字/按钮行数变化时封面不会上下移动（lx 头部固定顶部对齐）
+    // 顶部对齐：右侧文字/按钮行数变化时封面不会上下移动
     alignItems: "flex-start",
-    gap: spacing.m,
+    gap: 12,
     marginBottom: spacing.l,
   },
   rootCompact: {
-    gap: spacing.s,
+    gap: 12,
     marginBottom: spacing.m,
   },
   cover: {
-    width: 120,
-    height: 120,
-    borderRadius: radius.md,
+    width: 128,
+    height: 128,
+    borderRadius: radius.xl,
     overflow: "hidden",
     borderWidth: 1,
     shadowColor: "#000",
@@ -154,9 +154,9 @@ const styles = StyleSheet.create({
   },
   // 对齐 lx：歌单详情封面 scaleSizeW(70)
   coverCompact: {
-    width: 72,
-    height: 72,
-    borderRadius: radius.md,
+    width: 128,
+    height: 128,
+    borderRadius: radius.xl,
   },
   // 对齐 lx CountText：封面底部半透明黑条 + 白色播放量
   coverBadge: {
@@ -176,26 +176,31 @@ const styles = StyleSheet.create({
   },
   copy: {
     flex: 1,
-    minWidth: 180,
+    // 360dp 屏：128 封面 + 12 间距 + 160 文字列 = 300，仍能同排
+    minWidth: 160,
     gap: spacing.xs,
   },
   copyCompact: {
     gap: 3,
   },
   title: {
-    fontSize: typography.display,
+    fontSize: 22,
+    lineHeight: 28,
     fontWeight: "700",
+    letterSpacing: -0.4,
   },
   titleCompact: {
-    fontSize: 16,
+    fontSize: 20,
+    lineHeight: 26,
     fontWeight: "700",
+    letterSpacing: -0.3,
   },
   subtitle: {
-    fontSize: typography.meta,
-    lineHeight: 18,
+    fontSize: typography.caption,
+    lineHeight: 17,
   },
   subtitleCompact: {
-    fontSize: 12,
+    fontSize: 11,
     lineHeight: 16,
   },
   metadata: {
@@ -206,7 +211,7 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   metadataText: {
-    fontSize: typography.caption,
+    fontSize: 11,
   },
   metadataTextCompact: {
     fontSize: 11,

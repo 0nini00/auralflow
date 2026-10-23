@@ -1,8 +1,7 @@
 /**
- * 导航类型与参数（Root Stack + Main Drawer + 内容详情）。
+ * 导航类型与参数（Root Stack + 内容详情 + 设置）。
  */
 export type {
-  MainDrawerParamList,
   RootStackParamList,
   SettingsStackParamList,
 } from "./types";
@@ -14,6 +13,7 @@ export {
   openLibrarySection,
   openHistoryScreen,
   openDownloadsScreen,
+  openMyMusicTab,
   openSettingsScreen,
   openMvPlayerScreen,
   openArtistDetailScreen,
@@ -28,5 +28,4 @@ export {
   openSimilarSongsScreen,
 } from "./navigationRef";
 export { RootNavigator } from "./RootNavigator";
-export { MainDrawerNavigator } from "./MainDrawerNavigator";
 export { SettingsNavigator } from "./SettingsNavigator";

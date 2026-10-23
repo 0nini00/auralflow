@@ -12,9 +12,11 @@ import { groupHasSource, groupSongResults, withSongVariants } from "@lx/core";
 import { layout, radius, spacing, touch, typography } from "@/theme/tokens";
 
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
+import { LargeHeader } from "@/components/LargeHeader";
 import { SectionHeader } from "@/components/SectionHeader";
 import { SummaryCardGrid } from "@/components/SummaryCardGrid";
 import { SearchX, X } from "lucide-react-native";
+import { LinearGradient } from "react-native-linear-gradient";
 
 import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
@@ -102,6 +104,23 @@ const EMPTY_RESULTS: SearchResults = {
   albums: [],
   playlists: [],
 };
+
+/** 空态「按风格浏览」：点击直接以风格词发起真实搜索，不做假数据热搜 */
+const SEARCH_GENRES: readonly {
+  key: string;
+  label: string;
+  query: string;
+  colors: readonly [string, string];
+}[] = [
+  { key: "pop", label: "流行", query: "流行", colors: ["#1e3a8a", "#3b82f6"] },
+  { key: "electronic", label: "电子", query: "电子", colors: ["#0f766e", "#2dd4bf"] },
+  { key: "rock", label: "摇滚", query: "摇滚", colors: ["#7c2d12", "#ea580c"] },
+  { key: "folk", label: "民谣", query: "民谣", colors: ["#4c1d95", "#8b5cf6"] },
+  { key: "rap", label: "说唱", query: "说唱", colors: ["#831843", "#ec4899"] },
+  { key: "classical", label: "古典", query: "古典", colors: ["#1f2937", "#64748b"] },
+  { key: "jazz", label: "爵士", query: "爵士", colors: ["#713f12", "#d97706"] },
+  { key: "ost", label: "影视", query: "影视原声", colors: ["#164e63", "#0891b2"] },
+] as const;
 
 
 export function SearchScreen({
@@ -363,7 +382,7 @@ export function SearchScreen({
   return (
     <ScreenScaffold>
       <ScreenScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <SectionHeader title="搜索音乐" style={styles.section} />
+        <LargeHeader title="搜索" style={styles.pageHeader} />
         <PlaybackErrorState
           message={playbackError}
           onDismiss={() => setPlaybackError(null)}
@@ -480,6 +499,34 @@ export function SearchScreen({
               </Pressable>
             ))}
           </View>
+          </View>
+        )}
+
+        {!keyword && !submittedQuery && (
+          <View style={styles.genreSection}>
+            <SectionHeader title="按风格浏览" style={styles.suggestionsHeader} />
+            <View style={styles.genreGrid}>
+              {SEARCH_GENRES.map((genre) => (
+                <Pressable
+                  key={genre.key}
+                  accessibilityRole="button"
+                  accessibilityLabel={`浏览${genre.label}音乐`}
+                  onPress={() => {
+                    setKeyword(genre.query);
+                    void runSearch(genre.query);
+                  }}
+                  style={({ pressed }) => [styles.genreTile, { opacity: pressed ? 0.78 : 1 }]}
+                >
+                  <LinearGradient
+                    colors={[...genre.colors]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={StyleSheet.absoluteFill}
+                  />
+                  <Text style={styles.genreLabel}>{genre.label}</Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
         )}
 
@@ -643,6 +690,10 @@ const styles = StyleSheet.create({
   container: {
     gap: spacing.l,
   },
+  pageHeader: {
+    paddingHorizontal: 0,
+    paddingBottom: spacing.xs,
+  },
   section: {
     marginBottom: spacing.m,
   },
@@ -765,6 +816,29 @@ const styles = StyleSheet.create({
   },
   suggestionsHeader: {
     marginBottom: spacing.s,
+  },
+  genreSection: {
+    gap: spacing.xs,
+  },
+  genreGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    rowGap: spacing.xs,
+  },
+  genreTile: {
+    width: "48.5%",
+    height: 54,
+    borderRadius: radius.lg,
+    overflow: "hidden",
+    justifyContent: "flex-end",
+    padding: spacing.s,
+  },
+  genreLabel: {
+    color: "#ffffff",
+    fontSize: typography.body,
+    fontWeight: "700",
+    letterSpacing: 0.2,
   },
   suggestionsList: {
     gap: spacing.xs,

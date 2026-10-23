@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Pressable, Text, View, type LayoutChangeEvent } from "react-native";
-import { ChevronLeft, SlidersHorizontal, Timer } from "lucide-react-native";
+import { ChevronDown, SlidersHorizontal, Timer } from "lucide-react-native";
 import type { ThemePalette } from "@/stores/themeStore";
 import { IconButton } from "@/components/IconButton";
 import { styles } from "@/screens/immersive/immersiveStyles";
@@ -40,7 +40,7 @@ export function ImmersiveTopBar({
         onPress={onClose}
         tone="strong"
         accessibilityLabel="关闭播放器"
-        render={({ size, color }) => <ChevronLeft size={size} color={color} />}
+        render={({ size, color }) => <ChevronDown size={size} color={color} />}
       />
 
       <View

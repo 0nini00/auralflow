@@ -2,6 +2,7 @@
 import { layout, radius, spacing, typography } from "@/theme/tokens";
 import {
   Alert,
+  Animated,
   FlatList,
   RefreshControl,
   StyleSheet,
@@ -43,6 +44,7 @@ import { EmptyState, ErrorState } from "@/components/ScreenState";
 import { PlaylistDetailSkeleton } from "@/components/PlaylistDetailSkeleton";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
 import { SectionHeader } from "@/components/SectionHeader";
+import { FloatingDetailHeader } from "@/components/FloatingDetailHeader";
 
 interface PlaylistDetailScreenProps {
   playlist: WyPlaylistInfo;
@@ -56,6 +58,14 @@ export function PlaylistDetailScreen({
   onNavigateToPlayer,
 }: PlaylistDetailScreenProps) {
   const listRef = useRef<FlatList<MusicInfo> | null>(null);
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const handleScroll = useMemo(
+    () => Animated.event(
+      [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+      { useNativeDriver: false },
+    ),
+    [scrollY],
+  );
   const mountedRef = useRef(true);
   // 批量下载同步锁：batchDownloadQuality 是异步 state，同帧双击都会通过 batchBusy 检查
   const batchRunningRef = useRef(false);
@@ -329,6 +339,7 @@ export function PlaylistDetailScreen({
   if (loading && songs.length === 0 && !error) {
     return (
       <ScreenScaffold>
+        <FloatingDetailHeader title="歌单" onBack={onBack} />
         <PlaylistDetailSkeleton />
       </ScreenScaffold>
     );
@@ -336,6 +347,11 @@ export function PlaylistDetailScreen({
 
   return (
     <ScreenScaffold>
+      <FloatingDetailHeader
+        title={displayPlaylist.name}
+        onBack={onBack}
+        scrollY={scrollY}
+      />
       <SongList
         virtualized
         listRef={listRef}
@@ -359,6 +375,8 @@ export function PlaylistDetailScreen({
             progressBackgroundColor={palette.surface}
           />
         }
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         ListHeaderComponent={
           <>
             <PlaybackErrorState
@@ -380,15 +398,13 @@ export function PlaylistDetailScreen({
                 <View style={styles.heroActions}>
                   <ActionButton
                     shrink
-                    small
-                    variant="primary"
+                    variant="brand"
                     label={detailActions.playAllLabel}
                     onPress={() => void handlePlayAll()}
                   />
                   <ActionButton
                     shrink
-                    small
-                    variant="primary"
+                    variant="secondary"
                     label="定位"
                     disabled={currentSongIndex < 0}
                     onPress={handleLocateCurrentSong}
@@ -396,7 +412,7 @@ export function PlaylistDetailScreen({
                   {canSubscribeWyPlaylist ? (
                     <ActionButton
                       shrink
-                      small
+                      variant="secondary"
                       disabled={subscribingWyPlaylist}
                       label={isWyPlaylistSubscribed ? "已收藏" : "收藏"}
                       onPress={handleToggleWySubscribe}
@@ -406,7 +422,6 @@ export function PlaylistDetailScreen({
                   {isLoggedIn && !canSubscribeWyPlaylist ? (
                     <ActionButton
                       shrink
-                      small
                       variant="danger"
                       label="删除"
                       onPress={handleDeletePlaylist}

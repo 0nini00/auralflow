@@ -1,6 +1,8 @@
 # AuralFlow 设计系统 · MASTER
 
 > 跨端（桌面 / 移动）设计系统主文档。所有技术事实均取自当前代码库 `desktop/src` 与 `apps/mobile/src`，含表与最小代码示例。日期基准：2026-08-27。
+>
+> **2026-10 更新**：移动端已按 [`docs/mobile-redesign/PROPOSAL.md`](../../docs/mobile-redesign/PROPOSAL.md) 重构——暖中性画布 `#F3F3EF`、可读行动色 `primaryInk`、64px 标签栏与迷你播放器、删除 Drawer。本文移动端章节（§2.2 / §3.2 / §4.2 / §5.2 / §9.2）为 2026-08 基线，新 token 以移动端方案与 `apps/mobile/src/theme/tokens.ts` 为准。
 
 ---
 

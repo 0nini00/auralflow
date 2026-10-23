@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 export interface ActionButtonProps {
   label: string;
   count?: string;
-  variant?: "primary" | "secondary" | "danger";
+  variant?: "brand" | "primary" | "secondary" | "danger";
   disabled?: boolean;
   loading?: boolean;
   onPress?: () => void;

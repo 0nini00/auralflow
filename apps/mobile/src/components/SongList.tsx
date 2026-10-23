@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, ActivityIndicator, Alert, InteractionManager, useWindowDimensions, FlatList, type StyleProp, type ViewStyle, type RefreshControlProps } from "react-native";
+import { View, Text, StyleSheet, ActivityIndicator, Alert, InteractionManager, useWindowDimensions, FlatList, type StyleProp, type ViewStyle, type RefreshControlProps, type NativeSyntheticEvent, type NativeScrollEvent } from "react-native";
 import type { MusicInfo } from "@lx/core";
 import { getSongVariants } from "@lx/core";
 import { AudioLines, CheckCircle2, Circle, Ellipsis, Heart, Music2 } from "lucide-react-native";
@@ -70,6 +70,9 @@ export interface SongListProps {
    * 注意:仅在列表首次挂载时生效,后续数据变化不会触发二次滚动。
    */
   initialScrollIndex?: number;
+  /** virtualized：滚动事件（详情页吸顶头部用） */
+  onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
+  scrollEventThrottle?: number;
 }
 
 /**
@@ -100,7 +103,7 @@ export function SongList({
   onEdit,
   onDelete,
   highlightedIndex,
-  hideSourceTag = true,
+  hideSourceTag = false,
   showCover = true,
   showLikeAction = true,
   showMoreAction = true,
@@ -118,6 +121,8 @@ export function SongList({
   onEndReached,
   refreshControl,
   initialScrollIndex,
+  onScroll,
+  scrollEventThrottle,
 }: SongListProps) {
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
@@ -385,6 +390,8 @@ export function SongList({
           contentContainerStyle={[styles.listContent, contentContainerStyle]}
           onEndReached={onEndReached}
           onEndReachedThreshold={0.5}
+          onScroll={onScroll}
+          scrollEventThrottle={scrollEventThrottle}
           refreshControl={refreshControl}
           initialNumToRender={12}
           maxToRenderPerBatch={24}

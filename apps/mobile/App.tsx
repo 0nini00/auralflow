@@ -20,7 +20,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { LxBridgeHost } from "@/services/customSourceWebViewBridge";
 import { MobilePactModal } from "@/components/MobilePactModal";
 import { UpdateModal } from "@/components/UpdateModal";
-import { MainDrawerNavigator, navigationRef } from "@/navigation";
+import { RootNavigator, navigationRef } from "@/navigation";
 import { acceptMobilePact, hasAcceptedMobilePact } from "@/services/mobilePactService";
 import { parseMobileDeepLink } from "@/services/mobileDeepLinkService";
 import { initPlaybackSnapshotPersistence } from "@/services/playbackSnapshot";
@@ -250,28 +250,22 @@ export default function App() {
       };
       switch (intent.type) {
         case "search":
-          nav("Main", {
-            screen: "MainTabs",
-            params: {
-              screen: "SearchTab",
-              params: { initialKeyword: intent.keyword },
-            },
+          nav("MainTabs", {
+            screen: "SearchTab",
+            params: { initialKeyword: intent.keyword },
           });
           break;
         case "homeMode":
           if (intent.mode === "fm") {
-            nav("Main", { screen: "PersonalFm" });
+            nav("PersonalFm");
           } else {
-            nav("Main", { screen: "DailyRecommend" });
+            nav("DailyRecommend");
           }
           break;
         case "searchDetail":
-          nav("Main", {
-            screen: "MainTabs",
-            params: {
-              screen: "SearchTab",
-              params: { initialDetailRoute: intent.route },
-            },
+          nav("MainTabs", {
+            screen: "SearchTab",
+            params: { initialDetailRoute: intent.route },
           });
           break;
       }
@@ -373,7 +367,7 @@ export default function App() {
             <>
               <NavigationContainer ref={navigationRef} theme={navigationTheme}>
                 <AppShell>
-                  <MainDrawerNavigator />
+                  <RootNavigator />
                 </AppShell>
               </NavigationContainer>
 

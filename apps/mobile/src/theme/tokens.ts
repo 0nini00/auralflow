@@ -4,6 +4,9 @@ import { Platform } from "react-native";
  * 移动端统一设计 token。
  * 目的：终结各组件自说自话的硬编码尺寸/圆角/字号，给全 app 一个共同基准。
  * 颜色一律走 themePaletteModel 的 palette，这里只放"几何"维度。
+ *
+ * 2026-10 重构：正文 14→15，标题阶梯 17/20/28；页面边距 16→20；
+ * 标签栏与迷你播放器 56→64。旧键全部保留，避免一次性改全站样式。
  */
 export { control, controlHitSlop } from "./controlTokens";
 export type {
@@ -21,6 +24,8 @@ export const spacing = {
   m: 16,
   l: 20,
   xl: 24,
+  xxl: 32,
+  xxxl: 40,
 } as const;
 
 export const radius = {
@@ -28,17 +33,20 @@ export const radius = {
   md: 12,
   lg: 16,
   xl: 20,
+  xxl: 28,
   pill: 999,
 } as const;
 
 export const typography = {
+  /** Tab 标签、角标，不承载关键信息 */
+  micro: 11,
   caption: 12,
   meta: 13,
-  body: 14,
-  title: 16,
-  heading: 18,
-  display: 24,
-  displayLg: 32,
+  body: 15,
+  title: 17,
+  heading: 20,
+  display: 28,
+  displayLg: 34,
 } as const;
 
 /** 触控目标与图标尺寸：保证最小可点区域符合移动端人体工学 */
@@ -49,13 +57,10 @@ export const touch = {
 
 /**
  * 图标按键统一规格（容器尺寸 + 图标字号成对定义）。
- * 统一前全 app 存在 36/40/44/56/64 五种容器与 12~48 共 13 种图标尺寸，
- * 各页自行硬编码导致同层级按键视觉不一致。这里收敛为四档语义层级：
  * - sm：列表行内/紧凑区域的次要操作（心、更多、清除）
  * - md：通用图标按键基准（顶栏、工具栏、弹窗关闭）
  * - lg：播放控制次级键（上一首/下一首/模式）
  * - xl：单页视觉重心（沉浸页播放/暂停）
- * 所有档位容器 >= 36，配合 hitSlop 保证实际可点区域不低于 44。
  */
 export const iconButton = {
   sm: { size: 36, icon: 18 },
@@ -73,14 +78,16 @@ export function iconButtonHitSlop(size: IconButtonSize) {
 }
 
 export const layout = {
-  pagePadding: 16,
-  tabletPagePadding: 20,
+  pagePadding: 20,
+  tabletPagePadding: 24,
   songRowMinHeight: 60,
   songRowPadding: 8,
   artworkSize: 48,
   headerHeight: 56,
   compactControlHeight: 36,
-  playerBarHeight: 56,
+  playerBarHeight: 64,
+  tabBarHeight: 64,
+  miniPlayerGap: 6,
 } as const;
 
 export const breakpoints = {

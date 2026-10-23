@@ -138,7 +138,7 @@ chineseConversion: "off",
 
   showLyricProgress: true,
 
-  ambientCoverTint: false,
+  ambientCoverTint: true,
 
 } as const;
 
