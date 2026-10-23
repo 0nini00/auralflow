@@ -85,12 +85,15 @@ beforeEach(() => {
 afterEach(() => { act(() => renderer?.unmount()); vi.unstubAllGlobals(); });
 async function mount() { await act(async () => { renderer = create(<ImmersiveLyricsOverlay open onClose={onClose} />); }); }
 
-it('不渲染顶部退出和全屏入口，封面信息与底栏三列保持不变', async () => {
+it('不渲染顶部全屏入口，封面信息与底栏三列保持不变；退出键常驻在页面右上角', async () => {
   await mount();
   expect(renderer.root.findAllByType('header')).toHaveLength(0);
-  for (const label of ['进入全屏', '退出全屏', '退出沉浸式播放']) {
+  for (const label of ['进入全屏', '退出全屏']) {
     expect(renderer.root.findAllByProps({ 'aria-label': label })).toHaveLength(0);
   }
+  // 唯一退出入口在页面级而不是底栏控件条里：默认可见，不用先展开「更多」
+  expect(renderer.root.findAllByProps({ 'aria-label': '退出沉浸式播放' })).toHaveLength(1);
+  expect(renderer.root.findByType('footer').findAllByProps({ 'aria-label': '退出沉浸式播放' })).toHaveLength(0);
   const cover = renderer.root.findByProps({ className: 'af-immersive-cover-section' });
   expect(cover.findByType('h1').children).toContain('Song');
   expect(JSON.stringify(cover.findByProps({ className: 'af-immersive-heading' }).children.map(child => typeof child === 'string' ? child : child.children))).toContain('Album');
@@ -227,14 +230,10 @@ it('歌词手动偏移同时传给高亮时间，播放进度保持真实音频�
 });
 
 
-it('更多菜单提供唯一退出入口并关闭沉浸页一次', async () => {
+it('右上角退出键常驻可见，点一次就关闭沉浸页（不必先展开「更多」）', async () => {
   await mount();
-  click('更多');
-  const panel = renderer.root.findByProps({ 'aria-label': '更多播放操作' });
-  expect(panel.findAllByProps({ 'aria-label': '退出沉浸式播放' })).toHaveLength(1);
   click('退出沉浸式播放');
   expect(onClose).toHaveBeenCalledOnce();
-  expect(renderer.root.findByType('footer').props['data-panel-open']).toBe(false);
 });
 
 

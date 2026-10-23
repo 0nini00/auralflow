@@ -16,7 +16,13 @@ import {
 } from "@/services/lyrics/animationIntensity";
 import { dispatchLyricAction } from "@/stores/playerSync";
 import { subscribeLyricSettings, broadcastLyricSettings } from "@/stores/lyricSettingsSync";
-import { buildDesktopLyricLines, type DesktopLyricDisplayLine } from "@/utils/desktopLyric";
+import {
+  buildDesktopLyricLines,
+  getDesktopLyricScrollDuration,
+  getDesktopLyricScrollLayout,
+  getDesktopLyricScrollTop,
+  type DesktopLyricDisplayLine,
+} from "@/utils/desktopLyric";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { getLyricWindowState, loadSettings, patchSettings, prepareLyricWindowLock, setLyricWindowHeight, setLyricWindowPinned, setLyricWindowLocked, toggleLyricWindow } from "@lx/tauri-bridge";
@@ -153,33 +159,77 @@ export function LyricWindowView() {
   /** 当前行落在第几行位（0 基）：偶数行时偏上一格，2 行窗口才与旧行为一致（当前行 + 下一行） */
   const currentRow = Math.floor((visibleLines - 1) / 2);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const scrollFrameRef = useRef<number | null>(null);
+  /** 实测行高：留白与滚动位移共用同一个值 */
+  const [lineHeight, setLineHeight] = useState(0);
+  const { spacerTop, spacerBottom, step } = getDesktopLyricScrollLayout({
+    visibleLines,
+    currentRow,
+    lineHeight,
+    lineGap,
+  });
+  const animationScale = getLyricAnimationIntensityScale(animationIntensity);
 
-  // 把「窗口顶部那一行」当锚点滚到位，当前行自然落在 currentRow 上；首尾会被夹住，不会滚出边界
+  // 把当前行滚到固定行位：位置取该行的真实 offsetTop，首尾由 spacer 撑出余量，所以第一句和
+  // 最后一句也能停在中间那一行，不再被容器边界夹住。
   useEffect(() => {
     const container = scrollRef.current;
-    if (!container) return;
-    const total = displayLines.length;
-    const anchor = Math.max(0, Math.min(currentIndex - currentRow, Math.max(0, total - visibleLines)));
-    const target = container.querySelector<HTMLElement>(`[data-lyric-index="${anchor}"]`);
+    if (!container || !step || !displayLines.length) return;
+    const index = Math.max(0, Math.min(currentIndex, displayLines.length - 1));
+    const target = container.querySelectorAll<HTMLElement>(".af-lyric-line-slot")[index];
     if (!target) return;
-    container.scrollTo({
-      top: target.offsetTop,
-      // 用浏览器平滑滚动：不做自绘补间，省一套动画状态
-      behavior: enableAnimation ? "smooth" : "auto",
+    const top = getDesktopLyricScrollTop({
+      lineTop: target.offsetTop,
+      currentRow,
+      step,
+      maxScroll: container.scrollHeight - container.clientHeight,
     });
-  }, [currentIndex, currentRow, visibleLines, displayLines.length, enableAnimation, fontSize, lineGap, showTranslation]);
+    if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+    scrollFrameRef.current = null;
+    const reduceMotion =
+      typeof window !== "undefined" && typeof window.matchMedia === "function"
+        ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        : false;
+    // 原生 behavior:'smooth' 的时长不可控，「动效强度」自然影响不到滚动；这里按强度算时长自绘补间
+    const duration = getDesktopLyricScrollDuration({
+      enabled: enableAnimation,
+      intensityScale: animationScale,
+      reduceMotion,
+    });
+    const from = container.scrollTop;
+    const delta = top - from;
+    if (duration <= 0 || Math.abs(delta) < 1) {
+      container.scrollTop = top;
+      return;
+    }
+    const startedAt = performance.now();
+    const tick = (now: number) => {
+      const ratio = Math.min(1, (now - startedAt) / duration);
+      const eased = 1 - (1 - ratio) ** 3;
+      container.scrollTop = from + delta * eased;
+      scrollFrameRef.current = ratio < 1 ? requestAnimationFrame(tick) : null;
+    };
+    scrollFrameRef.current = requestAnimationFrame(tick);
+  }, [currentIndex, currentRow, visibleLines, displayLines.length, step, enableAnimation, animationScale]);
+
+  // 卸载时收掉未完成的补间，避免继续往已卸载的容器写 scrollTop
+  useEffect(() => () => {
+    if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+  }, []);
 
   // 窗口高度跟着「字号 × 可见行数 × 行距」走：量一行的真实高度再乘，比按字体度量硬算稳
   useEffect(() => {
     const container = scrollRef.current;
     const sample = container?.querySelector<HTMLElement>(".af-lyric-line-slot");
     if (!container || !sample) return;
-    const lineHeight = sample.offsetHeight;
-    if (!lineHeight) return;
+    const measured = sample.offsetHeight;
+    if (!measured) return;
+    // 行高同时喂给首尾留白与滚动位移，量一次就要和渲染共用，否则当前行会偏半格
+    setLineHeight((current) => (current === measured ? current : measured));
     const band = document.querySelector<HTMLElement>(".af-lyric-drag-band");
     const bandHeight = band?.offsetHeight ?? 0;
     const desired =
-      Math.ceil(visibleLines * lineHeight + (visibleLines - 1) * lineGap + bandHeight + STAGE_VERTICAL_PADDING);
+      Math.ceil(visibleLines * measured + (visibleLines - 1) * lineGap + bandHeight + STAGE_VERTICAL_PADDING);
     void setLyricWindowHeight(desired).catch(() => undefined);
   }, [visibleLines, lineGap, fontSize, showTranslation, displayLines.length]);
 
@@ -255,8 +305,6 @@ export function LyricWindowView() {
     void getCurrentWindow().startDragging().catch(() => undefined);
   };
 
-  const animationScale = getLyricAnimationIntensityScale(animationIntensity);
-
   return (
     <div
       className={`af-lyric-shell ${hoverHide ? "af-lyric-hover-hide" : ""} ${locked ? "af-lyric-locked" : ""}`}
@@ -280,6 +328,7 @@ export function LyricWindowView() {
           这样上面能看到刚唱过的那句，下面的行数只由窗口高度决定。
         */}
         <div className="af-lyric-scroll" ref={scrollRef} style={{ gap: `${lineGap}px` }}>
+          <div className="af-lyric-spacer" aria-hidden="true" style={{ height: spacerTop }} />
           {displayLines.map((line) => (
             <div className="af-lyric-line-slot" key={line.key} data-lyric-index={line.index}>
               {line.role === "current" && line.words?.length ? (
@@ -313,6 +362,7 @@ export function LyricWindowView() {
               )}
             </div>
           ))}
+          <div className="af-lyric-spacer" aria-hidden="true" style={{ height: spacerBottom }} />
         </div>
         {/* 工具栏：紧跟歌词下方，流式排列 */}
         <div className="af-lyric-drag-band">
@@ -551,6 +601,11 @@ export function LyricWindowView() {
           align-items: center;
         }
         .af-lyric-line-slot {
+          width: 100%;
+          flex: 0 0 auto;
+        }
+        /* 首尾留白：只用真实歌词行时，第一句/最后一句会被容器边界夹住，回不到当前行行位 */
+        .af-lyric-spacer {
           width: 100%;
           flex: 0 0 auto;
         }

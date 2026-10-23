@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { LyricLine } from '@lx/core';
-import { buildDesktopLyricLines } from '../src/utils/desktopLyric';
+import {
+  buildDesktopLyricLines,
+  DESKTOP_LYRIC_SCROLL_BASE_MS,
+  getDesktopLyricScrollDuration,
+  getDesktopLyricScrollLayout,
+  getDesktopLyricScrollTop,
+} from '../src/utils/desktopLyric';
 
 const lines = [
   { time: 0, text: '第一行', tr: 'tr-0' },
@@ -59,5 +65,47 @@ describe('buildDesktopLyricLines', () => {
 
     const noLyric = buildDesktopLyricLines({ ...base, lines: [], currentLine: 0 });
     expect(noLyric.lines).toEqual([{ key: 'empty', role: 'empty', index: -1, text: '暂无歌词' }]);
+  });
+});
+
+describe('桌面歌词滚动几何：首尾留白与当前行行位', () => {
+  it('首尾 spacer 让第一句与最后一句也能停到当前行行位', () => {
+    // 3 行窗口、中间行位：上下各留一格行高
+    expect(getDesktopLyricScrollLayout({ visibleLines: 3, currentRow: 1, lineHeight: 36, lineGap: 8 }))
+      .toEqual({ spacerTop: 36, spacerBottom: 36, step: 44 });
+    // 2 行窗口当前行在最上面：只要下方留白
+    expect(getDesktopLyricScrollLayout({ visibleLines: 2, currentRow: 0, lineHeight: 36, lineGap: 8 }))
+      .toEqual({ spacerTop: 0, spacerBottom: 36, step: 44 });
+    // 单行窗口不需要留白
+    expect(getDesktopLyricScrollLayout({ visibleLines: 1, currentRow: 0, lineHeight: 36, lineGap: 8 }))
+      .toEqual({ spacerTop: 0, spacerBottom: 0, step: 44 });
+  });
+
+  it('行高还没量到时留白为 0，不会把歌词顶出可视区', () => {
+    expect(getDesktopLyricScrollLayout({ visibleLines: 3, currentRow: 1, lineHeight: 0, lineGap: 8 }))
+      .toEqual({ spacerTop: 0, spacerBottom: 0, step: 8 });
+  });
+
+  it('首行、中间行、末行都落在当前行行位', () => {
+    const { spacerTop, step } = getDesktopLyricScrollLayout({ visibleLines: 3, currentRow: 1, lineHeight: 36, lineGap: 8 });
+    // 行与 spacer 之间也会吃一次 gap，所以第一行的 offsetTop 是 spacerTop + gap
+    const lineTop = (index: number) => spacerTop + 8 + index * step;
+    const maxScroll = 10 * step; // 11 行时「内容高 - 可见高」
+    expect(getDesktopLyricScrollTop({ lineTop: lineTop(0), currentRow: 1, step, maxScroll })).toBe(0);
+    expect(getDesktopLyricScrollTop({ lineTop: lineTop(5), currentRow: 1, step, maxScroll })).toBe(5 * step);
+    expect(getDesktopLyricScrollTop({ lineTop: lineTop(10), currentRow: 1, step, maxScroll })).toBe(maxScroll);
+  });
+
+  it('超出可滚动区间时夹住，避免滚出内容', () => {
+    expect(getDesktopLyricScrollTop({ lineTop: -100, currentRow: 1, step: 44, maxScroll: 440 })).toBe(0);
+    expect(getDesktopLyricScrollTop({ lineTop: 9999, currentRow: 1, step: 44, maxScroll: 440 })).toBe(440);
+  });
+
+  it('动效强度决定滚动时长，关掉动效或减少动态时直接到位', () => {
+    expect(getDesktopLyricScrollDuration({ enabled: true, intensityScale: 1, reduceMotion: false })).toBe(DESKTOP_LYRIC_SCROLL_BASE_MS);
+    expect(getDesktopLyricScrollDuration({ enabled: true, intensityScale: 0.55, reduceMotion: false })).toBe(176);
+    expect(getDesktopLyricScrollDuration({ enabled: true, intensityScale: 1.25, reduceMotion: false })).toBe(400);
+    expect(getDesktopLyricScrollDuration({ enabled: false, intensityScale: 1, reduceMotion: false })).toBe(0);
+    expect(getDesktopLyricScrollDuration({ enabled: true, intensityScale: 1, reduceMotion: true })).toBe(0);
   });
 });

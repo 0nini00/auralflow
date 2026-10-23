@@ -1,5 +1,5 @@
 import { useDialogFocus } from '@/hooks/useDialogFocus';
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import { ImmersivePlayerControls, type ImmersivePlayerControlsHandle, type LyricDisplayOption } from '@/components/ImmersivePlayerControls';
 import { PlayerVisualizerRenderer } from '@/components/playerVisualizers/PlayerVisualizerRenderer';
 import { SongAddMenuButton } from '@/components/SongAddMenuButton';
@@ -17,6 +17,8 @@ import { usePlayerStore } from '@/stores/playerStore';
 import { buildMusicShareText } from '@/utils/shareLink';
 import { toggleDesktopLyricFromPlayer } from '@/utils/desktopLyricToggle';
 import { IMMERSIVE_COVER_CSS_SIZE, coverSrc } from '@/utils/imageReferrerPolicy';
+import { useWindowDrag } from '@/hooks/useWindowDrag';
+import { X } from 'lucide-react';
 import { getLyricWindowState, isLyricWindowOpen, loadSettings, patchSettings } from '@lx/tauri-bridge';
 import { listen } from '@tauri-apps/api/event';
 
@@ -88,6 +90,8 @@ export function ImmersiveLyricsOverlay({
   const [desktopLyricLocked, setDesktopLyricLocked] = useState(false);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubProgress, setScrubProgress] = useState(0);
+
+  const windowDrag = useWindowDrag();
   const isPlaying = status === 'playing';
   const coverUrl = coverSrc(currentTrack?.img || currentTrack?.picUrl || '', IMMERSIVE_COVER_CSS_SIZE);
   const playModeControl = getPlayModeControl({ repeatMode, isShuffle });
@@ -265,6 +269,25 @@ export function ImmersiveLyricsOverlay({
     }
   };
 
+  /**
+   * 沉浸页是 fixed inset:0 的全窗表面，会把顶栏整个盖住 —— 而顶栏是唯一的窗口拖拽区，
+   * 于是打开它之后窗口就拖不动了，只能先退出。这里把拖拽接回页面：
+   * 空白处（封面、留白）按下即拖窗口、双击最大化；
+   * 歌词区（自身支持拖拽滚动）、底部控件条、浮层面板里不接管，避免抢事件。
+   */
+  const isWindowDragExcluded = (target: EventTarget | null) =>
+    Boolean((target as HTMLElement | null)?.closest?.('.af-immersive-lyric-section, .af-immersive-controls, .af-immersive-popover'));
+
+  const handleWindowDragStart = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (isWindowDragExcluded(event.target)) return;
+    windowDrag.onMouseDown(event);
+  };
+
+  const handleWindowDragDoubleClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (isWindowDragExcluded(event.target)) return;
+    windowDrag.onDoubleClick(event);
+  };
+
   if (!open) return null;
 
   // 拖动进度条时用 scrub 值，避免插值进度和拖拽互相抢
@@ -292,6 +315,8 @@ export function ImmersiveLyricsOverlay({
       role="dialog"
       aria-modal="true"
       aria-label="沉浸式歌词"
+      onMouseDown={handleWindowDragStart}
+      onDoubleClick={handleWindowDragDoubleClick}
       data-anim-intensity={animationIntensity}
       data-panel-open={panelOpen}
       style={{
@@ -314,6 +339,19 @@ export function ImmersiveLyricsOverlay({
       <div className="af-immersive-noise" aria-hidden="true" />
       {/* 歌词来源标注：同曲异唱档必须可见；绝对定位在顶部预留区、只停留几秒就退场 */}
 
+      {/*
+        退出入口：常驻在顶部预留区右侧。以前只藏在「更多」面板里，主操作隐形、也不容易找到；
+        这里保持唯一入口，避免两处都能退。
+      */}
+      <button
+        type="button"
+        className="af-immersive-exit"
+        onClick={onClose}
+        aria-label="退出沉浸式播放"
+        title="退出沉浸式播放（Esc）"
+      >
+        <X size={18} aria-hidden="true" />
+      </button>
       <main className="af-immersive-stage af-showcase-layout">
         <section className="af-immersive-cover-section" aria-label="歌曲封面">
           <div className="af-immersive-cover">
@@ -350,7 +388,7 @@ export function ImmersiveLyricsOverlay({
       <ImmersivePlayerControls
         ref={controlsRef}
         playback={{ isPlaying, volume, isMuted, playbackRate, mode: playModeControl }}
-        actions={{ togglePlay, toggleMute, setVolume, prev, next, cycleMode: handlePlayModeToggle, setPlaybackRate, share: handleShare, exitImmersive: onClose }}
+        actions={{ togglePlay, toggleMute, setVolume, prev, next, cycleMode: handlePlayModeToggle, setPlaybackRate, share: handleShare }}
         timeline={{
           current: displayProgress,
           duration,

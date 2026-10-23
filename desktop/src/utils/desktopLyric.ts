@@ -94,3 +94,75 @@ export function buildDesktopLyricLines({
 
   return { lines: built, currentIndex };
 }
+
+/** 相邻行位之间的滚动几何：首尾留白 + 行位步长 */
+export interface DesktopLyricScrollLayout {
+  /** 首行上方留白：让第一句也能停到当前行行位，而不是被夹在窗口顶部 */
+  spacerTop: number;
+  /** 末行下方留白：让最后一句也能停到当前行行位 */
+  spacerBottom: number;
+  step: number;
+}
+
+/**
+ * 首尾 spacer 的高度。
+ *
+ * 只靠「把第 N 行滚到固定行位」时，首行与末行会被夹在容器边界上，永远回不到中间那一行；
+ * 在整篇前后各垫一段留白就能让它们也对齐到当前行行位。行与行之间有 gap，spacer 与相邻行之间
+ * 也会各吃一次 gap，所以两边都要减掉一格，否则当前行会整体偏下一格。
+ */
+export function getDesktopLyricScrollLayout({
+  visibleLines,
+  currentRow,
+  lineHeight,
+  lineGap,
+}: {
+  visibleLines: number;
+  currentRow: number;
+  lineHeight: number;
+  lineGap: number;
+}): DesktopLyricScrollLayout {
+  const rows = Math.max(1, Math.trunc(visibleLines) || 1);
+  const row = Math.max(0, Math.min(Math.trunc(currentRow) || 0, rows - 1));
+  const step = Math.max(0, lineHeight) + Math.max(0, lineGap);
+  return {
+    spacerTop: Math.max(0, row * step - lineGap),
+    spacerBottom: Math.max(0, (rows - 1 - row) * step - lineGap),
+    step,
+  };
+}
+
+/** 把某一行滚到当前行行位所需的 scrollTop，并夹在可滚动区间内 */
+export function getDesktopLyricScrollTop({
+  lineTop,
+  currentRow,
+  step,
+  maxScroll,
+}: {
+  lineTop: number;
+  currentRow: number;
+  step: number;
+  maxScroll: number;
+}): number {
+  if (!Number.isFinite(lineTop) || !Number.isFinite(step)) return 0;
+  const desired = lineTop - Math.max(0, currentRow) * Math.max(0, step);
+  return Math.max(0, Math.min(desired, Math.max(0, maxScroll)));
+}
+
+/** 滚动补间基准时长；原生 behavior:'smooth' 的时长不可控，「动效强度」就影响不到滚动 */
+export const DESKTOP_LYRIC_SCROLL_BASE_MS = 320;
+
+/** 实际补间时长：关掉动效或系统要求减少动态时直接跳到位 */
+export function getDesktopLyricScrollDuration({
+  enabled,
+  intensityScale,
+  reduceMotion,
+}: {
+  enabled: boolean;
+  intensityScale: number;
+  reduceMotion: boolean;
+}): number {
+  if (!enabled || reduceMotion) return 0;
+  const scale = Number.isFinite(intensityScale) ? Math.max(0, intensityScale) : 1;
+  return Math.round(DESKTOP_LYRIC_SCROLL_BASE_MS * scale);
+}

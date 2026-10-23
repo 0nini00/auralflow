@@ -24,11 +24,12 @@ beforeEach(async () => {
   await act(async () => { root.render(<ImmersiveLyricsOverlay open onClose={actions.close} />); });
 });
 afterEach(async () => { await act(async () => root.unmount()); document.body.innerHTML = ''; });
-it('移除顶部按钮后聚焦播放进度，Tab不进入背景，关闭恢复触发点', async () => {
-  expect(document.activeElement).toBe(document.querySelector('input[aria-label="播放进度"]'));
+it('移除顶部按钮后聚焦播放键（不再把初始焦点交给进度条），Tab在页内回绕不进入背景，关闭恢复触发点', async () => {
+  expect(document.activeElement).toBe(document.querySelector('button[aria-label="暂停"]'));
   await act(async () => button('更多').focus());
   await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })));
-  expect(document.activeElement).toBe(document.querySelector('input[aria-label="播放进度"]'));
+  // 焦点循环的第一个可聚焦元素是页面右上角的退出键（它排在 DOM 最前面），Tab 从最后一个控件回绕到它
+  expect(document.activeElement).toBe(document.querySelector('button[aria-label="退出沉浸式播放"]'));
   await act(async () => root.render(<ImmersiveLyricsOverlay open={false} onClose={actions.close} />));
   expect(document.activeElement).toBe(trigger);
 });
@@ -44,18 +45,19 @@ it('Escape先关内部菜单，再关整个沉浸页，不双重触发', async (
 });
 
 
-it('通过更多退出后恢复打开入口的焦点，重新打开不保留更多菜单', async () => {
+it('右上角退出键退出后恢复打开入口的焦点，重新打开不保留更多菜单', async () => {
   actions.close.mockImplementation(() => root.render(<ImmersiveLyricsOverlay open={false} onClose={actions.close} />));
+  // 先展开「更多」，确认退出入口在面板之外也能直接退出、且面板不会残留
   await act(async () => button('更多').click());
-  const panel = document.querySelector('[aria-label="更多播放操作"]')!;
-  const exit = panel.querySelector<HTMLButtonElement>('button[aria-label="退出沉浸式播放"]');
-  expect(exit).not.toBeNull();
-  await act(async () => { exit!.focus(); exit!.click(); });
+  expect(document.querySelector('[aria-label="更多播放操作"]')).not.toBeNull();
+  const exit = document.querySelector<HTMLButtonElement>('button[aria-label="退出沉浸式播放"]')!;
+  expect(exit.closest('[aria-label="更多播放操作"]')).toBeNull();
+  await act(async () => { exit.focus(); exit.click(); });
   expect(actions.close).toHaveBeenCalledOnce();
   expect(document.querySelector('[aria-label="沉浸式歌词"]')).toBeNull();
   expect(document.activeElement).toBe(trigger);
   expect(document.body.style.overflow).toBe('');
   await act(async () => root.render(<ImmersiveLyricsOverlay open onClose={actions.close} />));
   expect(document.querySelector('[aria-label="更多播放操作"]')).toBeNull();
-  expect(document.activeElement).toBe(document.querySelector('input[aria-label="播放进度"]'));
+  expect(document.activeElement).toBe(document.querySelector('button[aria-label="暂停"]'));
 });

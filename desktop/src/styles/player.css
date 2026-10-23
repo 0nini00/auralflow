@@ -710,6 +710,8 @@
   color: var(--af-immersive-ink);
   background: #163335;
   isolation: isolate;
+  /* 全窗表面：曲名/歌手/专辑都是普通文本，不设的话拖一下就变成一片蓝色选区 */
+  user-select: none;
 }
 
 /* 低饱和环境色与模糊封面组成一层整体背景，浅/暗主题使用同一阅读表面。 */
@@ -723,6 +725,28 @@
     linear-gradient(105deg, rgba(7, 29, 35, 0.64), rgba(12, 35, 34, 0.38) 58%, rgba(15, 39, 35, 0.28)),
     linear-gradient(0deg, rgba(6, 18, 20, 0.42), transparent 46%);
 }
+
+/* 退出沉浸页：常驻在顶部预留区右侧，不再藏在「更多」面板里。 */
+.af-immersive-exit {
+  position: absolute;
+  top: 14px;
+  right: var(--af-immersive-gutter);
+  z-index: 2;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--af-radius-sm);
+  background: rgba(10, 24, 26, 0.32);
+  color: var(--af-immersive-ink);
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+.af-immersive-exit:hover { background: rgba(10, 24, 26, 0.56); border-color: rgba(255, 255, 255, 0.26); }
+.af-immersive-exit:focus-visible { outline: 2px solid var(--af-immersive-control-focus); outline-offset: 2px; }
 
 .af-immersive-cover-glow {
   position: absolute;
@@ -842,10 +866,10 @@
 }
 .af-immersive-progress-track input,
 .af-immersive-volume-track input { position: absolute; margin: 0; inset: auto 0; top: 50%; transform: translateY(-50%); width: 100%; height: 24px; opacity: 0; cursor: pointer; z-index: 1; }
-/* 焦点环只在键盘聚焦（Tab）时出现：打沉浸页时 useDialogFocus 会把焦点交给这个进度输入框，
-   而它高 24px、横跨整行、本身不可见 —— 用 :focus-within 时那道 2px、offset 5px 的环会被整行裁掉
-   左右两边，只剩进度条上方、下方各一条横线（与进度条同色），看着像多了两条进度条。 */
-.af-immersive-progress-track:has(input:focus-visible) { outline: 2px solid var(--af-immersive-control-focus); outline-offset: 5px; }
+/* 焦点提示不画 outline：这个 input 高 24px、横跨整行且出血到视口左右边界，
+   任何外描边都会被裁掉左右两边，只剩上下两条与进度条同色的横线（看着像多了两条进度条）。
+   改成把 1px 的轨道本身点亮，既能看出获得焦点，也不会多出线。 */
+.af-immersive-progress-track:has(input:focus-visible) { background: var(--af-immersive-control-focus); }
 .af-immersive-control-row { display: grid; grid-template-columns: minmax(100px, 1fr) auto minmax(176px, 1fr); align-items: center; gap: 20px; height: 60px; min-width: 0; }
 .af-immersive-time-group { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-variant-numeric: tabular-nums; line-height: 1.35; }
 .af-immersive-time-current { font-size: var(--af-font-size-xl); font-weight: 400; letter-spacing: 0.025em; }
@@ -853,7 +877,7 @@
 .af-immersive-control-center,
 .af-immersive-control-right { display: flex; align-items: center; min-width: 0; gap: 8px; }
 .af-immersive-control-center { justify-content: center; opacity: 1; transition: opacity 150ms ease; }
-.af-immersive-control-right { justify-content: flex-end; }
+.af-immersive-control-right { justify-content: flex-end; transition: opacity 150ms ease; }
 .af-immersive-volume-track { flex: 0 0 58px; width: 58px; height: 2px; position: relative; background: rgba(224, 242, 230, 0.2); margin-right: 8px; }
 .af-immersive-volume-fill { width: var(--af-immersive-volume, 0%); height: 100%; background: var(--af-immersive-control-ink); pointer-events: none; }
 /* 音量轨道同上：鼠标点击滑杆不算 :focus-visible，只有键盘导航才画环。 */
@@ -871,10 +895,13 @@
 .af-immersive-play-btn:focus-visible { outline: 2px solid var(--af-immersive-control-focus); outline-offset: 2px; }
 
 @media (hover: hover) and (pointer: fine) {
-  .af-immersive-controls .af-immersive-control-center { opacity: 0; }
-  .af-immersive-controls:hover .af-immersive-control-center,
-  .af-immersive-controls:focus-within .af-immersive-control-center,
-  .af-immersive-controls[data-panel-open='true'] .af-immersive-control-center { opacity: 1; }
+  /* 主播放控件（静音/上一首/播放/下一首/模式）常显：以前整组默认 opacity: 0，
+     打开沉浸页时看不到播放键。只有右侧工具组（歌词工具/播放列表/桌面歌词/更多）在 hover、
+     自身获得焦点或面板打开时浮现；pointer-events 同步，避免不可见区域仍能点中。 */
+  .af-immersive-controls .af-immersive-control-right { opacity: 0; pointer-events: none; }
+  .af-immersive-controls:hover .af-immersive-control-right,
+  .af-immersive-control-right:focus-within,
+  .af-immersive-controls[data-panel-open='true'] .af-immersive-control-right { opacity: 1; pointer-events: auto; }
 }
 
 .af-immersive-popover-backdrop { position: fixed; inset: 0; z-index: 1; background: transparent; }

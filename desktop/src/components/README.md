@@ -45,7 +45,7 @@ components/
 | 组件 | 文件 | 职责 |
 | --- | --- | --- |
 | PlayerBar | `PlayerBar.tsx` | 3 列网格（曲目\|传输\|音量）+ 全宽进度；`useInterpolatedPlaybackProgress` rAF 平滑；拖动状态机 `isScrubbing` 覆盖；`useArtworkAmbience` 在 early return 前调 hooks 规则；封面点击开 ImmersiveLyricsOverlay；桌面歌词按钮 `toggleDesktopLyricFromPlayer` |
-| ImmersiveLyricsOverlay | `ImmersiveLyricsOverlay.tsx` | `position:fixed` 全窗沉浸层 + 封面与滚动歌词 + `ImmersivePlayerControls` 三列底栏 + CSS 变量 `--af-immersive-progress/volume/artwork-rgb/anim-scale/lyric-font-family` + 分享剪贴板 + 更多菜单“退出沉浸式播放” + 键盘 `resolveImmersiveKeyboardAction`；Esc 优先关闭菜单，关闭后恢复焦点；不控制原生全屏（窗口级按钮在 `Topbar`，沉浸页内无窗口操作） |
+| ImmersiveLyricsOverlay | `ImmersiveLyricsOverlay.tsx` | `position:fixed` 全窗沉浸层 + 封面与滚动歌词 + `ImmersivePlayerControls` 三列底栏 + CSS 变量 `--af-immersive-progress/volume/artwork-rgb/anim-scale/lyric-font-family` + 分享剪贴板 + 右上角常驻退出键（唯一退出入口，不在“更多”面板里）+ 底栏主播放控件常显、右侧工具组默认隐藏并随 hover/聚焦/面板打开浮现 + 键盘 `resolveImmersiveKeyboardAction`；Esc 优先关闭菜单，关闭后恢复焦点；不控制原生全屏（窗口级按钮在 `Topbar`）；根节点接管窗口拖拽（歌词区/控件条/浮层除外） |
 | MusicCard / VirtualList / SongAddMenuButton | — | 通用曲目卡片、虚拟化列表与歌曲操作菜单 |
 | WyCookieLoginModal | — | 网易登录弹窗 |
 | PactModal | — | 用户协议确认 |

@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react';
-import { LogOut, Ellipsis, Gauge, ListMusic, Pause, Play, Repeat, Repeat1, Share2, Shuffle, SkipBack, SkipForward, Languages, Volume2, VolumeX } from 'lucide-react';
+import { Ellipsis, Gauge, ListMusic, Pause, Play, Repeat, Repeat1, Share2, Shuffle, SkipBack, SkipForward, Languages, Volume2, VolumeX } from 'lucide-react';
 import { IMMERSIVE_QUEUE_CLASSES, QueuePanel } from '@/components/QueuePanel';
 import { formatTime } from '@/utils/formatTime';
 
@@ -25,7 +25,6 @@ export interface ImmersivePlayerControlsProps {
     cycleMode: () => void;
     setPlaybackRate: (rate: number) => void;
     share: () => void;
-    exitImmersive: () => void;
   };
   timeline: { current: number; duration: number; onSeek: (value: number) => void; onSeekStart: () => void; onSeekEnd: () => void };
   lyrics: {
@@ -110,7 +109,7 @@ export const ImmersivePlayerControls = forwardRef<ImmersivePlayerControlsHandle,
                 onChange={event => actions.setVolume(Number(event.target.value))} aria-label="音量" />
             </div>
             <button type="button" className="af-immersive-icon-btn" onClick={actions.prev} aria-label="上一首"><SkipBack size={20} fill="currentColor" /></button>
-            <button type="button" className="af-immersive-play-btn af-immersive-main-play" onClick={actions.togglePlay} aria-label={playback.isPlaying ? '暂停' : '播放'}>
+            <button type="button" className="af-immersive-play-btn af-immersive-main-play" data-dialog-initial-focus onClick={actions.togglePlay} aria-label={playback.isPlaying ? '暂停' : '播放'}>
               {playback.isPlaying ? <Pause size={26} fill="currentColor" /> : <Play size={26} fill="currentColor" />}
             </button>
             <button type="button" className="af-immersive-icon-btn" onClick={actions.next} aria-label="下一首"><SkipForward size={20} fill="currentColor" /></button>
@@ -157,8 +156,6 @@ export const ImmersivePlayerControls = forwardRef<ImmersivePlayerControlsHandle,
                     </label>
                     <button type="button" className="af-immersive-more-action" aria-label="复制歌曲链接"
                       onClick={() => { actions.share(); dismissPanel(); }}><Share2 size={18} /><span>复制歌曲链接</span></button>
-                    <button type="button" className="af-immersive-more-action" aria-label="退出沉浸式播放"
-                      onClick={() => { dismissPanel(); actions.exitImmersive(); }}><LogOut size={18} /><span>退出沉浸式播放</span></button>
                   </div>
                 </div>
               )}
