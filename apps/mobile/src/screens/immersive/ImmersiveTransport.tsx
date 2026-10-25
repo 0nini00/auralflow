@@ -327,8 +327,6 @@ export function ImmersiveTransport({
         onShare={onShare}
         canShowSimilarSongs={canShowSimilarSongs}
         onOpenSimilarSongs={onOpenSimilarSongs}
-        onOpenQueue={onOpenQueue}
-        queueLabel={queueLabel}
       />
     </View>
   );

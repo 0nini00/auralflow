@@ -44,7 +44,7 @@ export function SettingsHomeScreen() {
                 { backgroundColor: palette.surface, borderColor: palette.border },
               ]}
             >
-              {group.items.map((name) => {
+              {group.items.map((name, index) => {
                 const category = SETTINGS_CATEGORIES.find((item) => item.name === name);
                 if (!category) return null;
                 const Icon = SETTINGS_CATEGORY_ICONS[category.icon];
@@ -55,6 +55,7 @@ export function SettingsHomeScreen() {
                     title={category.label}
                     description={category.description}
                     onPress={() => requestCategory(name, { fromSettingsHome: true })}
+                    divider={index < group.items.length - 1}
                   />
                 );
               })}

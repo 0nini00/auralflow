@@ -629,6 +629,7 @@
   color: var(--af-accent-strong);
 }
 
+/* 拖动排序：整张卡片都可以按住拖动，左侧手柄是可见的抓取提示 */
 .af-custom-source-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -640,14 +641,68 @@
   background: var(--af-bg-surface);
   border: 1px solid var(--af-border-secondary);
   border-radius: var(--af-radius-md);
+  cursor: grab;
+  user-select: none;
+  transition:
+    border-color var(--af-transition-base),
+    background var(--af-transition-base),
+    box-shadow var(--af-transition-base),
+    opacity var(--af-transition-base);
+}
+
+.af-custom-source-card.af-dragging {
+  cursor: grabbing;
+  opacity: 0.55;
+  border-color: var(--af-button-active-border);
+  background: var(--af-bg-surface-hover);
+}
+
+/* 落点提示用 box-shadow 画线，不占位，列表不会因此跳动 */
+.af-custom-source-card.af-drop-before {
+  box-shadow: 0 -2px 0 0 var(--af-accent-strong);
+}
+
+.af-custom-source-card.af-drop-after {
+  box-shadow: 0 2px 0 0 var(--af-accent-strong);
+}
+
+.af-custom-source-section.af-dragging-active,
+.af-custom-source-section.af-dragging-active * {
+  user-select: none;
 }
 
 .af-custom-source-main {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
+  grid-template-columns: 16px 22px minmax(0, 1fr);
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   min-width: 0;
+}
+
+.af-custom-source-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 22px;
+  color: var(--af-text-tertiary);
+  cursor: grab;
+}
+
+.af-custom-source-drag-handle:hover {
+  color: var(--af-text-primary);
+}
+
+.af-custom-source-drag-handle:focus-visible {
+  outline: 2px solid var(--af-accent-strong);
+  outline-offset: 1px;
+  border-radius: var(--af-radius-sm);
+  color: var(--af-accent-strong);
+}
+
+.af-custom-source-card.af-dragging .af-custom-source-drag-handle {
+  cursor: grabbing;
+  color: var(--af-accent-strong);
 }
 
 .af-custom-source-enable {

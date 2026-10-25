@@ -329,6 +329,33 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
   }, [flightEnabled, geometryKey, flightGeometry, flyProgress, flyOverlayOpacity,
     realCoverOpacity, rootOpacity, contentTranslateY, closeNow]);
 
+  // 入场兜底：封面框迟迟测量不到（列表页直接进播放页、封面被回收等）时转场不会启动，
+  // 整页会一直停在 opacity 0，看起来就是白屏。700ms 后强制回到可见态，
+  // 宁可少一段飞入动画，也不能留一张白页。
+  React.useEffect(() => {
+    if (!flightEnabled || flightDone || targetRect) return;
+    const timer = setTimeout(() => {
+      if (closingRef.current) return;
+      cancelAnimation(flyProgress);
+      cancelAnimation(flyOverlayOpacity);
+      rootOpacity.value = 1;
+      realCoverOpacity.value = 1;
+      setFlightDone(true);
+      setOverlayGone(true);
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [flightEnabled, flightDone, targetRect, rootOpacity, realCoverOpacity, flyProgress, flyOverlayOpacity]);
+
+  // 打开任意覆盖层（队列/评论/设置等）前确保整页可见：转场未完成时 rootOpacity 可能
+  // 仍是 0，覆盖层收起后就会露出一张白页。
+  React.useEffect(() => {
+    if (!overlayVisible || closingRef.current) return;
+    if (rootOpacity.value !== 1) rootOpacity.value = 1;
+    if (realCoverOpacity.value !== 1) realCoverOpacity.value = 1;
+    if (!flightDone) setFlightDone(true);
+    if (!overlayGone) setOverlayGone(true);
+  }, [overlayVisible, rootOpacity, realCoverOpacity, flightDone, overlayGone]);
+
   // 关闭编排：封面飞回迷你栏 + 整页淡出，动画结束后才真正 goBack
   const requestClose = React.useCallback(() => {
     if (closingRef.current) return;

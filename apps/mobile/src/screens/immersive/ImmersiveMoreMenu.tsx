@@ -12,7 +12,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Download,
   FolderPlus,
-  ListMusic,
   MoreHorizontal,
   Share2,
   Sparkles,
@@ -45,8 +44,6 @@ export interface ImmersiveMoreMenuProps {
   onShare?: () => void;
   canShowSimilarSongs?: boolean;
   onOpenSimilarSongs?: () => void;
-  onOpenQueue?: () => void;
-  queueLabel?: string;
 }
 
 export function ImmersiveMoreMenu({
@@ -61,8 +58,6 @@ export function ImmersiveMoreMenu({
   onShare,
   canShowSimilarSongs,
   onOpenSimilarSongs,
-  onOpenQueue,
-  queueLabel,
 }: ImmersiveMoreMenuProps) {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -101,11 +96,6 @@ export function ImmersiveMoreMenu({
           onPress: onOpenSimilarSongs,
         }
       : undefined,
-    {
-      icon: ListMusic,
-      label: queueLabel || "播放列表",
-      onPress: onOpenQueue,
-    },
   ].filter(Boolean) as MenuItem[];
 
   return (

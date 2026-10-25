@@ -11,10 +11,12 @@ export interface SettingsRowProps {
   title: string;
   description?: string;
   onPress: () => void;
+  /** 组内最后一行传 false：避免行底分隔线与卡片底边叠成一条粗线 */
+  divider?: boolean;
 }
 
 /** 设置行：32px 图标底 + 15px 标题 + 11px 说明 + 右箭头，整行 56px 可点。 */
-export function SettingsRow({ icon: Icon, title, description, onPress }: SettingsRowProps) {
+export function SettingsRow({ icon: Icon, title, description, onPress, divider = true }: SettingsRowProps) {
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
@@ -26,7 +28,7 @@ export function SettingsRow({ icon: Icon, title, description, onPress }: Setting
       activeScale={0.99}
       accessibilityRole="button"
       accessibilityLabel={description ? `${title}，${description}` : title}
-      style={[styles.row, { borderBottomColor: palette.border }]}
+      style={[styles.row, { borderBottomColor: palette.border }, !divider && styles.rowWithoutDivider]}
     >
       <View style={[styles.iconTile, { backgroundColor: palette.surfaceMuted }]}>
         <Icon size={18} color={palette.text} strokeWidth={1.8} />
@@ -55,6 +57,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.s,
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  rowWithoutDivider: {
+    borderBottomWidth: 0,
   },
   iconTile: {
     width: 32,

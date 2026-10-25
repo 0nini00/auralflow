@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { ChevronRight, Settings } from "lucide-react-native";
+import { ChevronRight, Cloud, Code2, RefreshCw, Settings } from "lucide-react-native";
 
 import { SettingsRow } from "@/components/settings/SettingsRow";
 import { Touchable } from "@/components/Touchable";
@@ -8,7 +8,6 @@ import { Touchable } from "@/components/Touchable";
 import { aggregateListeningStats } from "@lx/core";
 
 import { AccountInfo } from "@/components/AccountInfo";
-import { ActionButton } from "@/components/ActionButton";
 import { IconButton } from "@/components/IconButton";
 import { LargeHeader } from "@/components/LargeHeader";
 import { QuickActionCard } from "@/components/QuickActionCard";
@@ -155,17 +154,25 @@ export function MyMusicScreen({ onNavigateToPlayer: _onNavigateToPlayer }: MyMus
         </View>
 
         <SectionHeader title="服务与同步" style={styles.section} />
-        <View style={styles.serviceRow}>
-          <ActionButton label="音乐云盘" onPress={openCloudDriveScreen} accessibilityLabel="音乐云盘" />
-          <ActionButton
-            label="自定义音源"
-            onPress={() => openSettingsScreen("Sources")}
-            accessibilityLabel="自定义音源"
+        <View style={[styles.settingsCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+          <SettingsRow
+            icon={Cloud}
+            title="音乐云盘"
+            description="上传、管理与播放云盘音乐"
+            onPress={openCloudDriveScreen}
           />
-          <ActionButton
-            label="WebDAV 同步"
+          <SettingsRow
+            icon={Code2}
+            title="自定义音源"
+            description="导入 LX 脚本，扩展歌曲解析"
+            onPress={() => openSettingsScreen("Sources")}
+          />
+          <SettingsRow
+            icon={RefreshCw}
+            title="WebDAV 同步"
+            description="把歌单与设置备份到 WebDAV"
             onPress={() => openSettingsScreen("Sync")}
-            accessibilityLabel="WebDAV 同步"
+            divider={false}
           />
         </View>
 
@@ -194,6 +201,7 @@ export function MyMusicScreen({ onNavigateToPlayer: _onNavigateToPlayer }: MyMus
             title="全部设置"
             description="音源、同步、存储与关于"
             onPress={() => openSettingsScreen()}
+            divider={false}
           />
         </View>
       </ScreenScrollView>
@@ -273,12 +281,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.m,
-    marginBottom: spacing.l,
-  },
-  serviceRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.xs,
     marginBottom: spacing.l,
   },
   settingsCard: {

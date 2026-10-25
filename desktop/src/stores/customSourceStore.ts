@@ -13,6 +13,7 @@ import {
 import { attachLibraryPersistence } from './libraryPersistence';
 import { createCustomSourceAccess } from '@/services/customSourceAccess';
 import { clearCrossSourceVariantCache } from '@/services/playback/crossSourceFallbackService';
+import { moveItemToIndex } from '@/utils/listReorder';
 
 export type CustomSourceTestStatus = 'idle' | 'testing' | 'ok' | 'failed';
 export type CustomSourceUpdateStatus = 'idle' | 'checking' | 'latest' | 'available' | 'failed';
@@ -55,7 +56,8 @@ interface CustomSourceStore {
   importFromFile: () => Promise<CustomSourceItem | null>;
   removeSource: (id: string) => void;
   toggleSource: (id: string, enabled: boolean) => void;
-  moveSource: (id: string, direction: 'up' | 'down') => void;
+  /** 把音源移动到列表中的目标位置（拖动排序用），越界会夹到合法范围；顺序即取链优先次序 */
+  moveSource: (id: string, targetIndex: number) => void;
   testSource: (id: string) => Promise<void>;
   checkSourceUpdate: (id: string) => Promise<void>;
   checkAllUpdates: () => Promise<void>;
@@ -287,17 +289,15 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
         }));
       },
 
-      moveSource: (id, direction) => {
+      // 拖动排序：目标位置是「去掉被拖动项之后」的插入下标，
+      // 与前端算出的槽位语义一致（先移除再插入）。
+      moveSource: (id, targetIndex) => {
         customSourceAccess.capture();
         set((state) => {
-          const sources = [...state.sources];
-          const index = sources.findIndex((source) => source.id === id);
+          const index = state.sources.findIndex((source) => source.id === id);
           if (index < 0) return state;
-          const nextIndex = direction === 'up' ? index - 1 : index + 1;
-          if (nextIndex < 0 || nextIndex >= sources.length) return state;
-          const [item] = sources.splice(index, 1);
-          sources.splice(nextIndex, 0, item);
-          return { sources };
+          const sources = moveItemToIndex(state.sources, index, targetIndex);
+          return sources === state.sources ? state : { sources };
         });
       },
 

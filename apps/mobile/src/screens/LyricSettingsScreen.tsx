@@ -22,7 +22,7 @@ import {
 import { syncLyricOverlayTextAppearance } from "@/services/lyricOverlayAppearance";
 import { usePlayerStore } from "@/stores/playerStore";
 import { useLyricLineIndex } from "@/hooks/useLyricLineIndex";
-import { radius, spacing, typography } from "@/theme/tokens";
+import { radius, spacing, touch, typography } from "@/theme/tokens";
 
 /**
  * 沉浸歌词设置内容（纯区块组件，由 settings/LyricsSettingsScreen 组装进设置页）：
@@ -246,40 +246,43 @@ export function LyricSettingsContent() {
       </SettingsCard>
 
       <SettingsCard style={styles.groupCard}>
-        <View style={styles.fontGrid}>
-          {FONT_OPTIONS.map((opt) => {
-            const selected = fontFamily === opt.value;
-            return (
-              <Pressable
-                key={opt.value || "system"}
-                onPress={() => setFontFamily(opt.value)}
-                accessibilityRole="radio"
-                accessibilityLabel={`字体：${opt.label}`}
-                accessibilityState={{ selected }}
-                style={({ pressed }) => [
-                  styles.fontChip,
-                  {
-                    backgroundColor: selected ? palette.actionFill : "transparent",
-                    borderColor: selected ? palette.actionFill : palette.border,
-                    opacity: pressed ? 0.7 : 1,
-                  },
-                ]}
-                android_ripple={{ color: palette.primaryInk }}
-              >
-                <Text
-                  style={[
-                    styles.fontChipText,
+        <View style={styles.stackGroup}>
+          <Text style={[styles.rowSubtitle, { color: palette.textMuted }]}>字体</Text>
+          <View style={styles.fontGrid}>
+            {FONT_OPTIONS.map((opt) => {
+              const selected = fontFamily === opt.value;
+              return (
+                <Pressable
+                  key={opt.value || "system"}
+                  onPress={() => setFontFamily(opt.value)}
+                  accessibilityRole="radio"
+                  accessibilityLabel={`字体：${opt.label}`}
+                  accessibilityState={{ selected }}
+                  style={({ pressed }) => [
+                    styles.fontChip,
                     {
-                      color: selected ? palette.onActionFill : palette.text,
-                      fontFamily: opt.value || undefined,
+                      backgroundColor: selected ? palette.actionFill : "transparent",
+                      borderColor: selected ? palette.actionFill : palette.border,
+                      opacity: pressed ? 0.7 : 1,
                     },
                   ]}
+                  android_ripple={{ color: palette.primaryInk }}
                 >
-                  {opt.label}
-                </Text>
-              </Pressable>
-            );
-          })}
+                  <Text
+                    style={[
+                      styles.fontChipText,
+                      {
+                        color: selected ? palette.onActionFill : palette.text,
+                        fontFamily: opt.value || undefined,
+                      },
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
       </SettingsCard>
 
@@ -419,14 +422,17 @@ const styles = StyleSheet.create({
   },
   intensityRow: {
     flexDirection: "row",
-    gap: spacing.s,
+    gap: spacing.xs,
   },
   intensityChip: {
-    paddingHorizontal: spacing.m,
-    paddingVertical: spacing.xs,
+    // 三等分：不给 flexBasis 0 时宽度跟着文字走，右侧会留一截空白
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    paddingHorizontal: spacing.xs,
     borderRadius: radius.md,
-    borderWidth: 2,
-    minHeight: 36,
+    borderWidth: 1,
+    minHeight: touch.minTarget,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -457,14 +463,17 @@ const styles = StyleSheet.create({
   fontGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing.s,
+    gap: spacing.xs,
   },
   fontChip: {
-    paddingHorizontal: spacing.m,
-    paddingVertical: spacing.s,
+    // 三列等宽铺满卡片；字体名长度不同也不会出现参差的右边界
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    paddingHorizontal: spacing.xs,
     borderRadius: radius.md,
-    borderWidth: 2,
-    minHeight: 44,
+    borderWidth: 1,
+    minHeight: touch.minTarget,
     justifyContent: "center",
     alignItems: "center",
   },

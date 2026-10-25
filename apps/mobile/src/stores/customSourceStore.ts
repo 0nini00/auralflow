@@ -12,6 +12,7 @@ import {
   type CustomSourceUpdateAlert,
 } from "@/services/customSourceRuntime";
 import { clearCrossSourceVariantCache } from "@/services/crossSourceFallbackService";
+import { moveSourceItem } from "@/services/sourceReorderModel";
 
 const STORAGE_KEY = "auralflow.mobile.customSources";
 
@@ -55,6 +56,8 @@ interface CustomSourceStore {
   removeSource: (id: string) => void;
   toggleSource: (id: string, enabled: boolean) => void;
   moveSource: (id: string, direction: "up" | "down") => void;
+  /** 拖拽排序落库：按槽位搬移（from/to 越界时原样返回） */
+  reorderSource: (from: number, to: number) => void;
   testSource: (id: string) => Promise<void>;
   checkSourceUpdate: (id: string) => Promise<void>;
   applyRuntimeUpdateAlert: (id: string, alert: CustomSourceUpdateAlert) => void;
@@ -269,7 +272,21 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
     const [item] = sources.splice(index, 1);
     sources.splice(nextIndex, 0, item);
     set({ sources });
+    // 顺序即优先级：换序后旧的跨源命中缓存不再可信
+    clearCrossSourceVariantCache();
     void persistState(sources, get().customSourceAutoCheck);
+  },
+
+  reorderSource: (from, to) => {
+    const sources = get().sources;
+    if (from === to) return;
+    const next = moveSourceItem(sources, from, to);
+    // 越界时 moveSourceItem 返回等长副本；只有真的换位才落库，避免无意义写盘
+    if (next.every((source, index) => source === sources[index])) return;
+    set({ sources: next });
+    // 音源顺序就是解析优先级，换序后旧的跨源命中缓存不再可信
+    clearCrossSourceVariantCache();
+    void persistState(next, get().customSourceAutoCheck);
   },
 
   testSource: async (id) => {

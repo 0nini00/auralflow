@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, TouchableWithoutFeedback, View, useWindowDimensions } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import type { MusicInfo } from "@lx/core";
@@ -82,7 +82,6 @@ export function QueueModal({
 }: QueueModalProps) {
   const listRef = useRef<QueueListHandle>(null);
   const { height: windowHeight } = useWindowDimensions();
-  const playNextInQueue = usePlayerStore((state) => state.playNextInQueue);
   const downloadSong = useDownloadStore((state) => state.downloadSong);
 
   // 单例弹窗
@@ -131,6 +130,17 @@ export function QueueModal({
     onClose();
   }, [onClose]);
 
+  // 面板收起时复位子弹窗状态：否则某次子弹窗异常未回调 onClose，
+  // 下次打开会因为 subSheetOpen 仍为 true 而只显示一个没有列表的空面板。
+  useEffect(() => {
+    if (visible) return;
+    setMenuVisible(false);
+    setMenuAnchor(null);
+    setSubSheetOpen(false);
+    setAddToPlaylistVisible(false);
+    setDownloadVisible(false);
+  }, [visible]);
+
   const openQueueMenu = (song: MusicInfo, index: number, anchor: ActionMenuAnchor) => {
     listRef.current?.cancelDrag();
     setActionSong(song);
@@ -161,7 +171,6 @@ export function QueueModal({
     const song = actionSong;
     const songIndex = actionSlot?.queue === queue ? actionSlot.index : -1;
     const items: ActionMenuItem[] = [
-      { label: "下一首播放", icon: "playNext", onPress: () => playNextInQueue(song) },
       {
         label: "收藏到歌单",
         icon: "playlist",
@@ -201,17 +210,14 @@ export function QueueModal({
       });
     }
     return items;
-  }, [actionSong, actionSlot, queue, currentItemIndex, playNextInQueue, onRemoveItem, onRequestNavigate]);
+  }, [actionSong, actionSlot, queue, currentItemIndex, onRemoveItem, onRequestNavigate]);
 
   // 队列面板主体（modal/sheet 两形态共用）：标题行 + 虚拟化列表
-  const renderPanel = (sheetMode: boolean) => (
-    <GestureHandlerRootView unstable_forceActive
-      style={
-        sheetMode
-          ? [styles.sheetContent, { backgroundColor: palette.background }]
-          : [styles.content, { backgroundColor: palette.background, borderColor: palette.border }]
-      }
-    >
+  const renderPanel = (sheetMode: boolean) => {
+    const containerStyle = sheetMode
+      ? [styles.sheetContent, { backgroundColor: palette.background }]
+      : [styles.content, { backgroundColor: palette.background, borderColor: palette.border }];
+    const content = (
       <Pressable onPress={() => undefined}>
         <View style={styles.header}>
           <View style={styles.titleWrap}>
@@ -253,8 +259,18 @@ export function QueueModal({
             enabled={!menuVisible} onPlayItem={onPlayItem} onOpenMenu={openQueueMenu} />
         ) : null}
       </Pressable>
-    </GestureHandlerRootView>
-  );
+    );
+    // 只有落在独立原生窗口（RN Modal）里才需要自带手势根；沉浸屏本身已经是
+    // GestureHandlerRootView 的子节点，反复开合不再叠加一层 root。
+    if (presentation === "modal" || sheetHost === "modal") {
+      return (
+        <GestureHandlerRootView unstable_forceActive style={containerStyle}>
+          {content}
+        </GestureHandlerRootView>
+      );
+    }
+    return <View style={containerStyle}>{content}</View>;
+  };
 
   // sheet 形态：应用内底部弹层（BottomSheet），与子弹窗（Modal）不再嵌套
   if (presentation === "sheet") {

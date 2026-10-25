@@ -82,7 +82,7 @@
 ```bash
 pnpm mobile:typecheck   # 通过
 pnpm mobile:lint        # 通过
-pnpm mobile:test        # 537 例全绿
+pnpm mobile:test        # 546 例全绿
 ```
 
 导航契约测试已按新根 Stack 更新，并补了 `librarySectionStore` 的 mock；沉浸播放页的布局契约测试也全部通过。
@@ -135,6 +135,32 @@ pnpm mobile:test        # 537 例全绿
   - 「全部设置」首页进入二级页 → `true`，返回先回设置首页；设置首页再返回才 pop 回「我的」。
 - 顶栏返回与 Android 返回拦截共用同一判断；新增 `tests/settings-navigation.test.cjs` 锁定两种来源的 store 行为。
 - 覆盖入口：我的 → 外观 / 播放与音质 / 歌词与浮窗 / 音乐云盘 / 自定义音源 / WebDAV 同步 / 全部设置。
+
+### 音源拖拽排序（2026-10-25）
+
+用户反馈：音源管理的「上移 / 下移」按钮不直观，想直接拖卡片。
+
+- 新增 `components/settings/DraggableCardList.tsx`：长按 320ms 抬起卡片，上下拖动换位，松手落库；拖动中其余卡片按「被拖卡片高度 + 间距」让位。
+- 卡片高度不固定（测试结果、更新提示、更新地址都会撑高），所以不用固定行高公式：落位按相邻卡片中心的中点判断，拖过一半即换位。
+- `SettingsPage` 新增 `SettingsScrollContext`：拖拽期间锁住页面滚动（否则竖滑被 ScrollView 抢走）；拖到视口上下 64px 内按距离加速自动滚页；浮动卡片用滚动增量补偿，始终跟手。
+- `customSourceStore` 新增 `reorderSource(from, to)`；音源顺序就是解析优先级，换序后清空跨源命中缓存。原 `moveSource` 保留，供读屏的上移/下移操作。
+- 卡片头部加 `GripVertical` 手柄：`accessibilityRole="adjustable"`，播报「第 N 项 / 共 M 项」，带 increment/decrement 操作；按钮行只留测试 / 检测更新 / 删除；列表上方加一行「长按卡片拖动排序，靠前的音源优先解析」。
+- 新增 `services/sourceReorderModel.ts`（落位 / 让位 / 命中行 / 边缘自动滚动 / 越界搬移）与 `tests/source-reorder.test.cjs`（7 例）。
+
+### 我的服务区与歌词字体行（2026-10-25）
+
+- 「我的 → 服务与同步」三个并排按钮宽度随文案变化、窄屏会折行，改成与「设置」一致的 `SettingsRow` 图标行（音乐云盘 / 自定义音源 / WebDAV 同步，各带一行说明）。
+- 歌词设置里的「字体」三选项与「动效强度」三档原本按文字宽度排、右侧留空；改为 `flexBasis: 0` 三等分铺满卡片，描边 2px→1px，选中态仍是 `actionFill + onActionFill`，高度统一 44；字体卡补了「字体」行标题（原来三个色块孤零零悬在卡片里）。
+- `SettingsRow` 新增 `divider` 开关，组内最后一行不再与卡片底边叠成双线（我的两处卡片 + 设置首页四组同步处理）。
+
+### 播放页菜单收敛与队列白屏加固（2026-10-25）
+
+- 「更多选项」移除「播放列表」：播放页底部已有常驻队列按钮，菜单里重复且要多开一层 Modal。`ImmersiveMoreMenu` 同步删掉 `onOpenQueue` / `queueLabel` 两个入参。
+- 队列每行的更多菜单移除「下一首播放」，只保留收藏到歌单 / 下载 / 播放 MV / 分享 / 从队列移除。
+- 白屏加固（Android 反复开合）：
+  - 队列面板在沉浸屏内不再套 `GestureHandlerRootView`——沉浸屏本身就是手势根的子节点，只有落在独立原生窗口（RN Modal）时才需要自带 root，避免反复开合叠加 root。
+  - `QueueModal` 收起时复位 `subSheetOpen` 与三个子弹窗状态：此前若某次子弹窗未回调 `onClose`，下次打开会只剩一个没有列表的空面板。
+  - 播放页入场兜底：封面框 700ms 内测量不到时（转场永远不会启动）强制把整页恢复到可见态；打开任意覆盖层前也确保 `rootOpacity` 为 1，避免覆盖层收起后露出白页。
 
 ### 复核修复（细节回看）
 

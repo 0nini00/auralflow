@@ -148,3 +148,50 @@ describe("LX 音源设置总开关", () => {
     expect(checkbox().props.checked).toBe(true);
   });
 });
+
+
+describe("音源排序改为拖动", () => {
+  const sources = [
+    { ...source, id: "a", name: "音源 A" },
+    { ...source, id: "b", name: "音源 B" },
+    { ...source, id: "c", name: "音源 C" },
+  ];
+  const handles = () => renderer!.root.findAll((node) => (
+    node.type === "span"
+    && typeof node.props.className === "string"
+    && node.props.className.includes("af-custom-source-drag-handle")
+  ));
+
+  it("每个音源卡片都有拖动手柄，且不再渲染上移/下移按钮", () => {
+    act(() => {
+      renderer = create(
+        <SourcesSettingsSection model={model({ featureEnabled: true, customSources: sources })} />,
+      );
+    });
+    expect(handles()).toHaveLength(3);
+    expect(handles()[0].props["aria-label"]).toContain("音源 A");
+    const labels = renderer!.root
+      .findAllByType("button")
+      .map((button) => button.props["aria-label"]);
+    expect(labels).not.toContain("上移");
+    expect(labels).not.toContain("下移");
+  });
+
+  it("手柄支持上下方向键逐格移动，走 moveSource 的目标下标语义", () => {
+    const moveSource = vi.fn();
+    act(() => {
+      renderer = create(
+        <SourcesSettingsSection
+          model={model({ featureEnabled: true, customSources: sources, moveSource })}
+        />,
+      );
+    });
+    act(() => { handles()[1].props.onKeyDown({ key: "ArrowUp", preventDefault: vi.fn() }); });
+    expect(moveSource).toHaveBeenLastCalledWith("b", 0);
+    act(() => { handles()[1].props.onKeyDown({ key: "ArrowDown", preventDefault: vi.fn() }); });
+    expect(moveSource).toHaveBeenLastCalledWith("b", 2);
+    act(() => { handles()[0].props.onKeyDown({ key: "ArrowUp", preventDefault: vi.fn() }); });
+    // 首项再上移是空操作，不应产生额外写入
+    expect(moveSource).toHaveBeenCalledTimes(2);
+  });
+});

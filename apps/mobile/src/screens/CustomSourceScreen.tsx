@@ -11,7 +11,8 @@ import {
 } from "react-native";
 import { ActionButton } from "@/components/ActionButton";
 import { SettingsCard } from "@/components/settings/SettingsCard";
-import { Code2 } from "lucide-react-native";
+import { DraggableCardList } from "@/components/settings/DraggableCardList";
+import { Code2, GripVertical } from "lucide-react-native";
 
 import { EmptyState } from "@/components/ScreenState";
 import {
@@ -36,6 +37,7 @@ export function CustomSourceScreen() {
   const removeSource = useCustomSourceStore((state) => state.removeSource);
   const toggleSource = useCustomSourceStore((state) => state.toggleSource);
   const moveSource = useCustomSourceStore((state) => state.moveSource);
+  const reorderSource = useCustomSourceStore((state) => state.reorderSource);
   const testSource = useCustomSourceStore((state) => state.testSource);
   const checkSourceUpdate = useCustomSourceStore((state) => state.checkSourceUpdate);
   const checkAllUpdates = useCustomSourceStore((state) => state.checkAllUpdates);
@@ -158,7 +160,7 @@ export function CustomSourceScreen() {
         </View>
       </SettingsCard>
 
-      {/* 音源列表 */}
+      {/* 音源列表：长按卡片直接拖动排序 */}
       {sources.length === 0 ? (
         <EmptyState
           icon={Code2}
@@ -166,25 +168,40 @@ export function CustomSourceScreen() {
           description="点击上方按钮粘贴脚本文本，或从本机选择 JS 文件导入。"
         />
       ) : (
-        <View style={styles.list}>
-          {sources.map((source, index) => (
-            <SourceCard
-              key={source.id}
-              source={source}
-              palette={palette}
-              canMoveUp={index > 0}
-              canMoveDown={index < sources.length - 1}
-              onToggle={(enabled) => toggleSource(source.id, enabled)}
-              onTest={() => testSource(source.id)}
-              onCheckUpdate={() => checkSourceUpdate(source.id)}
-              onRemove={() => handleRemove(source)}
-              onMoveUp={() => moveSource(source.id, "up")}
-              onMoveDown={() => moveSource(source.id, "down")}
-              onToggleUpdateAlert={(enabled) => toggleUpdateAlert(source.id, enabled)}
-              onOpenUpdateUrl={() => openCustomSourceUpdateUrl(source.updateUrl)}
-            />
-          ))}
-        </View>
+        <>
+          {sources.length > 1 ? (
+            <View style={styles.listHint}>
+              <GripVertical size={12} color={palette.textSubtle} />
+              <Text style={[styles.listHintText, { color: palette.textMuted }]}>
+                长按卡片拖动排序，靠前的音源优先解析
+              </Text>
+            </View>
+          ) : null}
+          <DraggableCardList
+            items={sources}
+            gap={spacing.s}
+            keyExtractor={(source) => source.id}
+            onReorder={reorderSource}
+            renderItem={(source, index) => (
+              <SourceCard
+                source={source}
+                palette={palette}
+                index={index}
+                total={sources.length}
+                canMoveUp={index > 0}
+                canMoveDown={index < sources.length - 1}
+                onToggle={(enabled) => toggleSource(source.id, enabled)}
+                onTest={() => testSource(source.id)}
+                onCheckUpdate={() => checkSourceUpdate(source.id)}
+                onRemove={() => handleRemove(source)}
+                onMoveUp={() => moveSource(source.id, "up")}
+                onMoveDown={() => moveSource(source.id, "down")}
+                onToggleUpdateAlert={(enabled) => toggleUpdateAlert(source.id, enabled)}
+                onOpenUpdateUrl={() => openCustomSourceUpdateUrl(source.updateUrl)}
+              />
+            )}
+          />
+        </>
       )}
 
       {/* 导入弹窗 */}
@@ -244,6 +261,9 @@ export function CustomSourceScreen() {
 interface SourceCardProps {
   source: CustomSourceItem;
   palette: ReturnType<typeof getThemePalette>;
+  /** 当前槽位与总数：仅用于读屏播报「第 N 项」 */
+  index: number;
+  total: number;
   canMoveUp: boolean;
   canMoveDown: boolean;
   onToggle: (enabled: boolean) => void;
@@ -259,6 +279,8 @@ interface SourceCardProps {
 function SourceCard({
   source,
   palette,
+  index,
+  total,
   canMoveUp,
   canMoveDown,
   onToggle,
@@ -276,8 +298,26 @@ function SourceCard({
 
   return (
     <SettingsCard style={styles.card}>
-      {/* 头部：名称 + 启用开关 */}
+      {/* 头部：拖拽手柄 + 名称 + 启用开关 */}
       <View style={styles.cardHeader}>
+        <View
+          accessible
+          accessibilityRole="adjustable"
+          accessibilityLabel={`音源排序，${source.name}`}
+          accessibilityHint="上下滑动调整音源优先级"
+          accessibilityValue={{ min: 1, max: Math.max(1, total), now: index + 1 }}
+          accessibilityActions={[
+            ...(canMoveUp ? [{ name: "decrement", label: "上移" }] : []),
+            ...(canMoveDown ? [{ name: "increment", label: "下移" }] : []),
+          ]}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === "increment") onMoveDown();
+            if (event.nativeEvent.actionName === "decrement") onMoveUp();
+          }}
+          style={styles.gripHandle}
+        >
+          <GripVertical size={16} color={palette.textSubtle} />
+        </View>
         <View style={styles.cardTitleWrap}>
           <Text style={[styles.cardName, { color: palette.text }]} numberOfLines={1}>
             {source.name}
@@ -384,20 +424,6 @@ function SourceCard({
         />
         <ActionButton
           small
-          label="上移"
-          disabled={!canMoveUp}
-          onPress={onMoveUp}
-          accessibilityLabel={`上移音源 ${source.name}`}
-        />
-        <ActionButton
-          small
-          label="下移"
-          disabled={!canMoveDown}
-          onPress={onMoveDown}
-          accessibilityLabel={`下移音源 ${source.name}`}
-        />
-        <ActionButton
-          small
           variant="danger"
           label="删除"
           onPress={onRemove}
@@ -455,8 +481,15 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
     lineHeight: 16,
   },
-  list: {
-    gap: spacing.s,
+  listHint: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xxs,
+    paddingHorizontal: spacing.xxs,
+  },
+  listHintText: {
+    fontSize: typography.caption,
+    lineHeight: 16,
   },
   card: {
     gap: spacing.xs,
@@ -465,7 +498,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    gap: spacing.s,
+    gap: spacing.xs,
+  },
+  gripHandle: {
+    width: 20,
+    minHeight: 28,
+    marginLeft: -spacing.xxs,
+    alignItems: "center",
+    paddingTop: 1,
   },
   cardTitleWrap: {
     flex: 1,
