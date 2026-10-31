@@ -25,6 +25,13 @@ export interface SongComment extends CommentContent {
 export interface SongCommentResult {
   total: number;
   comments: SongComment[];
+  /**
+   * 热门评论（响应里的 `hotComments`，含作者置顶的 `topComments`）。
+   *
+   * 与 `comments` 同一次请求返回，不参与 offset 分页：接口只给一页热门（实测 15 条），
+   * 所以「热门」标签页没有上拉加载。置顶评论同时出现在热门里时按 id 去重。
+   */
+  hotComments: SongComment[];
 }
 
 const VOICE_RESOURCE_TYPE = 1014;
@@ -93,6 +100,38 @@ function mapComment(item: unknown): SongComment {
   };
 }
 
+/**
+ * 热门 / 置顶评论列表。
+ *
+ * 与 `comments` 的严格校验不同，这里缺失或结构异常一律按空列表处理：
+ * 热门只是体验增强，不能因为它把整个评论面板判成失败（正文列表才是主体）。
+ */
+function mapOptionalCommentList(value: unknown): SongComment[] {
+  if (!Array.isArray(value)) return [];
+  const comments: SongComment[] = [];
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    try {
+      comments.push(mapComment(item));
+    } catch {
+      // 单条脏数据只丢这一条：热门列表是增强信息，不能因此让整个面板失败。
+    }
+  }
+  return comments;
+}
+
+/** 置顶在前、热门在后，按评论 id 去重（同一条置顶也会出现在 hotComments 里）。 */
+function mergeHotComments(top: SongComment[], hot: SongComment[]): SongComment[] {
+  const seen = new Set<string>();
+  const merged: SongComment[] = [];
+  for (const comment of [...top, ...hot]) {
+    if (seen.has(comment.id)) continue;
+    seen.add(comment.id);
+    merged.push(comment);
+  }
+  return merged;
+}
+
 export function parseNeteaseCommentResult(data: unknown): SongCommentResult {
   if (!isRecord(data) || typeof data.code !== "number" || !Number.isFinite(data.code)) {
     throw new Error("评论响应格式无效：缺少有效 code");
@@ -102,5 +141,12 @@ export function parseNeteaseCommentResult(data: unknown): SongCommentResult {
   if (typeof data.total !== "number" || !Number.isSafeInteger(data.total) || data.total < 0) {
     throw new Error("评论响应格式无效：评论总数无效");
   }
-  return { total: data.total, comments: data.comments.map(mapComment) };
+  return {
+    total: data.total,
+    comments: data.comments.map(mapComment),
+    hotComments: mergeHotComments(
+      mapOptionalCommentList(data.topComments),
+      mapOptionalCommentList(data.hotComments),
+    ),
+  };
 }

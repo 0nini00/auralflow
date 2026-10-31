@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { CloudDataStaleError, CloudSyncRefusalError, isWebdavLocalPlaylistRef, type MusicInfo } from "@lx/core";
+import { buildSongKey } from "@lx/core";
 import { usePlaylistStore } from "../stores/playlistStore";
 import { useFavoritesStore } from "../stores/favoritesStore";
 import type { WyPlaylistInfo } from "./wyPlaylistService";
@@ -447,7 +448,7 @@ function buildStablePlaylistId(
   name: string,
   songs: MusicInfo[],
 ): string {
-  const songKeys = songs.map((song) => `${song.source}:${song.id}`).join("|");
+  const songKeys = songs.map(buildSongKey).join("|");
   return `webdav-${prefix}-${stableHash(`${source}\n${name}\n${songKeys}`)}`;
 }
 

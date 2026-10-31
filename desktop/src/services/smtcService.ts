@@ -11,6 +11,7 @@ import {
 } from "@lx/tauri-bridge";
 import { usePlayerStore } from "@/stores/playerStore";
 import { getPlaybackSnapshotFromStore } from "@/services/playback/playbackSnapshot";
+import { dispatchPlaybackAction } from "@/services/playback/playbackActions";
 import { lookupCachedCoverPath } from "@/services/mediaCache";
 import { logger } from "@/services/logger";
 
@@ -112,10 +113,10 @@ export function setupSystemMediaControls(): () => void {
         store.stop();
         break;
       case "next":
-        void store.next().catch(() => undefined);
+        dispatchPlaybackAction("next");
         break;
       case "previous":
-        void store.prev().catch(() => undefined);
+        dispatchPlaybackAction("prev");
         break;
       case "seek": {
         const position = payload.position;

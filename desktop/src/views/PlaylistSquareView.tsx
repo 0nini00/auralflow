@@ -5,7 +5,6 @@ import {
   formatPlayCount,
   WY_PLAYLIST_CATEGORIES,
   type PlaylistInfo,
-  type WyPlaylistOrder,
 } from "@lx/core";
 import { fetchWyPlaylistsByCategory } from "@/services/wyDiscoverService";
 import { coverSrc, CARD_COVER_CSS_SIZE } from "@/utils/imageReferrerPolicy";
@@ -20,7 +19,7 @@ type PageStatus = "idle" | "loading" | "ready" | "error";
  * 歌单广场。
  *
  * 与移动端的口径一致：内置分类（`@lx/core` 的 `WY_PLAYLIST_CATEGORIES`，
- * `/api/playlist/catlist` 已下线）、热门/最新两种排序、滚动到底自动续页。
+ * `/api/playlist/catlist` 已下线）、固定热门排序、滚动到底自动续页。
  *
  * 分页偏移按**请求页大小**推进，而不是按已渲染条目数：接口的 offset 是它自己的
  * 序号空间，万一映射层过滤掉脏数据，用渲染数推进就会重复拉同一批、甚至原地打转。
@@ -28,7 +27,6 @@ type PageStatus = "idle" | "loading" | "ready" | "error";
 export function PlaylistSquareView() {
   const navigate = useNavigate();
   const [category, setCategory] = useState<string>(WY_PLAYLIST_CATEGORIES[0]);
-  const [order, setOrder] = useState<WyPlaylistOrder>("hot");
   const [playlists, setPlaylists] = useState<PlaylistInfo[]>([]);
   const [hasMore, setHasMore] = useState(true);
   const [status, setStatus] = useState<PageStatus>("idle");
@@ -44,7 +42,6 @@ export function PlaylistSquareView() {
 
   const loadPage = useCallback(async (
     nextCategory: string,
-    nextOrder: WyPlaylistOrder,
     mode: "reset" | "more",
   ) => {
     const reset = mode === "reset";
@@ -64,7 +61,7 @@ export function PlaylistSquareView() {
 
     const requestOffset = reset ? 0 : offset.current;
     try {
-      const page = await fetchWyPlaylistsByCategory(nextCategory, nextOrder, PAGE_SIZE, requestOffset);
+      const page = await fetchWyPlaylistsByCategory(nextCategory, "hot", PAGE_SIZE, requestOffset);
       if (requestGeneration !== generation.current) return;
       offset.current = requestOffset + PAGE_SIZE;
       setPlaylists((previous) => (reset ? page.playlists : [...previous, ...page.playlists]));
@@ -89,8 +86,8 @@ export function PlaylistSquareView() {
   }, []);
 
   useEffect(() => {
-    void loadPage(category, order, "reset");
-  }, [category, order, loadPage]);
+    void loadPage(category, "reset");
+  }, [category, loadPage]);
 
   // 触底自动续页。没有 IntersectionObserver（测试环境、极老内核）时按钮仍在，
   // 手动点一样能加载，只是少了「滚到底就长出来」的顺滑。
@@ -100,11 +97,11 @@ export function PlaylistSquareView() {
     const observer = new IntersectionObserver((entries) => {
       if (!entries.some((entry) => entry.isIntersecting)) return;
       if (status !== "ready" || !hasMore || loadingMoreRef.current || moreError) return;
-      void loadPage(category, order, "more");
+      void loadPage(category, "more");
     }, { rootMargin: "400px 0px" });
     observer.observe(node);
     return () => observer.disconnect();
-  }, [category, order, status, hasMore, moreError, loadPage]);
+  }, [category, status, hasMore, moreError, loadPage]);
 
   const openPlaylist = (playlist: PlaylistInfo) => {
     navigate(buildPlaylistDetailPath(playlist), { state: { playlist } });
@@ -125,7 +122,7 @@ export function PlaylistSquareView() {
         <button
           type="button"
           className="af-btn-secondary af-discover-refresh"
-          onClick={() => { void loadPage(category, order, "reset"); }}
+          onClick={() => { void loadPage(category, "reset"); }}
           disabled={status === "loading"}
         >
           <RefreshCw size={16} className={status === "loading" ? "af-spin" : undefined} />
@@ -147,24 +144,6 @@ export function PlaylistSquareView() {
             </button>
           ))}
         </div>
-        <div className="af-chip-group af-chip-group-compact" role="group" aria-label="排序">
-          <button
-            type="button"
-            className={`af-chip ${order === "hot" ? "af-chip-active" : ""}`}
-            aria-pressed={order === "hot"}
-            onClick={() => setOrder("hot")}
-          >
-            热门
-          </button>
-          <button
-            type="button"
-            className={`af-chip ${order === "new" ? "af-chip-active" : ""}`}
-            aria-pressed={order === "new"}
-            onClick={() => setOrder("new")}
-          >
-            最新
-          </button>
-        </div>
       </div>
 
       {status === "error" ? (
@@ -175,7 +154,7 @@ export function PlaylistSquareView() {
           <button
             type="button"
             className="af-btn-secondary"
-            onClick={() => { void loadPage(category, order, "reset"); }}
+            onClick={() => { void loadPage(category, "reset"); }}
           >
             重试
           </button>
@@ -233,7 +212,7 @@ export function PlaylistSquareView() {
                 <button
                   type="button"
                   className="af-btn-secondary"
-                  onClick={() => { void loadPage(category, order, "more"); }}
+                  onClick={() => { void loadPage(category, "more"); }}
                 >
                   重试
                 </button>
@@ -242,7 +221,7 @@ export function PlaylistSquareView() {
               <button
                 type="button"
                 className="af-btn-secondary"
-                onClick={() => { void loadPage(category, order, "more"); }}
+                onClick={() => { void loadPage(category, "more"); }}
                 disabled={loadingMore}
               >
                 {loadingMore ? "加载中…" : "加载更多"}

@@ -260,11 +260,19 @@ mod platform {
         }
         unsafe {
             let start = value.as_ptr();
+            // 依赖「COM 分配的字符串必然 NUL 结尾」，但这里仍给扫描设一个硬上界：
+            // 超过 4096 个 UTF-16 单元（远超任何会话元数据）视为异常，按空串处理，
+            // 避免万一违约时无限越界读。
+            const MAX_UTF16_LEN: usize = 4096;
             let mut len = 0usize;
-            while *start.add(len) != 0 {
+            while len < MAX_UTF16_LEN && *start.add(len) != 0 {
                 len += 1;
             }
-            let text = String::from_utf16_lossy(std::slice::from_raw_parts(start, len));
+            let text = if len >= MAX_UTF16_LEN {
+                String::new()
+            } else {
+                String::from_utf16_lossy(std::slice::from_raw_parts(start, len))
+            };
             CoTaskMemFree(Some(start as *const c_void));
             Ok(text)
         }

@@ -1,4 +1,5 @@
 import type { MusicInfo } from "@lx/core";
+import { buildSongKey } from "@lx/core";
 import type { WyPlaylistInfo } from "./wyPlaylistService";
 import type { LocalPlaylist } from "./localPlaylistModel";
 
@@ -38,9 +39,6 @@ export interface BuildImportedLocalPlaylistsResult {
   addedSongCount: number;
 }
 
-function songKey(song: MusicInfo): string {
-  return `${song.source}:${song.id}`;
-}
 
 export function buildPlaylistExportEnvelope({
   likedSongs,
@@ -103,10 +101,10 @@ export function collectSongsFromTransferEnvelope(data: Partial<PlaylistTransferE
 
 export function mergeImportedSongs(existing: MusicInfo[], imported: MusicInfo[]): MergeImportedSongsResult {
   const merged = [...existing];
-  const mergedIds = new Set(existing.map(songKey));
+  const mergedIds = new Set(existing.map(buildSongKey));
 
   for (const song of imported) {
-    const key = songKey(song);
+    const key = buildSongKey(song);
     if (!mergedIds.has(key)) {
       merged.push(song);
       mergedIds.add(key);

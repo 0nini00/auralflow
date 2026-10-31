@@ -70,7 +70,12 @@ test('getLyrics 对缺少歌词的本地歌曲不提交本地 ID 到网关', asy
   assert.ok(fn);
   const code = ts.transpileModule(fn.getText(file).replace('export ', '') + '\nmodule.exports = getLyrics;', { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   const module = { exports: {} };
-  new Function('module', 'parseLyricSource', 'fetchSongLyrics', code)(module, () => [], async () => { assert.fail('本地ID不得作为在线ID请求歌词'); });
+  // 本地分支会用 localLyricsTranslation / localLyricsRomanization 合并副行（对齐桌面），
+  // 这里注入恒等实现，只关注「本地歌不联网」与解析结果本身。
+  const identity = (lines) => lines;
+  new Function('module', 'parseLyricSource', 'fetchSongLyrics', 'mergeTranslation', 'mergeRomanization', code)(
+    module, () => [], async () => { assert.fail('本地ID不得作为在线ID请求歌词'); }, identity, identity
+  );
   assert.deepEqual(await module.exports(song), []);
   assert.deepEqual(await module.exports({ ...song, source: 'tx', isLocal: true }), []);
   assert.equal((await module.exports({ ...song, localLyrics: '第一行\n第二行' }))[1].text, '第二行');

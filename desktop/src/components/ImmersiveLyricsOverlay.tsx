@@ -337,7 +337,6 @@ export function ImmersiveLyricsOverlay({
         />
       )}
       <div className="af-immersive-noise" aria-hidden="true" />
-      {/* 歌词来源标注：同曲异唱档必须可见；绝对定位在顶部预留区、只停留几秒就退场 */}
 
       {/*
         退出入口：常驻在顶部预留区右侧。以前只藏在「更多」面板里，主操作隐形、也不容易找到；

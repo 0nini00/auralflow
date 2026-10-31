@@ -128,14 +128,14 @@ async function prefetchTrack(
       const variants = getPlaybackVariants(music);
       const resolved = await options.resolvePlaybackUrl(music, variants, undefined, { cacheMedia: false });
       if (resolved?.url) {
-        // 同一 source 的链接也可能来自 LX，不能用 source 推断权限。
-        if (resolved.backend === 'customSource' && (
+        // 同一 source 的链接也可能来自 LX（普通自定义源或隐藏兜底），不能用 source 推断权限。
+        if ((resolved.backend === 'customSource' || resolved.backend === 'hiddenSource') && (
           !useCustomSourceStore.getState().featureEnabled || customSourceAccess.version !== accessVersion
         )) return;
         entry = {
           ...entry,
           ...buildPlaybackPrefetchEntry(music, resolved, fetchedAt),
-          customSourceVersion: resolved.backend === 'customSource' ? accessVersion : undefined,
+          customSourceVersion: resolved.backend === 'customSource' || resolved.backend === 'hiddenSource' ? accessVersion : undefined,
           coverUrl: entry.coverUrl,
         };
       }
@@ -204,7 +204,8 @@ export async function prefetchTracks(musicList: MusicInfo[]): Promise<void> {
 }
 
 function isEntryAccessible(entry: PlaybackPrefetchEntry): boolean {
-  if (entry.backend !== 'customSource') return true;
+  // 隐藏兜底与普通自定义源共用 LX 脚本生命周期：脚本停用/升级后预取条目必须失效。
+  if (entry.backend !== 'customSource' && entry.backend !== 'hiddenSource') return true;
   const state = useCustomSourceStore.getState();
   return state.featureReady && state.featureEnabled && entry.customSourceVersion === customSourceAccess.version;
 }

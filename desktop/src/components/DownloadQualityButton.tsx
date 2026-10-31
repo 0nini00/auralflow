@@ -3,6 +3,7 @@ import type { MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { Download, Headphones } from "lucide-react";
 import type { MusicInfo } from "@lx/core";
+import { cloudQualityLabel } from "@lx/core";
 import { useDownloadStore, type DownloadQuality } from "@/stores/downloadStore";
 
 interface DownloadQualityButtonProps {
@@ -140,6 +141,108 @@ export function DownloadQualityButton({
   className = "af-action-btn",
   iconSize = 16,
   title = "下载",
+}: DownloadQualityButtonProps) {
+  // 云盘曲不做转码：请求哪个档位都是同一份上传文件，音质菜单只会误导用户，
+  // 直接下载原文件（并保留其内嵌标签/歌词）即可。
+  if (song.wyCloud === true) {
+    return (
+      <CloudDownloadButton
+        song={song}
+        className={className}
+        iconSize={iconSize}
+        title={`下载云盘原文件${cloudQualityLabel(song.cloudMeta?.bitrate) ? `（${cloudQualityLabel(song.cloudMeta?.bitrate)}）` : ""}`}
+      />
+    );
+  }
+  return <QualityDownloadButton song={song} className={className} iconSize={iconSize} title={title} />;
+}
+
+interface CloudDownloadButtonProps {
+  song: MusicInfo;
+  className: string;
+  iconSize: number;
+  title: string;
+}
+
+/** 云盘曲的下载入口：单击直接下载原文件，失败时在按钮下方给出原因。 */
+function CloudDownloadButton({ song, className, iconSize, title }: CloudDownloadButtonProps) {
+  const addDownload = useDownloadStore((s) => s.addDownload);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+
+  const handleClick = async (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    if (pending) return;
+    const trigger = event.currentTarget;
+    setPending(true);
+    setError("");
+    try {
+      await addDownload(song);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setAnchor(trigger);
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        className={className}
+        onClick={handleClick}
+        title={title}
+        aria-label={title}
+        aria-busy={pending}
+        disabled={pending}
+      >
+        <Download size={iconSize} />
+      </button>
+      {error && anchor && (
+        <CloudDownloadError message={error} anchor={anchor} onClose={() => setError("")} />
+      )}
+    </>
+  );
+}
+
+function CloudDownloadError({
+  message,
+  anchor,
+  onClose,
+}: {
+  message: string;
+  anchor: HTMLElement;
+  onClose: () => void;
+}) {
+  const width = 260;
+  const rect = anchor.getBoundingClientRect();
+  const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8));
+  const top = rect.bottom + 8 + 80 > window.innerHeight ? Math.max(8, rect.top - 88) : rect.bottom + 8;
+
+  return createPortal(
+    <>
+      <div className="af-add-menu-backdrop" onClick={onClose} aria-hidden="true" />
+      <div
+        className="af-dropdown-menu af-add-menu"
+        role="alert"
+        style={{ position: "fixed", top, left, width, zIndex: 9999 }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="af-add-menu-status af-add-menu-error">{message}</div>
+        <button type="button" onClick={onClose}>关闭</button>
+      </div>
+    </>,
+    document.body,
+  );
+}
+
+function QualityDownloadButton({
+  song,
+  className,
+  iconSize,
+  title,
 }: DownloadQualityButtonProps) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
 

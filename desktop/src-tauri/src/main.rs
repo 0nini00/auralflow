@@ -222,9 +222,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             // 配置管理
             commands::load_settings,
-            commands::save_settings,
             commands::patch_settings,
-            commands::reset_settings,
             commands::debug_log,
             commands::open_log_dir,
             // 压缩/解压 fallback
@@ -235,8 +233,8 @@ pub fn run() {
             commands::cache_remote_audio,
             commands::cache_remote_image,
             commands::lookup_cached_media,
-            commands::get_song_cache_stats,
-            commands::clear_song_cache,
+            commands::get_media_cache_stats,
+            commands::clear_media_cache,
             // 媒体缓存按 key 定向失效（试听片段 / 坏链）
             commands::remove_cached_media,
             // Windows 系统媒体控制（SMTC）
@@ -257,12 +255,10 @@ pub fn run() {
             commands::set_audio_cover,
             commands::set_audio_lyrics,
             // 本地文件内容指纹（歌词选择绑定用，只在用户做出选择时调用）
-            commands::hash_local_file,
             // 用户数据持久化（B-mid）
             commands::library_load,
             commands::library_save,
             commands::library_reset,
-            commands::library_reset_all,
             // 桌面歌词窗口
             commands::toggle_lyric_window,
             commands::toggle_lyric_window_from_player,

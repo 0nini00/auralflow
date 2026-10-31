@@ -4,7 +4,7 @@ import type { PlaybackBackendId, PlaybackResolvedUrl } from '../src/services/pla
 const bridge = vi.hoisted(() => ({ lookup: vi.fn(), audio: vi.fn(), image: vi.fn(), remove: vi.fn() }));
 vi.mock('@lx/tauri-bridge', () => ({ lookupCachedMedia: bridge.lookup, cacheRemoteAudio: bridge.audio, cacheRemoteImage: bridge.image, removeCachedMedia: bridge.remove }));
 vi.mock('@tauri-apps/api/core', () => ({ convertFileSrc: (path: string) => `asset://${path}` }));
-import { cacheResolvedPlaybackMedia, removeCachedAudioForMusic, StalePlaybackCacheError } from '../src/services/mediaCache';
+import { cacheResolvedPlaybackMedia, findCachedPlaybackMedia, removeCachedAudioForMusic, StalePlaybackCacheError } from '../src/services/mediaCache';
 const music = { id: '1', source: 'wy', name: '歌曲', singer: '歌手' } as MusicInfo;
 function resolved(backend: PlaybackBackendId = 'customSource'): PlaybackResolvedUrl {
   return { music, backend, quality: '128k', url: 'https://audio/music', resolverName: backend, trace: [] };
@@ -76,11 +76,13 @@ describe('LX 媒体缓存隔离', () => {
     expect(bridge.image).not.toHaveBeenCalled();
     expect(bridge.remove).not.toHaveBeenCalled();
   });
-  it('定向失效覆盖所有新 backend 分区', async () => {
+  it('定向失效覆盖所有新 backend 分区与旧命名', async () => {
     await removeCachedAudioForMusic(music);
     for (const backend of ['customSource', 'builtinNetease', 'builtinProvider']) {
       expect(bridge.remove).toHaveBeenCalledWith('audio', `wy-1-audio-${backend}-128k`);
     }
+    // 旧命名现在会被解析兜底命中，失效时必须一起删掉，否则下次还播同一个坏文件
+    expect(bridge.remove).toHaveBeenCalledWith('audio', 'wy-1-audio-128k');
   });
 });
 
@@ -117,5 +119,111 @@ describe('本地磁盘缓存命中的判定', () => {
     ).rejects.toBeInstanceOf(StalePlaybackCacheError);
     // 死链绝不能交给播放器，也不能顺手再下载一次
     expect(bridge.audio).not.toHaveBeenCalled();
+  });
+});
+
+describe('解析前先找已落盘音频', () => {
+  const longSong = { ...music, interval: 240 } as MusicInfo;
+  const localPath = 'C:/cache/wy-1-audio-builtinProvider-320k.mp3';
+
+  it('URL 缓存过期也不影响：直接返回磁盘上的整曲', async () => {
+    bridge.lookup.mockImplementation(async (_kind: string, key: string) =>
+      key === 'wy-1-audio-builtinProvider-320k' ? { path: localPath, bytes: 9_600_000 } : null,
+    );
+    const out = await findCachedPlaybackMedia(longSong, ['320k', '128k']);
+    expect(out).toMatchObject({ quality: '320k', backend: 'builtinProvider', fromCache: true });
+    expect(out?.url).toBe(`asset://${localPath}`);
+    // 命中即返回，不再试更低档位
+    expect(bridge.lookup).not.toHaveBeenCalledWith('audio', 'wy-1-audio-builtinProvider-128k');
+    expect(bridge.audio).not.toHaveBeenCalled();
+  });
+
+  it('音质按降级链顺序找：高音质没有文件时退到低音质', async () => {
+    bridge.lookup.mockImplementation(async (_kind: string, key: string) =>
+      key === 'wy-1-audio-builtinNetease-128k' ? { path: 'C:/cache/wy-1-audio-builtinNetease-128k.mp3', bytes: 4_000_000 } : null,
+    );
+    const out = await findCachedPlaybackMedia(longSong, ['320k', '128k']);
+    expect(out).toMatchObject({ quality: '128k', backend: 'builtinNetease' });
+  });
+
+  it('自定义源关闭时不复用其脚本落盘的音频', async () => {
+    bridge.lookup.mockImplementation(async (_kind: string, key: string) =>
+      key === 'wy-1-audio-customSource-320k' ? { path: 'C:/cache/lx.mp3', bytes: 9_600_000 } : null,
+    );
+    expect(await findCachedPlaybackMedia(longSong, ['320k'])).toBeNull();
+    const { token } = operation();
+    expect(await findCachedPlaybackMedia(longSong, ['320k'], token)).toMatchObject({
+      backend: 'customSource',
+      quality: '320k',
+    });
+  });
+
+  it('落盘的是试听残包时清掉并继续找下一档，不把 30s 文件当整曲', async () => {
+    bridge.lookup.mockImplementation(async (_kind: string, key: string) => {
+      if (key === 'wy-1-audio-builtinNetease-320k') return { path: 'C:/cache/preview.mp3', bytes: 500_000 };
+      if (key === 'wy-1-audio-builtinNetease-128k') return { path: 'C:/cache/full.mp3', bytes: 9_600_000 };
+      return null;
+    });
+    const out = await findCachedPlaybackMedia(longSong, ['320k', '128k']);
+    expect(bridge.remove).toHaveBeenCalledWith('audio', 'wy-1-audio-builtinNetease-320k');
+    expect(out).toMatchObject({ quality: '128k', backend: 'builtinNetease' });
+  });
+
+  it('不可缓存的来源 / 查询异常都按未命中处理', async () => {
+    expect(await findCachedPlaybackMedia({ ...longSong, source: 'local' } as MusicInfo, ['320k'])).toBeNull();
+    bridge.lookup.mockRejectedValue(new Error('bridge down'));
+    expect(await findCachedPlaybackMedia(longSong, ['320k'])).toBeNull();
+  });
+});
+
+describe('旧命名（v0.6.8 前不带 backend）音频复用', () => {
+  const longSong = { ...music, interval: 240 } as MusicInfo;
+  const legacyKey = 'wy-1-audio-320k';
+
+  it('新版分区全部未命中时命中旧文件，直接本地播放且不复制一份新 key', async () => {
+    bridge.lookup.mockImplementation(async (kind: string, key: string) =>
+      kind === 'audio' && key === legacyKey ? { path: 'C:/cache/legacy.mp3', bytes: 9_600_000 } : null,
+    );
+    const out = await findCachedPlaybackMedia(longSong, ['320k']);
+    expect(out).toMatchObject({ quality: '320k', backend: 'builtinNetease', fromCache: true });
+    expect(out?.url).toBe('asset://C:/cache/legacy.mp3');
+    // 只读命中：缓存里没有多出一个新命名的文件
+    expect(bridge.audio).not.toHaveBeenCalled();
+  });
+
+  it('旧文件是 30s 试听残包时删掉它，继续往低音质找', async () => {
+    bridge.lookup.mockImplementation(async (kind: string, key: string) => {
+      if (kind !== 'audio') return null;
+      if (key === legacyKey) return { path: 'C:/cache/legacy-preview.mp3', bytes: 500_000 };
+      if (key === 'wy-1-audio-builtinNetease-128k') return { path: 'C:/cache/full.mp3', bytes: 9_600_000 };
+      return null;
+    });
+    const out = await findCachedPlaybackMedia(longSong, ['320k', '128k']);
+    expect(bridge.remove).toHaveBeenCalledWith('audio', legacyKey);
+    expect(out).toMatchObject({ quality: '128k', backend: 'builtinNetease' });
+    expect(out?.url).toBe('asset://C:/cache/full.mp3');
+  });
+
+  it('旧 key 标 flac、落盘其实是 mp3：按真实容器估算，不把短歌误删成试听残包', async () => {
+    // 5 MB 若按 flac(900k) 估算只有 44 秒，会被判成试听；按 mp3 最高档(320k) 则是 125 秒。
+    bridge.lookup.mockImplementation(async (kind: string, key: string) =>
+      kind === 'audio' && key === 'wy-1-audio-flac' ? { path: 'C:/cache/legacy.mp3', bytes: 5_000_000 } : null,
+    );
+    const out = await findCachedPlaybackMedia(longSong, ['flac']);
+    expect(out?.url).toBe('asset://C:/cache/legacy.mp3');
+    expect(out?.quality).toBe('flac');
+    expect(bridge.remove).not.toHaveBeenCalled();
+  });
+
+  it('新分区命中时优先用新文件，不再看旧 key', async () => {
+    bridge.lookup.mockImplementation(async (kind: string, key: string) => {
+      if (kind !== 'audio') return null;
+      if (key === 'wy-1-audio-builtinNetease-320k') return { path: 'C:/cache/new.mp3', bytes: 9_600_000 };
+      if (key === legacyKey) return { path: 'C:/cache/legacy.mp3', bytes: 9_600_000 };
+      return null;
+    });
+    const out = await findCachedPlaybackMedia(longSong, ['320k']);
+    expect(out?.url).toBe('asset://C:/cache/new.mp3');
+    expect(bridge.lookup).not.toHaveBeenCalledWith('audio', legacyKey);
   });
 });

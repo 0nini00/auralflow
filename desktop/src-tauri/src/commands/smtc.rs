@@ -10,9 +10,12 @@ pub fn smtc_set_enabled(app: AppHandle, enabled: bool) {
 }
 
 /// 推送当前曲目 / 播放状态（切歌、暂停恢复、seek 之后调用）。
+///
+/// 封面读取（fs::read，可达数 MB）发生在 update_track 内部：放进阻塞线程池，
+/// 不让它落在切歌瞬间的主线程上。
 #[tauri::command]
-pub fn smtc_update_track(app: AppHandle, track: crate::smtc::SmtcTrack) {
-    crate::smtc::update_track(&app, track);
+pub async fn smtc_update_track(app: AppHandle, track: crate::smtc::SmtcTrack) {
+    let _ = tauri::async_runtime::spawn_blocking(move || crate::smtc::update_track(&app, track)).await;
 }
 
 /// 推送播放进度（Rust 侧按 ≥500ms 节流，前端照常全量推）。

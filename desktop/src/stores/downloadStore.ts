@@ -178,7 +178,13 @@ async function runOneTask(taskId: string, get: StoreGet, set: StoreSet) {
       }),
     }));
 
-    const savedPath = await runDownloadTask(taskId, prepared.url, dir, prepared.fileName);
+    const savedPath = await runDownloadTask(
+      taskId,
+      prepared.url,
+      dir,
+      prepared.fileName,
+      prepared.headers,
+    );
     if (!get().tasks.some((item) => item.id === taskId)) return;
     set((state) => ({ tasks: markTransferCompleted(state.tasks, taskId, savedPath) }));
     // 文件已落盘；后处理异常不能把可用文件伪装成下载失败，必须作为警告显示。
@@ -240,7 +246,6 @@ export const useDownloadStore = create<DownloadStore>()(
 
       initDownloadListeners: async () => {
         if (get().listenersReady) return;
-        set({ listenersReady: true });
 
         await listen<RustDownloadProgressEvent>('download-progress', (event) => {
           const payload = event.payload;
@@ -267,6 +272,9 @@ export const useDownloadStore = create<DownloadStore>()(
             tasks: markTransferCompleted(state.tasks, payload.taskId, payload.savedPath, payload.total),
           }));
         });
+
+        // 两个订阅都成功才算就绪：失败时保持 false，下次调用重试整个初始化
+        set({ listenersReady: true });
       },
 
       addDownload: async (music, quality) => {
@@ -319,7 +327,9 @@ export const useDownloadStore = create<DownloadStore>()(
         if (!task || task.cancelRequested) return;
         if (task.status === 'queued' || task.status === 'resolving') {
           // 地址解析没有原生下载句柄；阻止它启动后续下载即可。
-          if (task.status === 'resolving') cancelledTaskIds.add(taskId);
+          // queued 也必须登记：pumpQueue 可能已把任务拾起（activeTaskIds 已加、
+          // 状态尚未改写），只改状态拦不住 runOneTask 的开跑。
+          cancelledTaskIds.add(taskId);
           set((state) => ({
             tasks: patchTask(state.tasks, taskId, { status: 'cancelled', speed: 0, error: '已取消', cancelRequested: false }),
           }));

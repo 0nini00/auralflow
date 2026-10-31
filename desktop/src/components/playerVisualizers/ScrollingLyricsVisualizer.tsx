@@ -1,7 +1,7 @@
 import { LyricText, LyricRomanization } from './LyricAnnotations';
 import type { CSSProperties } from 'react';
 import { useLyricAutoScroll } from '@/hooks/useLyricAutoScroll';
-import { calculateLyricLineProgress } from '@/services/lyrics/playbackSync';
+import { calculateLyricLineProgress } from '@lx/core';
 import type { LyricLine, LyricWord } from '@/services/lyricsService';
 import { getLyricDisplayText } from './lyricDisplay';
 import type { PlayerVisualizerProps } from './types';

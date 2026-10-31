@@ -149,6 +149,35 @@ export function toCloudMusicInfos(items: readonly WyCloudItem[] | null | undefin
   return result;
 }
 
+/** 云盘原始文件名里认可的音频扩展名（决定下载落盘的文件名）。 */
+const CLOUD_AUDIO_EXTENSIONS = new Set([
+  "mp3",
+  "flac",
+  "m4a",
+  "aac",
+  "wav",
+  "ogg",
+  "opus",
+  "ape",
+  "wma",
+]);
+
+/**
+ * 云盘上传文件的真实扩展名，取自上传时的原始文件名。
+ *
+ * 下载云盘曲必须用它而不是「请求音质」推扩展名：云盘不做转码，请求 320k 也可能
+ * 拿到用户上传的 FLAC；按请求档位命名会得到 `歌曲.mp3` 里装着 FLAC 字节。
+ */
+export function cloudFileExtension(
+  music: Pick<MusicInfo, "wyCloud" | "cloudMeta">,
+): string | undefined {
+  if (music.wyCloud !== true) return undefined;
+  const fileName = music.cloudMeta?.fileName;
+  if (!fileName) return undefined;
+  const ext = fileName.split(".").pop()?.toLowerCase();
+  return ext && CLOUD_AUDIO_EXTENSIONS.has(ext) ? ext : undefined;
+}
+
 /**
  * 云盘条目的「诚实音质标签」——由上传文件真实码率换算，只用于 UI 展示。
  *

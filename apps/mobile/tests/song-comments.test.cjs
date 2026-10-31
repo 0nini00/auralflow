@@ -165,8 +165,35 @@ test("普通文本、元数据和无 user 的回复过滤维持既有语义", as
 });
 
 test("没有评论的真实成功响应可返回空列表", async () => {
-  assert.deepEqual(await fetchPayload(page([], 0)), { total: 0, comments: [] });
-  assert.deepEqual(await fetchPayload(page([], 50)), { total: 50, comments: [] });
+  assert.deepEqual(await fetchPayload(page([], 0)), { total: 0, comments: [], hotComments: [] });
+  assert.deepEqual(await fetchPayload(page([], 50)), { total: 50, comments: [], hotComments: [] });
+});
+
+test("热门与置顶评论同一次响应返回：置顶在前、按 id 去重", async () => {
+  const hot = { ...fixture, commentId: 9001, content: "热门评论" };
+  const top = { ...fixture, commentId: 9002, content: "作者置顶" };
+  const result = await fetchPayload({
+    ...page([fixture], 2),
+    hotComments: [hot, top],
+    topComments: [top],
+  });
+  assert.deepEqual(result.hotComments.map((comment) => comment.id), ["9002", "9001"]);
+  assert.equal(result.hotComments[0].content, "作者置顶");
+  // 正文列表不受热门影响
+  assert.deepEqual(result.comments.map((comment) => comment.id), ["1"]);
+});
+
+test("热门字段缺失 / 结构异常 / 单条脏数据都不影响正文列表", async () => {
+  for (const extra of [
+    {},
+    { hotComments: null, topComments: null },
+    { hotComments: "oops", topComments: 42 },
+    { hotComments: [null, "text", { commentId: 7, content: 123 }] },
+  ]) {
+    const result = await fetchPayload({ ...page([fixture], 1), ...extra });
+    assert.deepEqual(result.comments.map((comment) => comment.id), ["1"]);
+    assert.ok(Array.isArray(result.hotComments));
+  }
 });
 
 test("请求接口、默认分页及翻页参数保持不变", async () => {

@@ -53,14 +53,11 @@ export interface RustAppSettings {
   /** 主窗口：上次的 x（逻辑像素）。null=居中默认位置 */
   mainWindowX?: number | null;
   mainWindowY?: number | null;
-  mainWindowWidth?: number | null;
-  mainWindowHeight?: number | null;
   /** 侧边栏宽度（逻辑像素）。null/缺省=用默认 240 */
   sidebarWidth?: number | null;
   /** 侧边栏是否收起。缺省/false=展开 */
   sidebarCollapsed?: boolean | null;
   /** 主窗口：上次退出时是否最大化 */
-  mainWindowMaximized: boolean;
   pactAccepted: boolean;
   cursorEffect: string;
   webdavUrl?: string | null;
@@ -126,8 +123,7 @@ export interface RemoteMediaCacheOptions {
   cacheKey: string;
 }
 
-export interface SongCacheStats {
-  persistentCacheSize: number;
+export interface MediaCacheStats {
   audioCacheSize: number;
   coverCacheSize: number;
   totalSize: number;
@@ -140,19 +136,9 @@ export async function loadSettings(): Promise<RustAppSettings> {
   return invoke<RustAppSettings>("load_settings");
 }
 
-/** 保存设置 */
-export async function saveSettings(settings: RustAppSettings): Promise<RustAppSettings> {
-  return invoke<RustAppSettings>("save_settings", { settings });
-}
-
 /** 部分更新设置 */
 export async function patchSettings(patch: Record<string, unknown>): Promise<RustAppSettings> {
   return invoke<RustAppSettings>("patch_settings", { patch });
-}
-
-/** 重置设置 */
-export async function resetSettings(): Promise<RustAppSettings> {
-  return invoke<RustAppSettings>("reset_settings");
 }
 
 /** 追加一行诊断日志到 app_data_dir/debug.log（失败静默忽略） */
@@ -198,24 +184,21 @@ export async function setAudioLyrics(path: string, lyrics: string): Promise<void
   await invoke<void>("set_audio_lyrics", { path, lyrics });
 }
 
-/**
- * 计算本地文件的内容指纹（流式 md5）。
- *
- * 只给「歌词选择」用：用户在面板上做出选择的那一刻算一次并随记录持久化，
- * 绝不在扫描或播放路径上调用——整文件读一遍的代价不该落在那些热路径上。
- */
-export async function hashLocalFile(path: string): Promise<string> {
-  return invoke<string>("hash_local_file", { path });
-}
-
 /** 下载远程文件到本地目录，返回保存路径 */
+/**
+ * 下载远端音频到本地。
+ *
+ * `headers` 只用于防盗链相关的请求头（Rust 侧按 referer / origin / user-agent
+ * 白名单过滤），wy/tx 的 CDN 缺 Referer 会直接 403。
+ */
 export async function downloadFile(
   taskId: string,
   url: string,
   directory: string,
   fileName: string,
+  headers?: Record<string, string>,
 ): Promise<string> {
-  return invoke<string>("download_file", { taskId, url, directory, fileName });
+  return invoke<string>("download_file", { taskId, url, directory, fileName, headers });
 }
 
 export async function cancelDownload(taskId: string): Promise<boolean> {
@@ -270,14 +253,14 @@ export async function removeCachedMedia(
   return invoke<boolean>("remove_cached_media", { kind, cacheKey });
 }
 
-/** 获取歌曲缓存占用大小 */
-export async function getSongCacheStats(): Promise<SongCacheStats> {
-  return invoke<SongCacheStats>("get_song_cache_stats");
+/** 获取媒体资源缓存占用（音频 + 封面） */
+export async function getMediaCacheStats(): Promise<MediaCacheStats> {
+  return invoke<MediaCacheStats>("get_media_cache_stats");
 }
 
-/** 清空歌曲文件缓存并返回清理后的占用大小 */
-export async function clearSongCache(): Promise<SongCacheStats> {
-  return invoke<SongCacheStats>("clear_song_cache");
+/** 清空媒体资源缓存（音频 + 封面），保留播放地址与歌词等元信息缓存 */
+export async function clearMediaCache(): Promise<MediaCacheStats> {
+  return invoke<MediaCacheStats>("clear_media_cache");
 }
 
 // ─── 用户数据持久化（B-mid） ────────────────────
@@ -314,11 +297,6 @@ export async function librarySave(
 /** 重置单个 namespace */
 export async function libraryReset(namespace: LibraryNamespace): Promise<void> {
   await invoke<void>("library_reset", { namespace });
-}
-
-/** 重置所有用户数据 */
-export async function libraryResetAll(): Promise<void> {
-  await invoke<void>("library_reset_all");
 }
 
 // ─── 桌面歌词窗口 ────────────────────

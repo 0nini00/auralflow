@@ -62,6 +62,8 @@ async function fixture({ remote = remoteFile(), read } = {}) {
     ...loadCore("../../packages/core/src/webdav-merge.ts"),
     ...loadCore("../../packages/core/src/webdav-sync-error.ts"),
     ...loadCore("../../packages/core/src/removed-source.ts"),
+    // webdavSyncService 的歌曲键已收敛到 core 的 buildSongKey
+    ...loadCore("../../packages/core/src/song-variant.ts"),
   };
   const load = createLoader({
     zustand: { create: createStore },

@@ -22,31 +22,26 @@ fn allow_app_background_asset(app: &AppHandle, settings: &AppSettings) {
 }
 
 #[tauri::command]
-pub fn save_settings(app: AppHandle, settings: AppSettings) -> Result<AppSettings, String> {
-    config::save_settings(&app, &settings)?;
-    allow_app_background_asset(&app, &settings);
-    Ok(settings)
-}
-
-#[tauri::command]
 pub fn patch_settings(app: AppHandle, patch: Value) -> Result<AppSettings, String> {
     let settings = config::patch_settings(&app, patch)?;
     allow_app_background_asset(&app, &settings);
     Ok(settings)
 }
 
-#[tauri::command]
-pub fn reset_settings(app: AppHandle) -> Result<AppSettings, String> {
-    config::reset_settings(&app)
-}
-
 // ─── 播放问题诊断日志 ─────────────────────────────────────────
 
-use std::fs;
-
 /// 追加一行到 app_data_dir/debug.log（超过 2MB 先清空），用于定位线上播放失败。
+///
+/// 解析热路径多次调用：磁盘 IO 放进阻塞线程池，避免占住主线程。
 #[tauri::command]
-pub fn debug_log(app: AppHandle, message: String) -> Result<(), String> {
+pub async fn debug_log(app: AppHandle, message: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || write_debug_log(&app, &message))
+        .await
+        .map_err(|err| format!("日志任务失败: {}", err))?
+}
+
+fn write_debug_log(app: &AppHandle, message: &str) -> Result<(), String> {
+    use std::fs;
     let mut path = app
         .path()
         .app_data_dir()
@@ -58,7 +53,13 @@ pub fn debug_log(app: AppHandle, message: String) -> Result<(), String> {
     }
     if let Ok(meta) = fs::metadata(&path) {
         if meta.len() > 2 * 1024 * 1024 {
-            let _ = fs::remove_file(&path);
+            // 删除可能因文件被其它句柄占用而失败（多 WebView 并发写）：
+            // 失败时退化为截断重写，保证 2MB 上限真正生效。
+            if fs::remove_file(&path).is_err() {
+                if let Ok(truncated) = fs::File::create(&path) {
+                    drop(truncated);
+                }
+            }
         }
     }
 

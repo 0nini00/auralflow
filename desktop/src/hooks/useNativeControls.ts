@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { usePlayerStore } from "@/stores/playerStore";
-import { getPlaybackSnapshotFromStore } from "@/services/playback/playbackSnapshot";
+import { dispatchPlaybackAction } from "@/services/playback/playbackActions";
 
 /**
  * 监听来自 Rust 侧（托盘菜单 / 全局快捷键 / 媒体键）的播放控制事件。
@@ -14,27 +13,8 @@ type NativeAction = "play-pause" | "prev" | "next";
 export function useNativeControls() {
   useEffect(() => {
     const unlistenPromise = listen<NativeAction>("native-action", (event) => {
-      const action = event.payload;
-      const store = usePlayerStore.getState();
-      const snapshot = getPlaybackSnapshotFromStore();
-      switch (action) {
-        case "play-pause": {
-          const { play, resume, pause } = store;
-          if (!snapshot.current) return;
-          if (snapshot.status === "playing") pause();
-          else if (snapshot.status === "paused") resume();
-          else void play(snapshot.current).catch(() => undefined);
-          break;
-        }
-        case "next":
-          void store.next().catch(() => undefined);
-          break;
-        case "prev":
-          void store.prev().catch(() => undefined);
-          break;
-        default:
-          break;
-      }
+      // 与歌词窗控制（playerSync）/SMTC 共用同一套分发语义（见 playbackActions）
+      dispatchPlaybackAction(event.payload);
     });
 
     return () => {

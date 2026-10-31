@@ -1,3 +1,4 @@
+import { normalizePlaybackQuality, type PlaybackQuality } from "./playback-quality";
 import type { MusicInfo, SourceTag } from "./sources";
 
 export const BUILTIN_MUSIC_API_BASE = "https://music-api.gdstudio.xyz/api.php";
@@ -120,6 +121,53 @@ export function toBuiltinMusicApiBr(quality?: string): string {
   return "320";
 }
 
+/** 各档位对应的名义码率（kbps），用于识别网关实际返回的降档。 */
+// 网关「名义档位」表：kbps 值是 gdstudio 接口的档位编号语义（flac=740 / flac24bit=999），
+// 只用于与网关返回的 br 匹配，不能拿来由字节数估时长——那套标称码率在
+// stream-integrity.ts（flac=900 / flac24bit=2000），两者语义不同、数值刻意不同。
+const QUALITY_NOMINAL_KBPS: Record<PlaybackQuality, number> = {
+  "128k": 128,
+  "192k": 192,
+  "320k": 320,
+  flac: 740,
+  flac24bit: 999,
+};
+
+/**
+ * 把网关回传的 `br` 换算成音质标签。
+ *
+ * 网关的 `br` 是**实际码率**（kbps），不是请求档位：
+ *  - 请求 flac(740) / flac24bit(999) 时，若曲目只有 24bit 母带，两者都回 `br: 3229`；
+ *  - 无版权 / 需要会员时回 `br: -1`、`url: ""`；
+ *  - 少数平台回 bps（如 320000）。
+ *
+ * 直接 `normalizePlaybackQuality(String(br))` 会把 3229 归一化成默认的 320k：
+ * 用户选无损、实际也听到无损，但 UI 标签、持久化缓存 key、媒体缓存目录全记成 320k，
+ * 下次选 flac 时降级链里没有 flac24bit，缓存永远命不中、每次重播都重新解析。
+ *
+ * 规则：只在网关**明确更低**时诚实降档（请求 320 回 128 → 128k）；
+ * 实际码率更高时沿用请求档位——把 flac 请求标成 flac24bit 反而会让「选 flac」
+ * 查不到这条记录（降级链只向下看，不含更高档）。
+ */
+export function resolveBuiltinMusicApiQuality(apiBr: unknown, requestedBr: string): PlaybackQuality {
+  const requested = normalizePlaybackQuality(requestedBr);
+  const raw = typeof apiBr === "number"
+    ? apiBr
+    : typeof apiBr === "string"
+      ? Number.parseFloat(apiBr)
+      : Number.NaN;
+  if (!Number.isFinite(raw) || raw <= 0) return requested;
+
+  const kbps = raw > 10_000 ? raw / 1000 : raw;
+  // 9 折容差：flac 常见 700-900kbps，不应因为略低于 740 就被判成 320k。
+  if (kbps >= QUALITY_NOMINAL_KBPS[requested] * 0.9) return requested;
+
+  if (kbps >= 700) return "flac";
+  if (kbps >= 280) return "320k";
+  if (kbps >= 170) return "192k";
+  return "128k";
+}
+
 export function pickBuiltinMusicApiAudioUrl(data: unknown): string | null {
   if (typeof data === "string" && /^https?:\/\//.test(data)) return data;
   if (!data || typeof data !== "object") return null;
@@ -179,7 +227,8 @@ export function createBuiltinMusicApiClient(fetchText: (url: string) => Promise<
 
       return {
         url: audioUrl,
-        quality: String((json as { br?: unknown })?.br ?? br),
+        // 网关回的是实际码率（3229 / -1 / 320000），必须换算成标签再交给竞速与缓存。
+        quality: resolveBuiltinMusicApiQuality((json as { br?: unknown })?.br, br),
       };
     },
 
@@ -202,66 +251,3 @@ export function createBuiltinMusicApiClient(fetchText: (url: string) => Promise<
   };
 }
 
-/**
- * 多网关并发竞速客户端：同时向所有可用网关发起请求，先成功者胜。
- *
- * 语义：
- *  - 并发（非串行）发起全部网关请求，Promise 先 resolve 的结果胜出；
- *  - 某个网关先失败不影响其余网关继续（失败结果被忽略）；
- *  - 全部网关失败时，抛出聚合后的错误信息；
- *  - 单网关场景退化为直通（零额外开销）。
- */
-export function createRacingBuiltinMusicApiClient(
-  clients: BuiltinMusicApiClient[],
-): BuiltinMusicApiClient {
-  const race = async <T>(
-    run: (client: BuiltinMusicApiClient) => Promise<T>,
-  ): Promise<T> => {
-    if (clients.length === 1) return run(clients[0]);
-    if (clients.length === 0) throw new Error("没有可用的音乐 API 网关");
-
-    return new Promise<T>((resolve, reject) => {
-      let settled = 0;
-      const errors: string[] = [];
-      for (const client of clients) {
-        run(client).then(
-          (value) => resolve(value),
-          (error: unknown) => {
-            errors.push(error instanceof Error ? error.message : String(error));
-            settled += 1;
-            if (settled === clients.length) {
-              reject(new Error(errors.join(" | ")));
-            }
-          },
-        );
-      }
-    });
-  };
-
-  return {
-    searchSongs: async (source, keyword, page, limit, displaySource) => {
-      // 搜索的特殊竞速语义：空数组不视为成功（某网关可能快速返回空结果，
-      // 但另一网关有真实数据），全部网关都出空才返回空。
-      if (clients.length === 1) {
-        return clients[0].searchSongs(source, keyword, page, limit, displaySource);
-      }
-      const settled = await Promise.allSettled(
-        clients.map((client) => client.searchSongs(source, keyword, page, limit, displaySource)),
-      );
-      const fulfilled = settled.filter(
-        (result): result is PromiseFulfilledResult<MusicInfo[]> => result.status === "fulfilled",
-      );
-      const nonEmpty = fulfilled.map((result) => result.value).find((list) => list.length > 0);
-      if (nonEmpty) return nonEmpty;
-      if (fulfilled.length > 0) return fulfilled[0].value;
-      throw new Error(
-        settled
-          .map((result) => (result.status === "rejected" ? result.reason?.message ?? String(result.reason) : ""))
-          .filter(Boolean)
-          .join(" | "),
-      );
-    },
-    resolveUrl: (music, quality) => race((client) => client.resolveUrl(music, quality)),
-    getLyric: (music) => race((client) => client.getLyric(music)),
-  };
-}

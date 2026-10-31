@@ -9,8 +9,6 @@ interface SleepTimerState {
   remainingSec: number;
   /** 按歌曲模式剩余歌曲数 */
   remainingSongs: number;
-  /** 已设定的总分钟数（用于 UI 显示） */
-  totalMinutes: number;
 
   startTimer: (minutes: number) => void;
   startSongs: (count: number) => void;
@@ -84,13 +82,10 @@ export const useSleepTimerStore = create<SleepTimerState>((set) => ({
   mode: "off",
   remainingSec: 0,
   remainingSongs: 0,
-  totalMinutes: 0,
-
   startTimer: (minutes) => {
     set({
       mode: "timer",
       remainingSec: Math.max(MIN_THRESHOLD_SEC, Math.floor(minutes * 60)),
-      totalMinutes: minutes,
       remainingSongs: 0,
     });
     startTick();

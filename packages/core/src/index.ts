@@ -1,10 +1,13 @@
 // @lx/core 公共入口
 export * from "./sources";
 export * from "./song-variant";
+export * from "./hidden-source";
 export * from "./lyrics";
+export * from "./playback-budgets";
 export * from "./cover-image";
 export * from "./mobile-api";
 export * from "./playback-quality";
+export * from "./request-limiter";
 export * from "./stream-integrity";
 export * from "./switch-step-queue";
 export * from "./outbound-host";

@@ -76,12 +76,6 @@ fn load_settings_locked(app: &AppHandle) -> Result<AppSettings, String> {
     Ok(settings)
 }
 
-/// 保存配置（原子写）
-pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
-    let _guard = lock_persistence();
-    save_settings_locked(app, settings)
-}
-
 /// 保存配置本体。调用方须已持有 `lock_persistence()`。
 fn save_settings_locked(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
     let path = config_path(app)?;
@@ -155,10 +149,3 @@ fn merge_json(base: &mut serde_json::Value, patch: serde_json::Value) {
     }
 }
 
-/// 重置配置为默认值
-pub fn reset_settings(app: &AppHandle) -> Result<AppSettings, String> {
-    let _guard = lock_persistence();
-    let default = AppSettings::default();
-    save_settings_locked(app, &default)?;
-    Ok(default)
-}

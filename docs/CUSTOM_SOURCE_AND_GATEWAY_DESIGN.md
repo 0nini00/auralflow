@@ -92,6 +92,19 @@ VIP 歌曲、wy eapi 无 VIP、自定义音源脚本都可能返回 30s 试听 U
 - **`isPreviewDuration`（播放期兜底）**：解析期拿不到长度头的流式响应，靠播放器报告的实际时长判定，明显短于期望时长即试听。
 - 判定为试听 → 本档作废、不写缓存不进播放器，降档重试。
 
+### 3.6 隐藏兜底音源（酷我 / 酷狗）
+
+常规链路（内置网关、自定义音源、官方直连）全部失败后，按「歌名 + 首位歌手」到酷我、酷狗搜索同名曲目兜底。它不是 UI 来源：`MusicInfo.source` 始终保持原曲的 `wy`/`tx`/`local`，播放器、歌词、历史与列表都显示用户点的歌，只有音频 URL 来自隐藏平台。
+
+- **搜索原生、取链交给脚本**：LX 用户脚本只实现 `musicUrl`/`lyric`/`pic`，本身不能搜索。因此搜索由 `@lx/core hidden-source` 原生实现（酷我 `search.kuwo.cn`、酷狗 `songsearch.kugou.com`），桌面经 Rust `proxy_http_request`、移动经 RN fetch；取链交给用户已启用、声明 `kw`/`kg` 平台 `musicUrl` 能力的 LX 脚本；没有对应脚本时不发起搜索。
+- **严格匹配**：与 `song-variant` 同语义——规整歌名相等 + 至少一位歌手重合 + 双方都有时长时差 ≤ 5s；候选按「版本 → 时长差 → 歌手精确度」排序。规整歌名会把括号整段剥掉，所以「江南 (自制版伴奏)」与「江南」同名，必须靠名称里的伴奏标记（`伴奏`/`纯音乐`/`instrumental`/`off vocal` 等）把这类版本整体沉到人声版本之后——否则时长恰好一致的伴奏会抢到首位。伴奏候选不剔除：平台只收录伴奏时，能出声好过整首失败；用户点的歌本身就是伴奏时不降权。宁可兜底失败也不能播错歌。
+- **搜索与取链分离**：`startHiddenSearch` 只做平台搜索与严格匹配（纯 HTTP，不触碰脚本），可以在常规链路运行期间提前并行；`resolveHiddenFromGroups` 才调 LX 脚本，且只在常规链路确认失败后被调用——常规链路 1s 就成功的歌不会白唤醒脚本、白跑一轮 `musicUrl`。无网关元数据的在线曲（典型是 QQ 官方搜索的 `tx` 曲）从缓存未命中后即并行搜索；其余曲目在首个音质轮次失败后启动。隐藏结果只有在常规链路全败时才被使用。取链复用调用方传入的 `customSourceAccess` 令牌，保证「取链用的令牌」与「结果校验用的令牌」是同一个。
+- **音质诚实**：脚本返回的 `type` 经 `normalizePlaybackQuality` 归一化；没有就按请求档位记录。隐藏平台不保证用户所选档位。
+- **候选地址先判死链**：脚本「调用成功」不等于「地址可用」——LX 源常见返回过期签名或已下架资源。取链后先在候选内部发一次 1 字节 Range 探活（`rejectCandidate`，超时 2.5s 且不越过外层预留），只有服务端明确 4xx（definitive）才换下一个候选/音质/平台；超时、抖动、5xx 下不了结论时放行，交给外层探活决定。没有这一步时，第一个候选的死链会被定稿，外层探活判死后整条隐藏兜底直接放弃，后面的候选根本没被尝试过。
+- **生命周期**：隐藏兜底与普通自定义源共用 `customSourceAccess` 令牌；脚本被停用或版本变化后，缓存中的隐藏地址按自定义源同规则作废。
+- **覆盖播放与下载**：桌面下载复用 `resolvePlaybackUrl`，移动端下载在网关 + 自定义源竞速失败后调用隐藏兜底。
+- **新增平台**：`hidden-source.ts` 的 `HiddenSourceSearcher` 是唯一扩展点；咪咕搜索接口当前不稳定，未接线。
+
 ---
 
 ## 4. `@lx/core` 相关模块
@@ -176,7 +189,7 @@ new Function('lx','window','globalThis','self','top','parent','frames',
 - **`parseDesktopUserApiInfo`**：解析脚本头部块注释 `/* ... */` 中的 `@name`/`@version`/`@description`/`@author`/`@homepage`，各字段有长度上限（name 24/version 36/description 36/author 56/homepage 1024），version 走 `v?\d+(?:\.\d+){1,3}` 正则提取。
 - **`testCustomSourceDeep` 两阶段**：
   1. **init**：复用 `createRuntime` 走初始化，等待 `inited` 事件与 updateAlert。
-  2. **musicUrl**：选声明 musicUrl 能力的平台（优先 wy），用内置固定测试曲走真实取链——wy `2034742057`（林俊杰-江南）、tx songmid `0039MnYb0qxYhV`，超时 20s。初始化通过不代表真能取到播放地址（假阳性），深度测试覆盖端到端可用性。
+  2. **musicUrl**：脚本声明了 `musicUrl` 的平台逐个测试（`wy`/`tx`/`kw`/`kg`）。`wy`/`tx` 用内置固定测试曲（wy `2034742057`、tx songmid `0039MnYb0qxYhV`）；`kw`/`kg` 先用原生搜索按「江南 林俊杰」找到同曲与平台元数据，再交给脚本取链。逐平台汇总通过/失败，任一平台失败即整体失败；总预算 60s 按剩余平台均摊，超预算的剩余平台标为未测试。脚本只声明了 `mg`/`local` 等当前未覆盖的平台时明确报「当前深度测试仅覆盖 wy/tx/kw/kg」，不再误报为「未声明 musicUrl」。初始化通过不代表真能取到播放地址（假阳性），深度测试覆盖端到端可用性。
 - **`toOldMusicInfo`**：把 `MusicInfo` 映射为 lx 协议格式（双端同构）。tx 的 `songmid`/`songId`/`albumMid`/`strMediaMid` 分别保留（均取自 `txMeta`）——`strMediaMid` 用于拼 `M500{mid}.mp3`/`F000{mid}.flac`，`songmid` 与 `songId` 是两个不同的值不能都填 `music.id`。
 - **能力白名单交集过滤**：`normalizeInitSources` 把脚本声明的 actions/qualitys 与内置白名单取交集——kg/tx/wy 仅 `musicUrl`（qualitys 限 `128k/320k/flac/flac24bit`），`local` 另有 `lyric`/`pic`；白名单之外一律裁掉。
 - **musicUrl 结果收口**：返回值必须是 `^https?:` 且 ≤2048 字符的字符串，否则按失败处理；移动端在收口处再过一次 `assertPublicOutboundUrl`（下游探活/下载/播放器均不再校验）。
@@ -186,6 +199,7 @@ new Function('lx','window','globalThis','self','top','parent','frames',
 - 脚本通过 `lx.send('updateAlert', { log, updateUrl })` 上报更新提示。
 - `normalizeUpdateAlert`：`log` 截断到 1024 字符；`updateUrl` 仅接受 `http(s)://` 且 ≤1024 字符。
 - 运行时上浮：仅当没有 waiter 在等时才回调消费方（避免同一 alert 双份写入）；test/check 流程通过 `waitForUpdateAlert` 消费。
+- **一个 runtime 只接受第一次合法的 updateAlert**（含 `inited` 携带的那一条）：脚本在初始化重试、取链循环里重复 `send(updateAlert)` 是常见写法，每次都上浮会让同一个「音源有新版本」弹窗连续弹出。后续调用静默忽略而不抛错——抛错会让脚本的 `await send(...)` 变成拒绝，打断它自己的流程。脚本被重新导入或内容变化后 runtime 重建，提示重新可用。
 - `checkCustomSourceRemoteUpdate` → `normalizeCustomSourceRemoteUrl`：GitHub/Gitee 的 `blob`/`raw` 路径自动改写为 raw 直链。
 
 ---
@@ -295,7 +309,7 @@ key = `id::SHA256(normalizeCustomSourceScript(script))`（移动端用 SHA256，
 
 - 没有外部网关配置项 / 独立网关 provider / Rust 网易云代理模块 / 音乐 API 网关 IPC 命令。
 - 没有「外部网关优先」或「外部网关独占」的播放模式。
-- 没有同名搜索转译（用歌名+首位歌手去网易云搜同名曲顶上）——gdstudio 搜索结果不带 `interval`，`isSameSong` 时长校验永远被跳过，会匹配到 Live/翻唱/重录/同名不同曲；且即便匹配准确，用户点 QQ 音乐曲目却播网易云版本，元数据与音质都对不上。
+- 没有「无条件同名搜索转译」：常规解析链不会用歌名+首位歌手去别的平台顶上。§3.6 的隐藏兜底是最后手段，且用原生搜索（酷我/酷狗带时长）做严格匹配，与早期被移除的 gdstudio 转译不同。
 - 桌面沙箱的静态正则黑名单已移除（曾拒 `constructor.constructor`/`eval(`/`Function(`，因无法穷尽拼接/转义绕过，且让人误以为存在隔离）；移动端 RN 侧保留静态扫描。
 - 真正的脚本隔离（独立 Worker/WebView 且不暴露 IPC）未实施。
 
@@ -316,4 +330,5 @@ key = `id::SHA256(normalizeCustomSourceScript(script))`（移动端用 SHA256，
 | 出站 SSRF（执行） | `desktop/src-tauri/src/outbound.rs` | `@lx/core outbound-host.ts`（调用点：`customSourceRuntime.ts`、`webdavUrlModel.ts`） | — |
 | 脚本桥 | — | `apps/mobile/src/services/customSourceWebViewBridge.tsx` + `apps/mobile/android/app/src/main/assets/lx_bridge/` | — |
 | 官方直连 provider | `desktop/src/services/sources/wyProvider.ts`、`txProvider.ts` | — | — |
+| 隐藏兜底音源 | `desktop/src/services/playback/hiddenFallbackService.ts`、`desktop/src/services/sources/hidden/` | `apps/mobile/src/services/hiddenFallbackService.ts` | `packages/core/src/hidden-source.ts` |
 | 播放轮次竞速 | `desktop/src/services/playback/playbackResolver.ts`（+ `builtinNeteaseBackend`/`customSourceBackend`） | `apps/mobile/src/services/playerService.ts` | — |

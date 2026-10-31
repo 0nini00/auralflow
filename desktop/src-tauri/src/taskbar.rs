@@ -470,6 +470,7 @@ mod platform {
     fn uninstall(hook: &mut Hook) {
         // ITaskbarList3 没有「移除按钮」的接口，只能用 THBF_HIDDEN 把按钮收起来
         if hook.installed {
+            // ITaskbarList3 没有「移除按钮」的接口，只能用 THBF_HIDDEN 把按钮收起来
             if let Some(buttons) = buttons_for(hook, true) {
                 let list = hook.list.as_ref();
                 if let Some(list) = list {
@@ -478,8 +479,6 @@ mod platform {
                     }
                 }
             }
-        }
-        if hook.installed {
             // 返回值只表示「摘掉了没有」，此时已无补救手段：显式忽略（BOOL 是 must_use）
             let _ = unsafe { RemoveWindowSubclass(hook.hwnd, Some(hook_proc), SUBCLASS_ID) };
             hook.installed = false;

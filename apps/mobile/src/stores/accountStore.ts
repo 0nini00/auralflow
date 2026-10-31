@@ -6,6 +6,12 @@ import {
   clearWyAccount,
   getWyCookie,
 } from "../services/wyAccountService";
+import { setVipOfficialFirst } from "../services/officialPriority";
+
+/** 会员类型 > 0 即视为会员会话（与账号卡片上的 VIP 徽标同一判定）。 */
+function applyVipPriority(user: WyUserInfo | null): void {
+  setVipOfficialFirst((user?.vipType ?? 0) > 0);
+}
 
 export interface AccountState {
   isLoggedIn: boolean;
@@ -40,6 +46,7 @@ export const useAccountStore = create<AccountStore>((set) => ({
         user,
         loading: false,
       });
+      applyVipPriority(user);
     } catch (error) {
       if (!request.isCurrent()) throw error;
       const message = error instanceof Error ? error.message : "登录失败";
@@ -62,6 +69,7 @@ export const useAccountStore = create<AccountStore>((set) => ({
         user: null,
         loading: false,
       });
+      applyVipPriority(null);
     } catch (error) {
       if (!request.isCurrent()) throw error;
       const message = error instanceof Error ? error.message : "退出账号失败";
@@ -82,6 +90,7 @@ export const useAccountStore = create<AccountStore>((set) => ({
           user: null,
           loading: false,
         });
+        applyVipPriority(null);
         return;
       }
 
@@ -90,6 +99,7 @@ export const useAccountStore = create<AccountStore>((set) => ({
         user: status.user,
         loading: false,
       });
+      applyVipPriority(status.user);
     } catch (error) {
       if (!request.isCurrent()) return;
       const message = error instanceof Error ? error.message : "账号状态检查失败";

@@ -442,8 +442,6 @@ export function LyricWindowView() {
         </div>
       </div>
 
-      {/* 歌词来源标注：同曲异唱档必须让用户看到「这不是原唱版本」；绝对定位、只停留几秒就退场 */}
-
       {/* 锁定态光标悬停时的悬浮解锁条 */}
       {locked && (
         <div className={`af-lyric-tools af-lyric-unlock-bar ${cursorHover ? "af-lyric-unlock-bar-visible" : ""}`}>
@@ -509,9 +507,6 @@ export function LyricWindowView() {
           align-self: center;
           margin-top: 0;
         }
-        .af-lyric-shell:hover .af-lyric-drag-band {
-          opacity: 1;
-        }
         .af-lyric-drag {
           pointer-events: auto;
           width: fit-content;
@@ -575,9 +570,6 @@ export function LyricWindowView() {
         .af-lyric-tool-danger:hover {
           background: rgba(239, 68, 68, 0.85);
           color: #fff;
-        }
-        .af-lyric-meta {
-          display: none;
         }
         .af-lyric-stage {
           flex: 1;

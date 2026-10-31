@@ -30,7 +30,7 @@ interface PlayerStore {
   status: "idle" | "loading" | "playing" | "paused" | "error";
   progress: number;
 
-  /** progress 的 engine 采样时刻（performance.now() 基准）；主窗口构造跨 WebView 快照时转换为 wall clock */
+  /** progress 的 engine 采样时刻（Date.now() 墙钟基准）；跨 WebView 快照直接透传，无需换算 */
 
   progressSampledAt: number;
   duration: number;
@@ -385,7 +385,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
         let operation: CustomSourceOperation | undefined;
         const playResolved = (resolved: { music: MusicInfo; url: string; backend?: PlaybackBackendId }) => {
           // 同一原始令牌同时覆盖解析返回和引擎内部淡出、起播的异步边界。
-          const assertPlaybackAllowed = resolved.backend === 'customSource' ? () => {
+          const assertPlaybackAllowed = resolved.backend === 'customSource' || resolved.backend === 'hiddenSource' ? () => {
             if (!operation) throw new CustomSourceDisabledError();
             operation.assertActive();
           } : undefined;
@@ -417,7 +417,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
             useVariantPinStore.getState().getPinnedVariantKey(buildSongKey(music)),
           );
           let cachedTarget = selectCachedPlaybackTarget(music, getPrefetchedTrack(music));
-          if (cachedTarget?.backend === 'customSource' && (
+          if ((cachedTarget?.backend === 'customSource' || cachedTarget?.backend === 'hiddenSource') && (
             !operation?.isActive() || cachedTarget.customSourceVersion !== customSourceAccess.version
           )) {
             cachedTarget = null;

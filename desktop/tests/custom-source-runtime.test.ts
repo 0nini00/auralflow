@@ -81,4 +81,20 @@ describe("自定义脚本运行生命周期", () => {
     expect(await Promise.race([outcome, Promise.resolve("still-pending")])).toBe("CustomSourceDisabledError");
     expect(vi.getTimerCount()).toBe(0);
   });
+  it("同一 runtime 只上浮第一次 updateAlert", async () => {
+    const alerts: Array<{ log: string }> = [];
+    const source = api(`${initialized}
+      lx.send(lx.EVENT_NAMES.updateAlert, { log: "第一次", updateUrl: "https://example.com/new" });
+      lx.send(lx.EVENT_NAMES.updateAlert, { log: "第二次" });
+      lx.on(lx.EVENT_NAMES.request, () => Promise.resolve("https://example.com/song.mp3"));
+    `);
+
+    await requestCustomSourceMusicUrl(source, song, "128k", access.capture(), (alert) => {
+      alerts.push(alert);
+    });
+
+    // 脚本在初始化/取链里重复 send 不能让同一个更新弹窗反复上浮
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].log).toBe("第一次");
+  });
 });

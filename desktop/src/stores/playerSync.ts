@@ -1,5 +1,6 @@
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { usePlayerStore } from "./playerStore";
+import { dispatchPlaybackAction } from "@/services/playback/playbackActions";
 import {
   applyPlaybackSnapshotToStorePatch,
   getPlaybackSnapshotFromStore,
@@ -19,23 +20,8 @@ type SyncMessage =
 // ─── Main window ─────────────────────────────────────────────
 
 function handleAction(action: "play-pause" | "next" | "prev") {
-  const store = usePlayerStore.getState();
-  const snapshot = getPlaybackSnapshotFromStore();
-  switch (action) {
-    case "play-pause": {
-      if (!snapshot.current) return;
-      if (snapshot.status === "playing") store.pause();
-      else if (snapshot.status === "paused") store.resume();
-      else void store.play(snapshot.current).catch(() => undefined);
-      break;
-    }
-    case "next":
-      void store.next().catch(() => undefined);
-      break;
-    case "prev":
-      void store.prev().catch(() => undefined);
-      break;
-  }
+  // 统一分发（与托盘 / SMTC 同语义），见 playbackActions
+  dispatchPlaybackAction(action);
 }
 
 function postSyncMessage(channel: BroadcastChannel | null, message: SyncMessage) {
@@ -72,12 +58,17 @@ function setupMainWindow(channel: BroadcastChannel | null) {
 
   channel?.addEventListener("message", (event) => {
     const message = event.data as SyncMessage;
-    if (message?.type === "request-state") onMessage(message);
+    // request-state 不在这里处理：postSyncMessage 双通道发送，启动握手统一走
+    // 更可靠的 Tauri 事件通道，否则同一次请求会被应答两遍、状态快照推两遍。
+    if (!message || message.type === "state" || message.type === "request-state") return;
+    onMessage(message);
   });
 
   let unlistenTauri: UnlistenFn | null = null;
   void listen<SyncMessage>(TAURI_EVENT, (event) => {
-    // Ignore our own state broadcasts; only handle inbound action/request
+    // Ignore our own state broadcasts; only handle inbound action/request.
+    // request-state（启动握手）统一由这条 Tauri 事件通道处理：postSyncMessage
+    // 双通道发送，BroadcastChannel 侧已跳过，避免状态快照被推两遍。
     const msg = event.payload;
     if (!msg || msg.type === "state") return;
     onMessage(msg);

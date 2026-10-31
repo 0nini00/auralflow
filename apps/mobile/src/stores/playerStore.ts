@@ -374,7 +374,7 @@ export interface PlayerState {
   playbackContext: PlaybackContext;
 
   // 歌词
-  lyrics: Array<{ time: number; text: string; tr?: string }>;
+  lyrics: Array<{ time: number; text: string; tr?: string; roma?: string }>;
 
   // 睡眠定时器
   sleepTimerMinutes: number | null;
@@ -451,7 +451,7 @@ interface PlayerActions {
    */
   onSilenceGap: boolean;
   updateProgress: (position: number, duration: number, buffered?: number) => void;
-  setLyrics: (lyrics: Array<{ time: number; text: string; tr?: string }>) => void;
+  setLyrics: (lyrics: Array<{ time: number; text: string; tr?: string; roma?: string }>) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   notifyPlaybackNotice: (text: string) => void;
@@ -1135,7 +1135,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     set({ position, duration, buffered: buffered ?? get().buffered });
   },
 
-  setLyrics: (lyrics: Array<{ time: number; text: string; tr?: string }>) => {
+  setLyrics: (lyrics: Array<{ time: number; text: string; tr?: string; roma?: string }>) => {
     set({ lyrics });
   },
 

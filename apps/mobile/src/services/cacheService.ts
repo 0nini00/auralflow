@@ -47,7 +47,9 @@ const MAX_CACHE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB
 const MAX_CACHE_AGE = 30 * 24 * 60 * 60 * 1000; // 30天（仅歌词使用）
 // 歌词缓存条目格式版本：v2 起解析器保留网易云 eapi 富文本元信息行（作词/作曲/编曲…）。
 // 旧版条目缺这些行，不带/不符版本的缓存直接判失效重拉（不删除文件，下次写入时覆盖）。
-const LYRIC_CACHE_VERSION = 2;
+// v3：缓存条目开始保留 tr / roma（v2 只存 {time,text}，命中缓存后译文/罗马音会
+// 静默消失）。版本不符的旧条目整体判失效重拉。
+const LYRIC_CACHE_VERSION = 3;
 // CDN 下载超时：弱网/断网时 RNFS.downloadFile 可能长期挂起，若不中断会把 InFlight
 // 条目永久占用，同 URL 后续请求永远复用同一个 pending Promise。超时后停止下载并
 // 在 catch/finally 清理 InFlight，标记失败，下一个请求可重试。
@@ -220,7 +222,7 @@ export async function getCachedCover(url: string): Promise<string | null> {
  */
 export async function cacheLyrics(
   song: MusicInfo,
-  lyrics: Array<{ time: number; text: string }>
+  lyrics: Array<{ time: number; text: string; tr?: string; roma?: string }>
 ): Promise<void> {
   await initCacheDirectories();
 
@@ -253,7 +255,7 @@ export async function cacheLyrics(
  */
 export async function getCachedLyrics(
   song: MusicInfo
-): Promise<Array<{ time: number; text: string }> | null> {
+): Promise<Array<{ time: number; text: string; tr?: string; roma?: string }> | null> {
   const key = `${song.source}-${song.id}`;
   const filePath = getCacheFilePath(key, "lyric");
 

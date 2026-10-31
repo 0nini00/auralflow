@@ -85,11 +85,3 @@ pub fn reset(app: &AppHandle, namespace: &str) -> Result<(), String> {
     }
     Ok(())
 }
-
-/// 清空所有 namespace（删整个 library 目录下的 json）。
-pub fn reset_all(app: &AppHandle) -> Result<(), String> {
-    for ns in ALLOWED_NAMESPACES {
-        reset(app, ns)?;
-    }
-    Ok(())
-}

@@ -99,6 +99,8 @@ function setup(options = {}) {
       DEFAULT_QUALITY_UPGRADE_WINDOW_MS: 0,
       raceForBestQuality: (attempts) => Promise.any(attempts),
       isPreviewStream: () => false,
+      // 歌曲键规则（source:id）已收敛到 core，下载链路直接用
+      buildSongKey: (song) => `${song.source}:${song.id}`,
     },
     "./musicApi": {
       parseUrl: (track) => {
@@ -113,6 +115,7 @@ function setup(options = {}) {
       },
     },
     "./playerService": { resolveUrlWithCustomSource: async () => { throw new Error("Mock source unavailable"); } },
+    "./hiddenFallbackService": { resolveHiddenFallback: async () => null },
     "./streamProbe": { probeStreamUrl: async () => ({ ok: true }) },
     "./id3TagWriter": { embedId3Tag: (audio) => audio },
     "@/utils/base64": {

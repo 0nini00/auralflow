@@ -74,6 +74,52 @@ impl Drop for DownloadCancelGuard {
     }
 }
 
+/// 嗅探窗口：音频容器头与错误页都在文件开头就能区分。
+const SNIFF_BYTES: usize = 512;
+
+/// 响应头明确是文本类内容时直接判定失败。
+///
+/// CDN / 代理在无版权、链接过期、鉴权失败时经常返回 **HTTP 200 + HTML 错误页**，
+/// 旧实现只看状态码和字节流，会把整页 HTML 存成 `.flac` 并当作下载成功。
+fn is_textual_content_type(content_type: &str) -> bool {
+    let value = content_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    value.starts_with("text/")
+        || value.contains("html")
+        || value.contains("json")
+        || value.contains("xml")
+}
+
+/// 首块内容嗅探：拦住没有 Content-Type 或类型谎报的错误页。
+///
+/// 只看「像不像文本负载」，不要求命中具体音频魔数——部分源站会包一层 ID3/自定义头，
+/// 强制匹配容器头会把正常文件误杀。
+fn looks_like_text_payload(bytes: &[u8]) -> bool {
+    let head = &bytes[..bytes.len().min(SNIFF_BYTES)];
+    // 部分错误页带 UTF-8 BOM，先剥掉再做嗅探。
+    let head = head.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(head);
+    let start = head
+        .iter()
+        .position(|byte| !byte.is_ascii_whitespace())
+        .unwrap_or(head.len());
+    let payload = head[start..].to_ascii_lowercase();
+    const MARKERS: [&[u8]; 6] = [
+        b"<!doctype",
+        b"<html",
+        b"<?xml",
+        b"#extm3u",
+        b"{",
+        b"[",
+    ];
+    MARKERS
+        .iter()
+        .any(|marker| payload.starts_with(*marker))
+}
+
 fn unique_final_download_path(path: PathBuf) -> PathBuf {
     if !path.exists() {
         return path;
@@ -97,6 +143,32 @@ fn unique_final_download_path(path: PathBuf) -> PathBuf {
     path
 }
 
+/// 允许调用方附加的请求头白名单。
+///
+/// 前端只能传这些防盗链相关的头（大小写不敏感）。`download_file` 的目标地址由音源
+/// 解析结果决定，若不限制键名，这个命令就变成了「任意请求头注入器」。
+const ALLOWED_HEADER_KEYS: [&str; 3] = ["referer", "origin", "user-agent"];
+
+fn apply_allowed_headers(
+    mut request: reqwest::RequestBuilder,
+    headers: Option<&HashMap<String, String>>,
+) -> reqwest::RequestBuilder {
+    let Some(headers) = headers else {
+        return request;
+    };
+    for (key, value) in headers {
+        if !ALLOWED_HEADER_KEYS.contains(&key.to_ascii_lowercase().as_str()) {
+            continue;
+        }
+        // 头值里的换行会被 reqwest 拒绝，这里提前过滤掉更明确的错误来源。
+        if value.contains('\r') || value.contains('\n') {
+            continue;
+        }
+        request = request.header(key.as_str(), value.as_str());
+    }
+    request
+}
+
 #[tauri::command]
 pub async fn download_file(
     app: AppHandle,
@@ -104,6 +176,7 @@ pub async fn download_file(
     url: String,
     directory: String,
     file_name: String,
+    headers: Option<HashMap<String, String>>,
 ) -> Result<String, String> {
     // 下载地址由音源解析结果决定，属于运行时可控目标，统一走出站校验。
     crate::outbound::assert_public_url(&url, "下载")?;
@@ -129,14 +202,27 @@ pub async fn download_file(
         .build()
         .map_err(|err| format!("创建下载客户端失败: {}", err))?;
 
-    let mut resp = client
-        .get(&url)
+    let mut resp = apply_allowed_headers(client.get(&url), headers.as_ref())
         .send()
         .await
         .map_err(|err| format!("请求下载地址失败: {}", err))?;
 
     if !resp.status().is_success() {
         return Err(format!("下载失败: HTTP {}", resp.status()));
+    }
+
+    // 先看响应头：CDN 在无版权 / 链接过期时经常回 200 + HTML 错误页。
+    let content_type = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    if is_textual_content_type(&content_type) {
+        return Err(format!(
+            "下载地址返回的不是音频文件（Content-Type: {}），可能已失效或无版权",
+            content_type
+        ));
     }
 
     let total = resp.content_length();
@@ -148,6 +234,13 @@ pub async fn download_file(
 
     const MAX_DOWNLOAD_SIZE: u64 = 2 * 1024 * 1024 * 1024; // 2GiB
 
+    // 内容嗅探：Content-Type 缺失或被谎报时，用实际内容兜住「200 + HTML」。
+    // 判定前攒够 SNIFF_BYTES（或流提前结束）：CDN 可能把错误页拆成小片，
+    // 只看第一个 chunk 会让 `<` 与后续分片分离、嗅探漏网。
+    let mut sniff_buffer: Vec<u8> = Vec::new();
+    let mut sniffed = false;
+    const SNIFF_BYTES: usize = 512;
+
     while let Some(chunk) = resp
         .chunk()
         .await
@@ -156,6 +249,16 @@ pub async fn download_file(
         if cancel_flag.load(Ordering::SeqCst) {
             drop(file);
             return Err("下载已取消".to_string());
+        }
+        if !sniffed {
+            sniff_buffer.extend_from_slice(&chunk);
+            if sniff_buffer.len() >= SNIFF_BYTES {
+                sniffed = true;
+                if looks_like_text_payload(&sniff_buffer) {
+                    drop(file);
+                    return Err("下载地址返回的是网页/文本而不是音频文件，可能已失效或无版权".to_string());
+                }
+            }
         }
         downloaded += chunk.len() as u64;
         file.write_all(&chunk)
@@ -188,10 +291,17 @@ pub async fn download_file(
         .map_err(|err| format!("保存文件失败: {}", err))?;
     drop(file);
 
-    // 同名不覆盖：自动变成 "name (1).ext"
+    // 整个响应比 SNIFF_BYTES 还短（多数是错误页/占位文本）：提交前再嗅探一次
+    if !sniffed && looks_like_text_payload(&sniff_buffer) {
+        return Err("下载地址返回的是网页/文本而不是音频文件，可能已失效或无版权".to_string());
+    }
+
+    // 同名不覆盖：自动变成 "name (1).ext"。
+    // unique_final_download_path 只在 1000 个重名全撞上时才原样返回已存在的路径，
+    // 那种极端情形直接报错而不是删掉旧文件（「同名不覆盖」是这里的契约）。
     let final_path = unique_final_download_path(path);
     if final_path.exists() {
-        std::fs::remove_file(&final_path).map_err(|err| format!("覆盖旧文件失败: {}", err))?;
+        return Err("同名文件已超过重名上限，请换个文件名或目录".to_string());
     }
     std::fs::rename(&temp_path, &final_path).map_err(|err| format!("完成下载文件失败: {}", err))?;
     temp_guard.disarm();

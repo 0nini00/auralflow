@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Modal, Pressable, StyleSheet, Text, TouchableWithoutFeedback, View, useWindowDimensions } from "react-native";
+import { Alert, Modal, Pressable, StyleSheet, Text, TouchableWithoutFeedback, View, useWindowDimensions } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import type { MusicInfo } from "@lx/core";
 import type { ThemePalette } from "@/stores/themeStore";
 import type { ImmersiveQueuePanelModel } from "@/services/playerQueueModel";
 import {
+  shouldPromptDownloadQuality,
   shouldShowSongListDownloadAction,
 } from "@/services/songListMetadataModel";
 import { usePlayerStore } from "@/stores/playerStore";
@@ -118,6 +119,20 @@ export function QueueModal({
 
   const openDownload = (song: MusicInfo) => {
     setActionSong(song);
+    // 云盘曲没有档位可选：直接下载原文件，不弹音质选择。
+    if (!shouldPromptDownloadQuality(song)) {
+      void (async () => {
+        try {
+          const result = await downloadSong(song);
+          if (result.status === "failed") {
+            Alert.alert("下载失败", result.error ?? "下载失败");
+          }
+        } catch (error) {
+          Alert.alert("下载失败", error instanceof Error ? error.message : String(error));
+        }
+      })();
+      return;
+    }
     void getLastSelectQuality().then((last) => {
       if (last) setDefaultQuality(last);
     });

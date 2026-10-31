@@ -161,9 +161,23 @@
   font-size: var(--af-font-size-xs);
 }
 
+/* 资源缓存只有「已使用大小」一项；元信息缓存是「URL 数量 + 歌词数量」两项 */
+.af-data-cache-size.af-cache-size-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.af-data-cache-size.af-cache-size-pair {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 @media (max-width: 720px) {
-  .af-data-cache-size {
+  .af-data-cache-size,
+  .af-data-cache-size.af-cache-size-pair {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .af-data-cache-size.af-cache-size-single {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -219,54 +233,6 @@
   font-size: var(--af-font-size-xs);
   color: var(--af-error);
   margin-top: 6px;
-}
-
-.af-account-info {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 12px;
-  padding: 12px;
-  border-radius: var(--af-radius-md);
-  background: var(--af-bg-surface);
-}
-
-.af-account-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  overflow: hidden;
-  flex-shrink: 0;
-}
-
-.af-account-avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.af-account-name {
-  font-size: var(--af-font-size-base);
-  font-weight: 600;
-  color: var(--af-text-primary);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.af-vip-badge {
-  font-size: var(--af-font-size-xs);
-  font-weight: 700;
-  color: #fff;
-  background: linear-gradient(135deg, #c03a2b, #e74c3c);
-  padding: 1px 6px;
-  border-radius: var(--af-radius-xs);
-}
-
-.af-account-uid {
-  font-size: var(--af-font-size-xs);
-  color: var(--af-text-tertiary);
-  margin-top: 2px;
 }
 
 /* ── 外观设置：强调色选择器（预设色板 + 任意取色 + hex 输入 + 实时预览） ── */
@@ -1016,15 +982,6 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
-.af-settings-checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  cursor: pointer;
-  color: var(--af-text-primary);
-  font-size: var(--af-font-size-base);
-}
-
 .af-settings-checkbox {
   width: 20px;
   height: 20px;
@@ -1274,40 +1231,6 @@
   letter-spacing: 0;
 }
 
-.af-lyric-settings-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 10px;
-}
-
-.af-lyric-setting-block {
-  display: flex;
-  min-width: 0;
-  min-height: 64px;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--af-border-secondary);
-  border-radius: var(--af-radius-md);
-  background: var(--af-bg-elevated);
-}
-
-.af-lyric-setting-block .af-settings-label {
-  margin-bottom: 0;
-  color: var(--af-text-secondary);
-}
-
-.af-lyric-setting-block .af-sfx-toggle {
-  width: 100%;
-}
-
-.af-lyric-setting-block .af-sfx-toggle-btn {
-  flex: 1 1 0;
-  min-width: 0;
-  padding: 8px 12px;
-}
-
 .af-lyric-settings-sliders {
   gap: 0;
   margin-bottom: 14px;
@@ -1387,48 +1310,16 @@
     align-items: stretch;
   }
 
-  .af-lyric-settings-grid,
   .af-lyric-color-grid {
     grid-template-columns: 1fr;
   }
+
+
 }
 
 /* ── 元数据编辑弹窗 ── */
 .af-metadata-dialog {
   max-width: 480px;
-}
-.af-metadata-cover-row {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 16px;
-}
-.af-metadata-cover {
-  width: 96px;
-  height: 96px;
-  border-radius: var(--af-radius-md);
-  overflow: hidden;
-  flex-shrink: 0;
-  background: var(--af-bg-surface);
-}
-.af-metadata-cover img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.af-metadata-cover .af-cover-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--af-text-tertiary);
-  font-size: var(--af-font-size-2xl);
-}
-.af-metadata-cover-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
 }
 
 .af-cookie-login-dialog {

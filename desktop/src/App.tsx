@@ -210,7 +210,7 @@ function MainApp() {
           </Route>
         </Routes>
       </BrowserRouter>
-      <PactModal onAccepted={() => {}} />
+      <PactModal />
       <LibraryDegradedNotice />
       <CursorEffect mode={cursorEffect} />
       <UpdateModal />

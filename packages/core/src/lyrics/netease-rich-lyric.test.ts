@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectLyricSourceType, parseLyricSource, parseYrc, mergeMissingLines } from './parser';
+import { detectLyricSourceType, parseLyricSource, parseYrc } from './parser';
 
 /**
  * 网易云 eapi(桌面端实际走的接口)会把「作词/作曲/编曲」这类元信息写成
@@ -58,13 +58,6 @@ describe('网易云 eapi 富文本歌词行', () => {
     const lines = parseYrc(yrc);
     expect(lines.slice(0, credits.length).map((line) => line.text)).toEqual(credits);
     expect(lines[lines.length - 1].words).toHaveLength(3);
-  });
-
-  it('yrc 与 lrc 合并时同一元信息行不会重复', () => {
-    const yrc = [RICH_CREDIT, '[14360,1740](14360,470,0)你'].join('\n');
-    const lrc = [RICH_CREDIT, '[00:14.360]你'].join('\n');
-    const merged = mergeMissingLines(parseYrc(yrc), parseLyricSource({ type: 'lrc', content: lrc }));
-    expect(merged.filter((line) => line.text === '作词: 林夕')).toHaveLength(1);
   });
 
   it('非 JSON 或残缺 JSON 行不会被误当元信息', () => {

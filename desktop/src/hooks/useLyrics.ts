@@ -1,7 +1,11 @@
 import { useState, useEffect, useMemo } from "react";
 import type { MusicInfo } from "@lx/core";
-import { getLyrics, getLocalLyricsOverride, type LyricLine } from "@/services/lyricsService";
-import { findCurrentLyricLine } from "@/services/lyrics/playbackSync";
+import {
+  DEFAULT_LYRIC_LEAD_SECONDS,
+  findCurrentLyricLineIndex,
+  LYRIC_LINE_ADVANCE_HYSTERESIS_SECONDS,
+} from "@lx/core";
+import { getLyrics, getLocalLyricsOverride, peekCachedLyrics, type LyricLine } from "@/services/lyricsService";
 
 export type { LyricLine };
 
@@ -12,43 +16,21 @@ interface UseLyricsResult {
   error: string | null;
 }
 
-// v4：v3 及更早的条目由旧解析器写入，缺网易云 eapi 富文本元信息行（作词/作曲等），整体废弃
-const LYRICS_CACHE_PREFIX = "auralflow:lyrics:v4:";
-
-function getLyricsCacheKey(music: MusicInfo): string {
-  return `${LYRICS_CACHE_PREFIX}${music.source}:${music.id}`;
-}
-
-function readCachedLyrics(music: MusicInfo): LyricLine[] | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(getLyricsCacheKey(music));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as { lines?: LyricLine[] };
-    return Array.isArray(parsed.lines) ? parsed.lines : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeCachedLyrics(music: MusicInfo, lines: LyricLine[]) {
-  if (typeof window === "undefined" || lines.length === 0) return;
-  try {
-    window.localStorage.setItem(getLyricsCacheKey(music), JSON.stringify({ lines }));
-  } catch {
-    // localStorage can be unavailable or full; lyrics fetching still works without the shared cache.
-  }
-}
-
-/** 清空 useLyrics 的 localStorage 缓存；只删本模块的 key，不动其他本地数据。 */
-export function clearLyricsBrowserCache(): void {
-  if (typeof window === "undefined") return;
-  const keys: string[] = [];
-  for (let index = 0; index < window.localStorage.length; index += 1) {
-    const key = window.localStorage.key(index);
-    if (key?.startsWith(LYRICS_CACHE_PREFIX)) keys.push(key);
-  }
-  for (const key of keys) window.localStorage.removeItem(key);
+/**
+ * 桌面语义的行定位：首行之前预高亮第一行（core 的 -1 表示「显示空态」，
+ * 是移动端的语义）。滞后带与提前量与原桌面实现保持一致。
+ */
+function findCurrentLyricLine(
+  lines: readonly LyricLine[],
+  progress: number,
+  leadSeconds = DEFAULT_LYRIC_LEAD_SECONDS,
+): number {
+  if (lines.length === 0) return -1;
+  const index = findCurrentLyricLineIndex(lines, progress, {
+    leadSeconds,
+    hysteresisSeconds: LYRIC_LINE_ADVANCE_HYSTERESIS_SECONDS,
+  });
+  return index < 0 ? 0 : index;
 }
 
 /**
@@ -80,9 +62,10 @@ export function useLyrics(music: MusicInfo | null, progress: number, offsetSec =
     }
 
     let cancelled = false;
-    const cachedLyrics = readCachedLyrics(music);
+    // 进程内缓存同步 peek：命中就立刻显示，避免切歌白屏（持久化层是异步 IPC，
+    // 做不到同步首帧；此前这里还有第三层 localStorage，已连同其版本化清理一起删除）。
+    const cachedLyrics = peekCachedLyrics(music);
     if (cachedLyrics) {
-      // 内存缓存命中：立刻显示，避免切歌白屏
       setLyrics(cachedLyrics);
       setError(null);
       setIsLoading(false);
@@ -94,7 +77,7 @@ export function useLyrics(music: MusicInfo | null, progress: number, offsetSec =
     }
 
     async function fetchLyrics() {
-      setIsLoading(!cachedLyrics);
+      // isLoading 已在上面按缓存命中设置过，这里不再重复写同一个值
       setError(null);
 
       try {
@@ -107,7 +90,6 @@ export function useLyrics(music: MusicInfo | null, progress: number, offsetSec =
           setLyrics([]);
         } else {
           setLyrics(result.lines);
-          writeCachedLyrics(music, result.lines);
         }
       } catch (err) {
         if (cancelled) return;

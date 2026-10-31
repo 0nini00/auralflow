@@ -1,5 +1,5 @@
 import type { LyricResponse, MusicInfo } from '@lx/core';
-import { libraryLoad, libraryReset, librarySave } from '@lx/tauri-bridge';
+import { libraryLoad, librarySave } from '@lx/tauri-bridge';
 import { customSourceAccess, customSourcePersistence, useCustomSourceStore } from '@/stores/customSourceStore';
 import type { CustomSourceOperation } from '@/services/customSourceAccess';
 import type { PlaybackBackendId, PlaybackResolvedUrl } from '@/services/playback/types';
@@ -129,17 +129,75 @@ async function saveCache(
   await writeQueue;
 }
 
-export function resetPersistentCacheMemory(): void {
-  cachePromise = Promise.resolve(createEmptyCache());
+/** 歌曲元信息缓存的条目数：与音频/封面文件分开统计，供设置页分开清理。 */
+export interface PersistentCacheSummary {
+  /** 已缓存播放地址的歌曲数：同一首歌的多个音质档只计一次，过期条目不计。 */
+  playbackUrlCount: number;
+  /** 已缓存歌词的歌曲数，过期条目不计。 */
+  lyricCount: number;
 }
 
-export async function clearPersistentCache(): Promise<void> {
-  resetPersistentCacheMemory();
-  writeQueue = writeQueue
-    .catch(() => undefined)
-    .then(() => libraryReset(CACHE_NAMESPACE));
-  await writeQueue;
-  resetPersistentCacheMemory();
+export async function getPersistentCacheSummary(now = Date.now()): Promise<PersistentCacheSummary> {
+  const cache = await loadCache();
+  const tracks = new Set<string>();
+  for (const entry of Object.values(cache.playbackUrls)) {
+    if (!entry?.music) continue;
+    // 本地文件地址不受 TTL 约束（见 isLocalCachedPlaybackUrl），远端地址过期即不计。
+    if (!isLocalCachedPlaybackUrl(entry.url) && entry.expiresAt <= now) continue;
+    tracks.add(getTrackKey(entry.music));
+  }
+
+  let lyricCount = 0;
+  for (const entry of Object.values(cache.lyrics)) {
+    if (entry && entry.expiresAt > now) lyricCount += 1;
+  }
+  return { playbackUrlCount: tracks.size, lyricCount };
+}
+
+/** 只清播放地址，保留歌词与音频/封面文件。 */
+export async function clearCachedPlaybackUrls(): Promise<void> {
+  const cache = await loadCache();
+  cache.playbackUrls = {};
+  await saveCache(cache);
+}
+
+/**
+ * 资源缓存（音频/封面文件）被清空后，清理持久化条目里指向这些本地文件的引用。
+ *
+ * 不清会让条目变成死链：URL 条目存的就是本地 asset 地址，文件删掉后
+ * `getCachedPlaybackUrl` 仍会命中它，下一次播放白等一次 `StalePlaybackCacheError`
+ * 才重新解析；条目里的封面字段同理，播放条会拿到一个已删除的图片地址。
+ * 只动本地引用：仍然指向远端 CDN 的地址不受影响，元信息缓存不必整体作废。
+ */
+export async function invalidateCachedLocalMedia(): Promise<void> {
+  const cache = await loadCache();
+  let changed = false;
+
+  for (const [key, entry] of Object.entries(cache.playbackUrls)) {
+    if (!entry?.music) {
+      delete cache.playbackUrls[key];
+      changed = true;
+      continue;
+    }
+    if (isLocalCachedPlaybackUrl(entry.url)) {
+      delete cache.playbackUrls[key];
+      changed = true;
+      continue;
+    }
+    const picUrl = entry.music.picUrl;
+    const img = entry.music.img;
+    const localPic = typeof picUrl === 'string' && isLocalCachedPlaybackUrl(picUrl);
+    const localImg = typeof img === 'string' && isLocalCachedPlaybackUrl(img);
+    if (!localPic && !localImg) continue;
+    entry.music = {
+      ...entry.music,
+      ...(localPic ? { picUrl: undefined } : {}),
+      ...(localImg ? { img: undefined } : {}),
+    };
+    changed = true;
+  }
+
+  if (changed) await saveCache(cache);
 }
 
 /** 只清歌词缓存，保留播放 URL；音频/封面文件不在这里，由媒体缓存单独清理。 */
@@ -194,7 +252,8 @@ export async function getCachedPlaybackUrl(
       const key = getPlaybackUrlCacheKey(music, quality);
       const entry = cache.playbackUrls[key];
       if (!entry) continue;
-      if (entry.backend === 'customSource' && (
+      // 隐藏兜底同样经 LX 脚本取链：脚本被停用或版本变化后不再复用其缓存地址。
+      if ((entry.backend === 'customSource' || entry.backend === 'hiddenSource') && (
         !useCustomSourceStore.getState().featureEnabled || customSourceAccess.version !== accessVersion
       )) continue;
       if (!isLocalCachedPlaybackUrl(entry.url) && entry.expiresAt <= now) {
@@ -210,6 +269,7 @@ export async function getCachedPlaybackUrl(
         resolverName: entry.resolverName,
         fromCache: true,
         cacheKey: key,
+        cachedAt: entry.cachedAt,
         trace: [{
           backend: entry.backend,
           resolverName: entry.resolverName,
@@ -230,10 +290,10 @@ export async function saveCachedPlaybackUrl(
   now = Date.now(),
   operation?: CustomSourceOperation,
 ): Promise<void> {
-  if (resolved.backend === 'customSource' && !operation) {
+  if ((resolved.backend === 'customSource' || resolved.backend === 'hiddenSource') && !operation) {
     throw new Error('LX 播放地址缓存缺少操作令牌');
   }
-  const access = resolved.backend === 'customSource' ? operation : undefined;
+  const access = resolved.backend === 'customSource' || resolved.backend === 'hiddenSource' ? operation : undefined;
   access?.assertActive();
   const cache = await loadCache();
   access?.assertActive();

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LyricLine } from "@lx/core";
-import { getCurrentLyricIndex } from "@/services/playerService";
+import {
+  LYRIC_LINE_ADVANCE_HYSTERESIS_SECONDS,
+  scheduleOverlayTick,
+} from "@lx/core";
 import { usePlayerStore } from "@/stores/playerStore";
 
 /**
@@ -68,18 +71,23 @@ export function useLyricLineIndex(
     anchorRef.current = { pos: estimate, at: Date.now() };
     const pos = estimate + offsetSec;
 
-    const current = getCurrentLyricIndex(lines, pos);
+    // 行定位与「距下一行的毫秒数」都收敛到 core 的 scheduleOverlayTick
+    // （内部即 findCurrentLyricLineIndex + 同一套滞后带/提前量语义）
+    const { currentLineIndex: current, nextDelayMs } = scheduleOverlayTick(
+      lines,
+      pos,
+      playbackRate,
+      { hysteresisSeconds: LYRIC_LINE_ADVANCE_HYSTERESIS_SECONDS },
+    );
     applyIndex(current, freshPosition != null);
     // 暂停时不需要定时器（恢复/seek 会重新校准）；最后一行没有下一行可调度
-    if (!isPlaying || current < 0 || current >= lines.length - 1) return;
+    if (!isPlaying || nextDelayMs == null) return;
 
-    const nextTime = lines[current + 1].time;
-    const delayMs = Math.max(20, ((nextTime - pos) / playbackRate) * 1000);
     timerRef.current = setTimeout(() => {
       timerRef.current = null;
       // 到达行边界：按锚点推算重算并继续调度下一行（store 的 0.25s 刻度可能已越过多个行）
       scheduleRef.current();
-    }, delayMs);
+    }, Math.max(20, nextDelayMs));
   }, []);
 
   const scheduleRef = useRef(schedule);
@@ -88,10 +96,12 @@ export function useLyricLineIndex(
   // 歌词 / 手动偏移变化：立即按最新 store 位置重新校准（含首次挂载）。
   // 歌词数组变化（换歌）时重置钳制基准为初始计算值，避免换歌行号 5→0 被「回跳一格」误拦
   useEffect(() => {
-    lastIndexRef.current = getCurrentLyricIndex(
+    lastIndexRef.current = scheduleOverlayTick(
       lyricsRef.current,
       usePlayerStore.getState().position + offsetSecRef.current,
-    );
+      usePlayerStore.getState().playbackRate,
+      { hysteresisSeconds: LYRIC_LINE_ADVANCE_HYSTERESIS_SECONDS },
+    ).currentLineIndex;
     indexRef.current = lastIndexRef.current;
     setIndex(lastIndexRef.current);
     schedule(usePlayerStore.getState().position);

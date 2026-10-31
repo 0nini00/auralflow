@@ -30,6 +30,17 @@ export interface ImmersiveCommentsSheetProps {
 
 const PAGE_SIZE = 20;
 
+type CommentSort = "hot" | "latest";
+
+/**
+ * 热门 / 最新两个列表来自同一次请求：`hotComments` 是接口附带的一页热门
+ * （不参与分页），`comments` 才是按时间倒序、可以 offset 翻页的正文列表。
+ */
+const SORT_TABS: ReadonlyArray<{ value: CommentSort; label: string }> = [
+  { value: "hot", label: "热门" },
+  { value: "latest", label: "最新" },
+];
+
 function formatCommentTime(createdAt: number): string {
   if (!createdAt || createdAt <= 0) return "";
   const diffSec = Math.floor((Date.now() - createdAt) / 1000);
@@ -104,6 +115,8 @@ export function ImmersiveCommentsSheet({
   const isLoggedIn = useAccountStore((state) => state.isLoggedIn);
 
   const [items, setItems] = useState<SongComment[]>([]);
+  const [hotItems, setHotItems] = useState<SongComment[]>([]);
+  const [sort, setSort] = useState<CommentSort>("hot");
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -135,11 +148,16 @@ export function ImmersiveCommentsSheet({
       const result = await fetchNeteaseComments(requestedSongId, offset, PAGE_SIZE);
       if (!isCurrentRequest()) return;
       setTotal(result.total);
+      // 热门只在第一页取：接口不分页，翻页请求再写一次会把用户正在看的热门覆盖掉。
+      if (!append) setHotItems(result.hotComments);
       setItems((prev) => (append ? [...prev, ...result.comments] : result.comments));
     } catch (e) {
       if (!isCurrentRequest()) return;
       setError(e instanceof Error ? e.message : String(e));
-      if (!append) setItems([]);
+      if (!append) {
+        setItems([]);
+        setHotItems([]);
+      }
     } finally {
       if (isCurrentRequest()) {
         setLoading(false);
@@ -154,6 +172,8 @@ export function ImmersiveCommentsSheet({
     requestSequenceRef.current += 1;
     if (!visible || !songId) {
       setItems([]);
+      setHotItems([]);
+      setSort("hot");
       setTotal(0);
       setError(null);
       setLoading(false);
@@ -201,6 +221,8 @@ export function ImmersiveCommentsSheet({
       };
       setTotal((prev) => prev + 1);
       setItems((prev) => [optimistic, ...prev]);
+      // 刚发的评论只可能出现在「最新」，切过去让用户看到结果。
+      setSort("latest");
       void load(0, false);
     } catch (e) {
       Alert.alert("评论失败", e instanceof Error ? e.message : String(e));
@@ -208,6 +230,8 @@ export function ImmersiveCommentsSheet({
       setSending(false);
     }
   };
+
+  const visibleItems = sort === "hot" ? hotItems : items;
 
   return (
     <Modal
@@ -235,7 +259,41 @@ export function ImmersiveCommentsSheet({
             </Pressable>
           </View>
 
-          {loading && items.length === 0 ? (
+          <View style={styles.tabRow}>
+            {SORT_TABS.map(({ value, label }) => {
+              const active = sort === value;
+              return (
+                <Pressable
+                  key={value}
+                  onPress={() => setSort(value)}
+                  style={styles.tabButton}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: active }}
+                  accessibilityLabel={`${label}评论`}
+                >
+                  <Text
+                    style={[
+                      styles.tabText,
+                      {
+                        color: active ? palette.text : palette.textMuted,
+                        fontWeight: active ? "700" : "500",
+                      },
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                  <View
+                    style={[
+                      styles.tabIndicator,
+                      { backgroundColor: active ? palette.primaryInk : "transparent" },
+                    ]}
+                  />
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {loading && visibleItems.length === 0 ? (
             <View style={styles.center}>
               <ActivityIndicator color={palette.primaryInk} />
             </View>
@@ -251,23 +309,33 @@ export function ImmersiveCommentsSheet({
                 <Text style={[styles.retryText, { color: palette.primaryInk }]}>重试</Text>
               </Pressable>
             </View>
-          ) : items.length === 0 ? (
+          ) : visibleItems.length === 0 ? (
             <View style={styles.center}>
               <MessageCircle size={36} color={palette.textMuted} />
-              <Text style={[styles.emptyText, { color: palette.textMuted }]}>还没有评论</Text>
+              <Text style={[styles.emptyText, { color: palette.textMuted }]}>
+                {sort === "hot" ? "还没有热门评论" : "还没有评论"}
+              </Text>
+              {sort === "hot" && items.length > 0 ? (
+                <Pressable
+                  onPress={() => setSort("latest")}
+                  style={[styles.retryButton, { borderColor: palette.border }]}
+                >
+                  <Text style={[styles.retryText, { color: palette.primaryInk }]}>查看最新评论</Text>
+                </Pressable>
+              ) : null}
             </View>
           ) : (
             <FlatList
-              data={items}
+              data={visibleItems}
               keyExtractor={(item, index) => `${item.id}-${index}`}
               extraData={voice.playback}
               renderItem={({ item }) => <CommentRow comment={item} palette={palette} playback={voice.playback} onToggle={handleToggleVoice} />}
-              onEndReached={handleLoadMore}
+              onEndReached={sort === "latest" ? handleLoadMore : undefined}
               onEndReachedThreshold={0.3}
               refreshing={refreshing}
               onRefresh={handleRefresh}
               ListFooterComponent={
-                loadingMore ? (
+                sort === "latest" && loadingMore ? (
                   <ActivityIndicator color={palette.primaryInk} style={styles.footer} />
                 ) : null
               }
@@ -349,6 +417,25 @@ const styles = StyleSheet.create({
   },
   count: {
     fontSize: 14,
+  },
+  tabRow: {
+    flexDirection: "row",
+    gap: 20,
+    paddingHorizontal: 16,
+    paddingBottom: 6,
+  },
+  tabButton: {
+    paddingVertical: 4,
+    alignItems: "center",
+  },
+  tabText: {
+    fontSize: 14,
+  },
+  tabIndicator: {
+    marginTop: 4,
+    height: 2,
+    width: 20,
+    borderRadius: 1,
   },
   list: {
     paddingHorizontal: 16,

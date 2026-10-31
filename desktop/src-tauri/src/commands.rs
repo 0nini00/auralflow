@@ -30,8 +30,7 @@ const SONG_COVER_CACHE_MAX_BYTES: u64 = 512 * 1024 * 1024;
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SongCacheStats {
-    pub persistent_cache_size: u64,
+pub struct MediaCacheStats {
     pub audio_cache_size: u64,
     pub cover_cache_size: u64,
     pub total_size: u64,
@@ -60,11 +59,6 @@ mod downloads {
 mod local_audio {
     use super::*;
     include!("commands/local_audio.rs");
-}
-
-mod local_hash {
-    use super::*;
-    include!("commands/local_hash.rs");
 }
 
 mod library {
@@ -96,7 +90,6 @@ pub use compression::*;
 pub use downloads::*;
 pub use library::*;
 pub use local_audio::*;
-pub use local_hash::*;
 pub use logging::*;
 pub use lyric_window::*;
 pub use media_cache::*;

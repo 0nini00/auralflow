@@ -3,18 +3,7 @@ import { useEffect } from 'react';
 import { useDownloadStore, type DownloadTask } from '@/stores/downloadStore';
 import { usePlayerStore } from '@/stores/playerStore';
 import { PLAYER_COVER_CSS_SIZE, coverSrc } from '@/utils/imageReferrerPolicy';
-
-function formatBytes(bytes?: number): string {
-  if (!bytes || bytes <= 0) return '--';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let size = bytes;
-  let unit = 0;
-  while (size >= 1024 && unit < units.length - 1) {
-    size /= 1024;
-    unit += 1;
-  }
-  return `${size.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
-}
+import { formatBytes } from '@/utils/formatBytes';
 
 function statusText(task: DownloadTask): string {
   if (task.cancelRequested) return '正在取消，等待下载确认…';

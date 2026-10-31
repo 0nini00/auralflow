@@ -1,11 +1,14 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import RNFS from "react-native-fs";
 import type { LyricLine, MusicInfo } from "@lx/core";
-import { DEFAULT_QUALITY_UPGRADE_WINDOW_MS, estimateStreamDurationSeconds, isPreviewStream, raceForBestQuality } from "@lx/core";
+import { buildSongKey } from "@lx/core";
+import { cloudFileExtension, DEFAULT_QUALITY_UPGRADE_WINDOW_MS, estimateStreamDurationSeconds, isPreviewStream, raceForBestQuality } from "@lx/core";
 import { fetchSongLyrics, parseUrl, buildStreamHeaders } from "./musicApi";
 import { resolveCloudSongUrl, resolveUrlWithCustomSource } from "./playerService";
+import { resolveHiddenFallback } from "./hiddenFallbackService";
 import { probeStreamUrl } from "./streamProbe";
 import { commitDownloadedFile, createPartialDownloadPath, removeOrphanedPartialDownloads, validateDownloadedFile } from "./fileDownloadCommit";
+import { buildDownloadFileStem } from "./downloadFileNaming";
 
 import { embedId3Tag, type Id3Cover } from "./id3TagWriter";
 import { base64ToBytes, bytesToBase64 } from "@/utils/base64";
@@ -133,12 +136,9 @@ const downloadTasks = new Set<QueueTask>();
 const taskQueue: QueueTask[] = [];
 let currentTask: QueueTask | undefined;
 
-function songKey(song: MusicInfo): string {
-  return `${song.source}:${song.id}`;
-}
 
 function downloadJobKey(song: MusicInfo, quality: DownloadQuality): string {
-  return `${songKey(song)}:${quality}`;
+  return `${buildSongKey(song)}:${quality}`;
 }
 
 function assertTaskActive(task: QueueTask): void {
@@ -160,7 +160,15 @@ function interruptTask(task: QueueTask, reason: InterruptionReason): boolean {
   if (task.state === "completed" || task.state === "cancelled") return false;
   task.state = reason;
   task.interrupt();
-  if (task.jobId !== undefined) RNFS.stopDownload(task.jobId);
+  // 原生下载可能已经自然结束（完成/失败），此刻 stopDownload 会同步抛错——
+  // 不捕获会中断 interruptTask，任务状态永远停在 active。失败可安全忽略。
+  if (task.jobId !== undefined) {
+    try {
+      RNFS.stopDownload(task.jobId);
+    } catch {
+      // 句柄已失效 = 无需停止，按「没有原生下载可停」处理
+    }
+  }
   const index = taskQueue.indexOf(task);
   if (index >= 0) {
     taskQueue.splice(index, 1);
@@ -250,9 +258,7 @@ export function pauseDownload(song: MusicInfo, quality: DownloadQuality): boolea
   return paused;
 }
 
-export function resumeDownload(song: MusicInfo, quality: DownloadQuality): boolean {
-  return isDownloadPaused(song, quality);
-}
+
 
 export function isDownloadPaused(song: MusicInfo, quality: DownloadQuality): boolean {
   const key = downloadJobKey(song, quality);
@@ -295,7 +301,7 @@ function isAudioFileName(name: string): boolean {
 
 function downloadFileName(song: MusicInfo, quality: DownloadQuality = "320k"): string {
   const ext = qualityExt(quality);
-  return `${song.source}-${song.id}-${quality}.${ext}`;
+  return `${buildDownloadFileStem(song, quality)}.${ext}`;
 }
 
 function sidecarLrcPath(filePath: string): string {
@@ -347,7 +353,7 @@ async function findExistingDownloadFile(
   const expected = downloadFilePath(song, quality);
   if (await RNFS.exists(expected)) return expected;
   try {
-    const prefix = `${song.source}-${song.id}-${quality}.`;
+    const prefix = `${buildDownloadFileStem(song, quality)}.`;
     const entries = await RNFS.readDir(DOWNLOAD_DIR);
     for (const entry of entries) {
       if (entry.isFile() && entry.name.startsWith(prefix) && isAudioFileName(entry.name)) return entry.path;
@@ -460,7 +466,8 @@ async function downloadSongInternal(task: QueueTask): Promise<string> {
     url = await waitForTask(task, resolveCloudSongUrl(song, quality));
     assertTaskActive(task);
     headers = buildStreamHeaders(song.source);
-    resolvedExt = inferExtFromUrl(url) ?? qualityExt(quality);
+    // 云盘不转码：扩展名取上传文件的真实扩展名，其次才是 URL / 请求档位。
+    resolvedExt = cloudFileExtension(song) ?? inferExtFromUrl(url) ?? qualityExt(quality);
   } else {
     // 同档音质内并发竞速（与播放链路一致，用户要求 2026-08）：网关与自定义音源同时
     // 发起，谁先返回有效 URL 用谁；下载完成后 headers 用胜出方的防盗链配置。
@@ -470,7 +477,8 @@ async function downloadSongInternal(task: QueueTask): Promise<string> {
       url = raced.url;
       // 防盗链 headers 统一按音源补齐：自定义源返回的也多为 wy/tx 官方 CDN 链接，
       // 缺 Referer 会 403；其他源 CDN 无 Referer 要求，多带无害（与播放链路保持一致）。
-      headers = buildStreamHeaders(song.source);
+      // 隐藏兜底 URL 来自酷我/酷狗 CDN，不带原曲来源的 Referer。
+      headers = raced.fromHiddenSource ? undefined : buildStreamHeaders(song.source);
       // 死代理探活：与播放链路同策略，避免下载写入死链后无限等待。下载是用户显式
       // 指定音质且不降档，探不通直接报错，让用户换源或换音质重试。
       const probe = await waitForTask(task, probeStreamUrl(url, headers));
@@ -506,7 +514,7 @@ async function downloadSongInternal(task: QueueTask): Promise<string> {
   let finalFilePath = filePath;
   let finalUri = downloadFileUri(song, quality);
   if (resolvedExt && resolvedExt !== qualityExt(quality)) {
-    const adjustedName = `${song.source}-${song.id}-${quality}.${resolvedExt}`;
+    const adjustedName = `${buildDownloadFileStem(song, quality)}.${resolvedExt}`;
     finalFilePath = `${DOWNLOAD_DIR}/${adjustedName}`;
     finalUri = `file://${finalFilePath}`;
   }
@@ -561,7 +569,12 @@ async function downloadSongInternal(task: QueueTask): Promise<string> {
     throw new Error("下载失败，请重试或更换音源");
   }
   await validateDownloadedFile(partialPath, result.bytesWritten);
-  const lyrics = await waitForTask(task, fetchSongLyrics(song).catch(() => [] as LyricLine[]));
+  // 云盘曲按上传文件原样落盘：文件可能自带内嵌封面与歌词，重写 ID3 /
+  // 补旁挂歌词都会覆盖用户自己整理的信息，而预期是「云盘里是什么就下什么」。
+  const preserveOriginalFile = song.wyCloud === true;
+  const lyrics = preserveOriginalFile
+    ? []
+    : await waitForTask(task, fetchSongLyrics(song).catch(() => [] as LyricLine[]));
   assertTaskActive(task);
   const warnings = await enhanceDownloadedFile(song, partialPath, lyrics, finalFilePath);
   assertTaskActive(task);
@@ -569,8 +582,10 @@ async function downloadSongInternal(task: QueueTask): Promise<string> {
   // 提交期间取消也必须清理最终文件，不能再只清理已被重命名的临时路径。
   task.filePath = finalFilePath;
   assertTaskActive(task);
-  warnings.push(...await writeSidecarLyrics(song, finalFilePath, lyrics));
-  assertTaskActive(task);
+  if (!preserveOriginalFile) {
+    warnings.push(...await writeSidecarLyrics(song, finalFilePath, lyrics));
+    assertTaskActive(task);
+  }
   if (warnings.length > 0) task.onWarnings?.(warnings);
   return finalUri;
 }
@@ -579,7 +594,7 @@ async function downloadSongInternal(task: QueueTask): Promise<string> {
 export function cancelDownload(song: MusicInfo, quality?: DownloadQuality): boolean {
   let cancelled = false;
   for (const task of downloadTasks) {
-    if (songKey(task.song) !== songKey(song) || (quality && task.quality !== quality)) continue;
+    if (buildSongKey(task.song) !== buildSongKey(song) || (quality && task.quality !== quality)) continue;
     if (interruptTask(task, "cancelled")) cancelled = true;
   }
   return cancelled;
@@ -633,6 +648,8 @@ async function enhanceDownloadedFile(
   finalFilePath: string,
 ): Promise<string[]> {
   if (song.isLocal) return [];
+  // 云盘曲保留上传文件原有标签/内嵌歌词，不做任何重写。
+  if (song.wyCloud === true) return [];
   const ext = finalFilePath.split(".").pop()?.toLowerCase() ?? "";
   if (ext !== "mp3") return [];
   try {
@@ -676,7 +693,7 @@ export async function removeDownloadedFile(
 ): Promise<void> {
   await removeDownloadedByPath(downloadFilePath(song, quality));
   if (!(await RNFS.exists(DOWNLOAD_DIR))) return;
-  const prefix = `${song.source}-${song.id}-${quality}.`;
+  const prefix = `${buildDownloadFileStem(song, quality)}.`;
   const entries = await RNFS.readDir(DOWNLOAD_DIR);
   for (const entry of entries) {
     if (entry.isFile() && entry.name.startsWith(prefix) && isAudioFileName(entry.name)) {
@@ -718,9 +735,17 @@ export async function saveCoverToDownloads(song: MusicInfo): Promise<string> {
       // 忽略解析失败，默认 jpg
     }
 
-    const coverName = songKey(song).replace(/:/g, "-");
+    const coverName = buildSongKey(song).replace(/:/g, "-");
     const path = `${DOWNLOAD_DIR}/${coverName}-cover.${ext}`;
-    const result = await RNFS.downloadFile({ fromUrl: url, toFile: path }).promise;
+    // 与 cacheCover 同一 UA：部分 wy 封面 CDN 校验 UA，缺了会 403，表现为
+    // 「播放页能显示、下载封面却失败」
+    const result = await RNFS.downloadFile({
+      fromUrl: url,
+      toFile: path,
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36",
+      },
+    }).promise;
     if (result.statusCode !== 200) {
       await RNFS.unlink(path).catch(() => undefined);
       return "";
@@ -785,7 +810,7 @@ async function unlinkIfExists(filePath: string): Promise<void> {
 async function raceDownloadUrl(
   song: MusicInfo,
   quality: string,
-): Promise<{ url: string; quality: string; fromCustomSource: boolean }> {
+): Promise<{ url: string; quality: string; fromCustomSource: boolean; fromHiddenSource?: boolean }> {
   const gatewayAttempt = parseUrl(song, quality).then(
     (result) => ({ url: result.url, quality: result.quality || quality, fromCustomSource: false }),
     (error: unknown) => {
@@ -801,15 +826,31 @@ async function raceDownloadUrl(
     },
   );
 
-  return raceForBestQuality([gatewayAttempt, customAttempt], {
-    getQuality: (value) => value.quality,
-    upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
-    ceiling: quality,
-    formatError: (errors) => {
-      const detail = errors
-        .map((error) => (error instanceof Error ? error.message : String(error)))
-        .join("；");
-      return new Error(detail || "下载地址解析失败");
-    },
-  });
+  try {
+    return await raceForBestQuality([gatewayAttempt, customAttempt], {
+      getQuality: (value) => value.quality,
+      upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
+      ceiling: quality,
+      formatError: (errors) => {
+        const detail = errors
+          .map((error) => (error instanceof Error ? error.message : String(error)))
+          .join("；");
+        return new Error(detail || "下载地址解析失败");
+      },
+    });
+  } catch (error) {
+    // 常规通道全败后才启用隐藏兜底：下载是用户显式操作，多一次同名搜索值得。
+    // 隐藏音源 URL 来自第三方平台 CDN，不带 wy/tx 的 Referer（由调用方按 fromHiddenSource 处理）。
+    const hidden = await resolveHiddenFallback(song, [quality], Date.now() + DOWNLOAD_HIDDEN_BUDGET_MS);
+    if (!hidden) throw error;
+    return {
+      url: hidden.url,
+      quality: hidden.quality,
+      fromCustomSource: false,
+      fromHiddenSource: true,
+    };
+  }
 }
+
+/** 下载链路的隐藏兜底预算：不参与播放的 12s/14s 总预算，单独给足一次搜索+取链。 */
+const DOWNLOAD_HIDDEN_BUDGET_MS = 8_000;

@@ -1,15 +1,18 @@
 import type { MusicInfo } from '@lx/core';
-import { buildPlaybackQualityTiers, DEFAULT_QUALITY_UPGRADE_WINDOW_MS, getPlaybackQualityFallbacks, getPlaybackQualityRank, raceForBestQuality } from '@lx/core';
+import { buildPlaybackQualityTiers, DEFAULT_QUALITY_UPGRADE_WINDOW_MS, getPlaybackQualityFallbacks, getPlaybackQualityRank, normalizePlaybackQuality, raceForBestQuality } from '@lx/core';
 import { debugLog, loadSettings } from '@lx/tauri-bridge';
 import { estimateStreamDurationSeconds, isPreviewStream } from '@lx/core';
 import { builtinNeteaseBackend } from './builtinNeteaseBackend';
 import { builtinProviderBackend } from './builtinProviderBackend';
 import { customSourceBackend } from './customSourceBackend';
-import { probeStreamUrl, PROBE_TIMEOUT_MS } from './streamProbe';
+import { isVipOfficialFirst } from './officialPriority';
+import { resolveHiddenFromGroups, startHiddenSearch, type HiddenCandidateGroup } from './hiddenFallbackService';
+import { probeStreamUrl, PROBE_TIMEOUT_MS, type StreamProbeResult } from './streamProbe';
 import type { PlaybackBackendId, PlaybackResolvedUrl } from './types';
 import { getSource } from '@/services/sources/sourceService';
-import { getCachedPlaybackUrl, invalidateCachedPlaybackUrl, saveCachedPlaybackUrl } from '@/services/persistentCache';
-import { cacheResolvedPlaybackMedia, StalePlaybackCacheError } from '@/services/mediaCache';
+import { canResolveWithBuiltinMusicApi } from '@/services/builtinMusicApiModel';
+import { getCachedPlaybackUrl, invalidateCachedPlaybackUrl, isLocalCachedPlaybackUrl, saveCachedPlaybackUrl } from '@/services/persistentCache';
+import { cacheResolvedPlaybackMedia, findCachedPlaybackMedia, StalePlaybackCacheError } from '@/services/mediaCache';
 import { customSourceAccess, customSourcePersistence, useCustomSourceStore } from '@/stores/customSourceStore';
 import { CustomSourceDisabledError, type CustomSourceOperation } from '@/services/customSourceAccess';
 
@@ -17,7 +20,7 @@ export async function resolvePlaybackUrl(
   music: MusicInfo,
   variants?: MusicInfo[],
   preferredQuality?: string,
-  options: { bypassCache?: boolean; cacheMedia?: boolean } = {},
+  options: ResolvePlaybackOptions = {},
 ): Promise<PlaybackResolvedUrl> {
   // 解析链总预算:竞速 + 慢源回退(实测第三方源 2-10s)后仍需在预算内留出
   // 探活与媒体缓存的时间;14s 内未出结果直接抛错走错误分支,不再无限等。
@@ -33,9 +36,65 @@ export async function resolvePlaybackUrl(
 
 const PLAYBACK_RESOLVE_TOTAL_BUDGET_MS = 14_000;
 
+export interface ResolvePlaybackOptions {
+  bypassCache?: boolean;
+  cacheMedia?: boolean;
+  /**
+   * 只解析所选音质，不参与逐档下调。
+   *
+   * 播放允许「先拿低档出声、再升级」，下载不行：用户选 flac 却下到 320k，
+   * 文件名和库里的音质标签都与实际内容不符，且没有任何提示。
+   * 开启后降级链与缓存查询都收敛为这一档。
+   */
+  exactQuality?: boolean;
+}
+
 /** 探活最多用剩余预算，且不低于 500ms：避免总超时后还新起一个 5s 探活。 */
 function probeBudgetMs(deadlineAt: number): number {
   return Math.max(500, Math.min(PROBE_TIMEOUT_MS, deadlineAt - Date.now()));
+}
+
+/**
+ * 远端签名地址的真实有效期通常远短于 6h TTL（实测网易云在 20 分钟量级）。
+ * 命中一条超过该时长的远端条目时先做一次 1 字节 Range 探活：服务端明确拒绝
+ * 就作废重解析，而不是把死链交给播放器（后者只会报错，用户还得再点一次）。
+ *
+ * 只对「没有落盘音频」的条目生效——本地文件由媒体缓存直接命中，不产生网络请求。
+ */
+const CACHED_URL_REVALIDATE_AFTER_MS = 10 * 60 * 1000;
+/** 缓存地址的探活只值一次 1 字节请求：超过 2s 就当「下不了结论」，不能把起播拖住。 */
+const CACHED_URL_REVALIDATE_TIMEOUT_MS = 2_000;
+
+function shouldRevalidateCachedUrl(cached: PlaybackResolvedUrl): boolean {
+  if (!cached.cachedAt || isLocalCachedPlaybackUrl(cached.url)) return false;
+  return Date.now() - cached.cachedAt >= CACHED_URL_REVALIDATE_AFTER_MS;
+}
+
+/**
+ * 胜出地址探活被明确拒绝后，尝试同一轮竞速里已结算的其它候选。
+ *
+ * 只在这一个源/档位失败时使用，不跨轮次。候选已按「音质降序 → 源序升序」
+ * 排好，逐个探活取第一个确定可用的；超时 / 5xx 这类下不了结论的先记着，
+ * 等全部确定失败再兜底放行——与单候选时的宽容语义保持一致，不能因为
+ * 探活不确定就否掉一个可能完全正常的地址。
+ */
+async function pickPlayableFallback(
+  current: PlaybackResolvedUrl,
+  deadlineAt: number,
+): Promise<{ resolved: PlaybackResolvedUrl; probe: StreamProbeResult } | null> {
+  let tolerated: { resolved: PlaybackResolvedUrl; probe: StreamProbeResult } | null = null;
+  for (const candidate of current.fallbacks ?? []) {
+    // 每次回退都要吃一个探活 RTT，预算不够时不要为了兜底把整首拖死。
+    if (deadlineAt - Date.now() <= 1_000) break;
+    const probe = await probeStreamUrl(
+      candidate.url,
+      buildStreamHeaders(candidate.music.source),
+      probeBudgetMs(deadlineAt),
+    );
+    if (probe.ok) return { resolved: candidate, probe };
+    if (!probe.definitive && !tolerated) tolerated = { resolved: candidate, probe };
+  }
+  return tolerated;
 }
 
 const STREAM_REFERERS: Record<string, string> = {
@@ -44,7 +103,7 @@ const STREAM_REFERERS: Record<string, string> = {
 };
 
 /** 与移动端 buildStreamHeaders 同语义:wy/tx CDN 防盗链头。 */
-function buildStreamHeaders(source: string | undefined): Record<string, string> | undefined {
+export function buildStreamHeaders(source: string | undefined): Record<string, string> | undefined {
   const referer = source ? STREAM_REFERERS[source] : undefined;
   if (!referer) return undefined;
   return { Referer: referer };
@@ -71,8 +130,10 @@ function withResolveDeadline(task: Promise<PlaybackResolvedUrl>): Promise<Playba
 /** 主源=内置音乐 API;自定义源是懒唤醒的兜底,不默认参与每首歌的竞速。 */
 const PRIMARY_BUDGET_MS = 2500;
 
-function getBackend(id: PlaybackBackendId): { id: PlaybackBackendId; resolve: (request: import('./types').PlaybackRequest) => Promise<PlaybackResolvedUrl> } {
-  const table: Record<PlaybackBackendId, { id: PlaybackBackendId; resolve: (request: import('./types').PlaybackRequest) => Promise<PlaybackResolvedUrl> }> = {
+type RacingBackendId = Exclude<PlaybackBackendId, 'hiddenSource'>;
+
+function getBackend(id: RacingBackendId): { id: RacingBackendId; resolve: (request: import('./types').PlaybackRequest) => Promise<PlaybackResolvedUrl> } {
+  const table: Record<RacingBackendId, { id: RacingBackendId; resolve: (request: import('./types').PlaybackRequest) => Promise<PlaybackResolvedUrl> }> = {
     builtinNetease: { id: 'builtinNetease', resolve: (request) => builtinNeteaseBackend.resolve(request) },
     customSource: { id: 'customSource', resolve: (request) => customSourceBackend.resolve(request) },
     builtinProvider: { id: 'builtinProvider', resolve: (request) => builtinProviderBackend.resolve(request) },
@@ -80,15 +141,25 @@ function getBackend(id: PlaybackBackendId): { id: PlaybackBackendId; resolve: (r
   return table[id];
 }
 
-/** 让单个 backend 带预算地 resolve;超预算返回 null(不抛,由调用方决定是否唤醒兜底)。 */
-async function resolveBackendWithBudget(
-  backend: { id: PlaybackBackendId; resolve: (request: import('./types').PlaybackRequest) => Promise<PlaybackResolvedUrl> },
-  request: import('./types').PlaybackRequest,
+/** 把任意抛出物压成可展示的一行原因。 */
+function formatReason(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error == null) return '未返回结果';
+  return String(error);
+}
+
+/**
+ * 等待 `task` 最多 `budgetMs`；超时返回 null，但**不取消** task。
+ * 主源请求常常只是冷启动慢（实测网关 1.8-2.6s），超时后放弃这条在途响应
+ * 再重发一次，等于既丢结果又翻倍请求量。
+ */
+function resolveWithBudget(
+  task: Promise<PlaybackResolvedUrl | null>,
   budgetMs: number,
 ): Promise<PlaybackResolvedUrl | null> {
   return new Promise<PlaybackResolvedUrl | null>((resolve) => {
     const timer = setTimeout(() => resolve(null), budgetMs);
-    backend.resolve(request).then(
+    task.then(
       (value) => {
         clearTimeout(timer);
         resolve(value);
@@ -120,30 +191,44 @@ async function raceQualityTierLazy(
 ): Promise<PlaybackResolvedUrl> {
   const targetRank = getPlaybackQualityRank(request.qualityPreference[0]);
 
-  // 第一步:只跑主源,带预算。
-  const primaryHit = await resolveBackendWithBudget(primary, request, PRIMARY_BUDGET_MS);
+  // 第一步:只跑主源,带预算。主源请求只发一次——预算耗尽只代表「等不及」,
+  // 那条在途请求之后仍可能返回可用结果，所以下面复用它而不是重发。
+  let primaryError: unknown;
+  const primaryAttempt = primary.resolve(request).then(
+    (value) => value,
+    (error: unknown) => {
+      primaryError = error;
+      return null;
+    },
+  );
+  const primaryHit = await resolveWithBudget(primaryAttempt, PRIMARY_BUDGET_MS);
   if (primaryHit && getPlaybackQualityRank(primaryHit.quality) >= targetRank) {
     return primaryHit;
   }
 
   // 禁用或本次解析所属生命周期已失效时，LX 根本不进入候选集。
-  if (!operation?.isActive()) return primaryHit ?? primary.resolve(request);
+  if (!operation?.isActive()) {
+    if (primaryHit) return primaryHit;
+    // 没有自定义源可唤醒：等这条在途请求收尾（受 request.deadlineAt 约束），
+    // 不重发。旧实现在这里立刻再发一个一模一样的请求且无预算，对限流网关
+    // 是纯放大；而且那个重发与在途请求争同一个配额，反而更容易一起超时。
+    const late = await primaryAttempt;
+    if (late) return late;
+    throw new Error(`${primary.id}: ${formatReason(primaryError)}`);
+  }
 
   // 第二步:主源不足(失败 / 超时 / 音质低于本轮期望),唤醒自定义源一起竞速取高音质。
-  // 主源若已命中只是音质不足,直接带上它(避免同一首歌主源发两次请求);
-  // 未命中(超时/失败)则重试一次,与自定义源并行。
-  let primaryRetry: Promise<PlaybackResolvedUrl>;
-  if (primaryHit) {
-    primaryRetry = Promise.resolve(primaryHit);
-  } else {
-    primaryRetry = primary.resolve(request).catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`${primary.id}: ${message}`);
-    });
-  }
+  // 主源若已命中只是音质不足,直接带上它;未命中则继续等那条在途请求,
+  // 而不是重发——同一首歌不再向主源发第二次请求。
+  const primaryCandidate = primaryHit
+    ? Promise.resolve(primaryHit)
+    : primaryAttempt.then((value) => {
+        if (value) return value;
+        throw new Error(`${primary.id}: ${formatReason(primaryError)}`);
+      });
   const customAttempt = getCustomAttempt();
 
-  return raceForBestQuality([primaryRetry, customAttempt], {
+  return raceForBestQuality([primaryCandidate, customAttempt], {
     getQuality: (resolved) => resolved.quality,
     upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
     // 本轮最高档命中即定稿,不再等窗口
@@ -161,21 +246,76 @@ async function resolvePlaybackUrlUncapped(
   music: MusicInfo,
   variants?: MusicInfo[],
   preferredQuality?: string,
-  options: { bypassCache?: boolean; cacheMedia?: boolean } = {},
+  options: ResolvePlaybackOptions = {},
   operation?: CustomSourceOperation,
   deadlineAt = Date.now() + PLAYBACK_RESOLVE_TOTAL_BUDGET_MS,
 ): Promise<PlaybackResolvedUrl> {
   const settings = await loadSettings();
   const qualityFloor = preferredQuality ?? settings.defaultQuality;
   // 分轮次:首轮是「不低于选定音质」的全部档位一起竞速,之后逐档下调。
-  const qualityTiers = buildPlaybackQualityTiers(qualityFloor);
+  // exactQuality（下载）只保留用户选的那一档：缓存查询也不许命中其它档位，
+  // 否则「选 flac 却命中 128k 缓存」会直接产出一个标错音质的文件。
+  const qualityTiers = options.exactQuality
+    ? [[normalizePlaybackQuality(qualityFloor)]]
+    : buildPlaybackQualityTiers(qualityFloor);
   // 扁平降级链仅用于缓存查询与官方直连兜底,这两处不分轮次。
-  const qualityPreference = getPlaybackQualityFallbacks(qualityFloor);
+  const qualityPreference = options.exactQuality
+    ? [normalizePlaybackQuality(qualityFloor)]
+    : getPlaybackQualityFallbacks(qualityFloor);
   debugLog(`[resolve] 开始解析 ${music.source}/${music.name} id=${music.id} 音质轮次=${qualityTiers.map((tier) => tier.join('+')).join(' > ')}`);
+
+  // 隐藏兜底分两段：搜索可以提前并行（纯 HTTP、无副作用），取链必须等到常规链路
+  // 真的失败。两者分开是为了不让「1s 就解析成功」的歌白唤醒 LX 脚本、白跑一轮
+  // musicUrl；同时搜索仍能提前启动，避免自定义源慢回退把预算烧完后才开始搜。
+  let hiddenSearch: Promise<HiddenCandidateGroup[]> | null = null;
+  const ensureHiddenSearch = (): Promise<HiddenCandidateGroup[]> => {
+    if (!hiddenSearch) {
+      hiddenSearch = startHiddenSearch(music, deadlineAt).catch((error) => {
+        debugLog(`[resolve] 隐藏音源搜索失败: ${error instanceof Error ? error.message : String(error)}`);
+        return [];
+      });
+    }
+    return hiddenSearch;
+  };
+  let hiddenResolve: Promise<PlaybackResolvedUrl | null> | null = null;
+  const ensureHiddenResolve = (): Promise<PlaybackResolvedUrl | null> => {
+    if (!hiddenResolve) {
+      hiddenResolve = ensureHiddenSearch()
+        .then((groups) => resolveHiddenFromGroups(groups, music, qualityPreference, deadlineAt, operation))
+        .catch((error) => {
+          debugLog(`[resolve] 隐藏兜底失败: ${error instanceof Error ? error.message : String(error)}`);
+          return null;
+        });
+    }
+    return hiddenResolve;
+  };
+
   const allVariants = variants?.length ? variants : [music];
   const cacheVariants = allVariants.some((item) => item.source === music.source && item.id === music.id)
     ? allVariants
     : [music, ...allVariants];
+
+  // 第 0 层：已落盘的音频优先。音频文件活 365 天，持久化 URL 只活 6 小时——
+  // URL 过期/被清理后仍应能离线播放，不能为了拿一个很快就会失效的签名地址
+  // 把整条网络解析链重跑一遍（网络侧失败时表现就是「缓存过却播不了」）。
+  // 下载（cacheMedia:false）、exactQuality 解析与显式 bypassCache（缓存地址播放失败后的
+  // 重解析）都必须绕开本地文件：前两者要远端直链，后者要摆脱刚刚失败的同一份缓存。
+  if (!options.bypassCache && options.cacheMedia !== false && !options.exactQuality && music.source !== 'local') {
+    for (const candidate of cacheVariants) {
+      let local: PlaybackResolvedUrl | null = null;
+      try {
+        local = await findCachedPlaybackMedia(candidate, qualityPreference, operation);
+      } catch (error) {
+        debugLog(`[resolve] 本地音频缓存查询失败，按未命中处理: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      if (local) {
+        debugLog(
+          `[resolve] 命中本地音频缓存 ${candidate.name} quality=${local.quality} backend=${local.backend}`,
+        );
+        return local;
+      }
+    }
+  }
 
   if (!options.bypassCache) {
     try {
@@ -184,20 +324,43 @@ async function resolvePlaybackUrlUncapped(
       // 这里再过一次媒体缓存：远端地址在音频已落盘时升级为本地文件，
       // 本地条目不可用时抛 StalePlaybackCacheError，由下面作废该条目并改为重新解析。
       if (cached) {
-        debugLog(`[resolve] 命中持久化缓存 ${music.name} url=${cached.url.slice(0, 60)}`);
-        try {
-          return await prepareResolvedPlaybackMedia(music, cached, options.cacheMedia !== false, operation);
-        } catch (error) {
-          if (!(error instanceof StalePlaybackCacheError)) throw error;
-          // 只作废这一条音质档（主源与变体都可能存过同一条），其余档位的记录不受影响。
-          debugLog(
-            `[resolve] 持久化条目指向的本地文件已不可用（${error.message}），作废后重新解析: ${music.name}`,
+        // 老条目（超过 10 分钟）先做一次廉价探活：签名地址过期时直接重解析，
+        // 避免把死链抛给播放器后用户只看到「播放失败」。
+        let usable = true;
+        if (shouldRevalidateCachedUrl(cached)) {
+          const revalidate = await probeStreamUrl(
+            cached.url,
+            buildStreamHeaders(cached.music.source),
+            Math.min(probeBudgetMs(deadlineAt), CACHED_URL_REVALIDATE_TIMEOUT_MS),
           );
-          await Promise.all([
-            invalidateCachedPlaybackUrl(music, cached.quality).catch(() => undefined),
-            invalidateCachedPlaybackUrl(cached.music, cached.quality).catch(() => undefined),
-          ]);
-          operation?.assertActive();
+          if (!revalidate.ok && revalidate.definitive) {
+            usable = false;
+            debugLog(
+              `[resolve] 持久化地址已失效（${revalidate.reason}），作废后重新解析: ${music.name}`,
+            );
+            await Promise.all([
+              invalidateCachedPlaybackUrl(music, cached.quality).catch(() => undefined),
+              invalidateCachedPlaybackUrl(cached.music, cached.quality).catch(() => undefined),
+            ]);
+            operation?.assertActive();
+          }
+        }
+        if (usable) {
+          debugLog(`[resolve] 命中持久化缓存 ${music.name} url=${cached.url.slice(0, 60)}`);
+          try {
+            return await prepareResolvedPlaybackMedia(music, cached, options.cacheMedia !== false, operation);
+          } catch (error) {
+            if (!(error instanceof StalePlaybackCacheError)) throw error;
+            // 只作废这一条音质档（主源与变体都可能存过同一条），其余档位的记录不受影响。
+            debugLog(
+              `[resolve] 持久化条目指向的本地文件已不可用（${error.message}），作废后重新解析: ${music.name}`,
+            );
+            await Promise.all([
+              invalidateCachedPlaybackUrl(music, cached.quality).catch(() => undefined),
+              invalidateCachedPlaybackUrl(cached.music, cached.quality).catch(() => undefined),
+            ]);
+            operation?.assertActive();
+          }
         }
       }
     } catch (error) {
@@ -244,8 +407,29 @@ async function resolvePlaybackUrlUncapped(
   // 懒切编排(对齐移动端 playerService):
   // 每轮先只跑内置音乐 API(主源),2.5s 内给出「达标音质」即定稿,自定义源零唤醒;
   // 主源失败 / 超时 / 音质不足本轮期望时才并行唤醒自定义源一起竞速兜底。
+  //
+  // 隐藏兜底从这里开始并行搜索：缓存未命中且所有变体都没有网关元数据的在线曲
+  // （典型：QQ 官方搜索的 tx 曲）主源必然快速失败，提前搜索酷我/酷狗，避免
+  // 自定义源慢回退把 10s 预算烧完后才轮到隐藏平台。只搜不取链。
+  // 预取（cacheMedia === false）不提前启动：一次预取多首会同时拉起多条搜索，
+  // 即使常规链路成功也全部白跑；预取只在真正失败时再启动。
+  const shouldStartHiddenEarly =
+    options.cacheMedia !== false &&
+    music.source !== 'local' &&
+    !allVariants.some(canResolveWithBuiltinMusicApi);
+  if (shouldStartHiddenEarly) {
+    void ensureHiddenSearch();
+  }
   const tierErrors: string[] = [];
-  const builtinPrimary = getBackend('builtinNetease');
+  // 会员会话：官方直连（weapi + Cookie）直接作为主源。网关对 VIP 曲目只能给降档/试听，
+  // 而会员的账号权限本身就是最高音质的来源；官方失败时 raceQualityTierLazy 仍会照常
+  // 唤醒自定义源并降档重试，所以这里只是把「最可靠的那条」提前，不改变兜底语义。
+  // 非会员保持原样：官方直连对无权限曲目会返回 30s 试听，先跑它只会多花一轮预算。
+  const preferOfficial = music.source === 'wy' && isVipOfficialFirst();
+  const builtinPrimary = getBackend(preferOfficial ? 'builtinProvider' : 'builtinNetease');
+  if (preferOfficial) {
+    debugLog(`[resolve] 会员直连优先：${music.name} 先走官方接口，网关/自定义源仅作兜底`);
+  }
   const customBackend = getBackend('customSource');
   // 自定义源按完整降级链只竞速一次,轮次间复用同一 promise:
   // 音质轮次只约束内置主源(每轮单档、逐档下调);自定义源自身的交错竞速已按
@@ -274,7 +458,7 @@ async function resolvePlaybackUrlUncapped(
       deadlineAt,
     };
     try {
-      const resolved = await raceQualityTierLazy(builtinPrimary, getCustomAttempt, request, operation);
+      let resolved = await raceQualityTierLazy(builtinPrimary, getCustomAttempt, request, operation);
       getCustomSourceOperation(resolved, operation);
       // 本轮可接受的最低档是 tier 的最后一个元素（首轮是「不低于选定音质」的
       // 全部档位，最后一个是用户门槛；后续轮次只有一个档）。
@@ -285,6 +469,7 @@ async function resolvePlaybackUrlUncapped(
         debugLog(
           `[resolve] ${music.name} 轮=${tier.join('+')} 命中 ${resolved.quality} 低于本轮门槛，继续下一轮`,
         );
+        void ensureHiddenResolve();
         continue;
       }
       debugLog(`[resolve] 命中 ${music.name} 轮=${tier.join('+')} 命中=${resolved.quality} backend=${resolved.backend} url=${resolved.url.slice(0, 60)}`);
@@ -294,11 +479,22 @@ async function resolvePlaybackUrlUncapped(
       // 探活必须带「实际解析到的变体」的 Referer：wy 主源可能解析到 tx 变体，
       // 用主源 Referer 会被 QQ CDN 判 403，把可用地址误杀。
       const probeHeaders = buildStreamHeaders(resolved.music.source);
-      const probe = await probeStreamUrl(resolved.url, probeHeaders, probeBudgetMs(deadlineAt));
+      let probe = await probeStreamUrl(resolved.url, probeHeaders, probeBudgetMs(deadlineAt));
       if (!probe.ok && probe.definitive) {
-        // 服务端明确拒绝（403/404/410/451）：该地址确实拿不到资源，换下一档
-        tierErrors.push(`探活失败(${probe.reason})`);
-        continue;
+        // 胜出地址被服务端明确拒绝（403/404/410/451）。同一轮竞速里往往已经有
+        // 别的源/档位结算出可用地址——先按「音质降序 → 源序」回退；整轮都没
+        // 可用才丢这一轮进下一档，否则这轮所有结果都白跑了。
+        const rejectedReason = probe.reason;
+        const fallback = await pickPlayableFallback(resolved, deadlineAt);
+        if (!fallback) {
+          tierErrors.push(`探活失败(${rejectedReason})`);
+          continue;
+        }
+        resolved = fallback.resolved;
+        probe = fallback.probe;
+        debugLog(
+          `[resolve] ${music.name} 胜出地址${rejectedReason}，回退到同轮候选 ${resolved.quality}/${resolved.resolverName}`,
+        );
       }
       if (!probe.ok) {
         // 超时 / 网络抖动 / 5xx / 响应体超限都下不了结论。不能因为探活不确定就否掉
@@ -324,6 +520,7 @@ async function resolvePlaybackUrlUncapped(
       return playable;
     } catch (error) {
       tierErrors.push(error instanceof Error ? error.message : String(error));
+      void ensureHiddenResolve();
     }
   }
 
@@ -369,6 +566,37 @@ async function resolvePlaybackUrlUncapped(
     }
   }
 
+  // 常规链路全败后的隐藏兜底：酷我/酷狗搜索同名曲目，交给已装 LX 脚本取链。
+  // 隐藏音源 URL 来自第三方平台 CDN，不带 wy/tx 的 Referer；探活语义与官方直连兜底一致：
+  // 服务端明确拒绝才放弃，超时/抖动下不了结论时仍采用地址，由播放器错误回调兜底。
+  const hidden = await ensureHiddenResolve();
+  if (hidden) {
+    const hiddenProbe = await probeStreamUrl(hidden.url, undefined, probeBudgetMs(deadlineAt));
+    if (!hiddenProbe.ok && hiddenProbe.definitive) {
+      tierErrors.push(`隐藏音源兜底探活失败(${hiddenProbe.reason})`);
+    } else if (
+      hiddenProbe.ok &&
+      hiddenProbe.totalBytes != null &&
+      isPreviewStream({
+        totalBytes: hiddenProbe.totalBytes,
+        quality: hidden.quality,
+        expectedDurationSeconds: music.interval,
+      })
+    ) {
+      const previewSeconds = estimateStreamDurationSeconds(hiddenProbe.totalBytes, hidden.quality);
+      tierErrors.push(`隐藏音源兜底解析到试听片段(约 ${Math.round(previewSeconds ?? 0)}s)`);
+    } else {
+      debugLog(
+        `[resolve] 隐藏音源兜底成功 ${music.name} backend=${hidden.backend} quality=${hidden.quality} url=${hidden.url.slice(0, 60)}`,
+      );
+      const playable = await prepareResolvedPlaybackMedia(music, hidden, options.cacheMedia !== false, operation);
+      void saveCachedPlaybackUrl(music, playable, Date.now(), operation).catch((error) => {
+        debugLog(`[resolve] 播放地址缓存未提交: ${error instanceof Error ? error.message : String(error)}`);
+      });
+      return playable;
+    }
+  }
+
   const message = `播放地址解析失败(已尝试 ${qualityPreference.join(' → ')} 档):\n${tierErrors.join('\n')}`;
   debugLog(`[resolve] 全部失败 ${music.source}/${music.name}\n${message}`);
   throw new Error(message);
@@ -378,7 +606,8 @@ function getCustomSourceOperation(
   resolved: PlaybackResolvedUrl,
   operation?: CustomSourceOperation,
 ): CustomSourceOperation | undefined {
-  if (resolved.backend !== 'customSource') return undefined;
+  // 隐藏兜底同样经 LX 脚本取链，生命周期判定与自定义音源一致。
+  if (resolved.backend !== 'customSource' && resolved.backend !== 'hiddenSource') return undefined;
   if (!operation) throw new CustomSourceDisabledError();
   operation.assertActive();
   return operation;

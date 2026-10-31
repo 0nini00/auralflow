@@ -406,6 +406,8 @@ export function LyricView({
       }
 
       const hasTranslation = showTranslation && !!item.tr;
+      // 罗马音与译文同属「副行」：跟随译文的显示开关，避免再加一个开关粒度
+      const hasRoma = showTranslation && !!item.roma;
       const typography = buildLyricTypographyStyleModel({
         active: isActive,
         fontSize: localFontSize,
@@ -426,6 +428,7 @@ export function LyricView({
             item={item}
             isActive={isActive}
             hasTranslation={hasTranslation}
+            hasRoma={hasRoma}
             onSeek={onSeek}
             typography={typography}
             animationModel={animationModel}
@@ -520,6 +523,7 @@ interface AnimatedLyricLineProps {
   item: LyricLine;
   isActive: boolean;
   hasTranslation: boolean;
+  hasRoma: boolean;
   onSeek?: (time: number) => void;
   typography: ReturnType<typeof buildLyricTypographyStyleModel>;
   animationModel: ReturnType<typeof buildLyricAnimationModel>;
@@ -531,6 +535,7 @@ function AnimatedLyricLine({
   item,
   isActive,
   hasTranslation,
+  hasRoma,
   onSeek,
   typography,
   animationModel,
@@ -581,6 +586,11 @@ function AnimatedLyricLine({
         {hasTranslation && (
           <Text numberOfLines={1} style={[styles.translation, typography.translationStyle as TextStyle]}>
             {convertChineseText(item.tr!, chineseConversion)}
+          </Text>
+        )}
+        {hasRoma && (
+          <Text numberOfLines={1} style={[styles.translation, typography.translationStyle as TextStyle]}>
+            {item.roma!}
           </Text>
         )}
       </Pressable>

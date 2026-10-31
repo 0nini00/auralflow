@@ -75,7 +75,7 @@ describe("isBlockedOutboundHost", () => {
   });
 
   it("拦截 IPv6 回环与映射地址，解析失败按拒绝", () => {
-    for (const host of ["::1", "::", "fe80::1", "fc00::1", "ff02::1", "::ffff:127.0.0.1", "::7f00:1"]) {
+    for (const host of ["::1", "::", "fe80::1", "fc00::1", "ff02::1", "::ffff:127.0.0.1", "::7f00:1", "64:ff9b::127.0.0.1", "64:ff9b::7f00:1"]) {
       expect(isBlockedOutboundHost(host), host).toBe(true);
     }
     expect(isBlockedOutboundHost("1:2:3")).toBe(true);

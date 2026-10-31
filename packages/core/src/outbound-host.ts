@@ -220,6 +220,12 @@ function parseIpv6(host: string): number[] | null {
     : null;
 }
 
+/** IPv4 嵌入型 IPv6 的末 32 位转回四个字节，交给 IPv4 规则复判。 */
+function isBlockedIpv4InTail(groups: number[]): boolean {
+  const octets = [groups[6] >> 8, groups[6] & 0xff, groups[7] >> 8, groups[7] & 0xff];
+  return isBlockedIpv4(octets);
+}
+
 function isBlockedIpv6(groups: number[]): boolean {
   const isZeroPrefix = groups.slice(0, 7).every((value) => value === 0);
   if (isZeroPrefix && groups[7] === 1) return true; // ::1 回环
@@ -232,8 +238,11 @@ function isBlockedIpv6(groups: number[]): boolean {
   const isMapped = groups.slice(0, 5).every((value) => value === 0) && groups[5] === 0xffff;
   const isCompat = groups.slice(0, 6).every((value) => value === 0);
   if (isMapped || isCompat) {
-    const octets = [groups[6] >> 8, groups[6] & 0xff, groups[7] >> 8, groups[7] & 0xff];
-    return isBlockedIpv4(octets);
+    return isBlockedIpv4InTail(groups);
+  }
+  // NAT64（64:ff9b::/96，RFC 6052）：末 32 位可嵌入任一 IPv4 地址，同样按 IPv4 判
+  if (groups[0] === 0x64 && groups[1] === 0xff9b && groups.slice(2, 6).every((value) => value === 0)) {
+    return isBlockedIpv4InTail(groups);
   }
   return false;
 }

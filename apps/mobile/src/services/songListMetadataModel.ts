@@ -31,3 +31,14 @@ export function buildSongListMetadata(song: MusicInfo): SongListMetadata {
 export function shouldShowSongListDownloadAction(song: Pick<MusicInfo, "source">): boolean {
   return song.source !== "local";
 }
+
+/**
+ * 下载前是否需要询问音质。
+ *
+ * 云盘曲不做转码：请求 128k 与 flac 拿到的是同一份上传文件，弹窗里的档位
+ * 既不改变结果、也不是文件真实码率，只会让用户以为「选了什么就下什么」。
+ * 这类曲目直接下载原文件（保留内嵌标签与歌词）。
+ */
+export function shouldPromptDownloadQuality(song: Pick<MusicInfo, "wyCloud">): boolean {
+  return song.wyCloud !== true;
+}

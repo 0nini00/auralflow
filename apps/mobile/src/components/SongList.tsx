@@ -23,6 +23,7 @@ import {
 import { getLastSelectQuality, saveLastSelectQuality } from "@/services/downloadService";
 import {
   buildSongListMetadata,
+  shouldPromptDownloadQuality,
   shouldShowSongListDownloadAction,
 } from "@/services/songListMetadataModel";
 import { buildSongQueueActionLabels } from "@/services/songQueueActions";
@@ -197,6 +198,20 @@ export function SongList({
   }, []);
   const openDownload = useCallback((song: MusicInfo) => {
     setActionSong(song);
+    // 云盘曲没有档位可选：直接下载原文件，不弹音质选择。
+    if (!shouldPromptDownloadQuality(song)) {
+      void (async () => {
+        try {
+          const result = await useDownloadStore.getState().downloadSong(song);
+          if (result.status === "failed") {
+            Alert.alert("下载失败", result.error ?? "下载失败");
+          }
+        } catch (error) {
+          Alert.alert("下载失败", error instanceof Error ? error.message : String(error));
+        }
+      })();
+      return;
+    }
     // 记住上次选择的音质（对齐 lx），异步读取后回填为默认选中
     void getLastSelectQuality().then((last) => {
       if (last) setDefaultQuality(last);
@@ -207,6 +222,8 @@ export function SongList({
   // ── virtualized 路径：FlatList 虚拟化，SongList 本体即滚动容器 ──
   // （钩子声明在 legacy 空态早退之前，保证两条路径 hook 顺序一致）
   const flatListRef = useRef<FlatList<MusicInfo> | null>(null);
+  // onScrollToIndexFailed 的补偿重试定时器：卸载时清理，避免悬挂回调
+  const scrollRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const renderSongRow = useCallback(
     ({ item: song, index }: { item: MusicInfo; index: number }) => {
       const key = `${song.source}:${song.id}`;
@@ -401,7 +418,9 @@ export function SongList({
             // 远端索引尚未测量时先按平均行高滚到估算位置，渲染后再精确对齐
             const offset = headerHeight + info.averageItemLength * info.index;
             flatListRef.current?.scrollToOffset({ offset, animated: true });
-            setTimeout(() => {
+            if (scrollRetryTimer.current) clearTimeout(scrollRetryTimer.current);
+            scrollRetryTimer.current = setTimeout(() => {
+              scrollRetryTimer.current = null;
               flatListRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0 });
             }, 60);
           }}

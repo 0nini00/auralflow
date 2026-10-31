@@ -155,8 +155,25 @@ pub fn state(app: &AppHandle) -> LyricWindowState {
     }
 }
 
+/// 置顶状态的内存镜像。
+///
+/// 置顶巡检（每 1.5s）与解锁按钮位置同步（歌词窗**每个** Moved/Resized 事件、
+/// 不经 debounce）都要读这个布尔；此前每次都走 `load_settings`（读盘 + JSON +
+/// 凭据解密），拖动窗口时等于在事件回调里高频做磁盘 IO。唯一写入口是
+/// `set_pinned` 命令与 `create` 的启动初始化，内存镜像不会与设置漂移。
+static LYRIC_PINNED: AtomicBool = AtomicBool::new(false);
+
+fn lyric_pinned() -> bool {
+    LYRIC_PINNED.load(Ordering::SeqCst)
+}
+
+fn store_lyric_pinned(pinned: bool) {
+    LYRIC_PINNED.store(pinned, Ordering::SeqCst);
+}
+
 /// 切换置顶状态；同时写回 settings.lyric_pinned
 pub fn set_pinned(app: &AppHandle, pinned: bool) -> Result<(), String> {
+    store_lyric_pinned(pinned);
     if let Some(window) = app.get_webview_window(LYRIC_LABEL) {
         window
             .set_always_on_top(pinned)
@@ -360,6 +377,7 @@ fn create(app: &AppHandle) -> Result<(), String> {
     let width = restore_window_length(settings.lyric_window_width, DEFAULT_WIDTH, MIN_WIDTH, MAX_RESTORE_WIDTH);
     let height = restore_window_length(settings.lyric_window_height, DEFAULT_HEIGHT, MIN_HEIGHT, MAX_RESTORE_HEIGHT);
     let pinned = settings.lyric_pinned;
+    store_lyric_pinned(pinned);
     invalidate_lyric_window_epoch("create");
 
     let window = WebviewWindowBuilder::new(app, LYRIC_LABEL, url)
@@ -463,7 +481,7 @@ fn schedule_create(app: &AppHandle) {
 }
 
 fn create_unlock_window(app: &AppHandle) -> Result<(), String> {
-    let pinned = crate::config::load_settings(app)?.lyric_pinned;
+    let pinned = lyric_pinned();
     if let Some(unlock) = app.get_webview_window(LYRIC_UNLOCK_LABEL) {
         let _ = unlock.set_always_on_top(pinned);
         let _ = unlock.show();
@@ -537,9 +555,7 @@ fn sync_unlock_window_position(app: &AppHandle) {
         return;
     };
 
-    let pinned = crate::config::load_settings(app)
-        .map(|settings| settings.lyric_pinned)
-        .unwrap_or(true);
+    let pinned = lyric_pinned();
     let x = position.x as f64 / scale + size.width as f64 / scale - UNLOCK_WINDOW_SIZE - 10.0;
     let y = position.y as f64 / scale + 8.0;
     let _ = unlock.set_position(LogicalPosition::new(x.max(0.0), y.max(0.0)));
@@ -573,10 +589,7 @@ fn ensure_always_on_top_loop(app: &AppHandle) {
                 break;
             }
 
-            let Ok(settings) = crate::config::load_settings(&app) else {
-                continue;
-            };
-            if !settings.lyric_pinned {
+            if !lyric_pinned() {
                 clear_always_on_top_loop();
                 break;
             }

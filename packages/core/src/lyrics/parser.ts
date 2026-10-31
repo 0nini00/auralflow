@@ -1,5 +1,6 @@
 import { normalizeRubyLine, type LyricRubySegment } from './annotations';
 export type { LyricRubySegment } from './annotations';
+export { normalizeRubyLine };
 
 export interface LyricWord {
   text: string;
@@ -367,7 +368,10 @@ function parseMsWordFormat(content: string, tagRegex: RegExp): LyricLine[] {
 }
 
 export function parseYrc(yrc: string): LyricLine[] {
-  return parseMsWordFormat(yrc, /\((\d+),(\d+),\d+\)/g);
+  // 刻意用与 parseQrc 相同的宽容正则（第三参可有可无）：detectLyricSourceType 对
+  // 两参/三参括号标记都判成 'yrc'，qrc 明文经 auto 路径也会走到这里——
+  // 若这里只认三参，qrc 整首会一行都解析不出来、静默变成「没有歌词」。
+  return parseMsWordFormat(yrc, /\((\d+),(\d+)(?:,\d+)?\)/g);
 }
 
 export function parseQrc(qrc: string): LyricLine[] {
@@ -476,25 +480,6 @@ export function mergeTranslation(lines: LyricLine[], tlyric?: string): LyricLine
 }
 
 const STRICT_LINE_TIME_TOLERANCE_MS = 150;
-const SAME_TEXT_LINE_DRIFT_TOLERANCE_MS = 1200;
-
-function isDuplicateFallbackLine(existing: LyricLine, fallback: LyricLine): boolean {
-  const diff = Math.abs(Math.round(existing.time * 1000) - Math.round(fallback.time * 1000));
-  if (isSameLyricText(existing.text, fallback.text)) {
-    return diff <= SAME_TEXT_LINE_DRIFT_TOLERANCE_MS;
-  }
-  return !fallback.text.trim() && diff <= STRICT_LINE_TIME_TOLERANCE_MS;
-}
-
-export function mergeMissingLines(primaryLines: LyricLine[], fallbackLines: LyricLine[]): LyricLine[] {
-  if (fallbackLines.length === 0) return primaryLines;
-  const merged = [...primaryLines];
-  for (const fallback of fallbackLines) {
-    const found = merged.some((line) => isDuplicateFallbackLine(line, fallback));
-    if (!found) merged.push(fallback);
-  }
-  return sortLines(merged);
-}
 
 /** 仅合并独立罗马音轨；不从原文的同时间多行推断读音。 */
 export function mergeRomanization(lines: LyricLine[], romaLyric?: string): LyricLine[] {

@@ -14,9 +14,10 @@ import {
   pauseDownload,
   removeDownloadedByPath,
   removeDownloadedFile,
-  resumeDownload,
+  isDownloadPaused,
   saveDownloads,
 } from "@/services/downloadService";
+import { buildSongKey } from "@lx/core";
 import { usePlaybackSettingsStore } from "@/stores/playbackSettingsStore";
 import { hapticSuccess } from "@/services/hapticService";
 import { logger } from "@/services/logger";
@@ -109,9 +110,6 @@ function queueDownloadsMutation(mutation: () => Promise<void>): Promise<void> {
   return result;
 }
 
-function songKey(song: MusicInfo): string {
-  return `${song.source}:${song.id}`;
-}
 
 function normalizeDownloadQuality(quality: unknown): DownloadQuality | undefined {
   return quality === "128k" ||
@@ -124,7 +122,7 @@ function normalizeDownloadQuality(quality: unknown): DownloadQuality | undefined
 }
 
 function downloadKey(song: MusicInfo, quality: DownloadQuality = "320k"): string {
-  return `${songKey(song)}:${quality}`;
+  return `${buildSongKey(song)}:${quality}`;
 }
 
 function itemDownloadKey(item: Pick<DownloadedItem, "song" | "quality">): string {
@@ -262,9 +260,9 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
       }));
       return;
     }
-    const key = songKey(song);
+    const key = buildSongKey(song);
     get().downloading.forEach((item) => {
-      if (songKey(item.song) === key) get().pauseDownload(item.song, item.quality);
+      if (buildSongKey(item.song) === key) get().pauseDownload(item.song, item.quality);
     });
   },
 
@@ -272,7 +270,7 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
     const targetQuality = quality ?? normalizeDownloadQuality(song.quality);
     if (targetQuality) {
       const key = downloadKey(song, targetQuality);
-      if (!resumeDownload(song, targetQuality)) return;
+      if (!isDownloadPaused(song, targetQuality)) return;
       // 先把 paused 项移出，再重新入队（downloadSong 会对已存在的 downloading 去重）
       set((state) => ({
         downloading: state.downloading.filter((item) => downloadKey(item.song, item.quality) !== key),
@@ -280,8 +278,8 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
       void get().downloadSong(song, targetQuality);
       return;
     }
-    const key = songKey(song);
-    const pausedItems = get().downloading.filter((item) => songKey(item.song) === key && item.status === "paused");
+    const key = buildSongKey(song);
+    const pausedItems = get().downloading.filter((item) => buildSongKey(item.song) === key && item.status === "paused");
     pausedItems.forEach((item) => get().resumeDownload(item.song, item.quality));
   },
 
@@ -297,13 +295,13 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
       return;
     }
 
-    const key = songKey(song);
+    const key = buildSongKey(song);
     cancelDownload(song);
     get().downloading.forEach((item) => {
-      if (songKey(item.song) === key) downloadAttempts.delete(downloadKey(item.song, item.quality));
+      if (buildSongKey(item.song) === key) downloadAttempts.delete(downloadKey(item.song, item.quality));
     });
     set((state) => ({
-      downloading: state.downloading.filter((item) => songKey(item.song) !== key),
+      downloading: state.downloading.filter((item) => buildSongKey(item.song) !== key),
     }));
   },
 
@@ -395,9 +393,9 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
       return;
     }
 
-    const key = songKey(song);
+    const key = buildSongKey(song);
     set((state) => ({
-      failedDownloads: state.failedDownloads.filter((item) => songKey(item.song) !== key),
+      failedDownloads: state.failedDownloads.filter((item) => buildSongKey(item.song) !== key),
     }));
   },
 

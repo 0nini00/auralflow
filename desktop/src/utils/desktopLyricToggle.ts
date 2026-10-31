@@ -7,6 +7,8 @@ import {
   type RustLyricWindowPlayerUnlockResult,
   type RustLyricWindowState,
 } from "@lx/tauri-bridge";
+
+import { withTimeout } from "@/utils/withTimeout";
 import { broadcastLyricSettings } from "@/stores/lyricSettingsSync";
 import { logger } from "@/services/logger";
 
@@ -29,28 +31,6 @@ export interface DesktopLyricPlayerToggleContext {
   stateQueryTimeoutMs?: number;
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  if (typeof globalThis.setTimeout !== "function" || typeof globalThis.clearTimeout !== "function") {
-    return promise;
-  }
-
-  return new Promise((resolve, reject) => {
-    const timeout = globalThis.setTimeout(() => {
-      reject(new Error(`desktop lyric state query timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-    promise.then(
-      (value) => {
-        globalThis.clearTimeout(timeout);
-        resolve(value);
-      },
-      (error) => {
-        globalThis.clearTimeout(timeout);
-        reject(error);
-      },
-    );
-  });
-}
-
 export async function toggleDesktopLyricFromPlayer(
   toggleCommand: () => Promise<RustLyricWindowPlayerToggleResult> = toggleLyricWindowFromPlayer,
   context: DesktopLyricPlayerToggleContext = {},
@@ -63,6 +43,7 @@ export async function toggleDesktopLyricFromPlayer(
     const unlockResult = await withTimeout(
       (context.unlockFirst ?? unlockLyricWindowFromPlayer)(),
       context.stateQueryTimeoutMs ?? 700,
+      "桌面歌词状态查询",
     );
     if (unlockResult.unlocked) {
       broadcastSettings({ lyricLocked: false });
@@ -83,6 +64,7 @@ export async function toggleDesktopLyricFromPlayer(
     backendState = await withTimeout(
       (context.getState ?? getLyricWindowState)(),
       context.stateQueryTimeoutMs ?? 700,
+      "桌面歌词状态查询",
     );
   } catch (error) {
     // 状态查询超时/失败：backendState 保持 null，下面的判断只信 knownLocked。

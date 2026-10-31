@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { patchSettings } from "@lx/tauri-bridge";
 import type { MusicInfo } from "@lx/core";
+import { setVipOfficialFirst } from "@/services/playback/officialPriority";
 import {
   setWyCookie,
   getWyCookie,
@@ -110,6 +111,8 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
   load: async (cookieStr) => {
     // 在任何 await 之前隔离旧请求，同时撤下与待验证 Cookie 不再匹配的身份和列表。
     const generation = beginAccountGeneration();
+    // 账号还没验完就先关掉会员直连：上一会话的会员状态不能沿用（可能是换号 / 过期）。
+    setVipOfficialFirst(false);
     set({ account: null, playlists: [], isLoading: true, error: "" });
     try {
       const cookie = cookieStr ?? (await getWyCookie());
@@ -125,6 +128,8 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
       const account = await checkAccount();
       if (generation !== accountGeneration) return;
       set({ account });
+      // 会员会话：解析层把官方直连提到主源，不再先走网关 / 自定义音源。
+      setVipOfficialFirst(account.isVip);
 
       try {
         const playlists = await getUserPlaylists(account.uid);
@@ -190,6 +195,7 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
     const previousCookie = getWyCookie();
     const generation = beginAccountGeneration();
     setWyCookie("");
+    setVipOfficialFirst(false);
     set({
       account: null,
       playlists: [],
@@ -205,6 +211,7 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
         // 只回滚身份；注销前及注销期间的请求、缓存都不能随之复活。
         beginAccountGeneration();
         setWyCookie(cookie);
+        setVipOfficialFirst(previous.account?.isVip === true);
         set({
           account: previous.account,
           playlists: previous.playlists,

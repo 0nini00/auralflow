@@ -22,8 +22,8 @@ vi.mock("@/stores/customSourceStore", async () => {
 vi.mock("@/components/CustomSourceUpdateModal", () => ({ openCustomSourceUpdateModal: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("@lx/tauri-bridge", () => ({
-  loadSettings: vi.fn(async () => ({})), getSongCacheStats: vi.fn(async () => null),
-  clearSongCache: vi.fn(), patchSettings: vi.fn(), libraryReset: vi.fn(),
+  loadSettings: vi.fn(async () => ({})), getMediaCacheStats: vi.fn(async () => null),
+  clearMediaCache: vi.fn(), patchSettings: vi.fn(), libraryReset: vi.fn(),
 }));
 vi.mock("@/stores/themeStore", () => ({ useThemeStore: Object.assign(
   () => ({ accentColor: "#123456", previewAccentColor: vi.fn() }),
@@ -33,8 +33,12 @@ vi.mock("@/stores/historyStore", () => ({ useHistoryStore: { getState: vi.fn() }
 vi.mock("@/stores/playerStore", () => ({ setPlaybackFailedAutoNext: vi.fn() }));
 vi.mock("@/stores/lyricSettingsSync", () => ({ broadcastLyricSettings: vi.fn() }));
 vi.mock("@/services/playerEngine", () => ({ playerEngine: { setPauseOnExternalPlayback: vi.fn() } }));
-vi.mock("@/services/persistentCache", () => ({ clearPersistentCache: vi.fn(), clearCachedLyrics: vi.fn() }));
-vi.mock("@/hooks/useLyrics", () => ({ clearLyricsBrowserCache: vi.fn() }));
+vi.mock("@/services/persistentCache", () => ({
+  getPersistentCacheSummary: vi.fn(async () => ({ playbackUrlCount: 0, lyricCount: 0 })),
+  clearCachedPlaybackUrls: vi.fn(),
+  clearCachedLyrics: vi.fn(),
+  invalidateCachedLocalMedia: vi.fn(),
+}));
 vi.mock("@/services/lyricsService", () => ({ clearLyricsMemoryCache: vi.fn() }));
 vi.mock("@/services/playback/prefetchService", () => ({ clearPlaybackPrefetchCache: vi.fn() }));
 vi.mock("@/services/appBackground", () => ({

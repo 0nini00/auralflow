@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { estimatePlaybackProgress, type PlaybackProgressClock } from "@/services/lyrics/playbackSync";
+import { estimatePlaybackProgress, type PlaybackProgressClock } from "@lx/core";
 
 interface UseInterpolatedPlaybackProgressOptions {
   status: string;

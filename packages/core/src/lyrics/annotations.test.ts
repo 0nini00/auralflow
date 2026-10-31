@@ -46,5 +46,6 @@ it('独立罗马音轨也支持 yromalrc 逐字格式', () => {
 });
 it('重复归一化不会把已解码的转义标记重新解释为注音', () => {
   const lines = parser.parseLrc('[00:01]<ruby>日<rt>ひ</rt></ruby>&lt;ruby&gt;月&lt;rt&gt;つき&lt;/rt&gt;&lt;/ruby&gt;');
-  expect(parser.mergeMissingLines(lines, [{ time: 3, text: '末尾' }])[0]).toEqual(lines[0]);
+  // 同一条目被重复查询时会再次走归一化：已解码成 ruby 片段的行必须原样返回
+  expect(parser.normalizeRubyLine({ ...lines[0] })).toEqual(lines[0]);
 });

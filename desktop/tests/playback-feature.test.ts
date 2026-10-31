@@ -20,6 +20,7 @@ const fixture = vi.hoisted(() => {
   return {
     state, access, persistence: { ready: Promise.resolve() },
     toggle(enabled: boolean) { controller.abort(); controller = new AbortController(); version++; state.featureEnabled = enabled; },
+    vipOfficialFirst: false,
     runtime: vi.fn(), builtin: vi.fn(), provider: vi.fn(), probe: vi.fn(), media: vi.fn(),
     libraryLoad: vi.fn(), librarySave: vi.fn(), preload: vi.fn(), lyrics: vi.fn(),
   };
@@ -28,9 +29,14 @@ vi.mock('../src/stores/customSourceStore', () => ({ useCustomSourceStore: { getS
 vi.mock('../src/services/customSourceRuntime', () => ({ requestCustomSourceMusicUrl: fixture.runtime }));
 vi.mock('../src/services/playback/builtinNeteaseBackend', () => ({ builtinNeteaseBackend: { id: 'builtinNetease', resolve: fixture.builtin } }));
 vi.mock('../src/services/playback/builtinProviderBackend', () => ({ builtinProviderBackend: { id: 'builtinProvider', resolve: fixture.provider } }));
+vi.mock('../src/services/playback/officialPriority', () => ({ isVipOfficialFirst: () => fixture.vipOfficialFirst }));
 vi.mock('../src/services/playback/streamProbe', () => ({ probeStreamUrl: fixture.probe, PROBE_TIMEOUT_MS: 5_000 }));
 vi.mock('../src/services/sources/sourceService', () => ({ getSource: () => ({}) }));
-vi.mock('../src/services/mediaCache', () => ({ cacheResolvedPlaybackMedia: fixture.media }));
+vi.mock('../src/services/mediaCache', () => ({
+  cacheResolvedPlaybackMedia: fixture.media,
+  findCachedPlaybackMedia: vi.fn(async () => null),
+  StalePlaybackCacheError: class StalePlaybackCacheError extends Error {},
+}));
 vi.mock('../src/services/playerEngine', () => ({ playerEngine: { preload: fixture.preload } }));
 vi.mock('../src/services/lyricsService', () => ({ getLyrics: fixture.lyrics }));
 vi.mock('@lx/tauri-bridge', () => ({
@@ -47,15 +53,17 @@ function deferred<T>() {
   const promise = new Promise<T>((done) => { resolve = done; });
   return { promise, resolve };
 }
-function seed(backend: string) {
-  const entry = { ...resolved(backend), quality: '128k', cachedAt: Date.now(), expiresAt: Date.now() + 60000 };
+function seed(backend: string, cachedAt = Date.now()) {
+  const entry = { ...resolved(backend), quality: '128k', cachedAt, expiresAt: Date.now() + 60000 };
   return { version: CACHE_VERSION, playbackUrls: { 'wy:1:128k': entry }, lyrics: {} };
 }
 beforeEach(() => {
   vi.resetModules();
   vi.resetAllMocks();
   fixture.toggle(true);
+  fixture.vipOfficialFirst = false;
   fixture.state.featureReady = true;
+  fixture.state.sources = [{ id: 'lx', name: 'LX', enabled: true }];
   fixture.persistence.ready = Promise.resolve();
   fixture.runtime.mockResolvedValue({ url: 'https://audio/customSource', quality: 'flac24bit' });
   fixture.builtin.mockRejectedValue(new Error('内置失败'));
@@ -160,6 +168,36 @@ describe('LX 播放候选与异步返回', () => {
     await rejection;
     expect(fixture.librarySave).not.toHaveBeenCalled();
   });
+
+  it('胜出地址探活被 403 时回退到同轮候选，不丢整轮重来', async () => {
+    fixture.state.sources = [
+      { id: 'a', name: '源A', enabled: true },
+      { id: 'b', name: '源B', enabled: true },
+    ];
+    // 源A 只有 flac，源B 有 flac24bit：源B 胜出，源A 进 fallbacks。
+    fixture.runtime.mockImplementation((api: { name: string }, _music: unknown, quality: string) => {
+      if (api.name === '源A') {
+        return quality === 'flac24bit'
+          ? Promise.reject(new Error('无 flac24bit'))
+          : Promise.resolve({ url: 'https://audio/a.flac', quality: 'flac' });
+      }
+      return Promise.resolve({ url: 'https://audio/b.flac24bit', quality: 'flac24bit' });
+    });
+    fixture.probe.mockImplementation((url: string) =>
+      url === 'https://audio/b.flac24bit'
+        ? Promise.resolve({ ok: false, reason: 'HTTP 403', definitive: true })
+        : Promise.resolve({ ok: true }),
+    );
+    const { resolvePlaybackUrl } = await import('../src/services/playback/playbackResolver');
+    const result = await resolvePlaybackUrl(music, undefined, 'flac24bit');
+    expect(result.url).toBe('https://audio/a.flac');
+    expect(result.quality).toBe('flac');
+    expect(fixture.probe).toHaveBeenCalledWith(
+      'https://audio/a.flac',
+      expect.objectContaining({ Referer: 'https://music.163.com' }),
+      expect.any(Number),
+    );
+  });
 });
 
 describe('持久化缓存 backend 过滤及提交', () => {
@@ -227,6 +265,48 @@ describe('持久化缓存 backend 过滤及提交', () => {
     await rejection;
     expect(await cache.getCachedPlaybackUrl(music, ['flac24bit'])).toBeNull();
     expect(fixture.librarySave).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('持久化外部地址的老化处理', () => {
+  it('超过 10 分钟的远端地址先探活：明确 403 时作废并重新解析', async () => {
+    fixture.libraryLoad.mockResolvedValue(seed('builtinNetease', Date.now() - 11 * 60 * 1000));
+    fixture.probe.mockResolvedValueOnce({ ok: false, definitive: true, reason: 'HTTP 403' });
+    const { resolvePlaybackUrl } = await import('../src/services/playback/playbackResolver');
+
+    const result = await resolvePlaybackUrl(music);
+
+    expect(fixture.probe).toHaveBeenCalledWith(
+      'https://audio/builtinNetease',
+      { Referer: 'https://music.163.com' },
+      expect.any(Number),
+    );
+    // 不是把已经过期的签名地址交给播放器，而是走了重新解析
+    expect(result.url).toBe('https://audio/customSource');
+    const dropped = fixture.librarySave.mock.calls.some(
+      ([, cache]) => !(cache as { playbackUrls: Record<string, unknown> }).playbackUrls['wy:1:128k'],
+    );
+    expect(dropped).toBe(true);
+  });
+
+  it('10 分钟内的地址直接信任，不额外发探活请求', async () => {
+    fixture.libraryLoad.mockResolvedValue(seed('builtinNetease'));
+    const { resolvePlaybackUrl } = await import('../src/services/playback/playbackResolver');
+
+    const result = await resolvePlaybackUrl(music);
+
+    expect(result).toMatchObject({ url: 'https://audio/builtinNetease', fromCache: true });
+    expect(fixture.probe).not.toHaveBeenCalled();
+  });
+
+  it('老条目探活只是超时（非明确拒绝）时仍沿用缓存，不误杀可用地址', async () => {
+    fixture.libraryLoad.mockResolvedValue(seed('builtinNetease', Date.now() - 11 * 60 * 1000));
+    fixture.probe.mockResolvedValueOnce({ ok: false, definitive: false, reason: 'timeout' });
+    const { resolvePlaybackUrl } = await import('../src/services/playback/playbackResolver');
+
+    const result = await resolvePlaybackUrl(music);
+
+    expect(result).toMatchObject({ url: 'https://audio/builtinNetease', fromCache: true });
   });
 });
 
@@ -321,5 +401,35 @@ describe('预取身份与提交', () => {
     lyrics.resolve({ lines: [] });
     await pending;
     expect(service.getPrefetchedTrack(music)?.url).toBeUndefined();
+  });
+});
+
+describe('会员直连优先', () => {
+  it('会员会话以官方 provider 为主源，网关完全不参与', async () => {
+    fixture.vipOfficialFirst = true;
+    fixture.provider.mockResolvedValue(resolved('builtinProvider'));
+    const { resolvePlaybackUrl } = await import('../src/services/playback/playbackResolver');
+    const out = await resolvePlaybackUrl(music, undefined, undefined, { bypassCache: true });
+    expect(out.backend).toBe('builtinProvider');
+    expect(out.url).toBe('https://audio/builtinProvider');
+    expect(fixture.builtin).not.toHaveBeenCalled();
+  });
+
+  it('非会员仍以网关为主源，官方只做兜底', async () => {
+    fixture.builtin.mockResolvedValue(resolved('builtinNetease'));
+    const { resolvePlaybackUrl } = await import('../src/services/playback/playbackResolver');
+    const out = await resolvePlaybackUrl(music, undefined, undefined, { bypassCache: true });
+    expect(out.backend).toBe('builtinNetease');
+    expect(fixture.provider).not.toHaveBeenCalled();
+  });
+
+  it('官方直连失败时照常降级到自定义源，不影响播放', async () => {
+    fixture.vipOfficialFirst = true;
+    fixture.provider.mockRejectedValue(new Error('官方失败'));
+    fixture.runtime.mockResolvedValue({ url: 'https://audio/customSource', quality: 'flac24bit' });
+    const { resolvePlaybackUrl } = await import('../src/services/playback/playbackResolver');
+    const out = await resolvePlaybackUrl(music, undefined, undefined, { bypassCache: true });
+    expect(out.backend).toBe('customSource');
+    expect(fixture.builtin).not.toHaveBeenCalled();
   });
 });

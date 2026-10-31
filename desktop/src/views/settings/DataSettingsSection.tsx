@@ -2,15 +2,26 @@ import type { DataSettingsModel } from "../useSettingsViewModel";
 import { formatByteSize } from "../useSettingsViewModel";
 import { SettingRow } from "./SettingRow";
 
+function formatCount(value: number | undefined): string {
+  return value == null ? "计算中..." : String(value);
+}
+
 export function DataSettingsSection({ model }: { model: DataSettingsModel }) {
   const {
-    songCacheStats,
+    mediaCacheStats,
+    persistentCacheSummary,
     dataPending,
     dataStatus,
     handleClearPlaybackHistory,
-    handleClearAllCache,
+    handleClearMediaCache,
+    handleClearPlaybackUrlCache,
     handleClearLyricsCache,
   } = model;
+
+  // 资源缓存 = 音频 + 封面文件；播放地址/歌词只存文本，不占这里的字节数。
+  const resourceCacheSize = mediaCacheStats
+    ? mediaCacheStats.audioCacheSize + mediaCacheStats.coverCacheSize
+    : null;
 
   return (
 <section className="af-settings-section" id="data">
@@ -32,24 +43,12 @@ export function DataSettingsSection({ model }: { model: DataSettingsModel }) {
   <div className="af-settings-card" style={{ marginTop: 16 }}>
     <div className="af-settings-row">
       <div className="af-data-cache-block">
-        <span className="af-settings-label">播放缓存</span>
-        <p className="af-settings-hint">普通在线歌曲会缓存音频和封面；歌词有独立的清理入口。</p>
-        <div className="af-data-cache-size" aria-label="播放缓存大小">
+        <span className="af-settings-label">资源缓存</span>
+        <p className="af-settings-hint">播放时落盘的歌曲音频与封面文件，超出容量上限后自动淘汰最久未使用的部分。</p>
+        <div className="af-data-cache-size af-cache-size-single" aria-label="资源缓存大小">
           <div className="af-data-cache-size-item af-total">
-            <span>总占用</span>
-            <strong>{formatByteSize(songCacheStats?.totalSize ?? null)}</strong>
-          </div>
-          <div className="af-data-cache-size-item">
-            <span>播放链接/歌词</span>
-            <strong>{formatByteSize(songCacheStats?.persistentCacheSize ?? null)}</strong>
-          </div>
-          <div className="af-data-cache-size-item">
-            <span>歌曲音频文件</span>
-            <strong>{formatByteSize(songCacheStats?.audioCacheSize ?? null)}</strong>
-          </div>
-          <div className="af-data-cache-size-item">
-            <span>封面图片</span>
-            <strong>{formatByteSize(songCacheStats?.coverCacheSize ?? null)}</strong>
+            <span>已使用缓存大小</span>
+            <strong>{formatByteSize(resourceCacheSize)}</strong>
           </div>
         </div>
       </div>
@@ -57,18 +56,47 @@ export function DataSettingsSection({ model }: { model: DataSettingsModel }) {
         <button
           type="button"
           className="af-settings-small-button af-settings-danger-button"
-          onClick={() => { void handleClearAllCache(); }}
+          onClick={() => { void handleClearMediaCache(); }}
           disabled={dataPending}
         >
-          {dataPending ? "清理中..." : "清空全部缓存"}
+          清理缓存
         </button>
+      </div>
+    </div>
+  </div>
+
+  <div className="af-settings-card" style={{ marginTop: 16 }}>
+    <div className="af-settings-row">
+      <div className="af-data-cache-block">
+        <span className="af-settings-label">歌曲元信息缓存</span>
+        <p className="af-settings-hint">解析出的播放地址与歌词，独立于音频文件；清理后下次播放会重新解析或获取。</p>
+        <div className="af-data-cache-size af-cache-size-pair" aria-label="歌曲元信息缓存条目数">
+          <div className="af-data-cache-size-item">
+            <span>歌曲 URL 数量</span>
+            <strong>{formatCount(persistentCacheSummary?.playbackUrlCount)}</strong>
+          </div>
+          <div className="af-data-cache-size-item">
+            <span>歌词数量</span>
+            <strong>{formatCount(persistentCacheSummary?.lyricCount)}</strong>
+          </div>
+        </div>
+      </div>
+      <div className="af-settings-input-group" style={{ flexDirection: "column", alignItems: "stretch" }}>
         <button
           type="button"
           className="af-settings-small-button"
+          onClick={() => { void handleClearPlaybackUrlCache(); }}
+          disabled={dataPending}
+        >
+          清理歌曲 URL 缓存
+        </button>
+        <button
+          type="button"
+          className="af-settings-small-button af-settings-danger-button"
           onClick={() => { void handleClearLyricsCache(); }}
           disabled={dataPending}
         >
-          只清歌词缓存
+          清理歌词缓存
         </button>
       </div>
     </div>

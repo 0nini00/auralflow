@@ -2,11 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useDialogFocus } from "@/hooks/useDialogFocus";
 import { loadSettings, patchSettings } from "@lx/tauri-bridge";
 
-interface Props {
-  onAccepted: () => void;
-}
-
-export function PactModal({ onAccepted }: Props) {
+export function PactModal() {
   const dialogRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
   const [checking, setChecking] = useState(true);
@@ -27,7 +23,6 @@ export function PactModal({ onAccepted }: Props) {
       // 持久化失败不阻塞使用
     }
     setVisible(false);
-    onAccepted();
   };
 
   useDialogFocus({ open: !checking && visible, containerRef: dialogRef, closeOnEscape: false });

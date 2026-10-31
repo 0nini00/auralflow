@@ -2,11 +2,11 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { createLoader, deferred, mobileRequire } = require("./helpers/loadTs.cjs");
 const pure = createLoader({});
-const core = { ...pure("../../packages/core/src/switch-step-queue.ts"), ...pure("../../packages/core/src/playback-quality.ts"), ...pure("../../packages/core/src/recommendations/heartbeat-queue.ts"), ...pure("../../packages/core/src/song-variant.ts"), isPreviewDuration: () => false };
+const core = { ...pure("../../packages/core/src/switch-step-queue.ts"), ...pure("../../packages/core/src/request-limiter.ts"), ...pure("../../packages/core/src/playback-quality.ts"), ...pure("../../packages/core/src/recommendations/heartbeat-queue.ts"), ...pure("../../packages/core/src/song-variant.ts"), ...pure("../../packages/core/src/playback-budgets.ts"), isPreviewDuration: () => false };
 const song = (id, source = "tx") => ({ id, source, name: id, singer: "Artist", interval: 180 });
 async function flush() { await new Promise(setImmediate); }
 async function until(predicate) { for (let i=0;i<100;i++) { if(predicate())return; await flush(); } assert.fail("播放链未到达检查点"); }
-function setup() {
+function setup(overrides = {}) {
   const calls=[]; const lookups=[]; const native={};
   for(const method of ["setupPlayer","updateOptions","setRepeatMode","add","skip","remove","setRate","setVolume","play","stop","reset","pause"]) {
     native[method]=async(...args)=>{calls.push([method,...args]);};
@@ -22,7 +22,13 @@ function setup() {
     "@lx/core":core,"@/services/androidPitchService":{}, "./playbackUrlCache":cache,"@/services/playbackUrlCache":cache,
     "@/services/playbackFailurePolicy":{},"@/services/lyricOverlayService":{isLyricOverlaySupported:()=>false},
     "@/services/listenTrackerService":{startListeningSession(){},resetListeningSession(){}},"./listenTrackerService":{startListeningSession(){},resetListeningSession(){}},
-    "./musicApi":{getLyrics:async()=>[],buildStreamHeaders:()=>({})}, "./wyDirectProvider":{},"./wyPlaylistService":recommendations,"./customSourceRuntime":{},"../stores/customSourceStore":{},"./streamProbe":{},
+    // parseUrl / resolveWySongUrl / probeStreamUrl 默认不接线：现有用例都走缓存命中，
+    // 谁真去调就抛错（TypeError 或显式错误），防止用例悄悄踩进真实解析链。
+    "./musicApi":{getLyrics:async()=>[],buildStreamHeaders:()=>({}), parseUrl: overrides.parseUrl ?? (async()=>{throw new Error("网关通道未接线");})},
+    "./wyDirectProvider": overrides.wyDirectProvider ?? {},
+    "./wyPlaylistService":recommendations,"./customSourceRuntime":{},"../stores/customSourceStore":{},
+    "./streamProbe": overrides.streamProbe ?? {},
+    "./hiddenFallbackService":{startHiddenSearch:async()=>[],resolveHiddenFromGroups:async()=>null,resolveHiddenFallback:async()=>null},
     "@/services/crossSourceFallbackService":cross,
     "@/stores/playbackSettingsStore":{usePlaybackSettingsStore:{getState:()=>({defaultQuality:"320k"})}},
     "./cacheService":{CACHEABLE_AUDIO_SOURCES:new Set(),getCachedLyrics:async()=>[],cacheCover:async()=>{},cacheLyrics:async()=>{}},
@@ -30,7 +36,7 @@ function setup() {
   });
   const store=load("src/stores/playerStore.ts").usePlayerStore;
   const service=load("src/services/playerService.ts");
-  return {store,service,calls,lookups,cache,cross,recommendations, requests: load("src/services/playbackRequest.ts")};
+  return {store,service,calls,lookups,cache,cross,recommendations, load, requests: load("src/services/playbackRequest.ts")};
 }
 // 上限只是 runner 的安全网，不是断言：这些用例靠推进虚拟计时器消耗真实 CPU，墙钟时间只反映
 // 机器速度。5000ms 在并发跑整个套件时会把它们判成超时（实测同一用例 4.2s，转译未缓存时更高）。
@@ -170,3 +176,40 @@ for(const kind of ["personalFm","heartbeat"]){
     assert.equal(h.store.getState().currentSong.id,"B");
   });
 }
+
+test("会员直连优先：官方取链作为主源直接起播，网关与自定义源都不被唤醒",options,async()=>{
+  const requested=[];
+  const h=setup({
+    wyDirectProvider:{resolveWySongUrl:async(track,quality)=>{requested.push(quality);return `https://official.invalid/${track.id}/${quality}`;}},
+    streamProbe:{probeStreamUrl:async()=>({ok:true})},
+  });
+  h.load("src/services/officialPriority.ts").setVipOfficialFirst(true);
+  // 探活需要缓存未命中，否则直接走持久化 URL，覆盖不到真实解析链
+  h.cache.getCachedPlaybackUrl=async()=>null;
+  h.store.getState().setQueue([song("vip","wy")],0);
+  await h.service.playNext();
+  assert.ok(requested.length>0,`官方取链应被调用: ${JSON.stringify(requested)}`);
+  assert.equal(h.store.getState().currentSong.id,"vip");
+  const vipAdd=h.calls.find(call=>call[0]==="add");
+  assert.ok(vipAdd,`应写入原生播放队列: ${JSON.stringify(h.calls.map(call=>call[0]))}`);
+  // 原生队列里的 id 带 source 前缀（wy-vip）；档位取本轮第一个请求的音质
+  const vipTrack=(vipAdd[1]||[]).find(entry=>entry&&entry.id==="wy-vip");
+  assert.ok(vipTrack.url.startsWith("https://official.invalid/vip/"),`应使用官方地址: ${vipTrack.url}`);
+  assert.ok(h.calls.some(call=>call[0]==="play"));
+});
+
+test("非会员不启用会员直连：解析仍走网关主源",options,async()=>{
+  const direct=[];
+  const h=setup({
+    wyDirectProvider:{resolveWySongUrl:async(track,quality)=>{direct.push(quality);return `https://official.invalid/${quality}`;}},
+    parseUrl:async(song,quality)=>({url:`https://gateway.invalid/${song.id}`,quality:"320k"}),
+    streamProbe:{probeStreamUrl:async()=>({ok:true})},
+  });
+  h.cache.getCachedPlaybackUrl=async()=>null;
+  h.store.getState().setQueue([song("free","wy")],0);
+  await h.service.playNext();
+  assert.deepEqual(direct,[]);
+  const freeAdd=h.calls.find(call=>call[0]==="add");
+  const freeTrack=(freeAdd[1]||[]).find(entry=>entry&&entry.id==="wy-free");
+  assert.equal(freeTrack.url,"https://gateway.invalid/free");
+});

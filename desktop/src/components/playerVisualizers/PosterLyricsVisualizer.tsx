@@ -1,9 +1,15 @@
 import { LyricText, LyricRomanization } from './LyricAnnotations';
 import type { CSSProperties } from 'react';
-import { calculateLyricLineProgress } from '@/services/lyrics/playbackSync';
+import { calculateLyricLineProgress } from '@lx/core';
 import type { LyricLine, LyricWord } from '@/services/lyricsService';
 import { getLyricDisplayText, getSecondaryLyricText } from './lyricDisplay';
 import type { PlayerVisualizerProps } from './types';
+
+/**
+ * @deprecated 当前没有生产调用点（见 components/README.md），仅被
+ * lyrics-annotations-render.test.tsx 用作注音渲染的载体。接入可视化轮播或
+ * 彻底移除前，改动需同步核对那份测试。
+ */
 
 /** 每个字的已播进度（0..1）：currentTime 小于字开始为 0，超出结束为 1。 */
 function perWordProgressPercent(line: LyricLine, currentTime: number): number[] {

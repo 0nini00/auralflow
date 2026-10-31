@@ -5,6 +5,7 @@ import { interruptPlaybackResolution, runPlaybackResolution } from "./playbackRe
 import { logger } from "@/services/logger";
 import { parseUrl, getLyrics, buildStreamHeaders } from "./musicApi";
 import { resolveWySongUrl } from "./wyDirectProvider";
+import { isVipOfficialFirst } from "./officialPriority";
 import { usePlayerStore } from "../stores/playerStore";
 import type { PlayMode } from "../stores/playerStore";
 import { startListeningSession } from "./listenTrackerService";
@@ -13,11 +14,22 @@ import { requestCustomSourceMusicUrl } from "./customSourceRuntime";
 import { cacheCover, cacheLyrics, getCachedLyrics, cacheAudioFile, getCachedAudioFile, isLocalFilePlayable, CACHEABLE_AUDIO_SOURCES } from "./cacheService";
 import { getCachedPlaybackUrl, saveCachedPlaybackUrl, invalidateCachedPlaybackUrl } from "./playbackUrlCache";
 import { getHeartbeatModeList, getPersonalFmSongs, trashPersonalFmSong } from "./wyPlaylistService";
-import { appendHeartbeatRefill, buildSongKey, consumeHeartbeatNext, orderPlaybackCandidates } from "@lx/core";
+import {
+  appendHeartbeatRefill,
+  buildSongKey,
+  consumeHeartbeatNext,
+  CUSTOM_SOURCE_RESOLVE_BUDGET_MS,
+  CUSTOM_SOURCE_SPREAD_MS,
+  MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS,
+  orderPlaybackCandidates,
+  PRIMARY_BUDGET_MS,
+  withBudget,
+} from "@lx/core";
 import { getNextQueueNavigationState, getPreviousQueueNavigationState } from "@/services/queueNavigationModel";
 import { dequeueTempPlayList, insertSongToPlayNext } from "@/services/songQueueActions";
 import { buildPlaybackQualityTiers, getPlaybackQualityFallbacks, normalizePlaybackQuality, resolveEffectivePlaybackQuality, type PlaybackQuality } from "@/services/playbackQualityModel";
 import {
+  createRequestLimiter,
   DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
   DEFAULT_SOURCE_STAGGER_MS,
   estimateStreamDurationSeconds,
@@ -36,6 +48,12 @@ import {
   findTxVariants,
 } from "@/services/crossSourceFallbackService";
 import { probeStreamUrl } from "./streamProbe";
+import {
+  resolveHiddenFromGroups,
+  startHiddenSearch,
+  type HiddenCandidateGroup,
+  type HiddenFallbackResult,
+} from "./hiddenFallbackService";
 import { beginPlaybackRequest, getCurrentPlaybackRequestId, isCurrentPlaybackRequest } from "./playbackRequest";
 
 /**
@@ -122,7 +140,13 @@ export function invalidatePrefetchForSong(song: MusicInfo): void {
 export async function resolveUrlWithCustomSource(
   song: MusicInfo,
   qualities: string[],
+  deadlineAt?: number,
 ): Promise<{ url: string; quality: string }> {
+  // 内外层竞速都跟随解析链的剩余预算（对齐桌面 customSourceBackend）：
+  // 否则源启动得越晚越能拿满整份固定预算，内层叠外层可超总预算。
+  const budgetMs = deadlineAt
+    ? Math.max(1000, deadlineAt - Date.now())
+    : CUSTOM_SOURCE_RESOLVE_BUDGET_MS;
   const enabledSources = useCustomSourceStore
     .getState()
     .sources.filter((source) => source.enabled);
@@ -135,12 +159,18 @@ export async function resolveUrlWithCustomSource(
 
   const floorQuality = qualities[qualities.length - 1];
   const outcomes = enabledSources.map<string | undefined>(() => undefined);
+  // 竞速是「源 × 音质」二维展开，最坏会同时打出 20+ 个请求；对第三方公益
+  // 代理是明显放大，被限流后所有源一起变慢，竞速会退化成一起超时。
+  // 闸门把在途压到 3 个，租约与排队超时负责不让队尾饿死（见 @lx/core）。
+  const limiter = createRequestLimiter({ limit: MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS });
   // 每个源:源内部也走同一个交错竞速——最高档先发,未回就在交错期后并发降档;
   // 首个达标结果开启升级窗口,最高档在窗口内赶上仍可翻盘。
   // 旧实现按档位串行等待:服务端对高清单走慢回退路径(实测 flac24bit 18.7s 才回
   // 320k 兜底,而 flac 只要 2.1s)时,整源被拖死,真正可用的档位从未被请求。
   const launchers = enabledSources.map((source, index) => () => (async () => {
     const qualityLaunchers = qualities.map((requested) => () => (async () => {
+      // 排队期间本轮可能已经定稿，acquire 会直接抛错，一个请求都不发。
+      const releaseSlot = await limiter.acquire();
       try {
         // 取链期间脚本主动 send(updateAlert) 时写入 store,让全局更新弹窗能感知
         const result = await requestCustomSourceMusicUrl(source, song, requested, (alert) => {
@@ -150,6 +180,8 @@ export async function resolveUrlWithCustomSource(
         return { url: result.url, quality: normalizePlaybackQuality(result.quality || requested) };
       } catch (error) {
         throw new Error(`${requested}: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        releaseSlot();
       }
     })());
     try {
@@ -160,6 +192,9 @@ export async function resolveUrlWithCustomSource(
         staggerMs: DEFAULT_SOURCE_STAGGER_MS,
         maxSpreadMs: CUSTOM_SOURCE_SPREAD_MS,
         upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
+        // 源内竞速跟随本轮总预算：没有它，外层到期后内层仍会按交错间隔
+        // 把剩下的音质一个个发出去，用户已经在听了请求还在打。
+        deadlineMs: budgetMs,
         formatError: (errors) => {
           const detail = errors
             .map((error) => (error instanceof Error ? error.message : String(error)))
@@ -181,7 +216,7 @@ export async function resolveUrlWithCustomSource(
       staggerMs: DEFAULT_SOURCE_STAGGER_MS,
       maxSpreadMs: CUSTOM_SOURCE_SPREAD_MS,
       upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
-      deadlineMs: CUSTOM_SOURCE_RESOLVE_BUDGET_MS,
+      deadlineMs: budgetMs,
       formatError: (errors) => {
         const detail = errors
           .map((error) => (error instanceof Error ? error.message : String(error)))
@@ -193,6 +228,9 @@ export async function resolveUrlWithCustomSource(
     const detail = outcomes.filter((item): item is string => Boolean(item)).join(";");
     const capped = detail.length > 500 ? `${detail.slice(0, 500)}...` : detail;
     throw new Error(capped || (error instanceof Error ? error.message : String(error)) || "所有自定义音源均解析失败");
+  } finally {
+    // 定稿或失败后立刻关闸：排队中的候选不再发请求，在途的让它收尾。
+    limiter.abandon();
   }
 }
 
@@ -212,16 +250,25 @@ async function raceQualityTier(
   song: MusicInfo,
   qualities: string[],
   getCustomAttempt: () => Promise<{ url: string; quality: string; fromCustomSource: boolean }>,
+  preferOfficial = false,
 ): Promise<{ url: string; quality: string; fromCustomSource: boolean }> {
-  // 网关通道内部按音质从高到低顺序尝试，第一个成功的即本轮最高可用档。
+  // 主源通道按音质从高到低顺序尝试，第一个成功的即本轮最高可用档。
   // 不对每档并发：gdstudio 是免费网关，同一首歌并发多档容易触发限流，
   // 且顺序高→低本身就等价于择优（对齐桌面端 builtinNeteaseBackend）。
   // 音质统一归一化为标签：网关返回的是 br 数字串（"740"/"999"），
   // 而预读/持久化缓存的 key 用的是音质标签，不归一化会导致缓存永远查不到。
-  const gatewayAttempt = (async () => {
+  //
+  // 会员会话（preferOfficial）改走网易云官方直连：weapi 带 Cookie，拿到的就是
+  // 账号权限内的最高音质；网关对 VIP 曲只能给降档/试听。官方失败仍会走下面的
+  // 竞速与最终兜底，所以这里只是把最可靠的那条提前，不改变兜底语义。
+  const primaryAttempt = (async () => {
     const errors: string[] = [];
     for (const quality of qualities) {
       try {
+        if (preferOfficial) {
+          const url = await resolveWySongUrl(song, quality as PlaybackQuality);
+          return { url, quality: normalizePlaybackQuality(quality), fromCustomSource: false };
+        }
         const result = await parseUrl(song, quality);
         return {
           url: result.url,
@@ -232,23 +279,25 @@ async function raceQualityTier(
         errors.push(`${quality}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    throw new Error(`内置音乐 API 解析失败：${errors.join(" | ")}`);
+    throw new Error(
+      `${preferOfficial ? "网易云会员直连" : "内置音乐 API"} 解析失败：${errors.join(" | ")}`,
+    );
   })();
 
-  // 懒切(对齐桌面端 playbackResolver):网关先行 2.5s,达标即定稿,自定义源零唤醒
-  const gatewayHit = await withBudget(gatewayAttempt, PRIMARY_BUDGET_MS);
-  if (gatewayHit && gatewayHit.quality === normalizePlaybackQuality(qualities[0])) {
-    return gatewayHit;
+  // 懒切(对齐桌面端 playbackResolver):主源先行 2.5s,达标即定稿,自定义源零唤醒
+  const primaryHit = await withBudget(primaryAttempt, PRIMARY_BUDGET_MS);
+  if (primaryHit && primaryHit.quality === normalizePlaybackQuality(qualities[0])) {
+    return primaryHit;
   }
 
-  const gatewayRetry = gatewayHit
-    ? Promise.resolve(gatewayHit)
-    : gatewayAttempt.catch((error: unknown) => {
+  const primaryRetry = primaryHit
+    ? Promise.resolve(primaryHit)
+    : primaryAttempt.catch((error: unknown) => {
         throw new Error(error instanceof Error ? error.message : String(error));
       });
   const customAttempt = getCustomAttempt();
 
-  return raceForBestQuality([gatewayRetry, customAttempt], {
+  return raceForBestQuality([primaryRetry, customAttempt], {
     getQuality: (value) => value.quality,
     upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
     ceiling: qualities[0],
@@ -265,28 +314,6 @@ async function raceQualityTier(
  * 解析单首歌曲的播放地址（优先命中预读缓存）。
  * 解析成功后写入预读缓存，供 playNext/playPrevious 直接复用。
  */
-/**
- * 给 Promise 加预算:超时返回 null(不抛),由调用方决定是否唤醒兜底。
- */
-async function withBudget<T>(task: Promise<T>, budgetMs: number): Promise<T | null> {
-  return new Promise<T | null>((resolve) => {
-    const timer = setTimeout(() => resolve(null), budgetMs);
-    task.then(
-      (value) => { clearTimeout(timer); resolve(value); },
-      () => { clearTimeout(timer); resolve(null); },
-    );
-  });
-}
-
-/** 懒切预算:内置网关先单独跑,超时/不足才唤醒自定义源(对齐桌面端 2500ms)。 */
-const PRIMARY_BUDGET_MS = 2500;
-
-/** 自定义源阶段单次预算:整链单次竞速下需覆盖队尾慢源展开+服务端 2-10s 慢回退(对齐桌面端 10000ms)。 */
-const CUSTOM_SOURCE_RESOLVE_BUDGET_MS = 10000;
-
-/** 交错启动总展开上限:源/档位再多也不把队尾候选推到预算尾巴(对齐桌面端 1600ms)。 */
-const CUSTOM_SOURCE_SPREAD_MS = 1600;
-
 /**
  * 云盘曲取链：官方直连（带 Cookie），不做试听判定。
  *
@@ -418,12 +445,49 @@ async function resolveSongUrl(
     // 全部档位竞速，全败才逐档下调；一个候选的完整音质链失败后才轮到下一个候选——
     // 「宁可降音质也不换版本」优先于「换版本保音质」，变体只做真兜底。
     const resolveDeadline = Date.now() + RESOLVE_RACE_BUDGET_MS;
+    // 隐藏兜底分两段：搜索可以提前并行（纯 HTTP、无副作用），取链必须等到常规
+    // 链路真的失败。分开是为了不让「1s 就解析成功」的歌白唤醒 LX 脚本；同时搜索
+    // 仍提前启动，避免自定义源慢回退耗完预算后才开始搜。
+    let hiddenSearch: Promise<HiddenCandidateGroup[]> | null = null;
+    const ensureHiddenSearch = (): Promise<HiddenCandidateGroup[]> => {
+      if (!hiddenSearch) {
+        hiddenSearch = startHiddenSearch(song, resolveDeadline).catch((error) => {
+          logger.debug(`[hidden] 搜索失败: ${error instanceof Error ? error.message : String(error)}`);
+          return [];
+        });
+      }
+      return hiddenSearch;
+    };
+    let hiddenResolve: Promise<HiddenFallbackResult | null> | null = null;
+    const ensureHiddenResolve = (): Promise<HiddenFallbackResult | null> => {
+      if (!hiddenResolve) {
+        hiddenResolve = ensureHiddenSearch()
+          .then((groups) => resolveHiddenFromGroups(groups, song, qualityCandidates, resolveDeadline))
+          .catch((error) => {
+            logger.debug(`[hidden] 兜底失败: ${error instanceof Error ? error.message : String(error)}`);
+            return null;
+          });
+      }
+      return hiddenResolve;
+    };
+    // 预取（skipPrefetchInflight）不提前启动：预取下一首时同时拉起隐藏搜索，
+    // 即使常规链路成功也白跑；预取只在真正失败时再启动。
+    if (song.source === "tx" && !song.gateway?.source && options?.skipPrefetchInflight !== true) {
+      void ensureHiddenSearch();
+    }
     let lastTierError: unknown = null;
     let raced: { url: string; quality: string; fromCustomSource: boolean } | null = null;
+    // 会员直连（preferOfficial）是否已经作为主源完整试过官方链（候选循环内赋值）
+    let officialFirstUsed = false;
     candidateLoop: for (const candidate of playbackCandidates) {
       // 自定义源按完整降级链只竞速一次,轮次间复用同一 promise(对齐桌面端
       // playbackResolver)。旧实现每轮次重新唤醒一遍全部音源,tx 场景第一轮
       // (无损)烧完预算后第二轮(320k)才从零开始,可用结果被轮次序列推过总 deadline。
+      const officialFirst = candidate.source === "wy" && isVipOfficialFirst();
+      // 只标记「主条目自己」：兜底重打的是主条目的官方链，变体试过与否不影响判断
+      if (officialFirst && candidate.source === song.source && candidate.id === song.id) {
+        officialFirstUsed = true;
+      }
       let customAttemptPromise: Promise<{ url: string; quality: string; fromCustomSource: boolean }> | null = null;
       const getCustomAttempt = () => {
         if (!customAttemptPromise) {
@@ -440,10 +504,16 @@ async function resolveSongUrl(
       for (const tier of qualityTiers) {
         if (Date.now() >= resolveDeadline) {
           lastTierError = lastTierError ?? new Error(`解析播放地址超时，请重试`);
+          void ensureHiddenResolve();
           break candidateLoop;
         }
         try {
-          const racedResult = await raceQualityTier(candidate, tier, getCustomAttempt);
+          const racedResult = await raceQualityTier(
+            candidate,
+            tier,
+            getCustomAttempt,
+            officialFirst,
+          );
           // 防盗链 headers 按候选实际来源补齐：LX 自定义音源返回的也多为 wy/tx 官方 CDN 链接，
           // 缺 Referer 会直接 403（竞速版本初期的回归点）；其他源 CDN 无 Referer 要求，多带无害。
           const candidateHeaders = buildStreamHeaders(candidate.source);
@@ -490,13 +560,16 @@ async function resolveSongUrl(
           break candidateLoop;
         } catch (error) {
           lastTierError = error;
+          void ensureHiddenResolve();
         }
       }
     }
     if (!raced) {
       // 竞速全败后的最后保险：wy 官方直连（对齐桌面端 2026-08 兜底语义；
       // tx 无官方直连可用，其兜底是网关同名搜索，已在音乐 API 层处理）。
-      if (song.source === "wy") {
+      // 会员直连开启时官方链刚在主源位完整试过：再兜底一次只会原样重打
+      // 同样的 weapi+eapi 请求（每档 2 个），只拉长报错时延——直接跳过。
+      if (song.source === "wy" && !officialFirstUsed) {
         try {
           const directQuality = (qualityCandidates[0] ?? quality) as PlaybackQuality;
           const directUrl = await resolveWySongUrl(song, directQuality);
@@ -508,6 +581,43 @@ async function resolveSongUrl(
           const directMessage = directError instanceof Error ? directError.message : String(directError);
           const previous = lastTierError instanceof Error ? lastTierError.message : String(lastTierError ?? "");
           lastTierError = new Error(`${previous}；wy 官方直连也失败：${directMessage}`);
+        }
+      }
+      if (!raced) {
+        // 隐藏兜底：酷我/酷狗同名搜索 + 已装 LX 脚本取链。
+        // 与桌面端同语义：明确拒绝或试听片段才放弃；超时/抖动下不了结论时仍采用地址。
+        const hidden = await ensureHiddenResolve();
+        if (hidden) {
+          // 探活不能再用固定 5s：隐藏解析可能已接近 12s 总预算，必须卡在剩余预算内。
+          const hiddenProbe = await probeStreamUrl(
+            hidden.url,
+            undefined,
+            Math.max(500, resolveDeadline - Date.now()),
+          );
+          const hiddenRejected = !hiddenProbe.ok && hiddenProbe.definitive;
+          const hiddenPreview =
+            hiddenProbe.ok &&
+            hiddenProbe.totalBytes != null &&
+            isPreviewStream({
+              totalBytes: hiddenProbe.totalBytes,
+              quality: hidden.quality,
+              expectedDurationSeconds: song.interval,
+            });
+          if (!hiddenRejected && !hiddenPreview) {
+            logger.debug(`[hidden] 兜底成功 ${song.name} ${hidden.resolverName} (${hidden.quality})`);
+            url = hidden.url;
+            // 用 {} 而不是 undefined：持久化缓存读回时 `headers ?? buildStreamHeaders(原曲来源)`
+            // 会把酷我/酷狗 CDN 误套上 wy/tx 的 Referer。空对象表示「明确不带防盗链头」。
+            headers = {};
+            resolvedQuality = hidden.quality;
+            resolvedSong = song;
+            raced = { url: hidden.url, quality: hidden.quality, fromCustomSource: false };
+          } else {
+            const previous = lastTierError instanceof Error ? lastTierError.message : String(lastTierError ?? "");
+            lastTierError = new Error(
+              `${previous}；隐藏音源兜底不可用（${hiddenRejected ? "探活失败" : "试听片段"}）`,
+            );
+          }
         }
       }
       if (!raced) {
@@ -600,9 +710,6 @@ export function getNearbyQueueIndexes(
 // 校验失败（切歌/改队列/换模式后失效）时重新抽取，最坏退化为原先的现场解析。
 let preDrawnShuffle: { fromKey: string; songKey: string; index: number } | null = null;
 
-function songKeyOf(song: MusicInfo): string {
-  return `${song.source}:${song.id}`;
-}
 
 /** 消费（命中即清除）有效的随机预抽：返回预抽索引，无效返回 null。 */
 function consumePreDrawnShuffleIndex(): number | null {
@@ -611,11 +718,11 @@ function consumePreDrawnShuffleIndex(): number | null {
   const valid =
     playMode === "shuffle" &&
     !!currentSong &&
-    preDrawnShuffle.fromKey === songKeyOf(currentSong) &&
+    preDrawnShuffle.fromKey === buildSongKey(currentSong) &&
     preDrawnShuffle.index >= 0 &&
     preDrawnShuffle.index < queue.length &&
     queue[preDrawnShuffle.index] != null &&
-    songKeyOf(queue[preDrawnShuffle.index]) === preDrawnShuffle.songKey;
+    buildSongKey(queue[preDrawnShuffle.index]) === preDrawnShuffle.songKey;
   const index = valid ? preDrawnShuffle.index : null;
   preDrawnShuffle = null;
   return index;
@@ -640,18 +747,18 @@ function getOrDrawPreDrawnShuffleSong(): MusicInfo | undefined {
     const song = queue[drawn.nextIndex];
     if (!song) return undefined;
     preDrawnShuffle = {
-      fromKey: songKeyOf(currentSong),
-      songKey: songKeyOf(song),
+      fromKey: buildSongKey(currentSong),
+      songKey: buildSongKey(song),
       index: drawn.nextIndex,
     };
   }
 
   const valid =
-    preDrawnShuffle.fromKey === (currentSong ? songKeyOf(currentSong) : "") &&
+    preDrawnShuffle.fromKey === (currentSong ? buildSongKey(currentSong) : "") &&
     preDrawnShuffle.index >= 0 &&
     preDrawnShuffle.index < queue.length &&
     queue[preDrawnShuffle.index] != null &&
-    songKeyOf(queue[preDrawnShuffle.index]) === preDrawnShuffle.songKey;
+    buildSongKey(queue[preDrawnShuffle.index]) === preDrawnShuffle.songKey;
   if (!valid) {
     preDrawnShuffle = null;
     return undefined;
@@ -1241,7 +1348,7 @@ export async function playPrevious(): Promise<void> {
 }
 
 /**
- * 加载歌词
+ * 启动私人 FM：拉一批可播歌曲并进入 FM 播放上下文。
  */
 export async function startPersonalFm(): Promise<MusicInfo[]> {
   const { songs, hasMore } = await getPersonalFmSongs();
@@ -1299,7 +1406,6 @@ export async function playNextPersonalFmSong(requestId?: number): Promise<void> 
   const intent = requestId ?? beginPlaybackRequest();
   const nextInBatchIndex = context.currentBatchIndex + 1;
   if (nextInBatchIndex < context.currentBatch.length) {
-    usePlayerStore.setState({ currentIndex: nextInBatchIndex });
     usePlayerStore.getState().setPersonalFmContext({
       currentBatch: context.currentBatch,
       currentBatchIndex: nextInBatchIndex,
@@ -1568,15 +1674,3 @@ export function formatTime(seconds: number): string {
   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
-/**
- * 获取当前歌词行索引（收敛到 @lx/core 的唯一实现：
- * 二分查找 + 前进滞后带 0.12s + 首行前返回 -1）。
- */
-export function getCurrentLyricIndex(
-  lyrics: Array<{ time: number; text: string }>,
-  position: number
-): number {
-  return findCurrentLyricLineIndex(lyrics, position, {
-    hysteresisSeconds: LYRIC_LINE_ADVANCE_HYSTERESIS_SECONDS,
-  });
-}

@@ -1,5 +1,5 @@
 import type { LyricLine, LyricWord } from "@/services/lyricsService";
-import { calculateLyricLineProgress } from "@/services/lyrics/playbackSync";
+import { calculateLyricLineProgress } from "@lx/core";
 
 export type DesktopLyricLineRole = "previous" | "current" | "next" | "empty";
 

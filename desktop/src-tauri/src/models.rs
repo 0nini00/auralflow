@@ -99,13 +99,8 @@ pub struct AppSettings {
     pub main_window_x: Option<f64>,
     /// 主窗口：上次的 y
     pub main_window_y: Option<f64>,
-    /// 主窗口：上次的宽
-    pub main_window_width: Option<f64>,
-    /// 主窗口：上次的高
-    pub main_window_height: Option<f64>,
-    /// 主窗口：上次退出时是否最大化。最大化时尺寸/位置记的是系统矩形，所以形状由这个开关决定
-    #[serde(default)]
-    pub main_window_maximized: bool,
+    // 刻意不持久化窗口宽高与最大化状态：窗口形状每次启动都按设计尺寸重建，
+    // 留在设置里的旧尺寸只会误导（见 window_state.rs 的恢复逻辑）。
     /// 侧边栏宽度（逻辑像素）。None=从未拖过，前端用默认 240
     #[serde(default)]
     pub sidebar_width: Option<f64>,
@@ -183,9 +178,6 @@ impl Default for AppSettings {
             lyric_window_height: None,
             main_window_x: None,
             main_window_y: None,
-            main_window_width: None,
-            main_window_height: None,
-            main_window_maximized: false,
             // 侧边栏宽度：None 表示从未拖过，前端回落到默认 240
             sidebar_width: None,
             // 侧边栏默认展开

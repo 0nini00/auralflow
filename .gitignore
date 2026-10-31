@@ -48,6 +48,12 @@ desktop/src-tauri/gen/
 .pi-lens/
 .pi/
 
+# 本机 AI 工具链产物（审查临时产物 / 工作记忆 / 知识库缓存）
+.review/
+.workflow/
+.workbuddy/
+.workbuddy-ai/
+
 # 误建的空文件
 /Configure
 /Task

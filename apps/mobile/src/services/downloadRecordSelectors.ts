@@ -1,4 +1,5 @@
 import type { MusicInfo } from "@lx/core";
+import { buildSongKey } from "@lx/core";
 import type {
   DownloadedItem,
   DownloadQuality,
@@ -27,9 +28,6 @@ interface DownloadRecordState {
   failedDownloads: FailedDownloadRecord[];
 }
 
-function songKey(song: MusicInfo): string {
-  return `${song.source}:${song.id}`;
-}
 
 function requestedQuality(song: MusicInfo): DownloadQuality | null {
   const value = song.quality;
@@ -47,7 +45,7 @@ function matches(
   quality: DownloadQuality | undefined,
   target: MusicInfo,
 ): boolean {
-  if (songKey(song) !== songKey(target)) return false;
+  if (buildSongKey(song) !== buildSongKey(target)) return false;
   const requested = requestedQuality(target);
   return requested === null || (quality ?? song.quality ?? "320k") === requested;
 }

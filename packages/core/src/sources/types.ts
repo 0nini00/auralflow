@@ -142,6 +142,10 @@ export interface LyricResult {
   yromaLyric?: string;
   /** 网易云逐字歌词（yrc 原始串） */
   yrc?: string;
+  /** QQ 音乐逐字歌词（qrc 原始串） */
+  qrc?: string;
+  /** 酷狗逐字歌词（krc 原始串，可能是密文） */
+  krc?: string;
 }
 
 export interface SearchResult {

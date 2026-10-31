@@ -17,6 +17,7 @@ import { Touchable } from "@/components/Touchable";
 import {
   clearLyricOverlayLyrics,
   hideLyricOverlay,
+  isLyricOverlaySupported,
   setLyricOverlayLocked,
   setLyricOverlayLyrics,
 } from "@/services/lyricOverlayService";
@@ -91,7 +92,8 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
     if (currentSong || !overlayVisible) return;
     void (async () => {
       try {
-        await hideLyricOverlay();
+        // iOS / 原生模块缺失时没有悬浮歌词可关：不探测会把能力错误当操作失败弹给用户
+        if (isLyricOverlaySupported()) await hideLyricOverlay();
         await setOverlayVisible(false);
       } catch (error) {
         showActionError("关闭悬浮歌词失败", error);

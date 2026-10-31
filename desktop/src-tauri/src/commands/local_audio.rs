@@ -404,7 +404,22 @@ pub async fn set_audio_metadata(
     artist: Option<String>,
     album: Option<String>,
 ) -> Result<(), String> {
-    let path_buf = PathBuf::from(&path);
+    // 整文件 copy + 标签解析/写回是重阻塞 IO（无损可达上百 MB）：放进阻塞线程池，
+    // 不占 tokio worker（否则其它 IPC 一起变慢），也不占主窗口 UI 线程。
+    tauri::async_runtime::spawn_blocking(move || {
+        set_audio_metadata_blocking(&path, title, artist, album)
+    })
+    .await
+    .map_err(|err| format!("元数据写入任务失败: {}", err))?
+}
+
+fn set_audio_metadata_blocking(
+    path: &str,
+    title: Option<String>,
+    artist: Option<String>,
+    album: Option<String>,
+) -> Result<(), String> {
+    let path_buf = PathBuf::from(path);
     if !path_buf.exists() {
         return Err(format!("File does not exist: {}", path));
     }
@@ -434,7 +449,14 @@ pub async fn set_audio_metadata(
 /// 写入封面图片。cover_data 为 data URL：`data:image/jpeg;base64,...`
 #[tauri::command]
 pub async fn set_audio_cover(path: String, cover_data: String) -> Result<(), String> {
-    let path_buf = PathBuf::from(&path);
+    // base64 解码 + 整文件 copy + 标签写回同样是重阻塞 IO，理由同 set_audio_metadata
+    tauri::async_runtime::spawn_blocking(move || set_audio_cover_blocking(&path, &cover_data))
+        .await
+        .map_err(|err| format!("封面写入任务失败: {}", err))?
+}
+
+fn set_audio_cover_blocking(path: &str, cover_data: &str) -> Result<(), String> {
+    let path_buf = PathBuf::from(path);
     if !path_buf.exists() {
         return Err(format!("File does not exist: {}", path));
     }
@@ -472,8 +494,8 @@ pub async fn set_audio_cover(path: String, cover_data: String) -> Result<(), Str
         ));
     }
     // 采信字节魔数，而不是声明的 MIME 字符串：此前「认不出来就当 JPEG」会把
-    // `data:image/svg+xml` 这类活动内容贴成「JPEG」写进音频文件，而同一功能的
-    // 手动封面落盘（`write_manual_cover`）早就有魔数白名单了 —— 两处不一致。
+    // `data:image/svg+xml` 这类活动内容贴成「JPEG」写进音频文件。
+    // 魔数白名单全仓只有一份（`media_cache::sniff_image_extension`），这里直接复用。
     let mime_type = match super::media_cache::sniff_image_extension(&data) {
         Some("png") => audiotags::MimeType::Png,
         Some("jpg") => audiotags::MimeType::Jpeg,
@@ -505,11 +527,18 @@ pub async fn set_audio_cover(path: String, cover_data: String) -> Result<(), Str
 /// 传空串则清除歌词。
 #[tauri::command]
 pub async fn set_audio_lyrics(path: String, lyrics: String) -> Result<(), String> {
+    // 理由同 set_audio_metadata：lofty 解析 + 整文件副本写回是重阻塞 IO
+    tauri::async_runtime::spawn_blocking(move || set_audio_lyrics_blocking(&path, &lyrics))
+        .await
+        .map_err(|err| format!("歌词写入任务失败: {}", err))?
+}
+
+fn set_audio_lyrics_blocking(path: &str, lyrics: &str) -> Result<(), String> {
     use lofty::file::AudioFile;
     use lofty::file::TaggedFileExt;
     use lofty::tag::ItemKey;
 
-    let path_buf = PathBuf::from(&path);
+    let path_buf = PathBuf::from(path);
     if !path_buf.exists() {
         return Err(format!("File does not exist: {}", path));
     }
@@ -517,14 +546,24 @@ pub async fn set_audio_lyrics(path: String, lyrics: String) -> Result<(), String
     let mut tagged_file =
         lofty::read_from_path(&path_buf).map_err(|e| format!("读取文件失败: {}", e))?;
 
-    let tag = tagged_file
-        .primary_tag_mut()
-        .ok_or_else(|| "该格式不支持标签写入".to_string())?;
+    // primary 缺失时退回 first tag；全无标签的文件按文件类型建一个空标签，
+    // 与 set_audio_metadata 的 read_or_create_audio_tag 兜底同语义——
+    // 此前这里直接报「不支持标签写入」，错误信息与事实不符。
+    if tagged_file.primary_tag_mut().is_none() && tagged_file.first_tag_mut().is_none() {
+        tagged_file.insert_tag(lofty::tag::Tag::new(tagged_file.primary_tag_type()));
+    }
+    let tag = if let Some(tag) = tagged_file.primary_tag_mut() {
+        tag
+    } else if let Some(tag) = tagged_file.first_tag_mut() {
+        tag
+    } else {
+        return Err("该格式不支持标签写入".to_string());
+    };
 
     if lyrics.trim().is_empty() {
         tag.remove_key(&ItemKey::Lyrics);
     } else {
-        tag.insert_text(ItemKey::Lyrics, lyrics);
+        tag.insert_text(ItemKey::Lyrics, lyrics.to_string());
     }
 
     write_audio_file_safely(&path_buf, |temp| {

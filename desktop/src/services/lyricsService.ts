@@ -22,6 +22,18 @@ export function clearLyricsMemoryCache(): void {
   lyricsCache.clear();
 }
 
+/**
+ * 同步 peek 进程内歌词缓存（不做任何 I/O）。
+ *
+ * 唯一用途是 useLyrics 的「切歌首帧」：持久化层是异步 IPC，做不到同步返回，
+ * 而切歌时哪怕一个 async tick 的空白也肉眼可见。只返回有词的结果——空结果
+ * （含白名单缓存的「暂无歌词」）返回 null，让调用方走正常异步路径，错误由 error 字段统一表达。
+ */
+export function peekCachedLyrics(music: MusicInfo): LyricLine[] | null {
+  const cached = lyricsCache.get(getCacheKey(music));
+  return cached && cached.lines.length > 0 ? cached.lines : null;
+}
+
 function getCacheKey(music: MusicInfo): string {
   return `${music.source}:${music.id}`;
 }

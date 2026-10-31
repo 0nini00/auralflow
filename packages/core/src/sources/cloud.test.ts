@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { cloudQualityLabel, toCloudMusicInfo, toCloudMusicInfos } from "./cloud";
+import { cloudFileExtension, cloudQualityLabel, toCloudMusicInfo, toCloudMusicInfos } from "./cloud";
 
 /**
  * 这套用例锚定 `toCloudMusicInfo` 的映射契约——两端播放与列表都吃它的输出，
@@ -132,5 +132,40 @@ describe("cloudQualityLabel", () => {
     expect(cloudQualityLabel(2987)).toBe("Hi-Res");
     expect(cloudQualityLabel(0)).toBeUndefined();
     expect(cloudQualityLabel(undefined)).toBeUndefined();
+  });
+});
+
+describe("cloudFileExtension", () => {
+  it("取上传文件的真实扩展名，而不是请求档位", () => {
+    // 请求 320k 也可能拿到用户上传的 FLAC：扩展名必须跟着文件走
+    expect(
+      cloudFileExtension({
+        wyCloud: true,
+        cloudMeta: { fileName: "他和她 - 回音哥.flac", bitrate: 1681 },
+      }),
+    ).toBe("flac");
+  });
+
+  it("大写扩展名归一化", () => {
+    expect(
+      cloudFileExtension({ wyCloud: true, cloudMeta: { fileName: "Track.FLAC" } }),
+    ).toBe("flac");
+  });
+
+  it("文件名缺失 / 无扩展名 / 非音频扩展名时返回 undefined", () => {
+    expect(cloudFileExtension({ wyCloud: true, cloudMeta: {} })).toBeUndefined();
+    expect(
+      cloudFileExtension({ wyCloud: true, cloudMeta: { fileName: "no-extension" } }),
+    ).toBeUndefined();
+    expect(
+      cloudFileExtension({ wyCloud: true, cloudMeta: { fileName: "cover.jpg" } }),
+    ).toBeUndefined();
+  });
+
+  it("非云盘曲不参与该推断", () => {
+    expect(
+      cloudFileExtension({ wyCloud: false, cloudMeta: { fileName: "a.flac" } }),
+    ).toBeUndefined();
+    expect(cloudFileExtension({ cloudMeta: { fileName: "a.flac" } })).toBeUndefined();
   });
 });

@@ -52,6 +52,7 @@ function readTotalBytes(headers: Headers, rangeRequested: boolean): number | und
 export async function probeStreamUrl(
   url: string,
   headers: Record<string, string> | undefined,
+  timeoutMs: number = PROBE_TIMEOUT_MS,
 ): Promise<StreamProbeResult> {
   // 本地文件与非 HTTP(S) 协议无需探活
   if (!/^https?:\/\//i.test(url)) return { ok: true };
@@ -64,7 +65,7 @@ export async function probeStreamUrl(
         // 探活请求无需携带 Cookie，避免干扰服务端会话判定
         credentials: "omit",
       },
-      PROBE_TIMEOUT_MS,
+      timeoutMs,
     );
     // 2xx/206 均视为可用；3xx 重定向 fetch 已自动跟随；403/404/5xx 判死
     // 2xx / 206 均视为可用；3xx 重定向 fetch 已自动跟随。
@@ -80,7 +81,7 @@ export async function probeStreamUrl(
     };
   } catch (error) {
     if (isTimeoutError(error)) {
-      return { ok: false, reason: `无响应（>${PROBE_TIMEOUT_MS / 1000}s）`, definitive: false };
+      return { ok: false, reason: `无响应（>${timeoutMs / 1000}s）`, definitive: false };
     }
     return {
       ok: false,

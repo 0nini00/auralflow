@@ -118,6 +118,54 @@ describe('自定义源按序交错竞速', () => {
     await pending;
   });
 
+  it('在途请求压到 3 个:定稿后排队中的候选不再补发请求', async () => {
+    const calls: Array<{ name: string; quality: string }> = [];
+    fixture.state.sources = [
+      source('s1', '源1'), source('s2', '源2'), source('s3', '源3'),
+      source('s4', '源4'), source('s5', '源5'),
+    ];
+    installRuntime({
+      源1: { flac24bit: { delayMs: 1000, url: 'https://cdn/s1' } },
+      源2: { flac24bit: { delayMs: 1500, url: 'https://cdn/s2' } },
+      源3: { flac24bit: { delayMs: 1500, url: 'https://cdn/s3' } },
+    }, calls);
+    const backend = await loadBackend();
+    const track = tracker();
+    const pending = track.watch(
+      backend.resolve({ primary: music, qualityPreference: ['flac24bit'] }) as Promise<{ url: string }>,
+    );
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(track.state.value?.url).toBe('https://cdn/s1');
+    // 源4、源5 分别在 1200ms / 1600ms 尝试取链，被闸门挡在队列里；
+    // 1000ms 定稿后队列作废，整首只应该打出 3 个请求。
+    expect(calls.map((call) => call.name)).toEqual(['源1', '源2', '源3']);
+    await pending;
+  });
+
+  it('同轮未胜出的可用结果作为 fallbacks 返回,按音质降序排列', async () => {
+    const calls: Array<{ name: string; quality: string }> = [];
+    fixture.state.sources = [source('a', '源A'), source('b', '源B')];
+    installRuntime({
+      源A: {
+        flac24bit: { delayMs: 20, error: '无 flac24bit' },
+        flac: { delayMs: 200, url: 'https://cdn/a.flac', quality: 'flac' },
+      },
+      源B: { flac24bit: { delayMs: 500, url: 'https://cdn/b.flac24bit', quality: 'flac24bit' } },
+    }, calls);
+    const backend = await loadBackend();
+    const pending = backend.resolve({
+      primary: music,
+      qualityPreference: ['flac24bit', 'flac'],
+    }) as Promise<{ url: string; quality: string; fallbacks?: Array<{ url: string; quality: string }> }>;
+    await vi.advanceTimersByTimeAsync(1400);
+    const result = await pending;
+    expect(result.url).toBe('https://cdn/b.flac24bit');
+    expect(result.quality).toBe('flac24bit');
+    expect(result.fallbacks).toEqual([
+      expect.objectContaining({ url: 'https://cdn/a.flac', quality: 'flac' }),
+    ]);
+  });
+
   it('最高档慢回退(实测 18.7s)不再阻塞降档,可用的 flac 在窗口到期后定稿', async () => {
     const calls: Array<{ name: string; quality: string }> = [];
     installRuntime({ HYWmusic_公益版: {
@@ -281,6 +329,64 @@ describe('自定义源按序交错竞速', () => {
     expect(message).toContain('甲挂了');
     expect(message).toContain('乙源');
     expect(message).toContain('乙挂了');
+    await pending.catch(() => undefined);
+  });
+
+  it('按脚本声明的 qualitys 预过滤，不把整条降级链都发出去', async () => {
+    const calls: Array<{ name: string; quality: string }> = [];
+    fixture.state.sources = [
+      {
+        id: 'flac-only',
+        name: '只给无损',
+        enabled: true,
+        sources: { tx: { type: 'music', actions: ['musicUrl'], qualitys: ['flac'] } },
+      } as never,
+    ];
+    // 只登记 flac；若把 flac24bit/320k 也发出去，runtime 会因「无该档计划」失败，
+    // 断言 calls 只有 flac 即可证明预过滤生效。
+    installRuntime({ 只给无损: { flac: { delayMs: 50, url: 'https://cdn/flac-only', quality: 'flac' } } }, calls);
+
+    const backend = await loadBackend();
+    const track = tracker();
+    const pending = track.watch(
+      backend.resolve({
+        primary: music,
+        qualityPreference: ['flac24bit', 'flac', '320k', '192k', '128k'],
+      }) as Promise<{ url: string; quality: string }>,
+    );
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(calls).toEqual([{ name: '只给无损', quality: 'flac' }]);
+    expect(track.state.value?.url).toBe('https://cdn/flac-only');
+    await pending;
+  });
+
+  it('声明的音质与请求链完全不相交时直接判该源失败，不发请求', async () => {
+    const calls: Array<{ name: string; quality: string }> = [];
+    fixture.state.sources = [
+      {
+        id: 'flac-only',
+        name: '只给无损',
+        enabled: true,
+        sources: { tx: { type: 'music', actions: ['musicUrl'], qualitys: ['flac24bit'] } },
+      } as never,
+    ];
+    installRuntime({}, calls);
+
+    const backend = await loadBackend();
+    const track = tracker();
+    const pending = track.watch(
+      backend.resolve({
+        primary: music,
+        qualityPreference: ['320k', '192k', '128k'],
+      }) as Promise<{ url: string; quality: string }>,
+    );
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(calls).toEqual([]);
+    expect(track.state.settled).toBe(true);
+    const message = track.state.error instanceof Error ? track.state.error.message : String(track.state.error);
+    expect(message).toContain('未声明支持');
     await pending.catch(() => undefined);
   });
 });

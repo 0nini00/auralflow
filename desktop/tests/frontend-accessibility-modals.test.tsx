@@ -71,10 +71,13 @@ it('自定义源更新具有命名 dialog 和焦点恢复', async () => {
   expect(dialog()).toBeNull(); expect(document.activeElement).toBe(trigger);
 });
 it('须知只能明确接受，不可用 Escape 绕过', async () => {
-  const accepted = vi.fn(); await render(<PactModal onAccepted={accepted} />);
+  await render(<PactModal />);
   expect(dialog()?.getAttribute('aria-modal')).toBe('true');
   expect(document.activeElement).toBe(button('我已阅读并同意'));
-  escape(); expect(accepted).not.toHaveBeenCalled(); expect(dialog()).not.toBeNull();
+  escape(); expect(dialog()).not.toBeNull();
   await act(async () => { button('我已阅读并同意').click(); });
-  expect(accepted).toHaveBeenCalledOnce(); expect(document.activeElement).toBe(trigger);
+  // 接受 = 写入 pactAccepted 并关闭弹窗（组件不再向外暴露回调）
+  expect(api.patch).toHaveBeenCalledWith({ pactAccepted: true });
+  expect(dialog()).toBeNull();
+  expect(document.activeElement).toBe(trigger);
 });

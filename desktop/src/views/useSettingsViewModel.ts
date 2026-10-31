@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
-  clearSongCache,
-  getSongCacheStats,
+  clearMediaCache,
+  getMediaCacheStats,
   patchSettings,
   loadSettings,
   libraryReset,
-  type SongCacheStats,
+  type MediaCacheStats,
 } from "@lx/tauri-bridge";
 import { useThemeStore } from "@/stores/themeStore";
 import { useHistoryStore } from "@/stores/historyStore";
@@ -14,17 +14,21 @@ import { useCustomSourceStore } from "@/stores/customSourceStore";
 import { broadcastLyricSettings } from "@/stores/lyricSettingsSync";
 import { playerEngine } from "@/services/playerEngine";
 import { normalizePauseOnExternalPlayback } from "@/services/mediaInterruptionPolicy";
-import { clearPersistentCache, clearCachedLyrics } from "@/services/persistentCache";
-import { clearLyricsBrowserCache } from "@/hooks/useLyrics";
+import {
+  clearCachedLyrics,
+  clearCachedPlaybackUrls,
+  getPersistentCacheSummary,
+  invalidateCachedLocalMedia,
+  type PersistentCacheSummary,
+} from "@/services/persistentCache";
 import { clearLyricsMemoryCache } from "@/services/lyricsService";
+import { formatBytes } from "@/utils/formatBytes";
 import { setPlaybackFailedAutoNext as applyPlaybackFailedAutoNext } from "@/stores/playerStore";
 import { clearPlaybackPrefetchCache } from "@/services/playback/prefetchService";
 import { notifyAppBackgroundChanged, toAppBackgroundImageUrl } from "@/services/appBackground";
 
 const DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY = "\"Inter\", \"Noto Sans CJK SC\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif";
 const HEX_COLOR_PATTERN = /^#?[0-9a-fA-F]{6}$/;
-const BYTE_UNITS = ["B", "KB", "MB", "GB"] as const;
-
 export const IMMERSIVE_LYRIC_FONT_OPTIONS = [
   {
     label: "系统默认",
@@ -56,18 +60,8 @@ function normalizeAccentInput(value: string): string | null {
 }
 
 export function formatByteSize(bytes: number | null): string {
-  if (bytes == null) return "计算中...";
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
-
-  let value = bytes;
-  let unitIndex = 0;
-  while (value >= 1024 && unitIndex < BYTE_UNITS.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-
-  const fractionDigits = value >= 10 || unitIndex === 0 ? 0 : 1;
-  return `${value.toFixed(fractionDigits)} ${BYTE_UNITS[unitIndex]}`;
+  // 历史行为：无数据占位「计算中...」，0 与非法值显示「0 B」（与下载页的 '--' 不同）
+  return formatBytes(bytes, "计算中...");
 }
 
 export function useSettingsViewModel() {
@@ -116,7 +110,8 @@ const [customSourceFeaturePending, setCustomSourceFeaturePending] = useState(fal
 const [customSourceFeatureError, setCustomSourceFeatureError] = useState("");
 const [customSourceAutoCheck, setCustomSourceAutoCheck] = useState(true);
 const [immersiveLyricFontFamily, setImmersiveLyricFontFamily] = useState(DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
-const [songCacheStats, setSongCacheStats] = useState<SongCacheStats | null>(null);
+const [mediaCacheStats, setMediaCacheStats] = useState<MediaCacheStats | null>(null);
+const [persistentCacheSummary, setPersistentCacheSummary] = useState<PersistentCacheSummary | null>(null);
 const [dataPending, setDataPending] = useState(false);
 const [dataStatus, setDataStatus] = useState("");
 const {
@@ -136,9 +131,10 @@ const {
   toggleUpdateAlert,
 } = useCustomSourceStore();
 
-const refreshSongCacheStats = async () => {
-  const stats = await getSongCacheStats();
-  setSongCacheStats(stats);
+const refreshCacheStats = async () => {
+  const [stats, summary] = await Promise.all([getMediaCacheStats(), getPersistentCacheSummary()]);
+  setMediaCacheStats(stats);
+  setPersistentCacheSummary(summary);
   return stats;
 };
 
@@ -161,8 +157,8 @@ useEffect(() => {
 }, []);
 
 useEffect(() => {
-  refreshSongCacheStats().catch((error) => {
-    setDataStatus(`读取缓存大小失败：${error instanceof Error ? error.message : String(error)}`);
+  refreshCacheStats().catch((error) => {
+    setDataStatus(`读取缓存占用失败：${error instanceof Error ? error.message : String(error)}`);
   });
 }, []);
 
@@ -337,18 +333,34 @@ const handleClearPlaybackHistory = async () => {
   }
 };
 
-const handleClearAllCache = async () => {
-  if (!confirm('确定清空全部缓存？\n\n播放链接、歌词、音频和封面都会删除，不影响歌单、收藏和历史。')) return;
+const handleClearMediaCache = async () => {
+  if (!confirm('确定清理资源缓存？\n\n歌曲音频与封面文件会被删除，播放地址和歌词缓存保留。')) return;
   setDataStatus("清理中...");
   setDataPending(true);
   try {
-    await clearPersistentCache();
-    clearLyricsMemoryCache();
-    clearLyricsBrowserCache();
     clearPlaybackPrefetchCache();
-    const stats = await clearSongCache();
-    setSongCacheStats(stats);
-    setDataStatus("已清空全部缓存。");
+    // 先作废持久化条目里的本地文件引用：URL 缓存的 TTL 是 365 天，
+    // 文件删掉后条目仍是「有效」的本地地址，下一次播放会先命中死链再回退重解析。
+    await invalidateCachedLocalMedia();
+    await clearMediaCache();
+    await refreshCacheStats();
+    setDataStatus("已清理资源缓存。");
+  } catch (err) {
+    setDataStatus(`清理失败：${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    setDataPending(false);
+  }
+};
+
+const handleClearPlaybackUrlCache = async () => {
+  if (!confirm('确定清理歌曲 URL 缓存？\n\n下次播放会重新解析播放地址，歌词与音频/封面缓存保留。')) return;
+  setDataStatus("清理中...");
+  setDataPending(true);
+  try {
+    clearPlaybackPrefetchCache();
+    await clearCachedPlaybackUrls();
+    await refreshCacheStats();
+    setDataStatus("已清理歌曲 URL 缓存。");
   } catch (err) {
     setDataStatus(`清理失败：${err instanceof Error ? err.message : String(err)}`);
   } finally {
@@ -357,14 +369,13 @@ const handleClearAllCache = async () => {
 };
 
 const handleClearLyricsCache = async () => {
-  if (!confirm('确定清空歌词缓存？\n\n下次播放会重新获取歌词，不影响音频和封面缓存。')) return;
+  if (!confirm('确定清空歌词缓存？\n\n下次播放会重新获取歌词，不影响音频、封面和播放地址缓存。')) return;
   setDataStatus("清理中...");
   setDataPending(true);
   try {
     await clearCachedLyrics();
     clearLyricsMemoryCache();
-    clearLyricsBrowserCache();
-    await refreshSongCacheStats();
+    await refreshCacheStats();
     setDataStatus("已清空歌词缓存。");
   } catch (err) {
     setDataStatus(`清理失败：${err instanceof Error ? err.message : String(err)}`);
@@ -443,8 +454,9 @@ const getCapabilityTitle = (source: typeof customSources[number]) => {
     setCustomSourceAutoCheck,
     immersiveLyricFontFamily,
     setImmersiveLyricFontFamily,
-    songCacheStats,
-    setSongCacheStats,
+    mediaCacheStats,
+    setMediaCacheStats,
+    persistentCacheSummary,
     dataPending,
     setDataPending,
     dataStatus,
@@ -470,7 +482,8 @@ const getCapabilityTitle = (source: typeof customSources[number]) => {
     handleImportCustomSourceFile,
     handleImportCustomSourceText,
     handleClearPlaybackHistory,
-    handleClearAllCache,
+    handleClearMediaCache,
+    handleClearPlaybackUrlCache,
     handleClearLyricsCache,
     getUpdateStatusMessage,
     getTestStatusMessage,
@@ -551,10 +564,12 @@ export type SourcesSettingsModel = Pick<SettingsViewModel,
 >;
 
 export type DataSettingsModel = Pick<SettingsViewModel,
-  | "songCacheStats"
+  | "mediaCacheStats"
+  | "persistentCacheSummary"
   | "dataPending"
   | "dataStatus"
   | "handleClearPlaybackHistory"
-  | "handleClearAllCache"
+  | "handleClearMediaCache"
+  | "handleClearPlaybackUrlCache"
   | "handleClearLyricsCache"
 >;

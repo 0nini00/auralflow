@@ -24,11 +24,44 @@ export async function removeOrphanedPartialDownloads(directory: string): Promise
   }
 }
 
+/** 嗅探窗口：音频容器头与错误页都在文件开头就能区分。 */
+const SNIFF_BYTES = 512;
+
+/**
+ * 文本负载识别：CDN / 代理在链接过期、无版权、鉴权失败时经常返回
+ * **HTTP 200 + HTML 错误页**，只校验字节数会把整页 HTML 当音频提交。
+ *
+ * 只看「像不像文本」，不强制匹配音频魔数：部分源站会包一层自定义头，
+ * 强制命中 ID3/fLaC 之类的容器头会把正常文件误杀。
+ */
+function looksLikeTextPayload(head: string): boolean {
+  const payload = head.replace(/^\uFEFF/, "").trimStart().toLowerCase();
+  return (
+    payload.startsWith("<!doctype") ||
+    payload.startsWith("<html") ||
+    payload.startsWith("<?xml") ||
+    payload.startsWith("#extm3u") ||
+    payload.startsWith("{") ||
+    payload.startsWith("[")
+  );
+}
+
 export async function validateDownloadedFile(path: string, bytesWritten?: number): Promise<void> {
   const size = Number((await RNFS.stat(path)).size);
   if (!Number.isFinite(size) || size <= 0) throw new Error("下载文件为空或大小无效");
   if (bytesWritten !== undefined && (!Number.isFinite(bytesWritten) || bytesWritten <= 0 || size !== bytesWritten)) {
     throw new Error("下载文件大小与已写入字节数不一致");
+  }
+
+  // 读首块做内容校验。读失败不阻断（老平台/权限异常时宁可放行已验证大小的文件）。
+  let head = "";
+  try {
+    head = await RNFS.read(path, Math.min(SNIFF_BYTES, size), 0, "utf8");
+  } catch {
+    return;
+  }
+  if (looksLikeTextPayload(head)) {
+    throw new Error("下载地址返回的是网页/文本而不是音频文件，可能已失效或无版权");
   }
 }
 

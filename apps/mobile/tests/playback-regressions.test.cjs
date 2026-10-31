@@ -6,7 +6,7 @@ const song = (id) => ({ id, source: "tx", name: id, singer: "Test", interval: 10
 const coreLoader = createLoader({});
 const core = {
   ...coreLoader("../../packages/core/src/switch-step-queue.ts"),
-  ...coreLoader("../../packages/core/src/playback-quality.ts"),
+  ...coreLoader("../../packages/core/src/request-limiter.ts"), ...coreLoader("../../packages/core/src/playback-quality.ts"),
   ...coreLoader("../../packages/core/src/song-variant.ts"),
   isPreviewDuration: () => false,
 };
@@ -44,7 +44,7 @@ function setup(blockAt) {
     "@/services/lyricOverlayService": { isLyricOverlaySupported: () => false },
     "@/services/listenTrackerService": tracker, "./listenTrackerService": tracker,
     "./musicApi": { getLyrics: async () => [], buildStreamHeaders: () => ({}) },
-    "./wyDirectProvider": {}, "./wyPlaylistService": {}, "./customSourceRuntime": {},
+    "./wyDirectProvider": {}, "./wyPlaylistService": {}, "./customSourceRuntime": {}, "./hiddenFallbackService": { startHiddenSearch: async () => [], resolveHiddenFromGroups: async () => null, resolveHiddenFallback: async () => null },
     "../stores/customSourceStore": {}, "./streamProbe": {},
     "@/services/crossSourceFallbackService": {},
     "@/stores/playbackSettingsStore": { usePlaybackSettingsStore: { getState: () => ({ defaultQuality: "320k" }) } },

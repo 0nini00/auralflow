@@ -2,7 +2,7 @@
 const test = require("node:test");
 const { createLoader, mobileRequire } = require("./helpers/loadTs.cjs");
 const pure = createLoader({});
-const core = { ...pure("../../packages/core/src/switch-step-queue.ts"), ...pure("../../packages/core/src/playback-quality.ts"), ...pure("../../packages/core/src/recommendations/heartbeat-queue.ts"), ...pure("../../packages/core/src/song-variant.ts"), isPreviewDuration: () => false };
+const core = { ...pure("../../packages/core/src/switch-step-queue.ts"), ...pure("../../packages/core/src/request-limiter.ts"), ...pure("../../packages/core/src/playback-quality.ts"), ...pure("../../packages/core/src/recommendations/heartbeat-queue.ts"), ...pure("../../packages/core/src/song-variant.ts"), isPreviewDuration: () => false };
 const song = (id, source = "tx") => ({ id, source, name: id, singer: "Artist", interval: 180 });
 async function flush() { await new Promise(setImmediate); }
 // node:test 的 mock timers 同步 tick，回调间的微任务要显式 flush，
@@ -10,6 +10,10 @@ async function flush() { await new Promise(setImmediate); }
 // 本文件的事件边界都是 100 的倍数，计数精确；步长越大 flush 次数越少，
 // 全量套件并发跑时对其它计时敏感用例的 CPU 挤占越小。
 async function advance(t, ms, step = 100) {
+  // 推进前先清一次微任务：取链前会 await 一个异步闸门（@lx/core 的
+  // createRequestLimiter），它的微任务如果晚于第一次 tick 落地，t=0 发起的
+  // 请求就会被推到下一个步长，整条时间线平移 100ms。
+  await flush();
   let remaining = ms;
   while (remaining > 0) {
     const chunk = Math.min(step, remaining);
@@ -35,7 +39,7 @@ function setup(sources, runtimeImpl) {
     "@/services/playbackFailurePolicy": {}, "@/services/lyricOverlayService": { isLyricOverlaySupported: () => false },
     "@/services/listenTrackerService": { startListeningSession() {}, resetListeningSession() {} }, "./listenTrackerService": { startListeningSession() {}, resetListeningSession() {} },
     "./musicApi": { getLyrics: async () => [], buildStreamHeaders: () => ({}) }, "./wyDirectProvider": {}, "./wyPlaylistService": recommendations,
-    "./customSourceRuntime": { requestCustomSourceMusicUrl: runtimeImpl }, "../stores/customSourceStore": { useCustomSourceStore: { getState: () => customStore } },
+    "./customSourceRuntime": { requestCustomSourceMusicUrl: runtimeImpl }, "../stores/customSourceStore": { useCustomSourceStore: { getState: () => customStore } }, "./hiddenFallbackService": { startHiddenSearch: async () => [], resolveHiddenFromGroups: async () => null, resolveHiddenFallback: async () => null },
     "./streamProbe": {},
     "@/services/crossSourceFallbackService": cross,
     "@/stores/playbackSettingsStore": { usePlaybackSettingsStore: { getState: () => ({ defaultQuality: "320k" }) } },

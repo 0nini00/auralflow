@@ -1,7 +1,9 @@
 import {
   createBuiltinMusicApiClient,
   getBuiltinMusicApiGateway,
+  mergeRomanization,
   mergeTranslation,
+  orderPlaybackCandidates,
   parseLyricSource,
   type LyricLine,
   type MusicInfo,
@@ -119,29 +121,21 @@ async function fetchText(url: string): Promise<string> {
  */
 const builtinClient = createBuiltinMusicApiClient(fetchText);
 
-export function toApiSource(source: Extract<SourceTag, "wy" | "tx">): string {
-  return source === "wy" ? "netease" : "joox";
+/**
+ * 平台 → 网关目录名。网关只提供网易云与 JOOX 两套目录，没有 QQ 音乐。
+ *
+ * 历史上 tx 被映射到 joox 作兜底，但实测网关对 JOOX 的取链在 128/320/999 三档
+ * 一致返回 `{"url":"","br":-1}`（搜索与歌词正常），即 JOOX 曲目永远拿不到音频。
+ * 而这类结果带的是 JOOX 命名空间的 base64 id，却被贴成 `source: "tx"` 混进 QQ
+ * 结果列表：下载文件名要清洗（见 downloadService），解析还必然失败。
+ * 因此 tx 不再走网关：官方直连失败就直接失败，把「不可播放的结果」留在列表里
+ * 比报错更糟。
+ */
+export function toApiSource(source: Extract<SourceTag, "wy" | "tx">): string | null {
+  return source === "wy" ? "netease" : null;
 }
 
 /** 显式网关召回，不读取或覆盖官方搜索缓存。 */
-export async function searchGatewaySongs(
-  source: Extract<SourceTag, "wy" | "tx">,
-  keyword: string,
-): Promise<MusicInfo[]> {
-  return builtinClient.searchSongs(toApiSource(source), keyword, DEFAULT_PAGE, DEFAULT_LIMIT, source);
-}
-
-/** 网关候选只交给其真实 namespace，不向官方接口发送 JOOX 等外部 ID。 */
-export async function getGatewayLyrics(candidate: MusicInfo): Promise<LyricLine[]> {
-  if (candidate.source === "local" || candidate.isLocal || candidate.localPath ||
-      !candidate.gateway?.source || !candidate.gateway.trackId) {
-    throw new Error("网关歌词需要带真实网关身份的在线候选");
-  }
-  const lyricResult = await builtinClient.getLyric(candidate);
-  const rawLyric = lyricResult.lyric ?? "";
-  if (!rawLyric.trim()) return [];
-  return mergeTranslation(parseLyricSource({ type: "auto", content: rawLyric }), lyricResult.tlyric);
-}
 
 function formatDate(value?: number | string): string | undefined {
   if (!value) return undefined;
@@ -248,9 +242,16 @@ export async function searchSongs(
     apiError = error;
   }
 
+  // 网关没有 QQ 曲库（见 toApiSource）：直连失败/无结果时不再拿 JOOX 结果冒充 tx。
+  const apiSource = toApiSource(source);
+  if (!apiSource) {
+    if (apiError) throw apiError;
+    throw new Error("搜索无结果");
+  }
+
   try {
     const apiSongs = await builtinClient.searchSongs(
-      toApiSource(source),
+      apiSource,
       keyword,
       DEFAULT_PAGE,
       DEFAULT_LIMIT,
@@ -453,10 +454,11 @@ export function buildStreamHeaders(
   };
 }
 
-/** 官方歌词直连结果（原文 + 可选翻译） */
+/** 官方歌词直连结果（原文 + 可选翻译 / 罗马音） */
 interface OfficialLyricResult {
   lyric: string;
   tlyric?: string;
+  romaLyric?: string;
 }
 
 /**
@@ -477,8 +479,10 @@ async function fetchWyOfficialLyric(song: MusicInfo): Promise<OfficialLyricResul
   })) as {
     yrc?: { lyric?: string };
     ytlrc?: { lyric?: string };
+    yromalrc?: { lyric?: string };
     lrc?: { lyric?: string };
     tlyric?: { lyric?: string };
+    romalrc?: { lyric?: string };
     /** 网易云判定「暂无歌词」时的标记，此时 lrc 里只有占位文本 */
     uncollected?: boolean;
     nolyric?: boolean;
@@ -492,12 +496,19 @@ async function fetchWyOfficialLyric(song: MusicInfo): Promise<OfficialLyricResul
   const yrc = body?.yrc?.lyric || "";
   const lyric = yrc || body?.lrc?.lyric || "";
   if (!lyric.trim()) return null;
-  // yrc 为主轨时优先取与逐字轨对齐的 ytlrc（对齐 lx-music-desktop 的分工），
-  // 无 ytlrc 再退 lrc 对齐的 tlyric；lrc 主轨则只用 tlyric。
+  // yrc 为主轨时优先取与逐字轨对齐的 ytlrc / yromalrc（对齐 lx-music-desktop 的分工），
+  // 无对齐轨再退 lrc 对齐的 tlyric / romalrc；lrc 主轨则只用 tlyric / romalrc。
   const tlyric = (yrc
     ? body?.ytlrc?.lyric || body?.tlyric?.lyric
     : body?.tlyric?.lyric) || "";
-  return { lyric, tlyric: tlyric.trim() ? tlyric : undefined };
+  const romaLyric = (yrc
+    ? body?.yromalrc?.lyric || body?.romalrc?.lyric
+    : body?.romalrc?.lyric) || "";
+  return {
+    lyric,
+    tlyric: tlyric.trim() ? tlyric : undefined,
+    romaLyric: romaLyric.trim() ? romaLyric : undefined,
+  };
 }
 
 /**
@@ -530,7 +541,7 @@ async function fetchTxOfficialLyric(song: MusicInfo): Promise<OfficialLyricResul
 export async function fetchSongLyrics(song: MusicInfo): Promise<LyricLine[]> {
   // 官方直连优先（wy eapi / tx fcg），失败或无歌词再走内置音乐 API 网关；
   // 其他源（tx 等）无官方歌词接口，直接走网关。local 由上层 getLyrics 处理。
-  let lyricResult: { lyric?: string; tlyric?: string } | null = null;
+  let lyricResult: { lyric?: string; tlyric?: string; romaLyric?: string } | null = null;
   try {
     lyricResult =
       song.source === "wy"
@@ -547,27 +558,17 @@ export async function fetchSongLyrics(song: MusicInfo): Promise<LyricLine[]> {
   const rawLyric = lyricResult.lyric ?? "";
   if (!rawLyric.trim()) return [];
   const lines = parseLyricSource({ type: "auto", content: rawLyric });
-  return mergeTranslation(lines, lyricResult.tlyric);
+  return mergeRomanization(mergeTranslation(lines, lyricResult.tlyric), lyricResult.romaLyric);
 }
 
 /**
  * 解析播放 URL（简化版，供 playerService 使用）
  */
 function getPlaybackCandidates(song: MusicInfo): MusicInfo[] {
-  const candidates = [song];
-  const variants = (song as { variants?: unknown }).variants;
-  if (!Array.isArray(variants)) return candidates;
-
-  const seen = new Set<string>([`${song.source}:${song.id}`]);
-  for (const variant of variants) {
-    const item = variant as MusicInfo;
-    if (!item?.source || !item.id) continue;
-    const key = `${item.source}:${item.id}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    candidates.push(item);
-  }
-  return candidates;
+  // 候选链唯一实现在 core（与播放链同一份去重/展开逻辑）。此处不传 pinnedKey：
+  // parseUrl 是「按档位取一个可用 URL」的兜底枚举，不存在「把用户钉选的变体
+  // 提前」的用户意图；带 pin 反而要为测试加载整条 store 依赖链。
+  return orderPlaybackCandidates(song);
 }
 
 async function parseSingleUrl(song: MusicInfo, quality: string): Promise<{ url: string; quality: string }> {
@@ -597,30 +598,36 @@ export async function parseUrl(song: MusicInfo, quality = "320k"): Promise<{ url
 /**
  * 获取歌词（简化版，供 playerService 使用）
  */
-export async function getLyrics(song: MusicInfo): Promise<Array<{ time: number; text: string; tr?: string }>> {
+export interface AppLyricLine {
+  time: number;
+  text: string;
+  tr?: string;
+  /** 按时间对齐的罗马音行（日文歌）；桌面端一直有，移动端此前在映射时被丢掉 */
+  roma?: string;
+}
+
+export async function getLyrics(song: MusicInfo): Promise<AppLyricLine[]> {
   const localLyrics = song.localLyrics?.trim();
   if (song.source === "local" || song.isLocal) {
     // 本地 ID 没有在线语义；缺失资料由独立的只读匹配链处理。
     if (!localLyrics) return [];
+    // 旁挂/手写的译文与罗马音跟主文本一样来自文件自身，解析后按时间对齐合并
+    // （与桌面端 parseLocalLyricsText 同一套语义）。
     const parsed = parseLyricSource({ type: "auto", content: localLyrics });
-    const lines: LyricLine[] = parsed.length > 0
-      ? parsed
+    const merged = mergeRomanization(
+      mergeTranslation(parsed, song.localLyricsTranslation),
+      song.localLyricsRomanization,
+    );
+    const lines: LyricLine[] = merged.length > 0
+      ? merged
       : localLyrics
         .split(/\r?\n/)
         .map((line) => line.trim())
         .filter(Boolean)
         .map((text, index) => ({ time: index, text }));
-    return lines.map((line) => ({
-      time: line.time,
-      text: line.text,
-      tr: line.tr,
-    }));
+    return lines.map((line) => ({ time: line.time, text: line.text, tr: line.tr, roma: line.roma }));
   }
 
   const lines = await fetchSongLyrics(song);
-  return lines.map((line) => ({
-    time: line.time,
-    text: line.text,
-    tr: line.tr,
-  }));
+  return lines.map((line) => ({ time: line.time, text: line.text, tr: line.tr, roma: line.roma }));
 }
