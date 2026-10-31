@@ -109,7 +109,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # setup-android 默认会 `sdkmanager tools`，而新版 cmdline-tools（runner 上是 16.0）
+      # 已把 `tools` 包从仓库移除，默认值会让这一步直接报
+      # `Failed to find package 'tools'` 并以 exit 1 结束——与我们的工程无关。
+      # 运行镜像本身已自带 SDK/NDK，这里只需要它把 sdkmanager 挂上 PATH，
+      # 因此显式覆盖 packages，跳过那个已消失的包。
       - uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools"
 
       # RN 的 Gradle 配置在 configure 阶段就会读 NDK 与 build-tools；
       # 不预装的话 assembleDebug 会先去下载，超时后报一个看不出原因的错。
