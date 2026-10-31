@@ -1,7 +1,7 @@
 import {
   buildVariantSearchKeyword,
   matchHiddenCandidates,
-  normalizePlaybackQuality,
+  normalizeSourceQualityLabel,
   type HiddenSourceId,
   type HiddenSourceTrack,
   type MusicInfo,
@@ -213,7 +213,7 @@ export async function resolveHiddenFromGroups(
               attemptBudget,
               "隐藏音源取链",
             );
-            const resolvedQuality = normalizePlaybackQuality(result.quality || quality);
+            const resolvedQuality = normalizeSourceQualityLabel(result.quality, quality);
             const resolverName = `${group.platform}/${api.name}`;
             // 脚本调用成功不等于地址可用：先判死链，死了就换下一个候选/音质/平台，
             // 而不是把一个必然被外层探活否掉的结果定稿。

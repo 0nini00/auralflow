@@ -27,7 +27,7 @@ import {
 } from "@lx/core";
 import { getNextQueueNavigationState, getPreviousQueueNavigationState } from "@/services/queueNavigationModel";
 import { dequeueTempPlayList, insertSongToPlayNext } from "@/services/songQueueActions";
-import { buildPlaybackQualityTiers, getPlaybackQualityFallbacks, normalizePlaybackQuality, resolveEffectivePlaybackQuality, type PlaybackQuality } from "@/services/playbackQualityModel";
+import { buildPlaybackQualityTiers, getPlaybackQualityFallbacks, normalizePlaybackQuality, normalizeSourceQualityLabel, resolveEffectivePlaybackQuality, type PlaybackQuality } from "@/services/playbackQualityModel";
 import {
   createRequestLimiter,
   DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
@@ -176,8 +176,9 @@ export async function resolveUrlWithCustomSource(
         const result = await requestCustomSourceMusicUrl(source, song, requested, (alert) => {
           useCustomSourceStore.getState().applyRuntimeUpdateAlert(source.id, alert);
         });
-        // 与网关通道同样归一化:脚本可能回传 "flac24bit" 之外的别名
-        return { url: result.url, quality: normalizePlaybackQuality(result.quality || requested) };
+        // 与网关通道同样归一化:脚本可能回传 "flac24bit" 之外的别名；
+        // 无法识别的标签退回请求档位，不静默当成 320k（与桌面端同一规则）。
+        return { url: result.url, quality: normalizeSourceQualityLabel(result.quality, requested) };
       } catch (error) {
         throw new Error(`${requested}: ${error instanceof Error ? error.message : String(error)}`);
       } finally {
@@ -272,7 +273,8 @@ async function raceQualityTier(
         const result = await parseUrl(song, quality);
         return {
           url: result.url,
-          quality: normalizePlaybackQuality(result.quality || quality),
+          // 网关/脚本没给可识别档位时退回本次请求的档位（与桌面端同一规则）
+          quality: normalizeSourceQualityLabel(result.quality, quality),
           fromCustomSource: false,
         };
       } catch (error) {

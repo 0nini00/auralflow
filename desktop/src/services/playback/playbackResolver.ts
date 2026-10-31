@@ -1,5 +1,6 @@
 import type { MusicInfo } from '@lx/core';
-import { buildPlaybackQualityTiers, DEFAULT_QUALITY_UPGRADE_WINDOW_MS, getPlaybackQualityFallbacks, getPlaybackQualityRank, normalizePlaybackQuality, raceForBestQuality } from '@lx/core';
+import { buildPlaybackQualityTiers, DEFAULT_QUALITY_UPGRADE_WINDOW_MS, getPlaybackQualityFallbacks, getPlaybackQualityRank, normalizePlaybackQuality, raceForBestQuality, withBudget } from '@lx/core';
+import { PRIMARY_BUDGET_MS } from '@lx/core';
 import { debugLog, loadSettings } from '@lx/tauri-bridge';
 import { estimateStreamDurationSeconds, isPreviewStream } from '@lx/core';
 import { builtinNeteaseBackend } from './builtinNeteaseBackend';
@@ -127,9 +128,6 @@ function withResolveDeadline(task: Promise<PlaybackResolvedUrl>): Promise<Playba
   });
 }
 
-/** 主源=内置音乐 API;自定义源是懒唤醒的兜底,不默认参与每首歌的竞速。 */
-const PRIMARY_BUDGET_MS = 2500;
-
 type RacingBackendId = Exclude<PlaybackBackendId, 'hiddenSource'>;
 
 function getBackend(id: RacingBackendId): { id: RacingBackendId; resolve: (request: import('./types').PlaybackRequest) => Promise<PlaybackResolvedUrl> } {
@@ -152,25 +150,10 @@ function formatReason(error: unknown): string {
  * 等待 `task` 最多 `budgetMs`；超时返回 null，但**不取消** task。
  * 主源请求常常只是冷启动慢（实测网关 1.8-2.6s），超时后放弃这条在途响应
  * 再重发一次，等于既丢结果又翻倍请求量。
+ *
+ * 实现已收敛到 `@lx/core` 的 `withBudget`（与移动端同一份）。
  */
-function resolveWithBudget(
-  task: Promise<PlaybackResolvedUrl | null>,
-  budgetMs: number,
-): Promise<PlaybackResolvedUrl | null> {
-  return new Promise<PlaybackResolvedUrl | null>((resolve) => {
-    const timer = setTimeout(() => resolve(null), budgetMs);
-    task.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      () => {
-        clearTimeout(timer);
-        resolve(null);
-      },
-    );
-  });
-}
+const resolveWithBudget = withBudget;
 
 /**
  * 懒切竞速:主源(内置音乐 API)先单独跑 PRIMARY_BUDGET_MS。

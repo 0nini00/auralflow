@@ -23,6 +23,7 @@ import { LyricWindowView } from "./views/LyricWindowView";
 import { LyricUnlockView } from "./views/LyricUnlockView";
 import { PactModal } from "./components/PactModal";
 import { LibraryDegradedNotice } from "./components/LibraryDegradedNotice";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { CursorEffect } from "./components/CursorEffect";
 import { DeepLinkHandler } from "./components/DeepLinkHandler";
 import { UpdateModal } from "./components/UpdateModal";
@@ -240,12 +241,24 @@ function App() {
 
   if (!role) return null;
   if (role === "lyric") {
-    return <LyricWindowView />;
+    return (
+      <ErrorBoundary scope="lyric-window">
+        <LyricWindowView />
+      </ErrorBoundary>
+    );
   }
   if (role === "lyric-unlock") {
-    return <LyricUnlockView />;
+    return (
+      <ErrorBoundary scope="lyric-unlock">
+        <LyricUnlockView />
+      </ErrorBoundary>
+    );
   }
-  return <MainApp />;
+  return (
+    <ErrorBoundary scope="main-window">
+      <MainApp />
+    </ErrorBoundary>
+  );
 }
 
 export default App;

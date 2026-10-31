@@ -86,7 +86,7 @@
 | 译文合并 | `mergeTranslation()`+`mergeMissingLines()` ±150ms | `@lx/core` 翻译合并 ±150ms | 🟢 共享 |
 | 行进度估算 | `@lx/core` playbackSync PlaybackProgressClock 二分查找 0.12s 提前 CJK/拉丁加权 | `@lx/core calculateLyricLineProgress` 同算法 | 🟢 共享（共享核心） |
 | 逐字卡拉OK | 沉浸层 clip-path 逐字填充（background-clip:text+CSS 变量数据驱动）+桌面歌词窗 KaraokeLine 逐字渐变（LyricWord start/dur 驱动） | 无（`LyricView` 明确只做行级高亮：纯色+切换缩放动画） | 💻 桌面独有 |
-| 多源歌词匹配 | 先 LRCLIB 直查「主歌手（miss 再退完整署名）+ 时长」两轮，再网易搜索 → `@lx/core` 两档判定；**可按曲手动选择候选，或选「不要匹配」只用本地歌词**（`lyricsMode` 三态，按文件路径 + 内容指纹记住） | 同左（`localLyricsChoiceModel` + `LyricsChoiceSheet`，入口在列表菜单与沉浸歌词页） | 🟢 共享（`local-media-match` 判定 + 双端三态选择） |
+| 多源歌词匹配 | ~~先 LRCLIB 直查「主歌手（miss 再退完整署名）+ 时长」两轮，再网易搜索 → `@lx/core` 两档判定；**可按曲手动选择候选，或选「不要匹配」只用本地歌词**（`lyricsMode` 三态，按文件路径 + 内容指纹记住）~~ | ~~同左（`localLyricsChoiceModel` + `LyricsChoiceSheet`，入口在列表菜单与沉浸歌词页）~~ | ❌ **已删除（2026-10-20）**：双端「为本地曲联网找歌词」整层移除，`local-media-match` / `lyricsMode` / LRCLIB 链路均不存在。本地歌词只来自文件自身（内嵌标签 / 旁挂 `.lrc` / 用户手写）。见 `PROJECT_OVERVIEW.md` §9 |
 | 歌词服务链 | 嵌入式→provider→搜索匹配+0.12s 迟滞 | 同链路 | 🟢 共享 |
 | 用户滚动暂停 | `useLyricAutoScroll` 用户滚动暂停 3s 恢复 | `LyricView` 587 行 onScrollBeginDrag+3s 暂停 | 🟢 共享 |
 | 歌词偏移校准 | `SettingsView` manualOffsetMs 滑块 | `LyricSettingsScreen` 歌词偏移校准滑块 | 🟢 共享 |

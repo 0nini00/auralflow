@@ -219,3 +219,46 @@ it('引擎加载了曲目后仍照常同步 current 与进度', async () => {
   expect(state.progress).toBe(12);
   expect(state.status).toBe('playing');
 });
+
+it('解析全链失败时停止旧音频，不能只报错却继续播上一首', async () => {
+  const { usePlayerStore } = await load();
+  const onEngineState = fixture.subscribe.mock.calls[0][0] as (state: Record<string, unknown>) => void;
+
+  // 上一首正在播（引擎里装着它），用户点了另一首
+  const previous = { ...music, id: 'prev', name: '上一首' } as MusicInfo;
+  onEngineState({
+    currentMusic: previous, currentUrl: 'https://audio/prev', status: 'playing', currentTime: 30,
+    currentTimeSampledAt: Date.now(), duration: 200, volume: 0.8, playbackRate: 1, error: null,
+  });
+  expect(usePlayerStore.getState().status).toBe('playing');
+
+  const next = { ...music, id: 'next', name: '下一首' } as MusicInfo;
+  fixture.resolve.mockRejectedValue(new Error('所有音源均无可用地址'));
+  await usePlayerStore.getState().play(next);
+
+  // 必须真的停下旧音频，否则「界面报错 + 声音还是上一首」
+  expect(fixture.stop).toHaveBeenCalled();
+  const state = usePlayerStore.getState();
+  expect(state.status).toBe('error');
+  expect(state.error).toContain('所有音源均无可用地址');
+  expect(state.current?.id).toBe('next');
+});
+
+it('失败后引擎的推送恢复直通，不会把 error 状态钉死', async () => {
+  const { usePlayerStore } = await load();
+  const onEngineState = fixture.subscribe.mock.calls[0][0] as (state: Record<string, unknown>) => void;
+
+  fixture.resolve.mockRejectedValue(new Error('无可用地址'));
+  await usePlayerStore.getState().play(music);
+  expect(usePlayerStore.getState().status).toBe('error');
+
+  // 失败收尾已解除目标登记：引擎后续状态必须能正常同步（例如用户重新播放成功）
+  onEngineState({
+    currentMusic: music, currentUrl: 'https://audio/ok', status: 'playing', currentTime: 5,
+    currentTimeSampledAt: Date.now(), duration: 200, volume: 0.8, playbackRate: 1, error: null,
+  });
+  const state = usePlayerStore.getState();
+  expect(state.status).toBe('playing');
+  expect(state.progress).toBe(5);
+});
+

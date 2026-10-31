@@ -11,12 +11,15 @@ on:
 #   24 是当前开发机版本；两者都过才算符合声明的契约。
 # - Rust 任务必须跑在 windows runner：secret_store.rs（DPAPI）、smtc.rs、taskbar.rs、
 #   audio_session.rs（WASAPI）及其测试直接依赖 Windows API（windows crate），linux runner 编不过。
+# - Android 任务必须跑在 ubuntu runner（含 Android SDK）：它验证的是 Java/Kotlin 原生层、
+#   AndroidManifest、Gradle 配置，以及 postinstall 对 RNTP MusicService.kt 的源码补丁。
+#   这些不跑 Gradle 就完全看不见——典型故障是「本地能跑、打包含才炸」。
 # - 命令与 package.json 的脚本一致：js 任务用 `pnpm test:core` / `pnpm check:all`，
 #   rust 任务直接调 cargo（不装 Node/pnpm，见该步骤的注释）。
 
 jobs:
   js:
-    name: JS（core 测试 / 双端类型检查 / 移动端 lint）
+    name: JS（core 测试 / 双端类型检查 / 双端 lint）
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -63,7 +66,7 @@ jobs:
       - name: 桌面功能单元测试
         run: pnpm test:desktop
 
-      - name: 双端类型检查 + 移动端 lint
+      - name: 双端类型检查 + 双端 lint
         run: pnpm check:all
 
   rust:
@@ -82,3 +85,70 @@ jobs:
       # 本任务不安装 Node/pnpm（Rust 测试不需要 JS 工具链，装了也只是多一步）。
       - name: cargo test
         run: cargo test --manifest-path desktop/src-tauri/Cargo.toml
+
+  android:
+    name: Android（assembleDebug）
+    runs-on: ubuntu-latest
+    # 原生层零 CI 覆盖时的典型失败：清单权限写错、Gradle 版本不兼容、
+    # RNTP 补丁在 CI 的 node_modules 布局下匹配不到源码。这些都不会在
+    # JS 测试里暴露，只有真正编译一次才会红。
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # JDK 17 与 build.gradle 的 AGP 8 / Kotlin 2.1.20 匹配；
+      # 换成 21 也能编，但 17 是本项目唯一在本地验证过的版本，CI 不引入变量。
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      # RN 的 Gradle 配置在 configure 阶段就会读 NDK 与 build-tools；
+      # 不预装的话 assembleDebug 会先去下载，超时后报一个看不出原因的错。
+      - name: 安装 SDK 组件
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;27.1.12297006" \
+            "cmake;3.22.1" > /dev/null
+
+      # 注意：postinstall 会执行 apply-track-player-patch.js 改写 RNTP 的
+      # MusicService.kt，补丁匹配不到源码会直接抛错 —— 这正是要在 CI 里跑到的。
+      - name: 安装依赖（含 RNTP 源码补丁）
+        run: pnpm install --frozen-lockfile
+
+      # Windows 上提交的仓库经常丢掉 gradlew 的可执行位（core.fileMode=false），
+      # 本地用 gradlew.bat 不受影响，Linux runner 会直接 permission denied。
+      - name: 确保 gradlew 可执行
+        run: chmod +x apps/mobile/android/gradlew
+
+      # 只编 arm64-v8a：本地开发机也只验证这一档（gradle.properties 的
+      # react.nativeArchitectures），四档全编会让 job 时长翻几倍且没有额外信息量。
+      - name: assembleDebug（arm64-v8a）
+        working-directory: apps/mobile/android
+        run: ./gradlew assembleDebug -PreactNativeArchitectures=arm64-v8a --no-daemon
+
+      - name: 确认 APK 产出
+        run: |
+          apk=$(find apps/mobile/android/app/build/outputs/apk/debug -name '*.apk' | head -1)
+          if [ -z "$apk" ]; then
+            echo "assembleDebug 成功但没有产出 APK，构建配置可能被改坏" >&2
+            exit 1
+          fi
+          ls -lh "$apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: auralflow-debug-apk
+          path: apps/mobile/android/app/build/outputs/apk/debug/*.apk
+          retention-days: 7

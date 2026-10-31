@@ -5,7 +5,7 @@ import {
   type HiddenSourceTrack,
   type MusicInfo,
 } from "@lx/core";
-import { normalizePlaybackQuality } from "@/services/playbackQualityModel";
+import { normalizeSourceQualityLabel } from "@/services/playbackQualityModel";
 import {
   requestCustomSourceMusicUrl,
   type CustomSourcePlatformRequest,
@@ -198,7 +198,7 @@ export async function resolveHiddenFromGroups(
               requestCustomSourceMusicUrl(api, song, quality, undefined, platformRequest),
               attemptBudget,
             );
-            const resolvedQuality = normalizePlaybackQuality(result.quality || quality);
+            const resolvedQuality = normalizeSourceQualityLabel(result.quality, quality);
             const resolverName = `${group.platform}/${api.name}`;
             // 脚本调用成功不等于地址可用：先判死链，死了就换下一个候选/音质/平台。
             const deadReason = await rejectCandidate(result.url, deadlineAt);

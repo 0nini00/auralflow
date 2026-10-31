@@ -31,6 +31,6 @@ tags: [auralflow, desktop]
 - **两端必须同答案的纯逻辑不得在桌面端复制**。已知技术债：`desktop/src/services/lyrics/playbackSync` 仍是 `core/lyrics/playbackSync` 的本地超集副本（多了词级进度与时钟外推），迁移未完成。
 - Web 前端不做系统级 IO——除下述已知例外，一律经 IPC 转发。
 
-**已知边界瑕疵（实情）**：`@lx/tauri-bridge` 不是唯一 IPC 路径，也不是强制关口。`desktop/src` 有 45 条直接 `import` `@tauri-apps/*` 的语句（分布在 35 个文件），包括 `plugin-http` 的静态白名单直连，以及 2 处直接 `invoke`（`services/outboundHttp.ts`、`utils/compression.ts`）——`components/MetadataEditModal.tsx` 已改用桥的 `getAudioInfo`，`services/appBackground.ts` 只用 `convertFileSrc`（不是 invoke）。桥覆盖的是命令面的一部分，旁路是有意保留的——所以「新增 IO 必须走桥」这条规则在代码里并不成立。细节见 `tauri-bridge`。
+**已知边界瑕疵（实情）**：`@lx/tauri-bridge` 不是唯一 IPC 路径，也不是强制关口。`desktop/src` 有 40 条直接 `import` `@tauri-apps/*` 的语句（分布在 33 个文件），包括 `plugin-http` 的静态白名单直连，以及 2 处直接 `invoke`（`services/outboundHttp.ts`、`utils/compression.ts`）——`components/MetadataEditModal.tsx` 已改用桥的 `getAudioInfo`，`services/appBackground.ts` 只用 `convertFileSrc`（不是 invoke）。桥覆盖的是命令面的一部分，旁路是有意保留的——所以「新增 IO 必须走桥」这条规则在代码里并不成立。细节见 `tauri-bridge`。
 
 **约束强度**：桌面端没有 ESLint 配置（全仓库只有移动端有），因此这些边界是约定而非工具强制，越界不会有检查报错。

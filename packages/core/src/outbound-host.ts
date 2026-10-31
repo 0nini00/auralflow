@@ -3,7 +3,18 @@
  *
  * 桌面端在 Rust 侧执行同一套规则（`desktop/src-tauri/src/outbound.rs`），
  * 因为请求由 Rust 发出；移动端请求在 JS 侧发出，直接用本模块。
- * 两份实现必须手工同步，无自动化校验，规则变更时需人工逐条比对。
+ *
+ * 两份实现**有**跨语言契约测试，不要靠人工比对来同步：
+ *   - 用例表 `outbound-host.cases.tsv` 是同目录下的唯一事实来源（49 条）；
+ *   - JS 侧 `outbound-host.test.ts` 用 `fileURLToPath` 读它；
+ *   - Rust 侧 `outbound.rs` 用 `include_str!` 在编译期内联同一份文件，
+ *     测试名 `cross_language_contract_matches_the_shared_case_list`。
+ *
+ * 任一侧改规则而没同步另一侧，两边测试会同时红。新增规则时**先加用例**，
+ * 再改实现——否则这条契约就退回到「靠注释维持」的老路。
+ *
+ * 分歧的裁决方向是固定的：**一律对齐到更严的一侧**。历史上 7 处分歧全部是
+ * 「JS 更严、Rust 更松」，因此宽松的那一份就是实际的攻击面。
  *
  * 边界（显式声明）：
  *   - 只允许 http / https；

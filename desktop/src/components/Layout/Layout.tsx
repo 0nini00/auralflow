@@ -4,6 +4,7 @@ import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { PlayerBar } from "../PlayerBar";
 import { NowPlayingPanel } from "../NowPlayingPanel";
+import { ErrorBoundary } from "../ErrorBoundary";
 import { loadSettings } from "@lx/tauri-bridge";
 import { useUiStore } from "@/stores/uiStore";
 import {
@@ -65,10 +66,20 @@ export function Layout() {
           <div className="af-stage">
             <main className="af-content">
               <div className="af-content-scroll">
-                <Outlet />
+                {/* 路由级兜底：单个页面渲染崩掉时只废掉内容区，
+                    侧栏 / 顶栏 / 播放条仍然可用（用户能切到别的页或继续听）。
+                    以 pathname 作 key，切页即自动清掉错误状态，不必手动重试。 */}
+                <ErrorBoundary key={location.pathname} scope={`route:${location.pathname}`}>
+                  <Outlet />
+                </ErrorBoundary>
               </div>
             </main>
-            {nowPlayingOpen && <NowPlayingPanel />}
+            {/* NowPlayingPanel 同样按页隔离：它自己在渲染期抛错不该带走播放条 */}
+            {nowPlayingOpen && (
+              <ErrorBoundary scope="now-playing-panel">
+                <NowPlayingPanel />
+              </ErrorBoundary>
+            )}
           </div>
         </div>
       </div>

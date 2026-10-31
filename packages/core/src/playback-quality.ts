@@ -21,27 +21,85 @@ export const PLAYBACK_QUALITY_LADDER: readonly PlaybackQuality[] = [
   "flac24bit",
 ];
 
+/**
+ * 别名表：把各音源/网关实际会吐出的标签折算成阶梯上的标准档位。
+ *
+ * 收录标准是「真实出现过」，不是「可能有人这么写」：
+ *  - 数字档位 128/192/320/740/999 来自网关的档位编码；
+ *  - `hires` / `hi-res` 来自 gdstudio；
+ *  - `sq`（无损）/ `hq`（320k）来自 QQ 音乐与酷我系的命名；
+ *  - `lossless` / `flac` / `flac24` / `24bit` 来自自定义 LX 脚本的常见写法。
+ *
+ * 每增加一个别名都应该同时补一条 `playback-quality.test.ts` 用例——
+ * 这张表是「不低于用户选定音质」裁决的输入，错了只会表现为「莫名其妙降级」。
+ */
 const QUALITY_ALIASES: Record<string, PlaybackQuality> = {
   "128": "128k",
   "128k": "128k",
   low: "128k",
+  standard: "128k",
+  std: "128k",
   "192": "192k",
   "192k": "192k",
   medium: "192k",
   "320": "320k",
   "320k": "320k",
   high: "320k",
+  hq: "320k",
   flac: "flac",
+  lossless: "flac",
+  sq: "flac",
   "740": "flac",
   hires: "flac24bit",
   "hi-res": "flac24bit",
+  "hi_res": "flac24bit",
+  flac24: "flac24bit",
   flac24bit: "flac24bit",
+  "24bit": "flac24bit",
   "999": "flac24bit",
 };
 
+/**
+ * 归一化并把「是否认识这个标签」一并交出。
+ *
+ * `normalizePlaybackQuality` 对未知值回落到 320k 是为了让调用方永远拿到一个
+ * 可用档位（所有历史调用点都按这个契约写）；但**静默**回落会让未知标签在
+ * 「不低于门槛」的竞速里冒充 320k：一个实际是 128k 的源只要标签写成 `AAC`，
+ * 就会被当成 320k 参与裁决并被选中，用户听到的是降级音频且没有任何线索。
+ *
+ * 因此需要判断的地方用本函数拿 `known`，需要「先有个档位」的地方继续用
+ * `normalizePlaybackQuality`。核心包不写日志（无 IO 约束），观测由调用方决定。
+ */
+export function classifyPlaybackQuality(value: unknown): {
+  quality: PlaybackQuality;
+  known: boolean;
+} {
+  if (typeof value !== "string") return { quality: DEFAULT_PLAYBACK_QUALITY, known: false };
+  const key = value.trim().toLowerCase();
+  if (!key) return { quality: DEFAULT_PLAYBACK_QUALITY, known: false };
+  const matched = QUALITY_ALIASES[key];
+  return matched
+    ? { quality: matched, known: true }
+    : { quality: DEFAULT_PLAYBACK_QUALITY, known: false };
+}
+
 export function normalizePlaybackQuality(value: unknown): PlaybackQuality {
-  if (typeof value !== "string") return DEFAULT_PLAYBACK_QUALITY;
-  return QUALITY_ALIASES[value.trim().toLowerCase()] ?? DEFAULT_PLAYBACK_QUALITY;
+  return classifyPlaybackQuality(value).quality;
+}
+
+/**
+ * 音源/脚本自报的音质标签 → 标准档位。
+ *
+ * 认识的别名声明的就是事实，直接采信；**不认识时退回「本次请求的档位」而不是
+ * 320k**：既然我们按 `requested` 去要的链，源又没给出可识别的档位，
+ * 最合理的估计是它给了我们要的东西，而不是凭空声称 320k。
+ *
+ * 这个规则必须双端一致——否则同一个脚本在两端会被判成不同音质，
+ * 直接导致「桌面能升到无损、移动端一直停在 320k」这类不对称行为。
+ */
+export function normalizeSourceQualityLabel(label: unknown, requested: unknown): PlaybackQuality {
+  const decided = classifyPlaybackQuality(label);
+  return decided.known ? decided.quality : normalizePlaybackQuality(requested);
 }
 
 /** 音质等级，数值越大越好。用于「不低于门槛」判定和高音质优先裁决。 */

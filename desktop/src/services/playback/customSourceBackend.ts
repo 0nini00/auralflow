@@ -1,9 +1,12 @@
 import {
   createRequestLimiter,
+  CUSTOM_SOURCE_RESOLVE_BUDGET_MS,
+  CUSTOM_SOURCE_SPREAD_MS,
   DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
   DEFAULT_SOURCE_STAGGER_MS,
   getPlaybackQualityRank,
-  normalizePlaybackQuality,
+  MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS,
+  normalizeSourceQualityLabel,
   raceStaggeredPriority,
 } from '@lx/core';
 import { customSourceAccess, customSourcePersistence, useCustomSourceStore } from '@/stores/customSourceStore';
@@ -57,8 +60,8 @@ export const customSourceBackend: PlaybackBackend = {
     // 之前固定 10s 会把 2.5s 主源 + 10s 自定义源 + 5s 探活叠加到 17.5s，超过 14s。
     const availableBudget = request.deadlineAt
       ? request.deadlineAt - Date.now() - CUSTOM_SOURCE_PROBE_RESERVE_MS
-      : CUSTOM_SOURCE_TOTAL_BUDGET_MS;
-    const budget = Math.min(CUSTOM_SOURCE_TOTAL_BUDGET_MS, availableBudget);
+      : CUSTOM_SOURCE_RESOLVE_BUDGET_MS;
+    const budget = Math.min(CUSTOM_SOURCE_RESOLVE_BUDGET_MS, availableBudget);
     if (budget <= CUSTOM_SOURCE_MIN_ATTEMPT_MS) {
       throw new Error('播放解析总预算不足，未尝试自定义音源');
     }
@@ -126,7 +129,8 @@ export const customSourceBackend: PlaybackBackend = {
             const hit: CustomSourceHit = {
               apiName: api.name,
               music,
-              quality: normalizePlaybackQuality(result.quality || requested),
+              // 脚本没回传可识别档位时退回本次请求的档位，而不是静默当成 320k。
+              quality: normalizeSourceQualityLabel(result.quality, requested),
               url: result.url,
             };
             collected.push({ ...hit, rank: getPlaybackQualityRank(hit.quality), sourceIndex: index });
@@ -220,27 +224,11 @@ export const customSourceBackend: PlaybackBackend = {
   },
 };
 
-/** 自定义源阶段最大预算。实际预算还会被外层 deadline 压缩。 */
-const CUSTOM_SOURCE_TOTAL_BUDGET_MS = 10000;
-
 /** 给探活与媒体缓存预留的时间：外层 14s 内自定义源最多用「剩余时间 - 该值」。 */
 const CUSTOM_SOURCE_PROBE_RESERVE_MS = 6000;
 
-/** 交错启动总展开上限:7 个源全部展开不超过该值(实测队尾慢源场景的关键)。 */
-const CUSTOM_SOURCE_SPREAD_MS = 1600;
-
 /** 剩余时间不足该值时不再启动新变体尝试,避免刚启动就撞外层 deadline。 */
 const CUSTOM_SOURCE_MIN_ATTEMPT_MS = 1000;
-
-/**
- * 同时在途的自定义源取链请求上限。
- *
- * 竞速是「源 × 音质」二维展开，8 个源 × 4 档在最坏情况下会同时打出 30 个请求。
- * 对自建源无所谓，但这几个源里常有第三方公益代理，被限流之后所有源一起变慢，
- * 竞速反而退化成「一起超时」。压到 3 个之后最坏请求量从乘积变成接近线性，
- * 代价是队尾候选要排队——租约与排队超时由 @lx/core 的闸门负责兜底。
- */
-const MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS = 3;
 
 /** 回退候选最多留几个：每次回退都要一次探活 RTT，不宜为兜底把整首拖死。 */
 const MAX_FALLBACK_CANDIDATES = 2;

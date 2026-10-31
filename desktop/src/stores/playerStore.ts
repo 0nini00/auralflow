@@ -375,6 +375,22 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
         return inflightPlayRequest.promise;
       }
 
+      /**
+       * 播放全链失败的统一收尾。
+       *
+       * 失败时引擎里仍装着上一首：若不停止，界面会停在「新歌 + 报错」而声音继续播
+       * 上一首，且 syncEngineToStore 因 engineTargetKey 仍指向新歌而丢弃旧曲的状态
+       * 推送，进度条一并冻住 —— 用户必须再切一次歌才能恢复一致。
+       *
+       * 顺序是刻意的：先解除目标登记，stop() 推来的 idle 才不会被当成「上一首的推送」
+       * 丢弃（否则它会覆盖掉刚写入的 error）；最后由本次 set 落定 error 状态。
+       */
+      const failPlayback = (message: string) => {
+        engineTargetKey = null;
+        playerEngine.stop();
+        set({ status: "error", error: message });
+      };
+
       const requestId = activePlayRequestId + 1;
       activePlayRequestId = requestId;
       // 从这一行到引擎真正加载本曲目之前，引擎推来的状态都属于上一首：全部屏蔽。
@@ -514,20 +530,14 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
               }
 
               const reason = describeCrossSourceFailure(candidates);
-              set({
-                status: "error",
-                error: `${e instanceof Error ? e.message : String(e)}（${reason}）`,
-              });
+              failPlayback(`${e instanceof Error ? e.message : String(e)}（${reason}）`);
               return;
             } catch (fallbackErr) {
               debugLog(`[fallback] 跨源降级过程异常: ${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`);
             }
           }
 
-          set({
-            status: "error",
-            error: e instanceof Error ? e.message : String(e),
-          });
+          failPlayback(e instanceof Error ? e.message : String(e));
         } finally {
           if (inflightPlayRequest?.id === requestId) {
             inflightPlayRequest = null;

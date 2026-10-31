@@ -29,7 +29,12 @@ function setup(options = {}) {
   const calls = { search: [], request: [], probe: [] };
   const load = createLoader({
     "@lx/core": core,
-    "@/services/playbackQualityModel": { normalizePlaybackQuality: (value) => value },
+    "@/services/playbackQualityModel": {
+      // 测试里没有真实别名表，两个归一化都保持「原样透传」语义：
+      // 脚本回传什么档位就是什么档位，便于断言链路没有改写它。
+      normalizePlaybackQuality: (value) => value,
+      normalizeSourceQualityLabel: (label) => label,
+    },
     "./hiddenSourceSearchers": {
       hiddenSourceSearchers: [
         {

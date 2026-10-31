@@ -5,6 +5,7 @@ import {
   getPlaybackQualityRank,
   getQualitiesAtOrAbove,
   normalizePlaybackQuality,
+  normalizeSourceQualityLabel,
   type PlaybackQuality,
 } from "@lx/core";
 
@@ -19,6 +20,7 @@ export {
   getPlaybackQualityRank,
   getQualitiesAtOrAbove,
   normalizePlaybackQuality,
+  normalizeSourceQualityLabel,
 };
 export type { PlaybackQuality };
 
