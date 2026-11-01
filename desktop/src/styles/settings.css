@@ -1532,3 +1532,28 @@
 .af-settings-section-title {
   border-bottom-width: 1px;
 }
+
+/* ============================================================
+   有背景图时：设置页的面板换成半透明毛玻璃
+
+   表面色 token 已在 index.css 的 .af-app-has-background 内改成半透明，
+   这里只补 token 做不到的两件事：面板缺的模糊，以及标签栏那条实心底色。
+   ============================================================ */
+/* 半透明还不够：背景图的细节会直接压在面板文字下面，卡片与标签栏要补一层模糊。 */
+.af-app-has-background .af-settings-card,
+.af-app-has-background .af-settings-tabs,
+.af-app-has-background .af-lyric-settings-tabs,
+.af-app-has-background .af-lyric-settings-sliders {
+  backdrop-filter: blur(calc(var(--af-app-bg-blur) / 2));
+}
+
+/* 标签栏原本是 color-mix(bg-page 92%)：深色主题下等同于一条实心黑带。 */
+.af-app-has-background .af-settings-tabs {
+  background: rgba(255, 255, 255, calc(0.12 * var(--af-app-bg-mask)));
+  border-bottom-color: rgba(255, 255, 255, 0.34);
+}
+
+[data-theme="dark"] .af-app-has-background .af-settings-tabs {
+  background: rgba(15, 23, 42, calc(0.14 * var(--af-app-bg-mask)));
+  border-bottom-color: rgba(226, 232, 240, 0.14);
+}
