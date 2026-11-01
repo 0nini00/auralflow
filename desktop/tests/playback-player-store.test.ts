@@ -262,3 +262,38 @@ it('失败后引擎的推送恢复直通，不会把 error 状态钉死', async 
   expect(state.progress).toBe(5);
 });
 
+
+// 「下一首播放」：随机抽号与 FM 推荐都会绕过 queue 的插入位置，用户插的歌要等很久
+// 才播。锚点必须让 next() 直接播这一首，且消费后清空。
+it('「下一首播放」在随机模式下不抽号，直接播插入的那首', async () => {
+  const { usePlayerStore } = await load();
+  const queue = [
+    { ...music, id: 'A', name: 'A' } as MusicInfo,
+    { ...music, id: 'B', name: 'B' } as MusicInfo,
+    { ...music, id: 'C', name: 'C' } as MusicInfo,
+  ];
+  usePlayerStore.setState({ queue, currentIndex: 0, isShuffle: true, repeatMode: 'all', playHistory: [] });
+
+  const inserted = { ...music, id: 'X', name: 'X' } as MusicInfo;
+  usePlayerStore.getState().playNext(inserted);
+  expect(usePlayerStore.getState().queue.map((song) => song.id)).toEqual(['A', 'X', 'B', 'C']);
+
+  await usePlayerStore.getState().next();
+
+  expect(usePlayerStore.getState().current?.id).toBe('X');
+  expect(usePlayerStore.getState().currentIndex).toBe(1);
+  expect(usePlayerStore.getState().pinnedNextSong).toBeNull();
+});
+
+it('「下一首播放」在私人 FM 里也能插播，不被推荐流吞掉', async () => {
+  const { usePlayerStore } = await load();
+  const queue = [{ ...music, id: 'A', name: 'A' } as MusicInfo];
+  usePlayerStore.setState({ queue, currentIndex: 0, fmMode: true, playHistory: [] });
+
+  const inserted = { ...music, id: 'FM-X', name: 'FM-X' } as MusicInfo;
+  usePlayerStore.getState().playNext(inserted);
+  await usePlayerStore.getState().next();
+
+  expect(usePlayerStore.getState().current?.id).toBe('FM-X');
+  expect(usePlayerStore.getState().fmMode).toBe(false);
+});

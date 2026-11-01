@@ -56,6 +56,10 @@ interface PlayerStore {
 
   fmHistory: MusicInfo[];
 
+  /** 「下一首播放」锚点：随机 / FM 模式取下一首时优先消费（只存曲目身份，避免下标漂移） */
+
+  pinnedNextSong: MusicInfo | null;
+
   play: (music: MusicInfo) => Promise<void>;
   playQueue: (queue: MusicInfo[], startIndex?: number) => Promise<void>;
   playByIndex: (index: number) => Promise<void>;
@@ -366,6 +370,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
     playHistory: [],
     fmHistory: [],
+    pinnedNextSong: null,
 
 
 
@@ -553,7 +558,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
       // 用户主动选了别的歌单/队列，自动退出 FM 模式，清空播放历史
 
-      set({ queue, currentIndex: startIndex, fmMode: false, playHistory: [] });
+      set({ queue, currentIndex: startIndex, fmMode: false, playHistory: [], pinnedNextSong: null });
       const music = queue[startIndex];
       if (music) await get().play(music);
     },
@@ -605,7 +610,9 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
         const playHistory = state.playHistory.map((h) => (h >= nextIndex ? h + 1 : h));
 
-        return { queue: nextQueue, playHistory };
+        // 同时记下锚点：随机播放与 FM 模式下 next() 不会走到插入位置，需要它兜底
+
+        return { queue: nextQueue, playHistory, pinnedNextSong: music };
 
       });
 
@@ -674,6 +681,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
         status: "idle",
 
         playHistory: [],
+        pinnedNextSong: null,
 
       });
 
@@ -743,8 +751,14 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
 
 
+      // 「下一首播放」锚点：随机抽号与 FM 推荐都会绕过插入位置，导致用户插的歌要等
+      // 很久才播。这里记曲目身份而不是下标——队列增删会让下标整体漂移。
+      const pinnedSong = get().pinnedNextSong;
+      const pinnedIndex = pinnedSong
+        ? queue.findIndex((song) => buildSongKey(song) === buildSongKey(pinnedSong))
+        : -1;
       // FM 模式：放弃 queue 逻辑，拉下一首推荐
-      if (fmMode) {
+      if (fmMode && pinnedIndex < 0) {
         // 把当前曲压入 FM 历史栈，供 prev() 回退（FM 无 queue，prev 原先是无反应的）
         if (get().current) {
           set((state) => ({ fmHistory: [...state.fmHistory.slice(-49), state.current!] }));
@@ -775,7 +789,15 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
 
 
 
-      if (isShuffle) {
+      if (pinnedIndex >= 0) {
+
+        // 「下一首播放」锚点：随机模式下不再现场抽号，直接播用户刚插的那首
+
+        nextIndex = pinnedIndex;
+
+        set({ pinnedNextSong: null, fmMode: false });
+
+      } else if (isShuffle) {
 
         // Random mode: pick a random index (excluding current)
 

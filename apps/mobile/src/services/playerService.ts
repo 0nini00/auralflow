@@ -1264,6 +1264,22 @@ export async function playNext(auto = false): Promise<void> {
     }
   }
 
+  // 「下一首播放」锚点：刚插进主队列的那首必须下一个播（与桌面端一致）。
+  // 随机模式会现场抽号、FM 会去拉推荐，两条路径都会绕过插入位置。
+  if (store.pinnedNextSong) {
+    const pinned = store.pinnedNextSong;
+    const pinnedKey = `${pinned.source}:${pinned.id}`;
+    const pinnedIndex = queue.findIndex((item) => `${item.source}:${item.id}` === pinnedKey);
+    if (pinnedIndex >= 0) {
+      // 插播即离开推荐流：playFromQueue 在 FM 上下文里只会改批次下标，不会切歌。
+      usePlayerStore.setState({ pinnedNextSong: null, playbackContext: { type: "queue" } });
+      await playFromQueue(pinnedIndex, undefined, intent);
+      return;
+    }
+    // 锚点曲已被移出队列：清掉标记，按原逻辑继续找下一首。
+    usePlayerStore.setState({ pinnedNextSong: null });
+  }
+
   if (playbackContext.type === "personalFm") {
     await playNextPersonalFmSong(intent);
     return;

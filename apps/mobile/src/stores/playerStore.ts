@@ -18,6 +18,7 @@ import { clampPlaybackRate, DEFAULT_PLAYBACK_RATE } from "@/services/playerRateM
 import { DEFAULT_VOLUME, getNextMuteState, getNextVolumeState } from "@/services/playerVolumeModel";
 import {
   insertSongAtQueueEnd,
+  insertSongToPlayNext,
   enqueueTempPlayList,
   removeFromTempPlayList as removeFromTempPlayListPure,
 } from "@/services/songQueueActions";
@@ -366,6 +367,8 @@ export interface PlayerState {
   playedIndices: number[];
   /** 稍后播放暂存区：独立于主队列，playNext 时优先消费，插播完自动回归主队列 */
   tempPlayList: MusicInfo[];
+  /** 「下一首播放」锚点：随机 / FM 模式下取下一首时优先播它（只存曲目身份，避免下标漂移） */
+  pinnedNextSong: MusicInfo | null;
 
   // 播放模式
   playMode: PlayMode;
@@ -487,6 +490,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   shuffleHistory: [],
   playedIndices: [],
   tempPlayList: [],
+  pinnedNextSong: null,
   playMode: "list",
   playbackContext: { type: "queue" },
   lyrics: [],
@@ -839,6 +843,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       // 切歌单时清空「稍后播放」暂存区（对齐 lx playList → clearTempPlayeList），
       // 避免上一歌单的插播曲目在新歌单里突然出现
       tempPlayList: [],
+      pinnedNextSong: null,
       playbackContext: { type: "queue" },
     });
   },
@@ -851,11 +856,26 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   },
 
   playNextInQueue: (song: MusicInfo) => {
-    // 「稍后播放」= 加入独立的 tempPlayList 暂存区，不污染主队列顺序。
-    // playNext 会优先消费暂存区首曲（见 playerService.playNext）。
-    set((state) => ({
-      tempPlayList: enqueueTempPlayList({ tempPlayList: state.tempPlayList, song }),
-    }));
+    const before = get();
+    const shouldStartNow = before.queue.length === 0 || before.currentIndex < 0;
+    // 立即插入主队列当前曲之后（对齐桌面端）：队列面板当场可见。此前只写独立的
+    // 「稍后播放」暂存区，队列里看不到任何东西，直到播到它才突然冒出来。
+    set((state) => {
+      const inserted = insertSongToPlayNext({ queue: state.queue, currentIndex: state.currentIndex, song });
+      // 插入点之后的索引整体 +1：否则随机历史与已播集合会指向错位的歌。
+      const grew = inserted.queue.length === state.queue.length + 1;
+      const insertPoint = inserted.currentIndex + 1;
+      const shift = (index: number) => (grew && index >= insertPoint ? index + 1 : index);
+      return {
+        queue: inserted.queue,
+        currentIndex: inserted.currentIndex,
+        shuffleHistory: grew ? state.shuffleHistory.map(shift) : [],
+        playedIndices: grew ? state.playedIndices.map(shift) : [],
+        pinnedNextSong: shouldStartNow ? null : song,
+      };
+    });
+    // 空队列 / 无当前曲：插入后立即开播，避免只改队列不出声（与桌面端一致）。
+    if (shouldStartNow) void playFromQueue(0).catch(() => undefined);
     // 立即预取该曲播放 URL/歌词/封面：播到它时命中缓存秒开（避免插播时实时解析）。
     // 懒加载避免 playerStore ↔ playerService 循环依赖。
     void import("../services/playerService").then((m) => m.prefetchSong(song)).catch(() => undefined);
@@ -938,6 +958,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       shuffleHistory: [],
       playedIndices: [],
       tempPlayList: [],
+      pinnedNextSong: null,
       playbackContext: { type: "queue" },
     });
     const clearing = (async () => {
