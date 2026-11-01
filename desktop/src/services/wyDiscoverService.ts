@@ -45,17 +45,21 @@ function clampOffset(offset: number): number {
   return Number.isFinite(offset) && offset > 0 ? Math.floor(offset) : 0;
 }
 
-async function getJson(path: string): Promise<Record<string, unknown>> {
+async function getJson(path: string, cookie?: string): Promise<Record<string, unknown>> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const headers: Record<string, string> = {
+    Accept: "application/json, text/plain, */*",
+    "User-Agent": WY_UA,
+  };
+  // 只有「登录态个性化推荐」需要 Cookie；公开列表一律不带（见文件头注释）。
+  const trimmedCookie = cookie?.trim();
+  if (trimmedCookie) headers.Cookie = trimmedCookie;
   let response: Response;
   try {
     response = await fetch(`${WY_API_BASE}${path}`, {
       method: "GET",
-      headers: {
-        Accept: "application/json, text/plain, */*",
-        "User-Agent": WY_UA,
-      },
+      headers,
       signal: controller.signal,
     });
   } catch (error) {
@@ -119,10 +123,58 @@ export async function fetchWyPlaylistsByCategory(
   return { playlists, hasMore: raw.length >= size };
 }
 
-/** 发现页「推荐歌单」：公开热门歌单，与移动端首页同一口径（不读 Cookie）。 */
-export async function fetchWyRecommendedPlaylists(limit = 12): Promise<PlaylistInfo[]> {
-  const page = await fetchWyPlaylistsByCategory("全部", "hot", limit, 0);
-  return page.playlists;
+/** 推荐歌单「每日一版」的候选分类：越多分类，轮换一轮需要的天数越久。 */
+export const RECOMMENDED_POOL_CATEGORIES = ["全部", "华语", "流行", "电子", "民谣", "摇滚"] as const;
+
+/**
+ * 推荐歌单候选池。
+ *
+ * 为什么不直接取热门前 12 条（旧实现）：那个列表几天都不变，无论怎么刷新都是同一批。
+ * 这里按分类各取一页、再给「全部」多取一页，去重后得到上百条候选，轮换才有意义。
+ *
+ * 单个分类失败不拖垮整池（`catch` 成 null），只有全部失败才算失败——发现页首屏
+ * 不该因为某个冷门分类抽风就空掉。
+ */
+export async function fetchWyRecommendedPlaylistPool(pageSize = 24): Promise<PlaylistInfo[]> {
+  const size = clampLimit(pageSize, 24);
+  const requests = RECOMMENDED_POOL_CATEGORIES.flatMap((category, index) => {
+    const offsets = index === 0 ? [0, size] : [0];
+    return offsets.map((offset) =>
+      fetchWyPlaylistsByCategory(category, "hot", size, offset).catch(() => null),
+    );
+  });
+  const pages = await Promise.all(requests);
+
+  const seen = new Set<string>();
+  const pool: PlaylistInfo[] = [];
+  for (const page of pages) {
+    for (const playlist of page?.playlists ?? []) {
+      const id = String(playlist.id ?? "").trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      pool.push(playlist);
+    }
+  }
+  if (pool.length === 0) throw new WyDiscoverError("推荐歌单候选池为空");
+  return pool;
+}
+
+/**
+ * 登录态个性化推荐（`/api/v1/discovery/recommend/resource`，与移动端同一端点）。
+ *
+ * 它本身一天只变一次，是「每天不一样」的天花板；未登录或失败时调用方回退公开池。
+ */
+export async function fetchWyPersonalizedRecommendedPlaylists(
+  cookie: string,
+  limit = 12,
+): Promise<PlaylistInfo[]> {
+  const trimmed = cookie.trim();
+  if (!trimmed) throw new WyDiscoverError("网易云个性化推荐需要登录");
+  const data = await getJson("/api/v1/discovery/recommend/resource", trimmed);
+  const raw = Array.isArray(data.recommend) ? data.recommend : [];
+  const playlists = raw.map((item) => mapWyPlaylist(item)).filter((item) => item.id.length > 0);
+  if (playlists.length === 0) throw new WyDiscoverError("个性化推荐返回空列表");
+  return playlists.slice(0, clampLimit(limit, 12));
 }
 
 export interface WyLeaderboardResult {

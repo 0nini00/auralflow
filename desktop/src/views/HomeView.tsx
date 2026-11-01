@@ -35,6 +35,8 @@ export function HomeView() {
   const previewStatus = useDiscoverFeedStore((s) => s.previewStatus);
   const previewError = useDiscoverFeedStore((s) => s.previewError);
   const load = useDiscoverFeedStore((s) => s.load);
+  const rotateRecommended = useDiscoverFeedStore((s) => s.rotateRecommended);
+  const recommendedSource = useDiscoverFeedStore((s) => s.recommendedSource);
 
   const featured = recommended[0] ?? null;
   const featuredCover = featured?.picUrl ? coverSrc(featured.picUrl, HERO_COVER_CSS_SIZE) : "";
@@ -106,7 +108,29 @@ export function HomeView() {
         <section className="af-home-section">
           <SectionHeader
             title="推荐歌单"
-            action={{ label: "更多", onClick: () => navigate("/playlist-square") }}
+            action={
+              <>
+                {/* 「换一批」只在公开池轮换时有意义：登录走个性化推荐时那批一天只变一次，
+                    按钮会给人「点了没反应」的错觉，所以只在非个性化下显示。 */}
+                {recommendedSource === "public" && recommended.length > 0 ? (
+                  <button
+                    type="button"
+                    className="af-section-action"
+                    onClick={() => { void rotateRecommended(); }}
+                    disabled={recommendedStatus === "loading"}
+                  >
+                    换一批
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="af-section-action"
+                  onClick={() => navigate("/playlist-square")}
+                >
+                  更多
+                </button>
+              </>
+            }
           />
           {recommendedStatus === "loading" || recommendedStatus === "idle" ? (
             <div className="af-discover-loading" role="status">正在加载推荐歌单…</div>

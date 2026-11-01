@@ -5,7 +5,7 @@ import type { MusicInfo, PlaylistInfo, WyLeaderboardBoard } from '@lx/core';
 import { HomeView } from '../src/views/HomeView';
 import { LeaderboardView } from '../src/views/LeaderboardView';
 import { PlaylistSquareView } from '../src/views/PlaylistSquareView';
-import { useDiscoverFeedStore } from '../src/stores/discoverFeedStore';
+import { invalidateRecommendedPool, useDiscoverFeedStore } from '../src/stores/discoverFeedStore';
 
 /**
  * 发现页 / 排行榜 / 歌单广场的行为契约。
@@ -18,16 +18,20 @@ import { useDiscoverFeedStore } from '../src/stores/discoverFeedStore';
 
 const api = vi.hoisted(() => ({
   recommended: vi.fn(),
+  personalized: vi.fn(),
   boards: vi.fn(),
   page: vi.fn(),
   previewSongs: vi.fn(),
 }));
 
 vi.mock('@/services/wyDiscoverService', () => ({
-  fetchWyRecommendedPlaylists: api.recommended,
+  fetchWyRecommendedPlaylistPool: api.recommended,
+  fetchWyPersonalizedRecommendedPlaylists: api.personalized,
   fetchWyLeaderboardBoards: api.boards,
   fetchWyPlaylistsByCategory: api.page,
 }));
+// 登录态解析成空串：个性化推荐走 reject 分支，公开池才是这些用例的主路径
+vi.mock('@/services/wyAccountService', () => ({ getWyCookie: async () => '' }));
 vi.mock('@/services/sources/sourceService', () => ({
   getSource: () => ({ getPlaylistDetail: api.previewSongs }),
 }));
@@ -89,6 +93,8 @@ async function click(label: string) {
 function resetFeed() {
   useDiscoverFeedStore.setState({
     recommended: [],
+    recommendedBatch: 0,
+    recommendedSource: 'public',
     recommendedStatus: 'idle',
     recommendedError: '',
     boards: [],
@@ -109,6 +115,9 @@ beforeEach(() => {
   resetFeed();
   location = '';
   api.recommended.mockResolvedValue([playlist('p1', '推荐一')]);
+  api.personalized.mockRejectedValue(new Error('未登录'));
+  // 候选池是模块级缓存：不清掉会让后面的用例拿到上一个用例的池子
+  invalidateRecommendedPool();
   api.boards.mockResolvedValue({ boards: [board('19723756', '飙升榜')], degraded: false });
   api.previewSongs.mockResolvedValue([song('s1'), song('s2')]);
   api.page.mockResolvedValue({ playlists: [playlist('sq1', '广场一')], hasMore: false });
@@ -135,6 +144,14 @@ describe('发现页区块', () => {
     expect(hit).toBeTruthy();
     await act(async () => { hit.props.onClick(); });
     expect(location).toBe('/playlist/p1?source=wy');
+  });
+
+  // 「换一批」只换当天批次，不该重新联网拉候选池（池子有 6 小时缓存）。
+  it('「换一批」只换批次，不重新拉候选池', async () => {
+    await mount('/');
+    expect(byText('换一批')).toBeTruthy();
+    await click('换一批');
+    expect(api.recommended).toHaveBeenCalledTimes(1);
   });
 });
 

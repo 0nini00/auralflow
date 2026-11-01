@@ -13,6 +13,7 @@ import { SongList } from "@/components/SongList";
 import { Touchable } from "@/components/Touchable";
 import { openDailyRecommendScreen, openDownloadsScreen, openLeaderboardScreen, openLibrarySection, openPlaylistDetailScreen, openPlaylistSquareScreen, openMyMusicTab, openPlayerScreen } from "@/navigation/navigationRef";
 import { getHomeFeedScope } from "@/services/homeFeedModels";
+import { bumpRecommendedPlaylistBatch } from "@/services/recommendationRotationService";
 import type { HomeFeedSection, HomeFeedSectionId } from "@/services/homeFeedService";
 import { fetchWyLeaderboardBoards } from "@/services/wyLeaderboardService";
 import { getPlaylistDetail } from "@/services/wyPlaylistService";
@@ -71,6 +72,16 @@ export function HomeScreen({ onNavigateToSearch: _onNavigateToSearch, onNavigate
   const palette = getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const context = useMemo(() => ({ scopeKey: getHomeFeedScope(userId), isLoggedIn, userId }), [isLoggedIn, userId]);
+
+  // 「换一批」：把当天批次号推到下一批，再让该区块重新取一次（候选池命中缓存，不重拉网络）。
+  const rotateRecommendedPlaylists = useCallback(async () => {
+    try {
+      await bumpRecommendedPlaylistBatch();
+      await refreshSection("recommendedPlaylists", context);
+    } catch {
+      // 换一批失败不改动现有内容：下一次刷新会重新挑。
+    }
+  }, [context, refreshSection]);
 
   useEffect(() => { void load(context); }, [context, load]);
 
@@ -190,7 +201,7 @@ export function HomeScreen({ onNavigateToSearch: _onNavigateToSearch, onNavigate
           <SectionHeader title="快捷入口" />
           <HomeQuickActions actions={quickActions} onPress={handleQuickAction} />
         </View>
-        <View style={styles.section}><SectionHeader title="推荐歌单" action={<SectionAction label="更多" onPress={openPlaylistSquareScreen} />} />{!recommendedPlaylists && (!loaded || refreshing) ? renderLoading("正在加载推荐歌单") : null}{recommendedPlaylists?.items?.length ? <PlaylistRail items={recommendedPlaylists.items.map((playlist) => ({ id: playlist.id, name: playlist.name, coverImgUrl: playlist.coverImgUrl }))} onPress={(id) => { const playlist = recommendedPlaylists.items.find((item) => item.id === id); if (playlist) openPlaylistDetailScreen(playlist); }} /> : null}{renderSectionError(recommendedPlaylists, "recommendedPlaylists")}</View>
+        <View style={styles.section}><SectionHeader title="推荐歌单" action={<View style={{ flexDirection: "row", gap: 8 }}><SectionAction label="换一批" onPress={() => { void rotateRecommendedPlaylists(); }} /><SectionAction label="更多" onPress={openPlaylistSquareScreen} /></View>} />{!recommendedPlaylists && (!loaded || refreshing) ? renderLoading("正在加载推荐歌单") : null}{recommendedPlaylists?.items?.length ? <PlaylistRail items={recommendedPlaylists.items.map((playlist) => ({ id: playlist.id, name: playlist.name, coverImgUrl: playlist.coverImgUrl }))} onPress={(id) => { const playlist = recommendedPlaylists.items.find((item) => item.id === id); if (playlist) openPlaylistDetailScreen(playlist); }} /> : null}{renderSectionError(recommendedPlaylists, "recommendedPlaylists")}</View>
         <View style={styles.section}><SectionHeader title="排行榜" action={<SectionAction label="更多" onPress={openLeaderboardScreen} />} />{leaderboardSongs.length > 0 ? <AlbumRail items={leaderboardSongs.map((song) => ({ id: song.id, name: song.name, artistName: song.singer, coverImgUrl: song.picUrl || song.img }))} onPress={(id) => { const index = leaderboardSongs.findIndex((song) => song.id === id); if (index >= 0) void runPlayback(leaderboardSongs, index); }} /> : null}</View>
         {isLoggedIn ? <View style={styles.section}><SectionHeader title="每日推荐" action={<SectionAction label="查看全部" onPress={openDailyRecommendScreen} />} />{!dailySongs && (!loaded || refreshing || sectionLoading.dailySongs) ? renderLoading("正在加载每日推荐") : null}{dailySongs?.items?.length ? <SongList songs={dailySongs.items.slice(0, SONG_PREVIEW_LIMIT)} hideSourceTag onPlay={(_song, index) => void runPlayback(dailySongs.items, index)} /> : null}{renderSectionError(dailySongs, "dailySongs")}</View> : null}
       </ScreenScrollView>
