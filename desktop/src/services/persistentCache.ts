@@ -14,7 +14,10 @@ export const LYRIC_EMPTY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 // v2：歌词解析器修复网易云 eapi 富文本元信息行（作词/作曲/编曲…整批丢失）后，
 // 旧版缓存里存的解析结果永久缺失这些行且要活 30 天，必须整体失效重拉。
 // 播放 URL 缓存一并重置，代价只是首次播放时重新解析一次直链。
-export const CACHE_VERSION = 2;
+// v3：云盘曲的占位歌词（「暂无歌词」）曾被当作可缓存空结果写盘并冻结 7 天，
+// 期间重开应用也拿不到词。现在这类空结果不再落盘，且 `wyProvider.getLyric`
+// 会按元数据去线上找同一份录音取词，用版本号把已冻结的旧结论一并清掉。
+export const CACHE_VERSION = 3;
 const MAX_PLAYBACK_URL_ENTRIES = 500;
 const MAX_LYRIC_ENTRIES = 1000;
 const CACHEABLE_EMPTY_LYRIC_ERRORS = new Set([

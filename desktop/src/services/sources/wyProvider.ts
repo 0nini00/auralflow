@@ -12,9 +12,16 @@ import type {
   SearchType,
 } from "@lx/core";
 import { fetch } from "@tauri-apps/plugin-http";
-import { getPlaybackQualityRank, normalizePlaybackQuality, type PlaybackQuality } from "@lx/core";
+import {
+  getPlaybackQualityRank,
+  isSameSong,
+  normalizePlaybackQuality,
+  normalizeSongName,
+  type PlaybackQuality,
+} from "@lx/core";
 import { weapi } from "@/lib/crypto/weapi";
 import { getWyCookie } from "@/services/wyAccountService";
+import { debugLog } from "@lx/tauri-bridge";
 import {
   mapWyPlaylist,
   mapWySong,
@@ -249,6 +256,78 @@ function isWyLevelBelowRequested(level: unknown, requestedRank: number): boolean
   return getPlaybackQualityRank(actual) < requestedRank;
 }
 
+// ─── 歌词：取词 + 云盘曲的线上曲目匹配 ─────────────────
+
+/**
+ * 取歌词原始响应体。
+ *
+ * 这里**不做收敛**：`uncollected` / `nolyric` 等判定字段要留给调用方（见 `getLyric`）。
+ * 网络或加密失败原样抛出，由 `getLyric` 统一转成「歌词获取失败」——在这里吞掉
+ * 会变成「暂无歌词」，对用户而言是另一个答案。
+ */
+function requestWyLyricBody(id: string): Promise<any> {
+  return eapiRequest("/api/song/lyric/v1", {
+    id: parseInt(id, 10),
+    cp: false,
+    tv: -1,
+    lv: -1,
+    rv: -1,
+    kv: -1,
+    yv: -1,
+    ytv: -1,
+    yrv: -1,
+  });
+}
+
+/** 歌词响应体 → provider 返回结构。字段映射与 lx-music-desktop 对齐。 */
+function pickLyricFields(body: any) {
+  return {
+    lyric: (body?.lrc?.lyric as string) ?? undefined,
+    tlyric: (body?.tlyric?.lyric as string) ?? undefined,
+    // 与逐字轨对齐的翻译/罗马音：主轨选 yrc 时解析层优先用这两个
+    ytlyric: (body?.ytlrc?.lyric as string) ?? undefined,
+    romaLyric: (body?.romalrc?.lyric as string) ?? undefined,
+    yromaLyric: (body?.yromalrc?.lyric as string) ?? undefined,
+    yrc: (body?.yrc?.lyric as string) ?? undefined,
+  };
+}
+
+/**
+ * 按元数据在线上找到与这首歌**同一份录音**的曲目，用于给云盘曲取歌词。
+ *
+ * 背景：云盘条目有自己的「云盘条目 id」，服务端对它只回占位歌词
+ * `{ lrc: "[00:00.00]暂无歌词", uncollected: true }`——歌词挂在线上曲目那份记录上。
+ *
+ * 为什么必须严格：`cloudsearch` 对「歌名 + 歌手」这类关键词，翻唱会排在官方曲前面
+ * （实测未登录搜索「雨下一整晚 周杰伦」前 5 条全是翻唱）。匹配错就会把别人的歌词
+ * 贴到用户上传的音频上，比没歌词更糟。因此直接复用 `@lx/core` 的 `isSameSong`——
+ * 与跨源合并/补源共用同一套判定（规整歌名相等 + 至少一位歌手重合 + 双方有时长时
+ * 差 ≤ 5 秒），不在这里另造一套容忍度。
+ */
+async function findMatchedOnlineSong(music: MusicInfo): Promise<MusicInfo | null> {
+  let candidates: MusicInfo[] = [];
+  try {
+    const result = await searchWyViaCloudSearch(`${music.name} ${music.singer}`, "song");
+    candidates = result.songs ?? [];
+  } catch {
+    return null;
+  }
+
+  // 歌名规整后为空（纯标点/括号）时不做匹配：没有任何可比的依据。
+  if (!normalizeSongName(music.name)) return null;
+
+  for (const candidate of candidates) {
+    if (!candidate?.id || candidate.id === music.id) continue;
+    if (!isSameSong(music, candidate)) continue;
+    debugLog(
+      `[lyric] 云盘曲候选 name=${candidate.name} singer=${candidate.singer} id=${candidate.id} ` +
+        `duration=${candidate.interval ?? 0}s target=${music.interval ?? 0}s`,
+    );
+    return candidate;
+  }
+  return null;
+}
+
 // ─── Provider ──────────────────────────────────────────
 
 export const wyProvider: MusicSource = {
@@ -351,35 +430,28 @@ export const wyProvider: MusicSource = {
 
   async getLyric(music: MusicInfo) {
     try {
-      const body = await eapiRequest("/api/song/lyric/v1", {
-        id: parseInt(music.id, 10),
-        cp: false,
-        tv: -1,
-        lv: -1,
-        rv: -1,
-        kv: -1,
-        yv: -1,
-        ytv: -1,
-        yrv: -1,
-      });
-      // 占位歌词一律当「没有歌词」。
-      //
-      // 实测：云盘里未被匹配到在线曲目的条目（账号内 75%）歌词接口返回
-      // `{ lrc: { lyric: "[00:00.00]暂无歌词" }, uncollected: true }`。原样返回会让
-      // lyricsService 的 `lines.length > 0 ? 用它 : 报无歌词` 判定成「已有歌词」，
-      // 于是显示出一句「暂无歌词」而不是明确的「没有歌词」。
-      // 收敛成空对象后，解析层得到 0 行，调用方如实报告无歌词（本地/云盘都不再有联网补词路径）。
-      if (body?.uncollected === true || body?.nolyric === true) return {};
-
-      return {
-        lyric: (body?.lrc?.lyric as string) ?? undefined,
-        tlyric: (body?.tlyric?.lyric as string) ?? undefined,
-        // 与逐字轨对齐的翻译/罗马音：主轨选 yrc 时解析层优先用这两个（对齐 lx-music-desktop）
-        ytlyric: (body?.ytlrc?.lyric as string) ?? undefined,
-        romaLyric: (body?.romalrc?.lyric as string) ?? undefined,
-        yromaLyric: (body?.yromalrc?.lyric as string) ?? undefined,
-        yrc: (body?.yrc?.lyric as string) ?? undefined,
-      };
+      const body = await requestWyLyricBody(music.id);
+      // 实测：云盘条目的 id 是「云盘条目 id」，服务端对它只回占位歌词
+      // `{ lrc: "…暂无歌词", uncollected: true }`。原样返回会让上层把占位当成
+      // 已有歌词，所以一律收敛成空对象；云盘曲额外按元数据去找线上曲目取词。
+      if (body?.uncollected === true || body?.nolyric === true) {
+        if (music.wyCloud === true) {
+          const matched = await findMatchedOnlineSong(music);
+          if (matched) {
+            const matchedBody = await requestWyLyricBody(matched.id);
+            const fields = pickLyricFields(matchedBody);
+            // 主轨可能只有逐字轨（yrc）而没有普通 lrc，两者任一有内容即可。
+            const hasContent = String(fields.yrc || fields.lyric || "").trim().length > 0;
+            if (matchedBody?.uncollected !== true && matchedBody?.nolyric !== true && hasContent) {
+              debugLog(`[lyric] 云盘曲按元数据命中线上曲目 id=${matched.id} name=${matched.name}`);
+              return fields;
+            }
+          }
+          debugLog(`[lyric] 云盘曲没有可用歌词（严格匹配无果）name=${music.name}`);
+        }
+        return {};
+      }
+      return pickLyricFields(body);
     } catch (error) {
       throw new Error(`网易云歌词获取失败：${error instanceof Error ? error.message : String(error)}`);
     }

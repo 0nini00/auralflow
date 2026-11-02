@@ -12,6 +12,7 @@ import {
 import { getSource } from '@/services/sources/sourceService';
 
 import { getCachedLyrics, isCacheableEmptyLyricResult, saveCachedLyrics } from '@/services/persistentCache';
+import { debugLog } from '@lx/tauri-bridge';
 
 export type { LyricLine, LyricResponse, LyricWord };
 
@@ -197,7 +198,12 @@ async function getLyricsForSingle(music: MusicInfo): Promise<LyricResponse> {
 
     if (result.lines.length > 0 || isCacheableEmptyLyricResult(result)) {
       lyricsCache.set(cacheKey, result);
-      void saveCachedLyrics(music, result).catch(() => undefined);
+      // 云盘曲的「没词」只是中间状态：provider 会按元数据去线上找同一份录音取词
+      // （见 wyProvider.getLyric）。这类空结果只留在内存里，不落盘——落盘会被
+      // 7 天 TTL 冻住，表现成「一直没歌词」，而重开应用才会重试一次。
+      if (result.lines.length > 0 || music.wyCloud !== true) {
+        void saveCachedLyrics(music, result).catch(() => undefined);
+      }
     } else {
       lyricsCache.delete(cacheKey);
     }
@@ -228,6 +234,9 @@ export async function getLyrics(
 
   const primaryKey = getCacheKey(music);
   const cached = lyricsCache.get(primaryKey);
+  if (music.wyCloud === true) {
+    debugLog(`[lyric] request id=${music.id} cloud=true memCached=${cached?.lines?.length ?? 0}`);
+  }
   if (cached?.lines?.length) return cached;
 
   const attached = getMusicVariants(music);
@@ -275,7 +284,10 @@ export async function getLyrics(
   const empty = lastEmpty ?? { lines: [], error: '暂无歌词' };
   if (isCacheableEmptyLyricResult(empty)) {
     lyricsCache.set(primaryKey, empty);
-    void saveCachedLyrics(music, empty).catch(() => {});
+    // 同 getLyricsForSingle：云盘曲的空结果不落盘，避免把一次失败冻结成 7 天的结论。
+    if (music.wyCloud !== true) {
+      void saveCachedLyrics(music, empty).catch(() => {});
+    }
   }
   return empty;
 }
