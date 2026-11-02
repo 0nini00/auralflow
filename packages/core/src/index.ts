@@ -21,4 +21,3 @@ export * from "./playlist-link";
 export * from "./history";
 export * from "./stats/aggregate";
 export * from "./recommendations";
-export * from "./recommendation-rotation";
