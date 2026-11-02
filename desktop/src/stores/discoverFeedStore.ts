@@ -19,6 +19,7 @@ import {
   fetchWyRecommendedPlaylists,
 } from "@/services/wyDiscoverService";
 import { getPersonalizedPlaylists } from "@/services/wyAccountService";
+import { debugLog } from "@lx/tauri-bridge";
 import { getSource } from "@/services/sources/sourceService";
 
 /** 缓存有效期。榜单一天内变不了多少，推荐歌单更慢；10 分钟足够挡住切页抖动。 */
@@ -104,8 +105,12 @@ export const useDiscoverFeedStore = create<DiscoverFeedState>((set, get) => {
           .slice(0, RECOMMENDED_LIMIT)
           .map((item) => ({ ...item, source: "wy" as const }));
       }
-    } catch {
-      // 未登录 / 风控 / 接口变更：静默回退，不让首页空掉。
+    } catch (error) {
+      // 失败是预期的（未登录 / 风控 / 接口变更）：仍然回退，但不静默——否则
+      // 「个性化到底生效没有」在界面上完全看不出来，只能靠这条日志排查。
+      debugLog(
+        `[discover] 个性化推荐不可用，回退「最新歌单」：${error instanceof Error ? error.message : String(error)}`,
+      );
     }
     return fetchWyRecommendedPlaylists(RECOMMENDED_LIMIT);
   };
