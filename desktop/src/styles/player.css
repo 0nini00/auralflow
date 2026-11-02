@@ -179,20 +179,22 @@
   height: 40px;
   margin: 0 6px;
   border-radius: var(--af-radius-full);
-  background: var(--af-text-primary);
-  color: var(--af-bg-page);
+  /* 主播放键是全界面上唯一「一定要被第一眼找到」的按钮，用强调色而不是反相文字色：
+     反相色在浅色主题下是近黑色，看起来像没上色。 */
+  background: var(--af-accent-primary);
+  color: var(--af-text-on-accent);
   border: 0;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: transform var(--af-transition-fast), background var(--af-transition-fast);
-  box-shadow: 0 6px 16px -6px rgba(20, 25, 15, 0.45);
+  box-shadow: 0 6px 16px -6px rgba(var(--af-accent-primary-rgb), 0.5);
 }
 
 .af-play-button:hover {
   transform: scale(1.06);
-  background: var(--af-text-primary);
+  background: var(--af-accent-hover);
 }
 
 .af-play-button:active {
