@@ -3,12 +3,11 @@ import {
   type WyPlaylistInfo,
 } from "./wyPlaylistService";
 import {
-  fetchWyRecommendedPlaylistPool,
   getNewAlbums,
   getNewSongs,
   getPersonalizedRecommendedPlaylists,
+  getPublicRecommendedPlaylists,
 } from "./wyHomeFeedService";
-import { pickRecommendedPlaylistBatch } from "./recommendationRotationService";
 import {
   HOME_FEED_REMOTE_SECTION_ORDER,
   HOME_FEED_SECTION_TITLES,
@@ -82,45 +81,19 @@ function errorSection<K extends HomeFeedSectionId>(
   };
 }
 
-/** 候选池缓存：多分类拼接的结果没必要每次刷新都重拉。 */
-const RECOMMENDED_POOL_TTL_MS = 6 * 60 * 60 * 1000;
-let recommendedPoolCache: { fetchedAt: number; items: WyPlaylistInfo[] } | null = null;
-let recommendedPoolInFlight: Promise<WyPlaylistInfo[]> | null = null;
-
-async function getRecommendedPlaylistPool(): Promise<WyPlaylistInfo[]> {
-  if (recommendedPoolCache && Date.now() - recommendedPoolCache.fetchedAt < RECOMMENDED_POOL_TTL_MS) {
-    return recommendedPoolCache.items;
-  }
-  if (recommendedPoolInFlight) return recommendedPoolInFlight;
-  recommendedPoolInFlight = fetchWyRecommendedPlaylistPool(24)
-    .then((items) => {
-      recommendedPoolCache = { fetchedAt: Date.now(), items };
-      return items;
-    })
-    .finally(() => {
-      recommendedPoolInFlight = null;
-    });
-  return recommendedPoolInFlight;
-}
-
-/**
- * 推荐歌单：登录后优先个性化（一天一变），否则走公开池的「每日一版」轮换。
- *
- * 旧实现是「在热门前 60 条里随机取一页」——热门前 60 条本身几天不变，翻来覆去
- * 就是那几组，所以体感上每次打开都一样。现在改成多分类候选池 + 日期种子的稳定轮换，
- * 编排算法与桌面端共用 `@lx/core` 的实现。
- */
 async function fetchRecommendedPlaylists(context: HomeFeedContext): Promise<WyPlaylistInfo[]> {
   if (context.isLoggedIn) {
     try {
       const personalized = await getPersonalizedRecommendedPlaylists(SECTION_LIMITS.recommendedPlaylists);
       if (personalized.length > 0) return personalized;
     } catch {
-      // 个性化不可用时回退公开池，未登录与登录失败走同一条路径。
+      // Public recommendations remain the module-level fallback.
     }
   }
-  const pool = await getRecommendedPlaylistPool();
-  return pickRecommendedPlaylistBatch(pool, SECTION_LIMITS.recommendedPlaylists);
+  // 热门歌单固定前 12 条几乎不变（刷新看不出变化）。
+  // 在热门榜前 60 条内随机偏移取一页，让每次下拉刷新都能看到不同的热门歌单子集。
+  const offset = Math.floor(Math.random() * 5) * SECTION_LIMITS.recommendedPlaylists;
+  return getPublicRecommendedPlaylists(SECTION_LIMITS.recommendedPlaylists, offset);
 }
 
 const SECTION_LOADERS: {

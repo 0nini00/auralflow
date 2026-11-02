@@ -104,11 +104,11 @@ function mapAlbum(item: JsonRecord): SearchAlbumResult {
   };
 }
 
-/** 取一页公开歌单（按分类）。它刻意不读也不要求 Cookie。 */
-export async function fetchWyPlaylistPage(cat: string, limit = 10, offset = 0): Promise<WyPlaylistInfo[]> {
+/** Public recommendations. It intentionally does not read or require a Cookie. */
+export async function fetchWyRecommendedPlaylists(limit = 10, offset = 0): Promise<WyPlaylistInfo[]> {
   const count = positiveLimit(limit);
   const params = new URLSearchParams({
-    cat,
+    cat: "全部",
     order: "hot",
     limit: String(count),
     offset: String(Math.max(0, Math.floor(offset))),
@@ -118,45 +118,6 @@ export async function fetchWyPlaylistPage(cat: string, limit = 10, offset = 0): 
     throw new WyHomeFeedError("WY_INVALID_RESPONSE", "网易云推荐歌单字段缺失");
   }
   return data.playlists.slice(0, count).map((item) => mapPlaylist(asRecord(item) ?? {}));
-}
-
-export async function fetchWyRecommendedPlaylists(limit = 10, offset = 0): Promise<WyPlaylistInfo[]> {
-  return fetchWyPlaylistPage("全部", limit, offset);
-}
-
-/** 推荐歌单「每日一版」的候选分类：分类越多，轮换一轮需要的天数越久。 */
-export const RECOMMENDED_POOL_CATEGORIES = ["全部", "华语", "流行", "电子", "民谣", "摇滚"] as const;
-
-/**
- * 推荐歌单候选池。
- *
- * 只取热门前 N 条的话那个列表几天都不变，怎么刷新都是同一批；这里按分类各取一页、
- * 再给「全部」多取一页，去重后得到上百条候选，轮换才有原料。
- *
- * 单个分类失败不拖垮整池（`catch` 成 null），只有全部分类都失败才算失败。
- */
-export async function fetchWyRecommendedPlaylistPool(pageSize = 24): Promise<WyPlaylistInfo[]> {
-  const size = positiveLimit(pageSize);
-  const requests = RECOMMENDED_POOL_CATEGORIES.flatMap((category, index) => {
-    const offsets = index === 0 ? [0, size] : [0];
-    return offsets.map((offset) =>
-      fetchWyPlaylistPage(category, size, offset).catch(() => null),
-    );
-  });
-  const pages = await Promise.all(requests);
-
-  const seen = new Set<string>();
-  const pool: WyPlaylistInfo[] = [];
-  for (const page of pages) {
-    for (const playlist of page ?? []) {
-      const id = String(playlist.id ?? "").trim();
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      pool.push(playlist);
-    }
-  }
-  if (pool.length === 0) throw new WyHomeFeedError("WY_INVALID_RESPONSE", "推荐歌单候选池为空");
-  return pool;
 }
 
 export async function fetchWyPersonalizedRecommendedPlaylists(limit = 10): Promise<WyPlaylistInfo[]> {
