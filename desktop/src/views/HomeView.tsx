@@ -10,6 +10,7 @@ import { SectionHeader } from "@/components/SectionHeader";
 import { SongAddMenuButton } from "@/components/SongAddMenuButton";
 import { CARD_COVER_CSS_SIZE, HERO_COVER_CSS_SIZE, coverSrc } from "@/utils/imageReferrerPolicy";
 import { buildPlaylistDetailPath } from "@/utils/playlistRoute";
+import { layoutTwoRows } from "@/utils/twoRowGrid";
 
 /**
  * 发现页。
@@ -40,6 +41,9 @@ export function HomeView() {
   const featuredCover = featured?.picUrl ? coverSrc(featured.picUrl, HERO_COVER_CSS_SIZE) : "";
   // 主推已经占用第一张，网格从第二张开始；只有一张时不再渲染重复的区块。
   const gridPlaylists = featuredCover ? recommended.slice(1) : recommended;
+  // 两块卡片区都固定「铺满两行」：列数由条目数算出，窗口缩放只改变卡片大小。
+  const playlistGrid = layoutTwoRows(gridPlaylists);
+  const songGrid = layoutTwoRows(previewSongs);
 
   useEffect(() => {
     void load();
@@ -123,8 +127,11 @@ export function HomeView() {
               </button>
             </div>
           ) : (
-            <div className="af-discover-grid">
-              {gridPlaylists.map((playlist) => (
+            <div
+              className="af-discover-grid af-discover-grid-two-rows"
+              style={{ gridTemplateColumns: `repeat(${playlistGrid.columns}, minmax(0, 1fr))` }}
+            >
+              {playlistGrid.items.map((playlist) => (
                 <MusicCard
                   key={`${playlist.source}:${playlist.id}`}
                   title={playlist.name}
@@ -158,8 +165,11 @@ export function HomeView() {
             </button>
           </div>
         ) : (
-          <div className="af-discover-grid">
-            {previewSongs.map((track, index) => (
+          <div
+            className="af-discover-grid af-discover-grid-two-rows"
+            style={{ gridTemplateColumns: `repeat(${songGrid.columns}, minmax(0, 1fr))` }}
+          >
+            {songGrid.items.map((track, index) => (
               <MusicCard
                 key={`${track.source}:${track.id}`}
                 title={track.name}

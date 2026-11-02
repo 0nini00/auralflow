@@ -338,6 +338,12 @@
   gap: 18px;
 }
 
+
+/* 列数由 HomeView 按条目数内联给出（固定两行、横向铺满）：宽屏不会缩成一行、
+   窄屏也不会溢出成三行。这里只让两行按各自内容对齐，卡片不被行高拉长。 */
+.af-home-view .af-discover-grid-two-rows {
+  align-items: start;
+}
 .af-home-view .af-discover-grid .af-music-card {
   max-width: none;
 }
