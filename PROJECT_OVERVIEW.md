@@ -10,7 +10,7 @@ parent: auralflow-goal
 
 AuralFlow 是基于 TypeScript 与 Rust 构建的双端音乐播放器。桌面端与移动端通过 `@lx/core` 复用平台无关的领域模型与纯逻辑，同时分别维护各自的播放引擎、状态编排、网络适配与系统集成。
 
-> pnpm monorepo · 4 个 workspace 包 · 版本 0.10.6（桌面与 Android 同步） · 仓库 https://github.com/0nini00/auralflow.git · 本文数字为 2026-11-02 实测（`wc -l`，含空行；每次改动模块或测试后请同步更新，见 §9「文档维护约定」）
+> pnpm monorepo · 4 个 workspace 包 · 版本 0.10.7（桌面与 Android 同步） · 仓库 https://github.com/0nini00/auralflow.git · 本文数字为 2026-11-02 实测（`wc -l`，含空行；每次改动模块或测试后请同步更新，见 §9「文档维护约定」）
 
 ## 架构分层
 
@@ -66,7 +66,7 @@ flowchart TB
 | `playback-budgets.ts` | 37 | 懒切编排的共享预算：`PRIMARY_BUDGET_MS` / `CUSTOM_SOURCE_RESOLVE_BUDGET_MS` / `CUSTOM_SOURCE_SPREAD_MS` / `MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS` / `withBudget`。**双端都必须 import，不得手抄常量** |
 | `request-limiter.ts` | 118 | 自定义源取链的并发闸门（租约 + 排队超时 + `abandon()`） |
 | `stream-integrity.ts` | 86 | 试听检测（`isPreviewStream` / `isPreviewDuration`） |
-| `song-variant.ts` | 229 | 同曲判定与变体排序（跨源匹配、pin 首选置顶、`orderPlaybackCandidates`） |
+| `song-variant.ts` | 250 | 同曲判定与变体排序（跨源匹配、pin 首选置顶、`orderPlaybackCandidates`） |
 | `hidden-source.ts` | 262 | 隐藏源（酷我/酷狗）搜索与严格匹配 `matchHiddenCandidates` |
 | `webdav-merge.ts` | 211 | 纯函数加法合并，删除不传播 |
 | `webdav-sync-error.ts` | 38 | WebDAV 同步拒绝的错误层级：`CloudSyncRefusalError`（设置页据此提示强制下载）与派生的 `CloudDataStaleError`（自动同步据此跳过下载、改上传本地收敛） |
@@ -86,7 +86,7 @@ flowchart TB
 
 `@lx/core` 独立于 UI 框架与平台运行时，**无构建步骤**（`main` / `types` 直接指向 `src/index.ts`）。播放队列、播放状态、缓存 IO、自定义音源运行时（桌面同 WebView 非沙箱执行、移动端隐藏 WebView）、平台网络请求仍由双端分别实现。跨源匹配与搜索结果合并去重曾位于 `sources/resolver.ts`，f91c469 判定其解析链不可达后删除，该职责现由双端各自实现。
 
-带自动化测试的是两侧，而非只有一个包：JS/TS 侧 `pnpm test:core`（vitest 3.2.4，23 个测试文件 289 例，逐文件条数以 `pnpm test:core` 输出为准）；Rust 侧 `pnpm test:rust`（74 个 `#[test]`，分布在 11 个文件——`window_state.rs` 13 / `commands/local_audio.rs` 11 / `smtc.rs` 9 / `taskbar.rs` 9 / `secret_store.rs` 6 / `audio_session.rs` 5 / `logging.rs` 5 / `outbound.rs` 5 / `models.rs` 3 / `commands/media_cache.rs` 3 / `main.rs` 1）。其中 `outbound-host.test.ts` 锚定「guard 判定的 host 必须等于真实请求的 host」这一不变量——用 Node 的 WHATWG `URL` 作参照物做差分断言；`outbound-host.test.ts` 与 `outbound.rs` 另外**共读同一份跨端清单** `packages/core/outbound-host.cases.tsv`（49 条 URL，两侧各断言一遍），补上了「同一批 URL 两边结论相同」这条此前缺失的校验；`main.rs` 的 `launch_contract_tests` 钉住 AUMID 与 `tauri.conf.json` 的一致性（identifier 与主窗 `additionalBrowserArgs` 必须逐字相同）；`webdav-sync-error.test.ts` 锚定同步拒绝的类型层级（两个错误类的 instanceof 关系），因为自动同步正是靠它决定吞掉哪一种拒绝。根目录 `pnpm test:all` 串起「双端类型检查 + 双端 lint + 两侧测试」，`.github/workflows/ci.yml` 在 CI 里跑同一批命令，外加 `assembleDebug`（Rust 任务必须 windows runner：`smtc.rs` / `taskbar.rs` / `audio_session.rs` / `secret_store.rs` 的测试都依赖 Windows API）。**两端另有各自的套件**：桌面前端 `pnpm test:desktop`（vitest，默认 `environment: node`，其中 9 个文件用 `@vitest-environment jsdom` 逐文件覆盖；68 个文件 561 例）、移动端 `pnpm mobile:test`（`node --test`，34 个文件 572 例，其中两个文件会用真 `javac` + jaudiotagger + `ffmpeg` 编译并运行原生源码片段）。真正依赖真机运行时的行为仍只有类型检查、lint 与真机手测。
+带自动化测试的是两侧，而非只有一个包：JS/TS 侧 `pnpm test:core`（vitest 3.2.4，23 个测试文件 293 例，逐文件条数以 `pnpm test:core` 输出为准）；Rust 侧 `pnpm test:rust`（74 个 `#[test]`，分布在 11 个文件——`window_state.rs` 13 / `commands/local_audio.rs` 11 / `smtc.rs` 9 / `taskbar.rs` 9 / `secret_store.rs` 6 / `audio_session.rs` 5 / `logging.rs` 5 / `outbound.rs` 5 / `models.rs` 3 / `commands/media_cache.rs` 3 / `main.rs` 1）。其中 `outbound-host.test.ts` 锚定「guard 判定的 host 必须等于真实请求的 host」这一不变量——用 Node 的 WHATWG `URL` 作参照物做差分断言；`outbound-host.test.ts` 与 `outbound.rs` 另外**共读同一份跨端清单** `packages/core/outbound-host.cases.tsv`（49 条 URL，两侧各断言一遍），补上了「同一批 URL 两边结论相同」这条此前缺失的校验；`main.rs` 的 `launch_contract_tests` 钉住 AUMID 与 `tauri.conf.json` 的一致性（identifier 与主窗 `additionalBrowserArgs` 必须逐字相同）；`webdav-sync-error.test.ts` 锚定同步拒绝的类型层级（两个错误类的 instanceof 关系），因为自动同步正是靠它决定吞掉哪一种拒绝。根目录 `pnpm test:all` 串起「双端类型检查 + 双端 lint + 两侧测试」，`.github/workflows/ci.yml` 在 CI 里跑同一批命令，外加 `assembleDebug`（Rust 任务必须 windows runner：`smtc.rs` / `taskbar.rs` / `audio_session.rs` / `secret_store.rs` 的测试都依赖 Windows API）。**两端另有各自的套件**：桌面前端 `pnpm test:desktop`（vitest，默认 `environment: node`，其中 9 个文件用 `@vitest-environment jsdom` 逐文件覆盖；69 个文件 565 例）、移动端 `pnpm mobile:test`（`node --test`，34 个文件 572 例，其中两个文件会用真 `javac` + jaudiotagger + `ffmpeg` 编译并运行原生源码片段）。真正依赖真机运行时的行为仍只有类型检查、lint 与真机手测。
 
 ## 各端职责说明
 
