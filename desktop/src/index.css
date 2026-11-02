@@ -670,6 +670,11 @@ body.af-resizing-sidebar {
   --af-bg-surface-hover: rgba(255, 255, 255, calc(0.24 * var(--af-app-bg-mask)));
   --af-bg-surface-pressed: rgba(255, 255, 255, calc(0.28 * var(--af-app-bg-mask)));
   --af-bg-elevated: rgba(255, 255, 255, calc(0.22 * var(--af-app-bg-mask)));
+  /* 别名必须在这里重新声明：`--af-bg-secondary: var(--af-bg-surface)` 是定义在
+     html 上的，自定义属性在**声明处**就完成替换并冻结继承下来，所以只改 --af-bg-surface
+     并不会影响这些别名——`.af-download-dir` 之类的「保存到」条此前仍是 #101312 纯黑。 */
+  --af-bg-secondary: rgba(255, 255, 255, calc(0.18 * var(--af-app-bg-mask)));
+  --af-bg-hover: rgba(255, 255, 255, calc(0.24 * var(--af-app-bg-mask)));
   --af-border-secondary: rgba(255, 255, 255, 0.34);
   /* 三级文字（提示、单位、占位）原本按实色面板调过对比，铺上壁纸后会糊进背景图；
      提到介于二级与三级之间的亮度，比加厚遮罩把背景盖掉更划算。 */
@@ -681,6 +686,9 @@ body.af-resizing-sidebar {
   --af-bg-surface-hover: rgba(15, 23, 42, calc(0.28 * var(--af-app-bg-mask)));
   --af-bg-surface-pressed: rgba(15, 23, 42, calc(0.34 * var(--af-app-bg-mask)));
   --af-bg-elevated: rgba(15, 23, 42, calc(0.24 * var(--af-app-bg-mask)));
+  /* 同上：别名在这一层重新声明，否则仍是 html 上的实色。 */
+  --af-bg-secondary: rgba(15, 23, 42, calc(0.2 * var(--af-app-bg-mask)));
+  --af-bg-hover: rgba(15, 23, 42, calc(0.28 * var(--af-app-bg-mask)));
   --af-border-secondary: rgba(226, 232, 240, 0.14);
   --af-text-tertiary: #98a49b;
 }

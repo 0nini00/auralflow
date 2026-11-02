@@ -26,6 +26,10 @@ button:focus-visible {
   --af-button-secondary-bg: rgba(255, 255, 255, 0.26);
   --af-button-secondary-hover-bg: rgba(255, 255, 255, 0.34);
   --af-button-secondary-shadow: none;
+  /* 同样是「别名在声明处冻结」的坑：--af-button-active-bg 指向上面的 secondary，
+     不在这一层重新声明就仍是 html 上的实色 #101312——本地音乐的「全部」被选中时
+     就是一个黑块。选中态用强调色淡填充，比灰色实心更像「玻璃上的高亮」。 */
+  --af-button-active-bg: rgba(var(--af-accent-primary-rgb), 0.2);
 }
 
 [data-theme="dark"] .af-app-has-background {
@@ -33,6 +37,7 @@ button:focus-visible {
   --af-button-secondary-hover-border: rgba(var(--af-accent-primary-rgb), 0.30);
   --af-button-secondary-bg: rgba(15, 23, 42, 0.28);
   --af-button-secondary-hover-bg: rgba(15, 23, 42, 0.38);
+  --af-button-active-bg: rgba(var(--af-accent-primary-rgb), 0.24);
 }
 
 .af-btn-primary,
