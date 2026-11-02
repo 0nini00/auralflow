@@ -644,6 +644,7 @@ body.af-resizing-sidebar {
    描边 + 阴影，就会在那两个箭头外面画出一个方框。 */
 .af-app-has-background .af-sidebar,
 .af-app-has-background .af-content,
+.af-app-has-background .af-now-playing,
 .af-app-has-background .af-player-bar {
   border-color: rgba(255, 255, 255, 0.4);
   background: rgba(255, 255, 255, calc(0.3 * var(--af-app-bg-mask)));
@@ -718,6 +719,7 @@ body.af-resizing-sidebar {
 [data-theme="dark"] .af-app-has-background .af-sidebar,
 [data-theme="dark"] .af-app-has-background .af-content,
 [data-theme="dark"] .af-app-has-background .af-topbar,
+[data-theme="dark"] .af-app-has-background .af-now-playing,
 [data-theme="dark"] .af-app-has-background .af-player-bar {
   border-color: rgba(226, 232, 240, 0.14);
   background: rgba(15, 23, 42, calc(0.26 * var(--af-app-bg-mask)));
