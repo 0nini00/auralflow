@@ -1,5 +1,6 @@
 import {
   fetchDailyRecommendedSongs,
+  fetchWyPersonalizedPlaylistMix,
   type WyPlaylistInfo,
 } from "./wyPlaylistService";
 import {
@@ -81,19 +82,30 @@ function errorSection<K extends HomeFeedSectionId>(
   };
 }
 
+/**
+ * 推荐歌单：优先 `personalized/playlist`（服务端按天给一批，客户端不洗牌），
+ * 其次「每日推荐歌单」，最后回退公开的「最新歌单」。
+ *
+ * 旧实现是「热门前 60 条里随机取一页」——热门排序几天不变，5 页翻来覆去就是那几组，
+ * 所以体感上每次打开都一样；而且在榜单里洗牌本来也不等于推荐。
+ */
 async function fetchRecommendedPlaylists(context: HomeFeedContext): Promise<WyPlaylistInfo[]> {
   if (context.isLoggedIn) {
     try {
-      const personalized = await getPersonalizedRecommendedPlaylists(SECTION_LIMITS.recommendedPlaylists);
-      if (personalized.length > 0) return personalized;
+      const mix = await fetchWyPersonalizedPlaylistMix(SECTION_LIMITS.recommendedPlaylists);
+      if (mix.length > 0) return mix;
     } catch {
-      // Public recommendations remain the module-level fallback.
+      // 继续尝试下一个来源
+    }
+    try {
+      const daily = await getPersonalizedRecommendedPlaylists(SECTION_LIMITS.recommendedPlaylists);
+      if (daily.length > 0) return daily;
+    } catch {
+      // 回退公开列表
     }
   }
-  // 热门歌单固定前 12 条几乎不变（刷新看不出变化）。
-  // 在热门榜前 60 条内随机偏移取一页，让每次下拉刷新都能看到不同的热门歌单子集。
-  const offset = Math.floor(Math.random() * 5) * SECTION_LIMITS.recommendedPlaylists;
-  return getPublicRecommendedPlaylists(SECTION_LIMITS.recommendedPlaylists, offset);
+  // 公开兜底按「最新」排序，不取随机偏移：新歌单持续产生，这一页天然会变。
+  return getPublicRecommendedPlaylists(SECTION_LIMITS.recommendedPlaylists, 0);
 }
 
 const SECTION_LOADERS: {

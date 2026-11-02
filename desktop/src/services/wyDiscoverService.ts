@@ -119,9 +119,15 @@ export async function fetchWyPlaylistsByCategory(
   return { playlists, hasMore: raw.length >= size };
 }
 
-/** 发现页「推荐歌单」：公开热门歌单，与移动端首页同一口径（不读 Cookie）。 */
+/**
+ * 未登录时的推荐歌单兜底：`order=new` 取「最新歌单」第一页。
+ *
+ * 这里刻意不用 `order=hot`：那是歌单广场的运营热度榜，几天都不动，看起来就是
+ * 「每次打开都一样」。新歌单是持续产生的，这一页天然会变。登录后不会走到这里——
+ * 上层优先用 `personalized/playlist`（见 wyAccountService.getPersonalizedPlaylists）。
+ */
 export async function fetchWyRecommendedPlaylists(limit = 12): Promise<PlaylistInfo[]> {
-  const page = await fetchWyPlaylistsByCategory("全部", "hot", limit, 0);
+  const page = await fetchWyPlaylistsByCategory("全部", "new", limit, 0);
   return page.playlists;
 }
 

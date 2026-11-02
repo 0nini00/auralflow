@@ -18,6 +18,7 @@ import {
   fetchWyLeaderboardBoards,
   fetchWyRecommendedPlaylists,
 } from "@/services/wyDiscoverService";
+import { getPersonalizedPlaylists } from "@/services/wyAccountService";
 import { getSource } from "@/services/sources/sourceService";
 
 /** 缓存有效期。榜单一天内变不了多少，推荐歌单更慢；10 分钟足够挡住切页抖动。 */
@@ -91,6 +92,24 @@ export const useDiscoverFeedStore = create<DiscoverFeedState>((set, get) => {
     }
   };
 
+  /**
+   * 推荐歌单：优先 `personalized/playlist`（服务端按天给一批，客户端不洗牌），
+   * 未登录或接口不可用时回退公开的「最新歌单」。
+   */
+  const loadRecommended = async (): Promise<PlaylistInfo[]> => {
+    try {
+      const personalized = await getPersonalizedPlaylists(RECOMMENDED_LIMIT);
+      if (personalized.length > 0) {
+        return personalized
+          .slice(0, RECOMMENDED_LIMIT)
+          .map((item) => ({ ...item, source: "wy" as const }));
+      }
+    } catch {
+      // 未登录 / 风控 / 接口变更：静默回退，不让首页空掉。
+    }
+    return fetchWyRecommendedPlaylists(RECOMMENDED_LIMIT);
+  };
+
   const run = async () => {
     const requestGeneration = ++generation;
     set({
@@ -103,7 +122,7 @@ export const useDiscoverFeedStore = create<DiscoverFeedState>((set, get) => {
     });
 
     const [recommendedResult, boardsResult] = await Promise.allSettled([
-      fetchWyRecommendedPlaylists(RECOMMENDED_LIMIT),
+      loadRecommended(),
       fetchWyLeaderboardBoards(),
     ]);
     if (requestGeneration !== generation) return;

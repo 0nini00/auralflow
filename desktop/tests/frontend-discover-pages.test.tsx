@@ -18,6 +18,7 @@ import { useDiscoverFeedStore } from '../src/stores/discoverFeedStore';
 
 const api = vi.hoisted(() => ({
   recommended: vi.fn(),
+  personalized: vi.fn(),
   boards: vi.fn(),
   page: vi.fn(),
   previewSongs: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock('@/services/wyDiscoverService', () => ({
   fetchWyLeaderboardBoards: api.boards,
   fetchWyPlaylistsByCategory: api.page,
 }));
+vi.mock('@/services/wyAccountService', () => ({ getPersonalizedPlaylists: api.personalized }));
 vi.mock('@/services/sources/sourceService', () => ({
   getSource: () => ({ getPlaylistDetail: api.previewSongs }),
 }));
@@ -109,6 +111,7 @@ beforeEach(() => {
   resetFeed();
   location = '';
   api.recommended.mockResolvedValue([playlist('p1', '推荐一')]);
+  api.personalized.mockRejectedValue(new Error('未登录'));
   api.boards.mockResolvedValue({ boards: [board('19723756', '飙升榜')], degraded: false });
   api.previewSongs.mockResolvedValue([song('s1'), song('s2')]);
   api.page.mockResolvedValue({ playlists: [playlist('sq1', '广场一')], hasMore: false });
@@ -203,5 +206,20 @@ describe('发现数据缓存', () => {
     expect(state.recommendedError).toBe('推荐接口挂了');
     expect(state.boardsStatus).toBe('ready');
     expect(state.previewSongs).toHaveLength(2);
+  });
+});
+
+describe('推荐歌单取数', () => {
+  it('未登录时回退公开「最新歌单」', async () => {
+    await mount('/');
+    expect(page()).toContain('推荐一');
+    expect(api.recommended).toHaveBeenCalledTimes(1);
+  });
+
+  it('个性化可用时直接用它的结果，不再打公开接口', async () => {
+    api.personalized.mockResolvedValue([playlist('m1', '个性化一')]);
+    await mount('/');
+    expect(page()).toContain('个性化一');
+    expect(api.recommended).not.toHaveBeenCalled();
   });
 });

@@ -104,12 +104,19 @@ function mapAlbum(item: JsonRecord): SearchAlbumResult {
   };
 }
 
-/** Public recommendations. It intentionally does not read or require a Cookie. */
+/**
+ * 未登录时的推荐歌单兜底：`order=new` 取「最新歌单」第一页。
+ *
+ * 刻意不用 `order=hot`：那是歌单广场的运营热度榜，几天都不动，看起来就是
+ * 「每次打开都一样」。新歌单持续产生，这一页天然会变。登录后不会走到这里——
+ * 上层优先用 `personalized/playlist`（见 wyPlaylistService.fetchWyPersonalizedPlaylistMix）。
+ * 它刻意不读也不要求 Cookie。
+ */
 export async function fetchWyRecommendedPlaylists(limit = 10, offset = 0): Promise<WyPlaylistInfo[]> {
   const count = positiveLimit(limit);
   const params = new URLSearchParams({
     cat: "全部",
-    order: "hot",
+    order: "new",
     limit: String(count),
     offset: String(Math.max(0, Math.floor(offset))),
   });

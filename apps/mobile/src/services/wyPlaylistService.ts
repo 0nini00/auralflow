@@ -161,6 +161,53 @@ export async function getUserPlaylists(userId: string): Promise<WyPlaylistInfo[]
 }
 
 /**
+ * 首页「推荐歌单」：`weapi/personalized/playlist`。
+ *
+ * 这才是网易云 App 首页那块「推荐歌单」用的接口：服务端按账号画像给一批，
+ * **没有 offset**（不是分页列表），且按天更新——「每天不一样」由服务端负责，
+ * 客户端不需要自己洗牌。未登录或失败由上层回退公开的「最新歌单」。
+ */
+export async function fetchWyPersonalizedPlaylistMix(limit = 12): Promise<WyPlaylistInfo[]> {
+  const cookie = await getWyCookie();
+  if (!cookie) {
+    throw new Error("未登录");
+  }
+
+  const data = await postWyWeapi<JsonRecord>(
+    "/personalized/playlist",
+    { limit, total: true, n: 1000 },
+    cookie,
+  );
+
+  const raw = Array.isArray(data.result)
+    ? (data.result as Array<Record<string, unknown>>)
+    : [];
+  return raw
+    .map((item) => {
+      const creatorObj =
+        item.creator && typeof item.creator === "object"
+          ? (item.creator as Record<string, unknown>)
+          : undefined;
+      return {
+        id: String(item.id ?? ""),
+        name: String(item.name ?? ""),
+        author: String(creatorObj?.nickname ?? ""),
+        coverImgUrl:
+          typeof item.picUrl === "string"
+            ? item.picUrl
+            : typeof item.coverImgUrl === "string"
+              ? item.coverImgUrl
+              : undefined,
+        playCount: typeof item.playCount === "number" ? item.playCount : undefined,
+        trackCount: typeof item.trackCount === "number" ? item.trackCount : 0,
+        source: "wy" as const,
+        subscribed: false,
+      };
+    })
+    .filter((item) => item.id.length > 0);
+}
+
+/**
  * 获取歌单详情（歌曲列表）。
  * 公开歌单免登录可查看（对齐 lx：浏览歌单不要求登录）；
  * 已登录时附带 Cookie，用于解析部分需要登录的歌单。

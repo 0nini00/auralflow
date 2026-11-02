@@ -424,6 +424,33 @@ export async function getUserPlaylists(uid: string): Promise<WyPlaylistInfo[]> {
   }));
 }
 
+/**
+ * 首页「推荐歌单」：`weapi/personalized/playlist`。
+ *
+ * 这才是网易云 App 首页那块「推荐歌单」用的接口：服务端按账号画像给一批，
+ * **没有 offset**（不是分页列表），并且按天更新——所以「每天不一样」本来就由
+ * 服务端负责，客户端不需要自己洗牌。
+ *
+ * 未登录时该接口也可能返回一批通用推荐；拿不到就让上层回退公开的「最新歌单」。
+ */
+export async function getPersonalizedPlaylists(limit = 30): Promise<WyPlaylistInfo[]> {
+  const body = await weapiPost("/personalized/playlist", {
+    limit,
+    total: true,
+    n: 1000,
+  });
+
+  return ((body.result as any[]) ?? []).map((item) => ({
+    id: String(item.id),
+    name: String(item.name ?? ""),
+    author: String(item.creator?.nickname ?? ""),
+    picUrl: item.picUrl ?? item.coverImgUrl,
+    subscribed: false,
+    trackCount: item.trackCount,
+    playCount: item.playCount,
+  }));
+}
+
 export async function getPlaylistDetail(id: string) {
   const body = await weapiPost("/v3/playlist/detail", {
     id: Number(id),
