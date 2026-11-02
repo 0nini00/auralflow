@@ -365,6 +365,29 @@
   background: rgba(15, 23, 42, 0.16);
 }
 
+/* 主推卡片（.af-home-featured）是「封面打底 + 深色蒙层」的有意设计：底色写死 #101513，
+   蒙层是 0.88→0.18 的黑渐变。壁纸模式下它就成了一块纯黑，所以这里把底色换成半透明、
+   把蒙层压薄、并把打底封面的压暗从 0.55 提到 0.8——文字仍是浅色，可读性靠半透明底兜。 */
+.af-app-has-background .af-home-featured {
+  background: rgba(9, 13, 11, calc(0.42 * var(--af-app-bg-mask)));
+  backdrop-filter: blur(calc(var(--af-app-bg-blur) / 2));
+}
+
+.af-app-has-background .af-home-featured-art {
+  filter: blur(48px) saturate(1.15) brightness(0.85);
+}
+
+.af-app-has-background .af-home-featured-shade {
+  background:
+    linear-gradient(
+      90deg,
+      rgba(7, 11, 9, calc(0.5 * var(--af-app-bg-mask))) 0%,
+      rgba(7, 11, 9, calc(0.3 * var(--af-app-bg-mask))) 48%,
+      rgba(7, 11, 9, 0.08) 100%
+    ),
+    linear-gradient(0deg, rgba(7, 11, 9, calc(0.26 * var(--af-app-bg-mask))) 0%, transparent 60%);
+}
+
 .af-app-has-background .af-section-action,
 .af-app-has-background .af-home-secondary-action,
 .af-app-has-background .af-music-card-action-btn {

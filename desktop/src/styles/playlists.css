@@ -709,6 +709,29 @@ button.af-playlist-card {
   pointer-events: none;
 }
 
+/* 壁纸模式：详情页头部同样是「封面打底 + 深色蒙层」的固定深色头部
+   （底色 #14181a → #121615 与主题无关，蒙层 0.9→0.22），铺上壁纸后就是一大块黑。
+   这里把底色与蒙层都改成半透明、把打底封面提亮，保留浅色文字的可读性。 */
+.af-app-has-background .af-playlist-detail-header {
+  background: rgba(9, 13, 11, calc(0.42 * var(--af-app-bg-mask)));
+  backdrop-filter: blur(calc(var(--af-app-bg-blur) / 2));
+}
+
+.af-app-has-background .af-playlist-detail-backdrop {
+  filter: blur(48px) saturate(1.15) brightness(0.85);
+}
+
+.af-app-has-background .af-playlist-detail-shade {
+  background:
+    linear-gradient(
+      90deg,
+      rgba(7, 11, 9, calc(0.5 * var(--af-app-bg-mask))) 0%,
+      rgba(7, 11, 9, calc(0.3 * var(--af-app-bg-mask))) 55%,
+      rgba(7, 11, 9, 0.08) 100%
+    ),
+    linear-gradient(0deg, rgba(7, 11, 9, calc(0.26 * var(--af-app-bg-mask))) 0%, transparent 60%);
+}
+
 /* 详情页头部：只有 info 需要抬到封面背景之上（返回键已移除，顶栏自带前进/后退） */
 .af-playlist-detail-header .af-playlist-detail-info {
   position: relative;
