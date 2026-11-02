@@ -639,7 +639,9 @@ body.af-resizing-sidebar {
    遮罩还会逐层相乘（content 之上还有 hero / card）。基准压得很薄，可读性交给
    brightness 调整背景明度 + 文字描边来兜，而不是靠加厚遮罩把背景盖掉。 */
 .af-app-has-background .af-topbar,
-.af-app-has-background .af-topbar-nav,
+/* 注意：不要把 .af-topbar-nav 放进来——它只是顶栏左侧「后退/前进」两个图标按钮的
+   内联容器（layout.css 里只有 flex 布局，本身没有背景）。给它套上这组半透明底 +
+   描边 + 阴影，就会在那两个箭头外面画出一个方框。 */
 .af-app-has-background .af-sidebar,
 .af-app-has-background .af-content,
 .af-app-has-background .af-player-bar {
@@ -716,7 +718,6 @@ body.af-resizing-sidebar {
 [data-theme="dark"] .af-app-has-background .af-sidebar,
 [data-theme="dark"] .af-app-has-background .af-content,
 [data-theme="dark"] .af-app-has-background .af-topbar,
-[data-theme="dark"] .af-app-has-background .af-topbar-nav,
 [data-theme="dark"] .af-app-has-background .af-player-bar {
   border-color: rgba(226, 232, 240, 0.14);
   background: rgba(15, 23, 42, calc(0.26 * var(--af-app-bg-mask)));
