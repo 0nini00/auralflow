@@ -434,6 +434,10 @@ export async function getUserPlaylists(uid: string): Promise<WyPlaylistInfo[]> {
  * 未登录时该接口也可能返回一批通用推荐；拿不到就让上层回退公开的「最新歌单」。
  */
 export async function getPersonalizedPlaylists(limit = 30): Promise<WyPlaylistInfo[]> {
+  // 冷启动时序：weapiCall 读的是模块级 cookie，而它只由登录流程或 getWyCookie 填充。
+  // 首屏若在账号检查之前调到这里，就会以「未设置网易云 Cookie」失败——用户看到的就是
+  // 「推荐歌单要重试一次才出来」。这里先主动读一次 settings 把 cookie 填上。
+  await getWyCookie();
   const body = await weapiPost("/personalized/playlist", {
     limit,
     total: true,

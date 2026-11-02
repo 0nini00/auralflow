@@ -104,19 +104,15 @@ function mapAlbum(item: JsonRecord): SearchAlbumResult {
   };
 }
 
-/**
- * 未登录时的推荐歌单兜底：`order=new` 取「最新歌单」第一页。
- *
- * 刻意不用 `order=hot`：那是歌单广场的运营热度榜，几天都不动，看起来就是
- * 「每次打开都一样」。新歌单持续产生，这一页天然会变。登录后不会走到这里——
- * 上层优先用 `personalized/playlist`（见 wyPlaylistService.fetchWyPersonalizedPlaylistMix）。
- * 它刻意不读也不要求 Cookie。
- */
-export async function fetchWyRecommendedPlaylists(limit = 10, offset = 0): Promise<WyPlaylistInfo[]> {
+async function fetchWyPlaylistPage(
+  order: "hot" | "new",
+  limit: number,
+  offset: number,
+): Promise<WyPlaylistInfo[]> {
   const count = positiveLimit(limit);
   const params = new URLSearchParams({
     cat: "全部",
-    order: "new",
+    order,
     limit: String(count),
     offset: String(Math.max(0, Math.floor(offset))),
   });
@@ -125,6 +121,23 @@ export async function fetchWyRecommendedPlaylists(limit = 10, offset = 0): Promi
     throw new WyHomeFeedError("WY_INVALID_RESPONSE", "网易云推荐歌单字段缺失");
   }
   return data.playlists.slice(0, count).map((item) => mapPlaylist(asRecord(item) ?? {}));
+}
+
+/**
+ * 未登录时的推荐歌单兜底。
+ *
+ * 先试 `order=new`（最新歌单，天然每天在变），但**实测公开 `/api` 端点不支持这个值**：
+ * `order=new` 的响应体里没有 `playlists` 字段，等于 0 条。所以拿不到就退回 `order=hot`，
+ * 宁可给一份稳定可用的热门列表，也不让首页区块空着。它刻意不读也不要求 Cookie。
+ */
+export async function fetchWyRecommendedPlaylists(limit = 10, offset = 0): Promise<WyPlaylistInfo[]> {
+  try {
+    const latest = await fetchWyPlaylistPage("new", limit, offset);
+    if (latest.length > 0) return latest;
+  } catch {
+    // 字段缺失会走到这里，继续用 hot 兜底。
+  }
+  return fetchWyPlaylistPage("hot", limit, offset);
 }
 
 export async function fetchWyPersonalizedRecommendedPlaylists(limit = 10): Promise<WyPlaylistInfo[]> {
