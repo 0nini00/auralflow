@@ -10,6 +10,7 @@ import {
   matchVariantCandidates,
   normalizeSongName,
   orderPlaybackCandidates,
+  pickSameSongCandidate,
   rankVariantCandidates,
   SONG_MATCH_INTERVAL_TOLERANCE,
   withSongVariants,
@@ -65,6 +66,40 @@ describe("isSameSong", () => {
 
   it("一方缺时长时退化为歌名 + 歌手两重校验", () => {
     expect(isSameSong(song({ interval: undefined }), song({ id: "tx1", source: "tx", interval: 999 }))).toBe(true);
+  });
+});
+
+describe("pickSameSongCandidate", () => {
+  const cloud = song({ id: "2117337923", name: "雨下一整晚", singer: "周杰伦", interval: 256 });
+
+  it("翻唱排在最前面时也能跳过，命中官方曲", () => {
+    // 实测：未登录 cloudsearch 搜「雨下一整晚 周杰伦」，前几条全是翻唱。
+    const candidates = [
+      song({ id: "901", name: "雨下一整晚", singer: "叶湘伦", interval: 256 }),
+      song({ id: "902", name: "雨下一整晚", singer: "思琪", interval: 254 }),
+      song({ id: "2160518331", name: "雨下一整晚", singer: "周杰伦", interval: 255 }),
+    ];
+    expect(pickSameSongCandidate(cloud, candidates)?.id).toBe("2160518331");
+  });
+
+  it("同名不同曲（歌手不重合 / 时长差超容差）一律不选", () => {
+    expect(pickSameSongCandidate(cloud, [song({ id: "903", name: "雨下一整晚", singer: "别人" })])).toBeNull();
+    expect(
+      pickSameSongCandidate(cloud, [
+        song({ id: "904", name: "雨下一整晚", singer: "周杰伦", interval: 256 + SONG_MATCH_INTERVAL_TOLERANCE + 1 }),
+      ]),
+    ).toBeNull();
+  });
+
+  it("跳过自身与其它来源的候选", () => {
+    expect(pickSameSongCandidate(cloud, [cloud])).toBeNull();
+    expect(
+      pickSameSongCandidate(cloud, [song({ id: "904", source: "tx", name: "雨下一整晚", singer: "周杰伦", interval: 256 })]),
+    ).toBeNull();
+  });
+
+  it("歌名只有标点/括号时不作匹配", () => {
+    expect(pickSameSongCandidate(song({ name: "（伴奏）" }), [song({ id: "905" })])).toBeNull();
   });
 });
 

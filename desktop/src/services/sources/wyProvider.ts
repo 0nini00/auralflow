@@ -14,9 +14,8 @@ import type {
 import { fetch } from "@tauri-apps/plugin-http";
 import {
   getPlaybackQualityRank,
-  isSameSong,
   normalizePlaybackQuality,
-  normalizeSongName,
+  pickSameSongCandidate,
   type PlaybackQuality,
 } from "@lx/core";
 import { weapi } from "@/lib/crypto/weapi";
@@ -300,9 +299,10 @@ function pickLyricFields(body: any) {
  *
  * 为什么必须严格：`cloudsearch` 对「歌名 + 歌手」这类关键词，翻唱会排在官方曲前面
  * （实测未登录搜索「雨下一整晚 周杰伦」前 5 条全是翻唱）。匹配错就会把别人的歌词
- * 贴到用户上传的音频上，比没歌词更糟。因此直接复用 `@lx/core` 的 `isSameSong`——
- * 与跨源合并/补源共用同一套判定（规整歌名相等 + 至少一位歌手重合 + 双方有时长时
- * 差 ≤ 5 秒），不在这里另造一套容忍度。
+ * 贴到用户上传的音频上，比没歌词更糟。因此直接复用 `@lx/core` 的
+ * `pickSameSongCandidate`——与跨源合并/补源共用同一套判定（内部即 `isSameSong`：
+ * 规整歌名相等 + 至少一位歌手重合 + 双方有时长时差 ≤ 5 秒），移动端同样用它，
+ * 不在这里另造一套容忍度。
  */
 async function findMatchedOnlineSong(music: MusicInfo): Promise<MusicInfo | null> {
   let candidates: MusicInfo[] = [];
@@ -313,19 +313,13 @@ async function findMatchedOnlineSong(music: MusicInfo): Promise<MusicInfo | null
     return null;
   }
 
-  // 歌名规整后为空（纯标点/括号）时不做匹配：没有任何可比的依据。
-  if (!normalizeSongName(music.name)) return null;
-
-  for (const candidate of candidates) {
-    if (!candidate?.id || candidate.id === music.id) continue;
-    if (!isSameSong(music, candidate)) continue;
-    debugLog(
-      `[lyric] 云盘曲候选 name=${candidate.name} singer=${candidate.singer} id=${candidate.id} ` +
-        `duration=${candidate.interval ?? 0}s target=${music.interval ?? 0}s`,
-    );
-    return candidate;
-  }
-  return null;
+  const matched = pickSameSongCandidate(music, candidates);
+  if (!matched) return null;
+  debugLog(
+    `[lyric] 云盘曲候选 name=${matched.name} singer=${matched.singer} id=${matched.id} ` +
+      `duration=${matched.interval ?? 0}s target=${music.interval ?? 0}s`,
+  );
+  return matched;
 }
 
 // ─── Provider ──────────────────────────────────────────

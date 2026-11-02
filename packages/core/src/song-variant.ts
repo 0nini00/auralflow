@@ -86,6 +86,27 @@ export function isSameSong(a: MusicInfo, b: MusicInfo): boolean {
   return true;
 }
 
+/**
+ * 从候选列表里挑出与 `target` **同一份录音**的第一条，供「按元数据去线上补
+ * 歌词」这类场景使用。跳过自身（同 source + id）与不同来源的候选。
+ *
+ * 判定完全交给 {@link isSameSong}：搜索接口对「歌名 + 歌手」类关键词会把翻唱
+ * 排在官方曲前面，宁可不返回也不能挑错——错歌词比没歌词更糟。
+ */
+export function pickSameSongCandidate(
+  target: MusicInfo,
+  candidates: readonly MusicInfo[],
+): MusicInfo | null {
+  if (!normalizeSongName(target.name)) return null;
+  for (const candidate of candidates) {
+    if (!candidate?.id) continue;
+    if (candidate.source !== target.source) continue;
+    if (candidate.id === target.id) continue;
+    if (isSameSong(target, candidate)) return candidate;
+  }
+  return null;
+}
+
 /** 来源优先级：分组与列表优先展示网易云，其次 QQ 音乐，最后其它。 */
 export function sourceRank(source: MusicInfo["source"]): number {
   if (source === "wy") return 0;

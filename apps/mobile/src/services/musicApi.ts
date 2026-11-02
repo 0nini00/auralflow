@@ -5,6 +5,7 @@ import {
   mergeTranslation,
   orderPlaybackCandidates,
   parseLyricSource,
+  pickSameSongCandidate,
   type LyricLine,
   type MusicInfo,
   type SourceTag,
@@ -461,13 +462,23 @@ interface OfficialLyricResult {
   romaLyric?: string;
 }
 
-/**
- * 网易云官方歌词直连（eapi /api/song/lyric/v1）。
- * 空歌词/无权限返回 null，由调用方回退网关。
- */
-async function fetchWyOfficialLyric(song: MusicInfo): Promise<OfficialLyricResult | null> {
-  const body = (await postWyEapi("/api/song/lyric/v1", {
-    id: Number(song.id),
+/** 歌词响应体（只声明用到的字段）。 */
+interface WyLyricBody {
+  yrc?: { lyric?: string };
+  ytlrc?: { lyric?: string };
+  yromalrc?: { lyric?: string };
+  lrc?: { lyric?: string };
+  tlyric?: { lyric?: string };
+  romalrc?: { lyric?: string };
+  /** 网易云判定「暂无歌词」时的标记，此时 lrc 里只有占位文本 */
+  uncollected?: boolean;
+  nolyric?: boolean;
+}
+
+/** 取网易云歌词原始响应体（保留占位标记，交给调用方判断）。 */
+async function requestWyLyricBody(id: string): Promise<WyLyricBody> {
+  return (await postWyEapi("/api/song/lyric/v1", {
+    id: Number(id),
     cp: false,
     tv: -1,
     lv: -1,
@@ -476,18 +487,12 @@ async function fetchWyOfficialLyric(song: MusicInfo): Promise<OfficialLyricResul
     yv: -1,
     ytv: -1,
     yrv: -1,
-  })) as {
-    yrc?: { lyric?: string };
-    ytlrc?: { lyric?: string };
-    yromalrc?: { lyric?: string };
-    lrc?: { lyric?: string };
-    tlyric?: { lyric?: string };
-    romalrc?: { lyric?: string };
-    /** 网易云判定「暂无歌词」时的标记，此时 lrc 里只有占位文本 */
-    uncollected?: boolean;
-    nolyric?: boolean;
-  };
-  // 占位歌词一律当「没有歌词」，交给网关兜底。
+  })) as WyLyricBody;
+}
+
+/** 响应体 → 直连结果；占位词或空内容返回 null（由调用方回退网关）。 */
+function buildOfficialLyricResult(body: WyLyricBody): OfficialLyricResult | null {
+  // 占位歌词一律当「没有歌词」。
   //
   // 实测：云盘里未被匹配到在线曲目的条目歌词接口返回
   // `{ lrc: { lyric: "[00:00.00]暂无歌词" }, uncollected: true }`。原样返回会解析出
@@ -509,6 +514,37 @@ async function fetchWyOfficialLyric(song: MusicInfo): Promise<OfficialLyricResul
     tlyric: tlyric.trim() ? tlyric : undefined,
     romaLyric: romaLyric.trim() ? romaLyric : undefined,
   };
+}
+
+/**
+ * 云盘曲按元数据在线上找到**同一份录音**（与桌面 `wyProvider.getLyric` 同一条路径）。
+ *
+ * 云盘条目的数字 id 是「云盘条目 id」，服务端对它只回占位歌词；真正的歌词挂在线上
+ * 曲目那条记录上。候选选择交给 `@lx/core` 的 `pickSameSongCandidate`——搜索会把翻唱
+ * 排在官方曲前面（实测「雨下一整晚 周杰伦」前几条全是翻唱），宁可不给词也不能贴错词。
+ */
+async function findMatchedOnlineSong(song: MusicInfo): Promise<MusicInfo | null> {
+  let candidates: MusicInfo[] = [];
+  try {
+    candidates = await searchWySongsViaCloudSearch(`${song.name} ${song.singer}`, 100);
+  } catch {
+    return null;
+  }
+  return pickSameSongCandidate(song, candidates);
+}
+
+/**
+ * 网易云官方歌词直连（eapi /api/song/lyric/v1）。
+ * 空歌词/无权限返回 null，由调用方回退网关。
+ */
+async function fetchWyOfficialLyric(song: MusicInfo): Promise<OfficialLyricResult | null> {
+  const direct = buildOfficialLyricResult(await requestWyLyricBody(song.id));
+  if (direct) return direct;
+  // 只有云盘曲需要这一层：普通在线曲拿不到词就是真的没有。
+  if (song.wyCloud !== true) return null;
+  const matched = await findMatchedOnlineSong(song);
+  if (!matched) return null;
+  return buildOfficialLyricResult(await requestWyLyricBody(matched.id));
 }
 
 /**
