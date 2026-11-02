@@ -44,10 +44,22 @@ const WY_REQUEST_HEADERS = {
 
 type JsonRecord = Record<string, unknown>;
 
+export interface WyWeapiOptions {
+  /**
+   * 是否把 Cookie 改写成 PC 形态（追加 `os=pc`）。
+   *
+   * 默认 `true`（订阅/收藏这类写操作要 PC 会话）；`personalized/playlist` 这类
+   * 读接口必须传 `false`：实测加上 `os=pc` 后服务端给的是 PC Web 那套通用歌单，
+   * 与桌面端（原始 Cookie）拿到的账号个性化歌单不是同一批。
+   */
+  pcCookie?: boolean;
+}
+
 export async function postWyWeapi<TResponse = JsonRecord>(
   path: string,
   payload: Record<string, unknown>,
   cookie: string,
+  options: WyWeapiOptions = {},
 ): Promise<TResponse> {
   const { params, encSecKey } = await weapi({
     ...payload,
@@ -61,7 +73,7 @@ export async function postWyWeapi<TResponse = JsonRecord>(
       "Content-Type": "application/x-www-form-urlencoded",
       Origin: "https://music.163.com",
       Referer: "https://music.163.com",
-      Cookie: buildNeteasePcCookie(cookie),
+      Cookie: options.pcCookie === false ? cookie : buildNeteasePcCookie(cookie),
       ...WY_REQUEST_HEADERS,
     },
     body: new URLSearchParams({ params, encSecKey }).toString(),
@@ -161,11 +173,12 @@ export async function getUserPlaylists(userId: string): Promise<WyPlaylistInfo[]
 }
 
 /**
- * 首页「推荐歌单」：`weapi/personalized/playlist`。
+ * 这才是网易云 App 首页那块「推荐歌单」用的接口：服务端给一批、**没有 offset**
+ * （不是分页列表），客户端不需要自己洗牌。未登录或失败由上层回退公开的「最新歌单」。
  *
- * 这才是网易云 App 首页那块「推荐歌单」用的接口：服务端按账号画像给一批，
- * **没有 offset**（不是分页列表），且按天更新——「每天不一样」由服务端负责，
- * 客户端不需要自己洗牌。未登录或失败由上层回退公开的「最新歌单」。
+ * Cookie 形态与桌面端保持一致（原始 Cookie，不追加 `os=pc`）：实测两端 `hasTaste`
+ * 都是 `false`，返回的是服务端**每次请求都会轮换**的推荐池——所以「同一天两端看到的
+ * 歌单不同」属于正常现象，不是移动端掉到了公开兜底。
  */
 export async function fetchWyPersonalizedPlaylistMix(limit = 12): Promise<WyPlaylistInfo[]> {
   const cookie = await getWyCookie();
@@ -173,15 +186,32 @@ export async function fetchWyPersonalizedPlaylistMix(limit = 12): Promise<WyPlay
     throw new Error("未登录");
   }
 
+  const rawMix = await requestPersonalizedMix(limit, cookie, false);
+  if (rawMix.length > 0) return rawMix;
+  // 极少数会话只认 PC 形态：兜一次，别因此掉到公开列表。
+  return requestPersonalizedMix(limit, cookie, true);
+}
+
+/** 发一次 `personalized/playlist` 并映射成首页卡片；`pcCookie` 决定 Cookie 形态。 */
+async function requestPersonalizedMix(
+  limit: number,
+  cookie: string,
+  pcCookie: boolean,
+): Promise<WyPlaylistInfo[]> {
   const data = await postWyWeapi<JsonRecord>(
     "/personalized/playlist",
     { limit, total: true, n: 1000 },
     cookie,
+    { pcCookie },
   );
-
-  const raw = Array.isArray(data.result)
+  const list = Array.isArray(data.result)
     ? (data.result as Array<Record<string, unknown>>)
     : [];
+  return mapPersonalizedMix(list);
+}
+
+/** 个性化歌单条目 → 首页卡片模型。 */
+function mapPersonalizedMix(raw: Array<Record<string, unknown>>): WyPlaylistInfo[] {
   return raw
     .map((item) => {
       const creatorObj =

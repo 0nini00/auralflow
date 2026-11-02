@@ -83,11 +83,16 @@ function errorSection<K extends HomeFeedSectionId>(
 }
 
 /**
- * 推荐歌单：优先 `personalized/playlist`（服务端按天给一批，客户端不洗牌），
+ * 推荐歌单：优先 `personalized/playlist`（服务端给一批，客户端不洗牌），
  * 其次「每日推荐歌单」，最后回退公开的「最新歌单」。
  *
  * 旧实现是「热门前 60 条里随机取一页」——热门排序几天不变，5 页翻来覆去就是那几组，
  * 所以体感上每次打开都一样；而且在榜单里洗牌本来也不等于推荐。
+ *
+ * 与桌面端对齐的实测结论（`hasTaste` 两端都是 false）：这个接口返回的是服务端
+ * 轮换的推荐池，**每次请求会换一批**，所以「同一天两端看到的歌单不同」属于正常现象，
+ * 不是哪一端掉到了公开兜底。（回退分支真的触发时，`homeFeedStore` 会把该分区标成
+ * error 并在首页给出重试入口，不会静默换源。）
  */
 async function fetchRecommendedPlaylists(context: HomeFeedContext): Promise<WyPlaylistInfo[]> {
   if (context.isLoggedIn) {
