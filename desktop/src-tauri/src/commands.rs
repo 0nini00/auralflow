@@ -41,6 +41,11 @@ mod settings {
     include!("commands/settings.rs");
 }
 
+mod mini_player {
+    use super::*;
+    include!("commands/mini_player.rs");
+}
+
 mod compression {
     use super::*;
     include!("commands/compression.rs");
@@ -93,6 +98,7 @@ pub use local_audio::*;
 pub use logging::*;
 pub use lyric_window::*;
 pub use media_cache::*;
+pub use mini_player::*;
 pub use settings::*;
 pub use smtc::*;
 pub use taskbar::*;

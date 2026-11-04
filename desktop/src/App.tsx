@@ -20,6 +20,7 @@ import { PlaylistSquareView } from "./views/PlaylistSquareView";
 import { ArtistDetailView } from "./views/ArtistDetailView";
 import { AlbumDetailView } from "./views/AlbumDetailView";
 import { LyricWindowView } from "./views/LyricWindowView";
+import { MiniPlayerView } from "./views/MiniPlayerView";
 import { LyricUnlockView } from "./views/LyricUnlockView";
 import { PactModal } from "./components/PactModal";
 import { LibraryDegradedNotice } from "./components/LibraryDegradedNotice";
@@ -28,6 +29,7 @@ import { CursorEffect } from "./components/CursorEffect";
 import { DeepLinkHandler } from "./components/DeepLinkHandler";
 import { UpdateModal } from "./components/UpdateModal";
 import { CustomSourceUpdateModal } from "./components/CustomSourceUpdateModal";
+import { CloseConfirmModal } from "./components/CloseConfirmModal";
 import { checkForUpdate } from "./services/updateService";
 import { useUpdateStore } from "./stores/updateStore";
 import { attachPlaybackPersistence } from "./stores/playerPersistence";
@@ -216,6 +218,7 @@ function MainApp() {
       <CursorEffect mode={cursorEffect} />
       <UpdateModal />
       <CustomSourceUpdateModal />
+      <CloseConfirmModal />
     </>
   );
 }
@@ -251,6 +254,13 @@ function App() {
     return (
       <ErrorBoundary scope="lyric-unlock">
         <LyricUnlockView />
+      </ErrorBoundary>
+    );
+  }
+  if (role === "mini-player") {
+    return (
+      <ErrorBoundary scope="mini-player">
+        <MiniPlayerView />
       </ErrorBoundary>
     );
   }

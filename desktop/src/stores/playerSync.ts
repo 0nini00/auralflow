@@ -127,13 +127,13 @@ function setupMainWindow(channel: BroadcastChannel | null) {
   void unlistenTauri;
 }
 
-// ─── Lyric window ────────────────────────────────────────────
+// ─── 从窗口（桌面歌词 / 迷你播放器）──────────────────────────
 
 function applyState(snapshot: PlaybackSnapshot) {
   usePlayerStore.setState(applyPlaybackSnapshotToStorePatch(snapshot));
 }
 
-function setupLyricWindow(channel: BroadcastChannel | null) {
+function setupSecondaryWindow(channel: BroadcastChannel | null) {
   channel?.addEventListener("message", (event) => {
     const msg = event.data as SyncMessage;
     if (msg.type !== "state") return;
@@ -151,7 +151,7 @@ function setupLyricWindow(channel: BroadcastChannel | null) {
   postSyncMessage(channel, askInit);
 }
 
-/** 在歌词窗口里调用，把 action 发给主窗口执行 */
+/** 在从窗口（桌面歌词 / 迷你播放器）里调用，把 action 发给主窗口执行 */
 export function dispatchLyricAction(action: "play-pause" | "next" | "prev") {
   const message: SyncMessage = { type: "action", action };
   postSyncMessage(getChannel(), message);
@@ -174,8 +174,8 @@ export function setupPlayerSync(role: AppWindowRole = "main") {
   if (initialized) return;
   initialized = true;
   const channel = getChannel();
-  if (role === "lyric") {
-    setupLyricWindow(channel);
+  if (role !== "main" && role !== "lyric-unlock") {
+    setupSecondaryWindow(channel);
   } else {
     // main / lyric-unlock 都不作为歌词同步接收端
     setupMainWindow(channel);

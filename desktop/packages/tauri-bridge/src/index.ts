@@ -69,6 +69,13 @@ export interface RustAppSettings {
   closeToTray: boolean;
   /** 启动时不显示主窗口，只保留托盘 */
   startMinimized: boolean;
+  /** 是否已经回答过「关闭窗口后去哪」的首次提示（false = 下次关闭仍会问） */
+  closePromptSeen: boolean;
+  /** 隐藏到托盘时自动显示迷你播放器 */
+  miniPlayerEnabled: boolean;
+  /** 迷你播放器上次拖到的位置（逻辑像素），None = 默认右下角 */
+  miniPlayerX?: number | null;
+  miniPlayerY?: number | null;
 }
 
 export interface RustLyricWindowPlayerToggleResult {
@@ -139,6 +146,47 @@ export async function loadSettings(): Promise<RustAppSettings> {
 /** 部分更新设置 */
 export async function patchSettings(patch: Record<string, unknown>): Promise<RustAppSettings> {
   return invoke<RustAppSettings>("patch_settings", { patch });
+}
+
+/**
+ * 回答「关闭窗口后去哪」：`tray` 最小化到托盘，`quit` 退出应用。
+ * `remember` 为 true 时同时写入 closeToTray 与 closePromptSeen（之后不再提问）。
+ */
+export async function resolveCloseRequest(
+  action: "tray" | "quit",
+  remember: boolean,
+): Promise<void> {
+  await invoke("resolve_close_request", { action, remember });
+}
+
+/**
+ * 报告「确认框已经画出来了」，让 Rust 侧取消「无人应答就关到托盘」的兜底。
+ * 弹窗一出现就调用：用户要在框里读多久、想多久都不该让窗口自己消失。
+ */
+export async function ackCloseRequest(): Promise<void> {
+  await invoke("ack_close_request");
+}
+
+// ─── 迷你播放器 ─────────────────────────────────────────────
+
+/** 切换迷你播放器显隐，返回切换后是否显示 */
+export async function toggleMiniPlayer(): Promise<boolean> {
+  return invoke<boolean>("toggle_mini_player");
+}
+
+/** 收起迷你播放器（右键菜单「关闭迷你播放器」走 Rust，前端也可主动调） */
+export async function hideMiniPlayer(): Promise<void> {
+  await invoke<void>("hide_mini_player");
+}
+
+/** 显示主窗口并聚焦，同时收起迷你播放器（双击迷你条 / 托盘左键） */
+export async function showMainWindow(): Promise<void> {
+  await invoke<void>("show_main_window");
+}
+
+/** 在迷你播放器上右键：弹出原生菜单（显示主窗口 / 关闭迷你播放器 / 退出） */
+export async function showMiniPlayerMenu(): Promise<void> {
+  await invoke<void>("show_mini_player_menu");
 }
 
 /** 追加一行诊断日志到 app_data_dir/debug.log（失败静默忽略） */

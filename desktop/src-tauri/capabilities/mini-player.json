@@ -1,0 +1,14 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "mini-player",
+  "description": "Mini player window capabilities (drag region, show/hide, events).",
+  "windows": ["mini-player"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "log:default"
+  ]
+}

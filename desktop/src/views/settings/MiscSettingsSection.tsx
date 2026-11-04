@@ -13,6 +13,7 @@ export function MiscSettingsSection() {
   const [taskbarThumbnails, setTaskbarThumbnails] = useState(true);
   const [closeToTray, setCloseToTray] = useState(true);
   const [startMinimized, setStartMinimized] = useState(false);
+  const [miniPlayerEnabled, setMiniPlayerEnabled] = useState(true);
   const [autostart, setAutostart] = useState(false);
   const [status, setStatus] = useState("");
   // 开发模式注册的是 target/debug 下的调试程序，不能把开发构建写进开机启动项。
@@ -26,6 +27,7 @@ export function MiscSettingsSection() {
         setTaskbarThumbnails(settings.taskbarThumbnails !== false);
         setCloseToTray(settings.closeToTray !== false);
         setStartMinimized(settings.startMinimized === true);
+        setMiniPlayerEnabled(settings.miniPlayerEnabled !== false);
       })
       .catch((error) => {
         setStatus(`读取设置失败：${error instanceof Error ? error.message : String(error)}`);
@@ -82,8 +84,24 @@ export function MiscSettingsSection() {
   const handleCloseToTrayChange = async (enabled: boolean) => {
     const previous = closeToTray;
     setCloseToTray(enabled);
-    if (!(await saveBoolean("closeToTray", enabled, "保存关闭行为失败"))) {
+    setStatus("");
+    try {
+      // 用户在这里主动选过，就不再弹关闭确认框：否则下次关窗会拿弹窗里的选择覆盖这里。
+      await patchSettings({ closeToTray: enabled, closePromptSeen: true });
+    } catch (error) {
       setCloseToTray(previous);
+      setStatus(`保存关闭行为失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  /** 忘掉「已经回答过关闭提示」，让下次关窗重新弹一次确认框。 */
+  const handleAskCloseAgain = async () => {
+    setStatus("");
+    try {
+      await patchSettings({ closePromptSeen: false });
+      setStatus("下次关闭窗口时会再问一次");
+    } catch (error) {
+      setStatus(`保存关闭提示设置失败：${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
@@ -92,6 +110,14 @@ export function MiscSettingsSection() {
     setStartMinimized(enabled);
     if (!(await saveBoolean("startMinimized", enabled, "保存启动行为失败"))) {
       setStartMinimized(previous);
+    }
+  };
+
+  const handleMiniPlayerEnabledChange = async (enabled: boolean) => {
+    const previous = miniPlayerEnabled;
+    setMiniPlayerEnabled(enabled);
+    if (!(await saveBoolean("miniPlayerEnabled", enabled, "保存迷你播放器设置失败"))) {
+      setMiniPlayerEnabled(previous);
     }
   };
 
@@ -164,6 +190,19 @@ export function MiscSettingsSection() {
             onChange={(e) => { void handleCloseToTrayChange(e.target.checked); }}
           />
         </SettingRow>
+        <SettingRow
+          label="关闭窗口时再次询问"
+          hint="首次关闭会弹一次确认框（最小化到托盘 / 退出应用）；想重新看到它就点这里"
+        >
+          <button
+            type="button"
+            className="af-btn-secondary"
+            aria-label="关闭窗口时再次询问"
+            onClick={() => void handleAskCloseAgain()}
+          >
+            下次再问一次
+          </button>
+        </SettingRow>
         <SettingRow label="启动时最小化" hint="启动时不显示主窗口，只保留托盘图标">
           <input
             type="checkbox"
@@ -172,6 +211,19 @@ export function MiscSettingsSection() {
             aria-label="启动时最小化"
             checked={startMinimized}
             onChange={(e) => { void handleStartMinimizedChange(e.target.checked); }}
+          />
+        </SettingRow>
+        <SettingRow
+          label="托盘时显示迷你播放器"
+          hint="隐藏到托盘后在桌面留一条迷你播放器（封面 / 歌名 / 上一首 / 播放暂停 / 下一首），可拖动、可记住位置，双击回到主窗口；托盘右键菜单里也能随时开关"
+        >
+          <input
+            type="checkbox"
+            className="af-switch"
+            role="switch"
+            aria-label="托盘时显示迷你播放器"
+            checked={miniPlayerEnabled}
+            onChange={(e) => { void handleMiniPlayerEnabledChange(e.target.checked); }}
           />
         </SettingRow>
         <SettingRow

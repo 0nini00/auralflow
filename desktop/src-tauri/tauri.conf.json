@@ -29,7 +29,8 @@
       "capabilities": [
         "main",
         "lyric",
-        "lyric-unlock"
+        "lyric-unlock",
+        "mini-player"
       ],
       "assetProtocol": {
         "enable": true,

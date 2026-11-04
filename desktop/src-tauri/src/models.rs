@@ -126,9 +126,21 @@ pub struct AppSettings {
     /// 关闭主窗口时最小化到托盘（false = 直接退出应用）
     #[serde(default = "default_true")]
     pub close_to_tray: bool,
+    /// 是否已经回答过「关闭窗口后去哪」的首次提示。
+    /// false = 下次关闭窗口仍弹确认框（用户勾了「记住我的选择」才置 true）。
+    #[serde(default)]
+    pub close_prompt_seen: bool,
     /// 启动时不显示主窗口，只保留托盘
     #[serde(default)]
     pub start_minimized: bool,
+    /// 隐藏到托盘时自动显示迷你播放器
+    #[serde(default = "default_true")]
+    pub mini_player_enabled: bool,
+    /// 迷你播放器上次拖到的位置（逻辑像素）；None = 用默认位置（右下角）
+    #[serde(default)]
+    pub mini_player_x: Option<f64>,
+    #[serde(default)]
+    pub mini_player_y: Option<f64>,
 }
 
 impl Default for AppSettings {
@@ -190,7 +202,13 @@ impl Default for AppSettings {
             webdav_auto_sync_playlists: false,
             custom_source_auto_check: true,
             close_to_tray: true,
+            // 首次关闭窗口时先问一次「最小化到托盘还是退出」
+            close_prompt_seen: false,
             start_minimized: false,
+            // 隐藏到托盘时默认给一个迷你播放器，避免「以为退出了」
+            mini_player_enabled: true,
+            mini_player_x: None,
+            mini_player_y: None,
         }
     }
 }

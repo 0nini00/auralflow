@@ -20,6 +20,7 @@ pub fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let next = MenuItem::with_id(app, "next", "下一首", true, None::<&str>)?;
     let separator = tauri::menu::PredefinedMenuItem::separator(app)?;
     let toggle_lyric = MenuItem::with_id(app, "toggle-lyric", "桌面歌词", true, None::<&str>)?;
+    let toggle_mini = MenuItem::with_id(app, "toggle-mini", "迷你播放器", true, None::<&str>)?;
     let separator2 = tauri::menu::PredefinedMenuItem::separator(app)?;
     let show = MenuItem::with_id(app, "show-window", "显示主窗口", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出 AuralFlow", true, None::<&str>)?;
@@ -32,6 +33,7 @@ pub fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             &next,
             &separator,
             &toggle_lyric,
+            &toggle_mini,
             &separator2,
             &show,
             &quit,
@@ -49,17 +51,10 @@ pub fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                 "toggle-lyric" => {
                     let _ = crate::lyric_window::toggle(app);
                 }
-                "quit" => {
-                    // 退出前给前端一个 flush 窗口：用户数据（收藏/歌单/历史）是 debounce
-                    // 写盘的，直接 exit(0) 会把最后 ≤300ms 的修改丢掉。
-                    // 前端收到事件后立即落盘；这里只等一个短窗口，避免卡住退出。
-                    let _ = app.emit("app-before-quit", ());
-                    let handle = app.clone();
-                    std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_millis(700));
-                        handle.exit(0);
-                    });
+                "toggle-mini" => {
+                    let _ = crate::mini_player::toggle(app);
                 }
+                "quit" => request_quit(app),
                 action => {
                     // 把动作派到前端（前端持有播放器状态）
                     let _ = app.emit("native-action", action);
@@ -87,10 +82,26 @@ pub fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn show_main_window(app: &AppHandle) {
+/// 显示并聚焦主窗口；同时收起迷你播放器（回到主窗口就不该再占着桌面）。
+pub fn show_main_window(app: &AppHandle) {
+    let _ = crate::mini_player::hide(app);
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
+}
+
+/// 退出应用（托盘菜单 / 迷你播放器右键菜单共用）。
+///
+/// 退出前给前端一个 flush 窗口：用户数据（收藏/歌单/历史）是 debounce 写盘的，
+/// 直接 exit(0) 会把最后 ≤300ms 的修改丢掉。前端收到事件后立即落盘；
+/// 这里只等一个短窗口，避免卡住退出。
+pub fn request_quit(app: &AppHandle) {
+    let _ = app.emit("app-before-quit", ());
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(700));
+        handle.exit(0);
+    });
 }

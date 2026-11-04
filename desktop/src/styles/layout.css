@@ -596,3 +596,18 @@
 .af-page-feedback > p { margin: 0; color: var(--af-text-primary); font-size: var(--af-font-size-sm); font-weight: 600; }
 .af-page-feedback > span { flex: 1 1 240px; overflow-wrap: anywhere; }
 .af-page-feedback > button { margin-left: auto; flex: 0 0 auto; }
+
+/* 关闭确认框：「记住我的选择」开关与说明文字排一行 */
+.af-close-confirm-remember {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 16px;
+  color: var(--af-text-secondary);
+  font-size: var(--af-font-size-sm);
+  line-height: 1.5;
+  cursor: pointer;
+}
+.af-close-confirm-remember .af-switch {
+  flex: none;
+}

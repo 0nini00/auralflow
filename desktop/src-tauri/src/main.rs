@@ -8,6 +8,7 @@ mod config;
 mod library;
 mod logging;
 mod lyric_window;
+mod mini_player;
 mod models;
 mod outbound;
 mod secret_store;
@@ -15,6 +16,12 @@ mod smtc;
 mod taskbar;
 mod tray;
 mod window_state;
+
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// 关闭确认框是否还在等前端答复。前端回话（resolve_close_request）会清掉它；
+/// 超时仍为 true 说明渲染进程卡死/崩了，此时按默认行为关窗，避免「点叉没反应」的死局。
+pub static CLOSE_PROMPT_PENDING: AtomicBool = AtomicBool::new(false);
 
 /// 应用 AUMID：必须与 tauri.conf.json 的 identifier、主窗口 additionalBrowserArgs 里的
 /// `--app-user-model-id`、以及安装器写入快捷方式的 AUMID 保持一致——音量合成器/任务栏
@@ -200,31 +207,70 @@ pub fn run() {
                 return;
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // 默认最小化到托盘；用户可以在设置里改成关闭即退出。
-                let close_to_tray = crate::config::load_settings(window.app_handle())
+                // 关窗一律先拦下来自己处理：隐藏到托盘 / 退出 / 问一次
+                api.prevent_close();
+                let settings = crate::config::load_settings(window.app_handle()).ok();
+                let close_prompt_seen = settings
+                    .as_ref()
+                    .map(|settings| settings.close_prompt_seen)
+                    .unwrap_or(false);
+                if !close_prompt_seen {
+                    // 首次关闭（或用户在设置里要求再问一次）：把选择权交给前端确认框。
+                    // 这里绝不能顺手 hide——窗口一藏，前端弹窗还没来得及出现，
+                    // 用户看到的就是「点了叉就没了、托盘里多一个图标」的迷惑体验。
+                    CLOSE_PROMPT_PENDING.store(true, Ordering::SeqCst);
+                    let _ = window.app_handle().emit("app-close-requested", ());
+                    // 兜底：渲染进程卡死/崩了没人回话时，1.5s 后按默认行为关到托盘，
+                    // 否则用户会陷入「点叉没反应、又不敢强杀」的死局。
+                    let handle = window.app_handle().clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(1500));
+                        if CLOSE_PROMPT_PENDING.swap(false, Ordering::SeqCst) {
+                            if let Some(window) = handle.get_webview_window("main") {
+                                let _ = window.hide();
+                            }
+                            // 兜底也走「关到托盘」的完整语义：迷你播放器该出现就出现。
+                            crate::mini_player::show_on_tray_hide(&handle);
+                        }
+                    });
+                    return;
+                }
+                // 已经回答过：按设置里的固定行为执行（默认最小化到托盘）。
+                let close_to_tray = settings
                     .map(|settings| settings.close_to_tray)
                     .unwrap_or(true);
                 if close_to_tray {
-                    api.prevent_close();
                     let _ = window.hide();
+                    // 隐藏到托盘后由迷你播放器接着显示「还在放什么」，
+                    // 否则用户只看到窗口消失、并不确定应用还活着。
+                    crate::mini_player::show_on_tray_hide(window.app_handle());
                     return;
                 }
-                // 退出前给前端 flush 的机会（收藏/歌单/历史是 debounce 写盘）。
-                api.prevent_close();
-                let _ = window.app_handle().emit("app-before-quit", ());
-                let handle = window.app_handle().clone();
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(700));
-                    handle.exit(0);
-                });
+                crate::tray::request_quit(window.app_handle());
             }
+        })
+        // 迷你播放器右键弹出菜单（原生菜单项，窗口装不下 HTML 菜单）
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "mini-show-main" => crate::tray::show_main_window(app),
+            "mini-hide" => {
+                let _ = crate::mini_player::hide(app);
+            }
+            "mini-quit" => crate::tray::request_quit(app),
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             // 配置管理
             commands::load_settings,
             commands::patch_settings,
+            commands::resolve_close_request,
+            commands::ack_close_request,
             commands::debug_log,
             commands::open_log_dir,
+            // 迷你播放器
+            commands::toggle_mini_player,
+            commands::hide_mini_player,
+            commands::show_main_window,
+            commands::show_mini_player_menu,
             // 压缩/解压 fallback
             commands::zlib_inflate,
             commands::zlib_deflate,
