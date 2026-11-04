@@ -577,6 +577,15 @@ button.af-playlist-card {
 }
 
 /* 对话框 */
+/*
+ * 对话框遮罩：铺满窗口并把对话框垂直/水平居中。
+ *
+ * 这里不再用「顶部对齐 + 大上边距」的老做法——那会让所有弹窗都压在页面偏上，
+ * 和软件界面本身的中心不重合。改成 flex 容器 + 对话框 margin:auto 的标准组合：
+ *   - 有富余空间时：auto 外边距把对话框推到正中间（真正的窗口居中）；
+ *   - 对话框比视口还高时：auto 外边距退化成 0，从上往下排 + 遮罩可滚动，
+ *     不会出现「垂直居中把顶部内容裁掉、且滚不上去」的老问题。
+ */
 .af-dialog-overlay {
   position: fixed;
   inset: 0;
@@ -586,7 +595,7 @@ button.af-playlist-card {
   justify-content: center;
   box-sizing: border-box;
   overflow-y: auto;
-  padding: clamp(48px, 9vh, 88px) 24px max(120px, 16vh);
+  padding: 24px;
   z-index: var(--af-z-modal-backdrop);
   animation: af-fade-in 0.2s;
 }
@@ -597,6 +606,7 @@ button.af-playlist-card {
   padding: 32px;
   min-width: 500px;
   max-width: 90vw;
+  margin: auto;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
   animation: af-slide-up 0.3s;
 }
