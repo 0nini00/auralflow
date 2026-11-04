@@ -392,6 +392,14 @@ interface PlayerActions {
   play: (song: MusicInfo, url: string, headers?: Record<string, string>, startPosition?: number, requestId?: number) => Promise<void>;
   pause: () => Promise<void>;
   resume: () => Promise<void>;
+  /**
+   * 切歌起步阶段先压掉声音（只动音量、不动播放状态）。
+   *
+   * 解析 + 装车那几百毫秒里让上一首继续响，用户会以为「没点上」而重复点击，
+   * 结果多跳过一首。暂停会改播放状态（前台服务、暂停语义、锁屏按钮都跟着变），
+   * 静音则是零语义改动的做法：新曲起播时 play() 会把音量恢复成目标值。
+   */
+  silenceCurrentTrack: () => Promise<void>;
   stop: () => Promise<void>;
   seekTo: (position: number) => Promise<void>;
   setPlaybackRate: (rate: number) => Promise<void>;
@@ -671,6 +679,19 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     if (isPlayerSetup) await TrackPlayer.pause();
     if (!isCurrentPlaybackRequest(requestId)) return;
     get().syncPlayerState(State.Paused);
+  },
+
+  silenceCurrentTrack: async () => {
+    // 播放器都没 setup（首次播放 / 快照恢复前）时没有可压的声音，也不该在这里建管线。
+    if (!isPlayerSetup) return;
+    // 已经不在出声（暂停 / 首播前）就不用多打一次原生调用。
+    if (!get().isPlaying) return;
+    try {
+      // 只改原生音量，不动 volume 状态：下一首起播时 play() 会按 volume 重新落音量。
+      await TrackPlayer.setVolume(0);
+    } catch {
+      // 静音失败不影响切歌主流程（下一首起播仍会设置目标音量）
+    }
   },
 
   resume: async () => {

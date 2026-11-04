@@ -942,26 +942,34 @@ export function prefetchUpcomingSongNearEnd(position: number, duration: number):
   prefetchSong(nextSong);
 }
 
-// 切歌连点合并：切换进行中（解析/播放器加载）时重复点击只补跳一次，不重复解析。
-let switchStepSession = { state: createSwitchStepQueueState() };
+/**
+ * next/prev 的切歌串行化。
+ *
+ * 原生 add/skip 未返回时并发再发起一次切歌，会把原生队列的写入顺序打乱
+ * （后台/锁屏「下一首」与手动点击可能同时到达），所以这期间的 next/prev 请求
+ * 合并成一次「补跳」：等当前切换收尾后再跳一步，总共仍然是两首。
+ *
+ * 注意 playFromQueue / playQueue 不参与这套合并：队列内直选必须立刻生效，
+ * 若也走合并，用户点的第 N 首会被降级成「当前曲的下一首」，播出来根本不是他点的那首。
+ */
+let switchStepSession = { state: createSwitchStepQueueState(), intent: null as number | null };
 
 /** 清空队列时一并丢弃旧会话中尚未消费的连点，避免补跳推进新队列。 */
 export function cancelPendingPlayback(): number {
-  switchStepSession = { state: createSwitchStepQueueState() };
+  switchStepSession = { state: createSwitchStepQueueState(), intent: null };
   return beginPlaybackRequest();
 }
 
-/**
- * 播放歌曲（完整流程）
- */
-/** 当前切歌完成后消费连点补跳（只补一次，防止循环）。 */
+/** 当前切换完成后消费连点补跳（只补一次，防止循环）。 */
 async function completeQueuedSwitchStep(session: typeof switchStepSession): Promise<void> {
   if (session !== switchStepSession) return;
+  const superseded = session.intent !== null && !isCurrentPlaybackRequest(session.intent);
   const finished = finishSwitchStep(session.state);
   session.state = finished.nextState;
-  if (finished.shouldStep) {
-    void (finished.direction === "prev" ? playPrevious() : playNext()).catch(error => logger.warn("补跳播放失败", error));
-  }
+  session.intent = null;
+  // 切歌期间用户已经点了别的歌/别的列表：本次补跳会把他的选择覆盖成「下一首」。
+  if (superseded || !finished.shouldStep) return;
+  void (finished.direction === "prev" ? playPrevious() : playNext()).catch(error => logger.warn("补跳播放失败", error));
 }
 
 /**
@@ -1025,6 +1033,11 @@ async function playSongCore(song: MusicInfo, startPosition?: number, requestId?:
       lyrics: [],
     });
     logger.info("开始解析播放", { requestId: intent, song: `${song.source}:${song.id}` });
+    // 点了就立刻有反馈：解析 + 装车这几百毫秒里先把上一首的声音压掉，
+    // 否则「耳朵里还在放上一首」会让人以为没点上而重复点击（随后多跳一首）。
+    // 只压音量、不动播放状态：播放器管线 / 前台服务 / 暂停语义都不变，
+    // 新曲起播时 store.play 会把音量恢复成目标值。
+    await usePlayerStore.getState().silenceCurrentTrack();
     const resolved = await runPlaybackResolution(async () => {
       try {
         return await resolveSongUrl(song);
@@ -1170,11 +1183,23 @@ export async function playSong(song: MusicInfo): Promise<void> {
 
 /**
  * 播放队列中的歌曲
+ *
+ * 队列内直选不参与 next/prev 那套「切换中合并」：用户点了第 N 首就必须播第 N 首，
+ * 若也走合并，请求会被降级成「当前曲的下一首」，播出来根本不是他点的那首。
+ * 每次调用都立刻改 UI / 队列指针，并让上一次尚未落地的播放请求作废
+ * （intent 令牌贯穿 playSongCore 的每个 await）。
  */
-export async function playFromQueue(index: number, startPosition?: number, requestId?: number): Promise<void> {
+export async function playFromQueue(
+  index: number,
+  startPosition?: number,
+  requestId?: number,
+): Promise<void> {
+  // 过期意图直接丢弃（playNext/playPrevious 刚发出的意图不会被误杀）。
   if (requestId !== undefined && !isCurrentPlaybackRequest(requestId)) return;
+  // 校验先于任何状态变更：越界点击不能留下「切换在途」的假象。
   const { playbackContext, queue } = usePlayerStore.getState();
   if (index < 0 || index >= queue.length) return;
+  const intent = requestId ?? beginPlaybackRequest();
   const song = queue[index];
   if (playbackContext.type === "personalFm") {
     usePlayerStore.getState().setPersonalFmBatchIndex(index);
@@ -1183,20 +1208,23 @@ export async function playFromQueue(index: number, startPosition?: number, reque
   } else {
     usePlayerStore.setState({ currentIndex: index });
   }
-  await playSongCore(song, startPosition, requestId);
+  await playSongCore(song, startPosition, intent);
 }
 
 /**
  * 批量添加到队列并播放
+ *
+ * 与 playFromQueue 相同的手动语义：调用即生效，旧的在途请求由 intent 令牌作废。
  */
 export async function playQueue(songs: MusicInfo[], startIndex = 0): Promise<void> {
-  const { setQueue } = usePlayerStore.getState();
+  // 校验先于任何状态变更（空列表也要在开新意图之前退出）。
   if (songs.length === 0) return;
   if (startIndex < 0 || startIndex >= songs.length) {
     startIndex = 0;
   }
-  setQueue(songs, startIndex);
-  await playSongCore(songs[startIndex]);
+  const intent = beginPlaybackRequest();
+  usePlayerStore.getState().setQueue(songs, startIndex);
+  await playSongCore(songs[startIndex], undefined, intent);
 }
 
 /**
@@ -1216,8 +1244,8 @@ export async function playShuffledQueue(songs: MusicInfo[]): Promise<void> {
  * 播放下一首
  *
  * auto=true 为「非用户点击」的自动跳过（playbackService 里播放失败后的有限跳过）：
- * 已有切换在途时直接放弃本次，不排补跳——补跳语义是「用户连点要多跳一步」，
- * 自动跳过若也排进去会在用户手动切歌完成后凭空多跳一首。
+ * 已有切换在途时直接放弃本次，也不排补跳——补跳是「用户连点要多跳一步」的语义，
+ * 自动跳过排进去会在用户手动切歌完成后凭空多跳一首。
  */
 export async function playNext(auto = false): Promise<void> {
   // 无导航目标时不能取消正在解析的队尾歌曲；预检不消费随机预抽或历史。
@@ -1231,7 +1259,7 @@ export async function playNext(auto = false): Promise<void> {
     if (next.nextIndex === null) return;
   }
   if (!auto && interruptPlaybackResolution()) {
-    switchStepSession = { state: createSwitchStepQueueState() };
+    switchStepSession = { state: createSwitchStepQueueState(), intent: null };
     logger.info("手动下一首取消旧解析");
   }
   const session = switchStepSession;
@@ -1240,6 +1268,7 @@ export async function playNext(auto = false): Promise<void> {
   session.state = step.nextState;
   if (!step.startNow) return;
   const intent = beginPlaybackRequest();
+  session.intent = intent;
   try {
   const store = usePlayerStore.getState();
   const { playbackContext, queue, currentIndex, playMode, shuffleHistory, playedIndices, tempPlayList } = store;
@@ -1315,7 +1344,7 @@ export async function playPrevious(): Promise<void> {
   if (usePlayerStore.getState().queue.length === 0) return;
   const interrupted = interruptPlaybackResolution();
   if (interrupted) {
-    switchStepSession = { state: createSwitchStepQueueState() };
+    switchStepSession = { state: createSwitchStepQueueState(), intent: null };
     logger.info("手动上一首取消旧解析");
   }
   const session = switchStepSession;
@@ -1323,6 +1352,7 @@ export async function playPrevious(): Promise<void> {
   session.state = step.nextState;
   if (!step.startNow) return;
   const intent = beginPlaybackRequest();
+  session.intent = intent;
   try {
   const { playbackContext, queue, currentIndex, position, playMode, shuffleHistory } = usePlayerStore.getState();
   const restartCurrent = () => interrupted
