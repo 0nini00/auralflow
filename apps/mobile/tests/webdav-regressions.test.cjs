@@ -71,6 +71,11 @@ async function fixture({ remote = remoteFile(), read } = {}) {
       getItem: async key => memory.get(key) ?? null,
       setItem: async (key, value) => { memory.set(key, value); },
       removeItem: async key => { memory.delete(key); },
+      // historyStore 用批量 API 落盘：少了它们，写入会在 catch 里静默失败，
+      // 用例就会把「历史一条都没变」误判成业务逻辑问题。
+      multiGet: async keys => keys.map(key => [key, memory.get(key) ?? null]),
+      multiSet: async pairs => { for (const [key, value] of pairs) memory.set(key, value); },
+      multiRemove: async keys => { for (const key of keys) memory.delete(key); },
     },
     // 只加载被测模块使用的 core 纯函数，不加载平台服务入口。
     "@lx/core": core,
@@ -251,3 +256,40 @@ for (const remote of [{ unexpected: "not-a-backup" }, { data: { userList: "inval
     assert.equal(f.uploads.length, 0);
   });
 }
+
+/** 桌面端 `buildPlayHistorySync` 写出的条目形状（`{ id, musicInfo, playedAt, ... }`）。 */
+function desktopHistoryItem(id, playedAt) {
+  return {
+    id: playedAt > 0 ? `wy_${id}_${playedAt}` : `wy_${id}`,
+    musicInfo: song(id, `桌面-${id}`),
+    playedAt,
+    playTime: 0,
+    maxTime: 200,
+    listId: null,
+    source: "List",
+  };
+}
+
+test("桌面端写入的 playHistory 会落到移动端历史里，并原样带时间回写云端", async () => {
+  const remote = remoteFile(300000);
+  remote.playHistory = [
+    desktopHistoryItem("desktop001", 1793775406370),
+    // 时间未知的老条目：不能因为缺时间就被丢掉
+    desktopHistoryItem("desktop002", 0),
+  ];
+  const f = await fixture({ remote });
+  await f.service.autoSyncPlaylistsOnce();
+
+  const entries = f.history.getState().entries;
+  const keys = entries.map((entry) => entry.key).sort();
+  assert.deepEqual(keys, ["wy:desktop001", "wy:desktop002"]);
+  const real = entries.find((entry) => entry.key === "wy:desktop001");
+  assert.equal(real.playedAt, 1793775406370);
+  assert.notEqual(real.playedAtSynthetic, true);
+
+  // 上传必须带上合并后的历史，且真实时间不被改写成占位值
+  const uploaded = f.uploads[0].playHistory;
+  assert.deepEqual(uploaded.map((item) => item.musicInfo.id).sort(), ["desktop001", "desktop002"]);
+  assert.equal(uploaded.find((item) => item.musicInfo.id === "desktop001").playedAt, 1793775406370);
+  assert.equal(uploaded.find((item) => item.musicInfo.id === "desktop002").playedAt, 0);
+});

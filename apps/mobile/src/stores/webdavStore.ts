@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { showToast } from "@/components/ui/Toast";
 import {
   loadWebdavConfig,
   saveWebdavConfig,
@@ -43,6 +44,11 @@ interface WebdavActions {
 type WebdavStore = WebdavState & WebdavActions;
 
 let autoSyncPromise: Promise<void> | null = null;
+/**
+ * 启动自动同步失败只提示一次：离线冷启动每次都弹会变成噪音，
+ * 但完全不提示等于「静默不同步」——之前正是这样，界面上没有任何反馈。
+ */
+let autoSyncFailureNotified = false;
 let loadConfigPromise: Promise<void> | null = null;
 
 export const useWebdavStore = create<WebdavStore>((set, get) => ({
@@ -137,6 +143,10 @@ export const useWebdavStore = create<WebdavStore>((set, get) => ({
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         message = `WebDAV 网络同步失败：${detail}`;
+        if (!autoSyncFailureNotified) {
+          autoSyncFailureNotified = true;
+          showToast(message, { kind: "error" });
+        }
       } finally {
         // 完成后重置单飞缓存：仅防并发重入；首次失败（如启动时离线）后允许下次重试
         autoSyncPromise = null;

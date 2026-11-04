@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { tryGetCurrentWindow } from "@/utils/appWindow";
+import { showToast } from "@/components/ui/Toast";
 import { listen } from "@tauri-apps/api/event";
 import { Layout } from "./components/Layout/Layout";
 import { HomeView } from "./views/HomeView";
@@ -23,6 +24,7 @@ import { LyricWindowView } from "./views/LyricWindowView";
 import { MiniPlayerView } from "./views/MiniPlayerView";
 import { LyricUnlockView } from "./views/LyricUnlockView";
 import { PactModal } from "./components/PactModal";
+import { ToastHost } from "./components/ui/Toast";
 import { LibraryDegradedNotice } from "./components/LibraryDegradedNotice";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { CursorEffect } from "./components/CursorEffect";
@@ -146,7 +148,11 @@ function MainApp() {
           void import("./services/webdavSyncService")
             .then(({ autoSyncPlaylistsOnce }) => autoSyncPlaylistsOnce())
             .catch((error) => {
+              // 启动同步失败过去只写日志：用户只会看到「等了几秒，云端没变化」，
+              // 无从判断是没配置、离线，还是合并被拒。这里补一条可见提示。
               logger.warn("[WebDAV 自动同步] 启动同步失败", error);
+              const detail = error instanceof Error ? error.message : String(error);
+              showToast(`WebDAV 自动同步失败：${detail}`, { kind: "error" });
             });
         }, 4000);
       })
@@ -213,6 +219,7 @@ function MainApp() {
           </Route>
         </Routes>
       </BrowserRouter>
+      <ToastHost />
       <PactModal />
       <LibraryDegradedNotice />
       <CursorEffect mode={cursorEffect} />

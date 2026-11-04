@@ -532,7 +532,7 @@ function toMusicList(value: unknown): MusicInfo[] {
 // ---------------------------------------------------------------------------
 
 function buildPlayHistorySync(entries: HistoryEntry[]): PlayHistorySyncItem[] {
-  // 使用分时间记录的条目：跨天多次播放会各保留一条，对齐 lx。
+  // 使用分时间记录的条目：跨天多次播放会各保留一条。
   // 只有**真实**播放时间才写出；合成占位时间写 0（未知哨兵，与桌面端同一口径），
   // 否则本地占位值会被当成真实播放时间回写云端，并在两端互相污染。
   return entries

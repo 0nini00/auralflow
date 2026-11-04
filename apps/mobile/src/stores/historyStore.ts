@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { isRemovedSource, type HistoryPlayEntry, type MusicInfo } from "@lx/core";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { logger } from "@/services/logger";
 import {
   hasRealPlayedAt,
   historySongKey,
@@ -11,7 +12,7 @@ import {
 const HISTORY_KEY = "auralflow.mobile.playHistory";
 const HISTORY_TIMESTAMPS_KEY = "auralflow.mobile.playHistoryTimestamps";
 
-// 对齐 lx：上限 5000 条 + 31 天滚动。移动端 AsyncStorage 有体积约束，取 2000 条平衡。
+// 上限与过期：移动端 AsyncStorage 有体积约束，取 2000 条平衡，超过 31 天的记录滚动清掉。
 const MAX_HISTORY_ITEMS = 2000;
 const MAX_HISTORY_AGE_MS = 31 * 24 * 60 * 60 * 1000;
 
@@ -233,7 +234,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
       const { entries } = get();
       const now = Date.now();
       const key = historySongKey(song);
-      // 对齐 lx：同一天同一首歌只保留一条（刷新播放时间）；跨天保留多次播放记录。
+      // 同一天同一首歌只保留一条（刷新播放时间）；跨天保留多次播放记录。
       const filtered = entries.filter(
         (entry) => !(entry.key === key && isSameDay(entry.playedAt, now)),
       );
@@ -247,7 +248,11 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
         [HISTORY_TIMESTAMPS_KEY, JSON.stringify(derived.historyTimestamps)],
       ]);
       set({ entries: normalized, ...derived });
-    } catch {}
+    } catch (error) {
+      // 写历史失败不能打断播放，但必须留痕：以前是空 catch，真机上写盘失败
+      // 只会表现为「历史不动」，日志和界面都无从判断。
+      logger.warn("[历史] 写入播放记录失败", error);
+    }
   },
 
   clearHistory: async () => {
@@ -276,7 +281,9 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
         [HISTORY_TIMESTAMPS_KEY, JSON.stringify(derived.historyTimestamps)],
       ]);
       set({ entries: normalized, ...derived });
-    } catch {}
+    } catch (error) {
+      logger.warn("[历史] 删除历史记录失败", error);
+    }
   },
 
   replaceAllHistory: async (history, timestamps) => {
@@ -301,7 +308,9 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
         [HISTORY_TIMESTAMPS_KEY, JSON.stringify(derived.historyTimestamps)],
       ]);
       set({ entries: normalized, ...derived });
-    } catch {}
+    } catch (error) {
+      logger.warn("[历史] 覆盖播放历史失败", error);
+    }
   },
 
   mergeHistory: async (history, timestamps) => {
@@ -343,6 +352,12 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
         [HISTORY_TIMESTAMPS_KEY, JSON.stringify(derived.historyTimestamps)],
       ]);
       set({ entries: normalized, ...derived });
-    } catch {}
+    } catch (error) {
+      // 合并失败必须抛给调用方（WebDAV 同步）：同步据此停在「上传」之前。
+      // 以前这里静默吞掉，同步会带着没合并成功的本地历史继续上传，
+      // 把云端来自其它设备的历史整份覆盖掉——双端历史于是永远各自为政。
+      logger.warn("[历史] 合并云端历史失败", error);
+      throw error;
+    }
   },
 }));
