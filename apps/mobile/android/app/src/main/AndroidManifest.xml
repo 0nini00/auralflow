@@ -46,6 +46,30 @@
             <category android:name="android.intent.category.BROWSABLE" />
             <data android:scheme="auralflow" />
         </intent-filter>
+        <!-- 外部音源脚本：从浏览器 / 文件管理器「用其他应用打开」刚下载的 .js 音源。
+             MIME 与扩展名拆成两条 filter：
+             - MIME 版命中下载器（DownloadsProvider 给的 content:// URI 通常不带扩展名）；
+             - 扩展名版兜住没有 MIME 类型的 file:// 场景。
+             刻意不声明 application/octet-stream 与 */*：那会让 APK / ZIP / PDF 的
+             「打开方式」里也出现本应用。JS 内容由 JS 侧确认后按音源脚本读入。 -->
+        <intent-filter android:label="@string/app_name">
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <data android:scheme="content" android:mimeType="application/javascript" />
+            <data android:scheme="content" android:mimeType="text/javascript" />
+            <data android:scheme="content" android:mimeType="application/x-javascript" />
+            <data android:scheme="content" android:mimeType="application/json" />
+            <data android:scheme="file" android:mimeType="application/javascript" />
+            <data android:scheme="file" android:mimeType="text/javascript" />
+            <data android:scheme="file" android:mimeType="application/x-javascript" />
+            <data android:scheme="file" android:mimeType="application/json" />
+        </intent-filter>
+        <intent-filter android:label="@string/app_name">
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <data android:scheme="file" android:host="*" android:pathPattern=".*\\.js" />
+            <data android:scheme="file" android:host="*" android:pathPattern=".*\\.json" />
+        </intent-filter>
       </activity>
 
       <!-- react-native-track-player v4 的播放服务。库自身 Manifest 在某些 pnpm/AGP 组合下不会被合并，

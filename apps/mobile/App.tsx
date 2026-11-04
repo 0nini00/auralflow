@@ -43,6 +43,30 @@ import { useWebdavStore } from "@/stores/webdavStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { typography } from "@/theme/tokens";
 
+/**
+ * 外部「用其他应用打开」进来的音源脚本：确认后落库，并让用户立刻看到结果。
+ *
+ * 走 importFromFile 而不是 importScript：Android 给的是 content:// URI，
+ * 读取由 RNFS（内部走 ContentResolver）负责，不需要先复制到应用目录。
+ */
+async function importSourceFromIntent(uri: string): Promise<void> {
+  try {
+    const item = await useCustomSourceStore.getState().importFromFile(uri);
+    if (!item) return;
+    if (navigationRef.isReady()) {
+      (navigationRef.navigate as (screen: string, params?: unknown) => void)("Settings", {
+        screen: "Sources",
+      });
+    }
+    Alert.alert("导入成功", `已导入音源「${item.name}」`);
+  } catch (error) {
+    Alert.alert("导入失败", error instanceof Error ? error.message : String(error));
+  }
+}
+
+/** 同一次会话里同一个 URI 只弹一次确认：JS 重挂载会再读一次 initialURL。 */
+const handledSourceImportUris = new Set<string>();
+
 export default function App() {
   const [booting, setBooting] = useState(true);
   const [pactAccepted, setPactAccepted] = useState<boolean | null>(null);
@@ -267,6 +291,21 @@ export default function App() {
             screen: "SearchTab",
             params: { initialDetailRoute: intent.route },
           });
+          break;
+        case "importSource":
+          // 外部文件一律先确认：误点一个下载残留文件不应该直接改音源列表。
+          if (handledSourceImportUris.has(intent.uri)) break;
+          handledSourceImportUris.add(intent.uri);
+          Alert.alert(
+            "导入自定义音源",
+            intent.fileName
+              ? `检测到音源脚本「${intent.fileName}」，导入后即可用于解析与兜底搜索。`
+              : "检测到外部文件，导入后作为自定义音源使用。",
+            [
+              { text: "取消", style: "cancel" },
+              { text: "导入", onPress: () => void importSourceFromIntent(intent.uri) },
+            ],
+          );
           break;
       }
     };
