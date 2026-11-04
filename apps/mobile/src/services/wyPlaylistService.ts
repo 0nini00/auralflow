@@ -110,6 +110,8 @@ async function parseWyJsonResponse<TResponse>(response: Response): Promise<TResp
  *
  * 必须走 weapi（对齐桌面端 weapiPost("/user/playlist")，desktop/src/services/wyAccountService.ts:381）：
  * 普通 GET /api/user/playlist 返回的 subscribed 字段恒为 null，收藏的歌单无法被识别。
+ * Cookie 用原始形态（pcCookie=false，与桌面端一致）：追加 os=pc 后服务端部分会话
+ * 不返回 subscribed 字段，导致收藏歌单被误判为自建歌单而混入添加入口。
  */
 export async function getUserPlaylists(userId: string): Promise<WyPlaylistInfo[]> {
   const cookie = await getWyCookie();
@@ -126,6 +128,7 @@ export async function getUserPlaylists(userId: string): Promise<WyPlaylistInfo[]
       includeVideo: true,
     },
     cookie,
+    { pcCookie: false },
   );
 
   if (data.code !== 200) {
