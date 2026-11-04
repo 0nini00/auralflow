@@ -51,7 +51,8 @@ button:focus-visible {
 .af-home-secondary-action,
 .af-search-submit,
 .af-create-playlist-btn,
-.af-library-button {
+.af-library-button,
+.af-ui-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -203,8 +204,9 @@ button:focus-visible {
 .af-home-secondary-action:active:not(:disabled),
 .af-search-submit:active:not(:disabled),
 .af-create-playlist-btn:active:not(:disabled),
-.af-library-button:active:not(:disabled) {
-  transform: translateY(0) scale(0.98);
+.af-library-button:active:not(:disabled),
+.af-ui-btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.97);
 }
 
 .af-btn-primary:disabled,
@@ -218,7 +220,8 @@ button:focus-visible {
 .af-home-secondary-action:disabled,
 .af-search-submit:disabled,
 .af-create-playlist-btn:disabled,
-.af-library-button:disabled {
+.af-library-button:disabled,
+.af-ui-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
   transform: none;
@@ -319,17 +322,55 @@ button:focus-visible {
   box-shadow: inset 0 -2px 0 var(--af-accent-primary);
 }
 
-.af-action-btn,
+/* 行内操作按钮（播放/下一首/加入/下载/更多）——全站唯一形态。
+   与 af-control-btn 同为 32px 的图标按钮档；28 留给卡片内的小号，
+   40 留给播放条主键。三档之外不要再新增尺寸。 */
+.af-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--af-button-radius);
+  background: var(--af-bg-surface);
+  color: var(--af-text-secondary);
+  cursor: pointer;
+  transition:
+    background var(--af-transition-fast),
+    border-color var(--af-transition-fast),
+    color var(--af-transition-fast),
+    transform var(--af-transition-fast);
+}
+
+.af-action-btn:hover:not(:disabled) {
+  border-color: var(--af-button-secondary-border);
+  background: var(--af-button-secondary-hover-bg);
+  color: var(--af-text-primary);
+}
+
+.af-action-btn.af-delete-btn:hover:not(:disabled) {
+  color: var(--af-error-ink);
+  background: var(--af-error-bg);
+}
+
+.af-action-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
 .af-like-button {
   width: 32px;
   height: 32px;
   background: transparent;
 }
 
+/* 图标按钮只有三档：28（卡片内）/ 32（行内与播放条）/ 40（主键） */
 .af-control-btn,
 .af-menu-trigger {
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
 }
 
 .af-action-btn:active:not(:disabled),
@@ -346,13 +387,13 @@ button:focus-visible {
 .af-settings-danger-button:hover:not(:disabled) {
   border-color: rgba(var(--af-error-rgb), 0.28);
   background: var(--af-error-bg);
-  color: var(--af-error);
+  color: var(--af-error-ink);
 }
 
 .af-library-button-danger:hover:not(:disabled) {
   border-color: rgba(var(--af-error-rgb), 0.28);
   background: var(--af-error-bg);
-  color: var(--af-error);
+  color: var(--af-error-ink);
 }
 
 .af-like-button.af-liked,
@@ -426,7 +467,7 @@ button:focus-visible {
 }
 
 .af-add-menu-error {
-  color: var(--af-error);
+  color: var(--af-error-ink);
 }
 
 /* 「其他版本」菜单：条目 = 来源徽标 + 歌名 + 歌手 + 时长，行尾星标 pin 本机首选 */
@@ -512,40 +553,11 @@ button:focus-visible {
 }
 
 /* ============================================================
-   UI 原语：Button（components/ui/Button.tsx）
-   与 af-btn-* 同一套尺寸与圆角，只补 ghost / danger / 三档尺寸
+   UI 原语的修饰符（Button.tsx）
+   ------------------------------------------------------------
+   基础尺寸/圆角/过渡已并入上面的统一按钮声明（与 af-btn-* 同一份），
+   这里只保留原语独有的三档尺寸与 ghost / danger 外观。
    ============================================================ */
-.af-ui-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 36px;
-  padding: 9px 16px;
-  border-radius: var(--af-radius-full);
-  font-size: var(--af-font-size-sm);
-  font-weight: var(--af-font-weight-semibold);
-  line-height: 1;
-  white-space: nowrap;
-  cursor: pointer;
-  transition:
-    background var(--af-transition-fast),
-    border-color var(--af-transition-fast),
-    color var(--af-transition-fast),
-    box-shadow var(--af-transition-fast),
-    transform var(--af-transition-fast),
-    opacity var(--af-transition-fast);
-}
-
-.af-ui-btn:active:not(:disabled) {
-  transform: scale(0.97);
-}
-
-.af-ui-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
 .af-ui-btn-sm {
   min-height: 30px;
   padding: 6px 12px;
@@ -577,7 +589,7 @@ button:focus-visible {
 .af-ui-btn-danger {
   border: 1px solid rgba(var(--af-error-rgb), 0.28);
   background: transparent;
-  color: var(--af-error);
+  color: var(--af-error-ink);
   box-shadow: none;
 }
 

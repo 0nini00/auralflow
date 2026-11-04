@@ -121,4 +121,19 @@ describe('沉浸页窗口拖拽', () => {
     expect(deps.startDragging).not.toHaveBeenCalled();
     expect(deps.toggleMaximize).not.toHaveBeenCalled();
   });
+
+  /**
+   * 「添加到」菜单是 portal 到 body 的全屏遮罩，DOM 上不在沉浸页里，按下它时事件仍会经
+   * React 树冒泡到这里。漏掉它会去调 startDragging：系统级拖动吃掉后续消息，click 永远
+   * 不来，表现就是「点空白关不掉收藏菜单」。
+   */
+  it('「添加到」菜单的遮罩与菜单本体不当作拖拽起点', () => {
+    for (const pattern of [/\.af-add-menu-backdrop/, /\.af-add-menu/]) {
+      act(() => root().props.onMouseDown({ button: 0, target: targetIn(pattern) }));
+      act(() => root().props.onDoubleClick({ target: targetIn(pattern) }));
+    }
+
+    expect(deps.startDragging).not.toHaveBeenCalled();
+    expect(deps.toggleMaximize).not.toHaveBeenCalled();
+  });
 });

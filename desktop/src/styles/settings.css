@@ -1,7 +1,7 @@
 /* Settings View */
 .af-settings-view {
-  max-width: 1120px;
-  margin: 0 auto;
+  max-width: var(--af-content-max);
+  margin: 0;
 }
 
 .af-settings-page-head {
@@ -147,63 +147,68 @@
   margin-top: 6px;
 }
 
-.af-data-cache-size {
-  width: min(100%, 640px);
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-  margin-top: 12px;
-  padding: 6px;
-  border: 1px solid var(--af-border-secondary);
-  border-radius: var(--af-radius-md);
-  background: var(--af-bg-surface);
-  color: var(--af-text-secondary);
-  font-size: var(--af-font-size-xs);
-}
-
-/* 资源缓存只有「已使用大小」一项；元信息缓存是「URL 数量 + 歌词数量」两项 */
-.af-data-cache-size.af-cache-size-single {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.af-data-cache-size.af-cache-size-pair {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-@media (max-width: 720px) {
-  .af-data-cache-size,
-  .af-data-cache-size.af-cache-size-pair {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .af-data-cache-size.af-cache-size-single {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.af-data-cache-size-item {
+/* ── 数据管理：与上面的设置行共用同一套节奏 ──
+ * 每张卡 = 一行 SettingRow（标题 / 说明 + 右侧操作）+ 一行数据，
+ * 行距、内边距、分隔线全部沿用 .af-setting-row / .af-setting-row-control，
+ * 不再是「一张设置卡 + 两张自造的表格卡」，三张卡读起来是一组。
+ *
+ * 说明文字也不再限宽：ch 是「0」的字宽，中文字宽约两倍于此，
+ * 62ch 的封顶会把整段说明压成左上一小块，卡片右侧空出半张卡。
+ */
+.af-data-stack {
   display: flex;
-  min-width: 0;
   flex-direction: column;
-  gap: 3px;
-  padding: 7px 8px;
-  border-radius: var(--af-radius-sm);
-  background: var(--af-bg-elevated);
+  gap: 16px;
 }
 
-.af-data-cache-size-item.af-total {
-  background: rgba(var(--af-accent-primary-rgb), 0.08);
+/* 数据行：卡片里的第二行，与 .af-setting-row 同宽同内边距，靠发丝线分上下。 */
+.af-data-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  row-gap: 6px;
+  padding: 12px 16px 13px;
+  border-top: 1px solid var(--af-border-secondary);
 }
 
-.af-data-cache-size-item span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* 数据条：一组「标签 数值」的横排项，用 1px 竖线分组。
+   数值用 tabular-nums，2.1 GB 与 4 不会左右跳。 */
+.af-data-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  row-gap: 2px;
+  margin: 0;
 }
 
-.af-data-cache-size-item strong {
+.af-data-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding-right: 18px;
+  margin-right: 18px;
+  border-right: 1px solid var(--af-border-secondary);
+}
+
+.af-data-stat:last-child {
+  border-right: 0;
+  padding-right: 0;
+  margin-right: 0;
+}
+
+.af-data-stat dt {
+  font-size: var(--af-font-size-xs);
+  line-height: 1.4;
+  color: var(--af-text-tertiary);
+}
+
+.af-data-stat dd {
+  margin: 0;
+  font-size: var(--af-font-size-base);
+  font-weight: var(--af-font-weight-semibold);
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
   color: var(--af-text-primary);
-  font-size: var(--af-font-size-sm);
 }
 
 /* 背景图片的小预览：显示在设置行右侧控件位 */
@@ -231,7 +236,7 @@
 
 .af-settings-error {
   font-size: var(--af-font-size-xs);
-  color: var(--af-error);
+  color: var(--af-error-ink);
   margin-top: 6px;
 }
 
@@ -571,7 +576,7 @@
 }
 
 .af-settings-danger-button {
-  color: var(--af-error);
+  color: var(--af-error-ink);
 }
 
 .af-custom-source-list {
@@ -786,19 +791,19 @@
 }
 
 .af-custom-source-status-ok {
-  color: var(--af-success);
+  color: var(--af-success-ink);
 }
 
 .af-custom-source-status-failed {
-  color: var(--af-error);
+  color: var(--af-error-ink);
 }
 
 .af-custom-source-status-available {
-  color: var(--af-warning);
+  color: var(--af-warning-ink);
 }
 
 .af-custom-source-status-latest {
-  color: var(--af-success);
+  color: var(--af-success-ink);
 }
 
 .af-custom-source-status-testing,
@@ -853,7 +858,7 @@
 .af-custom-source-icon-button.af-settings-danger-button:hover:not(:disabled) {
   border-color: rgba(var(--af-error-rgb), 0.28);
   background: var(--af-error-bg);
-  color: var(--af-error);
+  color: var(--af-error-ink);
 }
 
 @media (max-width: 920px) {
@@ -1517,11 +1522,6 @@
 
 .af-settings-action-group .af-settings-input-group {
   margin-top: 8px;
-}
-
-.af-data-cache-block {
-  flex: 1 1 0;
-  min-width: 0;
 }
 
 /* 卡片不再画整圈描边，靠表面色/行分隔与背景分层 */

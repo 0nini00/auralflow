@@ -8,7 +8,8 @@
 }
 
 .af-section-title {
-  font-size: 19px;
+  /* 19px 是阶梯外的孤立值；18px 落在 --af-font-size-xl 上，与详情页标题同档 */
+  font-size: var(--af-font-size-xl);
   font-weight: 700;
   color: var(--af-text-primary);
   letter-spacing: -0.015em;
@@ -121,8 +122,10 @@
 }
 
 .af-music-card-title-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 28px;
+  /* 用 flex 而不是「1fr + 固定 28px」的 grid：
+     没有 actions 的卡片（歌单卡常见）不该白留 28px 操作位，
+     否则标题会提前 36px 被截断，而那里什么都没有。 */
+  display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -133,6 +136,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.af-music-card-title {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .af-music-card-title {
@@ -151,6 +159,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex: 0 0 auto;
   opacity: 0;
   transition: opacity var(--af-transition-fast);
   /* 浮在 stretched 点击层之上，否则会被 .af-music-card-hit::after 挡住 */
@@ -188,6 +197,9 @@
   display: flex;
   flex-direction: column;
   gap: 32px;
+  /* 与其它页面共用同一条主干线（见 theme.css 的 --af-content-max） */
+  max-width: var(--af-content-max);
+  margin: 0;
 }
 
 /* 没有推荐数据时的兜底 hero：一张干净的表面，不抢主推的位置 */

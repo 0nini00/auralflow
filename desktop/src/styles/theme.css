@@ -12,12 +12,27 @@
   --af-bg-hover: var(--af-bg-surface-hover);
   --af-bg-secondary: var(--af-bg-surface);
 
-  /* Text System - 正文与辅助文字按 WCAG AA 定值 */
+  /* Text System - 三档文字全部按 WCAG AA（4.5:1）定值。
+   *
+   * tertiary 曾取 #8a9088（3.15:1），当时的约定是「只服务元信息」，但实际有 81 处
+   * 用它承载正文级内容（歌手的名字、播放时间、区块说明）——那是可读性而不是装饰。
+   * 现在压到 #6a6f67：在 page / surface / elevated 三种底上分别是
+   * 4.96 / 4.50 / 5.14，仍明显浅于 secondary（6.56），层级没有塌。
+   * quaternary 保留为装饰色（2.01:1），只允许用于分隔线、图标底衬与禁用态，
+   * 不得承载文字。 */
   --af-text-primary: #15180f;
   --af-text-secondary: #565d54;
-  /* tertiary 在白底约 3.1:1，只服务元信息；quaternary 只服务分隔与禁用态 */
-  --af-text-tertiary: #8a9088;
+  --af-text-tertiary: #6a6f67;
   --af-text-quaternary: #b0b5ae;
+  /*
+   * 浮层文字色的「主题快照」。
+   *
+   * 沉浸页会把 --af-text-* 改写成浅色（整页是暗场），在那儿弹出的浮层如果直接用
+   * --af-text-primary 就会变成「浅底浅字」。这两个别名在 :root / [data-theme] 上
+   * 就取值固定下来，后代继承的是字面值，不再被沉浸作用域改写。
+   */
+  --af-popover-ink: var(--af-text-primary);
+  --af-popover-ink-muted: var(--af-text-secondary);
   /*
     强调色系变量（--af-accent-*、--af-border-focus、--af-text-on-accent）全部由
     themeStore.applyAppearance 在启动时写入，默认值只在那一边维护一份；
@@ -51,20 +66,30 @@
   --af-glass-border: color-mix(in srgb, var(--af-border-primary) 70%, transparent);
   --af-glass-blur: blur(22px) saturate(160%);
 
-  /* Feedback Colors - Light Mode */
+  /* Feedback Colors - Light Mode
+   *
+   * 每种语义色分两档，用途不能混：
+   *   · --af-{semantic}      ：填充 / 描边 / 图标底衬（大面积用亮色）
+   *   · --af-{semantic}-ink  ：该颜色出现在「文字」上时唯一可用的值
+   * 亮色当文字用在浅底上普遍不达标（success 2.45:1、warning 2.07:1、
+   * error 3.63:1），所以文字一律走 -ink；深色主题两者同值。 */
   --af-success: #10b981;
   --af-success-bg: rgba(16, 185, 129, 0.1);
+  --af-success-ink: #0b7a55; /* 5.16:1 on page */
   --af-error: #ef4444;
   --af-error-rgb: 239, 68, 68;
   --af-error-hover: #dc2626;
   --af-error-bg: rgba(239, 68, 68, 0.1);
+  --af-error-ink: #ba3535; /* 5.04:1 on error-bg over white */
   --af-warning: #f59e0b;
   --af-warning-bg: rgba(245, 158, 11, 0.1);
+  --af-warning-ink: #956007; /* 5.12:1 on page */
   /* Tooltip 用反色，保证浮在任何面板上都有足够对比度 */
   --af-tooltip-bg: #1b2018;
   --af-tooltip-text: #f4f7f3;
   --af-info: #3b82f6;
   --af-info-bg: rgba(59, 130, 246, 0.1);
+  --af-info-ink: #2e65c0; /* 5.42:1 on page */
 }
 
 [data-theme="dark"] {
@@ -84,8 +109,12 @@
   /* Text System - Dark Mode high contrast */
   --af-text-primary: #eef2ee;
   --af-text-secondary: #a3aea6;
-  /* tertiary 在 #0d100e 上约 5.4:1；quaternary 约 2.9:1，仅用于分隔与装饰 */
-  --af-text-tertiary: #6d786f;
+  /* 深色主题下这两份「浮层主题快照」跟着换成暗场配色（见 :root 处的说明） */
+  --af-popover-ink: var(--af-text-primary);
+  --af-popover-ink-muted: var(--af-text-secondary);
+  /* tertiary 在 #0d100e 上 4.87:1、在 elevated #141816 上 4.56:1（原值 4.16 不达标）；
+     quaternary 约 2.5:1，仅用于分隔与装饰，不承载文字。 */
+  --af-text-tertiary: #79837b;
   --af-text-quaternary: #4d564f;
 
   /* Border System - 深色下用带绿调的细描边 */
@@ -113,19 +142,25 @@
   --af-glass-border: color-mix(in srgb, var(--af-border-primary) 72%, transparent);
   --af-glass-blur: blur(22px) saturate(160%);
 
-  /* Feedback Colors - Dark Mode adjusted */
+  /* Feedback Colors - Dark Mode adjusted
+   * 深色下亮色本身已达 AA（9.95 / 11.46 / 6.92），-ink 与基色同值；
+   * 保留这一层是为了让「文字用 -ink」成为两端一致的硬约定。 */
   --af-success: #34d399;
   --af-success-bg: rgba(52, 211, 153, 0.15);
+  --af-success-ink: #34d399;
   --af-error: #f87171;
   --af-error-rgb: 248, 113, 113;
   --af-error-hover: #fca5a5;
   --af-error-bg: rgba(248, 113, 113, 0.15);
+  --af-error-ink: #f87171;
   --af-warning: #fbbf24;
   --af-warning-bg: rgba(251, 191, 36, 0.15);
+  --af-warning-ink: #fbbf24;
   --af-tooltip-bg: #e8eee8;
   --af-tooltip-text: #111a15;
   --af-info: #60a5fa;
   --af-info-bg: rgba(96, 165, 250, 0.15);
+  --af-info-ink: #60a5fa;
 }
 
 /* 间距：不设令牌，按 2px 网格直接内联写
@@ -225,6 +260,15 @@
   --af-topbar-height: 56px;
   --af-player-height: 88px;
   --af-now-playing-width: 320px;
+  /*
+   * 内容主干线：所有页面共用同一条左边界与同一个最大宽度。
+   *
+   * 此前 5 个页面各写一套居中宽度（settings 1120 / search·local 1200 /
+   * playlist-detail 1400 / playlists 1480 / home·stats 无上限），1600 窗口下
+   * 标题左边界相差最多 90px，切页时整块内容横向跳动。
+   * 现在统一为「左对齐 + max-width」：左边界恒定，右侧留白随窗口伸缩。
+   */
+  --af-content-max: 1400px;
 }
 
 /* 断点契约
@@ -240,3 +284,16 @@
  *
  * 新增断点时优先复用上面已有档位；确需新档请同时更新这里。
  */
+
+/* 菜单 / 气泡浮层的唯一形态
+ *
+ * 改动前这类浮层有三种写法：对话框用 elevated 不透明、睡眠菜单用玻璃、
+ * 沉浸浮层用硬编码 rgba(21,42,41,.97)，三者圆角还分别是 20 / 14 / 12。
+ * 现在统一由这四个变量描述；场景只允许改值（例如沉浸暗场），不允许改结构。
+ */
+:root {
+  --af-menu-surface: var(--af-glass-bg);
+  --af-menu-border: var(--af-glass-border);
+  --af-menu-radius: var(--af-radius-lg);
+  --af-menu-blur: var(--af-glass-blur);
+}

@@ -9,8 +9,8 @@
  */
 .af-playlists-view {
   padding: 28px 0 48px;
-  max-width: 1480px;
-  margin: 0 auto;
+  max-width: var(--af-content-max);
+  margin: 0;
 }
 
 .af-playlists-header {
@@ -451,7 +451,7 @@ button.af-playlist-card {
 
 .af-inline-error {
   border-color: rgba(var(--af-error-rgb), 0.35);
-  color: var(--af-error);
+  color: var(--af-error-ink);
 }
 
 .af-local-empty {
@@ -541,7 +541,7 @@ button.af-playlist-card {
 }
 
 .af-menu-danger {
-  color: var(--af-error) !important;
+  color: var(--af-error-ink) !important;
 }
 
 @media (max-width: 980px) {
@@ -673,8 +673,8 @@ button.af-playlist-card {
 /* 歌单 / 专辑 / 歌手 / 历史 详情页共用的根容器 */
 .af-playlist-detail-view {
   padding: 32px 0;
-  max-width: 1400px;
-  margin: 0 auto;
+  max-width: var(--af-content-max);
+  margin: 0;
   /*
    * 让头部按「自身可用宽度」响应，而不是按窗口宽度。
    *
@@ -1021,6 +1021,16 @@ button.af-playlist-card {
 /* 歌曲列表 */
 .af-playlist-songs {
   margin-top: 32px;
+  /*
+   * 按「列表自身宽度」响应，而不是窗口宽度。
+   *
+   * 这六列里有 228px 是固定宽度（序号 34 + 时长 62 + 操作 132），窗口 900
+   * （tauri 的 minWidth）且打开右侧「正在播放」栏时，列表宽度只剩约 280px，
+   * 留给标题的只有 25px —— 一个汉字。窗口宽度在这条路径上不会变化
+   * （@media 不触发），所以只能用容器查询，和详情页头部的处理同一套思路。
+   */
+  container-type: inline-size;
+  container-name: songlist;
 }
 
 .af-song-list-header {
@@ -1039,6 +1049,54 @@ button.af-playlist-card {
 
 .af-song-list-body {
   margin-top: 8px;
+}
+
+/* ── 列可见性阶梯（容器宽度，不是窗口宽度）──
+ * 860：先去掉「专辑」——它是六列里信息密度最低的一列
+ * 680：再去掉「艺术家」——标题本身通常已含歌手信息线索
+ * 520：连序号一起去掉，把固定列压到 56 + 104，标题至少还剩 100px
+ */
+@container songlist (max-width: 860px) {
+  .af-song-list-header,
+  .af-song-list-row {
+    grid-template-columns: 34px minmax(0, 2.4fr) minmax(0, 1.3fr) 62px 132px;
+  }
+
+  .af-song-list-header .af-col-album,
+  .af-song-list-row .af-col-album {
+    display: none;
+  }
+}
+
+@container songlist (max-width: 680px) {
+  .af-song-list-header,
+  .af-song-list-row {
+    grid-template-columns: 34px minmax(0, 1fr) 56px 120px;
+    gap: 8px;
+  }
+
+  .af-song-list-header .af-col-artist,
+  .af-song-list-row .af-col-artist {
+    display: none;
+  }
+}
+
+@container songlist (max-width: 520px) {
+  .af-song-list-header,
+  .af-song-list-row {
+    grid-template-columns: minmax(0, 1fr) 52px 104px;
+    padding: 0 8px;
+  }
+
+  .af-song-list-header .af-col-index,
+  .af-song-list-row .af-col-index {
+    display: none;
+  }
+
+  /* 窄到下界时操作列只留「更多」，其余收进菜单，避免把标题挤没 */
+  .af-song-list-row .af-col-actions .af-action-btn:not(:last-child) {
+    display: none;
+  }
 }
 
 .af-song-list-row {

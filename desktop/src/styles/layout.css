@@ -233,14 +233,14 @@
 }
 
 .af-icon-btn-sm {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
 }
 
 .af-icon-btn-md,
 .af-menu-trigger {
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
 }
 
 .af-icon-btn-lg {
@@ -453,7 +453,7 @@
   padding: 10px 12px;
   border-radius: var(--af-radius-md);
   background: var(--af-error-bg);
-  color: var(--af-error);
+  color: var(--af-error-ink);
   font-size: var(--af-font-size-sm);
   line-height: 1.55;
 }
@@ -539,44 +539,7 @@
   padding: 0 14px 14px;
 }
 
-/* ── 通用行内操作按钮（播放/加入队列/添加到歌单/下载等）── */
-.af-action-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 1px solid transparent;
-  background: var(--af-bg-surface);
-  color: var(--af-text-secondary);
-  border-radius: var(--af-button-radius);
-  cursor: pointer;
-  transition:
-    background 0.18s ease,
-    border-color 0.18s ease,
-    color 0.18s ease,
-    transform 0.12s ease;
-}
-.af-action-btn:hover {
-  border-color: var(--af-button-secondary-border);
-  background: var(--af-button-secondary-hover-bg);
-  color: var(--af-text-primary);
-}
-.af-action-btn:active {
-  transform: scale(0.92);
-}
-.af-action-btn.af-liked {
-  color: var(--af-accent-strong);
-}
-.af-action-btn.af-delete-btn:hover {
-  color: var(--af-error);
-  background: var(--af-error-bg);
-}
-.af-action-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
+/* 行内操作按钮的完整定义在 buttons.css（按钮层唯一归属），此处不再重复。 */
 
 /* 有可用内容时的非阻塞反馈：不使用空页面的大段留白。 */
 .af-page-feedback {

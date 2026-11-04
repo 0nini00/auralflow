@@ -236,7 +236,7 @@ export const PlayerBar: React.FC = () => {
               )}
             </button>
 
-            <button onClick={previous} className="af-control-btn" aria-label="上一首">
+            <button onClick={previous} className="af-control-btn" aria-label="上一首" data-tooltip="上一首">
               <SkipBack size={18} fill="currentColor" />
             </button>
 
@@ -244,6 +244,7 @@ export const PlayerBar: React.FC = () => {
               onClick={handleTrackPlay}
               className="af-play-button"
               aria-label={isPlaying ? '暂停' : '播放'}
+              data-tooltip={isPlaying ? '暂停' : '播放'}
             >
               {status === "loading" ? (
                 <Loader2 size={19} className="af-spin" />
@@ -254,7 +255,7 @@ export const PlayerBar: React.FC = () => {
               )}
             </button>
 
-            <button onClick={next} className="af-control-btn" aria-label="下一首">
+            <button onClick={next} className="af-control-btn" aria-label="下一首" data-tooltip="下一首">
               <SkipForward size={18} fill="currentColor" />
             </button>
 

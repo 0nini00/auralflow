@@ -1,7 +1,7 @@
 /* Search View */
 .af-search-view {
-  max-width: 1200px;
-  margin: 0 auto;
+  max-width: var(--af-content-max);
+  margin: 0;
 }
 
 .af-search-hero {
@@ -401,39 +401,7 @@
   font-size: var(--af-font-size-sm);
 }
 
-/* 空态统一形态：图标 + 一句话 + 说明 + 可选主行动。10+ 个页面共用这一套。 */
-.af-empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 72px 24px;
-  text-align: center;
-}
-
-.af-empty-state > svg {
-  color: var(--af-text-quaternary);
-  margin-bottom: 14px;
-}
-
-.af-empty-state p {
-  font-size: 17px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  color: var(--af-text-primary);
-  margin-bottom: 6px;
-}
-
-.af-empty-state span {
-  max-width: 380px;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--af-text-tertiary);
-}
-
-.af-empty-state button {
-  margin-top: 16px;
-}
+/* 空态样式已迁到 styles/empty-state.css（全局组件，不属于搜索页）。 */
 
 .af-skeleton-list {
   display: flex;
@@ -708,7 +676,7 @@
 }
 
 .af-empty-state-error > svg {
-  color: var(--af-warning);
+  color: var(--af-warning-ink);
 }
 
 .af-empty-state span {

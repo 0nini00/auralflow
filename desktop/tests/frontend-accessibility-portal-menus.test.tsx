@@ -95,3 +95,26 @@ it('多个菜单实例的 id 唯一，不能误把另一个 portal 当作自己�
   const second = ids.map((id) => document.getElementById(id)).find((node) => node?.getAttribute('role') === 'menu');
   expect(second).toBeDefined(); expect(second).not.toBe(first.menu); expect(second?.id).not.toBe(first.menu.id);
 });
+/**
+ * 沉浸页的「更多」面板里挂着「收藏 / 加入歌单」按钮：一次点空白要把菜单连同面板一起收起。
+ * 这里只验宿主回调的契约（菜单关闭 + onDismiss 恰好一次），面板本身由 ImmersivePlayerControls 负责。
+ */
+it('点空白收起「添加到」菜单，并把同一次收起交给宿主处理', () => {
+  const dismissed = vi.fn();
+  act(() => root.render(<SongAddMenuButton song={song} onDismiss={dismissed} />));
+  open('添加到');
+  const backdrop = document.querySelector<HTMLElement>('.af-add-menu-backdrop');
+  expect(backdrop).not.toBeNull();
+  act(() => backdrop!.click());
+  expect(document.querySelector('[role="menu"]')).toBeNull();
+  expect(dismissed).toHaveBeenCalledTimes(1);
+});
+it('成功加入歌单只关菜单，不触发 onDismiss，宿主面板保持打开可继续添加', () => {
+  const dismissed = vi.fn();
+  act(() => root.render(<SongAddMenuButton song={song} onDismiss={dismissed} />));
+  const { items } = open('添加到');
+  act(() => items[1].click());
+  expect(actions.addSong).toHaveBeenCalledWith('one', song);
+  expect(document.querySelector('[role="menu"]')).toBeNull();
+  expect(dismissed).not.toHaveBeenCalled();
+});

@@ -7,8 +7,9 @@
   display: flex;
   flex-direction: column;
   gap: 24px;
-  /* 原先固定 max-width: 900px,全屏时统计页只占页面一半宽(右侧大片空白),
-     且和「最近播放」网格口径不一致。改为跟随内容区宽度铺满。 */
+  /* 跟随全局主干线：既不独占半屏，也不在超宽窗口下拉成一条 */
+  max-width: var(--af-content-max);
+  margin: 0;
   width: 100%;
 }
 
@@ -69,7 +70,7 @@
 
 .af-stats-card-warn .af-stats-card-label,
 .af-stats-card-warn .af-stats-card-value {
-  color: var(--af-warning);
+  color: var(--af-warning-ink);
 }
 
 /* ---------- 诚实提示：历史缺少播放时间 ---------- */
@@ -91,7 +92,7 @@
 .af-stats-notice svg {
   flex: 0 0 auto;
   margin-top: 2px;
-  color: var(--af-warning);
+  color: var(--af-warning-ink);
 }
 
 /* ---------- 榜单 / 趋势面板 ---------- */

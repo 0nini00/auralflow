@@ -274,9 +274,14 @@ export function ImmersiveLyricsOverlay({
    * 于是打开它之后窗口就拖不动了，只能先退出。这里把拖拽接回页面：
    * 空白处（封面、留白）按下即拖窗口、双击最大化；
    * 歌词区（自身支持拖拽滚动）、底部控件条、浮层面板里不接管，避免抢事件。
+   * 「添加到」菜单是 portal 到 body 的固定遮罩，DOM 上不在上面任何一个容器里，
+   * 但按下它时事件会经 React 树冒泡到这里 —— 不排除就会去调 startDragging，
+   * 系统级拖动捕获了鼠标，随后的 click 永远不来，点空白关不掉菜单。
    */
   const isWindowDragExcluded = (target: EventTarget | null) =>
-    Boolean((target as HTMLElement | null)?.closest?.('.af-immersive-lyric-section, .af-immersive-controls, .af-immersive-popover'));
+    Boolean((target as HTMLElement | null)?.closest?.(
+      '.af-immersive-lyric-section, .af-immersive-controls, .af-immersive-popover, .af-add-menu-backdrop, .af-add-menu',
+    ));
 
   const handleWindowDragStart = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (isWindowDragExcluded(event.target)) return;
@@ -402,7 +407,18 @@ export function ImmersiveLyricsOverlay({
         error={lyricError}
         shareStatus={shareStatus}
       >
-        {currentTrack && <SongAddMenuButton song={currentTrack} className="af-immersive-more-action" iconSize={18} title="添加到我的喜欢或歌单" label="收藏 / 加入歌单" />}
+        {currentTrack && (
+          <SongAddMenuButton
+            song={currentTrack}
+            className="af-immersive-more-action"
+            iconSize={18}
+            title="添加到我的喜欢或歌单"
+            label="收藏 / 加入歌单"
+            // 一次点空白把「添加到」菜单连同「更多」面板一起收起；只关菜单会留下
+            // 一个只剩浮层的中间态，看起来就像点空白没反应。
+            onDismiss={() => { controlsRef.current?.dismissPanel(); }}
+          />
+        )}
       </ImmersivePlayerControls>
       {/* 面板挂在沉浸页内部：它自带 dialog 语义与焦点陷阱，会被 useDialogFocus 压在这一层之上。 */}
     </div>

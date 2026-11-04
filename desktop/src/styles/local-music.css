@@ -1,7 +1,7 @@
 /* Local Music Library */
 .af-library-view {
-  max-width: 1200px;
-  margin: 0 auto;
+  max-width: var(--af-content-max);
+  margin: 0;
 }
 
 .af-library-header {
@@ -77,7 +77,7 @@
 
 .af-library-button-danger:hover {
   background: var(--af-error-bg);
-  color: var(--af-error);
+  color: var(--af-error-ink);
   border-color: var(--af-error);
 }
 
@@ -109,7 +109,7 @@
   background: var(--af-error-bg);
   border: 1px solid var(--af-error);
   border-radius: var(--af-radius-md);
-  color: var(--af-error);
+  color: var(--af-error-ink);
   margin-bottom: 24px;
 }
 

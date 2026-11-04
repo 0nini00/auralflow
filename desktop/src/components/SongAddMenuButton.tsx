@@ -5,6 +5,7 @@ import { Check, ChevronRight, Cloud, Heart, ListMusic, ListPlus } from "lucide-r
 import type { MusicInfo } from "@lx/core";
 import { useFavoritesStore } from "@/stores/favoritesStore";
 import { usePlaylistStore } from "@/stores/playlistStore";
+import { showToast } from "@/components/ui/Toast";
 import { useWyAccountStore } from "@/stores/wyAccountStore";
 
 interface SongAddMenuButtonProps {
@@ -14,6 +15,12 @@ interface SongAddMenuButtonProps {
   title?: string;
   /** 可选菜单行文字；不传时保留列表中的图标按钮。 */
   label?: string;
+  /**
+   * 菜单被「点空白 / Esc」收起时回调。
+   * 沉浸页的「更多」面板里挂着这个按钮：一次点空白要连同面板一起收起，
+   * 只关掉菜单会留下一个只剩半屏浮层的中间状态。
+   */
+  onDismiss?: () => void;
 }
 
 export interface SongAddMenuProps {
@@ -21,6 +28,8 @@ export interface SongAddMenuProps {
   /** 触发按钮：菜单按它的位置定位，Esc 关闭后焦点交还给它 */
   anchor: HTMLElement;
   onClose: () => void;
+  /** 同 SongAddMenuButtonProps.onDismiss：只有「点空白 / Esc」这条路径会触发。 */
+  onDismiss?: () => void;
 }
 
 const MENU_WIDTH = 240;
@@ -41,18 +50,20 @@ function getMenuPosition(target: HTMLElement) {
  * 受控的「添加到」菜单（portal + 按触发按钮定位 + Esc 关闭）。
  * 长列表整表共用一个实例即可，不必每行各建一份状态与 store 订阅。
  */
-export function SongAddMenu({ song, anchor, onClose }: SongAddMenuProps) {
+export function SongAddMenu({ song, anchor, onClose, onDismiss }: SongAddMenuProps) {
   const menuId = useId();
   const [position] = useState(() => getMenuPosition(anchor));
   const [pendingWyPlaylistId, setPendingWyPlaylistId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const menuRef = useRef<HTMLDivElement | null>(null);
   const onCloseRef = useRef(onClose);
+  const onDismissRef = useRef(onDismiss);
   const songKey = `${song.source}:${song.id}`;
 
   useEffect(() => {
     onCloseRef.current = onClose;
-  }, [onClose]);
+    onDismissRef.current = onDismiss;
+  }, [onClose, onDismiss]);
 
   useEffect(() => {
     setPendingWyPlaylistId(null);
@@ -95,16 +106,26 @@ export function SongAddMenu({ song, anchor, onClose }: SongAddMenuProps) {
     onClose();
   };
 
+  /** 点空白：先收起菜单，再让宿主决定要不要连带收起自己的面板。 */
+  const dismiss = () => {
+    close();
+    onDismissRef.current?.();
+  };
+
   const handleAddFavorite = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     addFavorite(song);
     close();
+    showToast("已加入我的喜欢");
   };
 
   const handleAddLocalPlaylist = (event: MouseEvent<HTMLButtonElement>, playlistId: string) => {
     event.stopPropagation();
     addSongToPlaylist(playlistId, song);
     close();
+    // 成功后必须给一声回声：此前面板直接关掉，用户无法确认到底加没加进去
+    const target = playlists.find((item) => item.id === playlistId);
+    showToast(target ? `已加入「${target.name}」` : "已加入歌单");
   };
 
   const handleAddWyPlaylist = async (event: MouseEvent<HTMLButtonElement>, playlistId: string) => {
@@ -114,6 +135,7 @@ export function SongAddMenu({ song, anchor, onClose }: SongAddMenuProps) {
     try {
       await wyAddTracks(playlistId, [song]);
       close();
+      showToast("已加入网易云歌单");
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -123,7 +145,7 @@ export function SongAddMenu({ song, anchor, onClose }: SongAddMenuProps) {
 
   return createPortal(
     <>
-      <div className="af-add-menu-backdrop" onClick={close} aria-hidden="true" />
+      <div className="af-add-menu-backdrop" onClick={dismiss} aria-hidden="true" />
       <div
         ref={menuRef}
         id={menuId}
@@ -188,6 +210,7 @@ export function SongAddMenuButton({
   iconSize = 16,
   title = "添加到",
   label,
+  onDismiss,
 }: SongAddMenuButtonProps) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
 
@@ -218,6 +241,7 @@ export function SongAddMenuButton({
           song={song}
           anchor={anchor}
           onClose={() => setAnchor(null)}
+          onDismiss={onDismiss}
         />
       )}
     </>
