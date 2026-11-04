@@ -165,7 +165,10 @@ function scheduleVolumePersist(volume: number) {
   if (volumePersistTimer) clearTimeout(volumePersistTimer);
   volumePersistTimer = setTimeout(() => {
     volumePersistTimer = null;
-    patchSettings({ volume: Math.round(volume * 100) }).catch(() => undefined);
+    // 桥接层正常总是返回 Promise，但测试桩（以及任何返回 undefined 的实现）
+    // 直接 .catch 会在定时器里抛 uncaught TypeError，把整个测试进程判成失败——
+    // 发布门禁偶发变红就是这一条。用 Promise.resolve 归一化，行为不变。
+    void Promise.resolve(patchSettings({ volume: Math.round(volume * 100) })).catch(() => undefined);
   }, 400);
 }
 
