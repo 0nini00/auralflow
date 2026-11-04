@@ -9,6 +9,7 @@ import { installGlobalErrorHandlers } from "./services/logger";
 import { detectWindowRoleFromParts } from "./utils/windowRole";
 import "./index.css";
 import "./styles/theme.css";
+import "./styles/empty-state.css";
 import "./styles/layout.css";
 import "./styles/player.css";
 import "./styles/home.css";
@@ -20,6 +21,7 @@ import "./styles/playlists.css";
 import "./styles/stats.css";
 import "./styles/buttons.css";
 import "./styles/tooltip.css";
+import "./styles/toast.css";
 
 // Initialize theme
 import { applyInitialAppearance } from "./stores/themeStore";

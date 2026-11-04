@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import type { MusicInfo } from '@lx/core';
 
 const native = vi.hoisted(() => ({
@@ -42,7 +43,7 @@ async function start() {
 }
 async function mount() {
   const { DownloadsView } = await import('../src/views/DownloadsView');
-  await act(async () => { renderer = create(<DownloadsView />); });
+  await act(async () => { renderer = create(<MemoryRouter><DownloadsView /></MemoryRouter>); });
 }
 
 beforeEach(async () => {

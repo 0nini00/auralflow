@@ -1,0 +1,115 @@
+/* ============================================================
+   轻提示（toast）—— components/ui/Toast.tsx 的样式
+   ============================================================
+   层级：压过播放条（1000），但低于对话框遮罩（1300）。
+   位置：贴在播放条上方居中，不遮挡内容区主操作。
+   ============================================================ */
+
+.af-toast-host {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--af-player-height) + 16px);
+  transform: translateX(-50%);
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.af-toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  max-width: min(520px, calc(100vw - 64px));
+  padding: 8px 8px 8px 14px;
+  border: 1px solid var(--af-glass-border);
+  border-radius: var(--af-radius-full);
+  background: var(--af-tooltip-bg);
+  color: var(--af-tooltip-text);
+  box-shadow: var(--af-shadow-lg);
+  font-size: var(--af-font-size-sm);
+  line-height: 1.4;
+  pointer-events: auto;
+  animation: af-toast-in 180ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.af-toast-icon {
+  flex: 0 0 auto;
+  /* 反色底上用语义色会糊，统一跟着文字色走，靠图形区分语义 */
+  color: currentColor;
+  opacity: 0.85;
+}
+
+.af-toast-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.af-toast-action {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: var(--af-radius-full);
+  background: rgba(255, 255, 255, 0.16);
+  color: inherit;
+  font-size: var(--af-font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+[data-theme="dark"] .af-toast-action {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.af-toast-action:hover {
+  background: rgba(255, 255, 255, 0.26);
+}
+
+[data-theme="dark"] .af-toast-action:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.af-toast-close {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--af-radius-full);
+  background: transparent;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+}
+
+.af-toast-close:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+[data-theme="dark"] .af-toast-close:hover {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+@keyframes af-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .af-toast {
+    animation: none;
+  }
+}

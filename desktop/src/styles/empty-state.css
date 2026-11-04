@@ -1,0 +1,62 @@
+/* ============================================================
+   空态 / 错误态 —— 全局唯一形态
+   ============================================================
+   这段样式原先写在 search.css 里，却服务着 7 个以上页面（专辑、歌手、日推、
+   下载、私人 FM、历史、歌单详情）。搜索页的样式表承载全局组件，改搜索样式时
+   很容易顺手把别处的空态改坏，所以独立成文件。
+
+   硬规则（由 components/ui/EmptyState.tsx 承载）：
+   图标 + 一句话 + 说明 + 一个「下一步」。没有下一步的空态不算完成——
+   用户会停在一片空白里，不知道该做什么。
+   ============================================================ */
+
+.af-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 72px 24px;
+  text-align: center;
+}
+
+.af-empty-state > svg {
+  color: var(--af-text-quaternary);
+  margin-bottom: 8px;
+}
+
+.af-empty-state p {
+  /* 16px 落在字号阶梯上（原 17px 是阶梯外的孤立值） */
+  font-size: var(--af-font-size-lg);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+  color: var(--af-text-primary);
+  margin: 0;
+}
+
+.af-empty-state span {
+  max-width: 380px;
+  font-size: var(--af-font-size-sm);
+  line-height: 1.6;
+  color: var(--af-text-tertiary);
+}
+
+.af-empty-state-action {
+  margin-top: 10px;
+}
+
+/* 还有几处空态是手写的（直接放 <button> 而没走 EmptyState 组件），
+   保留一点上间距，避免它们比组件版更贴文字。 */
+.af-empty-state > button {
+  margin-top: 10px;
+}
+
+/* 错误态：图标与文字都走 -ink，底色仍是浅色 --af-error-bg */
+.af-empty-state-error > svg {
+  color: var(--af-error-ink);
+}
+
+.af-empty-state-error p {
+  color: var(--af-error-ink);
+}

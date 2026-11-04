@@ -7,6 +7,7 @@ import { AppBackground } from "@/components/AppBackground";
 import { BackgroundPlaybackGuard } from "@/components/BackgroundPlaybackGuard";
 import { PageHeader } from "@/components/PageHeader";
 import { PlayerBar } from "@/components/PlayerBar";
+import { ToastHost } from "@/components/ui/Toast";
 import { navigationRef, openPlayerScreen } from "@/navigation/navigationRef";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 
@@ -163,15 +164,19 @@ export function AppShell({ children }: AppShellProps) {
             />
           ) : null}
           <View style={styles.content}>{children}</View>
+          {/* 底部安全区只在这里加一次：padding = 手势条 + 8px 呼吸位。
+              卡片自身不再叠一层 marginBottom（那会变成 2 倍 inset）。 */}
           {shellState.showPlayerBar ? (
             <View style={[styles.playerDock, { paddingBottom: insets.bottom + 8 }]}>
-              <PlayerBar onOpen={openPlayerScreen} bottomInset={insets.bottom} />
+              <PlayerBar onOpen={openPlayerScreen} />
             </View>
           ) : null}
         </AppBackground>
       ) : (
         <View style={styles.content}>{children}</View>
       )}
+      {/* 轻提示放在最外层：任何页面（含设置、沉浸播放）都能收到反馈 */}
+      <ToastHost />
     </SafeAreaView>
   );
 }

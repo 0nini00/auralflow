@@ -1,5 +1,6 @@
 import { AlertTriangle, Download, FolderOpen, Play, RefreshCw, Trash2, XCircle } from 'lucide-react';
 import { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useDownloadStore, type DownloadTask } from '@/stores/downloadStore';
 import { usePlayerStore } from '@/stores/playerStore';
 import { PLAYER_COVER_CSS_SIZE, coverSrc } from '@/utils/imageReferrerPolicy';
@@ -24,6 +25,7 @@ function statusText(task: DownloadTask): string {
 }
 
 export function DownloadsView() {
+  const navigate = useNavigate();
   const {
 
     tasks,
@@ -83,7 +85,10 @@ export function DownloadsView() {
         <div className="af-empty-state af-download-empty">
           <Download size={40} />
           <p>还没有下载任务</p>
-          <span>在歌曲行末的下载按钮里选择音质。</span>
+          <span>在歌曲行末的下载按钮里选择音质；下载完成的歌曲会出现在这里，可离线播放。</span>
+          <div className="af-empty-state-action">
+            <button type="button" className="af-btn-primary" onClick={() => navigate('/search')}>去搜索音乐</button>
+          </div>
         </div>
       ) : (
         <div className="af-download-list">
