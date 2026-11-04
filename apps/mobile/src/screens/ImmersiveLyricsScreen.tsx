@@ -534,8 +534,8 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
                 pointerEvents="none"
                 style={StyleSheet.absoluteFill}
                 colors={[
-                  withAlpha(ambient.base, isDark ? 0.42 : 0.3),
-                  withAlpha(ambient.base, isDark ? 0.14 : 0.1),
+                  withAlpha(ambient.base, isDark ? 0.7 : 0.45),
+                  withAlpha(ambient.base, isDark ? 0.3 : 0.18),
                   withAlpha(ambient.base, 0),
                 ]}
                 locations={[0, 0.55, 1]}

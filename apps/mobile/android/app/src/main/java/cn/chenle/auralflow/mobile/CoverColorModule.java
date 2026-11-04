@@ -2,6 +2,7 @@ package cn.chenle.auralflow.mobile;
 
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Color;
 import android.net.Uri;
 
 import androidx.palette.graphics.Palette;
@@ -35,6 +36,8 @@ public class CoverColorModule extends ReactContextBaseJavaModule {
   private static final int TARGET_SAMPLE_SIZE = 96;
   private static final int CONNECT_TIMEOUT_MS = 8000;
   private static final int READ_TIMEOUT_MS = 8000;
+  /** 暗色主题基调色亮度上限（HSV V 分量）：防止亮色封面让顶部白字不可读。 */
+  private static final float DARK_BASE_MAX_VALUE = 0.45f;
 
   private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
@@ -88,14 +91,27 @@ public class CoverColorModule extends ReactContextBaseJavaModule {
     return result;
   }
 
-  /** 深色主题优先暗色变体保证背景足够沉，浅色主题优先亮色变体。 */
+  /**
+   * 深色主题优先鲜艳/中性主色，保证氛围色在深底上可感知；
+   * 亮度上限防止亮色封面把背景提得让白字不可读。浅色主题优先亮色变体。
+   */
   private static String pickBase(Palette palette, boolean isDark) {
     Palette.Swatch swatch = isDark
-        ? firstNonNull(palette.getDarkVibrantSwatch(), palette.getDarkMutedSwatch(),
-            palette.getVibrantSwatch(), palette.getMutedSwatch(), palette.getDominantSwatch())
+        ? firstNonNull(palette.getVibrantSwatch(), palette.getDarkVibrantSwatch(),
+            palette.getMutedSwatch(), palette.getDarkMutedSwatch(), palette.getDominantSwatch())
         : firstNonNull(palette.getLightVibrantSwatch(), palette.getLightMutedSwatch(),
             palette.getVibrantSwatch(), palette.getMutedSwatch(), palette.getDominantSwatch());
-    return swatch == null ? "" : toHex(swatch.getRgb());
+    if (swatch == null) return "";
+    int rgb = isDark ? clampBaseBrightness(swatch.getRgb()) : swatch.getRgb();
+    return toHex(rgb);
+  }
+
+  /** 暗色背景上的白字可读性优先：压低基调色亮度上限，保留色相。 */
+  private static int clampBaseBrightness(int rgb) {
+    float[] hsv = new float[3];
+    Color.colorToHSV(rgb, hsv);
+    hsv[2] = Math.min(hsv[2], DARK_BASE_MAX_VALUE);
+    return Color.HSVToColor(hsv);
   }
 
   private static String pickAccent(Palette palette, String baseHex) {
