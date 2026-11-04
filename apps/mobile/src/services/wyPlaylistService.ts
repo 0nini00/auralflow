@@ -242,7 +242,7 @@ function mapPersonalizedMix(raw: Array<Record<string, unknown>>): WyPlaylistInfo
 
 /**
  * 获取歌单详情（歌曲列表）。
- * 公开歌单免登录可查看（对齐 lx：浏览歌单不要求登录）；
+ * 公开歌单免登录可查看（浏览歌单不要求登录）；
  * 已登录时附带 Cookie，用于解析部分需要登录的歌单。
  */
 /** 批量拉取歌曲详情的分块大小（对齐桌面端 fetchSongDetailsInChunks）。 */
@@ -261,7 +261,7 @@ function extractWyTrackIds(playlist: JsonRecord): string[] {
     .filter((id) => id && id !== "undefined" && id !== "null");
 }
 
-/** 用 /weapi/v3/song/detail 按 id 批量补齐歌曲详情（对齐桌面端/lx 的做法）。 */
+/** 用 /weapi/v3/song/detail 按 id 批量补齐歌曲详情（与桌面端同一做法）。 */
 async function fetchWySongDetailsInChunks(ids: string[], cookie: string): Promise<unknown[]> {
   const chunks: string[][] = [];
   for (let i = 0; i < ids.length; i += SONG_DETAIL_CHUNK_SIZE) {

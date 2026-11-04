@@ -14,7 +14,7 @@ import {
 
 import { withAlpha } from "@/services/themePaletteModel";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { control, type ButtonSize, type ButtonVariant } from "@/theme/tokens";
+import { control, interaction, type ButtonSize, type ButtonVariant } from "@/theme/tokens";
 
 export interface ButtonProps extends Omit<PressableProps, "style" | "children"> {
   label: string;
@@ -137,10 +137,10 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   disabled: {
-    opacity: 0.45,
+    opacity: interaction.disabledOpacity,
   },
   pressed: {
-    opacity: 0.76,
+    opacity: interaction.pressedOpacity,
   },
 });
 

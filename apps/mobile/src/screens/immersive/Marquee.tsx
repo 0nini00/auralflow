@@ -11,7 +11,7 @@ export interface MarqueeProps {
 
 /**
  * 超长文本跑马灯：文本宽度超过容器时滚动，否则静止。
- * 对齐 lx Marquee：只渲染一份文本，用 translateX 滚出后瞬移归位循环；
+ * 只渲染一份文本，用 translateX 滚出后瞬移归位循环；
  * 文本不超长时始终只显示一份（修复短标题显示两次的问题）。
  */
 export function Marquee({

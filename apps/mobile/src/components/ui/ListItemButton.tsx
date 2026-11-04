@@ -11,7 +11,7 @@ import {
 
 import { withAlpha } from "@/services/themePaletteModel";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { control } from "@/theme/tokens";
+import { control, interaction } from "@/theme/tokens";
 
 export interface ListItemButtonProps extends Omit<PressableProps, "style" | "children"> {
   title: string;
@@ -84,5 +84,5 @@ const styles = StyleSheet.create({
   title: { fontSize: control.listItem.titleSize, fontWeight: "600" },
   subtitle: { marginTop: 3, fontSize: control.listItem.subtitleSize, lineHeight: 18 },
   trailing: { marginLeft: 12, alignItems: "center", justifyContent: "center" },
-  disabled: { opacity: 0.42 },
+  disabled: { opacity: interaction.disabledOpacity },
 });

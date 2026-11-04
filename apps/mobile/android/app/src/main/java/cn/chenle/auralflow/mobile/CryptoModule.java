@@ -21,7 +21,7 @@ import javax.crypto.spec.SecretKeySpec;
  * 网易云 weapi 加密的原生实现（AES-128-CBC + RSA NoPadding）。
  *
  * JS 端 crypto-js / node-forge 在 Hermes 上产出错误密文（Node oracle 通过
- * 不代表 Hermes 运行时正确——参考 lx-netease-music-mobile 的做法：weapi
+ * 不代表 Hermes 运行时正确——做法是：weapi
  * 全部走原生 CryptoModule，JS 只负责拼请求）。
  */
 public class CryptoModule extends ReactContextBaseJavaModule {

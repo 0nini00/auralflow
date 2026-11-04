@@ -2,6 +2,7 @@ import React from "react";
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
+import { sheet } from "@/theme/sheetTokens";
 
 interface MobilePactModalProps {
   visible: boolean;
@@ -50,7 +51,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.62)",
+    backgroundColor: sheet.scrim,
     padding: 24,
   },
   card: {

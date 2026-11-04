@@ -16,6 +16,11 @@ export interface EmptyStateProps {
   description?: string;
   /** 可选图标，渲染在标题上方的圆形徽章内，用于增强空态识别度。 */
   icon?: LucideIcon;
+  /**
+   * 下一步。没有内容时必须告诉用户能去哪 —— 只写「暂无内容」的空态等于把
+   * 用户留在一片空地上。桌面端的 EmptyState 一直有这个槽位，移动端此前没有。
+   */
+  action?: { label: string; onPress: () => void };
 }
 
 export interface LoadingStateProps {
@@ -52,9 +57,9 @@ export function ErrorState({ message, onRetry }: ErrorStateProps) {
           { backgroundColor: palette.dangerSurface, borderColor: palette.danger, borderWidth: StyleSheet.hairlineWidth },
         ]}
       >
-        <CircleAlert size={24} color={palette.danger} strokeWidth={2} />
+        <CircleAlert size={24} color={palette.dangerInk} strokeWidth={2} />
       </View>
-      <Text style={[styles.title, { color: palette.danger }]}>加载失败</Text>
+      <Text style={[styles.title, { color: palette.dangerInk }]}>加载失败</Text>
       <Text style={[styles.description, { color: palette.text }]}>{message}</Text>
       {onRetry ? (
         <ActionButton label="重试" variant="primary" onPress={onRetry} style={styles.retry} />
@@ -63,7 +68,7 @@ export function ErrorState({ message, onRetry }: ErrorStateProps) {
   );
 }
 
-export function EmptyState({ title, description, icon: Icon }: EmptyStateProps) {
+export function EmptyState({ title, description, icon: Icon, action }: EmptyStateProps) {
   const palette = useScreenStatePalette();
   return (
     <View style={[styles.state, styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>
@@ -75,6 +80,9 @@ export function EmptyState({ title, description, icon: Icon }: EmptyStateProps) 
       <Text style={[styles.title, { color: palette.text }]}>{title}</Text>
       {description ? (
         <Text style={[styles.description, { color: palette.textMuted }]}>{description}</Text>
+      ) : null}
+      {action ? (
+        <ActionButton label={action.label} variant="secondary" onPress={action.onPress} style={styles.retry} />
       ) : null}
     </View>
   );

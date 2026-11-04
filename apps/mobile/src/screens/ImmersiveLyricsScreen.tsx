@@ -52,6 +52,7 @@ import { resolveImmersiveCoverLayout, resolveImmersiveLayout } from "@/services/
 import { withAlpha } from "@/services/themePaletteModel";
 import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
 import { openMvPlayerScreen, openSimilarSongsScreen } from "@/navigation";
+import { sheet } from "@/theme/sheetTokens";
 
 export interface ImmersiveLyricsScreenProps {
   visible: boolean;
@@ -67,7 +68,7 @@ interface FlyOverlayProps {
 }
 
 /**
- * 封面飞入/飞回的浮层：对齐 lx 播放页 shared element 观感——
+ * 封面飞入/飞回的浮层：
  * 迷你栏封面（source）与沉浸页封面框（target）之间插值位置/尺寸/圆角。
  * target 未测到前静止停在 source（入场等待期）；progress 0↔1 驱动双向飞行。
  *
@@ -131,7 +132,7 @@ const FlyOverlay = React.memo(function FlyOverlay({
 });
 
 /**
- * 播放页（对齐 lx 竖屏播放器）：
+ * 播放页：
  * - 状态/操作 → useImmersiveController
  * - UI → TopBar / PagerView(封面|歌词) / Transport / Modals
  * - 转场：Modal 不再整体滑动（animationType="none"），封面从迷你栏位置飞入；
@@ -791,7 +792,7 @@ const menuStyles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: sheet.scrim,
   },
   sheet: {
     width: "78%",

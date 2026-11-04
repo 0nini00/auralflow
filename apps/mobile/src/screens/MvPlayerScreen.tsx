@@ -442,7 +442,7 @@ export function MvPlayerScreen({ mvId, title, artist, posterUrl, onBack }: MvPla
   );
 }
 
-// 视频播放器为「始终深色」的沉浸场景（对齐 lx：无论主题如何都保持深色底，避免字幕/进度条被浅色背景破坏），
+// 视频播放器为「始终深色」的沉浸场景（无论主题如何都保持深色底，避免字幕/进度条被浅色背景破坏），
 // 故颜色不走 themePalette，但圆角/尺寸统一走设计 token。
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#000" },

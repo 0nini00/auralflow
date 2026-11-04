@@ -10,11 +10,11 @@ interface MiniLyricProps {
   lyrics: LyricLine[];
   currentLineIndex: number;
   palette: ThemePalette;
-  /** 点击迷你歌词 → 切换到歌词页（对齐 lx MiniLyric onPress） */
+  /** 点击迷你歌词 → 切换到歌词页 */
   onPress?: () => void;
 }
 
-/** 封面页底部的单行迷你歌词（参考 lx 播放详情的迷你歌词）。 */
+/** 封面页底部的单行迷你歌词。 */
 export function MiniLyric({ lyrics, currentLineIndex, palette, onPress }: MiniLyricProps) {
   const showTranslation = useLyricSettingsStore((s) => s.showTranslation);
   const fontSize = useLyricSettingsStore((s) => s.fontSize);
@@ -24,7 +24,7 @@ export function MiniLyric({ lyrics, currentLineIndex, palette, onPress }: MiniLy
   const current = lyrics && currentLineIndex >= 0 ? lyrics[currentLineIndex] : undefined;
 
   if (!current || !current.text) {
-    // 空状态同样可点击切到歌词页（对齐 lx 迷你歌词占位符可点）
+    // 空状态同样可点击切到歌词页
     const empty = (
       <Text style={[styles.line, { color: palette.textMuted }]}>正在播放 · 暂无歌词</Text>
     );

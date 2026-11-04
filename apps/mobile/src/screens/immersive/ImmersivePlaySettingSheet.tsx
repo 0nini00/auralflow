@@ -15,6 +15,7 @@ import {
   LYRIC_FONT_SIZE_MAX,
 } from "@/stores/lyricSettingsStore";
 import { usePlayerStore } from "@/stores/playerStore";
+import { sheet } from "@/theme/sheetTokens";
 
 /** 倍速值域：0.5x-2.0x，步进 0.25（对齐 playerRateModel 边界） */
 const RATE_MIN = 0.5;
@@ -213,7 +214,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: sheet.scrim,
     padding: 24,
   },
   sheet: {

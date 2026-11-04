@@ -18,14 +18,14 @@ interface CachedImageProps {
   size?: number;
 }
 
-/** 网易云等图床统一浏览器 UA，避免部分图床 403（对齐 lx defaultHeaders）。 */
+/** 网易云等图床统一浏览器 UA，避免部分图床 403。 */
 const DEFAULT_HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36",
 };
 
 /**
- * 带缓存的图片组件（对齐 lx：FastImage/Glide 原生内存+磁盘双层缓存 + UA 请求头 + 失败重试）。
+ * 带缓存的图片组件（FastImage/Glide 原生内存+磁盘双层缓存 + UA 请求头 + 失败重试）。
  *
  * 远端 URL 即时展示（首帧零磁盘往返），同时后台下载到本地缓存；
  * 远端 URL 即时展示（首帧零磁盘往返），同时后台下载到本地缓存；
@@ -33,7 +33,7 @@ const DEFAULT_HEADERS = {
  *
  * 渲染内核为 @d11/react-native-fast-image：
  * - Glide 原生内存缓存：列表滚动重复渲染零异步开销（对比此前 RN Image + RNFS 异步查盘）
- * - cache: "immutable"：URL 不变则永不过期，URL 变化自然失效（对齐 lx，替代 30 天过期）
+ * - cache: "immutable"：URL 不变则永不过期，URL 变化自然失效（替代 30 天过期）
  * - transition="fade"：加载完成淡入，消除闪烁
  */
 export function CachedImage({ uri, style, resizeMode = "cover", fallback, nativeID, size = COVER_SIZE_THUMB }: CachedImageProps) {

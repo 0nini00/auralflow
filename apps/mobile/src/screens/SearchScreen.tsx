@@ -377,7 +377,7 @@ export function SearchScreen({
     if (route) openPlaylistDetailScreen(route.playlist);
   };
 
-  // 搜索结果页的歌单卡片只负责进入详情（对齐 lx）：收藏/导入功能在歌单详情页内。
+  // 搜索结果页的歌单卡片只负责进入详情：收藏/导入功能在歌单详情页内。
 
   return (
     <ScreenScaffold>

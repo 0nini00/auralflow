@@ -169,7 +169,7 @@ async function verifyRsaVector(input: string, expectedHex: string): Promise<bool
 }
 /**
  * 网易云 weapi 加密（原生优先， JS 兜底）。
- * 参考 lx-netease-music-mobile：weapi 走原生 CryptoModule；
+ * weapi 走原生 CryptoModule；
  * crypto-js/node-forge 在 Hermes 上不可靠，仅作原生不可用时的兜底。
  */
 export async function weapi(data: Record<string, any>): Promise<WeapiResult> {

@@ -20,8 +20,10 @@ import { AddToLocalPlaylistModal } from "@/components/AddToLocalPlaylistModal";
 import { DownloadQualityModal } from "@/components/DownloadQualityModal";
 import { BottomSheet } from "@/components/BottomSheet";
 import { Touchable } from "@/components/Touchable";
+import { sheet } from "@/theme/sheetTokens";
+import { afterModalDismiss } from "@/utils/modalSequence";
 
-/** sheet 形态的面板高度占窗口比例（对齐 lx PlayerPlaylist 的比例式高度） */
+/** sheet 形态的面板高度占窗口比例 */
 const QUEUE_SHEET_HEIGHT_RATIO = 0.72;
 const QUEUE_CARD_HEIGHT_RATIO = 0.65;
 const QUEUE_PANEL_CHROME_HEIGHT = 100;
@@ -29,7 +31,7 @@ const QUEUE_PANEL_CHROME_HEIGHT = 100;
 export interface QueueModalProps {
   visible: boolean;
   queueModel: ImmersiveQueuePanelModel;
-  /** 完整播放队列（用于渲染 lx 风格行：封面/时长/喜欢/更多） */
+  /** 完整播放队列（用于渲染行：封面/时长/喜欢/更多） */
   queue: MusicInfo[];
   palette: ThemePalette;
   onClose: () => void;
@@ -62,9 +64,9 @@ export interface QueueModalProps {
 }
 
 /**
- * 播放队列面板（对齐 lx PlayerPlaylist）。
+ * 播放队列面板。
  *
- * 行样式复用 SongItem（lx 风格：封面/歌名/歌手·专辑/时长/喜欢/更多），
+ * 行样式复用 SongItem（封面/歌名/歌手·专辑/时长/喜欢/更多），
  * 更多菜单含队列专属的「从队列移除」。
  * 全屏播放器（ImmersiveModals）与迷你播放器（PlayerBar）共用。
  */
@@ -96,7 +98,7 @@ export function QueueModal({
   const [downloading, setDownloading] = useState(false);
   // 子弹窗打开时先收起队列面板，避免嵌套 Modal 在 Android 上出现白屏
   const [subSheetOpen, setSubSheetOpen] = useState(false);
-  // 上次选择的下载音质（记住上次选择，对齐 lx）
+  // 上次选择的下载音质
   const [defaultQuality, setDefaultQuality] = useState<DownloadQuality | null>(null);
 
 
@@ -105,7 +107,7 @@ export function QueueModal({
     setPendingQuality(quality);
     setDownloading(true);
     try {
-      // 记住本次选择，下次默认选中（对齐 lx）
+      // 记住本次选择，下次默认选中
       void saveLastSelectQuality(quality);
       const result = await downloadSong(actionSong, quality);
       if (result.status === "completed" || result.status === "skipped" || result.status === "failed") {
@@ -191,7 +193,9 @@ export function QueueModal({
         icon: "playlist",
         onPress: () => {
           setSubSheetOpen(true);
-          setAddToPlaylistVisible(true);
+          // 先让队列面板收起来，再挂载收藏弹层：Android 上同一帧挂载会让
+          // 新弹层落在仍在关闭的 Dialog 之后，点空白区域没反应。
+          afterModalDismiss(() => setAddToPlaylistVisible(true));
         },
       },
     ];
@@ -229,9 +233,11 @@ export function QueueModal({
 
   // 队列面板主体（modal/sheet 两形态共用）：标题行 + 虚拟化列表
   const renderPanel = (sheetMode: boolean) => {
+    // 弹层底色统一走 surface。此前用的是 palette.background（页面底色），
+    // 在深色主题下比其它弹层更黑一档，看起来像「另一个 app 的弹窗」。
     const containerStyle = sheetMode
-      ? [styles.sheetContent, { backgroundColor: palette.background }]
-      : [styles.content, { backgroundColor: palette.background, borderColor: palette.border }];
+      ? [styles.sheetContent, { backgroundColor: palette.surface }]
+      : [styles.content, { backgroundColor: palette.surface, borderColor: palette.border }];
     const content = (
       <Pressable onPress={() => undefined}>
         <View style={styles.header}>
@@ -245,7 +251,7 @@ export function QueueModal({
             <Touchable
               style={[
                 styles.clearButton,
-                { backgroundColor: palette.surface },
+                { backgroundColor: palette.surfaceMuted },
                 !queueModel.management.canClearQueue && styles.clearButtonDisabled,
               ]}
               onPress={() => { listRef.current?.cancelDrag(); onClear(); }}
@@ -258,7 +264,7 @@ export function QueueModal({
               </Text>
             </Touchable>
             <Touchable
-              style={[styles.closeButton, { backgroundColor: palette.surface }]}
+              style={[styles.closeButton, { backgroundColor: palette.surfaceMuted }]}
               onPress={handleClose}
               accessibilityRole="button"
               accessibilityLabel={queueModel.closeLabel}
@@ -410,7 +416,7 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: sheet.scrim,
     padding: 24,
   },
   content: {

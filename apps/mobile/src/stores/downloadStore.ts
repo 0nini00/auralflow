@@ -86,7 +86,7 @@ interface DownloadActions {
     warnings?: string[],
     completion?: DownloadCompletion,
   ) => Promise<void>;
-  /** 移除一条已下载记录（对齐 lx removeTask：只删记录不动文件，重新下载时按文件名约定秒完成） */
+  /** 移除一条已下载记录（只删记录不动文件，重新下载时按文件名约定秒完成） */
   removeDownloadRecord: (song: MusicInfo, quality?: DownloadQuality) => Promise<void>;
   /** 删除某条已下载记录并连同本地文件一起删除 */
   removeDownload: (song: MusicInfo, quality?: DownloadQuality) => Promise<void>;

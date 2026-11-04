@@ -17,11 +17,32 @@ export type {
   IconButtonTone,
 } from "./controlTokens";
 
+/**
+ * 间距刻度。
+ *
+ * 事实：代码里最常用的值其实是 2 / 6 / 10 / 14 / 18（全仓 335 处裸值里
+ * 这五个占 155 处），而原刻度只有 4 的倍数——它们无处可去，只能继续裸写。
+ * 与其声明一套没人遵守的 4px 节奏，不如把真实的 2px 半步也纳入刻度：
+ * 加进来之后，新代码至少有一个「正确的落点」，不必再硬编码。
+ *
+ * 命名按语义而不是倍率（4 的倍数仍保留 xxs/xs/s/m/l/xl/xxl/xxxl 旧键，
+ * 避免一次性改全站 556 处引用）。
+ */
 export const spacing = {
+  /** 2px：分隔线、光学微调 */
+  line: 2,
   xxs: 4,
+  /** 6px：紧凑控件内部的间隙 */
+  tight: 6,
   xs: 8,
+  /** 10px：两个控件之间（8 与 12 之间的高频值） */
+  snug: 10,
   s: 12,
+  /** 14px：卡片内边距（12 与 16 之间的高频值） */
+  cozy: 14,
   m: 16,
+  /** 18px：区块内边距 */
+  roomy: 18,
   l: 20,
   xl: 24,
   xxl: 32,
@@ -55,34 +76,21 @@ export const touch = {
   iconButton: 36,
 } as const;
 
-/**
- * 图标按键统一规格（容器尺寸 + 图标字号成对定义）。
- * - sm：列表行内/紧凑区域的次要操作（心、更多、清除）
- * - md：通用图标按键基准（顶栏、工具栏、弹窗关闭）
- * - lg：播放控制次级键（上一首/下一首/模式）
- * - xl：单页视觉重心（沉浸页播放/暂停）
+/*
+ * 图标按键规格只有一个来源：theme/controlTokens.ts 的 control.iconButton
+ * （compact 36 / standard 44 / large 56）。
+ * 这里曾并行定义过一套 sm/md/lg/xl（36/44/56/64）与 iconButtonHitSlop，
+ * 两套只差一档却都在被引用，最终只有一处真正生效——留着只会让人抄错。
+ * 需要 hitSlop 请用 controlHitSlop()。
  */
-export const iconButton = {
-  sm: { size: 36, icon: 18 },
-  md: { size: 44, icon: 20 },
-  lg: { size: 56, icon: 26 },
-  xl: { size: 64, icon: 32 },
-} as const;
-
-export type IconButtonSize = keyof typeof iconButton;
-
-/** 容器小于 minTarget 时补足可点区域，数值为四边扩展量 */
-export function iconButtonHitSlop(size: IconButtonSize) {
-  const inset = Math.max(0, (touch.minTarget - iconButton[size].size) / 2);
-  return { top: inset, bottom: inset, left: inset, right: inset };
-}
 
 export const layout = {
   pagePadding: 20,
-  tabletPagePadding: 24,
   songRowMinHeight: 60,
   songRowPadding: 8,
   artworkSize: 48,
+  /** 紧凑列表（下载项）的封面边长 */
+  compactArtworkSize: 36,
   headerHeight: 56,
   compactControlHeight: 36,
   playerBarHeight: 64,
@@ -90,8 +98,23 @@ export const layout = {
   miniPlayerGap: 6,
 } as const;
 
-export const breakpoints = {
-  tablet: 768,
-} as const;
+/*
+ * 这里曾有 breakpoints.tablet(768) 与 layout.tabletPagePadding(24)，
+ * 但全仓引用数为 0——平板适配从未实现，读代码的人却会以为已经支持。
+ * 需要的内容宽度阈值请写在消费处，用「控件可用宽度」判断，不要用整屏宽度。
+ */
 
 export const isAndroid = Platform.OS === "android";
+
+/**
+ * 按压/禁用反馈的统一取值。
+ *
+ * 统一前：Button 0.76/0.45、Chip 0.72/0.42、IconButton 0.68/0.42、
+ * ListItemButton 换成底色 wash、Touchable 换成 scale——同一只手点下去，
+ * 全 app 有五种「按到了」的语言。这里只收敛数值，不改变各组件用哪种方式
+ * （列表行用底色 wash 是有意的，它比透明度更能标出整行）。
+ */
+export const interaction = {
+  pressedOpacity: 0.72,
+  disabledOpacity: 0.42,
+} as const;

@@ -8,6 +8,7 @@ import { useDownloadStore, type DownloadQuality } from "@/stores/downloadStore";
 import { PLAYBACK_QUALITY_OPTIONS } from "@/services/playbackQualityModel";
 import { getLastSelectQuality, saveLastSelectQuality } from "@/services/downloadService";
 import { withAlpha } from "@/services/themePaletteModel";
+import { sheet } from "@/theme/sheetTokens";
 import { radius, spacing, typography } from "@/theme/tokens";
 
 interface BatchDownloadModalProps {
@@ -24,7 +25,7 @@ interface BatchDownloadModalProps {
 }
 
 /**
- * 批量下载弹窗（对齐 lx BatchDownloadModal）：
+ * 批量下载弹窗：
  * 选音质（记住上次选择）→ 确认后逐首加入下载队列。
  * 用于歌单/专辑/歌手等详情页的「下载全部」入口。
  */
@@ -44,7 +45,7 @@ export function BatchDownloadModal({
 
   useEffect(() => {
     if (!visible) return;
-    // 记住上次选择的音质（对齐 lx），读取失败回退默认 320k
+    // 记住上次选择的音质，读取失败回退默认 320k
     void getLastSelectQuality().then((last) => {
       if (last) setSelectedQuality(last);
     });
@@ -167,7 +168,7 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: sheet.scrim,
   },
   sheet: {
     borderTopLeftRadius: 20,

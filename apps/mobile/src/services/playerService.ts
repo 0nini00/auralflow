@@ -343,7 +343,7 @@ async function resolveSongUrl(
   const playbackCandidates = buildPlaybackCandidates(song);
 
   // 1. 命中预读缓存直接返回。
-  // 缓存命中不再探活（对齐 lx 的 URL 信任策略）：过期死链由 PlaybackError
+  // 缓存命中不再探活（URL 信任策略）：过期死链由 PlaybackError
   // → 清缓存自动重播一次的恢复链路收口。实际解析路径对新解析结果的探活保留
   // （黑盒死代理「TCP 连上不返回数据、ExoPlayer 无错误无限缓冲」主要发生在新解析，
   // 探活继续挡在那一步）。
@@ -363,7 +363,7 @@ async function resolveSongUrl(
         if (reused) return reused;
       }
     }
-    // 1.2 直接命中本地音频缓存文件（lx isCached 等价）：优先整曲落盘的 wy/tx 等可缓存音源，
+    // 1.2 直接命中本地音频缓存文件：优先整曲落盘的 wy/tx 等可缓存音源，
     // 离线可播、省流量，不必依赖持久化 URL 缓存中的 file:// 条目（该条目可能被清理/过期）。
     // 候选×音质两层枚举：写盘用的是实际解析成功的实体与音质（可能是变体/降档），
     // 与持久化 URL 缓存的变体与降级语义一致，避免降级播放后下次播放查不到本地文件。
@@ -381,16 +381,16 @@ async function resolveSongUrl(
       }
     }
     // 1.5 命中持久化 URL 缓存：冷启动/重启后免重新解析网关，对齐桌面端 persistentCache。
-    // 命中直接使用、不再探活（2026-09 对齐 lx 的 URL 信任策略）：
+    // 命中直接使用、不再探活（2026-09 URL 信任策略）：
     // - wy/tx CDN 签名链接的实际有效期远短于 6h TTL，旧逻辑「探活失败→作废→重解析」
     //   让重听永远走完整解析链；且每次重解析得到新 URL，ExoPlayer SimpleCache 按 URL
     //   键永远 miss——重听既慢又费流量。信任缓存后重听直接复用旧 URL，SimpleCache
     //   按 URL 持续累积，常听的歌接近离线秒开。
     // - 死链（403/404 快速失败）交给 PlaybackError 恢复链路：清缓存 → 自动重播一次 →
-    //   终局才判失败（playbackFailurePolicy），与 lx 的 isRefresh 重解析语义一致。
+    //   终局才判失败（playbackFailurePolicy）。
     // - 已知取舍：黑盒死代理（TCP 连上不返回数据）不触发 PlaybackError，重播该缓存
     //   条目会停在缓冲。该场景主要来自新解析（下方实际解析路径的探活继续挡住），
-    //   缓存条目多为曾播通过的链接，风险可接受（lx 同策略）。
+    //   缓存条目多为曾播通过的链接，风险可接受。
     const persisted = await getCachedPlaybackUrl(song, qualityCandidates, playbackCandidates);
     if (persisted) {
       // legacy 条目可能没写 music：回退主条目

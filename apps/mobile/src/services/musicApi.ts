@@ -69,7 +69,7 @@ export type { CommentVoice, SongComment, SongCommentResult } from "./songComment
 const SONG_COMMENT_RESOURCE_PREFIX = "R_SO_4_";
 
 /**
- * 拉取网易云歌曲评论（对齐 lx「评论」：头像/昵称/点赞/内容/时间）。
+ * 拉取网易云歌曲评论（头像/昵称/点赞/内容/时间）。
  * 仅网易云（wy）曲目有真实评论 ID，tx/local 无数据则不调用。
  */
 export async function fetchNeteaseComments(
@@ -214,12 +214,12 @@ async function searchDirectSongs(
 }
 
 /**
- * 歌曲搜索（对齐 lx：官方接口直连优先，快）：
+ * 歌曲搜索（官方接口直连优先，快）：
  * 1. 官方直连搜索（wy eapi cloudsearch / tx musicu），元数据（封面/歌手/专辑）由官方接口直接提供；
  * 2. 直连失败 → 回退内置音乐 API 网关搜索（仅作兜底）；
  * 3. 两者都失败 → 抛错（含两条链路的失败原因）。
  *
- * 注：此前网关优先 + 串行直连补全导致搜索明显慢于 lx（第三方网关延迟 + 两个请求串行），
+ * 注：此前网关优先 + 串行直连补全导致搜索明显偏慢（第三方网关延迟 + 两个请求串行），
  * 已改为直连优先；内置音乐 API 的职责收敛为播放 + 下载。
  */
 export async function searchSongs(
@@ -435,7 +435,7 @@ export async function resolveSongUrl(song: MusicInfo, quality = "320k"): Promise
   return builtinClient.resolveUrl(song, quality);
 }
 
-/** 在线音频流统一浏览器 UA（CDN 防盗链要求，对齐桌面端 lx-music）。 */
+/** 在线音频流统一浏览器 UA（CDN 防盗链要求，与桌面端一致）。 */
 export const STREAM_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
@@ -501,7 +501,7 @@ function buildOfficialLyricResult(body: WyLyricBody): OfficialLyricResult | null
   const yrc = body?.yrc?.lyric || "";
   const lyric = yrc || body?.lrc?.lyric || "";
   if (!lyric.trim()) return null;
-  // yrc 为主轨时优先取与逐字轨对齐的 ytlrc / yromalrc（对齐 lx-music-desktop 的分工），
+  // yrc 为主轨时优先取与逐字轨对齐的 ytlrc / yromalrc，
   // 无对齐轨再退 lrc 对齐的 tlyric / romalrc；lrc 主轨则只用 tlyric / romalrc。
   const tlyric = (yrc
     ? body?.ytlrc?.lyric || body?.tlyric?.lyric
@@ -608,7 +608,7 @@ function getPlaybackCandidates(song: MusicInfo): MusicInfo[] {
 }
 
 async function parseSingleUrl(song: MusicInfo, quality: string): Promise<{ url: string; quality: string }> {
-  // wy / tx 等在线源：统一由内置音乐 API 网关解析播放地址（对齐 lx 分工：
+  // wy / tx 等在线源：统一由内置音乐 API 网关解析播放地址（
   // 官方直连只负责搜索与歌单/封面/歌词元数据，播放与下载走内置音乐 API）。
   return await resolveSongUrl(song, quality);
 }

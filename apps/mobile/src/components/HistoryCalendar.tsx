@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, X } from "lucide-react-native";
 
 import { addMonths, getHistoryCalendarDays, type HistoryEntry } from "@/services/historyGroupModel";
 import type { ThemePalette } from "@/stores/themeStore";
+import { sheet } from "@/theme/sheetTokens";
 import { radius, spacing, touch, typography } from "@/theme/tokens";
 
 interface HistoryCalendarProps {
@@ -155,7 +156,7 @@ export function HistoryCalendar({ entries, selectedDay, palette, onSelect, onClo
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, alignItems: "center", justifyContent: "center" },
-  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.45)" },
+  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: sheet.scrim },
   panel: { borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth, overflow: "hidden" },
   scroll: { flexGrow: 0, flexShrink: 1 },
   content: { paddingBottom: spacing.s },

@@ -187,12 +187,12 @@ async function ensurePlayerSetup(): Promise<void> {
   if (isPlayerSetup) return;
   if (!playerSetupPromise) {
     playerSetupPromise = (async () => {
-      // 把缓冲交给原生（ExoPlayer / AVPlayer），不做桌面端 WebAudio 的精细控制
-      // 参考 lx-mobile 的理念：移动端让原生播放器自行管理缓冲/节流，只做必要调优。
+      // 把缓冲交给原生（ExoPlayer / AVPlayer），不做桌面端 WebAudio 的精细控制。
+      // 移动端让原生播放器自行管理缓冲/节流，只做必要调优。
       // 注意：音频焦点中断（handleAudioFocus）由 RemoteDuck 事件 + audioInterruptionPolicy
       // 自定义处理，故不启用 autoHandleInterruptions，避免双重处理。
-      // maxCacheSize：启用 ExoPlayer SimpleCache 边播边缓存（与 lx-mobile 同机制），
-      // 播放过的歌曲片段落盘，再次播放同一 URL 时离线即开、省流量。默认 1GB，与 lx 默认一致。
+      // maxCacheSize：启用 ExoPlayer SimpleCache 边播边缓存，
+      // 播放过的歌曲片段落盘，再次播放同一 URL 时离线即开、省流量。默认 1GB。
       await TrackPlayer.setupPlayer({
         minBuffer: 8,
         maxBuffer: 30,
@@ -220,8 +220,8 @@ async function ensurePlayerSetup(): Promise<void> {
           Capability.SkipToNext,
           Capability.SkipToPrevious,
         ],
-        // 进度事件间隔 0.25s：歌词行高亮/迷你进度在 250ms 内跟随行边界切换（对齐 lx 的
-        // 精确行触发体验）。4 次/秒的状态更新对现代设备负担可忽略，且 position 订阅方
+        // 进度事件间隔 0.25s：歌词行高亮/迷你进度在 250ms 内跟随行边界切换。
+        // 精确行触发。4 次/秒的状态更新对现代设备负担可忽略，且 position 订阅方
         // 均做了隔离/节流（PlayerBar 迷你歌词为叶子组件、悬浮窗更新有 250ms 节流）。
         progressUpdateEventInterval: 0.25,
       });
@@ -560,7 +560,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
 
 
       // 切歌不 reset：reset 会拆掉 ExoPlayer 音频管线（停 AudioTrack、清缓冲、关 WakeLock），
-      // 下一首要从零重建，听感就是「卡一下」。对齐 lx：新曲接到队尾 → skip 过去 → 再删旧轨。
+      // 下一首要从零重建，听感就是「卡一下」。新曲接到队尾 → skip 过去 → 再删旧轨。
       let previousQueueLength = 0;
       try {
         previousQueueLength = (await TrackPlayer.getQueue()).length;
@@ -861,7 +861,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       currentIndex: startIndex,
       shuffleHistory: [],
       playedIndices: [],
-      // 切歌单时清空「稍后播放」暂存区（对齐 lx playList → clearTempPlayeList），
+      // 切歌单时清空「稍后播放」暂存区，
       // 避免上一歌单的插播曲目在新歌单里突然出现
       tempPlayList: [],
       pinnedNextSong: null,
@@ -1160,7 +1160,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
 
     // 原生 RepeatMode 固定为 Off：列表循环/单曲循环/随机/顺序全部由 JS 驱动
     // （PlaybackQueueEnded → playNext / 单曲重置），避免原生自动循环/切歌造成
-    // currentIndex、歌词、进度等 JS 状态不同步（对齐 lx-mobile：原生只播单曲，
+    // currentIndex、歌词、进度等 JS 状态不同步（原生只播单曲，
     // 切歌一律由 JS 调度）。未 setup（如快照恢复后未播放）或原生异常时兜底，仅保留 UI 状态。
     try {
       await TrackPlayer.setRepeatMode(RepeatMode.Off);

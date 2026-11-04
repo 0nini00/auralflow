@@ -36,7 +36,9 @@ import {
 import { useAccountStore } from "@/stores/accountStore";
 import { usePlaylistStore } from "@/stores/playlistStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
+import { sheet } from "@/theme/sheetTokens";
 import { radius, spacing, typography } from "@/theme/tokens";
+import { showToast } from "@/components/ui/Toast";
 
 type Palette = ReturnType<typeof getThemePalette>;
 
@@ -189,12 +191,12 @@ export function PlaylistsSection() {
     try {
       const result = await importPlaylistsFromJsonInput(localPlaylistImportJson);
       if (!result.imported) {
-        Alert.alert("导入成功", "没有新增歌曲");
+        showToast("没有新增歌曲", { kind: "info" });
         return;
       }
       setLocalPlaylistImportJson("");
       setShowImportLocalPlaylistModal(false);
-      Alert.alert("导入成功", `已导入 ${result.addedSongCount} 首歌`);
+      showToast(`已导入 ${result.addedSongCount} 首歌`);
     } catch (error) {
       Alert.alert("导入失败", error instanceof Error ? error.message : String(error));
     } finally {
@@ -689,7 +691,7 @@ export function PlaylistsSection() {
         onClose={() => setShowImportLinkModal(false)}
         palette={palette}
         onImported={(songCount, name) => {
-          Alert.alert("导入成功", `已创建本地歌单「${name}」（${songCount} 首）`);
+          showToast(`已创建本地歌单「${name}」（${songCount} 首）`);
         }}
       />
     </View>
@@ -835,7 +837,7 @@ const styles = StyleSheet.create({
   createModalOverlay: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    backgroundColor: sheet.scrim,
   },
   createModalBackdrop: {
     ...StyleSheet.absoluteFill,

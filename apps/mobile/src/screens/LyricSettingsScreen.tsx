@@ -185,7 +185,7 @@ export function LyricSettingsContent() {
         <SwitchRow
           palette={palette}
           title="封面旋转"
-          subtitle="播放页封面缓慢旋转（对齐 lx）"
+          subtitle="播放页封面缓慢旋转"
           value={coverSpin}
           onValueChange={setCoverSpin}
           accessibilityLabel="封面旋转"

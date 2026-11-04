@@ -25,6 +25,7 @@ import type { ThemePalette } from "@/stores/themeStore";
 import type { MusicInfo } from "@lx/core";
 import { QueueModal } from "@/components/QueueModal";
 import { Touchable } from "@/components/Touchable";
+import { sheet } from "@/theme/sheetTokens";
 import { radius, spacing, typography } from "@/theme/tokens";
 import { withAlpha } from "@/services/themePaletteModel";
 import { hapticLight } from "@/services/hapticService";
@@ -646,7 +647,7 @@ const styles = StyleSheet.create({
   sheetOverlay: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    backgroundColor: sheet.scrim,
   },
   sheetBackdrop: {
     ...StyleSheet.absoluteFill,

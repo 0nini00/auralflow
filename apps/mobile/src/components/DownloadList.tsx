@@ -12,7 +12,7 @@ import { CachedImage } from "@/components/CachedImage";
 import { Touchable } from "@/components/Touchable";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { withAlpha } from "@/services/themePaletteModel";
-import { iconButton, radius, spacing, typography } from "@/theme/tokens";
+import { layout, radius, spacing, typography } from "@/theme/tokens";
 import {
   buildCompletedDownloadMetadata,
   buildDownloadingMetadata,
@@ -29,10 +29,10 @@ interface DownloadListProps {
 }
 
 /**
- * 下载管理列表（对齐 lx DownloadManager 的任务视图设计）：
+ * 下载管理列表：
  * - 列表项不再提供「播放」按键，点击歌名行即播放（与全 app 列表交互一致）
  * - 已完成任务的两个删除动作必须带文字：「移除记录」只删记录不动文件
- *   （lx removeTask 语义，重新下载按文件名约定秒完成），「删除文件」连本地
+ *   （重新下载按文件名约定秒完成），「删除文件」连本地
  *   文件一起删——两个纯图标按钮（X/垃圾桶）用户无法区分，已回归为文字按钮
  * - 进行中任务提供 暂停/继续/取消（图标按常规语义：暂停=Pause，取消=X）；
  *   失败任务提供 重试/移除
@@ -299,8 +299,8 @@ const styles = StyleSheet.create({
     gap: spacing.s,
   },
   cover: {
-    width: iconButton.sm.size,
-    height: iconButton.sm.size,
+    width: layout.compactArtworkSize,
+    height: layout.compactArtworkSize,
     borderRadius: radius.sm,
   },
   coverFallback: {

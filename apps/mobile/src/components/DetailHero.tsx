@@ -13,11 +13,11 @@ export interface DetailHeroProps {
   subtitle?: string | null;
   metadata?: string[];
   actions?: React.ReactNode;
-  /** 对齐 lx：紧凑头部（小封面/小标题/紧凑间距）。歌单详情等使用 */
+  /** 紧凑头部（小封面/小标题/紧凑间距）。歌单详情等使用 */
   compact?: boolean;
-  /** 简介最大显示行数（超出截断），默认 4（lx 歌单详情 numberOfLines=4） */
+  /** 简介最大显示行数（超出截断），默认 4 */
   descLines?: number;
-  /** 封面底部角标（对齐 lx CountText：半透明黑条 + 白色播放量），如 "16.2万次" */
+  /** 封面底部角标（半透明黑条 + 白色播放量），如 "16.2万次" */
   coverBadge?: string;
   /** 按钮整行铺满：actions 脱离右侧文字列，独立成行且左缘对齐封面（歌单详情三键样式） */
   actionsFullBleed?: boolean;
@@ -78,14 +78,14 @@ export function DetailHero({
         <Text
           accessibilityRole="header"
           numberOfLines={compact ? 1 : undefined}
-          style={[styles.title, compact && styles.titleCompact, { color: palette.text }]}
+          style={[styles.title, { color: palette.text }]}
         >
           {title}
         </Text>
         {subtitle ? (
           <Text
             numberOfLines={compact ? descLines : undefined}
-            style={[styles.subtitle, compact && styles.subtitleCompact, { color: palette.textMuted }]}
+            style={[styles.subtitle, { color: palette.textMuted }]}
           >
             {subtitle}
           </Text>
@@ -98,11 +98,7 @@ export function DetailHero({
                   <Text style={[styles.separator, { color: palette.textSubtle }]}>·</Text>
                 ) : null}
                 <Text
-                  style={[
-                    styles.metadataText,
-                    compact && styles.metadataTextCompact,
-                    { color: palette.textMuted },
-                  ]}
+                  style={[styles.metadataText, { color: palette.textMuted }]}
                 >
                   {item}
                 </Text>
@@ -152,13 +148,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  // 对齐 lx：歌单详情封面 scaleSizeW(70)
+  /* 紧凑头部才真正用小封面：原值与本尺寸完全相同（128/128/radius.xl），
+     compact 对封面没有任何影响，等于一处空实现。 */
   coverCompact: {
-    width: 128,
-    height: 128,
-    borderRadius: radius.xl,
+    width: 96,
+    height: 96,
+    borderRadius: radius.lg,
   },
-  // 对齐 lx CountText：封面底部半透明黑条 + 白色播放量
+  // 封面底部半透明黑条 + 白色播放量
   coverBadge: {
     position: "absolute",
     left: 0,
@@ -183,25 +180,17 @@ const styles = StyleSheet.create({
   copyCompact: {
     gap: 3,
   },
+  /* 标题归到 heading 档（20）。此前 22 / 20 两个值都不在阶梯上，
+     而 compact 只是密度差异，不该同时改字号。 */
   title: {
-    fontSize: 22,
-    lineHeight: 28,
-    fontWeight: "700",
-    letterSpacing: -0.4,
-  },
-  titleCompact: {
-    fontSize: 20,
+    fontSize: typography.heading,
     lineHeight: 26,
     fontWeight: "700",
     letterSpacing: -0.3,
   },
   subtitle: {
-    fontSize: typography.caption,
-    lineHeight: 17,
-  },
-  subtitleCompact: {
-    fontSize: 11,
-    lineHeight: 16,
+    fontSize: typography.meta,
+    lineHeight: 19,
   },
   metadata: {
     minWidth: 0,
@@ -210,11 +199,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.xs,
   },
+  /* 元信息 11px 在暖底上偏小；12 是阶梯里最小的可读档 */
   metadataText: {
-    fontSize: 11,
-  },
-  metadataTextCompact: {
-    fontSize: 11,
+    fontSize: typography.caption,
   },
   separator: {
     fontSize: typography.caption,

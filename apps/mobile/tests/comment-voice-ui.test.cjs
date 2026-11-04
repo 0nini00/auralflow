@@ -75,6 +75,8 @@ function sheetModule(voice) {
     '@/stores/accountStore': { useAccountStore: selector => selector({ isLoggedIn: false }) },
     '@/components/CommentVoiceContent': { CommentVoiceContent: 'CommentVoiceContent' },
     '@/hooks/useCommentVoicePlayback': { useCommentVoicePlayback: () => voice },
+    // 走真实 token：遮罩与网格值改了要能在用例里反映出来，不再抄一份常量。
+    '@/theme/sheetTokens': require('./helpers/loadTs.cjs').createLoader({})('src/theme/sheetTokens.ts'),
   };
   const source = fs.readFileSync(filename, 'utf8') + '\nexports.CommentRow = CommentRow;';
   const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React, esModuleInterop: true }, fileName: filename }).outputText;

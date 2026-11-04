@@ -7,7 +7,7 @@ export const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    // 对齐 lx Pic：底部留白给迷你歌词，封面视觉重心略微上移
+    // 底部留白给迷你歌词，封面视觉重心略微上移
     paddingBottom: 24,
   },
 
@@ -182,7 +182,7 @@ export const styles = StyleSheet.create({
     width: 16,
   },
 
-  // 对齐 lx 竖屏 Player：底部播放区（文档流三段式：PlayInfo / ControlBtn / MoreBtn）
+  // 底部播放区（文档流三段式：PlayInfo / ControlBtn / MoreBtn）
   playerArea: {
     paddingHorizontal: 20,
     paddingTop: 8,
@@ -356,7 +356,7 @@ export const styles = StyleSheet.create({
     fontSize: typography.body,
     fontWeight: "700",
   },
-  // 海报模式已随桌面端风格移除（对齐 lx 竖屏播放器）
+  // 海报模式已随桌面端风格移除
   sleepSectionTitle: {
 
     fontSize: typography.caption,

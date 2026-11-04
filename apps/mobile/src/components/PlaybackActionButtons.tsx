@@ -107,7 +107,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
     flexGrow: 1,
     flexDirection: "row",
-    // 对齐 lx：主操作按钮单行等宽排布，不再换行堆叠
+    // 主操作按钮单行等宽排布，不再换行堆叠
     flexWrap: "nowrap",
     alignItems: "center",
     gap: spacing.xs,

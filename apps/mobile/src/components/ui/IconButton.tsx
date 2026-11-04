@@ -10,7 +10,7 @@ import {
 
 import { withAlpha } from "@/services/themePaletteModel";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { control, controlHitSlop, type IconButtonControlSize, type IconButtonTone } from "@/theme/tokens";
+import { control, controlHitSlop, interaction, type IconButtonControlSize, type IconButtonTone } from "@/theme/tokens";
 
 export interface IconButtonProps extends Omit<PressableProps, "style" | "children"> {
   render: (props: { size: number; color: string }) => React.ReactNode;
@@ -99,6 +99,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 999,
   },
-  disabled: { opacity: 0.42 },
-  pressed: { opacity: 0.68 },
+  disabled: { opacity: interaction.disabledOpacity },
+  pressed: { opacity: interaction.pressedOpacity },
 });

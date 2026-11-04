@@ -10,7 +10,7 @@ import {
 } from "react-native";
 
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { control, type ChipSize } from "@/theme/tokens";
+import { control, interaction, type ChipSize } from "@/theme/tokens";
 
 export interface ChipProps extends Omit<PressableProps, "style" | "children"> {
   label: string;
@@ -44,18 +44,16 @@ export function Chip({
         text: selected ? "#111111" : "#FFFFFF",
       }
     : selected
-      ? palette.isDark
-        ? {
-            border: palette.actionFill,
-            background: palette.actionFill,
-            text: palette.onActionFill,
-          }
-        : {
-            // 浅色下选中态用实心墨色：比浅绿底更清楚，也不与主按钮争夺注意力
-            border: palette.text,
-            background: palette.text,
-            text: palette.background,
-          }
+      ? {
+          /*
+           * 选中态两套主题用同一种语言：实心行动色 + 其上的对比文字。
+           * 曾经浅色主题用墨色实心、深色主题用绿色实心——同一个筛选器在切主题后
+           * 看起来是两种不同的设计，品牌色也只在深色下出现。
+           */
+          border: palette.actionFill,
+          background: palette.actionFill,
+          text: palette.onActionFill,
+        }
       : {
           border: palette.border,
           background: palette.surface,
@@ -101,6 +99,6 @@ const styles = StyleSheet.create({
   },
   leading: { alignItems: "center", justifyContent: "center" },
   label: { fontWeight: "600", flexShrink: 1 },
-  disabled: { opacity: 0.42 },
-  pressed: { opacity: 0.72 },
+  disabled: { opacity: interaction.disabledOpacity },
+  pressed: { opacity: interaction.pressedOpacity },
 });

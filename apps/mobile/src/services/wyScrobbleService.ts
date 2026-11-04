@@ -10,7 +10,7 @@ export interface ScrobbleParams {
 /**
  * 网易云听歌打点（scrobble）：
  * 向网易云上报真实播放时长，用于生成年度歌单、个性化推荐和云村听歌排行。
- * 对齐 LX-N 的 weapi/feedback/weblog 实现。
+ * 走 weapi/feedback/weblog。
  * 若未登录或上报失败，仅打印 warning，绝不抛错，保证不影响正常的本地历史记录。
  */
 export async function scrobbleWySong(params: ScrobbleParams): Promise<boolean> {

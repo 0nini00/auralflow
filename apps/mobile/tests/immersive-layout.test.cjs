@@ -153,6 +153,8 @@ function renderScreen({ width = 390, height = 844, currentPage = 0, overlay = {}
       "react-native": { StyleSheet: { create: (styles) => styles }, Platform: { OS: "android", select: (options) => options.android ?? options.default } },
     })("src/screens/immersive/immersiveStyles.ts"),
     "@/screens/immersive/immersiveFlySource": { getImmersiveFlySource: () => null },
+    // 弹层 token 走真实模块：遮罩/圆角改了用例随之变化，不再抄一份常量。
+    "@/theme/sheetTokens": createLoader({})("src/theme/sheetTokens.ts"),
     "@/services/immersiveLayoutModel": model,
     "@/stores/themeStore": { useThemeStore: (select) => select({}), getResolvedTheme: () => "dark" },
     "@/stores/lyricSettingsStore": { useLyricSettingsStore: (select) => select({ fontSize: 22, showLyricProgress: true }) },

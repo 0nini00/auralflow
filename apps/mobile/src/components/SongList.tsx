@@ -41,7 +41,7 @@ export interface SongListProps {
   highlightedIndex?: number | null;
   /** 可选：隐藏每行的来源小标签。详情页里所有歌曲同源，逐行显示来源是噪声 */
   hideSourceTag?: boolean;
-  /** 对齐 lx：是否显示封面图。false 时显示序号/播放中图标（lx 我的列表风格） */
+  /** 是否显示封面图。false 时显示序号/播放中图标 */
   showCover?: boolean;
   showLikeAction?: boolean;
   showMoreAction?: boolean;
@@ -85,7 +85,7 @@ export interface SongListProps {
  *
  * virtualized 路径（FlatList）：长列表详情页（歌单/专辑/歌手/收藏/本地曲库）
  * 以 SongList 本体作为滚动容器，头部内容经 ListHeaderComponent 随列表滚动——
- * 只有可视区行在树上，几千首的歌单滚动也保持跟手（对齐 lx OnlineList 方案）。
+ * 只有可视区行在树上，几千首的歌单滚动也保持跟手。
  */
 const INITIAL_MOUNT_COUNT = 60;
 const MOUNT_BATCH_SIZE = 100;
@@ -145,7 +145,7 @@ export function SongList({
   const [qualityModalVisible, setQualityModalVisible] = useState(false);
   const [pendingQuality, setPendingQuality] = useState<DownloadQuality | null>(null);
   const [downloading, setDownloading] = useState(false);
-  // 上次选择的下载音质（记住上次选择，对齐 lx）
+  // 上次选择的下载音质
   const [defaultQuality, setDefaultQuality] = useState<DownloadQuality | null>(null);
 
   // virtualized：ListHeaderComponent 实际渲染高度，用于 getItemLayout 修正 scrollToIndex 定位。
@@ -212,7 +212,7 @@ export function SongList({
       })();
       return;
     }
-    // 记住上次选择的音质（对齐 lx），异步读取后回填为默认选中
+    // 记住上次选择的音质，异步读取后回填为默认选中
     void getLastSelectQuality().then((last) => {
       if (last) setDefaultQuality(last);
     });
@@ -551,9 +551,9 @@ interface SongItemProps {
   /** 稳定的元数据取值函数，行内调用（保持 prop 引用稳定以配合 memo） */
   getExtraMetadata?: (song: MusicInfo, index: number) => string | undefined;
   pressable?: boolean;
-  /** 是否为当前正在播放的歌曲（lx：主色标题 + 浅色背景高亮） */
+  /** 是否为当前正在播放的歌曲（主色标题 + 浅色背景高亮） */
   isPlaying?: boolean;
-  /** 对齐 lx：false 时左侧显示序号/播放图标（lx 我的列表风格） */
+  /** false 时左侧显示序号/播放图标 */
   showCover?: boolean;
   highlighted?: boolean;
   hideSourceTag?: boolean;
@@ -834,7 +834,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 6,
     paddingHorizontal: 2,
-    // 对齐 lx：无卡片边框/圆角/行间距，纯色行 + 播放高亮
+    // 无卡片边框/圆角/行间距，纯色行 + 播放高亮
   },
   selectionIcon: {
     width: 30,
@@ -852,7 +852,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   indexText: {
-    fontSize: 12,
+    fontSize: typography.caption,
     fontWeight: "400",
   },
   artwork: {
@@ -872,7 +872,9 @@ const styles = StyleSheet.create({
     paddingRight: 2,
   },
   songName: {
-    fontSize: 14,
+    // 正文档是 15；14 是 2026-10 把 body 从 14 调到 15 时漏掉的一处，
+    // 而它恰好是列表里最重要的那行字。
+    fontSize: typography.body,
     fontWeight: "500",
   },
   meta: {
@@ -882,16 +884,17 @@ const styles = StyleSheet.create({
     gap: spacing.xxs,
   },
   metaText: {
-    fontSize: 11,
+    // 11px 在暖底 + 次要色上几乎不可读；caption(12) 是阶梯里最小的可读档
+    fontSize: typography.caption,
     minWidth: 0,
     flexShrink: 1,
   },
-  // 对齐 lx：歌手与专辑紧凑排列（不再 flex:1 把专辑推到行尾）
+  // 歌手与专辑紧凑排列（不再 flex:1 把专辑推到行尾）
   metaTextPrimary: {
     flexShrink: 1,
   },
   separator: {
-    fontSize: 11,
+    fontSize: typography.caption,
     flexShrink: 0,
   },
   source: {
@@ -912,7 +915,7 @@ const styles = StyleSheet.create({
   },
   duration: {
     width: 40,
-    fontSize: 11,
+    fontSize: typography.caption,
     textAlign: "right",
     marginLeft: 2,
   },

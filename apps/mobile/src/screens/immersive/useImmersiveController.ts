@@ -29,6 +29,7 @@ import { useDownloadStore, type DownloadQuality } from "@/stores/downloadStore";
 import { getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { openArtistDetailScreen } from "@/navigation/navigationRef";
 import { hapticLight } from "@/services/hapticService";
+import { logger } from "@/services/logger";
 import type { SearchArtistResult } from "@/services/musicApi";
 
 export interface UseImmersiveControllerArgs {
@@ -36,7 +37,7 @@ export interface UseImmersiveControllerArgs {
   onClose: () => void;
 }
 
-/** 沉浸式播放页状态与操作（对齐 lx 竖屏播放器：控件常驻，不做自动隐藏） */
+/** 沉浸式播放页状态与操作（控件常驻，不做自动隐藏） */
 export function useImmersiveController({ visible, onClose }: UseImmersiveControllerArgs) {
   const insets = useSafeAreaInsets();
 
@@ -338,7 +339,10 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
     if (!currentSong) return;
     try {
       await shareMusic(currentSong);
-    } catch {}
+    } catch (error) {
+      logger.warn("[Immersive] 分享歌曲失败", error);
+      Alert.alert("分享失败", error instanceof Error ? error.message : String(error));
+    }
   };
 
   // 顶部歌手点击 → 跳转歌手详情（仅网易云源支持详情，其它源禁用回调）。

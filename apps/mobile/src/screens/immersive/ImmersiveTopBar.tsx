@@ -19,7 +19,7 @@ export interface ImmersiveTopBarProps {
   onOpenSleep: () => void;
 }
 
-/** 顶部信息栏（对齐 lx 竖屏 Header）：关闭 / 歌名歌手 / 睡眠 / 设置 */
+/** 顶部信息栏：关闭 / 歌名歌手 / 睡眠 / 设置 */
 export function ImmersiveTopBar({
   insetsTop,
   songName,

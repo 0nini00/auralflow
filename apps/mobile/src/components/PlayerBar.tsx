@@ -39,8 +39,6 @@ import { radius, spacing, typography } from "@/theme/tokens";
 
 export interface PlayerBarProps {
   onOpen: () => void;
-  /** 底部安全区高度：作为卡片外边距把播放器抬离手势条；Tab 页内嵌于 tabBar 时为 0。 */
-  bottomInset?: number;
 }
 
 function showActionError(title: string, error: unknown) {
@@ -52,11 +50,14 @@ function showActionError(title: string, error: unknown) {
  *
  * 设计要点：
  * - 64px 高、左右 12px 外边距、圆角 20，浮在标签栏上方 6px；
+ * - 底部安全区由宿主负责（Tab 页交给 BottomTabBar，push 页交给 AppShell 的
+ *   playerDock）。组件自己不再吃 inset —— 曾经两处各加一次，卡片下方凭空
+ *   多出一个手势条的高度。
  * - 进度线在卡片顶部（2px），播放键 34px 实心品牌绿，右侧只留「下一首」；
  * - 队列入口收敛到播放页，避免 64px 内塞四个按钮。
  * - 保留长按/上滑打开播放页、歌词行、悬浮歌词同步与封面测量。
  */
-export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
+export function PlayerBar({ onOpen }: PlayerBarProps) {
   const currentSong = usePlayerStore((state) => state.currentSong);
   const coverUrl = usePlayerStore(selectPlaybackArtwork);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
@@ -77,7 +78,7 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
     [themeMode, systemTheme, accentColor],
   );
 
-  // 键盘弹出时隐藏迷你栏（对齐 lx PlayerBar：搜索/输入时不遮挡键盘）
+  // 键盘弹出时隐藏迷你栏（搜索/输入时不遮挡键盘）
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   useEffect(() => {
     const showSub = Keyboard.addListener("keyboardDidShow", () => setKeyboardVisible(true));
@@ -194,7 +195,6 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
         styles.root,
         {
           height: PLAYER_BAR_HEIGHT,
-          marginBottom: bottomInset,
           backgroundColor: palette.surface,
           borderColor: palette.border,
         },
@@ -230,22 +230,25 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
             )}
           </View>
           <View style={styles.trackText}>
-            {/* 迷你栏空间有限，超长时自动缩小字号保整段可见，不再从尾部截掉歌手。 */}
-            <Text
-              style={[styles.trackName, { color: palette.text }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.78}
-            >
-              {`${currentSong.name} - ${currentSong.singer?.trim() || "未知歌手"}`}
+            {/*
+              主次分两行：歌名自己是主信息，不该和歌手挤在同一行里争字号。
+              此前两者拼成一行 12.5px 加粗再 adjustsFontSizeToFit 缩到 0.78
+              （≈9.75px），长歌名反而比歌手更难读。
+            */}
+            <Text style={[styles.trackName, { color: palette.text }]} numberOfLines={1}>
+              {currentSong.name}
             </Text>
-            {/* 跨源降级注记（约 10s）优先占用此行，确保用户看到「实际在播哪一版」。 */}
+            {/* 第二行的优先级：跨源注记（约 10s）> 当前歌词 > 歌手 */}
             {playbackNotice ? (
               <Text style={[styles.trackNotice, { color: palette.primaryInk }]} numberOfLines={1}>
                 {playbackNotice}
               </Text>
             ) : (
-              <MiniLyricStatus overlayVisible={overlayVisible} color={palette.textMuted} />
+              <MiniLyricStatus
+                overlayVisible={overlayVisible}
+                color={palette.textMuted}
+                fallbackText={currentSong.singer?.trim() || "未知歌手"}
+              />
             )}
           </View>
         </Touchable>
@@ -258,6 +261,9 @@ export function PlayerBar({ onOpen, bottomInset = 0 }: PlayerBarProps) {
             accessibilityLabel={isPlaying ? "暂停" : "播放"}
             accessibilityState={{ disabled: loading, busy: loading }}
             activeScale={0.94}
+            /* 34px 的容器靠 hitSlop 补到 44；横向只扩 4px，避免和「下一首」
+               的可点区域叠在一起导致点错 */
+            hitSlop={{ top: 5, bottom: 5, left: 4, right: 4 }}
             style={[styles.playButton, { backgroundColor: palette.actionFill }]}
           >
             {loading ? (
@@ -285,6 +291,8 @@ interface MiniLyricStatusProps {
   overlayVisible: boolean;
   /** 歌词行文字颜色（迷你栏第二行） */
   color: string;
+  /** 没有歌词或不在播放时占位显示的内容（歌手名） */
+  fallbackText: string;
 }
 
 /**
@@ -295,7 +303,7 @@ interface MiniLyricStatusProps {
  * - 只有这一行 Text 随行切换重渲染，整个 PlayerBar（封面、按钮）不再随进度重建；
  * - 悬浮歌词原生桥按「显示签名」去重推送：内容不变不发送。
  */
-function MiniLyricStatus({ overlayVisible, color }: MiniLyricStatusProps) {
+function MiniLyricStatus({ overlayVisible, color, fallbackText }: MiniLyricStatusProps) {
   const lyrics = usePlayerStore((state) => state.lyrics);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const loading = usePlayerStore((state) => state.loading);
@@ -310,13 +318,13 @@ function MiniLyricStatus({ overlayVisible, color }: MiniLyricStatusProps) {
     (text: string) => convertChineseText(text, chineseConversion),
     [chineseConversion],
   );
-  const displayText = !isPlaying
-    ? loading
-      ? "加载中…"
-      : "已暂停"
-    : currentIndex >= 0
+  // 暂停时不再把这行换成「已暂停」——播放/暂停图标已经表达了状态，
+  // 这行留给歌手名，信息密度更高。
+  const displayText = loading && !isPlaying
+    ? "加载中…"
+    : isPlaying && currentIndex >= 0
       ? convertText(lyrics[currentIndex]?.text ?? "")
-      : "";
+      : fallbackText;
 
   const songKey = currentSong ? `${currentSong.source}:${currentSong.id}` : "";
 
@@ -415,15 +423,16 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   trackName: {
-    fontSize: 12.5,
-    lineHeight: 17,
-    fontWeight: "700",
-    letterSpacing: -0.1,
+    // 原先 12.5px 是阶梯外的孤立值，且与歌手同字号——主次不分
+    fontSize: typography.body,
+    lineHeight: 19,
+    fontWeight: "600",
+    letterSpacing: -0.2,
   },
   trackArtist: {
     marginTop: 1,
-    fontSize: typography.micro,
-    lineHeight: 14,
+    fontSize: typography.caption,
+    lineHeight: 16,
   },
   trackNotice: {
     marginTop: 1,
@@ -435,7 +444,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: spacing.xxs,
+    // 12 而不是 4：两个键的 hitSlop 各扩 4px，间距太小会互相吃掉点击
+    gap: spacing.s,
   },
   playButton: {
     width: 34,

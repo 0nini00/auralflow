@@ -18,6 +18,7 @@ import { parsePlaylistLink } from "@lx/core";
 
 import { importPlaylistFromLink } from "@/services/playlistLinkImportService";
 import type { ThemePalette } from "@/stores/themeStore";
+import { sheet } from "@/theme/sheetTokens";
 import { radius, spacing, typography } from "@/theme/tokens";
 import { Touchable } from "@/components/Touchable";
 import { withAlpha } from "@/services/themePaletteModel";
@@ -282,7 +283,7 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    backgroundColor: sheet.scrim,
   },
   backdrop: {
     ...StyleSheet.absoluteFill,

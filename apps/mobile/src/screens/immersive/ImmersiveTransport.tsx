@@ -101,7 +101,7 @@ function PlayModeIcon({
 }
 
 /**
- * 底部播放区（对齐 lx 竖屏 Player）：
+ * 底部播放区：
  * - PlayInfo：进度条 + 当前时间/状态/总时间
  * - ControlBtn：上一首 / 播放暂停 / 下一首
  * - MoreBtn：播放模式 / 喜欢 / 桌面歌词 / 评论 / 更多
@@ -242,7 +242,7 @@ export function ImmersiveTransport({
         />
       </View>
 
-      {/* ── MoreBtn：播放模式 / 喜欢 / 桌面歌词 / 评论 / 更多（对齐 lx 一排小按钮） ── */}
+      {/* ── MoreBtn：播放模式 / 喜欢 / 桌面歌词 / 评论 / 更多 ── */}
       <View style={styles.moreBtnRow}>
         <IconButton
           onPress={handleToggleModeWithToast}

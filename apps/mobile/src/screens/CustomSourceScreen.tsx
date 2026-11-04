@@ -21,7 +21,9 @@ import {
 } from "@/stores/customSourceStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { pickCustomSourceScriptFile } from "@/services/customSourceFilePicker";
+import { sheet } from "@/theme/sheetTokens";
 import { radius, spacing, touch, typography } from "@/theme/tokens";
+import { showToast } from "@/components/ui/Toast";
 
 function openCustomSourceUpdateUrl(updateUrl?: string) {
   if (!updateUrl) return;
@@ -72,7 +74,7 @@ export function CustomSourceScreen() {
       const item = await importScript(script);
       setImportModalVisible(false);
       setScriptInput("");
-      Alert.alert("导入成功", `已导入音源「${item.name}」`);
+      showToast(`已导入音源「${item.name}」`);
     } catch (error) {
       Alert.alert(
         "导入失败",
@@ -91,7 +93,7 @@ export function CustomSourceScreen() {
       if (!filePath) return;
       const item = await importFromFile(filePath);
       if (item) {
-        Alert.alert("导入成功", `已导入音源「${item.name}」`);
+        showToast(`已导入音源「${item.name}」`);
       }
     } catch (error) {
       Alert.alert("导入失败", error instanceof Error ? error.message : String(error));
@@ -580,7 +582,7 @@ const styles = StyleSheet.create({
   // Modal
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: sheet.scrim,
     justifyContent: "center",
     padding: 20,
   },

@@ -475,7 +475,7 @@ public class LyricOverlayService extends Service {
 
         // 不再画背景块与进度条：85% 不透明的深色底几乎盖住整片壁纸，
         // 系统默认样式的进度条也与桌面观感格格不入。改为纯文字 + 投影，
-        // 靠投影保证在任意壁纸上的可读性（对齐 lx 桌面歌词的做法）。
+        // 靠投影保证在任意壁纸上的可读性。
         overlayView = new LinearLayout(this);
         overlayView.setOrientation(LinearLayout.VERTICAL);
         overlayView.setPadding(dp(16), dp(10), dp(16), dp(10));

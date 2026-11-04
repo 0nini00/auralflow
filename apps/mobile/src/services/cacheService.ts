@@ -42,7 +42,7 @@ function getAudioCacheFilePath(music: MusicInfo, quality: string): string {
 // 常听曲目能稳定驻留（file:// 命中不探活、离线可播，对齐 ExoPlayer SimpleCache 的量级）。
 // 磁盘空间不足的兜底见 autoCleanCache（启动时检查，剩余 <500MB 清 7 天前文件）。
 const MAX_CACHE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB
-// 歌词内容可能随版权/修词更新，保留 30 天过期；封面/音频采用 lx 的 immutable 语义
+// 歌词内容可能随版权/修词更新，保留 30 天过期；封面/音频采用 immutable 语义
 // （URL 不变永不过期，仅受容量上限 LRU 约束），避免定期失效导致重新下载。
 const MAX_CACHE_AGE = 30 * 24 * 60 * 60 * 1000; // 30天（仅歌词使用）
 // 歌词缓存条目格式版本：v2 起解析器保留网易云 eapi 富文本元信息行（作词/作曲/编曲…）。
@@ -625,7 +625,7 @@ export async function autoCleanCache(): Promise<void> {
 /**
  * 清理过期缓存：仅清理歌词缓存（内容可能随版权/修词更新，30 天过期）。
  * 封面/音频采用 immutable 语义（URL 不变永不过期），由容量上限 LRU 自动回收，
- * 避免定期失效导致封面反复重新下载（对齐 lx 的 FastImage immutable 缓存）。
+ * 避免定期失效导致封面反复重新下载。
  */
 
 export async function cleanExpiredCache(): Promise<void> {

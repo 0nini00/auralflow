@@ -19,7 +19,7 @@ import { CloudSyncRefusalError } from "@lx/core";
  *
  * 提供 WebDAV 服务配置（地址 / 用户名 / 密码）、连接测试，以及歌单与
  * 自定义音源的上传 / 下载操作。配置与同步状态通过 webdavStore 管理，
- * 颜色取自 themeStore，与桌面端 LX Music 同步格式兼容。
+ * 颜色取自 themeStore，与桌面端同步格式兼容。
  */
 export function WebDavSyncScreen() {
   const themeMode = useThemeStore((state) => state.mode);
@@ -202,7 +202,7 @@ export function WebDavSyncScreen() {
           WebDAV 配置
         </Text>
         <Text style={[styles.cardCaption, { color: palette.textMuted }]}>
-          填写服务地址与账号信息，与 LX Music 桌面端兼容。
+          填写服务地址与账号信息，与桌面端兼容。
         </Text>
 
         <Text style={[styles.label, { color: palette.textMuted }]}>
@@ -354,7 +354,7 @@ export function WebDavSyncScreen() {
           音源同步
         </Text>
         <Text style={[styles.cardCaption, { color: palette.textMuted }]}>
-          上传或下载 LX Music 自定义音源，覆盖远端或本机的 user_apis.json。
+          上传或下载自定义音源，覆盖远端或本机的 user_apis.json。
         </Text>
 
         <View style={styles.buttonRow}>

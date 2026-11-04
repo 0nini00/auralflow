@@ -29,6 +29,7 @@ import { logger } from "@/services/logger";
 import { withAlpha } from "@/services/themePaletteModel";
 import { pickApkAssetForDevice, type ApkAsset, type UpdateInfo } from "@/services/updateService";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
+import { sheet } from "@/theme/sheetTokens";
 import { radius, spacing, touch, typography } from "@/theme/tokens";
 
 /**
@@ -498,7 +499,7 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: sheet.scrim,
   },
   sheet: {
     borderTopLeftRadius: radius.xl,

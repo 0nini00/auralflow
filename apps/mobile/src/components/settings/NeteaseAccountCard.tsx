@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { useAccountStore } from "@/stores/accountStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, touch, typography } from "@/theme/tokens";
+import { showToast } from "@/components/ui/Toast";
 
 /**
  * 网易云账号卡片：
@@ -68,7 +69,7 @@ export function NeteaseAccountCard() {
       const loginUser = useAccountStore.getState().user;
       setCookie("");
       setEditing(false);
-      Alert.alert("登录成功", loginUser ? `已登录网易云账号：${loginUser.nickname}` : "已登录网易云账号");
+      showToast(loginUser ? `已登录网易云账号：${loginUser.nickname}` : "已登录网易云账号");
     } catch (loginError) {
       Alert.alert("登录失败", loginError instanceof Error ? loginError.message : String(loginError));
     }

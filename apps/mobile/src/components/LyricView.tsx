@@ -24,6 +24,7 @@ import {
   convertChineseText,
   type ChineseConversionMode,
 } from "@/services/chineseConversionService";
+import { logger } from "@/services/logger";
 
 export interface LyricViewProps {
   lyrics: LyricLine[];
@@ -40,7 +41,7 @@ export interface LyricViewProps {
   style?: StyleProp<ViewStyle>;
 }
 
-// 未测量行高的兜底估算（首次渲染 / 行高尚未 onLayout 时用于滚动偏移计算，对齐 lx 的动态行高方案）
+// 未测量行高的兜底估算（首次渲染 / 行高尚未 onLayout 时用于滚动偏移计算）
 const FALLBACK_ITEM_HEIGHT = 68;
 // 上下各填充几行空白，让当前歌词始终显示在列表中间
 const SPACING_ROWS = 4;
@@ -54,7 +55,7 @@ const SPACING_ROWS = 4;
 const LYRIC_INITIAL_NUM_TO_RENDER = 30;
 const AnimatedView = Animated.createAnimatedComponent(View);
 
-/** easeInOutQuad 缓动（对齐 lx utils/scroll.ts）。 */
+/** easeInOutQuad 缓动。 */
 function easeInOutQuad(t: number, b: number, c: number, d: number): number {
   t /= d / 2;
   if (t < 1) return (c / 2) * t * t + b;
@@ -63,7 +64,7 @@ function easeInOutQuad(t: number, b: number, c: number, d: number): number {
 }
 
 /**
- * 平滑滚动到指定偏移（对齐 lx scrollTo：10ms 步进 + easeInOutQuad 缓动 + scrollToOffset animated:false）。
+ * 平滑滚动到指定偏移（10ms 步进 + easeInOutQuad 缓动 + scrollToOffset animated:false）。
  * 返回取消函数；新滚动 / 用户拖动时调用取消，避免动画与新目标打架。
  */
 function smoothScrollToOffset(
@@ -220,7 +221,7 @@ export function LyricView({
     [enableAnimation, animationIntensity]
   );
 
-  // ── 动态行高（对齐 lx：onLayout 记录每行真实高度，滚动偏移按累计高度计算，解决译文行高度不一的偏移）──
+  // ── 动态行高（onLayout 记录每行真实高度，滚动偏移按累计高度计算，解决译文行高度不一的偏移）──
   const lineHeightsRef = useRef<number[]>([]);
   const scrollInfoRef = useRef<NativeSyntheticEvent<NativeScrollEvent>["nativeEvent"] | null>(null);
   const scrollCancelRef = useRef<(() => void) | null>(null);
@@ -231,7 +232,7 @@ export function LyricView({
     if (height > 0) lineHeightsRef.current[index] = height;
   }, []);
 
-  // 计算目标行居中所需的滚动偏移（对齐 lx handleScrollToActive）：
+  // 计算目标行居中所需的滚动偏移：
   // offset = 累计行高(0..index-1) + 当前行一半 - 视口高度 × 0.42
   const computeTargetOffset = useCallback((index: number): number => {
     const heights = lineHeightsRef.current;
@@ -245,7 +246,7 @@ export function LyricView({
     return offset - viewportHeight * 0.42;
   }, []);
 
-  // 滚动到目标行（对齐 lx）：
+  // 滚动到目标行：
   //  - 相邻行（diff==1）→ 平滑滚动动画（easeInOutQuad 600ms，按动态行高精确计算偏移）
   //  - 跨行/seek/首次 → scrollToIndex viewPosition 0.42（立即定位，不播动画）
   const handleScrollToActive = useCallback(
@@ -255,7 +256,7 @@ export function LyricView({
         scrollCancelRef.current();
         scrollCancelRef.current = null;
       }
-      // 相邻行且已有滚动信息 → 平滑滚动（对齐 lx 的精确偏移计算）
+      // 相邻行且已有滚动信息 → 平滑滚动（按动态行高精确计算偏移）
       if (adjacent && scrollInfoRef.current) {
         const to = computeTargetOffset(index);
         scrollCancelRef.current = smoothScrollToOffset(
@@ -279,14 +280,14 @@ export function LyricView({
     [computeTargetOffset]
   );
 
-  // ── 行切换 → 滚动（对齐 lx）：连续逐行（diff==1）延迟 600ms，跨行/seek 立即滚 ──
+  // ── 行切换 → 滚动：连续逐行（diff==1）延迟 600ms，跨行/seek 立即滚 ──
   const prevTargetRef = useRef(targetIndex);
   const delayScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 最新目标行号 ref：供延迟回调/恢复回调读取，避免闭包捕获过期行号
   const targetIndexRef = useRef(targetIndex);
   targetIndexRef.current = targetIndex;
 
-  // 用户滚动后暂停自动跟唱（对齐 lx：onScrollEndDrag 后 3s 恢复）
+  // 用户滚动后暂停自动跟唱（松手后 3s 恢复）
   const isPauseScrollRef = useRef(false);
   const scrollResumeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -299,7 +300,7 @@ export function LyricView({
     };
   }, []);
 
-  // 切歌/歌词更新时：重置滚动状态，立即滚回首行（对齐 lx：歌词更新即重置 isPauseScrollRef）
+  // 切歌/歌词更新时：重置滚动状态，立即滚回首行
   useEffect(() => {
     isPauseScrollRef.current = false;
     if (scrollResumeTimeoutRef.current) {
@@ -315,8 +316,8 @@ export function LyricView({
     if (listRef.current) {
       try {
         listRef.current.scrollToOffset({ offset: 0, animated: false });
-      } catch {
-        // 忽略
+      } catch (error) {
+        logger.warn("[LyricView] 切歌后滚回首行失败（忽略）", error);
       }
     }
   }, [lyrics]);
@@ -357,7 +358,7 @@ export function LyricView({
     }
 
     if (isAdjacent) {
-      // 连续逐行：延迟 600ms 再滚（对齐 lx），给用户留出看清当前行的时间
+      // 连续逐行：延迟 600ms 再滚，给用户留出看清当前行的时间
       delayScrollTimeoutRef.current = setTimeout(() => {
         delayScrollTimeoutRef.current = null;
         if (isPauseScrollRef.current) return;
@@ -378,8 +379,8 @@ export function LyricView({
         offset: info.averageItemLength * info.index,
         animated: false,
       });
-    } catch {
-      // 忽略
+    } catch (error) {
+      logger.warn("[LyricView] 歌词补偿定位失败（忽略）", error);
     }
     if (scrollRetryTimeoutRef.current) clearTimeout(scrollRetryTimeoutRef.current);
     scrollRetryTimeoutRef.current = setTimeout(() => {
@@ -421,7 +422,7 @@ export function LyricView({
         palette,
       });
 
-      // 对齐 lx：高亮行只用颜色区分（active 纯色），不做逐字卡拉 OK 双层文本填充
+      // 高亮行只用颜色区分（active 纯色），不做逐字卡拉 OK 双层文本填充
       return (
         <View onLayout={(e) => handleLineLayout(index, e.nativeEvent.layout.height)}>
           <AnimatedLyricLine
@@ -472,7 +473,7 @@ export function LyricView({
           fadingEdgeLength={100}
           initialNumToRender={LYRIC_INITIAL_NUM_TO_RENDER}
           onScrollBeginDrag={() => {
-            // 对齐 lx：开始拖动 → 取消自动滚动动画与延迟，暂停自动跟唱
+            // 开始拖动 → 取消自动滚动动画与延迟，暂停自动跟唱
             isPauseScrollRef.current = true;
             if (delayScrollTimeoutRef.current) {
               clearTimeout(delayScrollTimeoutRef.current);
@@ -492,7 +493,7 @@ export function LyricView({
             }
           }}
           onScrollEndDrag={() => {
-            // 对齐 lx：松手后 3s 恢复自动跟唱（滚动持续时不会提前恢复）
+            // 松手后 3s 恢复自动跟唱（滚动持续时不会提前恢复）
             if (scrollResumeTimeoutRef.current) {
               clearTimeout(scrollResumeTimeoutRef.current);
               scrollResumeTimeoutRef.current = null;

@@ -33,12 +33,13 @@ export function LargeHeader({ title, eyebrow, right, style }: LargeHeaderProps) 
             {eyebrow}
           </Text>
         ) : null}
+        {/* 不再用 adjustsFontSizeToFit：长歌单名会把 28px 的大标题压到 23px，
+            同一角色的「页面身份」字号随文案长度浮动。标题定长、超长省略。 */}
         <Text
           accessibilityRole="header"
           style={[styles.title, { color: palette.text }]}
           numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.82}
+          ellipsizeMode="tail"
         >
           {title}
         </Text>

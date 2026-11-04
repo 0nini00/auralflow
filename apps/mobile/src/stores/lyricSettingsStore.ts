@@ -53,13 +53,13 @@ export interface LyricSettingsState {
 
   chineseConversion: ChineseConversionMode;
 
-  /** 封面旋转开关（对齐 lx playDetail.isCoverSpin） */
+  /** 封面旋转开关 */
   coverSpin: boolean;
 
-  /** 歌词滚动进度条显示开关（对齐 lx playDetail.isShowLyricProgressSetting） */
+  /** 歌词滚动进度条显示开关 */
   showLyricProgress: boolean;
 
-  /** 沉浸页氛围色背景：从封面提取主色给背景染色（借鉴自聚合播放器，默认关保持 lx 纯色） */
+  /** 沉浸页氛围色背景：从封面提取主色给背景染色（默认关，保持纯色） */
   ambientCoverTint: boolean;
 
 

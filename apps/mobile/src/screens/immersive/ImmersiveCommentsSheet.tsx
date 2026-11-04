@@ -20,6 +20,7 @@ import { useAccountStore } from "@/stores/accountStore";
 import { CommentVoiceContent } from "@/components/CommentVoiceContent";
 import { useCommentVoicePlayback } from "@/hooks/useCommentVoicePlayback";
 import type { CommentVoiceItem, CommentVoiceState } from "@/services/commentVoiceController";
+import { sheet } from "@/theme/sheetTokens";
 
 export interface ImmersiveCommentsSheetProps {
   visible: boolean;
@@ -97,7 +98,7 @@ function CommentRow({ comment, palette, playback, onToggle }: {
   );
 }
 
-/** 沉浸式播放器「评论」面板：对齐 lx 评论（网易云数据源） */
+/** 沉浸式播放器「评论」面板（网易云数据源） */
 export function ImmersiveCommentsSheet({
   visible,
   onClose,
@@ -386,7 +387,7 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: sheet.scrim,
   },
   sheet: {
     maxHeight: "78%",

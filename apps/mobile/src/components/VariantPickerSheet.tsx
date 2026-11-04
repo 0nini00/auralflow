@@ -22,6 +22,7 @@ import { withAlpha } from "@/services/themePaletteModel";
 import { hapticLight } from "@/services/hapticService";
 import { useVariantPinStore } from "@/stores/variantPinStore";
 import { playQueue } from "@/services/playerService";
+import { sheet } from "@/theme/sheetTokens";
 
 const SOURCE_LABELS: Record<string, string> = {
   wy: "网易云",
@@ -205,7 +206,7 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    backgroundColor: sheet.scrim,
   },
   backdrop: {
     ...StyleSheet.absoluteFill,

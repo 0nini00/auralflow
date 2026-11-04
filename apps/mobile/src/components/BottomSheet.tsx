@@ -17,6 +17,8 @@ import Animated, {
 } from "react-native-reanimated";
 import type { ThemePalette } from "@/stores/themeStore";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { sheet } from "@/theme/sheetTokens";
+import { spacing } from "@/theme/tokens";
 
 export interface BottomSheetProps {
   visible: boolean;
@@ -129,10 +131,14 @@ export function BottomSheet({
           styles.sheet,
           {
             maxHeight: windowHeight * maxHeightRatio,
-            backgroundColor: palette.background,
+            // 面板底色取 surface（卡片表面），不是 background（页面底色）：
+            // 深色主题下 background 比 surface 更黑，弹层会像另一个 app 的窗口。
+            backgroundColor: palette.surface,
             borderTopColor: palette.border,
-            // 底部安全区避让：列表不被手势条截断（max(安全区, 现有内边距)）
-            paddingBottom: Math.max(insets.bottom, 0),
+            // 底部安全区避让：取「安全区」与「最小呼吸位」的较大者。
+            // 原写法是 Math.max(insets.bottom, 0)——insets 为 0 时等于没有内边距，
+            // 队列面板最后一行会贴着屏幕底边。其余 13 处弹层都用了 16/12 的下限。
+            paddingBottom: Math.max(insets.bottom, spacing.m),
           },
           sheetStyle,
         ]}
@@ -150,7 +156,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: sheet.scrim,
   },
   scrimTouch: {
     flex: 1,
@@ -160,8 +166,8 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderTopLeftRadius: sheet.radius,
+    borderTopRightRadius: sheet.radius,
     borderTopWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
   },

@@ -31,7 +31,7 @@ const DOWNLOAD_DIR = `${DOWNLOAD_ROOT_DIR}/downloads`;
 
 const DOWNLOAD_STORE_KEY = "auralflow.mobile.downloads";
 
-/** 上次选择的下载音质（对齐 lx getLastSelectQuality/saveLastSelectQuality）。 */
+/** 上次选择的下载音质。 */
 const LAST_QUALITY_KEY = "auralflow.mobile.download.lastQuality";
 
 /** 读取上次选择的下载音质；无记录返回 null。 */
@@ -414,7 +414,7 @@ export async function getDownloadedPath(
 /**
  * 下载歌曲到本地（串行队列入口）
  *
- * 加入串行下载队列（对齐 lx：一个完成再下一个），返回的 Promise 在真正完成时 resolve。
+ * 加入串行下载队列（一个完成再下一个），返回的 Promise 在真正完成时 resolve。
  * 重复入队同一首歌同音质时直接返回已存在文件（去重）。
  *
  * @param song 歌曲信息

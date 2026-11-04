@@ -18,6 +18,7 @@ import type { DownloadQuality } from "@/stores/downloadStore";
 import { PLAYBACK_QUALITY_OPTIONS } from "@/services/playbackQualityModel";
 import { withAlpha } from "@/services/themePaletteModel";
 import { radius } from "@/theme/tokens";
+import { sheet } from "@/theme/sheetTokens";
 
 interface DownloadQualityModalProps {
   /** 弹窗是否可见 */
@@ -50,7 +51,7 @@ export function DownloadQualityModal({
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
-  // 上次选择的音质作为默认高亮（对齐 lx：记住上次选择）
+  // 上次选择的音质作为默认高亮
   const [selectedQuality, setSelectedQuality] = React.useState<DownloadQuality | null>(defaultQuality);
 
   React.useEffect(() => {
@@ -159,7 +160,7 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: sheet.scrim,
   },
   sheet: {
     borderTopLeftRadius: 20,

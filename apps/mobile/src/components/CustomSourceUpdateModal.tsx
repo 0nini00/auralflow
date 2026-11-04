@@ -5,6 +5,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ActionButton } from "@/components/ActionButton";
 import { useCustomSourceStore } from "@/stores/customSourceStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
+import { sheet } from "@/theme/sheetTokens";
 import { radius } from "@/theme/tokens";
 import {
   buildCustomSourceUpdateDismissKey,
@@ -110,7 +111,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.6)",
+    backgroundColor: sheet.scrim,
     padding: 24,
   },
   card: {

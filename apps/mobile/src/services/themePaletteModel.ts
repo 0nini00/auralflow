@@ -19,6 +19,8 @@ export interface ThemePalette {
   /** actionFill 上的文字/图标颜色 */
   onActionFill: string;
   danger: string;
+  /** danger 用于「文字」时的可读档（浅色下压深，深色下提亮） */
+  dangerInk: string;
   dangerSurface: string;
   statusBar: "light-content" | "dark-content";
   isDark: boolean;
@@ -36,6 +38,8 @@ const DEFAULT_ACCENT_INK_DARK = "#6fe7ac";
 /** 按钮填充用的深绿：与浅色文字行动色同档，白字 5.4:1 */
 const DEFAULT_ACTION_FILL = "#0d7a42";
 const ACTION_FILL_TEXT = "#ffffff";
+/** 强调色填充上的深色候选（与桌面端同一个思路，色值沿移动端的墨绿） */
+const ACCENT_TEXT_DARK = "#062a19";
 
 /** 来源色只用于 6px 圆点，不做整块标签 */
 export const SOURCE_COLORS = {
@@ -54,8 +58,11 @@ const lightBasePalette: Omit<ThemePalette, "primary" | "primaryInk" | "primaryTe
   border: "#e3e3d9",
   text: "#161a16",
   textMuted: "#5b615a",
-  textSubtle: "#8b918a",
+  // 原 #8b918a 在暖底上只有 2.90:1，却被用来承载歌手、时长这类正文级信息。
+  // #646863 在 surface 上 5.67:1、在 surfaceMuted 上 4.74:1，仍是三档里最浅的一档。
+  textSubtle: "#646863",
   danger: "#ef4444",
+  dangerInk: "#ba3535",
   dangerSurface: "rgba(239, 68, 68, 0.1)",
   statusBar: "dark-content",
 };
@@ -69,8 +76,10 @@ const darkBasePalette: Omit<ThemePalette, "primary" | "primaryInk" | "primaryTex
   border: "#26312c",
   text: "#f1f5f2",
   textMuted: "#a7b3ae",
-  textSubtle: "#6e7c77",
+  // 原 #6e7c77 在 #0b0f0d 上 4.42:1，差一点点达标
+  textSubtle: "#79837b",
   danger: "#ef4444",
+  dangerInk: "#f05353",
   dangerSurface: "rgba(239, 68, 68, 0.1)",
   statusBar: "light-content",
 };
@@ -114,10 +123,19 @@ function contrastRatio(foreground: string, background: string): number {
   return (light + 0.05) / (dark + 0.05);
 }
 
+/**
+ * 强调色填充上的文字色。
+ *
+ * 曾经用「感知亮度 > 0.58 就取深色」来判断，但那个阈值对中明度色是失真的：
+ * #4a90d9 / #8e7cc3 / #22a06b / #d9534f 都会被判成「该配白字」，实测对比度
+ * 只有 3.33–3.96:1。这里改成与 buildPrimaryInk / buildActionFill 相同的做法——
+ * 直接比较两种候选色的真实对比度，取高的那个。
+ */
 function getReadableTextColor(background: string): string {
-  const [red, green, blue] = hexToRgb(background);
-  const luminance = (0.299 * red + 0.587 * green + 0.114 * blue) / 255;
-  return luminance > 0.58 ? "#062a19" : "#ffffff";
+  const accent = normalizeAccentColor(background);
+  return contrastRatio(accent, ACCENT_TEXT_DARK) >= contrastRatio(accent, ACTION_FILL_TEXT)
+    ? ACCENT_TEXT_DARK
+    : ACTION_FILL_TEXT;
 }
 
 /**

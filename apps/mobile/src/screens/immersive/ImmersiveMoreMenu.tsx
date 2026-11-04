@@ -24,6 +24,8 @@ import type { ThemePalette } from "@/stores/themeStore";
 import { radius, spacing, typography } from "@/theme/tokens";
 import { withAlpha } from "@/services/themePaletteModel";
 import { hapticLight } from "@/services/hapticService";
+import { sheet } from "@/theme/sheetTokens";
+import { afterModalDismiss } from "@/utils/modalSequence";
 
 interface MenuItem {
   icon: LucideIcon;
@@ -163,7 +165,9 @@ export function ImmersiveMoreMenu({
                 onPress={() => {
                   hapticLight();
                   onClose();
-                  item.onPress?.();
+                  // 先收菜单，再执行动作：菜单项大多会唤起另一个 Modal，
+                  // Android 上同一帧挂载会让新弹层收不到触摸（点空白关不掉）。
+                  if (item.onPress) afterModalDismiss(item.onPress);
                 }}
                 accessibilityRole="button"
                 accessibilityLabel={item.label}
@@ -204,7 +208,7 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    backgroundColor: sheet.scrim,
   },
   backdrop: {
     ...StyleSheet.absoluteFill,
