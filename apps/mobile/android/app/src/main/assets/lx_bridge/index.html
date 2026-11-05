@@ -2,17 +2,24 @@
 <html>
 <head>
 <meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'none'; base-uri 'none'; form-action 'none'" />
 <title>lx-bridge</title>
+<script src="./prepare-runtime.js"></script>
+<script src="./ses.umd.min.js"></script>
 <script src="./vendor.js"></script>
+<script src="./forge.min.js"></script>
 </head>
 <body>
 <script>
 (function () {
   'use strict';
+  // 仅冻结隐藏桥页面的 intrinsics，不影响 RN/Hermes 或应用 UI。
+  // 每个音源独立 Compartment，只暴露 LX API、计时与文本工具。
+  lockdown();
   // ============ LX 音源 WebView 桥（RN Hermes 不支持 new Function，用户脚本移到这里执行） ============
   // 每个音源脚本一个 rid（runtime id），独立 lx 闭包环境，互不干扰。
   // 协议（window.ReactNativeWebView.postMessage 双向 JSON）：
-  //   RN→WV { type:'run', rid, script, scriptInfo }        执行用户脚本（new Function + 参数遮蔽，同桌面）
+  //   RN→WV { type:'run', rid, script, scriptInfo }        在独立 Compartment 执行用户脚本
   //   RN→WV { type:'request', rid, id, payload }           RN 发起取链 → 脚本 lx.on(request) handler
   //   RN→WV { type:'http-response', rid, id, response, body, error }  RN fetch 代理结果
   //   WV→RN { type:'ready' }                               vendor 加载完成
@@ -97,40 +104,13 @@
           return wordArrayToBytes(encrypted.ciphertext);
         },
         rsaEncrypt: function (buffer, key) {
-          // RSA-RAW（无填充）：LX 音源常用；用 WebCrypto 不支持 RAW，这里以
-          // bigint 模幂实现（无填充即 m^e mod n，输入短于模数即安全等价）。
+          // 与桌面共用 node-forge 的标准 PEM/DER 解析和 RAW RSA 语义。
           var data = toBytes(buffer);
-          var pem = key.replace(/-----(BEGIN|END) PUBLIC KEY-----/g, '').replace(/\s+/g, '');
-          var der = atob(pem);
-          // SPKI 解析：跳过头，取模数 n 与指数 e（简化 DER 解析，.SubjectPublicKeyInfo 内 RSA 公钥）
-          var idx = der.indexOf('\u0030\u0003\u0002\u0001\u0001'); // BIT STRING RSA OID 后的 01 01 (e=65537 标记)
-          var nHex = '';
-          if (idx > 0) {
-            // 回找 INTEGER 模数：SPKI 结构 ...INTEGER(n) BIT STRING(03) 00 30 03 02 01 01
-            var i2 = der.lastIndexOf('\u0002', idx); // 模数 INTEGER tag
-            if (i2 > 0) {
-              var len = der.charCodeAt(i2 + 1);
-              var nStart = i2 + 2;
-              if (len & 0x80) { // 长度多字节
-                var nLenBytes = len & 0x7f;
-                len = 0;
-                for (var k = 0; k < nLenBytes; k++) len = len * 256 + der.charCodeAt(nStart + k);
-                nStart += nLenBytes;
-              }
-              if (der.charCodeAt(nStart) === 0) { nStart++; len--; } // 去符号位前导 0
-              for (var m = 0; m < len; m++) nHex += der.charCodeAt(nStart + m).toString(16).padStart(2, '0');
-            }
-          }
-          if (!nHex) throw new Error('RSA 公钥解析失败');
-          var n = BigInt('0x' + nHex);
-          var e = 65537n;
-          // 输入右对齐（与桌面 node-forge RAW 一致）
-          var mInt = 0n;
-          for (var b = 0; b < data.length; b++) mInt = (mInt << 8n) | BigInt(data[b]);
-          var enc = modPow(mInt, e, n);
-          var outLen = (nHex.length / 2) | 0;
-          var out = new Uint8Array(outLen);
-          for (var p = outLen - 1; p >= 0; p--) { out[p] = Number(enc & 0xffn); enc >>= 8n; }
+          var binary = '';
+          for (var b = 0; b < data.length; b++) binary += String.fromCharCode(data[b]);
+          var encrypted = window.forge.pki.publicKeyFromPem(key).encrypt(binary, 'RAW');
+          var out = new Uint8Array(encrypted.length);
+          for (var p = 0; p < encrypted.length; p++) out[p] = encrypted.charCodeAt(p);
           return out;
         },
         md5: function (value) { return CryptoJS.MD5(value).toString(); },
@@ -154,17 +134,6 @@
       },
     };
   }
-  function modPow(base, exp, mod) {
-    var result = 1n;
-    base %= mod;
-    while (exp > 0n) {
-      if (exp & 1n) result = (result * base) % mod;
-      base = (base * base) % mod;
-      exp >>= 1n;
-    }
-    return result;
-  }
-
   function makeLx(rid, scriptInfo) {
     var rt = runtimes.get(rid);
     var lx = {
@@ -238,18 +207,46 @@
       runtimes.set(rid, rt);
       try {
         var lx = makeLx(rid, scriptInfo);
-        // 与桌面 new Function 同构的参数遮蔽沙箱（WebView 内核无 Hermes 限制）
-        var fakeWindow = Object.create(null); fakeWindow.lx = lx;
-        var fakeGlobalThis = Object.create(null); fakeGlobalThis.lx = lx;
-        var runner = new Function(
-          'lx', 'window', 'globalThis', 'global', 'self',
-          'fetch', 'WebSocket', 'XMLHttpRequest', 'document', 'location', 'navigator',
-          'require', 'process', 'Buffer',
-          '"use strict";\n' + data.script
-        );
-        runner(lx, fakeWindow, fakeGlobalThis, fakeGlobalThis, fakeGlobalThis,
-          undefined, undefined, undefined, undefined, undefined, undefined,
-          undefined, undefined, undefined);
+        rt.timers = new Set();
+        var scheduleTimer = function (repeating, callback, delay, args) {
+          if (typeof callback !== 'function') throw new TypeError('定时器只接受函数');
+          var timer = (repeating ? setInterval : setTimeout)(function () {
+            if (!repeating) rt.timers.delete(timer);
+            if (runtimes.get(rid) === rt) callback.apply(undefined, args);
+          }, delay);
+          rt.timers.add(timer);
+          return timer;
+        };
+        var schedule = function (callback, delay) {
+          return scheduleTimer(false, callback, delay, Array.prototype.slice.call(arguments, 2));
+        };
+        var repeat = function (callback, delay) {
+          return scheduleTimer(true, callback, delay, Array.prototype.slice.call(arguments, 2));
+        };
+        var cancel = function (timer) {
+          if (!rt.timers.delete(timer)) return;
+          clearTimeout(timer);
+          clearInterval(timer);
+        };
+        var compartment = new Compartment({
+          lx: harden(lx), Date: Date, Math: Math,
+          setTimeout: harden(schedule), clearTimeout: harden(cancel),
+          setInterval: harden(repeat), clearInterval: harden(cancel),
+          console: harden({
+            log: function () { console.log.apply(console, arguments); },
+            info: function () { console.info.apply(console, arguments); },
+            warn: function () { console.warn.apply(console, arguments); },
+            error: function () { console.error.apply(console, arguments); },
+            debug: function () { console.debug.apply(console, arguments); },
+          }),
+          TextEncoder: TextEncoder, TextDecoder: TextDecoder,
+          atob: atob, btoa: btoa,
+        });
+        // LX 兼容别名只能指向本音源的全局对象，不包含宿主 DOM、网络或桥。
+        compartment.globalThis.window = compartment.globalThis;
+        compartment.globalThis.global = compartment.globalThis;
+        compartment.globalThis.self = compartment.globalThis;
+        compartment.evaluate(data.script);
       } catch (e) {
         post({ type: 'error', rid: rid, message: e && e.message ? e.message : String(e) });
       }
@@ -259,9 +256,8 @@
     if (data.type === 'dispose') {
       var disposedRuntime = runtimes.get(data.rid);
       if (disposedRuntime) {
-        disposedRuntime.httpPending.forEach(function (callback) {
-          callback(new Error('自定义音源运行时已释放'), null, null);
-        });
+        if (disposedRuntime.timers) disposedRuntime.timers.forEach(clearTimeout);
+        // 宿主已拒绝该运行时的 pending 请求；释放时不再执行用户代码。
         disposedRuntime.httpPending.clear();
         disposedRuntime.requestHandler = null;
         runtimes.delete(data.rid);
@@ -275,9 +271,15 @@
         post({ type: 'request-response', rid: data.rid, id: data.id, error: '音源脚本未注册取链处理器' });
         return;
       }
-      Promise.resolve(rt2.requestHandler(data.payload))
-        .then(function (result) { post({ type: 'request-response', rid: data.rid, id: data.id, result: result }); })
+      Promise.resolve().then(function () {
+        if (runtimes.get(data.rid) !== rt2) return;
+        return rt2.requestHandler(data.payload);
+      })
+        .then(function (result) {
+          if (runtimes.get(data.rid) === rt2) post({ type: 'request-response', rid: data.rid, id: data.id, result: result });
+        })
         .catch(function (err) {
+          if (runtimes.get(data.rid) !== rt2) return;
           post({ type: 'request-response', rid: data.rid, id: data.id, error: err && err.message ? err.message : String(err) });
         });
       return;

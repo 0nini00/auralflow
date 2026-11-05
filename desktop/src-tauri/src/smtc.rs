@@ -215,7 +215,7 @@ pub fn update_track(app: &AppHandle, track: SmtcTrack) {
         state.duration_seconds = sane_duration(track.duration);
         take_cover_bytes(&mut state, track.cover_path.as_deref())
     };
-    run_on_main(app, move |_app| platform::push_track(&track, cover_bytes.as_deref()));
+    run_on_main(app, move |_app| platform::push_track(&track, &cover_bytes));
 }
 
 /// 推送播放进度。Rust 侧按 [`PROGRESS_THROTTLE_MS`] 节流，前端照常全量推即可。
@@ -234,14 +234,18 @@ pub fn update_progress(app: &AppHandle, position: f64, duration: f64) {
 
 /// 判断本次是否需要重推封面，需要就把字节读出来。
 ///
-/// 返回 `None` 表示「本次不带封面」：可能是封面路径与上次相同（已经推过），
-/// 也可能是文件读不到 —— 读不到就只更新文字，这条路径不下载任何东西。
-fn take_cover_bytes(state: &mut SessionState, cover_path: Option<&str>) -> Option<Vec<u8>> {
-    let requested = cover_path
-        .map(str::trim)
-        .filter(|path| !path.is_empty());
+#[derive(Debug, PartialEq)]
+enum CoverUpdate {
+    Unchanged,
+    Clear,
+    Set(Vec<u8>),
+}
+
+/// 未变化、清空和新封面是三个不同动作；缺图的下一首不能沿用上一首封面。
+fn take_cover_bytes(state: &mut SessionState, cover_path: Option<&str>) -> CoverUpdate {
+    let requested = cover_path.map(str::trim).filter(|path| !path.is_empty());
     if requested == state.pushed_cover_path.as_deref() {
-        return None;
+        return CoverUpdate::Unchanged;
     }
 
     let bytes = requested.and_then(read_cover_bytes);
@@ -251,7 +255,10 @@ fn take_cover_bytes(state: &mut SessionState, cover_path: Option<&str>) -> Optio
     } else {
         None
     };
-    bytes
+    match bytes {
+        Some(bytes) => CoverUpdate::Set(bytes),
+        None => CoverUpdate::Clear,
+    }
 }
 
 /// 读取封面缓存文件。封面缺失 / 为空 / 读不动都只是「这次没有封面」。
@@ -382,7 +389,7 @@ mod platform {
     }
 
     /// 主线程：把曲目 / 播放状态 / 封面推给系统。
-    pub fn push_track(track: &SmtcTrack, cover: Option<&[u8]>) {
+    pub fn push_track(track: &SmtcTrack, cover: &CoverUpdate) {
         let guard = session();
         let Some(session) = guard.as_ref() else {
             return;
@@ -467,13 +474,15 @@ mod platform {
             };
             match args.RequestedPlaybackPosition() {
                 // 目标位置按最近一次已知总时长夹住；总时长未知时忽略这次拖动
-                Ok(ticks) => match sanitize_seek_seconds(ticks.Duration, state().duration_seconds) {
-                    Some(seconds) => emit_action(&seek_app, "seek", Some(seconds)),
-                    None => log::warn!(
-                        "[smtc] 忽略本次进度拖动请求（总时长未知）: {} 拍",
-                        ticks.Duration
-                    ),
-                },
+                Ok(ticks) => {
+                    match sanitize_seek_seconds(ticks.Duration, state().duration_seconds) {
+                        Some(seconds) => emit_action(&seek_app, "seek", Some(seconds)),
+                        None => log::warn!(
+                            "[smtc] 忽略本次进度拖动请求（总时长未知）: {} 拍",
+                            ticks.Duration
+                        ),
+                    }
+                }
                 Err(err) => log::warn!("[smtc] 读取拖动目标位置失败，忽略本次请求: {}", err),
             }
             Ok(())
@@ -522,16 +531,16 @@ mod platform {
     fn apply_track(
         controls: &SystemMediaTransportControls,
         track: &SmtcTrack,
-        cover: Option<&[u8]>,
+        cover: &CoverUpdate,
     ) -> Result<(), String> {
         let title = track.title.trim();
-        let updater = controls.DisplayUpdater().map_err(step("取系统媒体信息失败"))?;
+        let updater = controls
+            .DisplayUpdater()
+            .map_err(step("取系统媒体信息失败"))?;
 
         if title.is_empty() {
             // 没有当前曲目（停止 / 清空队列）：系统侧文字与封面一起清掉
-            updater
-                .ClearAll()
-                .map_err(step("清空系统媒体信息失败"))?;
+            updater.ClearAll().map_err(step("清空系统媒体信息失败"))?;
         } else {
             updater
                 .SetType(MediaPlaybackType::Music)
@@ -546,14 +555,23 @@ mod platform {
             music
                 .SetAlbumTitle(&HSTRING::from(track.album.as_str()))
                 .map_err(step("设置专辑失败"))?;
-            if let Some(bytes) = cover {
-                match cover_stream_reference(bytes) {
+            match cover {
+                CoverUpdate::Unchanged => {}
+                CoverUpdate::Clear => updater
+                    .SetThumbnail(None::<&RandomAccessStreamReference>)
+                    .map_err(step("清空封面失败"))?,
+                CoverUpdate::Set(bytes) => match cover_stream_reference(bytes) {
                     Ok(reference) => updater
                         .SetThumbnail(&reference)
                         .map_err(step("设置封面失败"))?,
                     // 封面失败不影响文字与进度
-                    Err(err) => log::warn!("[smtc] 生成封面内存流失败，本次只更新文字: {}", err),
-                }
+                    Err(err) => {
+                        updater
+                            .SetThumbnail(None::<&RandomAccessStreamReference>)
+                            .map_err(step("清空封面失败"))?;
+                        log::warn!("[smtc] 生成封面内存流失败，已清除旧封面: {}", err);
+                    }
+                },
             }
             updater.Update().map_err(step("提交系统媒体信息失败"))?;
         }
@@ -614,11 +632,8 @@ mod platform {
     /// 字节来自调用方给的本地封面缓存文件 —— 这条路径不下载任何东西。
     fn cover_stream_reference(bytes: &[u8]) -> Result<RandomAccessStreamReference, String> {
         let stream = InMemoryRandomAccessStream::new().map_err(step("创建封面内存流失败"))?;
-        let writer =
-            DataWriter::CreateDataWriter(&stream).map_err(step("创建封面写入器失败"))?;
-        writer
-            .WriteBytes(bytes)
-            .map_err(step("写入封面字节失败"))?;
+        let writer = DataWriter::CreateDataWriter(&stream).map_err(step("创建封面写入器失败"))?;
+        writer.WriteBytes(bytes).map_err(step("写入封面字节失败"))?;
         store_cover_bytes(&writer)?;
         writer.DetachStream().map_err(step("解绑封面内存流失败"))?;
         stream.Seek(0).map_err(step("封面流回到起点失败"))?;
@@ -657,13 +672,21 @@ mod platform {
 
     pub fn init(_app: &AppHandle) {}
     pub fn apply_enabled(_app: &AppHandle, _enabled: bool) {}
-    pub fn push_track(_track: &SmtcTrack, _cover: Option<&[u8]>) {}
+    pub fn push_track(_track: &SmtcTrack, _cover: &CoverUpdate) {}
     pub fn push_progress(_position: f64, _duration: f64) {}
 }
 
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn removing_cover_is_distinct_from_unchanged_cover() {
+        let mut state = SessionState::new();
+        state.pushed_cover_path = Some("old-cover.jpg".into());
+        assert_eq!(take_cover_bytes(&mut state, None), CoverUpdate::Clear);
+        assert_eq!(take_cover_bytes(&mut state, None), CoverUpdate::Unchanged);
+    }
 
     #[test]
     fn playing_and_loading_both_report_playing() {

@@ -63,6 +63,51 @@ function Read-Properties([string]$path) {
     return $map
 }
 
+function Get-ReleaseSourceState {
+    $commit = & git -C $repoRoot rev-parse --verify HEAD
+    if ($LASTEXITCODE -ne 0) { throw "无法确认构建源码提交" }
+    $status = @(& git -C $repoRoot status --porcelain=v1 --untracked-files=all)
+    if ($LASTEXITCODE -ne 0) { throw "无法读取构建工作树状态" }
+    return [pscustomobject]@{ Commit = ([string]$commit).Trim(); Dirty = $status.Count -gt 0 }
+}
+
+function Assert-BuildSourceUnchanged {
+    $current = Get-ReleaseSourceState
+    if ($buildSource.Dirty -or $current.Dirty) {
+        throw "发布要求干净工作树：未提交修改的产物只能本地暂存，不能上传 Release"
+    }
+    if ($current.Commit -ne $buildSource.Commit) {
+        throw "构建期间 HEAD 已变化：构建提交 $($buildSource.Commit)，当前提交 $($current.Commit)"
+    }
+}
+
+function Get-RemoteTagCommit([string]$tag) {
+    $tagRef = "refs/tags/$tag"
+    $refs = @(& git -C $repoRoot ls-remote --exit-code --tags "https://github.com/$repo.git" $tagRef "$tagRef^{}")
+    if ($LASTEXITCODE -eq 2) { return $null }
+    if ($LASTEXITCODE -ne 0) { throw "无法核验远端标签 $tag，已停止发布" }
+    $tagCommit = $null
+    foreach ($line in $refs) {
+        $parts = ([string]$line) -split "`t", 2
+        if ($parts.Count -ne 2) { throw "远端标签响应格式错误：$tag" }
+        # annotated tag 的对象 SHA 不是源码提交，以 peeled ref 为准。
+        if ($parts[1] -eq "$tagRef^{}") { return $parts[0] }
+        if ($parts[1] -eq $tagRef) { $tagCommit = $parts[0] }
+    }
+    return $tagCommit
+}
+
+function Assert-ReleaseTagMatches([string]$tag, [switch]$AllowMissing) {
+    $commit = Get-RemoteTagCommit $tag
+    if (-not $commit) {
+        if ($AllowMissing) { return }
+        throw "远端标签 $tag 不存在，不能确认 Release 资产对应的源码"
+    }
+    if ($commit -ne $buildSource.Commit) {
+        throw "远端标签 $tag 指向 $commit，与构建提交 $($buildSource.Commit) 不一致"
+    }
+}
+
 # ── 1. 版本号 ──
 $conf = Get-Content $taruiConf -Raw | ConvertFrom-Json
 if (-not $Version) { $Version = $conf.version }
@@ -85,7 +130,11 @@ foreach ($check in $versionChecks) {
     }
     if ($found -ne $Version) { throw "版本号不一致：$($check.Path) 是 $found，期望 $Version" }
 }
-Write-Host "版本号四处一致 ✓"
+Write-Host "版本号四处一致"
+
+# 构建与发布共享这一份源码身份；发布前再次核验，避免默认分支或工作树变化使资产脱钩。
+$buildSource = Get-ReleaseSourceState
+if ($Publish) { Assert-BuildSourceUnchanged }
 
 # ── 2. 签名密钥 ──
 $props = Read-Properties $propsPath
@@ -117,9 +166,10 @@ try {
     Pop-Location
     Remove-Item $probe, "$probe.sig" -ErrorAction SilentlyContinue
 }
-Write-Host "签名密钥预检通过 ✓（路径与口令不回显）"
+Write-Host "签名密钥预检通过（路径与口令不回显）"
 
 # ── 3. 构建 ──
+if ($Publish) { Assert-BuildSourceUnchanged }
 Push-Location $repoRoot
 try {
     & pnpm desktop:tauri:build
@@ -145,6 +195,13 @@ if (-not (Test-Path $portable)) { throw "没找到便携版可执行文件：$po
 # ── 5. 暂存 dist（资产名即清单里的 url，必须一致）──
 $dist = Join-Path $repoRoot "dist"
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
+$sourceAfterBuild = Get-ReleaseSourceState
+[ordered]@{
+    commit = $buildSource.Commit
+    dirty = $buildSource.Dirty -or $sourceAfterBuild.Dirty
+    commitAfterBuild = $sourceAfterBuild.Commit
+    builtAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+} | ConvertTo-Json | Set-Content -Path (Join-Path $dist "source-provenance.json") -Encoding utf8NoBOM
 
 $assetSetup = "AuralFlow-v$Version-windows-x64-setup.exe"
 $assetPortable = "AuralFlow-v$Version-windows-x64-portable.exe"
@@ -198,7 +255,7 @@ foreach ($manifestCheck in $manifestChecks) {
     if ($entry.signature -ne $signature) { throw "$($manifestCheck.Name) 的 signature 与 $sigPath 的内容不一致" }
 }
 if ($signature.Length -lt 64) { throw "签名看起来不合法（长度 $($signature.Length)）" }
-Write-Host "latest.json / latest-mirror.json 自检通过 ✓"
+Write-Host "latest.json / latest-mirror.json 自检通过"
 
 Write-Host ""
 Write-Host "=== 产物 ===" -ForegroundColor Cyan
@@ -214,16 +271,20 @@ if ($Publish) {
     Write-Host ""
     Write-Host "=== 上传 Release v$Version ===" -ForegroundColor Cyan
     $tag = "v$Version"
+    Assert-BuildSourceUnchanged
+    Assert-ReleaseTagMatches $tag -AllowMissing
     $existing = & gh release view $tag --repo $repo 2>$null
     if ($LASTEXITCODE -ne 0) {
         $notesFile = Join-Path $env:TEMP "auralflow-release-notes-$Version.md"
         $body = if ($Notes) { $Notes } else { "AuralFlow v$Version" }
         Set-Content -Path $notesFile -Value $body -Encoding utf8NoBOM
-        & gh release create $tag --repo $repo --title "AuralFlow v$Version" --notes-file $notesFile
+        & gh release create $tag --repo $repo --target $buildSource.Commit --title "AuralFlow v$Version" --notes-file $notesFile
         if ($LASTEXITCODE -ne 0) { throw "创建 Release 失败" }
     } else {
         Write-Host "Release $tag 已存在，直接覆盖上传资产"
     }
+    Assert-BuildSourceUnchanged
+    Assert-ReleaseTagMatches $tag
     foreach ($f in @($assetSetup, $assetPortable, "latest.json", "latest-mirror.json")) {
         & gh release upload $tag (Join-Path $dist $f) --repo $repo --clobber
         if ($LASTEXITCODE -ne 0) { throw "上传 $f 失败" }

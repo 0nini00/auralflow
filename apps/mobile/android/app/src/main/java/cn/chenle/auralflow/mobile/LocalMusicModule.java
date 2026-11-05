@@ -59,7 +59,7 @@ import java.util.concurrent.RejectedExecutionException;
  *
  * 写内嵌封面/歌词需要修改文件本身（而非 MediaStore 数据库），因此使用 jaudiotagger 操作 ID3/MP4 标签。
  * Android 10+ 对“非本应用拥有的媒体文件”写入会抛出 RecoverableSecurityException，
- * 此时通过 MediaStore.createWriteRequest 向用户申请授权，授权成功后自动重试写入。
+ * Android 10 使用异常中的授权意图，Android 11 起使用 MediaStore.createWriteRequest，授权成功后重试。
  */
 public class LocalMusicModule extends ReactContextBaseJavaModule {
 
@@ -705,9 +705,10 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
       int rows = resolver.update(uri, values, null, null);
       promise.resolve(rows);
     } catch (SecurityException securityError) {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
-          && securityError instanceof android.app.RecoverableSecurityException) {
-        requestUpdateAccess(uri, values, promise);
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+          || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+              && securityError instanceof android.app.RecoverableSecurityException)) {
+        requestUpdateAccess(uri, values, promise, securityError);
       } else {
         promise.reject("LOCAL_MUSIC_UPDATE_FAILED", securityError);
       }
@@ -799,9 +800,10 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
           }, mutator::mutate);
       promise.resolve(true);
     } catch (SecurityException securityError) {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
-          && securityError instanceof android.app.RecoverableSecurityException) {
-        requestWriteAccess(audioUri, mutator, promise);
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+          || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+              && securityError instanceof android.app.RecoverableSecurityException)) {
+        requestWriteAccess(audioUri, mutator, promise, securityError);
       } else {
         promise.reject("LOCAL_MUSIC_TAG_WRITE_FAILED", securityError);
       }
@@ -838,7 +840,19 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
     }
   }
 
-  private void requestUpdateAccess(Uri audioUri, ContentValues values, Promise promise) {
+  private PendingIntent createWriteAccessIntent(Uri audioUri, SecurityException securityError) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+      return MediaStore.createWriteRequest(
+          getReactApplicationContext().getContentResolver(), Collections.singletonList(audioUri));
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        && securityError instanceof android.app.RecoverableSecurityException) {
+      return ((android.app.RecoverableSecurityException) securityError).getUserAction().getActionIntent();
+    }
+    throw securityError;
+  }
+
+  private void requestUpdateAccess(Uri audioUri, ContentValues values, Promise promise, SecurityException securityError) {
     if (updatePending != null) {
       promise.reject("WRITE_BUSY", "已有写入授权请求进行中，请稍后再试");
       return;
@@ -849,9 +863,7 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
       return;
     }
     try {
-      PendingIntent pendingIntent = MediaStore.createWriteRequest(
-          getReactApplicationContext().getContentResolver(),
-          Collections.singletonList(audioUri));
+      PendingIntent pendingIntent = createWriteAccessIntent(audioUri, securityError);
       updatePending = new PendingMetadataUpdate(audioUri, new ContentValues(values), promise);
       activity.startIntentSenderForResult(
           pendingIntent.getIntentSender(), REQUEST_UPDATE_AUDIO, null, 0, 0, 0);
@@ -861,7 +873,7 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
     }
   }
 
-  private void requestWriteAccess(Uri audioUri, TagMutator mutator, Promise promise) {
+  private void requestWriteAccess(Uri audioUri, TagMutator mutator, Promise promise, SecurityException securityError) {
     if (writePending != null) {
       promise.reject("WRITE_BUSY", "已有写入授权请求进行中，请稍后再试");
       return;
@@ -872,9 +884,7 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
       return;
     }
     try {
-      PendingIntent pendingIntent = MediaStore.createWriteRequest(
-          getReactApplicationContext().getContentResolver(),
-          Collections.singletonList(audioUri));
+      PendingIntent pendingIntent = createWriteAccessIntent(audioUri, securityError);
       writePending = new PendingWrite(audioUri, mutator, promise);
       activity.startIntentSenderForResult(
           pendingIntent.getIntentSender(), REQUEST_WRITE_AUDIO, null, 0, 0, 0);

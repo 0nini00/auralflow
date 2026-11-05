@@ -12,6 +12,7 @@ import {
 } from "./audioCacheListModel";
 import { usePlayerStore } from "@/stores/playerStore";
 import { logger } from "@/services/logger";
+import { createSerialTaskQueue } from "@/utils/serialTaskQueue";
 import { commitDownloadedFile, createPartialDownloadPath, discardPartialDownload, isPartialDownload, removeOrphanedPartialDownloads } from "./fileDownloadCommit";
 
 // 缓存目录
@@ -324,25 +325,20 @@ export async function isLocalFilePlayable(fileUrl: string): Promise<boolean> {
 // 与磁盘的对齐（LRU 淘汰/清缓存导致的漂移）在 listCachedAudio 里完成。
 
 const AUDIO_CACHE_INDEX_KEY = "auralflow.mobile.audioCacheIndex.v1";
+const enqueueAudioCacheIndex = createSerialTaskQueue();
 
 async function loadAudioCacheIndex(): Promise<Record<string, AudioCacheIndexEntry>> {
-  try {
-    const raw = await AsyncStorage.getItem(AUDIO_CACHE_INDEX_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? (parsed as Record<string, AudioCacheIndexEntry>) : {};
-  } catch {
-    return {};
+  const raw = await AsyncStorage.getItem(AUDIO_CACHE_INDEX_KEY);
+  if (!raw) return {};
+  const parsed = JSON.parse(raw);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("音频缓存索引格式错误");
   }
+  return parsed as Record<string, AudioCacheIndexEntry>;
 }
 
 async function saveAudioCacheIndex(index: Record<string, AudioCacheIndexEntry>): Promise<void> {
-  try {
-    await AsyncStorage.setItem(AUDIO_CACHE_INDEX_KEY, JSON.stringify(index));
-  } catch (error) {
-    // 索引丢失仅影响「已缓存歌曲」列表展示，不阻断下载本身
-    logger.warn("[Cache] 音频缓存索引写入失败（忽略）:", error);
-  }
+  await AsyncStorage.setItem(AUDIO_CACHE_INDEX_KEY, JSON.stringify(index));
 }
 
 function getAudioCacheFileBase(music: MusicInfo, quality: string): string {
@@ -355,21 +351,24 @@ async function recordAudioCacheIndex(
   quality: string,
   filePath: string,
 ): Promise<void> {
-  const index = await loadAudioCacheIndex();
-  index[getAudioCacheFileBase(music, quality)] = {
-    name: music.name,
-    singer: music.singer,
-    source: music.source,
-    quality,
-    path: filePath,
-    cachedAt: Date.now(),
-  };
-  await saveAudioCacheIndex(index);
+  await enqueueAudioCacheIndex(async () => {
+    const index = await loadAudioCacheIndex();
+    index[getAudioCacheFileBase(music, quality)] = {
+      name: music.name,
+      singer: music.singer,
+      source: music.source,
+      quality,
+      path: filePath,
+      cachedAt: Date.now(),
+    };
+    await saveAudioCacheIndex(index);
+  });
 }
 
 /** 列出磁盘上仍存在的音频缓存，附歌曲元数据（索引缺失时降级为文件名解析）。 */
 export async function listCachedAudio(): Promise<CachedAudioEntry[]> {
   await initCacheDirectories();
+  return enqueueAudioCacheIndex(async () => {
   let files: { base: string; path: string; size: number }[] = [];
   try {
     if (await RNFS.exists(AUDIO_CACHE_DIR)) {
@@ -393,14 +392,17 @@ export async function listCachedAudio(): Promise<CachedAudioEntry[]> {
     await saveAudioCacheIndex(pruned);
   }
   return entries;
+  });
 }
 
 /** 删除单条音频缓存文件及其索引记录。 */
 export async function deleteCachedAudio(entry: CachedAudioEntry): Promise<void> {
-  await RNFS.unlink(entry.path).catch(() => undefined);
-  const index = await loadAudioCacheIndex();
-  delete index[entry.key];
-  await saveAudioCacheIndex(index);
+  await enqueueAudioCacheIndex(async () => {
+    await RNFS.unlink(entry.path).catch(() => undefined);
+    const index = await loadAudioCacheIndex();
+    delete index[entry.key];
+    await saveAudioCacheIndex(index);
+  });
 }
 
 /**
@@ -413,6 +415,7 @@ export async function deleteCachedAudio(entry: CachedAudioEntry): Promise<void> 
 export async function deleteCachedAudioForMusic(music: MusicInfo): Promise<void> {
   const prefix = `${normalizeKeyPart(music.source)}-${normalizeKeyPart(music.id)}-`;
   await initCacheDirectories();
+  await enqueueAudioCacheIndex(async () => {
   try {
     const dirEntries = await RNFS.readDir(AUDIO_CACHE_DIR);
     for (const entry of dirEntries) {
@@ -432,6 +435,7 @@ export async function deleteCachedAudioForMusic(music: MusicInfo): Promise<void>
     }
   }
   if (changed) await saveAudioCacheIndex(index);
+  });
 }
 
 /**
@@ -654,7 +658,7 @@ export async function cleanExpiredCache(): Promise<void> {
  * 清空所有缓存
  */
 export async function clearAllCache(): Promise<void> {
-  try {
+  await enqueueAudioCacheIndex(async () => {
     const exists = await RNFS.exists(CACHE_DIR);
     if (exists) {
       await RNFS.unlink(CACHE_DIR);
@@ -662,9 +666,7 @@ export async function clearAllCache(): Promise<void> {
     await AsyncStorage.removeItem(AUDIO_CACHE_INDEX_KEY);
     await clearPlaybackUrlCache();
     await initCacheDirectories();
-  } catch (error) {
-    throw error;
-  }
+  });
 }
 
 /**

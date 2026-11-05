@@ -1174,6 +1174,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
 
   // 状态更新
   updateProgress: (position: number, duration: number, buffered?: number) => {
+    if (!get().currentUrl) return;
     set({ position, duration, buffered: buffered ?? get().buffered });
   },
 
@@ -1198,8 +1199,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   },
 
   syncPlayerState: (state: State) => {
-    const isPlaying =
-      state === State.Playing || state === State.Buffering;
+    const isPlaying = Boolean(get().currentUrl) &&
+      (state === State.Playing || state === State.Buffering);
     // 原生事件驱动的播放/暂停切换（如音频焦点中断）同样重置结算基准
     if (isPlaying !== get().isPlaying) {
       syncSleepTimerClock();

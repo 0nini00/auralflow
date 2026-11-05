@@ -65,6 +65,11 @@ block	http://localhost./	尾点写法等价于 localhost
 block	http://foo.local/	.local 后缀
 block	http://foo.local./	尾点 + .local
 # ---- IPv6 ----
+block	http://ｌｏｃａｌｈｏｓｔ/	IDNA 全角字母
+block	http://１２７.０.０.１/	IDNA 全角数字
+block	http://ⓛⓞⓒⓐⓛⓗⓞⓢⓣ/	IDNA 带圈字母
+block	http://local­host/	IDNA 忽略软连字符
+allow	https://例子.中国/	合法国际化公网域名
 block	http://[::1]/	IPv6 回环
 block	http://[::]/	IPv6 未指定
 block	http://[::ffff:127.0.0.1]/	IPv4-mapped 回环

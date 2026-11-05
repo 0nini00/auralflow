@@ -252,12 +252,23 @@ pub struct AudioFile {
 
 /// 支持的音频格式扩展名
 pub const SUPPORTED_FORMATS: &[&str] = &[
-    "mp3", "flac", "wav", "aac", "m4a", "ogg", "opus", "wma", "ape", "aiff",
+    "mp3", "flac", "wav", "aac", "m4a", "ogg", "opus", "ape", "aiff",
 ];
 
 #[cfg(test)]
 mod desktop_media_settings_tests {
     use super::*;
+
+    #[test]
+    fn advertised_audio_formats_are_supported_by_the_tag_reader() {
+        for extension in SUPPORTED_FORMATS {
+            assert!(
+                lofty::file::FileType::from_ext(extension).is_some(),
+                "不应宣称支持无法解析的格式: {}",
+                extension
+            );
+        }
+    }
 
     #[test]
     fn new_media_features_default_off() {
@@ -273,7 +284,8 @@ mod desktop_media_settings_tests {
             "id":"1", "path":"song.flac", "title":"song", "artist":"artist", "album":"album",
             "duration":10, "format":"flac", "size":100,
             "replayGain":{"gainDb":-6.0,"peak":0.8}
-        })).unwrap();
+        }))
+        .unwrap();
         let value = serde_json::to_value(file).unwrap();
         assert!(value.get("replayGain").is_none());
         assert_eq!(value["title"], "song");
@@ -290,7 +302,8 @@ mod legacy_playback_settings_tests {
             "replayGainEnabled": true,
             "volume": 37,
             "pauseOnExternalPlayback": false
-        })).unwrap();
+        }))
+        .unwrap();
         assert_eq!(settings.volume, 37);
         assert!(!settings.pause_on_external_playback);
         let value = serde_json::to_value(settings).unwrap();

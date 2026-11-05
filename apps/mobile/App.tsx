@@ -187,8 +187,9 @@ export default function App() {
               console.error(`[启动恢复] ${backgroundLabels[index]}加载失败`, result.reason);
             }
           });
-        }).finally(() => {
-          if (!cancelled) setLocalDataReady(true);
+          if (!cancelled) {
+            setLocalDataReady(backgroundTasks.every((result) => result.status === "fulfilled"));
+          }
         });
       } catch (error) {
         if (!cancelled) {

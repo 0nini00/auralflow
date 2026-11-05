@@ -36,7 +36,7 @@ function setup(blockAt) {
     "@/services/logger": { logger: { info() {}, warn() {}, error() {} } },
     "react-native": { AppState: { addEventListener: () => ({ remove() {} }) } },
     "@react-native-async-storage/async-storage": { getItem: async () => null, setItem: async () => {} },
-    "react-native-track-player": { __esModule: true, default: native, State: {}, RepeatMode: { Off: 0 }, Event: {}, AppKilledPlaybackBehavior: {}, Capability: {} },
+    "react-native-track-player": { __esModule: true, default: native, State: { Playing: "playing", Buffering: "buffering", Paused: "paused", Stopped: "stopped" }, RepeatMode: { Off: 0 }, Event: {}, AppKilledPlaybackBehavior: {}, Capability: {} },
     "@lx/core": core,
     "@/services/androidPitchService": { syncPlaybackParameters: () => {} },
     "@/services/playbackUrlCache": cache, "./playbackUrlCache": cache,
@@ -67,6 +67,30 @@ function assertCleared(store) {
   assert.equal(state.loading, false);
   assert.equal(state.error, null);
 }
+
+test("失败切歌失效旧地址，继续播放必须重新解析当前歌曲", async () => {
+  const h = setup();
+  h.native.getState = async () => undefined;
+  await h.service.playQueue([song("A"), song("B")]);
+  h.cache.getCachedPlaybackUrl = async () => { throw new Error("fixture unavailable"); };
+  await assert.rejects(h.service.playFromQueue(1), /fixture unavailable/);
+  assert.equal(h.store.getState().currentSong.id, "B");
+  assert.equal(h.store.getState().currentUrl, null);
+  assert.equal(h.store.getState().isPlaying, false);
+  h.store.getState().syncPlayerState("playing");
+  h.store.getState().updateProgress(75, 100, 100);
+  assert.equal(h.store.getState().isPlaying, false);
+  assert.equal(h.store.getState().position, 0);
+  let resolvedId;
+  h.cache.getCachedPlaybackUrl = async track => {
+    resolvedId = track.id;
+    return { url: "https://fixture.invalid/B", quality: "320k" };
+  };
+  await h.store.getState().resume();
+  assert.equal(resolvedId, "B");
+  assert.equal(h.store.getState().currentUrl, "https://fixture.invalid/B");
+  await h.store.getState().clearQueue();
+});
 
 for (const stage of ["setupPlayer", "getQueue", "add", "skip", "setRate", "setVolume"]) {
   test(`clearQueue cancels play waiting at ${stage}`, { timeout: 5000 }, async () => {

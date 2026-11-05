@@ -59,9 +59,17 @@ export function CustomSourceScreen() {
 
   useEffect(() => {
     if (!loaded) {
-      void loadFromStorage();
+      void loadFromStorage().catch((error) => {
+        Alert.alert("加载音源失败", error instanceof Error ? error.message : String(error));
+      });
     }
   }, [loaded, loadFromStorage]);
+
+  const runSourceAction = (operation: Promise<void>) => {
+    void operation.catch((error) => {
+      Alert.alert("音源操作失败", error instanceof Error ? error.message : String(error));
+    });
+  };
 
   const handleImport = async () => {
     const script = scriptInput.trim();
@@ -108,14 +116,14 @@ export function CustomSourceScreen() {
       {
         text: "删除",
         style: "destructive",
-        onPress: () => removeSource(source.id),
+        onPress: () => runSourceAction(removeSource(source.id)),
       },
     ]);
   };
 
   const handleCheckAll = () => {
     if (sources.length === 0) return;
-    void checkAllUpdates();
+    runSourceAction(checkAllUpdates());
   };
 
   return (
@@ -153,7 +161,7 @@ export function CustomSourceScreen() {
           </View>
           <Switch
             value={customSourceAutoCheck}
-            onValueChange={(enabled) => void setCustomSourceAutoCheck(enabled)}
+            onValueChange={(enabled) => runSourceAction(setCustomSourceAutoCheck(enabled))}
             accessibilityRole="switch"
             accessibilityLabel="启动自定义音源自动检测更新"
             accessibilityState={{ checked: customSourceAutoCheck, disabled: false }}
@@ -183,7 +191,7 @@ export function CustomSourceScreen() {
             items={sources}
             gap={spacing.s}
             keyExtractor={(source) => source.id}
-            onReorder={reorderSource}
+            onReorder={(from, to) => runSourceAction(reorderSource(from, to))}
             renderItem={(source, index) => (
               <SourceCard
                 source={source}
@@ -192,13 +200,13 @@ export function CustomSourceScreen() {
                 total={sources.length}
                 canMoveUp={index > 0}
                 canMoveDown={index < sources.length - 1}
-                onToggle={(enabled) => toggleSource(source.id, enabled)}
-                onTest={() => testSource(source.id)}
-                onCheckUpdate={() => checkSourceUpdate(source.id)}
+                onToggle={(enabled) => runSourceAction(toggleSource(source.id, enabled))}
+                onTest={() => runSourceAction(testSource(source.id))}
+                onCheckUpdate={() => runSourceAction(checkSourceUpdate(source.id))}
                 onRemove={() => handleRemove(source)}
-                onMoveUp={() => moveSource(source.id, "up")}
-                onMoveDown={() => moveSource(source.id, "down")}
-                onToggleUpdateAlert={(enabled) => toggleUpdateAlert(source.id, enabled)}
+                onMoveUp={() => runSourceAction(moveSource(source.id, "up"))}
+                onMoveDown={() => runSourceAction(moveSource(source.id, "down"))}
+                onToggleUpdateAlert={(enabled) => runSourceAction(toggleUpdateAlert(source.id, enabled))}
                 onOpenUpdateUrl={() => openCustomSourceUpdateUrl(source.updateUrl)}
               />
             )}

@@ -1,7 +1,6 @@
-import { create } from "zustand";
 import type { LocalSong } from "../services/localMusicService";
 import { LocalMusicService } from "../services/localMusicService";
-import { attachLibraryPersistence } from "./libraryPersistence";
+import { attachLibraryPersistence, createLibraryStore } from "./libraryPersistence";
 import { mergeLibraryRefreshResults, type LibraryScanResult } from "./libraryRefreshModel";
 
 interface LibraryStore {
@@ -23,7 +22,7 @@ interface LibraryStore {
 /** Monotonic token: only the latest refresh may write results / clear isScanning. */
 let libraryRefreshToken = 0;
 
-export const useLibraryStore = create<LibraryStore>()((set, get) => {
+export const useLibraryStore = createLibraryStore<LibraryStore>()((set, get) => {
 
   return {
     localSongs: [],
@@ -34,10 +33,11 @@ export const useLibraryStore = create<LibraryStore>()((set, get) => {
 
     addSongs: (songs) => {
       // 同 id 的旧记录优先：与既有行为一致（重新添加文件不会覆盖用户改过的字段）。
-      const existingIds = new Set(get().localSongs.map((song) => song.id));
-      const addedSongs = songs.filter((song) => !existingIds.has(song.id));
-      if (addedSongs.length === 0) return;
-      set((state) => ({ localSongs: [...state.localSongs, ...addedSongs] }));
+      set((state) => {
+        const existingIds = new Set(state.localSongs.map((song) => song.id));
+        const addedSongs = songs.filter((song) => !existingIds.has(song.id));
+        return addedSongs.length === 0 ? state : { localSongs: [...state.localSongs, ...addedSongs] };
+      });
     },
 
     updateSong: (id, patch) =>

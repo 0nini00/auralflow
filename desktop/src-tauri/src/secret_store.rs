@@ -21,14 +21,9 @@ use base64::Engine;
 /// 密文前缀。带版本号，便于将来更换算法时区分。
 const CIPHER_PREFIX: &str = "DPAPI:v1:";
 
-/// 判断字符串是否为本模块产出的密文。
-fn is_encrypted(value: &str) -> bool {
-    value.starts_with(CIPHER_PREFIX)
-}
-
-/// 加密单个凭证值。已是密文则原样返回，避免重复加密。
+/// 加密内存中的明文凭证。磁盘密文只由 unprotect 处理，不能从明文前缀猜类型。
 pub fn protect(value: &str) -> Result<String, String> {
-    if value.is_empty() || is_encrypted(value) {
+    if value.is_empty() {
         return Ok(value.to_string());
     }
     let cipher = platform::protect(value.as_bytes())?;
@@ -141,10 +136,12 @@ mod tests {
     }
 
     #[test]
-    fn protect_is_idempotent() {
-        let once = protect("token").expect("首次加密应成功");
-        let twice = protect(&once).expect("二次加密应短路");
-        assert_eq!(once, twice, "已加密值不应被重复加密");
+    fn plaintext_with_cipher_prefix_roundtrips() {
+        for plain in ["DPAPI:v1:not-base64", "DPAPI:v1:bm90LWEtcmVhbC1ibG9i"] {
+            let cipher = protect(plain).expect("明文必须始终加密");
+            assert_ne!(cipher, plain);
+            assert_eq!(unprotect(&cipher).unwrap(), plain);
+        }
     }
 
     #[test]

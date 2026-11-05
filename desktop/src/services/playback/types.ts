@@ -15,6 +15,8 @@ export interface PlaybackRequest {
   primary: MusicInfo;
   variants?: MusicInfo[];
   qualityPreference: string[];
+  /** 下载要求实际结果能够证明所选音质，不能把无质量元数据的 URL 标成请求档位。 */
+  exactQuality?: boolean;
   /** 本次解析的绝对截止时间（Date.now() 时间戳），后端据此给探活/媒体缓存留余量。 */
   deadlineAt?: number;
 }

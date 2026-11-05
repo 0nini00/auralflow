@@ -4,13 +4,61 @@
  * 用于把 zustand store 的数据从浏览器 localStorage 迁到 Rust 侧的
  * AppData/library/<namespace>.json。
  *
- * 用法：在 store 工厂里调用 `attachLibraryPersistence(useStore, {...})`，
+ * 用法：以 `createLibraryStore` 创建 store，再调用 `attachLibraryPersistence(useStore, {...})`，
  *  - 启动时一次性读 Rust 侧数据 + 检测 localStorage 旧数据并迁移。
  *  - 每次 setState 后 debounce 写盘。
  */
 
 import { libraryLoad, librarySave, type LibraryNamespace } from "@lx/tauri-bridge";
-import type { StoreApi, UseBoundStore } from "zustand";
+import { create, type StateCreator, type StoreApi, type UseBoundStore } from "zustand";
+
+interface StartupMutations {
+  begin: () => void;
+  commit: (partial: object) => boolean;
+  discard: () => void;
+}
+
+const startupMutations = new WeakMap<object, StartupMutations>();
+
+/** 保留更新操作的语义，读盘后在完整基线上按顺序重放，而不是合并过时快照。 */
+function trackStartupMutations<T extends object>(api: StoreApi<T>): StoreApi<T>['setState'] {
+  const set = api.setState;
+  let baseline: T | null = null;
+  let updates: Array<(state: T) => T> = [];
+  const trackedSet = ((partial: T | Partial<T> | ((state: T) => T | Partial<T>), replace?: boolean) => {
+    if (baseline !== null) {
+      updates.push((state) => {
+        const value = typeof partial === 'function' ? partial(state) : partial;
+        return replace ? value as T : Object.assign({}, state, value);
+      });
+    }
+    if (replace) set(partial as T | ((state: T) => T), true);
+    else set(partial, false);
+  }) as StoreApi<T>['setState'];
+  startupMutations.set(trackedSet, {
+    begin() { baseline = api.getState(); },
+    commit(partial) {
+      const changed = updates.length > 0;
+      const restored = Object.assign({}, baseline ?? api.getState(), partial);
+      const committed = updates.reduce((state, update) => update(state), restored);
+      baseline = null;
+      updates = [];
+      set(committed, true);
+      return changed;
+    },
+    discard() { baseline = null; updates = []; },
+  });
+  api.setState = trackedSet;
+  return trackedSet;
+}
+
+/** 持久化 store 的内部 set 和外部 setState 必须经过同一个初始化提交边界。 */
+export function createLibraryStore<T extends object>(): (initializer: StateCreator<T>) => UseBoundStore<StoreApi<T>>;
+export function createLibraryStore<T extends object>(initializer: StateCreator<T>): UseBoundStore<StoreApi<T>>;
+export function createLibraryStore<T extends object>(initializer?: StateCreator<T>) {
+  if (!initializer) return (creator: StateCreator<T>) => createLibraryStore(creator);
+  return create<T>((_set, get, api) => initializer(trackStartupMutations(api), get, api));
+}
 
 interface AttachOptions<T, S> {
   namespace: LibraryNamespace;
@@ -43,6 +91,8 @@ export interface LibraryPersistenceController {
   ready: Promise<void>;
   /** ready 表示加载结束；失败时不可用空状态继续写盘。 */
   readonly loadError: Error | null;
+  /** 已提交或等待中的持久化更新是否仍有未落盘内容。 */
+  readonly hasPendingWrites: boolean;
   /** 立刻写盘，跳过 debounce */
   flush: () => Promise<void>;
 }
@@ -56,11 +106,18 @@ export interface LibraryPersistenceController {
  */
 const persistenceControllers = new Set<LibraryPersistenceController>();
 
-/** 立刻把所有 debounce 中的写盘落盘；单个失败不影响其余。 */
+/** 等待所有写盘结束；任一失败必须阻止退出方误报保存成功。 */
 export async function flushLibraryPersistence(): Promise<void> {
-  await Promise.allSettled(
-    [...persistenceControllers].map((controller) => controller.flush()),
-  );
+  do {
+    const results = await Promise.allSettled(
+      [...persistenceControllers].map((controller) => controller.flush()),
+    );
+    const failures = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
+    if (failures.length) {
+      throw new Error(failures.map(({ reason }) => reason instanceof Error ? reason.message : String(reason)).join('\n'));
+    }
+    // 其它 store 写盘期间，已经完成的命名空间仍可能收到修改；退出必须等全部排空。
+  } while ([...persistenceControllers].some((controller) => controller.hasPendingWrites));
 }
 
 /** 读盘失败（磁盘上已有数据但读不出来）的命名空间。 */
@@ -101,7 +158,7 @@ function markNamespaceDegraded(namespace: LibraryNamespace): void {
   for (const listener of degradedListeners) listener();
 }
 
-export function attachLibraryPersistence<T, S>(
+export function attachLibraryPersistence<T extends object, S>(
   store: UseBoundStore<StoreApi<T>> | StoreApi<T>,
   opts: AttachOptions<T, S>,
 ): LibraryPersistenceController {
@@ -114,11 +171,16 @@ export function attachLibraryPersistence<T, S>(
     debounceMs = DEFAULT_DEBOUNCE,
   } = opts;
 
-  const api: StoreApi<T> = "getState" in store ? (store as StoreApi<T>) : (store as any);
+  const api: StoreApi<T> = store;
+  const mutationBoundary = startupMutations.get(api.setState);
+  if (!mutationBoundary) throw new Error('持久化 store 必须通过 createLibraryStore 创建，以保留启动期间的修改');
+  mutationBoundary.begin();
 
   let suppressed = false;
+  let loaded = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let pending: S | null = null;
+  let writing = false;
   /**
    * 磁盘上已有数据但读不出来（损坏/权限）时为 true。
    *
@@ -132,10 +194,12 @@ export function attachLibraryPersistence<T, S>(
   });
 
   const writePending = async () => {
+    await ready;
     if (loadError) throw loadError;
     if (pending == null) return;
     const snapshot = pending;
     pending = null;
+    writing = true;
     try {
       await librarySave(namespace, snapshot as unknown);
     } catch (err) {
@@ -144,6 +208,8 @@ export function attachLibraryPersistence<T, S>(
       // 不覆盖等待期间产生的新快照；手动重试或退出 flush 可再次提交。
       if (pending == null) pending = snapshot;
       throw err;
+    } finally {
+      writing = false;
     }
   };
 
@@ -160,7 +226,7 @@ export function attachLibraryPersistence<T, S>(
   };
 
   const schedule = (slice: S) => {
-    if (loadError) return;
+    if (!loaded || loadError) return;
     pending = slice;
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
@@ -200,15 +266,16 @@ export function attachLibraryPersistence<T, S>(
         }
       }
 
-      if (slice != null) {
-        suppressed = true;
-        try {
-          apply(slice, (partial) => api.setState(partial as any));
-        } finally {
-          suppressed = false;
-        }
-      }
+      let restored: Partial<T> = {};
+      if (slice != null) apply(slice, (partial) => { restored = { ...restored, ...partial }; });
+      suppressed = true;
+      const changed = mutationBoundary.commit(restored);
+      suppressed = false;
+      loaded = true;
+      if (changed) schedule(pick(api.getState()));
     } catch (err) {
+      suppressed = false;
+      mutationBoundary.discard();
       loadError = err instanceof Error ? err : new Error(String(err));
       markNamespaceDegraded(namespace);
       console.error(
@@ -223,7 +290,12 @@ export function attachLibraryPersistence<T, S>(
   const controller: LibraryPersistenceController = {
     ready,
     get loadError() { return loadError; },
-    flush: writeNow,
+    get hasPendingWrites() { return pending !== null || writing; },
+    async flush() {
+      do {
+        await writeNow();
+      } while (pending !== null);
+    },
   };
   persistenceControllers.add(controller);
   return controller;

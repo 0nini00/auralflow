@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
-const { createLoader, mobileRequire } = require("./helpers/loadTs.cjs");
+const { createLoader, deferred, mobileRequire } = require("./helpers/loadTs.cjs");
 const { createStore } = mobileRequire("zustand/vanilla");
 
 const LOCAL_TIME = 200000;
@@ -41,7 +41,7 @@ function response(status, body = "") {
   return { status, ok: status >= 200 && status < 300, statusText: `fixture-${status}`, text: async () => body };
 }
 
-async function fixture({ remote = remoteFile(), read } = {}) {
+async function fixture({ remote = remoteFile(), read, write } = {}) {
   const initialLocal = [localPlaylist("shared", [song("common", "本地新标题"), song("local-song")]), localPlaylist("local-only", [song("local-only-song")])];
   const initialFavorites = [song("common", "本地新标题"), song("local-favorite")];
   const memory = new Map([
@@ -56,6 +56,7 @@ async function fixture({ remote = remoteFile(), read } = {}) {
   const sourceStore = createStore(set => ({
     sources: [{ id: "local-source", name: "local", script: "fixture-script" }],
     replaceAll: sources => set({ sources }),
+    loadFromStorage: async () => {},
   }));
   const loadCore = createLoader({});
   const core = {
@@ -69,7 +70,7 @@ async function fixture({ remote = remoteFile(), read } = {}) {
     zustand: { create: createStore },
     "@react-native-async-storage/async-storage": {
       getItem: async key => memory.get(key) ?? null,
-      setItem: async (key, value) => { memory.set(key, value); },
+      setItem: async (key, value) => { if (write) await write(key, value); memory.set(key, value); },
       removeItem: async key => { memory.delete(key); },
       // historyStore 用批量 API 落盘：少了它们，写入会在 catch 里静默失败，
       // 用例就会把「历史一条都没变」误判成业务逻辑问题。
@@ -83,7 +84,7 @@ async function fixture({ remote = remoteFile(), read } = {}) {
     "../services/wyPlaylistService": {},
     "./accountStore": {},
     "../stores/customSourceStore": { useCustomSourceStore: sourceStore },
-    "./customSourceRuntime": { parseDesktopUserApiInfo: () => assert.fail("音源保护应在脚本解析前拒绝") },
+    "./customSourceRuntime": { parseDesktopUserApiInfo: () => ({ name: "fixture", description: "fixture" }) },
     pako: mobileRequire("pako"),
     "@/services/secureStorageService": {
       getSecureItem: async () => "fixture-only-not-a-real-secret",
@@ -239,6 +240,66 @@ test("已确认 force 的覆盖下载仍可替换旧数据", async () => {
   assert.equal(f.playlists.getState().localPlaylists.find(item => item.id === "shared").name, "云端旧歌单名");
   assert.equal(f.uploads.length, 0);
 });
+
+test("覆盖下载等待收藏持久化完成，写盘失败必须拒绝", async () => {
+  const f = await fixture();
+  const pending = deferred();
+  const entered = deferred();
+  f.favorites.setState({ replaceAll: () => { entered.resolve(); return pending.promise; } });
+  let completed = false;
+  const download = f.service.downloadPlaylistsSync({ merge: false, force: true });
+  const result = download.then(() => { completed = true; }, error => error);
+  await entered.promise;
+  await new Promise(setImmediate);
+  const earlyCompletion = completed;
+  const error = new Error("favorite persistence failed");
+  // 当前实现未等待 replaceAll 时也先挂接处理器，避免测试自身制造未处理拒绝。
+  void pending.promise.catch(() => undefined);
+  pending.reject(error);
+  const outcome = await result;
+  assert.equal(earlyCompletion, false);
+  assert.equal(outcome, error);
+});
+
+test("真实收藏写盘失败阻止自动同步 PUT", async () => {
+  let failing = false;
+  const f = await fixture({ write: async key => {
+    if (failing && key === FAVORITES_KEY) throw new Error("favorite write unavailable");
+  } });
+  failing = true;
+  await assert.rejects(f.service.autoSyncPlaylistsOnce(), /favorite write unavailable/);
+  assert.equal(f.uploads.length, 0);
+});
+
+test("下载音源等待落盘且失败不推进同步元数据", async () => {
+  const f = await fixture({ remote: { lastModified: 300000, data: [{ id: "fixture", name: "fixture", script: "fixture script" }] } });
+  const before = f.memory.get(META_PREFIX + "sources");
+  const gate = deferred();
+  const entered = deferred();
+  f.sourceStore.setState({ replaceAll: () => { entered.resolve(); return gate.promise; } });
+  const download = f.service.downloadSourcesSync({ force: true });
+  const result = download.then(() => undefined, error => error);
+  await entered.promise;
+  await new Promise(setImmediate);
+  const metadataBeforeCommit = f.memory.get(META_PREFIX + "sources");
+  const error = new Error("source persistence failed");
+  void gate.promise.catch(() => undefined);
+  gate.reject(error);
+  assert.equal(await result, error);
+  assert.equal(metadataBeforeCommit, before);
+  assert.equal(f.memory.get(META_PREFIX + "sources"), before);
+});
+
+for (const action of ["uploadPlaylistsSync", "downloadPlaylistsSync", "uploadSourcesSync", "downloadSourcesSync"]) {
+  test(`${action} 必须等待本地数据初始化成功`, async () => {
+    const f = await fixture();
+    const error = new Error("local hydration failed");
+    if (action.includes("Playlists")) f.playlists.setState({ loadLocalPlaylists: async () => { throw error; } });
+    else f.sourceStore.setState({ loadFromStorage: async () => { throw error; } });
+    await assert.rejects(f.service[action](), value => value === error);
+    assert.equal(f.uploads.length, 0);
+  });
+}
 
 test("首次同步新旧目录均 404 时允许上传本地数据", async () => {
   const f = await fixture({ read: async () => response(404) });

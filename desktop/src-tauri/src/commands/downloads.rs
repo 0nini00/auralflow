@@ -40,23 +40,68 @@ fn safe_join_download_path(directory: &str, file_name: &str) -> Result<PathBuf, 
 }
 
 // ─── 下载取消 ────────────────────────────────────────────────
-fn download_cancel_map() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
-    static MAP: OnceLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
+fn download_cancel_map() -> &'static Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>> {
+    static MAP: OnceLock<Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>> =
+        OnceLock::new();
     MAP.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn register_download_cancel(task_id: &str) -> Arc<AtomicBool> {
-    let flag = Arc::new(AtomicBool::new(false));
-    if let Ok(mut map) = download_cancel_map().lock() {
-        map.insert(task_id.to_string(), Arc::clone(&flag));
+fn register_download_cancel(task_id: &str) -> Result<tokio::sync::watch::Receiver<bool>, String> {
+    let mut map = download_cancel_map()
+        .lock()
+        .map_err(|_| "下载取消状态锁损坏")?;
+    if map.contains_key(task_id) {
+        return Err("下载任务 ID 已在使用".to_string());
     }
-    flag
+    let (sender, receiver) = tokio::sync::watch::channel(false);
+    map.insert(task_id.to_string(), sender);
+    Ok(receiver)
 }
 
 fn clear_download_cancel(task_id: &str) {
     if let Ok(mut map) = download_cancel_map().lock() {
         map.remove(task_id);
     }
+}
+
+async fn await_download_step<T>(
+    cancel: &mut tokio::sync::watch::Receiver<bool>,
+    operation: impl std::future::Future<Output = Result<T, reqwest::Error>>,
+) -> Result<T, String> {
+    if *cancel.borrow() {
+        return Err("下载已取消".to_string());
+    }
+    tokio::select! {
+        biased;
+        _ = cancel.changed() => Err("下载已取消".to_string()),
+        result = operation => result.map_err(|err| err.to_string()),
+    }
+}
+
+#[cfg(windows)]
+fn rename_download_no_replace(source: &Path, destination: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn MoveFileExW(existing: *const u16, new: *const u16, flags: u32) -> i32;
+    }
+    let source: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
+    let destination: Vec<u16> = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    // flags=0 保留 Windows 的原子拒绝覆盖语义，也适用于不支持硬链接的下载卷。
+    if unsafe { MoveFileExW(source.as_ptr(), destination.as_ptr(), 0) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn rename_download_no_replace(source: &Path, destination: &Path) -> std::io::Result<()> {
+    std::fs::hard_link(source, destination)?;
+    std::fs::remove_file(source)
 }
 
 /// 取消登记守卫：任何提前返回路径都会把 task_id 从取消表里摘掉。
@@ -107,40 +152,45 @@ fn looks_like_text_payload(bytes: &[u8]) -> bool {
         .position(|byte| !byte.is_ascii_whitespace())
         .unwrap_or(head.len());
     let payload = head[start..].to_ascii_lowercase();
-    const MARKERS: [&[u8]; 6] = [
-        b"<!doctype",
-        b"<html",
-        b"<?xml",
-        b"#extm3u",
-        b"{",
-        b"[",
-    ];
-    MARKERS
-        .iter()
-        .any(|marker| payload.starts_with(*marker))
+    const MARKERS: [&[u8]; 6] = [b"<!doctype", b"<html", b"<?xml", b"#extm3u", b"{", b"["];
+    MARKERS.iter().any(|marker| payload.starts_with(marker))
 }
 
-fn unique_final_download_path(path: PathBuf) -> PathBuf {
-    if !path.exists() {
-        return path;
+fn validate_download_payload(downloaded: u64, sniffed: bool, prefix: &[u8]) -> Result<(), String> {
+    if downloaded == 0 {
+        return Err("下载地址返回空文件".to_string());
     }
+    if !sniffed && looks_like_text_payload(prefix) {
+        return Err("下载地址返回的是网页/文本而不是音频文件，可能已失效或无版权".to_string());
+    }
+    Ok(())
+}
+
+fn publish_download(temp_path: &Path, path: &Path) -> Result<PathBuf, String> {
     let parent = path
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."));
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
     let ext = path.extension().and_then(|s| s.to_str());
-    for i in 1..1000 {
-        let name = match ext {
-            Some(e) => format!("{} ({}).{}", stem, i, e),
-            None => format!("{} ({})", stem, i),
+    for i in 0..1000 {
+        let name = match (i, ext) {
+            (0, _) => path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string(),
+            (_, Some(e)) => format!("{} ({}).{}", stem, i, e),
+            (_, None) => format!("{} ({})", stem, i),
         };
         let candidate = parent.join(name);
-        if !candidate.exists() {
-            return candidate;
+        match rename_download_no_replace(temp_path, &candidate) {
+            Ok(()) => return Ok(candidate),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(format!("完成下载文件失败: {}", err)),
         }
     }
-    path
+    Err("同名文件已超过重名上限，请换个文件名或目录".to_string())
 }
 
 /// 允许调用方附加的请求头白名单。
@@ -181,7 +231,7 @@ pub async fn download_file(
     // 下载地址由音源解析结果决定，属于运行时可控目标，统一走出站校验。
     crate::outbound::assert_public_url(&url, "下载")?;
 
-    let cancel_flag = register_download_cancel(&task_id);
+    let mut cancel_flag = register_download_cancel(&task_id)?;
     let _cancel_guard = DownloadCancelGuard {
         task_id: task_id.clone(),
     };
@@ -197,15 +247,20 @@ pub async fn download_file(
     let mut temp_guard = TempFileGuard::new(temp_path.clone());
 
     let client = reqwest::Client::builder()
+        .connect_timeout(super::MEDIA_CONNECT_TIMEOUT)
+        .read_timeout(super::MEDIA_READ_TIMEOUT)
+        .timeout(super::MEDIA_TOTAL_TIMEOUT)
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
         .redirect(crate::outbound::guarded_redirect_policy("下载"))
         .build()
         .map_err(|err| format!("创建下载客户端失败: {}", err))?;
 
-    let mut resp = apply_allowed_headers(client.get(&url), headers.as_ref())
-        .send()
-        .await
-        .map_err(|err| format!("请求下载地址失败: {}", err))?;
+    let mut resp = await_download_step(
+        &mut cancel_flag,
+        apply_allowed_headers(client.get(&url), headers.as_ref()).send(),
+    )
+    .await
+    .map_err(|err| format!("请求下载地址失败: {}", err))?;
 
     if !resp.status().is_success() {
         return Err(format!("下载失败: HTTP {}", resp.status()));
@@ -241,12 +296,11 @@ pub async fn download_file(
     let mut sniffed = false;
     const SNIFF_BYTES: usize = 512;
 
-    while let Some(chunk) = resp
-        .chunk()
+    while let Some(chunk) = await_download_step(&mut cancel_flag, resp.chunk())
         .await
         .map_err(|err| format!("读取下载数据失败: {}", err))?
     {
-        if cancel_flag.load(Ordering::SeqCst) {
+        if *cancel_flag.borrow() {
             drop(file);
             return Err("下载已取消".to_string());
         }
@@ -256,7 +310,9 @@ pub async fn download_file(
                 sniffed = true;
                 if looks_like_text_payload(&sniff_buffer) {
                     drop(file);
-                    return Err("下载地址返回的是网页/文本而不是音频文件，可能已失效或无版权".to_string());
+                    return Err(
+                        "下载地址返回的是网页/文本而不是音频文件，可能已失效或无版权".to_string(),
+                    );
                 }
             }
         }
@@ -292,18 +348,12 @@ pub async fn download_file(
     drop(file);
 
     // 整个响应比 SNIFF_BYTES 还短（多数是错误页/占位文本）：提交前再嗅探一次
-    if !sniffed && looks_like_text_payload(&sniff_buffer) {
-        return Err("下载地址返回的是网页/文本而不是音频文件，可能已失效或无版权".to_string());
-    }
+    validate_download_payload(downloaded, sniffed, &sniff_buffer)?;
 
-    // 同名不覆盖：自动变成 "name (1).ext"。
-    // unique_final_download_path 只在 1000 个重名全撞上时才原样返回已存在的路径，
-    // 那种极端情形直接报错而不是删掉旧文件（「同名不覆盖」是这里的契约）。
-    let final_path = unique_final_download_path(path);
-    if final_path.exists() {
-        return Err("同名文件已超过重名上限，请换个文件名或目录".to_string());
+    if *cancel_flag.borrow() {
+        return Err("下载已取消".to_string());
     }
-    std::fs::rename(&temp_path, &final_path).map_err(|err| format!("完成下载文件失败: {}", err))?;
+    let final_path = publish_download(&temp_path, &path)?;
     temp_guard.disarm();
 
     // 下载目录可由用户改到任意位置，放行该文件以便播放已下载曲目。
@@ -326,7 +376,7 @@ pub async fn download_file(
 pub fn cancel_download(task_id: String) -> Result<bool, String> {
     if let Ok(map) = download_cancel_map().lock() {
         if let Some(flag) = map.get(&task_id) {
-            flag.store(true, Ordering::SeqCst);
+            flag.send_replace(true);
             return Ok(true);
         }
     }
@@ -343,4 +393,142 @@ pub fn write_download_text_file(
     std::fs::write(&path, contents.as_bytes())
         .map_err(|err| format!("写入下载附属文件失败: {}", err))?;
     Ok(path.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+
+    #[test]
+    fn empty_http_success_is_rejected_before_publishing() {
+        assert!(validate_download_payload(0, false, &[]).is_err());
+    }
+
+    fn cancel_stalled_http(response_headers: Option<&'static [u8]>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let task_id = format!("http-cancel-{}", unique_temp_suffix());
+        let mut cancel = register_download_cancel(&task_id).unwrap();
+        let _guard = DownloadCancelGuard {
+            task_id: task_id.clone(),
+        };
+        let (done, released) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut request = [0u8; 2048];
+            assert!(socket.read(&mut request).unwrap() > 0);
+            if let Some(headers) = response_headers {
+                socket.write_all(headers).unwrap();
+            }
+            std::thread::sleep(Duration::from_millis(30));
+            assert!(cancel_download(task_id).unwrap());
+            let _ = released.recv_timeout(Duration::from_secs(2));
+        });
+        let result = tauri::async_runtime::block_on(async {
+            tokio::time::timeout(Duration::from_secs(1), async {
+                let request = reqwest::Client::new().get(url).send();
+                if response_headers.is_none() {
+                    return await_download_step(&mut cancel, request).await.map(|_| ());
+                }
+                let mut response = await_download_step(&mut cancel, request).await?;
+                await_download_step(&mut cancel, response.chunk())
+                    .await
+                    .map(|_| ())
+            })
+            .await
+        });
+        let _ = done.send(());
+        server.join().unwrap();
+        assert_eq!(
+            result.expect("停滞连接应由取消信号立即唤醒").unwrap_err(),
+            "下载已取消"
+        );
+    }
+
+    #[test]
+    fn cancellation_interrupts_waiting_for_http_headers() {
+        cancel_stalled_http(None);
+    }
+
+    #[test]
+    fn cancellation_interrupts_a_stalled_http_body() {
+        cancel_stalled_http(Some(b"HTTP/1.1 200 OK\r\nContent-Length: 512\r\n\r\n"));
+    }
+
+    #[test]
+    fn concurrent_same_name_downloads_keep_each_payload() {
+        let dir = std::env::temp_dir().join(format!(
+            "auralflow-concurrent-publish-{}",
+            unique_temp_suffix()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let workers: Vec<_> = (0..8)
+            .map(|index| {
+                let dir = dir.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    let source = dir.join(format!("{}.download", index));
+                    std::fs::write(&source, index.to_string()).unwrap();
+                    barrier.wait();
+                    let path = publish_download(&source, &dir.join("song.mp3")).unwrap();
+                    (path, index.to_string())
+                })
+            })
+            .collect();
+        for worker in workers {
+            let (path, expected) = worker.join().unwrap();
+            assert_eq!(std::fs::read_to_string(path).unwrap(), expected);
+        }
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 8);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn cancellation_wakes_a_pending_network_operation() {
+        let task_id = format!("cancel-test-{}", unique_temp_suffix());
+        let mut cancel = register_download_cancel(&task_id).unwrap();
+        let _guard = DownloadCancelGuard {
+            task_id: task_id.clone(),
+        };
+        let worker = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(20));
+            assert!(cancel_download(task_id).unwrap());
+        });
+        let outcome = tauri::async_runtime::block_on(async {
+            tokio::time::timeout(
+                Duration::from_millis(250),
+                await_download_step(
+                    &mut cancel,
+                    std::future::pending::<Result<(), reqwest::Error>>(),
+                ),
+            )
+            .await
+        });
+        worker.join().unwrap();
+        assert_eq!(
+            outcome
+                .expect("取消必须唤醒没有网络响应的任务")
+                .unwrap_err(),
+            "下载已取消"
+        );
+    }
+
+    #[test]
+    fn final_publish_never_replaces_an_existing_file() {
+        let dir = std::env::temp_dir().join(format!("auralflow-publish-{}", unique_temp_suffix()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("new.download");
+        let target = dir.join("song.mp3");
+        std::fs::write(&source, b"new").unwrap();
+        std::fs::write(&target, b"original").unwrap();
+        let result = rename_download_no_replace(&source, &target);
+        let contents = std::fs::read(&target).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(result.is_err(), "目标已存在时必须拒绝替换");
+        assert_eq!(contents, b"original");
+    }
 }

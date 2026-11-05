@@ -251,6 +251,9 @@ async fn cache_remote_file(
         .map_err(|err| format!("创建{}缓存目录失败: {}", label, err))?;
 
     let client = reqwest::Client::builder()
+        .connect_timeout(super::MEDIA_CONNECT_TIMEOUT)
+        .read_timeout(super::MEDIA_READ_TIMEOUT)
+        .timeout(super::MEDIA_TOTAL_TIMEOUT)
         .user_agent(MEDIA_CACHE_UA)
         .redirect(crate::outbound::guarded_redirect_policy("媒体缓存"))
         .build()

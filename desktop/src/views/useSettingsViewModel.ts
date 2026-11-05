@@ -236,7 +236,11 @@ const patchPlaybackSetting = async (patch: Record<string, unknown>): Promise<boo
 const handleDefaultQualityChange = async (quality: string) => {
   const previous = defaultQuality;
   setDefaultQuality(quality);
-  if (!(await patchPlaybackSetting({ defaultQuality: quality }))) setDefaultQuality(previous);
+  if (!(await patchPlaybackSetting({ defaultQuality: quality }))) {
+    setDefaultQuality(previous);
+    return;
+  }
+  clearPlaybackPrefetchCache();
 };
 
 const handlePauseOnExternalPlaybackChange = async (next: boolean) => {

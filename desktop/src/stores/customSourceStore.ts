@@ -1,4 +1,3 @@
-import { create } from 'zustand';
 import { open } from '@tauri-apps/plugin-dialog';
 import { readTextFile } from '@tauri-apps/plugin-fs';
 import {
@@ -10,7 +9,7 @@ import {
   type DesktopUserApiHeaderInfo,
   type CustomSourceUpdateAlert,
 } from '@/services/customSourceRuntime';
-import { attachLibraryPersistence } from './libraryPersistence';
+import { attachLibraryPersistence, createLibraryStore } from './libraryPersistence';
 import { createCustomSourceAccess } from '@/services/customSourceAccess';
 import { clearCrossSourceVariantCache } from '@/services/playback/crossSourceFallbackService';
 import { moveItemToIndex } from '@/utils/listReorder';
@@ -143,7 +142,7 @@ function normalizeCustomSourceForStore(source: CustomSourceItem): CustomSourceIt
   };
 }
 
-export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
+export const useCustomSourceStore = createLibraryStore<CustomSourceStore>()((set, get) => ({
       featureEnabled: false,
       featureReady: false,
       featureLoadError: null,

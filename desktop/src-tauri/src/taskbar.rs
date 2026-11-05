@@ -47,7 +47,6 @@ pub const GLYPH_COUNT: usize = 4;
 /// 按钮图标边长（像素）。任务栏缩略图按钮按 16~24px 显示，32px 缩下去也清晰。
 const ICON_SIZE: u32 = 32;
 
-
 // ─── 纯函数层（不碰 Win32/COM，可单测） ─────────────────────────
 
 /// 缩略图按钮能发的动作。前端映射到 `playerStore` 的既有动作，不新建状态机。
@@ -122,11 +121,7 @@ pub fn play_pause_glyph(status: &str) -> Glyph {
 
 /// 三个按钮各自该用的字形（顺序与 [`BUTTON_ACTIONS`] 一致）。
 pub fn button_glyphs(status: &str) -> [Glyph; BUTTON_COUNT] {
-    [
-        Glyph::Previous,
-        play_pause_glyph(status),
-        Glyph::Next,
-    ]
+    [Glyph::Previous, play_pause_glyph(status), Glyph::Next]
 }
 
 /// `WM_COMMAND` 的 wparam 解码：低 16 位是按钮 id，高 16 位是通知码。
@@ -138,7 +133,6 @@ pub fn command_action(wparam: u32) -> Option<TaskbarAction> {
     }
     action_for_button_id(wparam & 0xffff)
 }
-
 
 /// 播放暂停按钮的提示文案（供真机核对用）。
 pub fn play_pause_tooltip(status: &str) -> &'static str {
@@ -251,7 +245,10 @@ pub struct TaskbarActionEvent {
 ///
 /// 这里只留「按钮该画哪个字形」需要的信息：状态没变就不必重画，所以 [`update_track`]
 /// 用 [`Shared::set_status`] 的返回值把这种情况挡在门外，避免每首歌都往主线程排一次任务。
-static SHARED: Mutex<Shared> = Mutex::new(Shared { enabled: false, status: String::new() });
+static SHARED: Mutex<Shared> = Mutex::new(Shared {
+    enabled: false,
+    status: String::new(),
+});
 
 #[derive(Default)]
 struct Shared {
@@ -264,6 +261,9 @@ struct Shared {
 impl Shared {
     fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
+        if !enabled {
+            self.status.clear();
+        }
     }
 
     /// 记录新状态；返回「按钮需要重画吗」。
@@ -273,6 +273,24 @@ impl Shared {
         }
         self.status = status;
         true
+    }
+}
+
+fn reconcile_buttons<E>(
+    previously_added: bool,
+    update: impl FnOnce() -> Result<(), E>,
+    add: impl FnOnce() -> Result<(), E>,
+    report_update_failure: impl FnOnce(&E),
+) -> Result<(), E> {
+    if !previously_added {
+        return add();
+    }
+    match update() {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            report_update_failure(&err);
+            add()
+        }
     }
 }
 
@@ -334,7 +352,7 @@ mod platform {
     use std::mem::size_of;
     use std::ptr::{copy_nonoverlapping, null_mut};
     use tauri::{AppHandle, Emitter, Manager};
-    use windows::core::{w, BOOL, IUnknown};
+    use windows::core::{w, IUnknown, BOOL};
     use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows::Win32::Graphics::Gdi::{
         CreateBitmap, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, BITMAPINFO,
@@ -342,7 +360,7 @@ mod platform {
     };
     use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
     use windows::Win32::UI::Shell::{
-        DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass, TaskbarList, ITaskbarList3,
+        DefSubclassProc, ITaskbarList3, RemoveWindowSubclass, SetWindowSubclass, TaskbarList,
         THBF_ENABLED, THBF_HIDDEN, THB_FLAGS, THB_ICON, THB_TOOLTIP, THUMBBUTTON,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -352,7 +370,6 @@ mod platform {
 
     /// 子类化 id：本模块只挂一份，卸载时按同一个 id 摘。
     const SUBCLASS_ID: usize = 0x4154;
-
 
     /// 主线程独占状态：COM 对象、GDI 图标、窗口句柄都不能跨线程。
     struct Hook {
@@ -366,6 +383,7 @@ mod platform {
         icons: Option<[HICON; GLYPH_COUNT]>,
         /// 是否已经装上子类化钩子（= 安全阀打开）
         installed: bool,
+        buttons_added: bool,
         /// 已经应用到按钮上的播放状态，避免同一状态重复更新
         applied_status: String,
     }
@@ -379,6 +397,7 @@ mod platform {
                 list: None,
                 icons: None,
                 installed: false,
+                buttons_added: false,
                 applied_status: String::new(),
             }
         }
@@ -419,9 +438,12 @@ mod platform {
             if hook.taskbar_message == 0 {
                 // 这条消息是「任务栏按钮就绪」的信号：建窗后与 explorer 重启后各会来一次，
                 // 注册失败不致命（启用时会先直接挂一次按钮），只记日志。
-                hook.taskbar_message = unsafe { RegisterWindowMessageW(w!("TaskbarButtonCreated")) };
+                hook.taskbar_message =
+                    unsafe { RegisterWindowMessageW(w!("TaskbarButtonCreated")) };
                 if hook.taskbar_message == 0 {
-                    log::warn!("[taskbar] 注册 TaskbarButtonCreated 消息失败，按钮只在启用时挂一次");
+                    log::warn!(
+                        "[taskbar] 注册 TaskbarButtonCreated 消息失败，按钮只在启用时挂一次"
+                    );
                 }
             }
             if hook.list.is_none() {
@@ -538,7 +560,10 @@ mod platform {
         } {
             Ok(list) => list,
             Err(err) => {
-                log::warn!("[taskbar] 创建任务栏列表失败，本次不启用缩略图按钮: {}", err);
+                log::warn!(
+                    "[taskbar] 创建任务栏列表失败，本次不启用缩略图按钮: {}",
+                    err
+                );
                 return None;
             }
         };
@@ -559,17 +584,31 @@ mod platform {
             log::warn!("[taskbar] 生成按钮图标失败，本次不添加任务栏按钮: {}", err);
             return;
         }
+        hook.applied_status = shared().status.clone();
         let Some(buttons) = buttons_for(hook, false) else {
             return;
         };
         let list = hook.list.as_ref();
         if let Some(list) = list {
-            if let Err(err) = unsafe { list.ThumbBarAddButtons(hook.hwnd, &buttons) } {
+            let result = reconcile_buttons(
+                hook.buttons_added,
+                || unsafe { list.ThumbBarUpdateButtons(hook.hwnd, &buttons) },
+                || unsafe { list.ThumbBarAddButtons(hook.hwnd, &buttons) },
+                |err| {
+                    log::warn!(
+                        "[taskbar] 已有按钮更新失败，尝试重建 Explorer 中的按钮: {}",
+                        err
+                    )
+                },
+            );
+            if let Err(err) = result {
                 // 任务栏按钮还没建好是正常情形：TaskbarButtonCreated 到了会再挂一次
                 log::warn!(
                     "[taskbar] 添加任务栏缩略图按钮失败（等 TaskbarButtonCreated 再试）: {}",
                     err
                 );
+            } else {
+                hook.buttons_added = true;
             }
         }
     }
@@ -581,12 +620,7 @@ mod platform {
         if hook.icons.is_some() {
             return Ok(());
         }
-        let glyphs = [
-            Glyph::Previous,
-            Glyph::Play,
-            Glyph::Pause,
-            Glyph::Next,
-        ];
+        let glyphs = [Glyph::Previous, Glyph::Play, Glyph::Pause, Glyph::Next];
         let mut icons = [HICON(null_mut()); GLYPH_COUNT];
         let mut created = 0usize;
         for glyph in glyphs {
@@ -683,9 +717,8 @@ mod platform {
             ..Default::default()
         };
         let mut bits: *mut c_void = null_mut();
-        let bitmap = unsafe {
-            CreateDIBSection(Some(hdc), &info, DIB_RGB_COLORS, &mut bits, None, 0)
-        };
+        let bitmap =
+            unsafe { CreateDIBSection(Some(hdc), &info, DIB_RGB_COLORS, &mut bits, None, 0) };
         let _ = unsafe { DeleteDC(hdc) };
         let bitmap = bitmap.map_err(step("创建位图失败"))?;
         if bits.is_null() {
@@ -713,11 +746,7 @@ mod platform {
             button.dwMask = THB_ICON | THB_TOOLTIP | THB_FLAGS;
             button.iId = button_id(action);
             button.hIcon = *icon;
-            button.dwFlags = if hidden {
-                THBF_HIDDEN
-            } else {
-                THBF_ENABLED
-            };
+            button.dwFlags = if hidden { THBF_HIDDEN } else { THBF_ENABLED };
             write_tooltip(&mut button.szTip, tooltip(action, &hook.applied_status));
             buttons[index] = button;
         }
@@ -778,7 +807,10 @@ mod platform {
         let taskbar_message = with_hook(|hook| hook.taskbar_message).unwrap_or(0);
         if taskbar_message != 0 && message == taskbar_message {
             // 任务栏按钮就绪（建窗后 / explorer 重启后）：补挂按钮
-            with_hook(add_buttons);
+            with_hook(|hook| {
+                hook.buttons_added = false;
+                add_buttons(hook);
+            });
             return Some(LRESULT(0));
         }
 
@@ -816,7 +848,6 @@ mod platform {
             log::warn!("[taskbar] 派发任务栏按钮动作失败: {}", err);
         }
     }
-
 }
 
 // ─── 非 Windows 构建占位 ──────────────────────────────────────
@@ -838,16 +869,32 @@ mod platform {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_buttons_after_explorer_restart_are_recreated() {
+        let calls = std::cell::RefCell::new(Vec::new());
+        let result = reconcile_buttons(
+            true,
+            || {
+                calls.borrow_mut().push("update");
+                Err("missing buttons")
+            },
+            || {
+                calls.borrow_mut().push("add");
+                Ok(())
+            },
+            |_| calls.borrow_mut().push("report"),
+        );
+        assert_eq!(result, Ok(()));
+        assert_eq!(*calls.borrow(), ["update", "report", "add"]);
+    }
     #[test]
     fn button_ids_round_trip() {
         // 按钮 id 就是按钮栏下标，前后端与窗口消息一起用，必须稳定
         assert_eq!(button_id(TaskbarAction::Previous), 0);
         assert_eq!(button_id(TaskbarAction::PlayPause), 1);
         assert_eq!(button_id(TaskbarAction::Next), 2);
-        assert_eq!(
-            action_for_button_id(0),
-            Some(TaskbarAction::Previous)
-        );
+        assert_eq!(action_for_button_id(0), Some(TaskbarAction::Previous));
         assert_eq!(action_for_button_id(1), Some(TaskbarAction::PlayPause));
         assert_eq!(action_for_button_id(2), Some(TaskbarAction::Next));
         // 不是我们的按钮 id
@@ -859,7 +906,10 @@ mod tests {
     fn wm_command_only_accepts_our_clicked_buttons() {
         // THBN_CLICKED(6144) 在 wparam 高位，按钮 id 在低位
         assert_eq!(command_action(6144 << 16), Some(TaskbarAction::Previous));
-        assert_eq!(command_action((6144 << 16) | 1), Some(TaskbarAction::PlayPause));
+        assert_eq!(
+            command_action((6144 << 16) | 1),
+            Some(TaskbarAction::PlayPause)
+        );
         assert_eq!(command_action((6144 << 16) | 2), Some(TaskbarAction::Next));
         // 通知码不对（例如菜单命令）不处理
         assert_eq!(command_action(2), None);
@@ -910,7 +960,12 @@ mod tests {
             assert_eq!(pixels.len(), (size * size * 4) as usize);
 
             // 四个角必须完全透明：按钮不做实心填充
-            let corners = [(0usize, 0usize), (size as usize - 1, 0), (0, size as usize - 1), (size as usize - 1, size as usize - 1)];
+            let corners = [
+                (0usize, 0usize),
+                (size as usize - 1, 0),
+                (0, size as usize - 1),
+                (size as usize - 1, size as usize - 1),
+            ];
             for (x, y) in corners {
                 let alpha = pixels[(y * size as usize + x) * 4 + 3];
                 assert_eq!(alpha, 0, "{:?} 的角落像素不该被填充", glyph);
@@ -951,4 +1006,13 @@ mod tests {
         assert_eq!(state.status, "paused");
     }
 
+    #[test]
+    fn reenable_requires_a_fresh_status_push() {
+        let mut state = Shared::default();
+        state.set_enabled(true);
+        assert!(state.set_status("playing".into()));
+        state.set_enabled(false);
+        state.set_enabled(true);
+        assert!(state.set_status("playing".into()));
+    }
 }

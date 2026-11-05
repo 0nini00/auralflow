@@ -151,7 +151,7 @@ export function ListeningStatsScreen({ onBack }: { onBack?: () => void }) {
 
   // 与 CacheSettings 同口径：进页面主动拉一次本地历史，启动期加载失败时这里还能救回来
   useEffect(() => {
-    void loadHistory();
+    void loadHistory().catch((error) => console.error("[听歌统计] 加载播放历史失败", error));
   }, [loadHistory]);
 
   const topTracks = stats.topTracks.slice(0, TOP_LIST_SIZE);

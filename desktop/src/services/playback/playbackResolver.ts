@@ -11,7 +11,7 @@ import { resolveHiddenFromGroups, startHiddenSearch, type HiddenCandidateGroup }
 import { probeStreamUrl, PROBE_TIMEOUT_MS, type StreamProbeResult } from './streamProbe';
 import type { PlaybackBackendId, PlaybackResolvedUrl } from './types';
 import { getSource } from '@/services/sources/sourceService';
-import { canResolveWithBuiltinMusicApi } from '@/services/builtinMusicApiModel';
+import { canConfirmBuiltinProviderQuality, canResolveWithBuiltinMusicApi } from '@/services/builtinMusicApiModel';
 import { getCachedPlaybackUrl, invalidateCachedPlaybackUrl, isLocalCachedPlaybackUrl, saveCachedPlaybackUrl } from '@/services/persistentCache';
 import { cacheResolvedPlaybackMedia, findCachedPlaybackMedia, StalePlaybackCacheError } from '@/services/mediaCache';
 import { customSourceAccess, customSourcePersistence, useCustomSourceStore } from '@/stores/customSourceStore';
@@ -309,8 +309,8 @@ async function resolvePlaybackUrlUncapped(
       if (cached) {
         // 老条目（超过 10 分钟）先做一次廉价探活：签名地址过期时直接重解析，
         // 避免把死链抛给播放器后用户只看到「播放失败」。
-        let usable = true;
-        if (shouldRevalidateCachedUrl(cached)) {
+        let usable = !options.exactQuality || cached.backend !== 'builtinProvider' || canConfirmBuiltinProviderQuality(cached.music);
+        if (usable && shouldRevalidateCachedUrl(cached)) {
           const revalidate = await probeStreamUrl(
             cached.url,
             buildStreamHeaders(cached.music.source),
@@ -373,6 +373,7 @@ async function resolvePlaybackUrlUncapped(
       primary: music,
       variants: allVariants,
       qualityPreference,
+      exactQuality: options.exactQuality,
       deadlineAt,
     });
     debugLog(`[resolve] 云盘曲官方直连 ${music.name} url=${resolved.url.slice(0, 60)}`);
@@ -425,6 +426,7 @@ async function resolvePlaybackUrlUncapped(
         primary: music,
         variants: allVariants,
         qualityPreference,
+        exactQuality: options.exactQuality,
         deadlineAt,
       }).catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
@@ -438,6 +440,7 @@ async function resolvePlaybackUrlUncapped(
       primary: music,
       variants: allVariants,
       qualityPreference: tier,
+      exactQuality: options.exactQuality,
       deadlineAt,
     };
     try {
@@ -515,6 +518,7 @@ async function resolvePlaybackUrlUncapped(
         primary: music,
         variants: allVariants,
         qualityPreference,
+        exactQuality: options.exactQuality,
         deadlineAt,
       });
       debugLog(`[resolve] 官方直连兜底成功 ${music.name} url=${resolved.url.slice(0, 60)}`);

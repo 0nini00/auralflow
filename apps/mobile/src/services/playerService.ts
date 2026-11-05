@@ -174,7 +174,8 @@ export async function resolveUrlWithCustomSource(
       try {
         // 取链期间脚本主动 send(updateAlert) 时写入 store,让全局更新弹窗能感知
         const result = await requestCustomSourceMusicUrl(source, song, requested, (alert) => {
-          useCustomSourceStore.getState().applyRuntimeUpdateAlert(source.id, alert);
+          void useCustomSourceStore.getState().applyRuntimeUpdateAlert(source.id, alert)
+            .catch((error) => logger.warn("音源更新提示保存失败", error));
         });
         // 与网关通道同样归一化:脚本可能回传 "flac24bit" 之外的别名；
         // 无法识别的标签退回请求档位，不静默当成 320k（与桌面端同一规则）。
@@ -1025,6 +1026,7 @@ async function playSongCore(song: MusicInfo, startPosition?: number, requestId?:
     // 先切 UI：封面/歌名立刻跟上手指，URL 解析在后台跑，避免「点了还播上一首」。
     usePlayerStore.setState({
       currentSong: song,
+      currentUrl: null,
       localMedia: null,
       loading: true,
       error: null,
@@ -1035,9 +1037,11 @@ async function playSongCore(song: MusicInfo, startPosition?: number, requestId?:
     logger.info("开始解析播放", { requestId: intent, song: `${song.source}:${song.id}` });
     // 点了就立刻有反馈：解析 + 装车这几百毫秒里先把上一首的声音压掉，
     // 否则「耳朵里还在放上一首」会让人以为没点上而重复点击（随后多跳一首）。
-    // 只压音量、不动播放状态：播放器管线 / 前台服务 / 暂停语义都不变，
+    // 只压原生音量、保留管线和前台服务；UI 播放态等待新曲提交。
     // 新曲起播时 store.play 会把音量恢复成目标值。
     await usePlayerStore.getState().silenceCurrentTrack();
+    if (!isCurrentPlaybackRequest(intent)) return;
+    usePlayerStore.setState({ isPlaying: false });
     const resolved = await runPlaybackResolution(async () => {
       try {
         return await resolveSongUrl(song);
@@ -1088,6 +1092,7 @@ async function playSongCore(song: MusicInfo, startPosition?: number, requestId?:
   } catch (error) {
     if (!isCurrentPlaybackRequest(intent)) return;
     const message = error instanceof Error ? error.message : "播放失败";
+    usePlayerStore.setState({ currentUrl: null, isPlaying: false });
     setError(message);
     throw error;
   } finally {

@@ -1,6 +1,5 @@
-import { create } from "zustand";
 import { dropRemovedSourceEntries, mergeWebdavSongs, type MusicInfo } from "@lx/core";
-import { attachLibraryPersistence } from "./libraryPersistence";
+import { attachLibraryPersistence, createLibraryStore } from "./libraryPersistence";
 
 interface FavoritesState {
   favorites: MusicInfo[];
@@ -30,7 +29,7 @@ function withoutRemovedSources(songs: MusicInfo[]): MusicInfo[] {
   return kept;
 }
 
-export const useFavoritesStore = create<FavoritesState>()((set, get) => ({
+export const useFavoritesStore = createLibraryStore<FavoritesState>()((set, get) => ({
   favorites: [],
 
   isFavorite: (music) => {
@@ -39,11 +38,12 @@ export const useFavoritesStore = create<FavoritesState>()((set, get) => ({
   },
 
   toggleFavorite: (music) => {
-    if (get().isFavorite(music)) {
-      get().removeFavorite(music);
-    } else {
-      get().addFavorite(music);
-    }
+    const key = getMusicKey(music);
+    set((state) => ({
+      favorites: state.favorites.some((item) => getMusicKey(item) === key)
+        ? state.favorites.filter((item) => getMusicKey(item) !== key)
+        : [music, ...state.favorites],
+    }));
   },
 
   addFavorite: (music) => {

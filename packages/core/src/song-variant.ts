@@ -219,10 +219,8 @@ export function matchVariantCandidates(
   targetSource: MusicInfo["source"],
   maxCandidates = MAX_VARIANT_CANDIDATES,
 ): MusicInfo[] {
-  const matched = candidates
-    .filter((item) => item.source === targetSource && isSameSong(source, item))
-    .slice(0, maxCandidates);
-  return rankVariantCandidates(source, matched).map((entry) => entry.song);
+  const matched = candidates.filter((item) => item.source === targetSource && isSameSong(source, item));
+  return rankVariantCandidates(source, matched).slice(0, maxCandidates).map((entry) => entry.song);
 }
 
 /**

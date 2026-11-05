@@ -2,7 +2,7 @@ import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { dropRemovedSourceEntries, mergeWebdavSongs, type MusicInfo } from "@lx/core";
 
-import { healCorruptStorage } from "@/utils/storageSelfHeal";
+import { createSerialTaskQueue } from "@/utils/serialTaskQueue";
 
 /**
  * 本地收藏（"我喜欢"）——对齐桌面端 favoritesStore 语义：
@@ -14,10 +14,6 @@ const FAVORITES_KEY = "auralflow.mobile.favorites.v1";
 /** 旧版网易云红心落地的本地列表：首次升级时迁移为本地收藏的种子数据 */
 const LEGACY_LIKED_SONGS_KEY = "auralflow.mobile.likedSongs";
 
-// 启动 load* 未完成时用户即写入：串行化加载 + 写入，避免晚到的 load 回滚刚写入的记录。
-let favoritesLoadPromise: Promise<void> | null = null;
-let favoritesHydrated = false;
-
 /**
  * 丢掉来源已被移除的收藏条目（本版整体下线了 B 站）。已落盘的数据里仍可能有它们：
  * 新版本里既没有 provider 也点不动，留着只会变成死行，并随 WebDAV 同步在两端来回传。
@@ -28,16 +24,6 @@ function withoutRemovedSources(songs: MusicInfo[]): MusicInfo[] {
     console.warn(`[收藏] 已清理 ${dropped.length} 条来源已下线的历史条目`);
   }
   return kept;
-}
-
-async function ensureFavoritesLoaded(get: () => FavoritesState): Promise<void> {
-  if (!favoritesHydrated || favoritesLoadPromise) {
-    try {
-      await get().loadFromStorage();
-    } catch {
-      // load 失败不阻断写入：在现有内存态上继续
-    }
-  }
 }
 
 interface FavoritesState {
@@ -58,57 +44,51 @@ function songKey(song: Pick<MusicInfo, "source" | "id">): string {
 }
 
 async function persistFavorites(favorites: MusicInfo[]): Promise<void> {
-  try {
-    await AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
-  } catch (error) {
-    console.error("[favorites] 收藏列表写盘失败", error);
-  }
+  await AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
 }
 
-async function parseFavorites(raw: string | null): Promise<MusicInfo[]> {
+function parseFavorites(raw: string | null): MusicInfo[] {
   if (!raw) return [];
   const parsed = JSON.parse(raw) as unknown;
   if (!Array.isArray(parsed)) throw new Error("收藏数据格式错误");
   return parsed as MusicInfo[];
 }
 
-export const useFavoritesStore = create<FavoritesState>((set, get) => ({
+export const useFavoritesStore = create<FavoritesState>((set, get) => {
+  const enqueue = createSerialTaskQueue();
+
+  async function hydrateFavorites(): Promise<void> {
+    if (get().loaded) return;
+    const raw = await AsyncStorage.getItem(FAVORITES_KEY);
+    if (raw == null) {
+      const legacy = await AsyncStorage.getItem(LEGACY_LIKED_SONGS_KEY);
+      if (legacy != null) {
+        const favorites = withoutRemovedSources(parseFavorites(legacy));
+        await persistFavorites(favorites);
+        await AsyncStorage.removeItem(LEGACY_LIKED_SONGS_KEY);
+        set({ favorites, loaded: true });
+        return;
+      }
+    }
+    set({ favorites: withoutRemovedSources(parseFavorites(raw)), loaded: true });
+  }
+
+  function commitFavorites(update: (current: MusicInfo[]) => MusicInfo[]): Promise<void> {
+    return enqueue(async () => {
+      await hydrateFavorites();
+      const current = get().favorites;
+      const favorites = update(current);
+      if (favorites === current) return;
+      await persistFavorites(favorites);
+      set({ favorites });
+    });
+  }
+
+  return ({
   favorites: [],
   loaded: false,
 
-  loadFromStorage: async () => {
-    if (favoritesLoadPromise) return favoritesLoadPromise;
-    favoritesLoadPromise = (async () => {
-      let raw: string | null = null;
-      try {
-        raw = await AsyncStorage.getItem(FAVORITES_KEY);
-        if (raw == null) {
-          // 首次升级：把旧版网易云红心的本地列表迁移为收藏种子（旧键随后清除）
-          const legacy = await AsyncStorage.getItem(LEGACY_LIKED_SONGS_KEY);
-          if (legacy) {
-            const seeded = withoutRemovedSources(await parseFavorites(legacy).catch(() => []));
-            await persistFavorites(seeded);
-            await AsyncStorage.removeItem(LEGACY_LIKED_SONGS_KEY).catch(() => undefined);
-            set({ favorites: seeded, loaded: true });
-            return;
-          }
-        }
-        const favorites = withoutRemovedSources(await parseFavorites(raw));
-        set({ favorites, loaded: true });
-      } catch (error) {
-        console.error("[favorites] 收藏数据损坏，已备份并重建空列表", error);
-        await healCorruptStorage(FAVORITES_KEY, raw);
-        set({ favorites: [], loaded: true });
-      } finally {
-        favoritesHydrated = true;
-      }
-    })();
-    try {
-      await favoritesLoadPromise;
-    } finally {
-      favoritesLoadPromise = null;
-    }
-  },
+  loadFromStorage: () => enqueue(hydrateFavorites),
 
   isFavorite: (song) => {
     if (!song) return false;
@@ -116,45 +96,26 @@ export const useFavoritesStore = create<FavoritesState>((set, get) => ({
     return get().favorites.some((item) => songKey(item) === key);
   },
 
-  toggleFavorite: async (song) => {
-    await ensureFavoritesLoaded(get);
-    if (get().isFavorite(song)) {
-      await get().removeFavorite(song);
-    } else {
-      await get().addFavorite(song);
-    }
-  },
-
-  addFavorite: async (song) => {
-    await ensureFavoritesLoaded(get);
+  toggleFavorite: (song) => commitFavorites((favorites) => {
     const key = songKey(song);
-    if (get().favorites.some((item) => songKey(item) === key)) return;
-    // 以当前完整歌曲对象为准（含封面/歌手等元数据），队列里的旧对象引用不影响
-    const favorites = [song, ...get().favorites];
-    set({ favorites });
-    void persistFavorites(favorites);
-  },
+    return favorites.some((item) => songKey(item) === key)
+      ? favorites.filter((item) => songKey(item) !== key)
+      : [song, ...favorites];
+  }),
 
-  removeFavorite: async (song) => {
-    await ensureFavoritesLoaded(get);
+  addFavorite: (song) => commitFavorites((favorites) => {
     const key = songKey(song);
-    const favorites = get().favorites.filter((item) => songKey(item) !== key);
-    if (favorites.length === get().favorites.length) return;
-    set({ favorites });
-    void persistFavorites(favorites);
-  },
+    return favorites.some((item) => songKey(item) === key) ? favorites : [song, ...favorites];
+  }),
 
-  replaceAll: async (songs) => {
-    await ensureFavoritesLoaded(get);
-    const next = withoutRemovedSources(songs);
-    set({ favorites: next });
-    void persistFavorites(next);
-  },
+  removeFavorite: (song) => commitFavorites((favorites) => {
+    const key = songKey(song);
+    const next = favorites.filter((item) => songKey(item) !== key);
+    return next.length === favorites.length ? favorites : next;
+  }),
 
-  mergeAll: async (songs) => {
-    await ensureFavoritesLoaded(get);
-    const merged = withoutRemovedSources(mergeWebdavSongs(get().favorites, songs));
-    set({ favorites: merged });
-    await persistFavorites(merged);
-  },
-}));
+  replaceAll: (songs) => commitFavorites(() => withoutRemovedSources(songs)),
+
+  mergeAll: (songs) => commitFavorites((favorites) => withoutRemovedSources(mergeWebdavSongs(favorites, songs))),
+  });
+});

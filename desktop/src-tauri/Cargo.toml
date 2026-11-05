@@ -10,7 +10,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
-tokio = { version = "1", features = ["time"] }
+tokio = { version = "1", features = ["time", "sync", "macros"] }
 tauri-plugin-shell = "2"
 tauri-plugin-http = { version = "2", features = ["unsafe-headers"] }
 tauri-plugin-fs = "2"
@@ -21,7 +21,6 @@ tauri-plugin-autostart = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 walkdir = "2"
-audiotags = "0.5"
 lofty = "0.21"
 md5 = "0.7"
 base64 = "0.22"

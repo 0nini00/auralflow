@@ -77,6 +77,19 @@ pub fn ack_close_request(_app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+pub fn complete_app_quit(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    request_id: String,
+    error: Option<String>,
+) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("只有主窗口能够确认退出前保存".to_string());
+    }
+    crate::tray::complete_quit(&app, &request_id, error)
+}
+
 // ─── 播放问题诊断日志 ─────────────────────────────────────────
 
 /// 追加一行到 app_data_dir/debug.log（超过 2MB 先清空），用于定位线上播放失败。

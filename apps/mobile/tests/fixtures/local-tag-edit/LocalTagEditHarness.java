@@ -23,12 +23,12 @@ public final class LocalTagEditHarness {
   private ContentResolver getContentResolver() { return resolver; }
   private File getCacheDir() { return cache; }
   private File getFilesDir() { return files; }
-  private void requestWriteAccess(Uri uri, TagMutator mutator, Promise promise) { requested = true; }
+  private void requestWriteAccess(Uri uri, TagMutator mutator, Promise promise, SecurityException error) { requested = true; }
   private interface TagMutator { void mutate(AudioFile audio, Tag tag) throws Exception; }
   private static final class Uri {}
   private static final class Build {
     static final class VERSION { static final int SDK_INT = 35; }
-    static final class VERSION_CODES { static final int Q = 29; }
+    static final class VERSION_CODES { static final int Q = 29, R = 30; }
   }
   private static final class RecoverableSecurityException extends SecurityException {}
   private static final class OpenableColumns { static final String DISPLAY_NAME = "_display_name"; }

@@ -32,11 +32,7 @@ function withoutRemovedSources(entries: HistoryEntry[]): HistoryEntry[] {
 
 async function ensureHistoryLoaded(get: () => HistoryStore): Promise<void> {
   if (!historyHydrated || historyLoadPromise) {
-    try {
-      await get().loadHistory();
-    } catch {
-      // load 失败不阻断写入：在现有内存态上继续
-    }
+    await get().loadHistory();
   }
 }
 
@@ -174,6 +170,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
 
   loadHistory: async () => {
     if (historyLoadPromise) return historyLoadPromise;
+    if (historyHydrated) return;
     historyLoadPromise = (async () => {
       try {
         set({ loading: true, error: null });
@@ -183,6 +180,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
         ]);
         const timestamps = parseTimestamps(rawTs);
         const parsed = raw ? JSON.parse(raw) : [];
+        if (!Array.isArray(parsed)) throw new Error("播放历史数据格式错误");
         let entries: HistoryEntry[] = [];
         if (Array.isArray(parsed) && parsed.length > 0) {
           if (isHistoryEntry(parsed[0])) {
@@ -212,13 +210,13 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
           loading: false,
           error: null,
         });
+        historyHydrated = true;
       } catch (error) {
         set({
           loading: false,
           error: error instanceof Error ? error.message : "加载播放历史失败",
         });
-      } finally {
-        historyHydrated = true;
+        throw error;
       }
     })();
     try {

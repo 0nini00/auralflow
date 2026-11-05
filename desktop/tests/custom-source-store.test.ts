@@ -17,7 +17,8 @@ vi.mock("../src/services/customSourceRuntime", () => ({
   invalidateRuntimeCache: vi.fn(),
   invalidateAllRuntimeCaches: fixture.clearRuntimes,
 }));
-vi.mock("../src/stores/libraryPersistence", () => ({
+vi.mock("../src/stores/libraryPersistence", async () => ({
+  createLibraryStore: (await import('zustand')).create,
   attachLibraryPersistence: (store: { setState: (value: unknown) => void }, options: {
     pick: (state: unknown) => Record<string, unknown>;
     apply: (slice: unknown, set: (value: unknown) => void) => void;

@@ -7,6 +7,7 @@ const dependencies = vi.hoisted(() => ({
   loadSettings: vi.fn(), checkForUpdate: vi.fn(), autoSyncPlaylistsOnce: vi.fn(),
   setVolume: vi.fn(), setPauseOnExternalPlayback: vi.fn(),
   setAvailable: vi.fn(), setupSystemMediaControls: vi.fn(), setupTaskbarThumbnails: vi.fn(),
+  flush: vi.fn(), completeAppQuit: vi.fn(), listen: vi.fn(async () => vi.fn()), toast: vi.fn(),
 }));
 vi.mock("@/stores/customSourceStore", async () => {
   const { create } = await import("zustand");
@@ -15,9 +16,9 @@ vi.mock("@/stores/customSourceStore", async () => {
     customSourcePersistence: { ready: Promise.resolve() },
   };
 });
-vi.mock("@lx/tauri-bridge", () => ({ loadSettings: dependencies.loadSettings }));
+vi.mock("@lx/tauri-bridge", () => ({ loadSettings: dependencies.loadSettings, completeAppQuit: dependencies.completeAppQuit }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ label: "main" }) }));
-vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => vi.fn()) }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: dependencies.listen }));
 vi.mock("react-router-dom", () => ({
   BrowserRouter: ({ children }: { children: React.ReactNode }) => children,
   Routes: () => null, Route: () => null, Navigate: () => null,
@@ -25,6 +26,7 @@ vi.mock("react-router-dom", () => ({
 vi.mock("@/components/Layout/Layout", () => ({ Layout: () => null }));
 vi.mock("@/components/PactModal", () => ({ PactModal: () => null }));
 vi.mock("@/components/LibraryDegradedNotice", () => ({ LibraryDegradedNotice: () => null }));
+vi.mock('@/components/ui/Toast', () => ({ showToast: dependencies.toast, ToastHost: () => null }));
 vi.mock("@/components/CursorEffect", () => ({ CursorEffect: () => null }));
 vi.mock("@/components/DeepLinkHandler", () => ({ DeepLinkHandler: () => null }));
 vi.mock("@/components/UpdateModal", () => ({ UpdateModal: () => null }));
@@ -57,7 +59,7 @@ vi.mock("@/stores/historyStore", () => ({ historyPersistence: { ready: Promise.r
 vi.mock("@/stores/playerStore", () => ({ usePlayerStore: { getState: () => ({ setVolume: dependencies.setVolume }) }, setPlaybackFailedAutoNext: vi.fn() }));
 vi.mock("@/services/playerEngine", () => ({ playerEngine: { setPauseOnExternalPlayback: dependencies.setPauseOnExternalPlayback } }));
 vi.mock("@/services/logger", () => ({ logger: { warn: vi.fn() } }));
-vi.mock("@/stores/libraryPersistence", () => ({ flushLibraryPersistence: vi.fn() }));
+vi.mock("@/stores/libraryPersistence", () => ({ flushLibraryPersistence: dependencies.flush }));
 // App 现在会挂载播放会话持久化；这条测试只关心音源检查生命周期，把它挡掉。
 vi.mock("@/stores/playerPersistence", () => ({ attachPlaybackPersistence: vi.fn() }));
 vi.mock("@/services/webdavSyncService", () => ({ autoSyncPlaylistsOnce: dependencies.autoSyncPlaylistsOnce }));
@@ -74,6 +76,8 @@ beforeEach(() => {
   dependencies.loadSettings.mockResolvedValue(settings);
   dependencies.checkForUpdate.mockResolvedValue({ kind: "latest" });
   dependencies.autoSyncPlaylistsOnce.mockResolvedValue(undefined);
+  dependencies.flush.mockResolvedValue(undefined);
+  dependencies.completeAppQuit.mockResolvedValue(undefined);
   customSourcePersistence.ready = Promise.resolve();
   useCustomSourceStore.setState({ featureEnabled: false, featureReady: true, checkAllUpdates: vi.fn(async () => {}) });
 });
@@ -89,6 +93,33 @@ async function advance(time: number) { await act(async () => { await vi.advanceT
 async function feature(state: { featureEnabled?: boolean; featureReady?: boolean }) {
   await act(async () => { useCustomSourceStore.setState(state); });
 }
+
+it('退出应答等待落盘完成，慢盘不会提前放行退出', async () => {
+  let finish!: () => void;
+  dependencies.flush.mockReturnValue(new Promise<void>((resolve) => { finish = resolve; }));
+  await mount();
+  const callback = (dependencies.listen.mock.calls as unknown as Array<[string, (event: unknown) => void]>).find(([name]) => name === 'app-before-quit')![1];
+  await act(async () => { callback({ payload: { requestId: 'quit-1' } }); });
+  expect(dependencies.completeAppQuit).not.toHaveBeenCalled();
+  await act(async () => { finish(); });
+  expect(dependencies.completeAppQuit).toHaveBeenCalledWith('quit-1', null);
+});
+
+it('退出保存失败向原生应答错误，不能报告保存成功', async () => {
+  dependencies.flush.mockRejectedValue(new Error('磁盘写入失败'));
+  await mount();
+  const callback = (dependencies.listen.mock.calls as unknown as Array<[string, (event: unknown) => void]>).find(([name]) => name === 'app-before-quit')![1];
+  await act(async () => { callback({ payload: { requestId: 'quit-2' } }); });
+  expect(dependencies.completeAppQuit).toHaveBeenCalledWith('quit-2', '磁盘写入失败');
+});
+
+it('原生退出应答超时向用户显示失败原因', async () => {
+  await mount();
+  const callback = (dependencies.listen.mock.calls as unknown as Array<[string, (event: unknown) => void]>).find(([name]) => name === 'app-quit-failed')?.[1];
+  expect(callback).toBeDefined();
+  await act(async () => { callback!({ payload: '等待保存完成超时，已取消退出' }); });
+  expect(dependencies.toast).toHaveBeenCalledWith('等待保存完成超时，已取消退出', { kind: 'error' });
+});
 
 describe("App 音源自动检查生命周期", () => {
   it("关闭时不检查 LX，但应用更新和启动同步照常运行", async () => {

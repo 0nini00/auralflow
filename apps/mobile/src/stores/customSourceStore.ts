@@ -1,8 +1,7 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import RNFS from "react-native-fs";
-import { healCorruptStorage } from "@/utils/storageSelfHeal";
-import { logger } from "@/services/logger";
+import { createSerialTaskQueue } from "@/utils/serialTaskQueue";
 import {
   checkCustomSourceUpdate,
   parseDesktopUserApiInfo,
@@ -53,19 +52,19 @@ interface CustomSourceStore {
   customSourceAutoCheck: boolean;
   importScript: (script: string) => Promise<CustomSourceItem>;
   importFromFile: (filePath: string) => Promise<CustomSourceItem | null>;
-  removeSource: (id: string) => void;
-  toggleSource: (id: string, enabled: boolean) => void;
-  moveSource: (id: string, direction: "up" | "down") => void;
+  removeSource: (id: string) => Promise<void>;
+  toggleSource: (id: string, enabled: boolean) => Promise<void>;
+  moveSource: (id: string, direction: "up" | "down") => Promise<void>;
   /** 拖拽排序落库：按槽位搬移（from/to 越界时原样返回） */
-  reorderSource: (from: number, to: number) => void;
+  reorderSource: (from: number, to: number) => Promise<void>;
   testSource: (id: string) => Promise<void>;
   checkSourceUpdate: (id: string) => Promise<void>;
-  applyRuntimeUpdateAlert: (id: string, alert: CustomSourceUpdateAlert) => void;
+  applyRuntimeUpdateAlert: (id: string, alert: CustomSourceUpdateAlert) => Promise<void>;
   checkAllUpdates: () => Promise<void>;
   checkStartupUpdates: () => Promise<void>;
-  toggleUpdateAlert: (id: string, enabled: boolean) => void;
+  toggleUpdateAlert: (id: string, enabled: boolean) => Promise<void>;
   setCustomSourceAutoCheck: (enabled: boolean) => Promise<void>;
-  replaceAll: (sources: CustomSourceItem[]) => void;
+  replaceAll: (sources: CustomSourceItem[]) => Promise<void>;
   loadFromStorage: () => Promise<void>;
 }
 
@@ -153,6 +152,9 @@ function parsePersistedState(raw: string | null): PersistedCustomSourceState {
   if (Array.isArray(parsed)) {
     return { sources: parsed, customSourceAutoCheck: true };
   }
+  if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.sources)) {
+    throw new Error("音源数据格式错误");
+  }
   return {
     sources: Array.isArray(parsed.sources) ? parsed.sources : [],
     customSourceAutoCheck: parsed.customSourceAutoCheck !== false,
@@ -161,7 +163,6 @@ function parsePersistedState(raw: string | null): PersistedCustomSourceState {
 
 /** 持久化到 AsyncStorage：写盘前剔除瞬态测试态 */
 async function persistState(sources: CustomSourceItem[], customSourceAutoCheck: boolean): Promise<void> {
-  try {
     const serializable = sources.map((source) => ({
       ...source,
       testStatus: "idle" as CustomSourceTestStatus,
@@ -173,34 +174,93 @@ async function persistState(sources: CustomSourceItem[], customSourceAutoCheck: 
       STORAGE_KEY,
       JSON.stringify({ sources: serializable, customSourceAutoCheck }),
     );
-  } catch {}
 }
 
-export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
+export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => {
+  const enqueue = createSerialTaskQueue();
+
+  async function hydrateSources(): Promise<void> {
+    if (get().loaded) return;
+    const persisted = parsePersistedState(await AsyncStorage.getItem(STORAGE_KEY));
+    set({
+      sources: (persisted.sources ?? []).map(normalizeCustomSourceForStore),
+      customSourceAutoCheck: persisted.customSourceAutoCheck !== false,
+      loaded: true,
+    });
+  }
+
+  function withSources<T>(operation: () => Promise<T>): Promise<T> {
+    return enqueue(async () => {
+      await hydrateSources();
+      return operation();
+    });
+  }
+
+  function commitSources(
+    update: (sources: CustomSourceItem[]) => CustomSourceItem[],
+    onCommitted?: (previous: CustomSourceItem[]) => void,
+  ): Promise<void> {
+    return withSources(async () => {
+      const previous = get().sources;
+      const sources = update(previous);
+      if (sources === previous) return;
+      await persistState(sources, get().customSourceAutoCheck);
+      set({ sources });
+      onCommitted?.(previous);
+    });
+  }
+
+  async function runSourceCheck(id: string, deep: boolean): Promise<void> {
+    const source = await withSources(async () => {
+      const current = get().sources.find((item) => item.id === id);
+      if (!current) return undefined;
+      set({ sources: patchSource(get().sources, id, deep
+        ? { testStatus: "testing", testMessage: "测试中..." }
+        : { updateStatus: "checking", updateMessage: "检测中..." }) });
+      return current;
+    });
+    if (!source) return;
+
+    let patch: Partial<CustomSourceItem>;
+    try {
+      if (deep) {
+        const result = await testCustomSourceDeep(source);
+        patch = { sources: result.sources, testStatus: result.ok ? "ok" : "failed",
+          testMessage: result.message, ...buildUpdatePatch(result.updateAlert) };
+      } else {
+        const result = await checkCustomSourceUpdate(source);
+        patch = { sources: result.sources, testStatus: "ok", testMessage: "初始化正常",
+          ...buildUpdatePatch(result.updateAlert) };
+      }
+    } catch (error) {
+      patch = deep
+        ? { testStatus: "failed", testMessage: formatError(error) }
+        : { updateStatus: "failed", updateMessage: formatError(error), updateCheckedAt: Date.now() };
+    }
+
+    const isCurrentSource = (sources: CustomSourceItem[]) => sources.some((item) => item.id === id && item.script === source.script);
+    try {
+      await commitSources((sources) => isCurrentSource(sources) ? patchSource(sources, id, patch) : sources);
+    } catch (error) {
+      // 检测态不落盘；写盘失败也要退出检测态，同时将失败交回 UI/同步调用方。
+      await withSources(async () => {
+        if (!isCurrentSource(get().sources)) return;
+        set({ sources: patchSource(get().sources, id, deep
+          ? { testStatus: "failed", testMessage: formatError(error) }
+          : { updateStatus: "failed", updateMessage: formatError(error) }) });
+      });
+      throw error;
+    }
+  }
+
+  return ({
   sources: [],
   loaded: false,
   customSourceAutoCheck: true,
 
-  loadFromStorage: async () => {
-    let raw: string | null = null;
-    try {
-      raw = await AsyncStorage.getItem(STORAGE_KEY);
-      const persisted = parsePersistedState(raw);
-      set({
-        sources: (persisted.sources ?? []).map(normalizeCustomSourceForStore),
-        customSourceAutoCheck: persisted.customSourceAutoCheck !== false,
-        loaded: true,
-      });
-    } catch (error) {
-      // 数据损坏（写入中断/磁盘坏块）会让解析持续失败且音源脚本不可再生：
-      // 备份坏串到 *.corrupt 后重建空列表，绝不静默丢弃且无痕迹
-      logger.error("[customSource] 音源数据损坏，已备份并重建空列表", error);
-      await healCorruptStorage(STORAGE_KEY, raw);
-      set({ sources: [], customSourceAutoCheck: true, loaded: true });
-    }
-  },
+  loadFromStorage: () => enqueue(hydrateSources),
 
-  importScript: async (script) => {
+  importScript: (script) => withSources(async () => {
     const info = parseDesktopUserApiInfo(script);
     const existing = get().sources.find((source) => source.script === script);
     if (existing) throw new Error(`导入失败，脚本内容与已有的音源「${existing.name}」相同`);
@@ -222,12 +282,12 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
       updatedAt: now,
     };
     const next = [...get().sources, item];
+    await persistState(next, get().customSourceAutoCheck);
     set({ sources: next });
     // 脚本集合变更会改变可解析的候选版本，清掉降级搜索缓存
     clearCrossSourceVariantCache();
-    await persistState(next, get().customSourceAutoCheck);
     return item;
-  },
+  }),
 
   importFromFile: async (filePath) => {
     if (!filePath) return null;
@@ -235,137 +295,60 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
     return get().importScript(script);
   },
 
-  removeSource: (id) => {
+  removeSource: (id) => commitSources((sources) => sources.filter((source) => source.id !== id), () => {
     invalidateRuntimeCache(id);
-    const next = get().sources.filter((source) => source.id !== id);
-    set({ sources: next });
     clearCrossSourceVariantCache();
-    void persistState(next, get().customSourceAutoCheck);
-  },
+  }),
 
-  toggleSource: (id, enabled) => {
+  toggleSource: (id, enabled) => commitSources((sources) => patchSource(sources, id, { enabled }), () => {
     if (!enabled) invalidateRuntimeCache(id);
-    const next = patchSource(get().sources, id, { enabled });
-    set({ sources: next });
     clearCrossSourceVariantCache();
-    void persistState(next, get().customSourceAutoCheck);
-  },
+  }),
 
-  toggleUpdateAlert: (id, enabled) => {
-    const next = patchSource(get().sources, id, { allowShowUpdateAlert: enabled });
-    set({ sources: next });
-    void persistState(next, get().customSourceAutoCheck);
-  },
+  toggleUpdateAlert: (id, enabled) => commitSources((sources) => patchSource(sources, id, { allowShowUpdateAlert: enabled })),
 
-  setCustomSourceAutoCheck: async (enabled) => {
+  setCustomSourceAutoCheck: (enabled) => withSources(async () => {
     const customSourceAutoCheck = Boolean(enabled);
-    set({ customSourceAutoCheck, loaded: true });
     await persistState(get().sources, customSourceAutoCheck);
-  },
+    set({ customSourceAutoCheck });
+  }),
 
-  moveSource: (id, direction) => {
-    const sources = [...get().sources];
+  moveSource: (id, direction) => commitSources((sources) => {
     const index = sources.findIndex((source) => source.id === id);
-    if (index < 0) return;
+    if (index < 0) return sources;
     const nextIndex = direction === "up" ? index - 1 : index + 1;
-    if (nextIndex < 0 || nextIndex >= sources.length) return;
-    const [item] = sources.splice(index, 1);
-    sources.splice(nextIndex, 0, item);
-    set({ sources });
-    // 顺序即优先级：换序后旧的跨源命中缓存不再可信
-    clearCrossSourceVariantCache();
-    void persistState(sources, get().customSourceAutoCheck);
-  },
+    if (nextIndex < 0 || nextIndex >= sources.length) return sources;
+    return moveSourceItem(sources, index, nextIndex);
+  }, clearCrossSourceVariantCache),
 
-  reorderSource: (from, to) => {
-    const sources = get().sources;
-    if (from === to) return;
+  reorderSource: (from, to) => commitSources((sources) => {
+    if (from === to) return sources;
     const next = moveSourceItem(sources, from, to);
     // 越界时 moveSourceItem 返回等长副本；只有真的换位才落库，避免无意义写盘
-    if (next.every((source, index) => source === sources[index])) return;
-    set({ sources: next });
-    // 音源顺序就是解析优先级，换序后旧的跨源命中缓存不再可信
-    clearCrossSourceVariantCache();
-    void persistState(next, get().customSourceAutoCheck);
-  },
+    return next.every((source, index) => source === sources[index]) ? sources : next;
+  }, clearCrossSourceVariantCache),
 
-  testSource: async (id) => {
-    const source = get().sources.find((item) => item.id === id);
-    if (!source) return;
-    set((state) => ({
-      sources: patchSource(state.sources, id, { testStatus: "testing", testMessage: "测试中..." }),
-    }));
+  testSource: (id) => runSourceCheck(id, true),
 
-    try {
-      // init 通过后自动继续深度取链测试；未声明 musicUrl 能力的脚本仅验证初始化
-      const result = await testCustomSourceDeep(source);
-      const next = patchSource(get().sources, id, {
-        sources: result.sources,
-        testStatus: result.ok ? "ok" : "failed",
-        testMessage: result.message,
-        ...buildUpdatePatch(result.updateAlert),
-      });
-      set({ sources: next });
-      await persistState(next, get().customSourceAutoCheck);
-    } catch (error) {
-      const next = patchSource(get().sources, id, {
-        testStatus: "failed",
-        testMessage: formatError(error),
-      });
-      set({ sources: next });
-      await persistState(next, get().customSourceAutoCheck);
-    }
-  },
-
-  checkSourceUpdate: async (id) => {
-    const source = get().sources.find((item) => item.id === id);
-    if (!source) return;
-    set((state) => ({
-      sources: patchSource(state.sources, id, {
-        updateStatus: "checking",
-        updateMessage: "检测中...",
-      }),
-    }));
-
-    try {
-      const result = await checkCustomSourceUpdate(source);
-      const next = patchSource(get().sources, id, {
-        sources: result.sources,
-        testStatus: "ok",
-        testMessage: "初始化正常",
-        ...buildUpdatePatch(result.updateAlert),
-      });
-      set({ sources: next });
-      await persistState(next, get().customSourceAutoCheck);
-    } catch (error) {
-      const next = patchSource(get().sources, id, {
-        updateStatus: "failed",
-        updateMessage: formatError(error),
-        updateCheckedAt: Date.now(),
-      });
-      set({ sources: next });
-      await persistState(next, get().customSourceAutoCheck);
-    }
-  },
+  checkSourceUpdate: (id) => runSourceCheck(id, false),
 
   // 运行时上报：正常播放/下载取链时脚本主动 send(updateAlert)，写入后由
   // CustomSourceUpdateModal 按 updateStatus === "available" 自动弹出。
   // 正在检测中的源忽略，避免与 checkSourceUpdate 的结果互相覆盖
-  applyRuntimeUpdateAlert: (id, alert) => {
-    const source = get().sources.find((item) => item.id === id);
-    if (!source || source.updateStatus === "checking") return;
-    const next = patchSource(get().sources, id, {
+  applyRuntimeUpdateAlert: (id, alert) => commitSources((sources) => {
+    const source = sources.find((item) => item.id === id);
+    if (!source || source.updateStatus === "checking") return sources;
+    return patchSource(sources, id, {
       updateStatus: "available",
       updateMessage: "音源检测到新版本",
       updateLog: alert.log,
       updateUrl: alert.updateUrl,
       updateCheckedAt: Date.now(),
     });
-    set({ sources: next });
-    void persistState(next, get().customSourceAutoCheck);
-  },
+  }),
 
   checkAllUpdates: async () => {
+    await get().loadFromStorage();
     const now = Date.now();
     // 距上次远端检查不足 24 小时且上次未失败的源跳过检查，保留现有状态（不写盘）
     const ids = get().sources
@@ -380,7 +363,9 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
     const CONCURRENCY = 2;
     for (let i = 0; i < ids.length; i += CONCURRENCY) {
       const batch = ids.slice(i, i + CONCURRENCY);
-      await Promise.allSettled(batch.map((id) => get().checkSourceUpdate(id)));
+      const results = await Promise.allSettled(batch.map((id) => get().checkSourceUpdate(id)));
+      const failed = results.find((result) => result.status === "rejected");
+      if (failed?.status === "rejected") throw failed.reason;
     }
   },
 
@@ -392,11 +377,9 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => ({
     await get().checkAllUpdates();
   },
 
-  replaceAll: (sources) => {
-    for (const source of get().sources) invalidateRuntimeCache(source.id);
-    const next = (sources ?? []).map(normalizeCustomSourceForStore);
-    set({ sources: next });
+  replaceAll: (sources) => commitSources(() => sources.map(normalizeCustomSourceForStore), (previous) => {
+    for (const source of previous) invalidateRuntimeCache(source.id);
     clearCrossSourceVariantCache();
-    void persistState(next, get().customSourceAutoCheck);
-  },
-}));
+  }),
+  });
+});

@@ -11,7 +11,7 @@ import {
 } from "@lx/core";
 import { useAccountStore } from "./accountStore";
 import { LatestRequestGate } from "@/services/latestRequestGate";
-import { healCorruptStorage } from "@/utils/storageSelfHeal";
+import { createSerialTaskQueue } from "@/utils/serialTaskQueue";
 import type { CreateLocalPlaylistInput, CreateLocalPlaylistWithSongInput, CreateLocalPlaylistWithSongsInput, LocalPlaylist } from "../services/localPlaylistModel";
 import {
   addSongsToLocalPlaylist as addSongsToLocalPlaylistModel,
@@ -171,27 +171,44 @@ function songKey(song: Pick<MusicInfo, "source" | "id">): string {
   return `${song.source}:${song.id}`;
 }
 
-/**
- * 读取并解析持久化数组；解析失败时备份坏串、重建空结构（损坏自愈）。
- * 直接抛错会让每次启动都失败，歌单/收藏在 UI 上"永久消失"且无法恢复。
- */
-async function loadPersistedArray<T>(key: string, parse: (raw: string | null) => T[]): Promise<T[]> {
-  let raw: string | null = null;
-  try {
-    raw = await AsyncStorage.getItem(key);
-    return parse(raw);
-  } catch (error) {
-    console.error(`[storage] ${key} 数据损坏，已备份并重建空列表`, error);
-    await healCorruptStorage(key, raw);
-    return [];
-  }
-}
-
 type PlaylistStore = PlaylistState & PlaylistActions;
 
 const playlistDetailRequestGate = new LatestRequestGate();
 
-export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
+export const usePlaylistStore = create<PlaylistStore>((set, get) => {
+  const enqueue = createSerialTaskQueue();
+  let hydrated = false;
+
+  async function hydrateLocalPlaylists(): Promise<void> {
+    if (hydrated) return;
+    const loaded = parseLocalPlaylists(await AsyncStorage.getItem(LOCAL_PLAYLISTS_KEY));
+    const localPlaylists = await scrubLocalPlaylists(loaded);
+    if (localPlaylists !== loaded) await persistLocalPlaylists(localPlaylists);
+    set({ localPlaylists, error: null });
+    hydrated = true;
+  }
+
+  function withLocalPlaylists<T>(operation: () => Promise<T>): Promise<T> {
+    return enqueue(async () => {
+      try {
+        await hydrateLocalPlaylists();
+        return await operation();
+      } catch (error) {
+        set({ error: error instanceof Error ? error.message : "本地歌单操作失败" });
+        throw error;
+      }
+    });
+  }
+
+  function commitLocalPlaylists(update: (current: LocalPlaylist[]) => LocalPlaylist[]): Promise<void> {
+    return withLocalPlaylists(async () => {
+      const localPlaylists = update(get().localPlaylists);
+      await persistLocalPlaylists(localPlaylists);
+      set({ localPlaylists, error: null });
+    });
+  }
+
+  return ({
   playlists: [],
   currentPlaylist: null,
   currentPlaylistSongs: [],
@@ -339,145 +356,40 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
   },
 
 
-  loadLocalPlaylists: async () => {
-    try {
-      const loaded = await loadPersistedArray(LOCAL_PLAYLISTS_KEY, parseLocalPlaylists);
-      const localPlaylists = await scrubLocalPlaylists(loaded);
-      // 清理结果必须落盘：否则每次启动都要重做一遍，且脏数据会随下次同步再传回云端
-      if (localPlaylists !== loaded) await persistLocalPlaylists(localPlaylists);
-      set({ localPlaylists, error: null });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "加载本地歌单失败";
-      set({ error: message });
-      throw error;
-    }
-  },
+  loadLocalPlaylists: () => withLocalPlaylists(async () => undefined),
 
 
-  createLocalPlaylist: async (input) => {
-    try {
-      const localPlaylists = createLocalPlaylistModel(get().localPlaylists, input);
-      await persistLocalPlaylists(localPlaylists);
-      set({ localPlaylists, error: null });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "创建本地歌单失败";
-      set({ error: message });
-      throw error;
-    }
-  },
+  createLocalPlaylist: (input) => commitLocalPlaylists((current) => createLocalPlaylistModel(current, input)),
 
+  createLocalPlaylistWithSong: (input) => commitLocalPlaylists((current) => createLocalPlaylistWithSongModel(current, input)),
 
-  createLocalPlaylistWithSong: async (input) => {
-    try {
-      const localPlaylists = createLocalPlaylistWithSongModel(get().localPlaylists, input);
-      await persistLocalPlaylists(localPlaylists);
-      set({ localPlaylists, error: null });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "创建本地歌单失败";
-      set({ error: message });
-      throw error;
-    }
-  },
+  createLocalPlaylistWithSongs: (input) => commitLocalPlaylists((current) => createLocalPlaylistWithSongsModel(current, input)),
 
-  createLocalPlaylistWithSongs: async (input) => {
-    try {
-      const localPlaylists = createLocalPlaylistWithSongsModel(get().localPlaylists, input);
-      await persistLocalPlaylists(localPlaylists);
-      set({ localPlaylists, error: null });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "创建本地歌单失败";
-      set({ error: message });
-      throw error;
-    }
-  },
+  replaceLocalPlaylists: (localPlaylists) => commitLocalPlaylists(() => localPlaylists),
 
+  duplicateLocalPlaylist: (playlistId, options) => withLocalPlaylists(async () => {
+    const localPlaylists = duplicateLocalPlaylistModel(get().localPlaylists, playlistId, options);
+    const duplicated = localPlaylists[localPlaylists.length - 1];
+    if (!duplicated) throw new Error("歌单不存在");
+    await persistLocalPlaylists(localPlaylists);
+    set({ localPlaylists, error: null });
+    return duplicated;
+  }),
 
-  replaceLocalPlaylists: async (localPlaylists) => {
-    try {
-      await persistLocalPlaylists(localPlaylists);
-      set({ localPlaylists, error: null });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "替换本地歌单失败";
-      set({ error: message });
-      throw error;
-    }
-  },
+  updateLocalPlaylistInfo: (playlistId, input) => commitLocalPlaylists((current) => updateLocalPlaylistInfoModel(current, playlistId, input)),
 
-  duplicateLocalPlaylist: async (playlistId, options) => {
-    try {
-      const localPlaylists = duplicateLocalPlaylistModel(get().localPlaylists, playlistId, options);
-      const duplicated = localPlaylists[localPlaylists.length - 1];
-      if (!duplicated) throw new Error("歌单不存在");
-      await persistLocalPlaylists(localPlaylists);
-      set({ localPlaylists, error: null });
-      return duplicated;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "复制本地歌单失败";
-      set({ error: message });
-      throw error;
-    }
-  },
+  renameLocalPlaylist: (playlistId, name, now) => commitLocalPlaylists((current) => renameLocalPlaylistModel(current, playlistId, name, now)),
 
-  updateLocalPlaylistInfo: async (playlistId, input) => {
-    try {
-      const localPlaylists = updateLocalPlaylistInfoModel(get().localPlaylists, playlistId, input);
-      await persistLocalPlaylists(localPlaylists);
-      set({ localPlaylists, error: null });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "编辑本地歌单失败";
-      set({ error: message });
-      throw error;
-    }
-  },
+  deleteLocalPlaylist: (playlistId) => commitLocalPlaylists((current) => deleteLocalPlaylistModel(current, playlistId)),
 
-  renameLocalPlaylist: async (playlistId, name, now) => {
-    try {
-      const localPlaylists = renameLocalPlaylistModel(get().localPlaylists, playlistId, name, now);
-      await persistLocalPlaylists(localPlaylists);
-      set({ localPlaylists, error: null });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "重命名本地歌单失败";
-      set({ error: message });
-      throw error;
-    }
-  },
+  addSongToLocalPlaylist: (playlistId, song, now) => commitLocalPlaylists((current) => addSongToLocalPlaylistModel(current, playlistId, song, now)),
 
-  deleteLocalPlaylist: async (playlistId) => {
-    try {
-      const localPlaylists = deleteLocalPlaylistModel(get().localPlaylists, playlistId);
-      await persistLocalPlaylists(localPlaylists);
-      set({ localPlaylists, error: null });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "删除本地歌单失败";
-      set({ error: message });
-      throw error;
-    }
-  },
-
-  addSongToLocalPlaylist: async (playlistId, song, now) => {
-    try {
-      const localPlaylists = addSongToLocalPlaylistModel(get().localPlaylists, playlistId, song, now);
-      await persistLocalPlaylists(localPlaylists);
-      set({ localPlaylists, error: null });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "添加到本地歌单失败";
-      set({ error: message });
-      throw error;
-    }
-  },
-
-  addSongsToLocalPlaylist: async (playlistId, songs) => {
-    try {
-      const result = addSongsToLocalPlaylistModel(get().localPlaylists, playlistId, songs);
-      await persistLocalPlaylists(result.playlists);
-      set({ localPlaylists: result.playlists, error: null });
-      return { addedCount: result.addedCount, skippedCount: result.skippedCount };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "添加到本地歌单失败";
-      set({ error: message });
-      throw error;
-    }
-  },
+  addSongsToLocalPlaylist: (playlistId, songs) => withLocalPlaylists(async () => {
+    const result = addSongsToLocalPlaylistModel(get().localPlaylists, playlistId, songs);
+    await persistLocalPlaylists(result.playlists);
+    set({ localPlaylists: result.playlists, error: null });
+    return { addedCount: result.addedCount, skippedCount: result.skippedCount };
+  }),
 
   addSongToWyPlaylist: async (playlistId, song) => {
     try {
@@ -560,42 +472,21 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
     }
   },
 
-  removeSongFromLocalPlaylist: async (playlistId, song, now) => {
-    try {
-      const localPlaylists = removeSongFromLocalPlaylistModel(get().localPlaylists, playlistId, song, now);
-      await persistLocalPlaylists(localPlaylists);
-      set({ localPlaylists, error: null });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "从本地歌单移除歌曲失败";
-      set({ error: message });
-      throw error;
-    }
-  },
+  removeSongFromLocalPlaylist: (playlistId, song, now) => commitLocalPlaylists((current) => removeSongFromLocalPlaylistModel(current, playlistId, song, now)),
 
-  removeSongsFromLocalPlaylist: async (playlistId, songs, now) => {
-    try {
-      const localPlaylists = removeSongsFromLocalPlaylistModel(get().localPlaylists, playlistId, songs, now);
-      await persistLocalPlaylists(localPlaylists);
-      set({ localPlaylists, error: null });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "批量从本地歌单移除歌曲失败";
-      set({ error: message });
-      throw error;
-    }
-  },
-  mergeFromSync: async ({ cloudPlaylists, localPlaylists }) => {
+  removeSongsFromLocalPlaylist: (playlistId, songs, now) => commitLocalPlaylists((current) => removeSongsFromLocalPlaylistModel(current, playlistId, songs, now)),
+  mergeFromSync: ({ cloudPlaylists, localPlaylists }) => withLocalPlaylists(async () => {
     const current = get();
     const mergedLocal = mergeWebdavLocalPlaylists(current.localPlaylists, localPlaylists);
     // 合并规则是「不丢本地独有项」，所以历史污染会一直活下来 —— 每次合并后都清一遍
     const scrubbedLocal = await scrubLocalPlaylists(mergedLocal);
-    const mergedCloud = mergeWebdavCloudPlaylists(current.playlists, cloudPlaylists);
     await persistLocalPlaylists(scrubbedLocal);
     set({
-      playlists: mergedCloud,
+      playlists: mergeWebdavCloudPlaylists(get().playlists, cloudPlaylists),
       localPlaylists: scrubbedLocal,
       error: null,
     });
-  },
+  }),
   replaceAllFromSync: (playlists) => {
     set({
       playlists,
@@ -603,6 +494,7 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
       currentPlaylistSongs: [],
     });
   },
-}));
+  });
+});
 
 

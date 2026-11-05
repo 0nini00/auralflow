@@ -13,13 +13,16 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::Ordering;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime};
 use tauri::{AppHandle, Emitter, Manager};
 
 const MEDIA_CACHE_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const SONG_AUDIO_CACHE_DIR: &str = "song-audio";
+const MEDIA_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const MEDIA_READ_TIMEOUT: Duration = Duration::from_secs(30);
+const MEDIA_TOTAL_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const SONG_COVER_CACHE_DIR: &str = "song-covers";
 /// 各缓存目录的容量上限（字节），超限后按修改时间从最旧开始淘汰。
 /// 命中缓存会刷新 mtime，因此是真正的 LRU（常用的不会被先删）。

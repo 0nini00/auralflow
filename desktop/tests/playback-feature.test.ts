@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MusicInfo } from '@lx/core';
 import { CACHE_VERSION } from '../src/services/persistentCache';
 
@@ -74,6 +74,7 @@ beforeEach(() => {
   fixture.librarySave.mockResolvedValue(undefined);
   fixture.lyrics.mockResolvedValue({ lines: [] });
 });
+afterEach(() => { vi.useRealTimers(); });
 
 describe('LX backend 生命周期', () => {
   it('已 hydrated 时在第一个异步让出点前捕获令牌', async () => {
@@ -334,6 +335,32 @@ describe('自定义源整链单次竞速', () => {
 });
 
 describe('预取身份与提交', () => {
+  it('读取预取时执行十分钟有效期检查', async () => {
+    vi.useFakeTimers();
+    const service = await import('../src/services/playback/prefetchService');
+    await service.prefetchNearbyTracks({ queue: [next, music], currentIndex: 0, repeatMode: 'off', resolvePlaybackUrl: vi.fn(async () => resolved('builtinNetease')) as never });
+    expect(service.getPrefetchedTrack(music)?.url).toBeTruthy();
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    expect(service.getPrefetchedTrack(music)).toBeUndefined();
+  });
+  it('设置清空缓存后，在途预取结果不能重新写回旧设置结果', async () => {
+    const service = await import('../src/services/playback/prefetchService');
+    const gate = deferred<ReturnType<typeof resolved>>();
+    const pending = service.prefetchNearbyTracks({ queue: [next, music], currentIndex: 0, repeatMode: 'off', resolvePlaybackUrl: () => gate.promise as never });
+    service.clearPlaybackPrefetchCache();
+    gate.resolve(resolved('builtinNetease'));
+    await pending;
+    expect(service.getPrefetchedTrack(music)).toBeUndefined();
+    expect(fixture.preload).not.toHaveBeenCalled();
+  });
+  it('改变歌曲首选变体后旧预取目标立即失效', async () => {
+    const { buildSongKey } = await import('@lx/core');
+    const service = await import('../src/services/playback/prefetchService');
+    const { useVariantPinStore } = await import('../src/stores/variantPinStore');
+    await service.prefetchNearbyTracks({ queue: [next, music], currentIndex: 0, repeatMode: 'off', resolvePlaybackUrl: vi.fn(async () => resolved('builtinNetease')) as never });
+    useVariantPinStore.getState().togglePinnedVariant(buildSongKey(music), 'tx:alternate');
+    expect(service.getPrefetchedTrack(music)).toBeUndefined();
+  });
   it('关闭重开期间失败的解析不留下阻止新预取的空条目', async () => {
     const gate = deferred<void>();
     const service = await import('../src/services/playback/prefetchService');
@@ -405,6 +432,23 @@ describe('预取身份与提交', () => {
 });
 
 describe('会员直连优先', () => {
+  it('QQ 旧官方缓存没有真实音质证明时不能绕过下载精确要求', async () => {
+    fixture.toggle(false);
+    const txMusic = { ...music, source: 'tx' as const };
+    fixture.libraryLoad.mockResolvedValue({ version: CACHE_VERSION, playbackUrls: {
+      'tx:1:flac': { ...resolved('builtinProvider'), music: txMusic, quality: 'flac', cachedAt: Date.now(), expiresAt: Date.now() + 60_000 },
+    }, lyrics: {} });
+    fixture.provider.mockRejectedValue(new Error('无法确认精确音质'));
+    const { resolvePlaybackUrl } = await import('../src/services/playback/playbackResolver');
+    await expect(resolvePlaybackUrl(txMusic, undefined, 'flac', { exactQuality: true, cacheMedia: false })).rejects.toThrow('无法确认');
+  });
+  it('下载的精确音质要求传递到最终官方兜底', async () => {
+    fixture.toggle(false);
+    fixture.provider.mockResolvedValue(resolved('builtinProvider'));
+    const { resolvePlaybackUrl } = await import('../src/services/playback/playbackResolver');
+    await resolvePlaybackUrl({ ...music, source: 'tx' }, undefined, 'flac', { exactQuality: true, bypassCache: true, cacheMedia: false });
+    expect(fixture.provider).toHaveBeenCalledWith(expect.objectContaining({ exactQuality: true }));
+  });
   it('会员会话以官方 provider 为主源，网关完全不参与', async () => {
     fixture.vipOfficialFirst = true;
     fixture.provider.mockResolvedValue(resolved('builtinProvider'));

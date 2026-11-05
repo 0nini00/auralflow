@@ -50,7 +50,7 @@ import { playerEngine } from "./services/playerEngine";
 import { logger } from "./services/logger";
 import { normalizePauseOnExternalPlayback } from "./services/mediaInterruptionPolicy";
 import { flushLibraryPersistence } from "./stores/libraryPersistence";
-import { loadSettings } from "@lx/tauri-bridge";
+import { completeAppQuit, loadSettings } from "@lx/tauri-bridge";
 
 const CUSTOM_SOURCE_UPDATE_CHECK_DELAY_MS = 4500;
 
@@ -74,26 +74,43 @@ function MainApp() {
   // ≤300ms（debounce 窗口）内的收藏/歌单/历史修改。
   useEffect(() => {
     const flush = () => {
-      void flushLibraryPersistence();
+      void flushLibraryPersistence().catch((error) => logger.warn('离开窗口时保存失败', error));
     };
     const onVisibilityChange = () => {
       if (document.visibilityState === "hidden") flush();
     };
     window.addEventListener("pagehide", flush);
     document.addEventListener("visibilitychange", onVisibilityChange);
-    let unlisten: (() => void) | null = null;
+    const unlisteners: Array<() => void> = [];
     let disposed = false;
-    void listen("app-before-quit", flush)
-      .then((fn) => {
-        if (disposed) fn();
-        else unlisten = fn;
-      })
-      .catch(() => undefined);
+    const registerUnlisten = (fn: () => void) => {
+      if (disposed) fn();
+      else unlisteners.push(fn);
+    };
+    void listen<{ requestId: string }>("app-before-quit", (event) => {
+      void (async () => {
+        let failure: string | null = null;
+        try {
+          await flushLibraryPersistence();
+        } catch (error) {
+          failure = error instanceof Error ? error.message : String(error);
+          logger.warn('退出前保存失败，已取消退出', error);
+          showToast(`退出前保存失败：${failure}`, { kind: 'error' });
+        }
+        await completeAppQuit(event.payload.requestId, failure);
+      })().catch((error) => logger.warn('退出完成应答失败', error));
+    })
+      .then(registerUnlisten)
+      .catch((error) => logger.warn('无法监听退出保存请求', error));
+    void listen<string>('app-quit-failed', ({ payload }) => {
+      logger.warn('退出已取消', payload);
+      showToast(payload, { kind: 'error' });
+    }).then(registerUnlisten).catch((error) => logger.warn('无法监听退出失败通知', error));
     return () => {
       disposed = true;
       window.removeEventListener("pagehide", flush);
       document.removeEventListener("visibilitychange", onVisibilityChange);
-      unlisten?.();
+      for (const unlisten of unlisteners) unlisten();
     };
   }, []);
 

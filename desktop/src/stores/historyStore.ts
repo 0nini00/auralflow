@@ -1,11 +1,10 @@
-import { create } from "zustand";
 import {
   dropRemovedSourceEntries,
   mergeWebdavHistory,
   type HistoryPlayEntry,
   type MusicInfo,
 } from "@lx/core";
-import { attachLibraryPersistence } from "./libraryPersistence";
+import { attachLibraryPersistence, createLibraryStore } from "./libraryPersistence";
 
 interface HistoryState {
   history: MusicInfo[];
@@ -87,7 +86,7 @@ function collectPlayedAt(
   return next;
 }
 
-export const useHistoryStore = create<HistoryState>()((set, get) => ({
+export const useHistoryStore = createLibraryStore<HistoryState>()((set, get) => ({
   history: [],
   playedAtByKey: {},
 

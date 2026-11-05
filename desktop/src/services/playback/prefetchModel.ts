@@ -16,6 +16,7 @@ export interface PlaybackPrefetchEntry {
   fromPersistentCache?: boolean;
   backend?: PlaybackBackendId;
   customSourceVersion?: number;
+  selectionKey?: string;
   lyrics?: unknown;
   coverUrl?: string;
   fetchedAt: number;

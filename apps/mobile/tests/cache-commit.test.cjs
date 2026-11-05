@@ -22,6 +22,7 @@ function setup(initialFiles = {}, options = {}) {
   const storage = new Map();
   const warnings = [];
   const moves = [];
+  const asyncStorage = { getItem: async k => storage.get(k) ?? null, setItem: async (k, v) => storage.set(k, v), removeItem: async k => storage.delete(k) };
   const rnfs = {
     CachesDirectoryPath: "/cache", DocumentDirectoryPath: "/doc",
     exists: async p => files.has(p) || !path.posix.extname(p),
@@ -52,7 +53,7 @@ function setup(initialFiles = {}, options = {}) {
   };
   const load = createLoader({
     "react-native-fs": rnfs,
-    "@react-native-async-storage/async-storage": { getItem: async k => storage.get(k) ?? null, setItem: async (k, v) => storage.set(k, v), removeItem: async k => storage.delete(k) },
+    "@react-native-async-storage/async-storage": asyncStorage,
     "crypto-js": mobileRequire("crypto-js"), "react-native": { Platform: { OS: "android" }, NativeModules: { DownloadFileModule: { commitDownload: async (from, to) => {
       if (files.has(to)) throw new Error("destination exists");
       if (!files.has(from)) throw new Error("ENOENT");
@@ -64,7 +65,7 @@ function setup(initialFiles = {}, options = {}) {
     "@/stores/playerStore": { usePlayerStore: { getState: () => ({}) } },
     "@/services/logger": { logger: { warn: (...args) => warnings.push(args) } },
   });
-  return { service: load("src/services/cacheService.ts"), files, jobs, warnings, moves };
+  return { service: load("src/services/cacheService.ts"), files, jobs, warnings, moves, asyncStorage, storage };
 }
 
 for (const kind of ["audio", "cover"]) {
@@ -126,6 +127,29 @@ test("下载失败只删除临时文件且后续可重试", settings, async () =
   await until(() => h.jobs.length === 2);
   h.jobs[1].finish();
   assert.equal(await retry, `file://${audioPath}`);
+});
+
+test("多个缓存同时完成时歌曲索引不会丢失", settings, async () => {
+  const h = setup();
+  const pending = ["A", "B"].map(id => h.service.cacheAudioFile("https://example.org/" + id, { ...song, id, name: "title-" + id }, "flac"));
+  await until(() => h.jobs.length === 2);
+  h.jobs.forEach(job => job.finish());
+  await Promise.all(pending);
+  const entries = await h.service.listCachedAudio();
+  assert.deepEqual(entries.map(entry => entry.name).sort(), ["title-A", "title-B"]);
+});
+
+test("缓存索引读取失败必须显式拒绝，不能被当作空索引", settings, async () => {
+  const h = setup();
+  h.asyncStorage.getItem = async () => { throw new Error("index unavailable"); };
+  await assert.rejects(h.service.listCachedAudio(), /index unavailable/);
+});
+
+test("缓存索引清理写盘失败必须显式拒绝", settings, async () => {
+  const h = setup();
+  h.storage.set("auralflow.mobile.audioCacheIndex.v1", JSON.stringify({ stale: { name: "stale" } }));
+  h.asyncStorage.setItem = async () => { throw new Error("index write unavailable"); };
+  await assert.rejects(h.service.listCachedAudio(), /index write unavailable/);
 });
 
 

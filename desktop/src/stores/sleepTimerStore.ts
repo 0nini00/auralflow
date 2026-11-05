@@ -12,47 +12,20 @@ interface SleepTimerState {
 
   startTimer: (minutes: number) => void;
   startSongs: (count: number) => void;
+  /** 返回 true 表示本次播放完成后应停止，不再进入下一首。 */
+  consumeCompletedSong: () => boolean;
   cancel: () => void;
 }
 
 const MIN_THRESHOLD_SEC = 120;
 
 let tickHandle: ReturnType<typeof setInterval> | null = null;
-let lastTrackKey: string | null = null;
-let songsWatcherUnsubscribe: (() => void) | null = null;
 
 function clearTick() {
   if (tickHandle != null) {
     clearInterval(tickHandle);
     tickHandle = null;
   }
-}
-
-function trackKey(): string | null {
-  const c = usePlayerStore.getState().current;
-  return c ? `${c.source}:${c.id}` : null;
-}
-
-function ensureSongsWatcher() {
-  if (songsWatcherUnsubscribe) {
-    songsWatcherUnsubscribe();
-    songsWatcherUnsubscribe = null;
-  }
-  lastTrackKey = trackKey();
-  songsWatcherUnsubscribe = usePlayerStore.subscribe(() => {
-    const key = trackKey();
-    if (key === lastTrackKey) return;
-    lastTrackKey = key;
-    const st = useSleepTimerStore.getState();
-    if (st.mode !== "songs") return;
-    const next = st.remainingSongs - 1;
-    if (next <= 0) {
-      usePlayerStore.getState().pause();
-      useSleepTimerStore.setState({ mode: "off", remainingSongs: 0 });
-    } else {
-      useSleepTimerStore.setState({ remainingSongs: next });
-    }
-  });
 }
 
 function startTick() {
@@ -78,7 +51,7 @@ function startTick() {
   }, 1000);
 }
 
-export const useSleepTimerStore = create<SleepTimerState>((set) => ({
+export const useSleepTimerStore = create<SleepTimerState>((set, get) => ({
   mode: "off",
   remainingSec: 0,
   remainingSongs: 0,
@@ -92,17 +65,20 @@ export const useSleepTimerStore = create<SleepTimerState>((set) => ({
   },
 
   startSongs: (count) => {
+    clearTick();
     set({ mode: "songs", remainingSongs: Math.max(1, count), remainingSec: 0 });
-    ensureSongsWatcher();
+  },
+
+  consumeCompletedSong: () => {
+    const state = get();
+    if (state.mode !== 'songs') return false;
+    const remainingSongs = Math.max(0, state.remainingSongs - 1);
+    set({ remainingSongs, mode: remainingSongs === 0 ? 'off' : 'songs' });
+    return remainingSongs === 0;
   },
 
   cancel: () => {
     clearTick();
-    if (songsWatcherUnsubscribe) {
-      songsWatcherUnsubscribe();
-      songsWatcherUnsubscribe = null;
-    }
-    lastTrackKey = null;
     set({ mode: "off", remainingSec: 0, remainingSongs: 0 });
   },
 }));

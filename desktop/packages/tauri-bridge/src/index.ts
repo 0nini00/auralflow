@@ -148,6 +148,11 @@ export async function patchSettings(patch: Record<string, unknown>): Promise<Rus
   return invoke<RustAppSettings>("patch_settings", { patch });
 }
 
+/** 主窗口完成退出前持久化后应答；错误会取消本次退出。 */
+export async function completeAppQuit(requestId: string, error: string | null): Promise<void> {
+  await invoke<void>('complete_app_quit', { requestId, error });
+}
+
 /**
  * 回答「关闭窗口后去哪」：`tray` 最小化到托盘，`quit` 退出应用。
  * `remember` 为 true 时同时写入 closeToTray 与 closePromptSeen（之后不再提问）。

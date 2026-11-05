@@ -23,6 +23,11 @@ export function canResolveWithBuiltinMusicApi(music: MusicInfo): boolean {
   return getBuiltinMusicApiGateway(music) != null;
 }
 
+/** QQ 普通官方取链没有音质字段，不能以请求档位证明返回文件的真实质量。 */
+export function canConfirmBuiltinProviderQuality(music: MusicInfo): boolean {
+  return music.source !== 'tx' || canResolveWithBuiltinMusicApi(music);
+}
+
 export async function searchBuiltinMusicApiFirst(
   apiSearch: () => Promise<MusicInfo[]>,
   fallbackSearch: () => Promise<MusicInfo[]>,

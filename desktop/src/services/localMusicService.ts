@@ -148,7 +148,7 @@ export class LocalMusicService {
   static getSupportedFormats(): string[] {
     return [
       'mp3', 'flac', 'wav', 'aac', 'm4a',
-      'ogg', 'opus', 'wma', 'ape', 'aiff',
+      'ogg', 'opus', 'ape', 'aiff',
     ];
   }
 }

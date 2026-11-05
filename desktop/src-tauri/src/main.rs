@@ -259,6 +259,7 @@ pub fn run() {
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
+            commands::complete_app_quit,
             // 配置管理
             commands::load_settings,
             commands::patch_settings,

@@ -160,6 +160,9 @@ importers:
       eslint-plugin-react-hooks:
         specifier: ^7.1.1
         version: 7.1.1(eslint@10.8.1)
+      ses:
+        specifier: 2.3.0
+        version: 2.3.0
       typescript:
         specifier: ^5.8.3
         version: 5.8.3
@@ -278,7 +281,14 @@ importers:
         version: 5.6.2
 
   packages/core:
+    dependencies:
+      tr46:
+        specifier: 5.0.0
+        version: 5.0.0
     devDependencies:
+      '@types/tr46':
+        specifier: 5.0.1
+        version: 5.0.1
       typescript:
         specifier: ~5.6.2
         version: 5.6.2
@@ -918,6 +928,15 @@ packages:
     peerDependencies:
       react: '*'
       react-native: '*'
+
+  '@endo/cache-map@1.1.0':
+    resolution: {integrity: sha512-owFGshs/97PDw9oguZqU/px8Lv1d0KjAUtDUiPwKHNXRVUE/jyettEbRoTbNJR1OaI8biMn6bHr9kVJsOh6dXw==}
+
+  '@endo/env-options@1.1.11':
+    resolution: {integrity: sha512-p9OnAPsdqoX4YJsE98e3NBVhIr2iW9gNZxHhAI2/Ul5TdRfoOViItzHzTqrgUVopw6XxA1u1uS6CykLMDUxarA==}
+
+  '@endo/immutable-arraybuffer@2.0.0':
+    resolution: {integrity: sha512-xvfJvo4CgETh6UjSKwhNsFLZrqrTf2k4ZFpcprEN2UtCQRSOk+CcLP70kFbrOesB2Z/c1z9MaUZDS1JY6IlnUg==}
 
   '@esbuild/aix-ppc64@0.21.3':
     resolution: {integrity: sha512-yTgnwQpFVYfvvo4SvRFB0SwrW8YjOxEoT7wfMT7Ol5v7v5LDNvSGo67aExmxOb87nQNeWPVvaGBNfQ7BXcrZ9w==}
@@ -1850,6 +1869,9 @@ packages:
 
   '@types/react@19.2.17':
     resolution: {integrity: sha512-MXfmqaVPEVgkBT/aY0aGCkRWWtByiYQXo3xdQ8r5RzuFrPiRn8Gar2tQdXSUQ2GKV3bkXckek89V8wQBY2Q/Aw==}
+
+  '@types/tr46@5.0.1':
+    resolution: {integrity: sha512-/nNLTzy884WMMjksAFsrazXpwKcipQn1FltlXu4PycQFD8t6a4aq/z+F7mw05UI7p5O8MUvXLTPbISOoQtaugg==}
 
   '@types/yargs-parser@21.0.3':
     resolution: {integrity: sha512-I4q9QU9MQv4oEOz4tAHJtNz1cwuLxn2F3xcc2iV5WdqLPpUnj30aUuxt1mAxYTG+oe8CZMV/+6rU4S4gRDzqtQ==}
@@ -3696,6 +3718,9 @@ packages:
     resolution: {integrity: sha512-x0RTqQel6g5SY7Lg6ZreMmsOzncHFU7nhnRWkKgWuMTu5NN0DR5oruckMqRvacAN9d5w6ARnRBXl9xhDCgfMeA==}
     engines: {node: '>= 0.8.0'}
 
+  ses@2.3.0:
+    resolution: {integrity: sha512-qd3iWzDqGKllI2FmExKsWLrJwt+6COWb8jUdzaCn8Cq5OTeoXdQ62Gn/xLy0GWLORC3du6yBAVe/V0B0dLVKew==}
+
   set-blocking@2.0.0:
     resolution: {integrity: sha512-KiKBS8AnWGEyLzofFfmvKwpdPzqiy16LvQfK3yv/fVH7Bj13/wl3JSR1J+rfgRE9q7xUJK4qvgS8raSOeLUehw==}
 
@@ -5080,6 +5105,12 @@ snapshots:
       react: 19.2.3
       react-native: 0.86.0(@babel/core@7.29.7)(@react-native-community/cli@20.1.0(typescript@5.8.3))(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3)
 
+  '@endo/cache-map@1.1.0': {}
+
+  '@endo/env-options@1.1.11': {}
+
+  '@endo/immutable-arraybuffer@2.0.0': {}
+
   '@esbuild/aix-ppc64@0.21.3':
     optional: true
 
@@ -5973,6 +6004,8 @@ snapshots:
   '@types/react@19.2.17':
     dependencies:
       csstype: 3.2.3
+
+  '@types/tr46@5.0.1': {}
 
   '@types/yargs-parser@21.0.3': {}
 
@@ -8152,6 +8185,12 @@ snapshots:
       send: 0.19.2
     transitivePeerDependencies:
       - supports-color
+
+  ses@2.3.0:
+    dependencies:
+      '@endo/cache-map': 1.1.0
+      '@endo/env-options': 1.1.11
+      '@endo/immutable-arraybuffer': 2.0.0
 
   set-blocking@2.0.0: {}
 

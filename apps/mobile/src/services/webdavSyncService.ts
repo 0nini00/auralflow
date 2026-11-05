@@ -941,6 +941,7 @@ async function parseUserApisSyncFile(text: string): Promise<CustomSourceItem[]> 
 /** 上传自定义音源到 WebDAV（覆盖远端 user_apis.json）。 */
 export async function uploadSourcesSync(): Promise<void> {
   return withSyncLock("上传音源", async () => {
+    await useCustomSourceStore.getState().loadFromStorage();
     const cfg = await getConfig();
     if (!cfg) throw new Error("请先填写 WebDAV 地址");
     await ensureRemoteDirectory(cfg, REMOTE_ROOT_PATH);
@@ -975,6 +976,7 @@ async function readSyncFileWithLegacyFallback(
 
 export async function downloadSourcesSync(options?: { force?: boolean }): Promise<void> {
   return withSyncLock("下载音源", async () => {
+    await useCustomSourceStore.getState().loadFromStorage();
     const cfg = await getConfig();
     if (!cfg) throw new Error("请先填写 WebDAV 地址");
 
@@ -986,7 +988,7 @@ export async function downloadSourcesSync(options?: { force?: boolean }): Promis
 
     const customSources = await parseUserApisSyncFile(text);
     if (!customSources.length) throw new Error("云端音源缺少有效脚本内容，无法初始化");
-    useCustomSourceStore.getState().replaceAll(customSources);
+    await useCustomSourceStore.getState().replaceAll(customSources);
     await writeLocalMeta("sources", {
       lastModified: Date.now(),
       itemCount: customSources.length,
@@ -1015,8 +1017,17 @@ async function primeCloudSongsCacheForUpload(cfg: WebdavConfig): Promise<void> {
 }
 
 /** 上传收藏、歌单和播放历史到 WebDAV（覆盖远端 playlists.json）。 */
+async function loadLocalPlaylistSyncData(): Promise<void> {
+  await Promise.all([
+    usePlaylistStore.getState().loadLocalPlaylists(),
+    useFavoritesStore.getState().loadFromStorage(),
+    useHistoryStore.getState().loadHistory(),
+  ]);
+}
+
 export async function uploadPlaylistsSync(): Promise<void> {
   return withSyncLock("上传歌单", async () => {
+    await loadLocalPlaylistSyncData();
     const cfg = await getConfig();
     if (!cfg) throw new Error("请先填写 WebDAV 地址");
     await ensureRemoteDirectory(cfg, REMOTE_ROOT_PATH);
@@ -1056,6 +1067,7 @@ export async function downloadPlaylistsSync(options?: {
   merge?: boolean;
 }): Promise<void> {
   return withSyncLock("下载歌单", async () => {
+    await loadLocalPlaylistSyncData();
     const cfg = await getConfig();
     if (!cfg) throw new Error("请先填写 WebDAV 地址");
 
@@ -1102,7 +1114,7 @@ export async function downloadPlaylistsSync(options?: {
       return;
     }
 
-    favoritesStore.replaceAll(favorites);
+    await favoritesStore.replaceAll(favorites);
     playlistStore.replaceAllFromSync(playlists);
     await playlistStore.replaceLocalPlaylists(localPlaylists);
     await useHistoryStore.getState().replaceAllHistory(history, historyTimestamps);

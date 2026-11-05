@@ -10,8 +10,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use tauri::{
-    AppHandle, LogicalPosition, LogicalSize, Manager, PhysicalPosition, WebviewUrl,
-    WebviewWindow, WebviewWindowBuilder,
+    AppHandle, LogicalPosition, LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder,
 };
 
 use crate::lyric_window::ADDITIONAL_BROWSER_ARGS;
@@ -31,8 +31,21 @@ static PERSIST_GENERATION: AtomicU64 = AtomicU64::new(0);
 static PERSIST_THREAD_RUNNING: AtomicBool = AtomicBool::new(false);
 static LAST_POSITION: Mutex<Option<(f64, f64)>> = Mutex::new(None);
 
+async fn run_window_operation<T: Send + 'static>(
+    operation: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    static WINDOW_OPERATION: Mutex<()> = Mutex::new(());
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = WINDOW_OPERATION
+            .lock()
+            .map_err(|_| "迷你播放器窗口状态锁损坏")?;
+        operation()
+    })
+    .await
+    .map_err(|err| format!("迷你播放器窗口任务失败: {}", err))?
+}
 
-pub fn show(app: &AppHandle) -> Result<(), String> {
+fn show(app: &AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(MINI_PLAYER_LABEL) {
         return window
             .show()
@@ -51,7 +64,12 @@ pub fn hide(app: &AppHandle) -> Result<(), String> {
 }
 
 /// 切换显隐，返回切换后是否显示。
-pub fn toggle(app: &AppHandle) -> Result<bool, String> {
+pub async fn toggle(app: &AppHandle) -> Result<bool, String> {
+    let app = app.clone();
+    run_window_operation(move || toggle_blocking(&app)).await
+}
+
+fn toggle_blocking(app: &AppHandle) -> Result<bool, String> {
     if let Some(window) = app.get_webview_window(MINI_PLAYER_LABEL) {
         if window.is_visible().unwrap_or(false) {
             window
@@ -70,31 +88,62 @@ pub fn toggle(app: &AppHandle) -> Result<bool, String> {
 
 /// 托盘「隐藏到托盘」时调用：只有开关打开才弹迷你播放器。
 pub fn show_on_tray_hide(app: &AppHandle) {
-    let enabled = crate::config::load_settings(app)
-        .map(|settings| settings.mini_player_enabled)
-        .unwrap_or(true);
-    if enabled {
-        let _ = show(app);
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let result = run_window_operation(move || {
+            if !crate::config::load_settings(&app)?.mini_player_enabled {
+                return Ok(());
+            }
+            show_while_main_hidden(|| main_window_visible(&app), || show(&app), || hide(&app))
+        })
+        .await;
+        if let Err(err) = result {
+            tauri_plugin_log::log::warn!("[mini-player] {}", err);
+        }
+    });
+}
+
+fn show_while_main_hidden(
+    main_visible: impl Fn() -> Result<bool, String>,
+    show_mini: impl FnOnce() -> Result<(), String>,
+    hide_mini: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    if main_visible()? {
+        return Ok(());
     }
+    show_mini()?;
+    // WebView 创建期间用户可能已从托盘恢复主窗口；以真实窗口状态收尾。
+    if main_visible()? {
+        hide_mini()?;
+    }
+    Ok(())
+}
+
+fn main_window_visible(app: &AppHandle) -> Result<bool, String> {
+    app.get_webview_window("main")
+        .ok_or_else(|| "找不到主窗口".to_string())?
+        .is_visible()
+        .map_err(|err| format!("读取主窗口可见状态失败: {}", err))
 }
 
 fn create(app: &AppHandle) -> Result<(), String> {
     let settings = crate::config::load_settings(app)?;
-    let window = WebviewWindowBuilder::new(app, MINI_PLAYER_LABEL, mini_webview_url("#/mini-player")?)
-        .title("AuralFlow 迷你播放器")
-        .additional_browser_args(ADDITIONAL_BROWSER_ARGS)
-        .inner_size(WIDTH, HEIGHT)
-        .resizable(false)
-        .maximizable(false)
-        .minimizable(false)
-        .decorations(false)
-        .transparent(true)
-        .shadow(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .focused(false)
-        .build()
-        .map_err(|e| format!("创建迷你播放器失败: {}", e))?;
+    let window =
+        WebviewWindowBuilder::new(app, MINI_PLAYER_LABEL, mini_webview_url("#/mini-player")?)
+            .title("AuralFlow 迷你播放器")
+            .additional_browser_args(ADDITIONAL_BROWSER_ARGS)
+            .inner_size(WIDTH, HEIGHT)
+            .resizable(false)
+            .maximizable(false)
+            .minimizable(false)
+            .decorations(false)
+            .transparent(true)
+            .shadow(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .focused(false)
+            .build()
+            .map_err(|e| format!("创建迷你播放器失败: {}", e))?;
 
     // 先挂监听再摆位置：位置恢复本身也会触发 Moved，这样「被夹回工作区」的结果
     // 也会落盘（否则每次启动都会按旧坐标重新夹一遍）。
@@ -138,7 +187,9 @@ fn mini_webview_url(hash: &str) -> Result<WebviewUrl, String> {
 
 /// 上次的位置 → 夹回当前显示器工作区；没有记录就贴右下角。
 fn restore_position(window: &WebviewWindow, saved_x: Option<f64>, saved_y: Option<f64>) {
-    let Ok(size) = window.outer_size() else { return };
+    let Ok(size) = window.outer_size() else {
+        return;
+    };
     let scale = window.scale_factor().unwrap_or(1.0);
     let width = size.width as f64 / scale;
     let height = size.height as f64 / scale;
@@ -148,7 +199,10 @@ fn restore_position(window: &WebviewWindow, saved_x: Option<f64>, saved_y: Optio
             clamp(x, area.left, area.right - width),
             clamp(y, area.top, area.bottom - height),
         ),
-        _ => (area.right - width - EDGE_MARGIN, area.bottom - height - EDGE_MARGIN),
+        _ => (
+            area.right - width - EDGE_MARGIN,
+            area.bottom - height - EDGE_MARGIN,
+        ),
     };
     let _ = window.set_position(LogicalPosition::new(x, y));
 }
@@ -175,7 +229,12 @@ fn work_area(window: &WebviewWindow) -> WorkArea {
             bottom: y + rect.size.height as f64 / scale,
         };
     }
-    WorkArea { left: 0.0, top: 0.0, right: 1920.0, bottom: 1080.0 }
+    WorkArea {
+        left: 0.0,
+        top: 0.0,
+        right: 1920.0,
+        bottom: 1080.0,
+    }
 }
 
 fn clamp(value: f64, min: f64, max: f64) -> f64 {
@@ -187,7 +246,9 @@ fn clamp(value: f64, min: f64, max: f64) -> f64 {
 }
 
 fn handle_moved(app: &AppHandle, position: PhysicalPosition<i32>) {
-    let Some(window) = app.get_webview_window(MINI_PLAYER_LABEL) else { return };
+    let Some(window) = app.get_webview_window(MINI_PLAYER_LABEL) else {
+        return;
+    };
     let scale = window.scale_factor().unwrap_or(1.0);
     let mut x = position.x as f64 / scale;
     let mut y = position.y as f64 / scale;
@@ -212,7 +273,10 @@ fn handle_moved(app: &AppHandle, position: PhysicalPosition<i32>) {
             snapped = true;
         }
         // 吸附本身会再触发一次 Moved：只有真的偏离目标超过半像素才回写，避免自激。
-        if snapped && ((x - position.x as f64 / scale).abs() > 0.5 || (y - position.y as f64 / scale).abs() > 0.5) {
+        if snapped
+            && ((x - position.x as f64 / scale).abs() > 0.5
+                || (y - position.y as f64 / scale).abs() > 0.5)
+        {
             let _ = window.set_position(LogicalPosition::new(x, y));
         }
     }
@@ -266,5 +330,51 @@ pub fn show_context_menu(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| format!("创建菜单项失败: {}", e))?;
     let menu = Menu::with_items(app, &[&show_main, &hide_mini, &quit])
         .map_err(|e| format!("创建迷你播放器菜单失败: {}", e))?;
-    menu.popup(window).map_err(|e| format!("弹出迷你播放器菜单失败: {}", e))
+    menu.popup(window)
+        .map_err(|e| format!("弹出迷你播放器菜单失败: {}", e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn queued_show_does_not_reopen_mini_after_main_is_restored() {
+        show_while_main_hidden(
+            || Ok(true),
+            || panic!("过期 show 不能执行"),
+            || panic!("无需隐藏"),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn restoring_main_during_creation_hides_the_new_mini() {
+        let visible = std::cell::Cell::new(false);
+        let hidden = std::cell::Cell::new(false);
+        show_while_main_hidden(
+            || Ok(visible.get()),
+            || {
+                visible.set(true);
+                Ok(())
+            },
+            || {
+                hidden.set(true);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(hidden.get());
+    }
+
+    #[test]
+    fn window_creation_operation_leaves_the_calling_thread() {
+        let caller = std::thread::current().id();
+        let worker =
+            tauri::async_runtime::block_on(run_window_operation(
+                || Ok(std::thread::current().id()),
+            ))
+            .unwrap();
+        assert_ne!(caller, worker, "WebView 创建不能阻塞 IPC/事件所在线程");
+    }
 }

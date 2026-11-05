@@ -1,6 +1,5 @@
-import { create } from 'zustand';
 import { dropRemovedSourceEntries, mergeWebdavLocalPlaylists, scrubSyncedCloudPlaylistRefs, type MusicInfo } from '@lx/core';
-import { attachLibraryPersistence } from './libraryPersistence';
+import { attachLibraryPersistence, createLibraryStore } from './libraryPersistence';
 
 export interface Playlist {
   id: string;
@@ -38,7 +37,7 @@ interface PlaylistStore {
   importPlaylist: (name: string, description: string | undefined, songs: MusicInfo[], cover?: string) => Playlist;
 }
 
-export const usePlaylistStore = create<PlaylistStore>()((set, get) => ({
+export const usePlaylistStore = createLibraryStore<PlaylistStore>()((set, get) => ({
       playlists: [],
 
       createPlaylist: (name, description) => {

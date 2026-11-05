@@ -1,6 +1,6 @@
 import { useLibraryStore } from "./libraryStore";
 import { createLocalPlaybackLookup, synchronizeLocalQueue } from "@/services/localPlaybackMetadata";
-import { create } from "zustand";
+import { createLibraryStore } from "./libraryPersistence";
 import type { MusicInfo } from "@lx/core";
 import { playerEngine } from "@/services/playerEngine";
 import { resolvePlaybackUrl, type PlaybackBackendId } from "@/services/playback/playbackResolver";
@@ -265,9 +265,9 @@ const syncEngineToStore = (set: any, get: any) => {
     set({
       status: engineState.status,
       volume: isMuted ? storeVolume : engineState.volume,
-      playbackRate: engineState.playbackRate,
       error: engineState.error,
       ...(engineHasTrack ? {
+        playbackRate: engineState.playbackRate,
         progress: engineState.currentTime,
         // 锚点用 engine 采样时刻（同帧），UI 外推不再重复计入 React 渲染延迟
         progressSampledAt: engineState.currentTimeSampledAt,
@@ -317,6 +317,10 @@ const syncEngineToStore = (set: any, get: any) => {
     const { repeatMode, queue, currentIndex, fmMode } = get();
     // 定时关闭（按时间）：曲结束时若定时器到期直接停，不进入下一首
     const sleep = useSleepTimerStore.getState();
+    if (sleep.mode === "songs" && sleep.consumeCompletedSong()) {
+      get().pause();
+      return;
+    }
     if (sleep.mode === "timer" && sleep.remainingSec <= 0) {
       useSleepTimerStore.setState({ mode: "off", remainingSec: 0 });
       get().pause();
@@ -335,7 +339,7 @@ const syncEngineToStore = (set: any, get: any) => {
   });
 };
 
-export const usePlayerStore = create<PlayerStore>((set, get) => {
+export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
   syncEngineToStore(set, get);
 
   // 试听兜底（与移动端一致）：解析期拿不到长度头的流式响应靠播放器实际时长判定。
@@ -394,6 +398,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => {
        * 丢弃（否则它会覆盖掉刚写入的 error）；最后由本次 set 落定 error 状态。
        */
       const failPlayback = (message: string) => {
+        if (requestId !== activePlayRequestId) return;
         engineTargetKey = null;
         playerEngine.stop();
         set({ status: "error", error: message });

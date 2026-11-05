@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   StyleSheet,
   Text,
@@ -226,7 +227,9 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
   const handleLike = () => {
     if (!currentSong) return;
     hapticLight();
-    toggleFavorite(currentSong);
+    void toggleFavorite(currentSong).catch((error) => {
+      Alert.alert("收藏失败", error instanceof Error ? error.message : "无法保存收藏");
+    });
   };
 
   return (

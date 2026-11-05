@@ -654,7 +654,9 @@ export const SongItem = memo(function SongItem({  song,
 
   const handleLike = (e: any) => {
     e.stopPropagation();
-    toggleFavorite(song);
+    void toggleFavorite(song).catch((error) => {
+      Alert.alert("收藏失败", error instanceof Error ? error.message : "无法保存收藏");
+    });
   };
 
   const isSelectedRow = selectionMode && selected;

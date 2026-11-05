@@ -9,7 +9,7 @@ import { useDialogFocus } from '../src/hooks/useDialogFocus';
 
 const network = vi.hoisted(() => ({ fetch: vi.fn(), export: vi.fn(), import: vi.fn() }));
 vi.mock('@/hooks/useDialogFocus', () => ({ useDialogFocus: vi.fn() }));
-vi.mock('@/stores/libraryPersistence', () => ({ attachLibraryPersistence: vi.fn() }));
+vi.mock('@/stores/libraryPersistence', async () => ({ createLibraryStore: (await import('zustand')).create, attachLibraryPersistence: vi.fn() }));
 vi.mock('@/stores/favoritesStore', async () => {
   const { create } = await import('zustand');
   return { useFavoritesStore: create(() => ({ favorites: [] })) };

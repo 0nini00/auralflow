@@ -24,13 +24,12 @@
  *   - **不做** DNS 解析后校验，解析到内网的域名（DNS rebinding）不在拦截范围。
  */
 
+import { toASCII } from "tr46";
+
 const IPV4_PATTERN = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
 
 /** host 里出现即非法的字符：解码后冒出来说明原串在藏分隔符，一律拒绝。 */
 const FORBIDDEN_HOST_CHARS = /[\0\t\n\r #/:<>?@[\]\\^|%]/;
-
-/** IDNA 会折成 ASCII `.` 的句点变体：表意句点、全角句点、半角表意句点。 */
-const DOT_VARIANTS = /[。．｡]/g;
 
 /**
  * 把 host 归一化成 HTTP 客户端实际用于连接的形式，再交给黑名单比对。
@@ -56,10 +55,12 @@ function normalizeHost(host: string): string | null {
     }
     if (FORBIDDEN_HOST_CHARS.test(decoded)) return null;
   }
-  return decoded
-    .replace(DOT_VARIANTS, ".")
-    .toLowerCase()
-    .replace(/\.+$/, "");
+  // IPv6 不是 DNS 名称；域名必须执行完整 UTS #46 映射，不能只替换句点。
+  // 例如全角字母、带圈字母和软连字符都会被实际 HTTP 客户端规范化。
+  if (decoded.includes(":")) return decoded.toLowerCase();
+  const ascii = toASCII(decoded, { checkBidi: true, checkJoiners: true });
+  if (!ascii || FORBIDDEN_HOST_CHARS.test(ascii)) return null;
+  return ascii.toLowerCase().replace(/\.+$/, "");
 }
 
 /**

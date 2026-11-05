@@ -374,8 +374,18 @@ fn create(app: &AppHandle) -> Result<(), String> {
     let settings = crate::config::load_settings(app)?;
 
     let url = lyric_webview_url("#/lyric")?;
-    let width = restore_window_length(settings.lyric_window_width, DEFAULT_WIDTH, MIN_WIDTH, MAX_RESTORE_WIDTH);
-    let height = restore_window_length(settings.lyric_window_height, DEFAULT_HEIGHT, MIN_HEIGHT, MAX_RESTORE_HEIGHT);
+    let width = restore_window_length(
+        settings.lyric_window_width,
+        DEFAULT_WIDTH,
+        MIN_WIDTH,
+        MAX_RESTORE_WIDTH,
+    );
+    let height = restore_window_length(
+        settings.lyric_window_height,
+        DEFAULT_HEIGHT,
+        MIN_HEIGHT,
+        MAX_RESTORE_HEIGHT,
+    );
     let pinned = settings.lyric_pinned;
     store_lyric_pinned(pinned);
     invalidate_lyric_window_epoch("create");
@@ -414,21 +424,33 @@ fn create(app: &AppHandle) -> Result<(), String> {
     }
 
     // 设置位置/尺寸：上次保存的 → 屏幕底部居中；同时夹回当前屏幕，避免坏配置导致窗口“打开但不可见”。
-    if let Ok(Some(monitor)) = window.current_monitor() {
-        let size = monitor.size();
-        let scale = monitor.scale_factor();
+    let saved_monitor = window.available_monitors().ok().and_then(|monitors| {
+        let (Some(x), Some(y)) = (settings.lyric_window_x, settings.lyric_window_y) else {
+            return None;
+        };
+        monitors.into_iter().find(|monitor| {
+            let area = monitor_area(monitor);
+            x >= area.x && x < area.x + area.width && y >= area.y && y < area.y + area.height
+        })
+    });
+    if let Some(monitor) = saved_monitor.or_else(|| window.current_monitor().ok().flatten()) {
         let geometry = resolve_window_geometry(
             settings.lyric_window_x,
             settings.lyric_window_y,
             settings.lyric_window_width,
             settings.lyric_window_height,
-            size.width as f64 / scale,
-            size.height as f64 / scale,
+            monitor_area(&monitor),
         );
-        let _ = window.set_size(LogicalSize::new(geometry.width, geometry.height));
-        let _ = window.set_position(LogicalPosition::new(geometry.x, geometry.y));
+        // 首次创建仍可能使用主屏 DPI；按目标显示器直接提交物理坐标与尺寸。
+        let scale = monitor.scale_factor();
+        let _ = window
+            .set_position(LogicalPosition::new(geometry.x, geometry.y).to_physical::<i32>(scale));
+        let _ = window
+            .set_size(LogicalSize::new(geometry.width, geometry.height).to_physical::<u32>(scale));
     } else if let (Some(x), Some(y)) = (settings.lyric_window_x, settings.lyric_window_y) {
-        let _ = window.set_position(LogicalPosition::new(x.max(0.0), y.max(0.0)));
+        if x.is_finite() && y.is_finite() {
+            let _ = window.set_position(LogicalPosition::new(x, y));
+        }
     }
 
     let _ = app.emit("lyric-window-open-changed", json!({ "open": true }));
@@ -556,11 +578,20 @@ fn sync_unlock_window_position(app: &AppHandle) {
     };
 
     let pinned = lyric_pinned();
-    let x = position.x as f64 / scale + size.width as f64 / scale - UNLOCK_WINDOW_SIZE - 10.0;
-    let y = position.y as f64 / scale + 8.0;
-    let _ = unlock.set_position(LogicalPosition::new(x.max(0.0), y.max(0.0)));
+    let _ = unlock.set_position(unlock_position(position, size, scale));
     let _ = unlock.set_always_on_top(pinned);
     let _ = unlock.show();
+}
+
+fn unlock_position(
+    position: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+    scale: f64,
+) -> PhysicalPosition<i32> {
+    PhysicalPosition::new(
+        position.x + size.width as i32 - ((UNLOCK_WINDOW_SIZE + 10.0) * scale).round() as i32,
+        position.y + (8.0 * scale).round() as i32,
+    )
 }
 
 fn schedule_unlock_window_sync(app: &AppHandle) {
@@ -730,30 +761,49 @@ fn clamp_to_range(value: f64, min: f64, max: f64) -> f64 {
     }
 }
 
+#[derive(Clone, Copy)]
+struct ScreenArea {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+fn monitor_area(monitor: &tauri::Monitor) -> ScreenArea {
+    let scale = monitor.scale_factor();
+    let area = monitor.work_area();
+    ScreenArea {
+        x: area.position.x as f64 / scale,
+        y: area.position.y as f64 / scale,
+        width: area.size.width as f64 / scale,
+        height: area.size.height as f64 / scale,
+    }
+}
+
 fn resolve_window_geometry(
     saved_x: Option<f64>,
     saved_y: Option<f64>,
     saved_width: Option<f64>,
     saved_height: Option<f64>,
-    screen_width: f64,
-    screen_height: f64,
+    screen: ScreenArea,
 ) -> LyricWindowGeometry {
-    let screen_width = screen_width.max(MIN_WIDTH);
-    let screen_height = screen_height.max(MIN_HEIGHT);
+    let screen_width = screen.width.max(MIN_WIDTH);
+    let screen_height = screen.height.max(MIN_HEIGHT);
     let width = restore_window_length(saved_width, DEFAULT_WIDTH, MIN_WIDTH, MAX_RESTORE_WIDTH);
-    let height = restore_window_length(saved_height, DEFAULT_HEIGHT, MIN_HEIGHT, MAX_RESTORE_HEIGHT);
+    let height =
+        restore_window_length(saved_height, DEFAULT_HEIGHT, MIN_HEIGHT, MAX_RESTORE_HEIGHT);
 
-    let default_x = ((screen_width - width) / 2.0).max(0.0);
-    let default_y = (screen_height - height - 60.0).max(0.0);
-    let max_x = (screen_width - width).max(0.0);
-    let max_y = (screen_height - height).max(0.0);
+    let default_x = screen.x + ((screen_width - width) / 2.0).max(0.0);
+    let default_y = screen.y + (screen_height - height - 60.0).max(0.0);
+    let max_x = screen.x + (screen_width - width).max(0.0);
+    let max_y = screen.y + (screen_height - height).max(0.0);
 
     let x = match saved_x {
-        Some(v) if v.is_finite() => clamp_to_range(v, 0.0, max_x),
+        Some(v) if v.is_finite() => clamp_to_range(v, screen.x, max_x),
         _ => default_x,
     };
     let y = match saved_y {
-        Some(v) if v.is_finite() => clamp_to_range(v, 0.0, max_y),
+        Some(v) if v.is_finite() => clamp_to_range(v, screen.y, max_y),
         _ => default_y,
     };
 
@@ -816,7 +866,8 @@ fn persist_position(app: &AppHandle, pos: PhysicalPosition<i32>) {
     let x = pos.x as f64 / scale;
     let y = pos.y as f64 / scale;
     // 失败只记日志（同 `window_state`）：静默失败会让「下次开窗位置不对」无从排查。
-    if let Err(err) = crate::config::patch_settings(app, json!({ "lyricWindowX": x, "lyricWindowY": y }))
+    if let Err(err) =
+        crate::config::patch_settings(app, json!({ "lyricWindowX": x, "lyricWindowY": y }))
     {
         tauri_plugin_log::log::warn!("[lyric-window] 歌词窗位置落盘失败: {}", err);
     }
@@ -833,5 +884,40 @@ fn persist_size(app: &AppHandle, size: PhysicalSize<u32>) {
         json!({ "lyricWindowWidth": w, "lyricWindowHeight": h }),
     ) {
         tauri_plugin_log::log::warn!("[lyric-window] 歌词窗尺寸落盘失败: {}", err);
+    }
+}
+
+#[cfg(test)]
+mod geometry_tests {
+    use super::*;
+
+    #[test]
+    fn negative_monitor_origin_preserves_saved_lyrics_position() {
+        let geometry = resolve_window_geometry(
+            Some(-1600.0),
+            Some(-700.0),
+            Some(600.0),
+            Some(160.0),
+            ScreenArea {
+                x: -1920.0,
+                y: -1080.0,
+                width: 1920.0,
+                height: 1080.0,
+            },
+        );
+        assert_eq!((geometry.x, geometry.y), (-1600.0, -700.0));
+    }
+
+    #[test]
+    fn unlock_button_stays_with_lyrics_on_negative_monitor() {
+        let position = unlock_position(
+            PhysicalPosition::new(-1800, -600),
+            PhysicalSize::new(900, 240),
+            1.5,
+        );
+        assert_eq!(
+            position,
+            PhysicalPosition::new(-900 - ((UNLOCK_WINDOW_SIZE + 10.0) * 1.5) as i32, -588)
+        );
     }
 }

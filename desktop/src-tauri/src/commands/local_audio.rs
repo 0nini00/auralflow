@@ -118,8 +118,7 @@ fn is_sidecar_cover_path(audio_path: &Path, cover_path: &Path) -> bool {
 /// 提取音频文件元数据 — 沿用原 main.rs 的完整实现
 ///
 /// `include_heavy_fields = false`（整目录扫描）时跳过大字段：不生成封面 base64，
-/// 单文件查询（get_audio_info）通过 lofty 额外读取内嵌歌词，
-/// 关闭封面与音频属性解析，避免重复搬运大封面。
+/// 扫描与单文件查询共用 lofty 的容器、音频属性和标签解析。
 ///
 /// 封面取值顺序（与移动端 `resolveCover` 同序）：内嵌封面 → 同目录旁挂图
 /// （`folder.jpg` / `cover.jpg` / 同名图片，见 `find_sidecar_cover`）。
@@ -133,7 +132,8 @@ fn extract_metadata(
     // 只在一次扫描内复用：不落全局，避免跨调用变脏。
     sidecar_cover_memo: &mut HashMap<PathBuf, Option<PathBuf>>,
 ) -> Option<AudioFile> {
-    use lofty::file::TaggedFileExt;
+    use lofty::file::{AudioFile as _, TaggedFileExt};
+    use lofty::tag::Accessor;
     let metadata = std::fs::metadata(path).ok()?;
     let file_name = path.file_name()?.to_str()?;
     let format = path.extension()?.to_str()?.to_string();
@@ -146,35 +146,48 @@ fn extract_metadata(
     let mut cover_path: Option<String> = None;
     let mut lyrics: Option<String> = None;
 
-    // 使用 audiotags 读取音频标签
-    if let Ok(tag) = audiotags::Tag::new().read_from_path(path) {
-        if let Some(t) = tag.title() {
-            title = t.to_string();
-        }
-        if let Some(a) = tag.artist() {
-            artist = a.to_string();
-        }
-        if let Some(alb) = tag.album_title() {
-            album = alb.to_string();
-        }
-        if let Some(d) = tag.duration() {
-            duration = d as u32;
-        }
-
-        // 封面一律落盘成文件（前端只持短路径）；base64 仅在单文件查询时附带
-        if let Some(picture) = tag.album_cover() {
-            let (mime_type, ext) = match picture.mime_type {
-                audiotags::MimeType::Png => ("image/png", "png"),
-                audiotags::MimeType::Jpeg => ("image/jpeg", "jpg"),
-                audiotags::MimeType::Tiff => ("image/tiff", "tiff"),
-                audiotags::MimeType::Bmp => ("image/bmp", "bmp"),
-                audiotags::MimeType::Gif => ("image/gif", "gif"),
-            };
-            cover_path = persist_local_cover(app, path, picture.data, ext);
+    if let Ok(tagged_file) = lofty::read_from_path(path) {
+        duration = tagged_file
+            .properties()
+            .duration()
+            .as_secs()
+            .min(u32::MAX as u64) as u32;
+        if let Some(tag) = tagged_file
+            .primary_tag()
+            .or_else(|| tagged_file.first_tag())
+        {
+            if let Some(t) = tag.title() {
+                title = t.to_string();
+            }
+            if let Some(a) = tag.artist() {
+                artist = a.to_string();
+            }
+            if let Some(alb) = tag.album() {
+                album = alb.to_string();
+            }
+            // 封面一律落盘成文件（前端只持短路径）；base64 仅在单文件查询时附带
+            if let Some(picture) = tag
+                .pictures()
+                .iter()
+                .find(|picture| picture.pic_type() == lofty::picture::PictureType::CoverFront)
+                .or_else(|| tag.pictures().first())
+            {
+                let mime_type = picture
+                    .mime_type()
+                    .map(|mime| mime.as_str())
+                    .unwrap_or("application/octet-stream");
+                let ext = extension_for_embedded_picture(mime_type);
+                cover_path = persist_local_cover(app, path, picture.data(), ext);
+                if include_heavy_fields {
+                    use base64::{engine::general_purpose, Engine as _};
+                    let base64_string = general_purpose::STANDARD.encode(picture.data());
+                    cover_data = Some(format!("data:{};base64,{}", mime_type, base64_string));
+                }
+            }
             if include_heavy_fields {
-                use base64::{engine::general_purpose, Engine as _};
-                let base64_string = general_purpose::STANDARD.encode(picture.data);
-                cover_data = Some(format!("data:{};base64,{}", mime_type, base64_string));
+                lyrics = tag
+                    .get_string(&lofty::tag::ItemKey::Lyrics)
+                    .map(str::to_string);
             }
         }
     }
@@ -192,20 +205,6 @@ fn extract_metadata(
     if cover_path.is_none() {
         cover_path = sidecar_cover_cached(path, sidecar_cover_memo)
             .map(|cover| cover.to_string_lossy().to_string());
-    }
-
-    // 目录扫描不返回歌词，无需再用 lofty 打开文件读取文本标签。
-    if include_heavy_fields {
-        let options = lofty::config::ParseOptions::new()
-            .read_properties(false)
-            .read_cover_art(false);
-        if let Ok(probe) = lofty::probe::Probe::open(path) {
-            if let Ok(tagged_file) = probe.options(options).read() {
-                if let Some(tag) = tagged_file.primary_tag().or_else(|| tagged_file.first_tag()) {
-                    lyrics = tag.get_string(&lofty::tag::ItemKey::Lyrics).map(str::to_string);
-                }
-            }
-        }
     }
 
     Some(AudioFile {
@@ -308,30 +307,39 @@ pub async fn get_audio_info(app: AppHandle, path: String) -> Result<AudioFile, S
     Ok(info)
 }
 
-/// 写入音频文件元数据（标题/艺术家/专辑），通过 audiotags。
-/// 传 None 的字段保持原值不变。
-fn read_or_create_audio_tag(
-    path: &std::path::Path,
-) -> Result<Box<dyn audiotags::AudioTag + Send + Sync>, String> {
-    match audiotags::Tag::new().read_from_path(path) {
-        Ok(tag) => Ok(tag),
-        Err(read_err) => {
-            let ext = path
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .unwrap_or_default()
-                .to_lowercase();
-            match ext.as_str() {
-                "mp3" => Ok(Box::new(audiotags::Id3v2Tag::new())),
-                "flac" => Ok(Box::new(audiotags::FlacTag::new())),
-                "m4a" | "m4b" | "m4p" | "m4v" | "mp4" => Ok(Box::new(audiotags::Mp4Tag::new())),
-                "wav" | "aac" | "ogg" | "opus" | "wma" | "ape" | "aiff" => {
-                    Err(format!("该格式({})不支持写入元数据: {}", ext, read_err))
-                }
-                _ => Err(format!("读取标签失败: {}", read_err)),
-            }
-        }
+fn extension_for_embedded_picture(mime: &str) -> &str {
+    match mime {
+        "image/png" => "png",
+        "image/jpeg" => "jpg",
+        "image/tiff" => "tiff",
+        "image/bmp" => "bmp",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        _ => "bin",
     }
+}
+
+/// 读取、编辑、校验使用同一套容器能力；坏容器不能用新建标签掩盖。
+fn edit_audio_tag(path: &Path, edit: impl FnOnce(&mut lofty::tag::Tag)) -> Result<(), String> {
+    use lofty::file::{AudioFile as _, TaggedFileExt};
+    let mut file =
+        lofty::read_from_path(path).map_err(|err| format!("读取音频标签失败: {}", err))?;
+    let tag_type = file.primary_tag_type();
+    if file.primary_tag().is_none() {
+        // RIFF INFO / ID3v1 等旧标签不能表达歌词和封面；迁移已知内容到容器主标签。
+        let mut tag = file
+            .first_tag()
+            .cloned()
+            .unwrap_or_else(|| lofty::tag::Tag::new(tag_type));
+        tag.re_map(tag_type);
+        file.insert_tag(tag);
+    }
+    let tag = file.primary_tag_mut().ok_or("该格式不支持标签写入")?;
+    edit(tag);
+    write_audio_file_safely(path, |temp| {
+        file.save_to_path(temp, lofty::config::WriteOptions::default())
+            .map_err(|err| format!("写入音频标签失败: {}", err))
+    })
 }
 
 /// 内嵌封面大小上限。
@@ -342,7 +350,7 @@ const MAX_EMBEDDED_COVER_BYTES: usize = 10 * 1024 * 1024;
 
 /// 安全写回音频文件：复制成同目录临时文件 → 在副本上写入 → 校验 → 原子替换。
 ///
-/// 标签写入（audiotags / lofty）都是**原地重写**：直接写原文件时，进程中断、
+/// 标签写入是原地重写：直接写原文件时，进程中断、
 /// 掉电或磁盘写满都会留下被截断的音频，用户的原文件直接报废。
 /// 这里保证任意时刻磁盘上要么是完整旧文件、要么是完整新文件。
 fn write_audio_file_safely<F>(path: &Path, apply: F) -> Result<(), String>
@@ -356,8 +364,7 @@ where
         .file_stem()
         .and_then(|value| value.to_str())
         .ok_or_else(|| "文件名无效".to_string())?;
-    // 临时文件必须保留原扩展名：audiotags 是按扩展名推断标签类型的，
-    // 改成 .tmp 会导致后续校验读不出副本。
+    // 临时文件保留原扩展名，容器推断与原文件一致。
     let ext = path
         .extension()
         .and_then(|value| value.to_str())
@@ -382,8 +389,7 @@ where
             original_size, new_size
         ));
     }
-    audiotags::Tag::new()
-        .read_from_path(&temp_path)
+    lofty::read_from_path(&temp_path)
         .map_err(|err| format!("写入结果无法解析，已放弃替换，原文件未改动: {}", err))?;
 
     // 原子替换（Windows 上等价于 MOVEFILE_REPLACE_EXISTING）
@@ -424,25 +430,17 @@ fn set_audio_metadata_blocking(
         return Err(format!("File does not exist: {}", path));
     }
 
-    let mut tag = read_or_create_audio_tag(&path_buf)?;
-
-    if let Some(t) = title {
-        tag.set_title(&t);
-    }
-    if let Some(a) = artist {
-        tag.set_artist(&a);
-    }
-    if let Some(al) = album {
-        tag.set_album_title(&al);
-    }
-
-    // 在副本上写入后原子替换：直接写原文件时中断会留下截断的音频
-    write_audio_file_safely(&path_buf, |temp| {
-        let temp_str = temp
-            .to_str()
-            .ok_or_else(|| "路径含非法字符".to_string())?;
-        tag.write_to_path(temp_str)
-            .map_err(|e| format!("写入标签失败: {}", e))
+    use lofty::tag::Accessor;
+    edit_audio_tag(&path_buf, |tag| {
+        if let Some(value) = title {
+            tag.set_title(value);
+        }
+        if let Some(value) = artist {
+            tag.set_artist(value);
+        }
+        if let Some(value) = album {
+            tag.set_album(value);
+        }
     })
 }
 
@@ -497,29 +495,31 @@ fn set_audio_cover_blocking(path: &str, cover_data: &str) -> Result<(), String> 
     // `data:image/svg+xml` 这类活动内容贴成「JPEG」写进音频文件。
     // 魔数白名单全仓只有一份（`media_cache::sniff_image_extension`），这里直接复用。
     let mime_type = match super::media_cache::sniff_image_extension(&data) {
-        Some("png") => audiotags::MimeType::Png,
-        Some("jpg") => audiotags::MimeType::Jpeg,
-        Some("bmp") => audiotags::MimeType::Bmp,
-        Some("gif") => audiotags::MimeType::Gif,
-        // audiotags 0.5 的 `MimeType` 只有 Png/Jpeg/Tiff/Bmp/Gif，没有 Webp 变体，
-        // 而前端封面写标签时（`set_audio_cover` 的调用方）会真的产出 image/webp。这里沿用
-        // Jpeg 兜底而不是拒绝：拒绝会让「把封面写进文件标签」从「能写入」退化成「写入失败」。
-        // 代价是这一种格式的 MIME 标注不准，属已知残留。
-        Some("webp") => audiotags::MimeType::Jpeg,
+        Some("png") => lofty::picture::MimeType::Png,
+        Some("jpg") => lofty::picture::MimeType::Jpeg,
+        Some("bmp") => lofty::picture::MimeType::Bmp,
+        Some("gif") => lofty::picture::MimeType::Gif,
+        Some("webp") => lofty::picture::MimeType::Unknown("image/webp".to_string()),
         _ => {
             return Err("封面格式无效：只支持 PNG / JPEG / GIF / BMP / WebP 图片".to_string());
         }
     };
 
-    let mut tag = read_or_create_audio_tag(&path_buf)?;
-    tag.set_album_cover(audiotags::Picture::new(&data, mime_type));
-
-    write_audio_file_safely(&path_buf, |temp| {
-        let temp_str = temp
-            .to_str()
-            .ok_or_else(|| "路径含非法字符".to_string())?;
-        tag.write_to_path(temp_str)
-            .map_err(|e| format!("写入封面失败: {}", e))
+    edit_audio_tag(&path_buf, |tag| {
+        if tag.tag_type() == lofty::tag::TagType::Mp4Ilst {
+            // MP4 covr 不编码图片角色，读出均为 Other，写封面应替换整个 covr 集合。
+            while !tag.pictures().is_empty() {
+                tag.remove_picture(0);
+            }
+        } else {
+            tag.remove_picture_type(lofty::picture::PictureType::CoverFront);
+        }
+        tag.push_picture(lofty::picture::Picture::new_unchecked(
+            lofty::picture::PictureType::CoverFront,
+            Some(mime_type),
+            None,
+            data,
+        ));
     })
 }
 
@@ -534,8 +534,6 @@ pub async fn set_audio_lyrics(path: String, lyrics: String) -> Result<(), String
 }
 
 fn set_audio_lyrics_blocking(path: &str, lyrics: &str) -> Result<(), String> {
-    use lofty::file::AudioFile;
-    use lofty::file::TaggedFileExt;
     use lofty::tag::ItemKey;
 
     let path_buf = PathBuf::from(path);
@@ -543,42 +541,249 @@ fn set_audio_lyrics_blocking(path: &str, lyrics: &str) -> Result<(), String> {
         return Err(format!("File does not exist: {}", path));
     }
 
-    let mut tagged_file =
-        lofty::read_from_path(&path_buf).map_err(|e| format!("读取文件失败: {}", e))?;
-
-    // primary 缺失时退回 first tag；全无标签的文件按文件类型建一个空标签，
-    // 与 set_audio_metadata 的 read_or_create_audio_tag 兜底同语义——
-    // 此前这里直接报「不支持标签写入」，错误信息与事实不符。
-    if tagged_file.primary_tag_mut().is_none() && tagged_file.first_tag_mut().is_none() {
-        tagged_file.insert_tag(lofty::tag::Tag::new(tagged_file.primary_tag_type()));
-    }
-    let tag = if let Some(tag) = tagged_file.primary_tag_mut() {
-        tag
-    } else if let Some(tag) = tagged_file.first_tag_mut() {
-        tag
-    } else {
-        return Err("该格式不支持标签写入".to_string());
-    };
-
-    if lyrics.trim().is_empty() {
-        tag.remove_key(&ItemKey::Lyrics);
-    } else {
-        tag.insert_text(ItemKey::Lyrics, lyrics.to_string());
-    }
-
-    write_audio_file_safely(&path_buf, |temp| {
-        let temp_str = temp
-            .to_str()
-            .ok_or_else(|| "路径含非法字符".to_string())?;
-        tagged_file
-            .save_to_path(temp_str, lofty::config::WriteOptions::default())
-            .map_err(|e| format!("写入歌词失败: {}", e))
+    edit_audio_tag(&path_buf, |tag| {
+        if lyrics.trim().is_empty() {
+            tag.remove_key(&ItemKey::Lyrics);
+        } else {
+            tag.insert_text(ItemKey::Lyrics, lyrics.to_string());
+        }
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn wave_fixture(path: &Path) {
+        let samples = vec![0u8; 16_000];
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36u32 + samples.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&8_000u32.to_le_bytes());
+        bytes.extend_from_slice(&16_000u32.to_le_bytes());
+        bytes.extend_from_slice(&2u16.to_le_bytes());
+        bytes.extend_from_slice(&16u16.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&(samples.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&samples);
+        std::fs::write(path, bytes).unwrap();
+    }
+
+    #[test]
+    fn wave_metadata_and_lyrics_roundtrip_preserves_audio_properties() {
+        use lofty::file::{AudioFile as _, TaggedFileExt};
+        use lofty::tag::Accessor;
+        let dir = TempDir::new("wave-tags");
+        let path = dir.join("song.wav");
+        wave_fixture(&path);
+        let original = lofty::read_from_path(&path).unwrap().properties().clone();
+        set_audio_metadata_blocking(
+            path.to_str().unwrap(),
+            Some("Title".into()),
+            Some("Artist".into()),
+            Some("Album".into()),
+        )
+        .unwrap();
+        set_audio_lyrics_blocking(path.to_str().unwrap(), "[00:00.00]lyrics").unwrap();
+        let written = lofty::read_from_path(&path).unwrap();
+        let tag = written
+            .primary_tag()
+            .or_else(|| written.first_tag())
+            .unwrap();
+        assert_eq!(tag.title().as_deref(), Some("Title"));
+        assert_eq!(tag.artist().as_deref(), Some("Artist"));
+        assert_eq!(
+            tag.get_string(&lofty::tag::ItemKey::Lyrics),
+            Some("[00:00.00]lyrics")
+        );
+        assert_eq!(written.properties().duration(), original.duration());
+        assert_eq!(written.properties().sample_rate(), original.sample_rate());
+    }
+
+    #[test]
+    fn wave_lyrics_write_does_not_reject_valid_container() {
+        let dir = TempDir::new("wave-lyrics");
+        let path = dir.join("song.wav");
+        wave_fixture(&path);
+        set_audio_lyrics_blocking(path.to_str().unwrap(), "lyrics").unwrap();
+    }
+
+    #[test]
+    fn m4a_cover_replacement_keeps_only_the_new_cover() {
+        use base64::Engine as _;
+        use lofty::file::TaggedFileExt;
+        let dir = TempDir::new("m4a-cover");
+        let path = dir.join("song.m4a");
+        std::fs::write(
+            &path,
+            include_bytes!("../../tests/fixtures/audio/silence.m4a"),
+        )
+        .unwrap();
+        let red = include_bytes!("../../tests/fixtures/audio/cover-red.png");
+        let blue = include_bytes!("../../tests/fixtures/audio/cover-blue.png");
+        for bytes in [red.as_slice(), blue.as_slice()] {
+            let data_url = format!(
+                "data:image/png;base64,{}",
+                base64::engine::general_purpose::STANDARD.encode(bytes)
+            );
+            set_audio_cover_blocking(path.to_str().unwrap(), &data_url).unwrap();
+        }
+        let file = lofty::read_from_path(&path).unwrap();
+        let pictures = file.primary_tag().unwrap().pictures();
+        assert_eq!(pictures.len(), 1, "MP4 covr 必须替换，不能逐次累积");
+        assert_eq!(pictures[0].data(), blue);
+    }
+
+    #[test]
+    fn replacing_front_cover_preserves_other_picture_roles() {
+        use base64::Engine as _;
+        use lofty::file::{AudioFile as _, TaggedFileExt};
+        use lofty::picture::{MimeType, Picture, PictureType};
+        let dir = TempDir::new("flac-cover");
+        let path = dir.join("song.flac");
+        std::fs::write(
+            &path,
+            include_bytes!("../../tests/fixtures/audio/silence.flac"),
+        )
+        .unwrap();
+        let red = include_bytes!("../../tests/fixtures/audio/cover-red.png");
+        let blue = include_bytes!("../../tests/fixtures/audio/cover-blue.png");
+        let mut file = lofty::read_from_path(&path).unwrap();
+        let tag = file.primary_tag_mut().unwrap();
+        tag.push_picture(Picture::new_unchecked(
+            PictureType::CoverBack,
+            Some(MimeType::Png),
+            None,
+            red.to_vec(),
+        ));
+        file.save_to_path(&path, lofty::config::WriteOptions::default())
+            .unwrap();
+        let data_url = format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(blue)
+        );
+        set_audio_cover_blocking(path.to_str().unwrap(), &data_url).unwrap();
+        let file = lofty::read_from_path(&path).unwrap();
+        let pictures = file.primary_tag().unwrap().pictures();
+        assert_eq!(pictures.len(), 2);
+        assert_eq!(
+            pictures
+                .iter()
+                .find(|picture| picture.pic_type() == PictureType::CoverBack)
+                .unwrap()
+                .data(),
+            red
+        );
+        assert_eq!(
+            pictures
+                .iter()
+                .find(|picture| picture.pic_type() == PictureType::CoverFront)
+                .unwrap()
+                .data(),
+            blue
+        );
+    }
+
+    #[test]
+    fn supported_audio_fixtures_roundtrip_tags_and_preserve_duration() {
+        use lofty::file::{AudioFile as _, TaggedFileExt};
+        use lofty::tag::Accessor;
+        let fixtures: &[(&str, &[u8])] = &[
+            (
+                "mp3",
+                include_bytes!("../../tests/fixtures/audio/silence.mp3"),
+            ),
+            (
+                "flac",
+                include_bytes!("../../tests/fixtures/audio/silence.flac"),
+            ),
+            (
+                "ogg",
+                include_bytes!("../../tests/fixtures/audio/silence.ogg"),
+            ),
+            (
+                "opus",
+                include_bytes!("../../tests/fixtures/audio/silence.opus"),
+            ),
+            (
+                "aiff",
+                include_bytes!("../../tests/fixtures/audio/silence.aiff"),
+            ),
+            (
+                "m4a",
+                include_bytes!("../../tests/fixtures/audio/silence.m4a"),
+            ),
+            (
+                "aac",
+                include_bytes!("../../tests/fixtures/audio/silence.aac"),
+            ),
+        ];
+        for (extension, bytes) in fixtures {
+            let dir = TempDir::new(extension);
+            let path = dir.join(&format!("song.{}", extension));
+            std::fs::write(&path, bytes).unwrap();
+            let original = lofty::read_from_path(&path)
+                .unwrap()
+                .properties()
+                .duration();
+            set_audio_metadata_blocking(
+                path.to_str().unwrap(),
+                Some("Title".into()),
+                Some("Artist".into()),
+                Some("Album".into()),
+            )
+            .unwrap_or_else(|err| panic!("{} metadata: {}", extension, err));
+            set_audio_lyrics_blocking(path.to_str().unwrap(), "lyrics")
+                .unwrap_or_else(|err| panic!("{} lyrics: {}", extension, err));
+            let file = lofty::read_from_path(&path).unwrap();
+            let tag = file.primary_tag().or_else(|| file.first_tag()).unwrap();
+            assert_eq!(tag.title().as_deref(), Some("Title"), "{}", extension);
+            assert_eq!(
+                tag.get_string(&lofty::tag::ItemKey::Lyrics),
+                Some("lyrics"),
+                "{}",
+                extension
+            );
+            if *extension == "aac" {
+                // ADTS 时长来自码率估算；同时校验音频帧逐字节未变，避免估算舍入误判为损坏。
+                let output = std::fs::read(&path).unwrap();
+                assert!(output.starts_with(b"ID3"));
+                let tag_size = output[6..10]
+                    .iter()
+                    .fold(0usize, |size, byte| (size << 7) | usize::from(*byte));
+                assert_eq!(&output[tag_size + 10..], *bytes);
+                assert!(
+                    file.properties().duration().abs_diff(original) <= Duration::from_millis(25)
+                );
+            } else {
+                assert_eq!(file.properties().duration(), original, "{}", extension);
+            }
+        }
+    }
+
+    #[test]
+    fn wave_with_riff_tags_keeps_existing_metadata_when_adding_lyrics() {
+        use lofty::file::{AudioFile as _, TaggedFileExt};
+        use lofty::tag::Accessor;
+        let dir = TempDir::new("wave-riff");
+        let path = dir.join("song.wav");
+        wave_fixture(&path);
+        let mut file = lofty::read_from_path(&path).unwrap();
+        let mut riff = lofty::tag::Tag::new(lofty::tag::TagType::RiffInfo);
+        riff.set_title("Existing title".to_string());
+        file.insert_tag(riff);
+        file.save_to_path(&path, lofty::config::WriteOptions::default())
+            .unwrap();
+        set_audio_lyrics_blocking(path.to_str().unwrap(), "lyrics").unwrap();
+        let file = lofty::read_from_path(&path).unwrap();
+        let tag = file.primary_tag().or_else(|| file.first_tag()).unwrap();
+        assert_eq!(tag.get_string(&lofty::tag::ItemKey::Lyrics), Some("lyrics"));
+        assert_eq!(tag.title().as_deref(), Some("Existing title"));
+    }
 
     /// 测试专用临时目录：唯一名字建目录，Drop 时连同内容一起删掉。
     /// （Cargo.toml 没有 tempfile 依赖，沿用仓库既有的 temp_dir + 唯一后缀写法。）
@@ -728,7 +933,11 @@ mod tests {
         let found = find_sidecar_cover(&song).expect("folder.jpg 应当命中");
 
         assert_eq!(found, cover);
-        assert_eq!(std::fs::read(&cover).unwrap(), bytes_before, "不得改写用户图片");
+        assert_eq!(
+            std::fs::read(&cover).unwrap(),
+            bytes_before,
+            "不得改写用户图片"
+        );
         assert_eq!(
             std::fs::metadata(&cover).unwrap().modified().unwrap(),
             modified_before,

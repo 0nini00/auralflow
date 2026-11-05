@@ -88,7 +88,7 @@ export function PlaylistsSection() {
   const [wyRefreshing, setWyRefreshing] = useState(false);
 
   useEffect(() => {
-    void loadLocalPlaylists();
+    void loadLocalPlaylists().catch((error) => console.error("[歌单] 加载本地歌单失败", error));
   }, [loadLocalPlaylists]);
 
   useEffect(() => {

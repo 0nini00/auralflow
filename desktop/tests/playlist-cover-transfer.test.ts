@@ -6,7 +6,7 @@ import { usePlaylistStore } from '../src/stores/playlistStore';
 const files = vi.hoisted(() => ({ save: vi.fn(), open: vi.fn(), write: vi.fn(), read: vi.fn() }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ save: files.save, open: files.open }));
 vi.mock('@tauri-apps/plugin-fs', () => ({ writeTextFile: files.write, readTextFile: files.read }));
-vi.mock('@/stores/libraryPersistence', () => ({ attachLibraryPersistence: vi.fn() }));
+vi.mock('@/stores/libraryPersistence', async () => ({ createLibraryStore: (await import('zustand')).create, attachLibraryPersistence: vi.fn() }));
 beforeEach(() => {
   vi.clearAllMocks();
   files.save.mockResolvedValue('export.json'); files.open.mockResolvedValue('import.json');

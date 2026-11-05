@@ -1,9 +1,9 @@
 import { loadSettings } from "@lx/tauri-bridge";
 import { CloudDataStaleError, CloudSyncRefusalError, isNumericPlaylistId, isWebdavLocalPlaylistRef, type MusicInfo } from "@lx/core";
 import { outboundRequest, type OutboundResponse } from "@/services/outboundHttp";
-import { useFavoritesStore } from "@/stores/favoritesStore";
-import { usePlaylistStore, type Playlist } from "@/stores/playlistStore";
-import { musicKey, useHistoryStore } from "@/stores/historyStore";
+import { favoritesPersistence, useFavoritesStore } from "@/stores/favoritesStore";
+import { playlistPersistence, usePlaylistStore, type Playlist } from "@/stores/playlistStore";
+import { historyPersistence, musicKey, useHistoryStore } from "@/stores/historyStore";
 import { useWyAccountStore } from "@/stores/wyAccountStore";
 import { customSourceAccess, customSourcePersistence, useCustomSourceStore, type CustomSourceItem } from "@/stores/customSourceStore";
 import { awaitCustomSourceOperation, type CustomSourceOperation } from "@/services/customSourceAccess";
@@ -743,8 +743,17 @@ export async function downloadSourcesSync(options?: { force?: boolean }): Promis
   }, operation);
 }
 
+async function awaitPlaylistData(): Promise<void> {
+  const controllers = [favoritesPersistence, playlistPersistence, historyPersistence];
+  await Promise.all(controllers.map((controller) => controller.ready));
+  for (const controller of controllers) {
+    if (controller.loadError) throw controller.loadError;
+  }
+}
+
 export async function uploadPlaylistsSync(): Promise<void> {
   return withSyncLock("上传歌单", async () => {
+    await awaitPlaylistData();
     const cfg = await getConfig();
     if (!cfg) throw new Error("请先在设置中填写 WebDAV 地址");
 
@@ -774,6 +783,7 @@ export async function uploadPlaylistsSync(): Promise<void> {
 
 export async function downloadPlaylistsSync(options?: { force?: boolean; allowMissing?: boolean }): Promise<void> {
   return withSyncLock("下载歌单", async () => {
+    await awaitPlaylistData();
     const cfg = await getConfig();
     if (!cfg) throw new Error("请先在设置中填写 WebDAV 地址");
 

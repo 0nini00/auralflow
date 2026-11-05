@@ -164,7 +164,7 @@ function bridgeProxyFetch(
  * - crypto / RSA：crypto-js 与 node-forge 两端共用，已在 mobile package.json 中声明依赖。
  * - RN 没有 window / globalThis 上的部分 API；脚本也不在 RN JS 线程内执行，而是发给隐藏 WebView
  *   （android/app/src/main/assets/lx_bridge/index.html），在 WebView 内核里以与本模块同构的
- *   参数遮蔽沙箱运行（见 createRuntime 与 services/customSourceWebViewBridge.tsx）。
+ *   SES Compartment 中运行（见 createRuntime 与 services/customSourceWebViewBridge.tsx）。
  *   原因：Hermes release 构建不支持 new Function/eval，LX 脚本无法在 RN 线程内执行。
  */
 
@@ -460,52 +460,6 @@ function headersToRecord(headers: Headers): Record<string, string> {
   return headerObject;
 }
 
-// ── 静态防逃逸扫描 ─────────────────────────────────────────────
-// 与 WebView 桥内的 shadowed 沙箱（13 个参数遮蔽，见 lx_bridge/index.html）构成双层防御。
-// 这是 RN 侧唯一阻断脚本逃逸到真实内建（Function/fetch，→ 横向 SSRF）的检查。
-// 重点：bridge 内 window/globalThis/global/self 已被遮蔽为 Object.create(null)，
-// 单纯出现这些词（class 构造器 / x.constructor===Object / 字符串 "eval" /
-// Function.prototype / globalThis polyfill）都不是逃逸；只有“动态调用真正到达内建
-// Function/eval”（eval(...)、Function(...)、x.constructor.constructor(...)() 等调用形态）才是逃逸。
-// 因此这里只匹配“调用形态”（带 ( ）的模式，不再按裸词/词边界拒绍。
-const FORBIDDEN_INTRINSIC_PATTERNS: Array<RegExp> = [
-  /\beval\s*\(/i, // eval( 直接调用真实 eval
-  /\[\s*['"`]?\s*eval\s*['"`]?\s*\]\s*\(/i, // ['ev'+'al']( / [eval]( 拼接/下标取 eval
-  /\bFunction\s*\(/, // Function( / new Function( 调用构造器
-  /\[\s*['"`]?\s*Function\s*['"`]?\s*\]\s*\(/, // ['Function'](
-  /\.\s*constructor\s*\.\s*constructor\s*\(/, // x.constructor.constructor( 双重原型链逃逸
-  /\.\s*constructor\s*\(\s*/, // x.constructor( 动态调用
-  /\[\s*['"`]?\s*constructor\s*['"`]?\s*\]\s*\.\s*constructor\s*\(/, // x['constructor'].constructor(
-  /\[\s*['"`]?\s*constructor\s*['"`]?\s*\]\s*\(\s*/, // x['constructor'](
-  /\]\s*\[\s*['"`]?\s*constructor\s*['"`]?\s*\]\s*\(\s*/, // x['constructor']['constructor'](
-];
-
-function normalizeScriptForStaticGuard(script: string): { collapsed: string; flat: string } {
-  // 去掉块注释；行注释仅当 // 前不是冒号时才算注释（避免把 http://、https:// 里的 // 截断成注释）
-  let s = script
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/(^|[^:])\/\/[^\r\n]*/g, "$1 ");
-  // 解码常见转义：\uXXXX 与 \xXX（\u0065val → eval，\u0063onstructor → constructor）
-  s = s
-    .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
-    .replace(/\\x([0-9a-fA-F]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
-  // 折叠空白
-  const collapsed = s.replace(/\s+/g, "");
-  // flat：再去掉引号/反引号/加号，把字面量拼接坍缩成单个标识符，
-  // 打击 ['ev'+'al'] / ["con"+"structor"] / [`fun`+`ction`] 这类拼接。
-  const flat = collapsed.replace(/["'`+]/g, "");
-  return { collapsed, flat };
-}
-
-function assertNoDangerousIntrinsicAccess(script: string): void {
-  const { collapsed, flat } = normalizeScriptForStaticGuard(script);
-  for (const pattern of FORBIDDEN_INTRINSIC_PATTERNS) {
-    if (pattern.test(collapsed) || pattern.test(flat)) {
-      throw new Error("自定义音源包含不允许的动态代码执行");
-    }
-  }
-}
-
 function createRuntime(api: CustomSourceItem): RuntimeInstance {
   let requestHandler: ((payload: RuntimeRequestPayload) => Promise<unknown>) | null = null;
   let finishInit: (value: RuntimeInitResult) => void = () => undefined;
@@ -637,14 +591,8 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
       sendToWebView({ type: "request", rid, id, payload });
     });
 
-  // WebView 内执行（Hermes 不支持 new Function）：把脚本发送给桥，
-  // 桥内以与桌面同构的参数遮蔽沙箱执行，init 结果经 inited/error 消息回传。
+  // WebView 内独立 SES Compartment 执行，init 结果经 inited/error 消息回传。
   try {
-    // 静态扫描（与桌面一致）：拒绝明显的动态调用逃逸手法，双层防御。
-    // 只匹配“调用形态”（eval( / Function( / x.constructor.constructor( 等），
-    // 不按裸词拒绝（class 构造器、x.constructor===Object、字符串 "eval"、globalThis polyfill 均放行）；
-    // 覆盖 ['con'+'structor']、[].constructor['constructor'](...)()、\u0065val、https:// 注释误判等。
-    assertNoDangerousIntrinsicAccess(api.script);
     void waitForBridge().then(
       () => {
         if (disposed) return;

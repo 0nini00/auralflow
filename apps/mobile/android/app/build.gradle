@@ -144,6 +144,15 @@ if (!(mobileVersionCodeValue instanceof Number)
 }
 def mobileVersionCode = mobileVersionCodeValue.intValue()
 
+// splits 开启时 RN 插件不会替 app 设置 abiFilters；分包必须复用依赖编译使用的同一参数。
+def requestedArchitectures = (findProperty("reactNativeArchitectures")
+        ?: findProperty("react.nativeArchitectures")
+        ?: "armeabi-v7a,arm64-v8a,x86,x86_64").toString().split(",").findAll { !it.isBlank() }
+def supportedArchitectures = ["armeabi-v7a", "arm64-v8a", "x86", "x86_64"]
+if (requestedArchitectures.isEmpty() || requestedArchitectures.any { !supportedArchitectures.contains(it) }) {
+    throw new GradleException("无效的 reactNativeArchitectures: ${requestedArchitectures}")
+}
+
 // RN 的默认 JS 输入不包含 JSON 或 workspace 外部源码，版本更新可能误复用旧 HBC。
 // 显式跟踪实际导入的 package.json 与 @lx/core，让增量 release 与当前源码一致。
 tasks.withType(com.facebook.react.tasks.BundleHermesCTask).configureEach {
@@ -198,7 +207,7 @@ android {
         abi {
             enable true
             reset()
-            include "armeabi-v7a", "arm64-v8a", "x86", "x86_64"
+            include(*requestedArchitectures)
             universalApk false
         }
     }

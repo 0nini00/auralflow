@@ -1,7 +1,8 @@
-import type { MusicInfo } from '@lx/core';
+import { buildSongKey, orderPlaybackCandidates, type MusicInfo } from '@lx/core';
 import { getLyrics, type LyricResponse } from '@/services/lyricsService';
 import { playerEngine } from '@/services/playerEngine';
 import { customSourceAccess, customSourcePersistence, useCustomSourceStore } from '@/stores/customSourceStore';
+import { useVariantPinStore } from '@/stores/variantPinStore';
 import { resolvePlaybackUrl } from './playbackResolver';
 import {
   buildPlaybackPrefetchEntry,
@@ -33,6 +34,7 @@ const PREFETCH_TTL_MS = 10 * 60 * 1000;
 const PREFETCH_OFFSETS = [-1, 1, 2] as const;
 const SHUFFLE_PREFETCH_OFFSETS = [1, 2, -1] as const;
 const prefetchCache = new Map<string, PlaybackPrefetchEntry>();
+let cacheGeneration = 0;
 
 function getTrackKey(music: MusicInfo): string {
   return `${music.source}:${music.id}`;
@@ -87,9 +89,15 @@ function getLocalAudioUrl(music: MusicInfo): string | undefined {
   return undefined;
 }
 
-function getPlaybackVariants(music: MusicInfo): MusicInfo[] | undefined {
-  const variants = (music as { variants?: unknown }).variants;
-  return Array.isArray(variants) ? (variants as MusicInfo[]) : undefined;
+function getPlaybackVariants(music: MusicInfo): MusicInfo[] {
+  return orderPlaybackCandidates(music, useVariantPinStore.getState().getPinnedVariantKey(buildSongKey(music)));
+}
+
+function getSelectionKey(music: MusicInfo): string {
+  return JSON.stringify([
+    useVariantPinStore.getState().getPinnedVariantKey(buildSongKey(music)),
+    getPlaybackVariants(music).map(getTrackKey),
+  ]);
 }
 
 function defaultPreloadCover(url: string): void {
@@ -105,13 +113,17 @@ async function prefetchTrack(
 ): Promise<void> {
   if (!useCustomSourceStore.getState().featureReady) await customSourcePersistence.ready;
   const accessVersion = customSourceAccess.version;
+  const generation = cacheGeneration;
+  const selectionKey = getSelectionKey(music);
+  const isCurrentSelection = () => generation === cacheGeneration && selectionKey === getSelectionKey(music);
   const fetchedAt = options.now();
   const key = getTrackKey(music);
-  if (isFreshEntry(getPrefetchedTrack(music), fetchedAt)) return;
+  if (getPrefetchedTrack(music, fetchedAt)) return;
 
   let entry: PlaybackPrefetchEntry = {
     ...buildPlaybackPrefetchEntry(music, null, fetchedAt),
     coverUrl: getCoverUrl(music),
+    selectionKey,
   };
 
   if (entry.coverUrl) options.preloadCoverUrl(entry.coverUrl);
@@ -140,6 +152,7 @@ async function prefetchTrack(
         };
       }
     }
+    if (!isCurrentSelection()) return;
     if (entry.url) options.preloadUrl(entry.url);
   } catch (error) {
     entry.error = error instanceof Error ? error.message : String(error);
@@ -154,7 +167,7 @@ async function prefetchTrack(
 
   // 失效操作的空结果也不能占住 TTL，阻止重新开启后的新预取。
   if (!entry.url && customSourceAccess.version !== accessVersion) return;
-  if (!isEntryAccessible(entry)) return;
+  if (!isEntryAccessible(entry) || !isCurrentSelection()) return;
   prefetchCache.set(key, entry);
 }
 
@@ -210,10 +223,10 @@ function isEntryAccessible(entry: PlaybackPrefetchEntry): boolean {
   return state.featureReady && state.featureEnabled && entry.customSourceVersion === customSourceAccess.version;
 }
 
-export function getPrefetchedTrack(music: MusicInfo): PlaybackPrefetchEntry | undefined {
+export function getPrefetchedTrack(music: MusicInfo, now = Date.now()): PlaybackPrefetchEntry | undefined {
   const key = getTrackKey(music);
   const entry = prefetchCache.get(key);
-  if (entry && !isEntryAccessible(entry)) {
+  if (entry && (!isFreshEntry(entry, now) || !isEntryAccessible(entry) || entry.selectionKey !== getSelectionKey(music))) {
     prefetchCache.delete(key);
     return undefined;
   }
@@ -221,6 +234,7 @@ export function getPrefetchedTrack(music: MusicInfo): PlaybackPrefetchEntry | un
 }
 
 export function clearPlaybackPrefetchCache(): void {
+  cacheGeneration++;
   prefetchCache.clear();
 }
 

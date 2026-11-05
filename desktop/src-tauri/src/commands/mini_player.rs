@@ -1,8 +1,8 @@
 // ─── 迷你播放器 ───────────────────────────────────────────────
 
 #[tauri::command]
-pub fn toggle_mini_player(app: AppHandle) -> Result<bool, String> {
-    crate::mini_player::toggle(&app)
+pub async fn toggle_mini_player(app: AppHandle) -> Result<bool, String> {
+    crate::mini_player::toggle(&app).await
 }
 
 #[tauri::command]

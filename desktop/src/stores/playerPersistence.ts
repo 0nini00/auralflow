@@ -144,8 +144,6 @@ export function applyPlaybackSession(
   }
 }
 
-/** 读盘完成前不允许写盘，否则启动期间的一次 setState（例如恢复音量）会把空会话覆盖上去。 */
-let hydrated = false;
 /** StrictMode 下 App 会挂载两次；持久化只能挂一次。 */
 let controller: LibraryPersistenceController | null = null;
 
@@ -155,14 +153,18 @@ export function attachPlaybackPersistence(): LibraryPersistenceController {
   controller = attachLibraryPersistence<PlayerState, PlaybackSession>(usePlayerStore, {
     namespace: 'playback',
     pick: pickPlaybackSession,
-    // attachLibraryPersistence 是「先订阅、后读盘」：读盘结束前必须挡住写入。
-    shouldPersist: (state, previous) => hydrated && shouldPersistPlaybackSession(state, previous),
-    apply: applyPlaybackSession,
+    shouldPersist: shouldPersistPlaybackSession,
+    apply: (value, set) => {
+      const session = parsePlaybackSession(value);
+      if (session) applyPlaybackSession(session, set);
+    },
     // 比默认 300ms 长一点：进度按刻度写，且退出时会 flush，不需要抢着写。
     debounceMs: 1500,
   });
   void controller.ready.then(() => {
-    hydrated = true;
+    if (controller?.loadError) return;
+    const state = usePlayerStore.getState();
+    state.setPlaybackRate(state.playbackRate);
   });
   return controller;
 }

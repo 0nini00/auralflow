@@ -1,4 +1,5 @@
 import { getSource } from "@/services/sources/sourceService";
+import { canConfirmBuiltinProviderQuality } from "@/services/builtinMusicApiModel";
 import type { PlaybackAttempt, PlaybackBackend, PlaybackRequest, PlaybackResolvedUrl } from "./types";
 
 export const builtinProviderBackend: PlaybackBackend = {
@@ -16,6 +17,9 @@ export const builtinProviderBackend: PlaybackBackend = {
 
       for (const quality of request.qualityPreference) {
         try {
+          if (request.exactQuality && !canConfirmBuiltinProviderQuality(music)) {
+            throw new Error('QQ 官方普通取链无法确认精确音质，请使用支持所选音质的音源');
+          }
           const url = await provider.getMusicUrl(music, quality);
           if (!url) throw new Error("未返回播放地址");
           trace.push({
