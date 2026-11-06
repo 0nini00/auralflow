@@ -240,6 +240,20 @@ export function SearchView() {
     event.currentTarget.click();
   };
 
+  /** 方向键在结果行之间移动焦点；Tab 仍然可以逐行离开列表。 */
+  const handleResultsKeyDown = (event: React.KeyboardEvent<HTMLUListElement>) => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("[data-search-result]"));
+    if (items.length === 0) return;
+    event.preventDefault();
+    const currentIndex = items.findIndex((item) => item === document.activeElement);
+    let nextIndex = 0;
+    if (event.key === "ArrowDown") nextIndex = currentIndex < 0 ? 0 : Math.min(items.length - 1, currentIndex + 1);
+    else if (event.key === "ArrowUp") nextIndex = currentIndex <= 0 ? 0 : currentIndex - 1;
+    else if (event.key === "End") nextIndex = items.length - 1;
+    items[nextIndex]?.focus();
+  };
+
   function handleSearchInputKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Escape") {
       setSuggestionsOpen(false);
@@ -688,11 +702,12 @@ export function SearchView() {
       {showArtistResults && artistResults.length > 0 && (
         <section className="af-search-section">
           <h2 className="af-search-section-title">歌手</h2>
-          <ul className="af-search-results">
+          <ul className="af-search-results" role="group" aria-label="搜索结果" onKeyDown={handleResultsKeyDown}>
             {artistResults.map((artist) => (
             <li
               key={`${artist.source}:${artist.id}`}
               className="af-search-result-item"
+                data-search-result
               role="button"
               tabIndex={0}
               onKeyDown={resultRowKeyDown}
@@ -733,11 +748,12 @@ export function SearchView() {
       {showAlbumResults && albumResults.length > 0 && (
         <section className="af-search-section">
           <h2 className="af-search-section-title">专辑</h2>
-          <ul className="af-search-results">
+          <ul className="af-search-results" role="group" aria-label="搜索结果" onKeyDown={handleResultsKeyDown}>
             {albumResults.map((album) => (
               <li
                 key={`${album.source}:${album.id}`}
                 className="af-search-result-item"
+                data-search-result
                 role="button"
                 tabIndex={0}
                 onKeyDown={resultRowKeyDown}
@@ -778,7 +794,7 @@ export function SearchView() {
       {showPlaylistResults && playlistResults.length > 0 && (
         <section className="af-search-section">
           <h2 className="af-search-section-title">歌单</h2>
-          <ul className="af-search-results">
+          <ul className="af-search-results" role="group" aria-label="搜索结果" onKeyDown={handleResultsKeyDown}>
             {playlistResults.map((playlist) => (
               (() => {
                 const playlistKey = `${playlist.source}:${playlist.id}`;
@@ -797,6 +813,7 @@ export function SearchView() {
                   <li
                     key={playlistKey}
                     className="af-search-result-item"
+                data-search-result
                     role="button"
                     tabIndex={0}
                     onKeyDown={resultRowKeyDown}
@@ -864,13 +881,14 @@ export function SearchView() {
               })}
             </div>
           </div>
-          <ul className="af-search-results">
+          <ul className="af-search-results" role="group" aria-label="搜索结果" onKeyDown={handleResultsKeyDown}>
             {filteredSongGroups.map((group, index) => {
             const music = playableSongQueue[index];
             return (
               <li
                 key={group.key}
                 className="af-search-result-item"
+                data-search-result
                 role="button"
                 tabIndex={0}
                 onKeyDown={resultRowKeyDown}

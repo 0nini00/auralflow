@@ -28,6 +28,7 @@ it('StrictMode 重新挂载 effect 后恢复搜索会话，返回结果不会被
   const pending = new Promise<object>(done => { resolve = done; });
   api.search.mockReturnValue(pending);
   const container = document.createElement('div');
+  document.body.appendChild(container);
   const root = createRoot(container);
   try {
     await act(async () => {
@@ -41,12 +42,19 @@ it('StrictMode 重新挂载 effect 后恢复搜索会话，返回结果不会被
     const row = container.querySelector('.af-search-result-item') as HTMLElement;
     expect(row.getAttribute('role')).toBe('button');
     expect(row.getAttribute('tabindex')).toBe('0');
+    expect(row.hasAttribute('data-search-result')).toBe(true);
+    row.focus();
+    await act(async () => {
+      row.parentElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    });
+    expect(document.activeElement).toBe(row);
     await act(async () => {
       row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     });
     expect(player.playQueue).toHaveBeenCalled();
   } finally {
     act(() => root.unmount());
+    container.remove();
     vi.unstubAllGlobals();
   }
 });

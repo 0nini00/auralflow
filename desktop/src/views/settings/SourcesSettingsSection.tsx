@@ -278,9 +278,7 @@ export function SourcesSettingsSection({ model }: { model: SourcesSettingsModel 
                       {source.description || "无描述"}
                     </div>
                     {(updateMessage || testMessage) && (
-                      <details className="af-custom-source-details">
-                        <summary>状态详情</summary>
-                        <div className="af-custom-source-message-row">
+                      <div className="af-custom-source-message-row" role="status" aria-live="polite">
                           {updateMessage && (
                             <span className={`af-custom-source-status af-custom-source-status-${source.updateStatus ?? "idle"}`}>
                               {updateMessage}
@@ -291,8 +289,7 @@ export function SourcesSettingsSection({ model }: { model: SourcesSettingsModel 
                               {testMessage}
                             </span>
                           )}
-                        </div>
-                      </details>
+                      </div>
                     )}
                   </div>
                 </div>
