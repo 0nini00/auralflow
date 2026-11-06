@@ -34,7 +34,7 @@ import {
 import { Touchable } from "@/components/Touchable";
 import { withAlpha } from "@/services/themePaletteModel";
 import { hapticLight } from "@/services/hapticService";
-import { ActionButton } from "@/components/ActionButton";
+import { PlaybackActionButtons } from "@/components/PlaybackActionButtons";
 import { BatchActionBar, batchToolbarPositionStyle } from "@/components/BatchActionBar";
 import { SongList } from "@/components/SongList";
 import { AddToLocalPlaylistModal } from "@/components/AddToLocalPlaylistModal";
@@ -397,46 +397,31 @@ export function PlaylistDetailScreen({
                   ? formatPlayCount(displayPlaylist.playCount)
                   : undefined
               }
-              actions={(!loading || refreshing) && !error && detailActions.show ? (
-                <View style={styles.heroActions}>
-                  <ActionButton
-                    shrink
-                    variant="brand"
-                    label={detailActions.playAllLabel}
-                    onPress={() => void handlePlayAll()}
-                  />
-                  <ActionButton
-                    shrink
-                    variant="secondary"
-                    label={detailActions.shuffleLabel}
-                    onPress={() => void handleShuffle()}
-                  />
-                  <ActionButton
-                    shrink
-                    variant="secondary"
-                    label="定位"
-                    disabled={currentSongIndex < 0}
-                    onPress={handleLocateCurrentSong}
-                  />
-                  {canSubscribeWyPlaylist ? (
-                    <ActionButton
-                      shrink
-                      variant="secondary"
-                      disabled={subscribingWyPlaylist}
-                      label={isWyPlaylistSubscribed ? "已收藏" : "收藏"}
-                      onPress={handleToggleWySubscribe}
-                    />
-                  ) : null}
-                  {/* 收藏歌单属于他人创建，"删除"只对自建歌单有意义；未登录（无账号可删）时整项不渲染 */}
-                  {isLoggedIn && !canSubscribeWyPlaylist ? (
-                    <ActionButton
-                      shrink
-                      variant="danger"
-                      label="删除"
-                      onPress={handleDeletePlaylist}
-                    />
-                  ) : null}
-                </View>
+              actions={(!loading || refreshing) && !error ? (
+                <PlaybackActionButtons
+                  show={detailActions.show}
+                  playAllLabel={detailActions.playAllLabel}
+                  shuffleLabel={detailActions.shuffleLabel}
+                  locateLabel="定位"
+                  canLocateCurrentSong={currentSongIndex >= 0}
+                  onPlayAll={() => void handlePlayAll()}
+                  onShuffle={() => void handleShuffle()}
+                  onLocate={handleLocateCurrentSong}
+                  extraActions={[
+                    ...(canSubscribeWyPlaylist ? [{
+                      label: isWyPlaylistSubscribed ? "已收藏" : "收藏",
+                      loading: subscribingWyPlaylist,
+                      disabled: subscribingWyPlaylist,
+                      onPress: handleToggleWySubscribe,
+                    }] : []),
+                    // 收藏歌单属于他人创建，"删除"只对自建歌单有意义；未登录时整项不渲染。
+                    ...(isLoggedIn && !canSubscribeWyPlaylist ? [{
+                      label: "删除",
+                      variant: "danger" as const,
+                      onPress: handleDeletePlaylist,
+                    }] : []),
+                  ]}
+                />
               ) : undefined}
             />
 
@@ -558,13 +543,6 @@ function formatPlayCount(count: number): string {
 }
 
 const styles = StyleSheet.create({
-  heroActions: {
-    flexDirection: "row",
-    // 窄屏（360dp）下四个动作放不下一行时换行，而不是把「删除」挤出屏幕。
-    flexWrap: "wrap",
-    alignItems: "center",
-    gap: spacing.xs,
-  },
   selectButton: {
     height: 30,
     flexDirection: "row",

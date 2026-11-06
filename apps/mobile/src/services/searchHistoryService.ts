@@ -58,6 +58,22 @@ export async function removeSearchHistory(keyword: string): Promise<void> {
   }
 }
 
+/** 覆盖整份历史；撤销「清空」时用。 */
+export async function replaceSearchHistory(values: readonly string[]): Promise<void> {
+  try {
+    const normalized: string[] = [];
+    for (const value of values) {
+      const trimmed = value.trim();
+      if (!trimmed || normalized.includes(trimmed)) continue;
+      normalized.push(trimmed);
+      if (normalized.length >= MAX_HISTORY_COUNT) break;
+    }
+    await AsyncStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(normalized));
+  } catch (error) {
+    console.error("[搜索历史] 恢复搜索历史失败", error);
+  }
+}
+
 /**
  * 清空搜索历史
  */

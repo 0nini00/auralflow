@@ -8,6 +8,7 @@ import { spacing } from "@/theme/tokens";
 export interface PlaybackExtraAction {
   label: string;
   onPress: () => void;
+  variant?: "secondary" | "danger";
   loading?: boolean;
   disabled?: boolean;
 }
@@ -91,7 +92,7 @@ export function PlaybackActionButtons({
           key={action.label}
           label={action.label}
           shrink
-          variant="secondary"
+          variant={action.variant ?? "secondary"}
           loading={action.loading}
           disabled={action.disabled}
           onPress={action.onPress}
@@ -107,8 +108,8 @@ const styles = StyleSheet.create({
     minWidth: 0,
     flexGrow: 1,
     flexDirection: "row",
-    // 主操作按钮单行等宽排布，不再换行堆叠
-    flexWrap: "nowrap",
+    // 窄屏放不下时允许换行，避免把最后一个动作挤出屏幕
+    flexWrap: "wrap",
     alignItems: "center",
     gap: spacing.xs,
   },

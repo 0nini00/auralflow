@@ -15,6 +15,7 @@ import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
 import { LargeHeader } from "@/components/LargeHeader";
 import { SectionHeader } from "@/components/SectionHeader";
 import { SummaryCardGrid } from "@/components/SummaryCardGrid";
+import { showToast } from "@/components/ui/Toast";
 import { SearchX, X } from "lucide-react-native";
 import { LinearGradient } from "react-native-linear-gradient";
 
@@ -43,6 +44,7 @@ import {
   addSearchHistory,
   removeSearchHistory,
   clearSearchHistory,
+  replaceSearchHistory,
 } from "@/services/searchHistoryService";
 import {
   openAlbumDetailScreen,
@@ -336,8 +338,16 @@ export function SearchScreen({
   };
 
   const handleClearHistory = async () => {
+    const previous = history;
+    if (previous.length === 0) return;
     await clearSearchHistory();
     await loadHistory();
+    showToast("已清空搜索历史", {
+      actionLabel: "撤销",
+      onAction: () => {
+        void replaceSearchHistory(previous).then(loadHistory);
+      },
+    });
   };
 
   const summaryItems = useMemo(

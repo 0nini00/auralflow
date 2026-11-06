@@ -31,6 +31,10 @@ interface ToastItem extends Required<Pick<ToastOptions, "kind">> {
   message: string;
   actionLabel?: string;
   onAction?: () => void;
+  /** 暂停后剩余时间（毫秒） */
+  remaining: number;
+  startedAt?: number;
+  timer?: number;
 }
 
 type Listener = (items: ToastItem[]) => void;
@@ -44,8 +48,32 @@ function emit() {
 }
 
 function dismiss(id: number) {
-  items = items.filter((item) => item.id !== id);
+  const item = items.find((entry) => entry.id === id);
+  if (item?.timer) window.clearTimeout(item.timer);
+  items = items.filter((entry) => entry.id !== id);
   emit();
+}
+
+function schedule(item: ToastItem, duration: number) {
+  item.remaining = duration;
+  item.startedAt = Date.now();
+  item.timer = window.setTimeout(() => dismiss(item.id), duration);
+}
+
+/** 悬停/聚焦时暂停计时，离开后按剩余时间继续 —— WCAG 2.2.1。 */
+function pauseToast(id: number) {
+  const item = items.find((entry) => entry.id === id);
+  if (!item?.timer) return;
+  window.clearTimeout(item.timer);
+  item.timer = undefined;
+  item.remaining = Math.max(0, item.remaining - (Date.now() - (item.startedAt ?? Date.now())));
+}
+
+function resumeToast(id: number) {
+  const item = items.find((entry) => entry.id === id);
+  if (!item || item.timer || item.remaining <= 0) return;
+  item.startedAt = Date.now();
+  item.timer = window.setTimeout(() => dismiss(item.id), item.remaining);
 }
 
 export function showToast(message: string, options: ToastOptions = {}): number {
@@ -56,14 +84,18 @@ export function showToast(message: string, options: ToastOptions = {}): number {
     kind: options.kind ?? "success",
     actionLabel: options.actionLabel,
     onAction: options.onAction,
+    remaining: 0,
   };
-  // 最多同时 3 条：再多就变成噪音，把最旧的一条挤掉
+  // 最多同时 3 条：再多就变成噪音，把最旧的一条挤掉（连同计时器一起清掉）
+  for (const dropped of items.slice(0, Math.max(0, items.length - 2))) {
+    if (dropped.timer) window.clearTimeout(dropped.timer);
+  }
   items = [...items.slice(-2), item];
   emit();
 
   // 带「撤销」的提示要留出反应时间：2.6s 连读完都紧张。
   const duration = options.duration ?? (item.actionLabel ? 6000 : item.kind === "error" ? 4000 : 2600);
-  window.setTimeout(() => dismiss(id), duration);
+  schedule(item, duration);
   return id;
 }
 
@@ -97,7 +129,18 @@ export function ToastHost() {
       {visible.map((item) => {
         const Icon = KIND_ICON[item.kind];
         return (
-          <div key={item.id} className={`af-toast af-toast-${item.kind}`} role="status" aria-live="polite">
+          <div
+            key={item.id}
+            className={`af-toast af-toast-${item.kind}`}
+            role="status"
+            aria-live="polite"
+            onMouseEnter={() => pauseToast(item.id)}
+            onMouseLeave={() => resumeToast(item.id)}
+            onFocus={() => pauseToast(item.id)}
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) resumeToast(item.id);
+            }}
+          >
             <Icon size={16} aria-hidden="true" className="af-toast-icon" />
             <span className="af-toast-text">{item.message}</span>
             {item.actionLabel ? (
