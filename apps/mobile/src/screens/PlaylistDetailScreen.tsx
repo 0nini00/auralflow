@@ -442,6 +442,7 @@ export function PlaylistDetailScreen({
                       hapticLight();
                       setSelectionMode(true);
                     }}
+                    hitSlop={7}
                     activeScale={0.96}
                     accessibilityRole="button"
                     accessibilityLabel="批量选择歌曲"

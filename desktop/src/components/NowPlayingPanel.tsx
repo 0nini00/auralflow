@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Music2, X } from "lucide-react";
 import { usePlayerStore } from "@/stores/playerStore";
+import { showToast } from "@/components/ui/Toast";
 import { useUiStore } from "@/stores/uiStore";
 import { useLyrics } from "@/hooks/useLyrics";
 import { coverSrc, NP_COVER_CSS_SIZE, ROW_COVER_CSS_SIZE } from "@/utils/imageReferrerPolicy";
@@ -132,7 +133,16 @@ function QueueList() {
               type="button"
               className="af-np-row-remove af-icon-btn af-icon-btn-sm"
               aria-label={`从队列移除 ${song.name}`}
-              onClick={() => removeFromQueue(index)}
+              onClick={() => {
+                removeFromQueue(index);
+                // 移除当前曲会立刻切歌，撤销无法安全恢复；非当前曲才提供撤销。
+                if (index !== currentIndex) {
+                  showToast(`已从队列移除「${song.name}」`, {
+                    actionLabel: "撤销",
+                    onAction: () => usePlayerStore.getState().insertQueueAt(index, song),
+                  });
+                }
+              }}
             >
               <X size={13} strokeWidth={2} />
             </button>

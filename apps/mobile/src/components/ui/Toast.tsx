@@ -116,6 +116,7 @@ function ToastRow({ item }: { item: ToastItem }) {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={item.actionLabel}
+          hitSlop={8}
           onPress={() => {
             item.onAction?.();
             dismiss(item.id);

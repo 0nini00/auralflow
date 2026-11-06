@@ -1557,3 +1557,9 @@
   background: rgba(15, 23, 42, calc(0.14 * var(--af-app-bg-mask)));
   border-bottom-color: rgba(226, 232, 240, 0.14);
 }
+
+
+/* 同步/测试失败：与其他错误提示同一语义色 */
+.af-settings-hint.is-error {
+  color: var(--af-error-ink);
+}

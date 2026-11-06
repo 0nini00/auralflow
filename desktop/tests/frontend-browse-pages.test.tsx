@@ -160,7 +160,7 @@ describe('搜索分类的成功、警告、空和失败', () => {
   it('全部成功但为空才展示无结果；全部失败显示失败和重试', async () => {
     await mount('/search?q=empty');
     expect(page()).toContain('没有找到相关内容');
-    expect(button('重试')).toBeDefined();
+    expect(button('修改关键词')).toBeDefined();
     api.wySearch.mockRejectedValue(new Error('offline'));
     api.txSearch.mockRejectedValue(new Error('offline'));
     await go('/search?q=failed');

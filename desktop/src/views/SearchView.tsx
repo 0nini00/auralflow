@@ -101,6 +101,7 @@ export function SearchView() {
   const [actionStatus, setActionStatus] = useState("");
 
   const [searchHistory, setSearchHistory] = useState<string[]>(getSearchHistory);
+  const pageSearchInputRef = useRef<HTMLInputElement | null>(null);
 
   const playQueue = usePlayerStore((s) => s.playQueue);
   const localPlaylists = usePlaylistStore((s) => s.playlists);
@@ -340,7 +341,6 @@ export function SearchView() {
   const categoryErrors = selectedStates.flatMap((state) => state.error ? [state.error] : []);
   const categoryFailed = selectedStates.length > 0 && selectedStates.every((state) => state.page === 0 && state.status === "error");
   const retrySearch = () => { void searchSessionRef.current?.retry(activeSearchType); };
-  const reloadSearch = () => { void handleSearch(lastStartedSearchKeyRef.current ?? query); };
   const moreType = activeSearchType ?? "song";
   const moreLabel = activeResultFilter === "overview" ? "单曲" : activeResultFilterLabel;
   const moreStates = snapshot.states.filter((state) => state.source.category === moreType);
@@ -365,6 +365,7 @@ export function SearchView() {
         <div className="af-search-input-wrap">
           <input
             id="search-input"
+            ref={pageSearchInputRef}
             type="search"
             value={query}
             onChange={(e) => handleSearchInputChange(e.target.value)}
@@ -546,7 +547,16 @@ export function SearchView() {
         <div className="af-empty-state">
           <p>{activeResultFilter === "overview" ? "没有找到相关内容" : `没有找到${activeResultFilterLabel}`}</p>
           <span>可以换个关键词试试</span>
-          <button type="button" className="af-btn-secondary" onClick={reloadSearch}>重试</button>
+          <button
+            type="button"
+            className="af-btn-primary"
+            onClick={() => {
+              pageSearchInputRef.current?.focus();
+              pageSearchInputRef.current?.select();
+            }}
+          >
+            修改关键词
+          </button>
         </div>
       )}
 

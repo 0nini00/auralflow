@@ -30,6 +30,7 @@ import { getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { openArtistDetailScreen } from "@/navigation/navigationRef";
 import { hapticLight } from "@/services/hapticService";
 import { logger } from "@/services/logger";
+import { showToast } from "@/components/ui/Toast";
 import type { SearchArtistResult } from "@/services/musicApi";
 
 export interface UseImmersiveControllerArgs {
@@ -270,7 +271,15 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
   };
 
   const handleRemoveQueueItem = (index: number) => {
+    const removed = queue[index];
     removeFromQueue(index);
+    // 移除当前曲会立即切歌，恢复不安全；非当前曲提供撤销。
+    if (removed && index !== currentIndex) {
+      showToast(`已从队列移除「${removed.name}」`, {
+        actionLabel: "撤销",
+        onAction: () => usePlayerStore.getState().insertQueueAt(index, removed),
+      });
+    }
   };
 
   const handleClearQueue = () => {

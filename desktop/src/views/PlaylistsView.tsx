@@ -90,6 +90,13 @@ export function PlaylistsView() {
   // 这一行没有任何自动清理机制（只在下次导入导出时被覆盖），写进去就会一直挂在页面上。
   const [transferStatus, setTransferStatus] = useState('');
   const [wyRefreshing, setWyRefreshing] = useState(false);
+
+  // 一次性反馈：6 秒后自动消失，不再永久挂在页面上。
+  useEffect(() => {
+    if (!transferStatus) return;
+    const timer = setTimeout(() => setTransferStatus(''), 6000);
+    return () => clearTimeout(timer);
+  }, [transferStatus]);
   // 链接导入歌单
   const [showImportLinkDialog, setShowImportLinkDialog] = useState(false);
   const [importLink, setImportLink] = useState('');

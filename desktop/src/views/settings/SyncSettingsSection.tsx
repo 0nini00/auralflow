@@ -28,6 +28,7 @@ export function SyncSettingsSection() {
   const [savingCount, setSavingCount] = useState(0);
   const [saved, setSaved] = useState(false);
   const [syncStatus, setSyncStatus] = useState("");
+  const [syncError, setSyncError] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
   const lifecycleRef = useRef({ active: false });
   // 每次编辑都有独立标记，旧保存完成不能清除同字段的新编辑（包括 A → B → A）。
@@ -152,10 +153,14 @@ export function SyncSettingsSection() {
       return;
     }
     setSyncBusy(true);
+    setSyncError(false);
     setSyncStatus(label + "…");
     try {
       if (!(await saveWebdavConfig())) {
-        if (lifecycle.active) setSyncStatus("配置未保存，未执行同步；请处理上方错误后重试");
+        if (lifecycle.active) {
+          setSyncError(true);
+          setSyncStatus("配置未保存，未执行同步；请处理上方错误后重试");
+        }
         return;
       }
       if (!lifecycle.active) return;
@@ -164,7 +169,10 @@ export function SyncSettingsSection() {
         setSyncStatus(result);
       }
     } catch (e) {
-      if (lifecycle.active) setSyncStatus(e instanceof Error ? e.message : String(e));
+      if (lifecycle.active) {
+        setSyncError(true);
+        setSyncStatus(e instanceof Error ? e.message : String(e));
+      }
     } finally {
       if (lifecycle.active) setSyncBusy(false);
     }
@@ -365,7 +373,14 @@ export function SyncSettingsSection() {
         </div>
       </div>
 
-      {syncStatus && <p className="af-settings-hint" role="status">{syncBusy ? "同步中：" : ""}{syncStatus}</p>}
+      {syncStatus && (
+        <p
+          className={`af-settings-hint${syncError ? " is-error" : ""}`}
+          role={syncError ? "alert" : "status"}
+        >
+          {syncBusy ? "同步中：" : ""}{syncStatus}
+        </p>
+      )}
     </section>
   );
 }

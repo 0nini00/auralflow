@@ -67,6 +67,8 @@ interface PlayerStore {
   addToQueue: (music: MusicInfo) => void;
   playNext: (music: MusicInfo) => void;
   removeFromQueue: (index: number) => void;
+  /** 撤销移除：把歌曲插回原索引，并同步平移当前曲与历史下标。 */
+  insertQueueAt: (index: number, music: MusicInfo) => void;
   clearQueue: () => void;
   togglePlay: () => void;
   pause: () => void;
@@ -708,6 +710,20 @@ export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
       if (resumeTrack) {
         void get().play(resumeTrack).catch(() => undefined);
       }
+    },
+
+    insertQueueAt: (index, music) => {
+      set((state) => {
+        const at = Math.max(0, Math.min(index, state.queue.length));
+        const queue = [...state.queue];
+        queue.splice(at, 0, music);
+        const shift = (value: number) => (value >= at ? value + 1 : value);
+        return {
+          queue,
+          currentIndex: at <= state.currentIndex ? state.currentIndex + 1 : state.currentIndex,
+          playHistory: state.playHistory.map(shift),
+        };
+      });
     },
 
     clearQueue: () => {
