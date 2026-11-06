@@ -26,10 +26,10 @@ export interface HistoryEntry {
   key: string;
   song: MusicInfo;
   /**
-   * 本地时间基准（毫秒）：分组 / 31 天滚动窗口 / 同日去重 / 排序都用它。
+   * 本地时间基准（毫秒）：分组 / 同日去重 / 排序都用它。
    *
    * **它不一定等于真实播放时间**：云端条目没带时间、或旧格式落盘数据没有时间戳时，
-   * 为了让条目不掉出 31 天窗口会就地补一个占位时间，此时 `playedAtSynthetic = true`。
+   * 为了让旧条目仍能参与分组会就地补一个占位时间，此时 `playedAtSynthetic = true`。
    */
   playedAt: number;
   /**

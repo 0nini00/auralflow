@@ -13,9 +13,8 @@ import {
 const HISTORY_KEY = "auralflow.mobile.playHistory";
 const HISTORY_TIMESTAMPS_KEY = "auralflow.mobile.playHistoryTimestamps";
 
-// 上限与过期：移动端 AsyncStorage 有体积约束，取 2000 条平衡，超过 31 天的记录滚动清掉。
+// 上限：移动端 AsyncStorage 有体积约束，取 2000 条平衡；与桌面端一致，不按天数过期。
 const MAX_HISTORY_ITEMS = 2000;
-const MAX_HISTORY_AGE_MS = 31 * 24 * 60 * 60 * 1000;
 
 // 启动 load* 未完成时用户即写入：串行化加载 + 写入，避免晚到的 load 回滚刚写入的记录。
 let historyLoadPromise: Promise<void> | null = null;
@@ -64,7 +63,7 @@ interface HistoryActions {
   removeFromHistory: (songId: string, source: string, dayStart?: number) => Promise<void>;
   /**
    * WebDAV 同步覆盖：用远端条目替换本地播放历史。
-   * 条目 `playedAt` 为 0 表示「时间未知」：本地补占位时间维持分组与 31 天窗口，但标记为合成。
+   * 条目 `playedAt` 为 0 表示「时间未知」：本地补占位时间维持分组，但标记为合成。
    */
   replaceAllHistory: (entries: HistoryEntry[]) => Promise<void>;
   /**
@@ -90,12 +89,12 @@ function isUsableTimestamp(value: unknown): value is number {
  * 旧格式迁移 + 通用条目规整：过滤无 id、清理超期、按时间倒序、截断上限，
  * 并把合成时间标记收敛成严格的 `true` / 缺失（落盘数据被改坏时不至于把垃圾值当真）。
  *
- * 排序与 31 天窗口仍用 `playedAt`（含合成占位时间）——时间未知的条目不会因此掉出窗口；
+ * 排序仍用 `playedAt`（含合成占位时间）——时间未知的条目也能稳定归位；
  * 「这个时间是不是真的」由 `playedAtSynthetic` 单独回答，两者不混用。
  */
-function normalizeEntries(entries: HistoryEntry[], now: number): HistoryEntry[] {
+function normalizeEntries(entries: HistoryEntry[]): HistoryEntry[] {
   return entries
-    .filter((entry) => entry.song?.id && now - entry.playedAt <= MAX_HISTORY_AGE_MS)
+    .filter((entry) => entry.song?.id)
     .map((entry) =>
       entry.playedAtSynthetic === true
         ? { key: entry.key, song: entry.song, playedAt: entry.playedAt, playedAtSynthetic: true }
@@ -193,7 +192,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
               });
           }
         }
-        const normalized = withoutRemovedSources(normalizeEntries(entries, Date.now()));
+        const normalized = withoutRemovedSources(normalizeEntries(entries));
         const derived = derive(normalized);
         // 迁移/规整后一次性回写新格式（失败不影响内存态）。
         await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(normalized)).catch(() => undefined);
@@ -229,10 +228,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
       const filtered = entries.filter(
         (entry) => !(entry.key === key && isSameDay(entry.playedAt, now)),
       );
-      const normalized = normalizeEntries(
-        [{ key, song, playedAt: now }, ...filtered],
-        now,
-      );
+      const normalized = normalizeEntries([{ key, song, playedAt: now }, ...filtered]);
       const derived = derive(normalized);
       await AsyncStorage.multiSet([
         [HISTORY_KEY, JSON.stringify(normalized)],
@@ -285,13 +281,13 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
         .filter((entry) => entry?.song?.id)
         .map((entry, index) => {
           const key = entry.key || historySongKey(entry.song);
-          // 云端带了真实播放时间就用；没有（0 / 缺失 / 非法）时只补一个本地占位时间供分组与
-          // 31 天窗口使用，并标为合成——统计按时间未知、回传云端写 0，绝不冒充真实时间。
+          // 云端带了真实播放时间就用；没有（0 / 缺失 / 非法）时只补一个本地占位时间供分组，
+          // 并标为合成——统计按时间未知、回传云端写 0，绝不冒充真实时间。
           return isUsableTimestamp(entry.playedAt)
             ? { key, song: entry.song, playedAt: entry.playedAt }
             : { key, song: entry.song, playedAt: now - index, playedAtSynthetic: true };
         });
-      const normalized = withoutRemovedSources(normalizeEntries(entries, now));
+      const normalized = withoutRemovedSources(normalizeEntries(entries));
       const derived = derive(normalized);
       await AsyncStorage.multiSet([
         [HISTORY_KEY, JSON.stringify(normalized)],
@@ -317,7 +313,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
         const previous = realByDay.get(id);
         if (!previous || entry.playedAt > previous.playedAt) realByDay.set(id, entry);
       };
-      // 本地合成占位条目优先于远端「时间未知」：本地占位时间还能维持分组与 31 天窗口。
+      // 本地合成占位条目优先于远端「时间未知」：本地占位时间还能维持分组。
       for (const entry of current) {
         if (hasRealPlayedAt(entry)) addReal(entry);
         else unknownByKey.set(entry.key, entry);
@@ -336,7 +332,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
       for (const [key, entry] of unknownByKey) {
         if (!realKeys.has(key)) merged.push(entry);
       }
-      const normalized = withoutRemovedSources(normalizeEntries(merged, now));
+      const normalized = withoutRemovedSources(normalizeEntries(merged));
       const derived = derive(normalized);
       await AsyncStorage.multiSet([
         [HISTORY_KEY, JSON.stringify(normalized)],
