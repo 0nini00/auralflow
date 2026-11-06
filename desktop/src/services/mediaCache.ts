@@ -259,6 +259,8 @@ async function cachePlaybackAudio(
       if (!remoteUrl) throw new StalePlaybackCacheError('磁盘缓存是试听片段');
       // 远端地址来自本次解析（解析期已做过试听判定），继续走下面的「先播远端」分支。
     } else {
+      void import('./offlineCache').then(({ offlineCache }) => offlineCache.record(cacheKey, music, resolved.quality))
+        .catch(error => logger.warn('[cache] 离线索引保存失败', error));
       return convertFileSrc(cached.path);
     }
   }
@@ -273,7 +275,10 @@ async function cachePlaybackAudio(
 
   // 未落盘：立即用远端地址播放，后台下载供下次使用。
   // 这里绝不能 await —— 等整首歌下载完再播放会让每次切歌卡住十几秒。
-  void cacheRemoteAudio({ url: remoteUrl, cacheKey }).catch(() => undefined);
+  void cacheRemoteAudio({ url: remoteUrl, cacheKey })
+    .then(() => import('./offlineCache'))
+    .then(({ offlineCache }) => offlineCache.record(cacheKey, music, resolved.quality))
+    .catch(error => logger.warn('[cache] 音频或离线索引保存失败', error));
   return remoteUrl;
 }
 

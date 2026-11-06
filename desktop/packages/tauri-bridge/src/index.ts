@@ -290,6 +290,11 @@ export interface CachedMedia {
   bytes: number;
 }
 
+export interface CachedAudioFile extends CachedMedia { key: string; modifiedAt: number }
+export async function listCachedAudio(): Promise<CachedAudioFile[]> {
+  return invoke<CachedAudioFile[]>('list_cached_audio');
+}
+
 /** 只查本地媒体缓存，不发起下载；未命中返回 null */
 export async function lookupCachedMedia(
   kind: "audio" | "cover",
@@ -329,7 +334,9 @@ export type LibraryNamespace =
   | "dailyRecommend"
   | "playback"
   // 云盘列表缓存（只存列表与容量，带保鲜期；见 services/cloudDriveCache）。
-  | "cloudDrive";
+  | "cloudDrive"
+  | "audioIndex"
+  | "listeningStats";
 
 /** 读取某个 namespace；文件不存在或为空返回 null */
 export async function libraryLoad<T = unknown>(

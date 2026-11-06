@@ -26,6 +26,67 @@ fn song_cover_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
         .join(SONG_COVER_CACHE_DIR))
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CachedAudioFile {
+    key: String,
+    path: String,
+    bytes: u64,
+    modified_at: u64,
+}
+
+fn list_audio_files(dir: &Path) -> Result<Vec<CachedAudioFile>, String> {
+    if !dir.exists() { return Ok(Vec::new()); }
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(dir).map_err(|err| format!("读取音频缓存目录失败: {}", err))? {
+        // 单个条目的元数据异常只跳过它自己：整页离线库不该因为一个坏文件变成错误提示。
+        let Ok(entry) = entry else { continue };
+        let path = entry.path();
+        let Ok(file_type) = entry.file_type() else { continue };
+        if !file_type.is_file() { continue; }
+        let ext = path.extension().and_then(|value| value.to_str()).unwrap_or("");
+        if !AUDIO_CACHE_EXTS.contains(&ext) { continue; }
+        let Ok(meta) = entry.metadata() else { continue };
+        if meta.len() < MIN_AUDIO_CACHE_BYTES { continue; }
+        let Some(key) = path.file_stem().and_then(|value| value.to_str()) else { continue };
+        if sanitize_cache_key(key) != key { continue; }
+        let Ok(modified) = meta.modified() else { continue };
+        let Ok(modified) = modified.duration_since(SystemTime::UNIX_EPOCH) else { continue };
+        files.push(CachedAudioFile { key: key.to_string(), path: path.to_string_lossy().to_string(), bytes: meta.len(),
+            modified_at: modified.as_millis() as u64 });
+    }
+    files.sort_by(|a, b| b.modified_at.cmp(&a.modified_at).then(a.key.cmp(&b.key)));
+    Ok(files)
+}
+
+#[tauri::command]
+pub async fn list_cached_audio(app: AppHandle) -> Result<Vec<CachedAudioFile>, String> {
+    let directory = song_audio_cache_dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || list_audio_files(&directory)).await.map_err(|err| err.to_string())?
+}
+
+#[cfg(test)]
+mod offline_listing_tests {
+    use super::*;
+    #[test]
+    fn lists_only_complete_audio_files_without_touching_or_removing_them() {
+        let dir = std::env::temp_dir().join(format!("auralflow-offline-{}", unique_temp_suffix()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let good = dir.join("wy-1-audio-builtinNetease-320k.mp3");
+        std::fs::write(&good, vec![1; MIN_AUDIO_CACHE_BYTES as usize]).unwrap();
+        std::fs::write(dir.join("pending.mp3.download"), vec![1; MIN_AUDIO_CACHE_BYTES as usize]).unwrap();
+        std::fs::write(dir.join("empty.flac"), []).unwrap();
+        std::fs::create_dir(dir.join("directory.mp3")).unwrap();
+        let files = list_audio_files(&dir).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].key, "wy-1-audio-builtinNetease-320k");
+        assert_eq!(files[0].bytes, MIN_AUDIO_CACHE_BYTES);
+        assert!(dir.join("pending.mp3.download").exists());
+        assert!(dir.join("empty.flac").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
 fn path_size(path: &Path) -> Result<u64, String> {
     if !path.exists() {
         return Ok(0);

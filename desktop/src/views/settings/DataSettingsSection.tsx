@@ -1,6 +1,7 @@
 import type { DataSettingsModel } from "../useSettingsViewModel";
 import { formatByteSize } from "../useSettingsViewModel";
 import { SettingRow } from "./SettingRow";
+import { OfflineCacheLibrary } from '@/components/OfflineCacheLibrary';
 
 function formatCount(value: number | undefined): string {
   return value == null ? "计算中..." : String(value);
@@ -40,6 +41,7 @@ export function DataSettingsSection({ model }: { model: DataSettingsModel }) {
       <h2 className="af-settings-section-title">数据管理</h2>
 
       <div className="af-data-stack">
+        <OfflineCacheLibrary />
         <div className="af-settings-card">
           <SettingRow label="播放历史" hint="只清空最近播放记录，不影响收藏、歌单和缓存">
             <button
