@@ -2,7 +2,8 @@ import { fetch } from "@tauri-apps/plugin-http";
 import { loadSettings } from "@lx/tauri-bridge";
 import { eapi, weapi } from "@/lib/crypto/weapi";
 import { createQrSvgDataUri } from "@/services/qrCode";
-import { toCloudMusicInfos, type MusicInfo, type WyCloudItem } from "@lx/core";
+export { normalizeWyCookie } from "@lx/core";
+import { normalizeWyCookie, toCloudMusicInfos, type MusicInfo, type WyCloudItem } from "@lx/core";
 import {
   buildNeteasePcCookie,
   buildPlaylistSubscribeRequests,
@@ -71,24 +72,6 @@ const anonymousNuid = randomHex(32);
 const anonymousWnmcid = `${randomLetters(6)}.${Date.now()}.01.0`;
 
 let cookie = "";
-
-export function normalizeWyCookie(input: string): string {
-  return input
-    .replace(/^\s*cookie\s*:\s*/i, "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .filter((line) => !/^name\s+value\b/i.test(line))
-    .map((line) => {
-      const tabParts = line.split("\t").map((part) => part.trim());
-      return tabParts.length >= 2 ? `${tabParts[0]}=${tabParts[1]}` : line;
-    })
-    .join("; ")
-    .replace(/\bCookie\s*:\s*/gi, "")
-    .replace(/;{2,}/g, ";")
-    .replace(/\s*;\s*/g, "; ")
-    .trim();
-}
 
 function randomHex(bytes: number): string {
   const chars = "0123456789abcdef";

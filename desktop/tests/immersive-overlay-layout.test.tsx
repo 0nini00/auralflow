@@ -4,18 +4,19 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const deps = vi.hoisted(() => ({
   player: {} as any,
   interpolatedProgress: 25,
+  lyricReads: vi.fn(), clockReads: vi.fn(), playerReads: vi.fn(),
   loadSettings: vi.fn(), patchSettings: vi.fn(), broadcast: vi.fn(), subscribe: vi.fn(),
   getCurrentWindow: vi.fn(), toggleDesktop: vi.fn(), copy: vi.fn(),
 }));
-vi.mock('@/stores/playerStore', () => ({ usePlayerStore: Object.assign(() => deps.player, { getState: () => deps.player }) }));
+vi.mock('@/stores/playerStore', () => ({ usePlayerStore: Object.assign(() => { deps.playerReads(); return deps.player; }, { getState: () => deps.player }) }));
 vi.mock('@lx/tauri-bridge', () => ({
   loadSettings: deps.loadSettings, patchSettings: deps.patchSettings,
   isLyricWindowOpen: async () => false, getLyricWindowState: async () => ({ locked: false }),
 }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
 vi.mock('@/stores/lyricSettingsSync', () => ({ broadcastLyricSettings: deps.broadcast, subscribeLyricSettings: deps.subscribe }));
-vi.mock('@/hooks/useLyrics', () => ({ useLyrics: () => ({ lyrics: [], currentLine: 0 }) }));
-vi.mock('@/hooks/useInterpolatedPlaybackProgress', () => ({ useInterpolatedPlaybackProgress: () => deps.interpolatedProgress }));
+vi.mock('@/hooks/useLyrics', () => ({ useLyrics: () => { deps.lyricReads(); return { lyrics: [], currentLine: 0 }; } }));
+vi.mock('@/hooks/useInterpolatedPlaybackProgress', () => ({ useInterpolatedPlaybackProgress: () => { deps.clockReads(); return deps.interpolatedProgress; } }));
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: deps.getCurrentWindow }));
 vi.mock('@/utils/desktopLyricToggle', () => ({ toggleDesktopLyricFromPlayer: deps.toggleDesktop }));
 vi.mock('@/components/playerVisualizers/PlayerVisualizerRenderer', () => ({ PlayerVisualizerRenderer: (props: any) => <div data-testid="lyrics" {...props} /> }));
@@ -84,6 +85,25 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => renderer?.unmount()); vi.unstubAllGlobals(); });
 async function mount() { await act(async () => { renderer = create(<ImmersiveLyricsOverlay open onClose={onClose} />); }); }
+
+it('关闭的沉浸页不订阅播放器、不读取歌词也不启动插值时钟，重新打开读取最新设置', async () => {
+  await act(async () => { renderer = create(<ImmersiveLyricsOverlay open={false} onClose={onClose} />); });
+  expect(deps.playerReads).not.toHaveBeenCalled();
+  expect(deps.lyricReads).not.toHaveBeenCalled();
+  expect(deps.clockReads).not.toHaveBeenCalled();
+  await act(async () => { renderer.update(<ImmersiveLyricsOverlay open onClose={onClose} />); });
+  expect(deps.loadSettings).toHaveBeenCalledTimes(1);
+  await act(async () => { renderer.update(<ImmersiveLyricsOverlay open={false} onClose={onClose} />); });
+  deps.playerReads.mockClear(); deps.lyricReads.mockClear(); deps.clockReads.mockClear();
+  await act(async () => { renderer.update(<ImmersiveLyricsOverlay open={false} onClose={() => {}} />); });
+  expect(deps.playerReads).not.toHaveBeenCalled();
+  expect(deps.lyricReads).not.toHaveBeenCalled();
+  expect(deps.clockReads).not.toHaveBeenCalled();
+  deps.loadSettings.mockResolvedValue({ lyricShowTranslation: false });
+  await act(async () => { renderer.update(<ImmersiveLyricsOverlay open onClose={onClose} />); });
+  expect(deps.loadSettings).toHaveBeenCalledTimes(2);
+  expect(renderer.root.findByProps({ 'data-testid': 'lyrics' }).props.showTranslation).toBe(false);
+});
 
 it('不渲染顶部全屏入口，封面信息与底栏三列保持不变；退出键常驻在页面右上角', async () => {
   await mount();

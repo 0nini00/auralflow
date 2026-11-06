@@ -1,3 +1,4 @@
+import { getMenuPosition } from "@/utils/menuPosition";
 import { useEffect, useId, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import { createPortal } from "react-dom";
@@ -35,24 +36,17 @@ export interface SongAddMenuProps {
 const MENU_WIDTH = 240;
 const MENU_HEIGHT_ESTIMATE = 300;
 
-function getMenuPosition(target: HTMLElement) {
-  const rect = target.getBoundingClientRect();
-  const left = Math.max(8, Math.min(rect.right - MENU_WIDTH, window.innerWidth - MENU_WIDTH - 8));
-  const belowTop = rect.bottom + 6;
-  const top = belowTop + MENU_HEIGHT_ESTIMATE > window.innerHeight
-    ? Math.max(8, rect.top - MENU_HEIGHT_ESTIMATE - 6)
-    : belowTop;
-
-  return { top, left };
-}
-
 /**
  * 受控的「添加到」菜单（portal + 按触发按钮定位 + Esc 关闭）。
  * 长列表整表共用一个实例即可，不必每行各建一份状态与 store 订阅。
  */
 export function SongAddMenu({ song, anchor, onClose, onDismiss }: SongAddMenuProps) {
   const menuId = useId();
-  const [position] = useState(() => getMenuPosition(anchor));
+  const [position] = useState(() => getMenuPosition(
+    anchor.getBoundingClientRect(),
+    { width: MENU_WIDTH, height: MENU_HEIGHT_ESTIMATE },
+    { width: window.innerWidth, height: window.innerHeight },
+  ));
   const [pendingWyPlaylistId, setPendingWyPlaylistId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const menuRef = useRef<HTMLDivElement | null>(null);

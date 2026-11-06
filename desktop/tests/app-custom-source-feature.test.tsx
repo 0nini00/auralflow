@@ -88,7 +88,14 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
-async function mount() { await act(async () => { renderer = create(<App />); }); }
+async function mount() {
+  // App 按窗口懒加载主窗口模块（windowModules.ts）。先把模块预热进缓存，让 create()
+  // 不必等一轮懒加载调度，断言才跑在挂载之后 —— 否则读到的是「还没挂载」而不是
+  // 真实生命周期（退出应答、音源检查都会假通过）。
+  await import("../src/MainWindow");
+  await act(async () => { renderer = create(<App />); });
+  expect(dependencies.listen).toHaveBeenCalled();
+}
 async function advance(time: number) { await act(async () => { await vi.advanceTimersByTimeAsync(time); }); }
 async function feature(state: { featureEnabled?: boolean; featureReady?: boolean }) {
   await act(async () => { useCustomSourceStore.setState(state); });

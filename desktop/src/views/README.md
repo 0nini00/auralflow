@@ -57,4 +57,4 @@
 - **视图薄**：视图只组合 hooks / stores / services，不写业务规则。
 - **业务下沉**：业务规则全部在 services。
 - **按需挂载**：SettingsView 仅挂载活动 section，其余不渲染。
-- **首屏优先**：所有视图同步 import、统一打包（`desktop/src` 内没有 `React.lazy` / `Suspense`）；设置页只挂载活动 section。
+- **首屏优先**：页面按路由 `React.lazy()` 拆分（组装在 `../MainWindow.tsx`），首屏只加载外壳与当前页面；设置页只挂载活动 section。

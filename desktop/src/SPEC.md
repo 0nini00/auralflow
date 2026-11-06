@@ -13,7 +13,7 @@ tags: [auralflow, desktop]
 
 | 层 | 位置 | 职责 |
 |---|---|---|
-| 视图 | `views/` | 路由驱动的薄页面。只组合 hooks / store / service，不写业务规则；**所有视图都同步 import、统一打包**——`desktop/src` 内没有任何 `React.lazy()` / `Suspense`，此前「非首屏视图 `lazy import()`」的说法不成立；设置页只挂载活动 section。 |
+| 视图 | `views/` | 路由驱动的薄页面。只组合 hooks / store / service，不写业务规则；**窗口与页面都按需加载**——`windowModules.ts` 按窗口角色分流（四个窗口共用一个 `index.html`，副窗口不再解析主窗口应用），`MainWindow.tsx` 里的页面用 `React.lazy()` 按路由拆；加载兜底在 `components/Layout/Layout.tsx` 的内容区，切页只换内容。设置页只挂载活动 section。 |
 | 组件 | `components/` | 可见界面与交互。从 store 订阅数据，不持业务逻辑；CSS 类名统一 `af-` 前缀，tooltip 用 `data-tooltip` 而不额外插 DOM 节点。 |
 | 状态 | `stores/` | Zustand store，只放状态与状态转换，不含 React 逻辑、不含业务规则。 |
 | 业务 | `services/` | 业务规则唯一的落脚点：播放引擎、源解析、账号、同步、缓存、下载、歌词、应用自更新。持模块单例状态，直接读写 store。 |

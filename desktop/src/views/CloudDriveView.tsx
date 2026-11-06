@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Cloud, Clock, Loader2, Play, RefreshCw, Shuffle, CornerDownRight } from 'lucide-react';
-import { cloudQualityLabel } from '@lx/core';
+import { cloudQualityLabel, shuffleItems } from '@lx/core';
 import { useWyAccountStore } from '@/stores/wyAccountStore';
 import { useCloudDriveStore } from '@/stores/cloudDriveStore';
 import { usePlayerStore } from '@/stores/playerStore';
 import { SongAddMenuButton } from '@/components/SongAddMenuButton';
 import { DownloadQualityButton } from '@/components/DownloadQualityButton';
+import { VirtualList } from '@/components/VirtualList';
 import { formatDuration } from '@/lib/utils';
 import { coverSrc } from '@/utils/imageReferrerPolicy';
-import { fisherYatesShuffle } from '@/utils/shared';
 
 type PendingPlayAction = 'play-all' | 'shuffle' | `track:${number}` | null;
 
@@ -164,7 +164,7 @@ export function CloudDriveView() {
               </button>
               <button
                 className="af-btn-secondary"
-                onClick={() => songs.length > 0 && runPlayQueueAction('shuffle', fisherYatesShuffle(songs), 0)}
+                onClick={() => songs.length > 0 && runPlayQueueAction('shuffle', shuffleItems(songs), 0)}
                 disabled={songs.length === 0 || loading || isShufflePending}
               >
                 {isShufflePending ? <Loader2 size={16} className="af-spin" /> : <Shuffle size={16} />}
@@ -217,7 +217,8 @@ export function CloudDriveView() {
           </div>
 
           <div className="af-song-list-body">
-            {songs.map((song, index) => {
+            <VirtualList items={songs} rowHeight={52} scrollRootSelector=".af-content-scroll"
+              getItemKey={(song) => `${song.source}:${song.id}`} renderItem={(song, index) => {
               const qualityLabel = cloudQualityLabel(song.cloudMeta?.bitrate);
               const rowKey = `${song.source}-${song.id}-${index}`;
               return (
@@ -259,7 +260,7 @@ export function CloudDriveView() {
                   </div>
                 </div>
               );
-            })}
+            }} />
           </div>
         </div>
       )}

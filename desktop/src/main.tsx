@@ -4,6 +4,7 @@ import { tryGetCurrentWindow } from "@/utils/appWindow";
 import { loadSettings } from "@lx/tauri-bridge";
 
 import App from "./App";
+import { preloadWindowModule } from "./windowModules";
 import { prepareInitialAppBackground } from "./services/appBackground";
 import { installGlobalErrorHandlers } from "./services/logger";
 import { detectWindowRoleFromParts } from "./utils/windowRole";
@@ -67,6 +68,13 @@ async function startApp() {
     // 读设置失败时默认显示窗口，避免用户启动后看不到应用。
     console.error("启动背景预加载失败", error);
   }
+
+  // 本窗口的界面模块先就位再渲染（映射见 windowModules.ts）：窗口是 show() 之后才可见的，
+  // 模块还在路上就先 show() 会先闪一帧空白。预加载失败不阻断渲染 —— 真正的加载错误
+  // 由 App 里的错误边界显示在界面上，这里只留一条日志。
+  await preloadWindowModule(windowRole).catch((error) => {
+    console.error("窗口界面模块预加载失败", error);
+  });
 
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>

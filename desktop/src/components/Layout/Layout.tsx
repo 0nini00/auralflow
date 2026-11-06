@@ -1,5 +1,5 @@
 import { Outlet, useLocation } from "react-router-dom";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { PlayerBar } from "../PlayerBar";
@@ -70,7 +70,11 @@ export function Layout() {
                     侧栏 / 顶栏 / 播放条仍然可用（用户能切到别的页或继续听）。
                     以 pathname 作 key，切页即自动清掉错误状态，不必手动重试。 */}
                 <ErrorBoundary key={location.pathname} scope={`route:${location.pathname}`}>
-                  <Outlet />
+                  {/* 页面模块按路由懒加载（见 MainWindow.tsx）。兜底边界套在 Suspense 外面：
+                      某个页面的 chunk 拉取失败也只废掉内容区，外壳和播放条照常可用。 */}
+                  <Suspense fallback={null}>
+                    <Outlet />
+                  </Suspense>
                 </ErrorBoundary>
               </div>
             </main>

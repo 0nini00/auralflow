@@ -7,6 +7,7 @@ import { coverSrc, NP_COVER_CSS_SIZE, ROW_COVER_CSS_SIZE } from "@/utils/imageRe
 import { formatTime } from "@/utils/formatTime";
 import { DownloadQualityButton } from "@/components/DownloadQualityButton";
 import { SongAddMenuButton } from "@/components/SongAddMenuButton";
+import { VirtualList } from "@/components/VirtualList";
 
 /**
  * 「正在播放」右栏。
@@ -95,7 +96,10 @@ function QueueList() {
         <span>{upcoming > 0 ? `接下来 ${upcoming} 首` : "队列"}</span>
         <span>{queue.length} 首</span>
       </div>
-      {queue.map((song, index) => {
+      <VirtualList items={queue} rowHeight={46} scrollRootSelector=".af-np-body"
+        scrollToIndex={currentIndex} scrollToKey={queue.length} scrollAlign="center" scrollBehavior="auto"
+        getItemKey={(song, index) => `${song.source}:${song.id}:${index}`}
+        renderItem={(song, index) => {
         const active = index === currentIndex;
         return (
           <div
@@ -134,7 +138,7 @@ function QueueList() {
             </button>
           </div>
         );
-      })}
+      }} />
     </div>
   );
 }

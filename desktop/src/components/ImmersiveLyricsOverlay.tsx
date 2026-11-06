@@ -46,6 +46,11 @@ export function ImmersiveLyricsOverlay({
   open,
   onClose,
 }: ImmersiveLyricsOverlayProps) {
+  return open ? <ImmersiveLyricsContent open onClose={onClose} /> : null;
+}
+
+// 关闭时卸载内容，使播放器订阅、歌词请求与动画时钟一起释放；再次打开重新读取设置。
+function ImmersiveLyricsContent({ open, onClose }: ImmersiveLyricsOverlayProps) {
   const {
     current: currentTrack,
     queue,

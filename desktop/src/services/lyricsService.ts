@@ -17,10 +17,14 @@ import { debugLog } from '@lx/tauri-bridge';
 export type { LyricLine, LyricResponse, LyricWord };
 
 const lyricsCache = new Map<string, LyricResponse>();
+const lyricsRequests = new Map<string, Promise<LyricResponse>>();
+let lyricsGeneration = 0;
 
 /** 清空进程内歌词缓存；设置页「只清歌词缓存」需要连这一层一起清，否则同一会话仍命中旧词。 */
 export function clearLyricsMemoryCache(): void {
+  lyricsGeneration += 1;
   lyricsCache.clear();
+  lyricsRequests.clear();
 }
 
 /**
@@ -155,11 +159,23 @@ async function getLyricsForSingle(music: MusicInfo): Promise<LyricResponse> {
   const cached = lyricsCache.get(cacheKey);
   if (cached) return cached;
 
+  const pending = lyricsRequests.get(cacheKey);
+  if (pending) return pending;
+  const request = loadSingleLyrics(music, cacheKey, lyricsGeneration);
+  lyricsRequests.set(cacheKey, request);
+  try {
+    return await request;
+  } finally {
+    if (lyricsRequests.get(cacheKey) === request) lyricsRequests.delete(cacheKey);
+  }
+}
+
+async function loadSingleLyrics(music: MusicInfo, cacheKey: string, generation: number): Promise<LyricResponse> {
   try {
     try {
       const persisted = await getCachedLyrics(music);
       if (persisted) {
-        lyricsCache.set(cacheKey, persisted);
+        if (generation === lyricsGeneration) lyricsCache.set(cacheKey, persisted);
         return persisted;
       }
     } catch (error) {
@@ -168,6 +184,7 @@ async function getLyricsForSingle(music: MusicInfo): Promise<LyricResponse> {
       console.error('[lyrics] 读取持久化歌词缓存失败，按未命中处理', error);
     }
 
+    if (generation !== lyricsGeneration) return { lines: [], error: '歌词请求已失效' };
     let result: LyricResponse;
 
     if (music.source === 'local') {
@@ -196,6 +213,8 @@ async function getLyricsForSingle(music: MusicInfo): Promise<LyricResponse> {
       }
     }
 
+    // 清理后旧调用仍可结束，但不能回填缓存或移除新一代请求的结果。
+    if (generation !== lyricsGeneration) return result;
     if (result.lines.length > 0 || isCacheableEmptyLyricResult(result)) {
       lyricsCache.set(cacheKey, result);
       // 云盘曲的「没词」只是中间状态：provider 会按元数据去线上找同一份录音取词
@@ -209,7 +228,7 @@ async function getLyricsForSingle(music: MusicInfo): Promise<LyricResponse> {
     }
     return result;
   } catch (error) {
-    lyricsCache.delete(cacheKey);
+    if (generation === lyricsGeneration) lyricsCache.delete(cacheKey);
     console.error('[lyrics] 获取歌词失败', error);
     return { lines: [], error: '获取歌词失败' };
   }
@@ -233,6 +252,7 @@ export async function getLyrics(
   }
 
   const primaryKey = getCacheKey(music);
+  const generation = lyricsGeneration;
   const cached = lyricsCache.get(primaryKey);
   if (music.wyCloud === true) {
     debugLog(`[lyric] request id=${music.id} cloud=true memCached=${cached?.lines?.length ?? 0}`);
@@ -254,6 +274,7 @@ export async function getLyrics(
     const isPrimary = candidate.source === music.source && candidate.id === music.id;
     try {
       const result = await getLyricsForSingle(candidate);
+      if (generation !== lyricsGeneration) return result;
       if (result.lines.length === 0) {
         lastEmpty = result;
         continue;
@@ -275,14 +296,18 @@ export async function getLyrics(
   }
 
   if (best) {
-    // 写回主曲缓存键，后续切歌/重开直接用
-    lyricsCache.set(primaryKey, best.result);
-    void saveCachedLyrics(music, best.result).catch(() => undefined);
+    // 主曲已由单曲入口保存；只有候选胜出且结果变化时才写入主曲别名。
+    if (!best.isPrimary && lyricsCache.get(primaryKey) !== best.result) {
+      lyricsCache.set(primaryKey, best.result);
+      void saveCachedLyrics(music, best.result).catch((error) => {
+        console.error('[lyrics] 保存候选歌词缓存失败', error);
+      });
+    }
     return best.result;
   }
 
   const empty = lastEmpty ?? { lines: [], error: '暂无歌词' };
-  if (isCacheableEmptyLyricResult(empty)) {
+  if (isCacheableEmptyLyricResult(empty) && lyricsCache.get(primaryKey) !== empty) {
     lyricsCache.set(primaryKey, empty);
     // 同 getLyricsForSingle：云盘曲的空结果不落盘，避免把一次失败冻结成 7 天的结论。
     if (music.wyCloud !== true) {

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 
 interface VirtualListProps<T> {
-  items: T[];
+  items: readonly T[];
   rowHeight: number;
   renderItem: (item: T, index: number) => React.ReactNode;
   overscan?: number;
@@ -10,6 +10,8 @@ interface VirtualListProps<T> {
   scrollToIndex?: number;
   /** 可选：强制重新触发滚动定位 */
   scrollToKey?: number | string;
+  scrollBehavior?: ScrollBehavior;
+  scrollAlign?: 'start' | 'center';
   /** 可选：滚动事件回调（用于关闭 portal 菜单等） */
   onScroll?: () => void;
   /** 可选：使用外层滚动容器，列表自身只负责撑开内容高度 */
@@ -36,6 +38,8 @@ export function VirtualList<T>({
   className,
   scrollToIndex,
   scrollToKey,
+  scrollBehavior = 'smooth',
+  scrollAlign = 'start',
   onScroll,
   scrollRootSelector,
   getItemKey,
@@ -111,18 +115,27 @@ export function VirtualList<T>({
     if (scrollToIndex == null || scrollToIndex < 0) return;
     const el = containerRef.current;
     if (!el) return;
-    const top = scrollToIndex * rowHeight;
-    if (scrollRootSelector) {
-      const root = getScrollRoot();
-      if (!root) return;
+    const root = scrollRootSelector ? getScrollRoot() : null;
+    // 外层滚动容器还没就位时不定位，等它挂上后这个 effect 会带着同一个 index 重跑。
+    if (scrollRootSelector && !root) return;
+    const viewport = (root ? root.clientHeight : el.clientHeight) ?? 0;
+    const centering = scrollAlign === 'center' ? Math.max(0, viewport - rowHeight) / 2 : 0;
+    const top = Math.max(0, scrollToIndex * rowHeight - centering);
+    if (root) {
       const rootRect = root.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
       const listTop = root.scrollTop + elRect.top - rootRect.top;
-      root.scrollTo({ top: listTop + top, behavior: "smooth" });
-      return;
+      if (scrollBehavior === 'auto') root.scrollTop = listTop + top;
+      else root.scrollTo({ top: listTop + top, behavior: scrollBehavior });
+    } else if (scrollBehavior === 'auto') {
+      el.scrollTop = top;
+    } else {
+      el.scrollTo({ top, behavior: scrollBehavior });
     }
-    el.scrollTo({ top, behavior: "smooth" });
-  }, [getScrollRoot, rowHeight, scrollRootSelector, scrollToIndex, scrollToKey]);
+    // 顺手把虚拟窗口挪到目标行：滚动事件要等下一帧才回传（被合并或延迟时更晚），
+    // 只依赖事件会让定位慢一帧 —— 这一帧渲染的还是列表顶部，表现为「打开先闪一下顶部再跳」。
+    setScrollTop(top);
+  }, [getScrollRoot, rowHeight, scrollRootSelector, scrollToIndex, scrollToKey, scrollAlign, scrollBehavior]);
 
   const total = items.length * rowHeight;
   const start = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);

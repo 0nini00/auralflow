@@ -102,6 +102,13 @@ beforeEach(() => {
 afterEach(() => unmount());
 
 describe('云盘列表复用', () => {
+  it('大云盘只挂载可视行，仍保留完整播放数据', async () => {
+    const songs = Array.from({ length: 1000 }, (_, i) => song(String(i)));
+    api.cloudSongs.mockResolvedValue({ songs, count: 1000, nextOffset: 1000, hasMore: false });
+    await mount();
+    expect(useCloudDriveStore.getState().songs).toHaveLength(1000);
+    expect(renderer!.root.findAllByProps({ className: 'af-song-list-row' }).length).toBeLessThan(40);
+  });
   it('离开再回到云盘页复用已加载的列表，不重复请求', async () => {
     await mount();
     expect(api.cloudSongs).toHaveBeenCalledTimes(1);

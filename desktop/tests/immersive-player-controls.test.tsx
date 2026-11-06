@@ -14,6 +14,8 @@ beforeEach(() => {
   focus = new Map();
   vi.stubGlobal('document', { querySelector: () => null });
   vi.stubGlobal('window', { requestAnimationFrame: (fn: () => void) => { fn(); return 1; }, cancelAnimationFrame: vi.fn() });
+  // 队列面板用 VirtualList 渲染，它用 ResizeObserver 量可视高度；node 环境没有这个浏览器 API。
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   props = {
     playback: { isPlaying: true, volume: 0.5, isMuted: false, playbackRate: 1, mode: { id: 'sequence', label: '顺序播放' } },
     actions: { togglePlay: vi.fn(), toggleMute: vi.fn(), setVolume: vi.fn(), prev: vi.fn(), next: vi.fn(), cycleMode: vi.fn(), setPlaybackRate: vi.fn(), share: vi.fn() },
@@ -27,7 +29,8 @@ beforeEach(() => {
   act(() => { renderer = create(<ImmersivePlayerControls {...props} ref={ref} />, { createNodeMock: element => {
     const label = element.props['aria-label'];
     const fn = focus.get(label) ?? vi.fn(); if (label) focus.set(label, fn);
-    return { focus: fn, scrollIntoView: vi.fn(), getBoundingClientRect: () => ({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }) };
+    // clientHeight 要给数值：VirtualList 用它算可视行数，缺省会让行数变成 NaN 而一行都不渲染。
+    return { focus: fn, scrollIntoView: vi.fn(), clientHeight: 0, getBoundingClientRect: () => ({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }) };
   } }); });
 });
 afterEach(() => { act(() => renderer.unmount()); vi.unstubAllGlobals(); });

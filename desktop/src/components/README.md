@@ -27,7 +27,6 @@ components/
 | --- | --- | --- |
 | PlayerVisualizerRenderer | `PlayerVisualizerRenderer.tsx` | 6 行分派器 → ScrollingLyricsVisualizer |
 | ScrollingLyricsVisualizer | `ScrollingLyricsVisualizer.tsx` | 纯 CSS 背景渐变填充 `background-clip:text` + `--af-scrolling-lyric-progress` + 逐词 `clip-path:inset()` |
-| PosterLyricsVisualizer | `PosterLyricsVisualizer.tsx` | 备用海报式可视化（当前无调用点，仅测试引用） |
 | LyricText / LyricRomanization | `LyricAnnotations.tsx` | 注音 ruby 与罗马音渲染（白名单元素，源文本始终是文本节点） |
 | getLyricDisplayText / getSecondaryLyricText | `lyricDisplay.ts` | 歌词显示文本派生 |
 | PlayerVisualizerProps | `types.ts` | 可视化组件的属性契约 |

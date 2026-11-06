@@ -27,6 +27,7 @@ vi.mock('@/hooks/useLyrics', () => ({
 vi.mock('@/stores/sleepTimerStore', () => ({ useSleepTimerStore: (select: any) => select({ mode: 'off', remainingSec: 0, remainingSongs: 0, startTimer: vi.fn(), startSongs: vi.fn(), cancel: vi.fn() }) }));
 vi.mock('@/components/ImmersiveLyricsOverlay', () => ({ ImmersiveLyricsOverlay: () => null }));
 vi.mock('@/components/SongAddMenuButton', () => ({ SongAddMenuButton: () => null }));
+vi.mock('@/components/DownloadQualityButton', () => ({ DownloadQualityButton: () => null }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
 vi.mock('@/stores/lyricSettingsSync', () => ({ subscribeLyricSettings: () => () => {} }));
 vi.mock('@/utils/desktopLyricToggle', () => ({ toggleDesktopLyricFromPlayer: vi.fn() }));
@@ -46,6 +47,15 @@ beforeEach(() => {
   vi.clearAllMocks();
   useUiStore.setState({ nowPlayingOpen: false });
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (this: HTMLElement) {
+    return this.classList.contains('af-np-body') ? 460 : 0;
+  });
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    const root = this.closest('.af-np-body');
+    const top = this.classList.contains('af-virtual-list-external') ? 30 - (root?.scrollTop ?? 0) : 0;
+    return { top, left: 0, bottom: top + 460, right: 300, width: 300, height: 460, x: 0, y: top, toJSON() {} };
+  });
   document.body.innerHTML = '<div id="root"></div>';
   root = createRoot(document.getElementById('root')!);
   deps.state = {
@@ -57,10 +67,10 @@ beforeEach(() => {
     playByIndex: deps.playByIndex, removeFromQueue: deps.removeFromQueue,
   };
 });
-afterEach(() => { act(() => root.unmount()); vi.unstubAllGlobals(); });
+afterEach(() => { act(() => root.unmount()); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-it('迷你栏的队列按钮切换右栏开关，aria-pressed 跟随状态', () => {
-  act(() => { root.render(<PlayerBar />); });
+it('迷你栏的队列按钮切换右栏开关，aria-pressed 跟随状态', async () => {
+  await act(async () => { root.render(<PlayerBar />); });
   const trigger = queueButton()!;
   expect(trigger.getAttribute('aria-pressed')).toBe('false');
 
@@ -82,6 +92,37 @@ it('右栏列出全部曲目、高亮当前曲，点击曲目播放', () => {
 
   click(rows[1].querySelector<HTMLElement>('.af-np-row-main')!);
   expect(deps.playByIndex).toHaveBeenCalledWith(1);
+});
+
+it('右栏的大队列仅挂载当前曲附近的行', () => {
+  deps.state.queue = Array.from({ length: 1000 }, (_, index) => track(String(index), `Song ${index}`));
+  deps.state.currentIndex = 500;
+  act(() => root.render(<NowPlayingPanel />));
+  expect(document.querySelectorAll('.af-np-row').length).toBeLessThan(40);
+  expect(document.querySelector('.af-np-row.af-active')?.textContent).toContain('Song 500');
+});
+
+it('右栏使用外层460px视口和队列标题偏移，滚动后46px行的DOM范围准确', () => {
+  deps.state.queue = Array.from({ length: 1000 }, (_, index) => track(String(index), `Song ${index}`));
+  deps.state.currentIndex = 500;
+  act(() => root.render(<NowPlayingPanel />));
+  const body = document.querySelector<HTMLElement>('.af-np-body')!;
+  expect(body.scrollTop).toBe(30 + 500 * 46 - (460 - 46) / 2);
+  const list = document.querySelector<HTMLElement>('.af-virtual-list-external')!;
+  expect((list.firstElementChild as HTMLElement).style.height).toBe('46000px');
+  act(() => {
+    body.scrollTop = 30 + 100 * 46;
+    body.dispatchEvent(new Event('scroll'));
+  });
+  const rows = [...document.querySelectorAll<HTMLElement>('.af-np-row')];
+  expect(rows).toHaveLength(22);
+  expect(rows[0].textContent).toContain('Song 94');
+  expect(rows.at(-1)!.textContent).toContain('Song 115');
+  const target = document.querySelector<HTMLButtonElement>('button[title="Song 100"]')!;
+  expect(target.parentElement!.parentElement!.style.top).toBe('4600px');
+  expect(target.parentElement!.parentElement!.style.height).toBe('46px');
+  click(target);
+  expect(deps.playByIndex).toHaveBeenCalledWith(100);
 });
 
 it('移除按钮调用 removeFromQueue，不连带播放', () => {

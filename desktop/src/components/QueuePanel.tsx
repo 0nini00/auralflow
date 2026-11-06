@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
+import { VirtualList } from './VirtualList';
 
 /** 队列项只取渲染所需的最少字段，播放队列的 MusicInfo 与沉浸页的队列 props 都能直接传入 */
 export interface QueuePanelTrack {
@@ -42,37 +42,16 @@ export interface QueuePanelProps {
 
 /** 当前播放队列面板：沉浸式播放页与底部迷你栏共用，差异全在 id 与 classes 上 */
 export function QueuePanel({ tracks, currentIndex, play, remove, classes, id, onClose }: QueuePanelProps) {
-  const listRef = useRef<HTMLDivElement | null>(null);
-  const currentItem = useRef<HTMLDivElement | null>(null);
-
-  // 队列可能上百首，打开面板时先把当前曲定位到视野中央，用户才找得到「正在播的是哪首」。
-  // 不用 scrollIntoView：它会连带滚动所有可滚动祖先（实测把沉浸页舞台整体顶上去 115px，
-  // 表现为「内容上移挤压空间」），且 behavior:'smooth' 会让长队列呈现明显的滚动动画。
-  // 直接给列表赋 scrollTop：只滚列表本身、瞬时定位、零动画。
-  useEffect(() => {
-    if (currentIndex < 0) {
-      return;
-    }
-    const frame = window.requestAnimationFrame(() => {
-      const list = listRef.current;
-      const item = currentItem.current;
-      if (!list || !item) {
-        return;
-      }
-      const delta = item.getBoundingClientRect().top - list.getBoundingClientRect().top;
-      list.scrollTop += delta - (list.clientHeight - item.clientHeight) / 2;
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [currentIndex, tracks.length]);
-
   return (
     <div id={id} className={classes.panel} role="dialog" aria-label="当前播放队列">
       <div className={classes.header}><strong>播放列表</strong><span>{tracks.length} 首</span></div>
-      <div className={classes.list} ref={listRef}>
-        {tracks.length === 0 && classes.empty ? (
+      {tracks.length === 0 && classes.empty ? (
           <div className={classes.empty}>播放列表为空</div>
-        ) : tracks.map((track, index) => (
-          <div key={`${track.source}:${track.id}:${index}`} ref={index === currentIndex ? currentItem : undefined}
+        ) : <VirtualList items={tracks} rowHeight={64} className={classes.list}
+          scrollToIndex={currentIndex} scrollToKey={tracks.length} scrollAlign="center" scrollBehavior="auto"
+          getItemKey={(track, index) => `${track.source}:${track.id}:${index}`}
+          renderItem={(track, index) => (
+          <div
             className={`${classes.item}${index === currentIndex ? ` ${classes.playing}` : ''}`}>
             {/* 播放与移除是兄弟原生按钮，不做嵌套交互容器，键盘 Tab 才不会被整行吞掉 */}
             <button type="button" className={classes.play} aria-label={`播放 ${track.name}`}
@@ -84,8 +63,7 @@ export function QueuePanel({ tracks, currentIndex, play, remove, classes, id, on
             <button type="button" className={classes.remove} onClick={() => remove(index)}
               aria-label={`从播放列表移除 ${track.name}`} data-tooltip="从播放列表移除" data-tooltip-placement="top-end"><X size={15} /></button>
           </div>
-        ))}
-      </div>
+        )} />}
     </div>
   );
 }

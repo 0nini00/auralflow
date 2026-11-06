@@ -7,9 +7,8 @@ import { EmptyState } from "@/components/ui";
 import { formatDuration } from "@/lib/utils";
 import { useHistoryStore } from "@/stores/historyStore";
 import { usePlayerStore } from "@/stores/playerStore";
-import type { MusicInfo } from "@lx/core";
+import { shuffleItems, type MusicInfo } from "@lx/core";
 import { DETAIL_COVER_CSS_SIZE, coverSrc } from "@/utils/imageReferrerPolicy";
-import { fisherYatesShuffle } from "@/utils/shared";
 
 export function HistoryView() {
   const history = useHistoryStore((s) => s.history);
@@ -47,7 +46,7 @@ export function HistoryView() {
               </button>
               <button
                 className="af-btn-secondary"
-                onClick={() => history.length > 0 && void playQueue(fisherYatesShuffle(history), 0)}
+                onClick={() => history.length > 0 && void playQueue(shuffleItems(history), 0)}
                 disabled={history.length === 0}
               >
                 <Shuffle size={16} />

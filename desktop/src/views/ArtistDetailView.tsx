@@ -16,8 +16,7 @@ import { usePlayerStore } from "@/stores/playerStore";
 import { SongAddMenuButton } from "@/components/SongAddMenuButton";
 import { DownloadQualityButton } from "@/components/DownloadQualityButton";
 import { formatDuration } from "@/lib/utils";
-import { fisherYatesShuffle } from "@/utils/shared";
-import type { MusicInfo, AlbumInfo } from "@lx/core";
+import { shuffleItems, type MusicInfo, type AlbumInfo } from "@lx/core";
 import { DETAIL_COVER_CSS_SIZE, ROW_COVER_CSS_SIZE, coverSrc } from "@/utils/imageReferrerPolicy";
 import { Play, Shuffle, Clock, User, Loader2, CornerDownRight } from "lucide-react";
 
@@ -185,7 +184,7 @@ export function ArtistDetailView() {
               </button>
               <button
                 className="af-btn-secondary"
-                onClick={() => songs.length > 0 && void runPlayQueueAction('shuffle', fisherYatesShuffle(songs), 0)}
+                onClick={() => songs.length > 0 && void runPlayQueueAction('shuffle', shuffleItems(songs), 0)}
                 disabled={songs.length === 0 || isShufflePending}
               >
                 {isShufflePending ? <Loader2 size={16} className="af-spin" /> : <Shuffle size={16} />}

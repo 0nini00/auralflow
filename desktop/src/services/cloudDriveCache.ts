@@ -1,4 +1,5 @@
-import type { MusicInfo } from "@lx/core";
+import { normalizeCloudDriveSongs, normalizeCloudDriveSnapshot, type CloudDriveSnapshot } from "@lx/core";
+export { normalizeCloudDriveSongs, type CloudDriveSnapshot } from "@lx/core";
 import { libraryLoad, librarySave } from "@lx/tauri-bridge";
 
 /**
@@ -21,17 +22,6 @@ export const CLOUD_DRIVE_CACHE_TTL_MS = 10 * 60 * 1000;
 /** 最多保留几个账号的列表：正常用户 1 个，来回切账号也不会把文件无限撑大。 */
 const MAX_ACCOUNTS = 3;
 
-export interface CloudDriveSnapshot {
-  songs: MusicInfo[];
-  count: number;
-  usedBytes?: number;
-  maxBytes?: number;
-  nextOffset: number;
-  hasMore: boolean;
-  /** 写入时刻（毫秒时间戳），用于判断保鲜期。 */
-  cachedAt: number;
-}
-
 interface CacheState {
   version: 1;
   accounts: Record<string, CloudDriveSnapshot>;
@@ -41,50 +31,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function isMusicInfo(value: unknown): value is MusicInfo {
-  if (!isRecord(value)) return false;
-  return (
-    typeof value.source === "string" && value.source.trim().length > 0 &&
-    typeof value.id === "string" && value.id.trim().length > 0 &&
-    typeof value.name === "string" && value.name.trim().length > 0
-  );
-}
-
-/** 只保留结构合法的条目并按 `source:id` 去重：坏一行不该让整份缓存作废，也不该让列表出现重复键。 */
-export function normalizeCloudDriveSongs(value: unknown): MusicInfo[] {
-  if (!Array.isArray(value)) return [];
-  const seen = new Set<string>();
-  const songs: MusicInfo[] = [];
-  for (const item of value) {
-    if (!isMusicInfo(item)) continue;
-    const key = `${item.source}:${item.id}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    songs.push(item);
-  }
-  return songs;
-}
-
-function finiteNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function normalizeSnapshot(value: unknown): CloudDriveSnapshot | null {
-  if (!isRecord(value)) return null;
-  const songs = normalizeCloudDriveSongs(value.songs);
-  const cachedAt = finiteNumber(value.cachedAt);
-  if (songs.length === 0 || cachedAt === undefined) return null;
-  return {
-    songs,
-    count: finiteNumber(value.count) ?? songs.length,
-    usedBytes: finiteNumber(value.usedBytes),
-    maxBytes: finiteNumber(value.maxBytes),
-    nextOffset: finiteNumber(value.nextOffset) ?? songs.length,
-    hasMore: value.hasMore === true,
-    cachedAt,
-  };
-}
-
 function normalizeCache(value: unknown): CacheState {
   if (!isRecord(value) || value.version !== 1 || !isRecord(value.accounts)) {
     return { version: 1, accounts: {} };
@@ -92,7 +38,7 @@ function normalizeCache(value: unknown): CacheState {
   const accounts: Record<string, CloudDriveSnapshot> = {};
   for (const [uid, snapshot] of Object.entries(value.accounts)) {
     if (!uid) continue;
-    const normalized = normalizeSnapshot(snapshot);
+    const normalized = normalizeCloudDriveSnapshot(snapshot);
     if (normalized) accounts[uid] = normalized;
   }
   return { version: 1, accounts };

@@ -10,7 +10,7 @@ import { SongAddMenuButton } from '@/components/SongAddMenuButton';
 import { DownloadQualityButton } from '@/components/DownloadQualityButton';
 import { formatDuration } from '@/lib/utils';
 import { DETAIL_COVER_CSS_SIZE, coverSrc } from '@/utils/imageReferrerPolicy';
-import { fisherYatesShuffle } from '@/utils/shared';
+import { shuffleItems } from '@lx/core';
 import { Calendar, Play, Shuffle, RefreshCw, Clock, Loader2, CornerDownRight, ChevronDown, Check } from 'lucide-react';
 
 /** 菜单与触发器之间的间距 */
@@ -270,7 +270,7 @@ export function DailyRecommendView() {
               </button>
               <button
                 className="af-btn-secondary"
-                onClick={() => daily.length > 0 && runPlayQueueAction('shuffle', fisherYatesShuffle(daily as any), 0)}
+                onClick={() => daily.length > 0 && runPlayQueueAction('shuffle', shuffleItems(daily as any), 0)}
                 disabled={daily.length === 0 || dailyLoading || isShufflePending}
               >
                 {isShufflePending ? <Loader2 size={16} className="af-spin" /> : <Shuffle size={16} />}

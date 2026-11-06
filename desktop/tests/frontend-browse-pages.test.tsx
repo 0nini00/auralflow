@@ -16,6 +16,7 @@ const api = vi.hoisted(() => ({
   accountSongs: vi.fn(), accountRefresh: vi.fn(), subscribe: vi.fn(), remove: vi.fn(),
 }));
 vi.mock('@/services/sources', () => ({ registry: { get: (source: string) => ({
+  id: source,
   supportedSearchTypes: ['song', 'playlist', 'singer', 'album'],
   search: source === 'wy' ? api.wySearch : api.txSearch,
 }) } }));
@@ -169,6 +170,121 @@ describe('搜索分类的成功、警告、空和失败', () => {
 });
 
 describe('搜索请求和缓存身份', () => {
+  it('慢分类和慢来源未完成时，快来源的单曲立即可见', async () => {
+    const slow = deferred<any>();
+    api.wySearch.mockImplementation(async (_q, type) => type === 'song' ? { songs: [song('Fast-song')], hasMore: false } : slow.promise);
+    api.txSearch.mockImplementation(() => slow.promise);
+    await mount('/search?q=progressive');
+    expect(page()).toContain('Fast-song');
+    await act(async () => { slow.resolve({}); });
+  });
+
+  it('只重试当前分类失败的来源，已成功结果不清空、不重发', async () => {
+    api.wySearch.mockImplementation(async (_q, type) => type === 'song' ? { songs: [song('Kept-result')], hasMore: false } : {});
+    api.txSearch.mockImplementation(async (_q, type) => {
+      if (type === 'song') throw new Error('QQ song failed');
+      if (type === 'album') throw new Error('QQ album failed');
+      return {};
+    });
+    await mount('/search?q=retry');
+    await tab('单曲');
+    const recovered = deferred<any>();
+    api.txSearch.mockImplementation((_q, type) => type === 'song' ? recovered.promise : Promise.resolve({}));
+    api.wySearch.mockClear();
+    api.txSearch.mockClear();
+    await click('重试');
+    expect(page()).toContain('Kept-result');
+    expect(api.wySearch).not.toHaveBeenCalled();
+    expect(api.txSearch).toHaveBeenCalledExactlyOnceWith('retry', 'song', 1);
+    await act(async () => { recovered.resolve({ songs: [song('Recovered-result')], hasMore: false }); });
+    expect(page()).toContain('Recovered-result');
+    await tab('专辑');
+    expect(page()).toContain('QQ album failed');
+  });
+
+  it('加载更多发送下一页，去重追加结果且不重查其他分类', async () => {
+    api.wySearch.mockImplementation(async (_q, type, pageNumber) => type === 'song'
+      ? { songs: pageNumber === 1 ? [song('Page-one')] : [song('Page-one'), song('Page-two')], hasMore: pageNumber === 1 }
+      : {});
+    await mount('/search?q=paging');
+    await tab('单曲');
+    api.wySearch.mockClear();
+    api.txSearch.mockClear();
+    await click('加载更多单曲');
+    expect(api.wySearch).toHaveBeenCalledExactlyOnceWith('paging', 'song', 2);
+    expect(api.txSearch).not.toHaveBeenCalled();
+    expect(page()).toContain('Page-one');
+    expect(page()).toContain('Page-two');
+    expect(renderer!.root.findAllByProps({ className: 'af-result-title' }).map(text)).toEqual(['Page-one', 'Page-two']);
+    expect(button('加载更多单曲')).toBeUndefined();
+  });
+
+  it('缓存恢复已加载页，继续请求下一页；TTL 到期重新请求第一页', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1000);
+    api.wySearch.mockImplementation(async (q, type, pageNumber) => type === 'song'
+      ? { songs: [song(`${q}-${pageNumber}`)], hasMore: true }
+      : {});
+    try {
+      await mount('/search?q=alpha');
+      await tab('单曲');
+      await click('加载更多单曲');
+      await go('/search?q=beta');
+      api.wySearch.mockClear();
+      await go('/search?q=alpha');
+      expect(api.wySearch).not.toHaveBeenCalled();
+      expect(page()).toContain('alpha-1');
+      expect(page()).toContain('alpha-2');
+      await click('加载更多单曲');
+      expect(api.wySearch).toHaveBeenCalledExactlyOnceWith('alpha', 'song', 3);
+      await go('/search?q=beta');
+      now.mockReturnValue(1000 + 5 * 60 * 1000);
+      api.wySearch.mockClear();
+      await go('/search?q=alpha');
+      expect(api.wySearch).toHaveBeenCalledWith('alpha', 'song', 1);
+      expect(page()).not.toContain('alpha-3');
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('下一页失败保留第一页，重试仍请求失败页且不重发其他来源', async () => {
+    api.wySearch.mockImplementation(async (_q, type, pageNumber) => {
+      if (type !== 'song') return {};
+      if (pageNumber === 2) throw new Error('page two failed');
+      return { songs: [song('Kept-first-page')], hasMore: true };
+    });
+    await mount('/search?q=paging-error');
+    await tab('单曲');
+    await click('加载更多单曲');
+    expect(page()).toContain('Kept-first-page');
+    expect(page()).toContain('page two failed');
+    api.wySearch.mockClear().mockResolvedValue({ songs: [song('Recovered-second-page')], hasMore: false });
+    api.txSearch.mockClear();
+    await click('重试');
+    expect(api.wySearch).toHaveBeenCalledExactlyOnceWith('paging-error', 'song', 2);
+    expect(api.txSearch).not.toHaveBeenCalled();
+    expect(page()).toContain('Kept-first-page');
+    expect(page()).toContain('Recovered-second-page');
+  });
+
+  it('关键词切换后旧分页成功不得污染新关键词或缓存', async () => {
+    const oldPage = deferred<any>();
+    api.wySearch.mockImplementation((q, type, pageNumber) => type !== 'song' ? Promise.resolve({})
+      : q === 'old' && pageNumber === 2 ? oldPage.promise
+      : Promise.resolve({ songs: [song(`${q}-${pageNumber}`)], hasMore: true }));
+    await mount('/search?q=old');
+    await tab('单曲');
+    await click('加载更多单曲');
+    await go('/search?q=new');
+    await act(async () => { oldPage.resolve({ songs: [song('Old-page-late')], hasMore: false }); });
+    expect(page()).toContain('new-1');
+    expect(page()).not.toContain('Old-page-late');
+    await go('/search?q=old');
+    expect(page()).toContain('old-1');
+    expect(page()).not.toContain('Old-page-late');
+    expect(button('加载更多单曲')).toBeDefined();
+  });
+
   it('部分成功的分类状态随结果缓存恢复，不能丢失警告', async () => {
     api.wySearch.mockImplementation(async (q, type) => q === 'alpha' && type === 'song' ? { songs: [song('Cached-song')] } : {});
     api.txSearch.mockImplementation(async (q, type) => { if (q === 'alpha' && type === 'song') throw new Error('cached warning'); return {}; });

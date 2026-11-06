@@ -9,11 +9,11 @@ import { SongAddMenu } from '@/components/SongAddMenuButton';
 import { DownloadQualityMenu } from '@/components/DownloadQualityButton';
 import { VirtualList } from '@/components/VirtualList';
 import { formatDuration } from '@/lib/utils';
-import { buildImportedPlaylistMarker, fisherYatesShuffle } from '@/utils/shared';
+import { buildImportedPlaylistMarker } from '@/utils/shared';
 import { getPlaylistCover } from '@/utils/playlistCover';
 import { formatPlaylistSearchMeta } from '@/services/neteasePlaylistUtils';
 import { DETAIL_COVER_CSS_SIZE, ROW_COVER_CSS_SIZE, coverSrc } from '@/utils/imageReferrerPolicy';
-import type { MusicInfo, PlaylistInfo, SourceTag } from '@lx/core';
+import { shuffleItems, type MusicInfo, type PlaylistInfo, type SourceTag } from '@lx/core';
 import { Play, Shuffle, Trash2, Clock, Loader2, CornerDownRight, Bookmark, BookmarkCheck, BookmarkX, RefreshCw, LocateFixed, ListPlus, Download } from 'lucide-react';
 
 interface PlaylistSongsRequest {
@@ -267,7 +267,7 @@ export function PlaylistDetailView() {
 
   const handleShufflePlay = () => {
     if (songs.length > 0) {
-      void runPlayQueueAction('shuffle', fisherYatesShuffle(songs), 0);
+      void runPlayQueueAction('shuffle', shuffleItems(songs), 0);
     }
   };
 

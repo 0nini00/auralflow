@@ -1,5 +1,5 @@
 import { loadSettings } from "@lx/tauri-bridge";
-import { CloudDataStaleError, CloudSyncRefusalError, isNumericPlaylistId, isWebdavLocalPlaylistRef, type MusicInfo } from "@lx/core";
+import { buildUserApisSyncFile, parseUserApisSyncFile, type UserApiSyncSource, CloudDataStaleError, CloudSyncRefusalError, isNumericPlaylistId, isWebdavLocalPlaylistRef, type MusicInfo } from "@lx/core";
 import { outboundRequest, type OutboundResponse } from "@/services/outboundHttp";
 import { favoritesPersistence, useFavoritesStore } from "@/stores/favoritesStore";
 import { playlistPersistence, usePlaylistStore, type Playlist } from "@/stores/playlistStore";
@@ -23,28 +23,6 @@ interface WebdavConfig {
   url: string;
   username: string;
   password: string;
-}
-
-interface UserApiInfo {
-  id?: unknown;
-  name?: unknown;
-  description?: unknown;
-  author?: unknown;
-  homepage?: unknown;
-  version?: unknown;
-  allowShowUpdateAlert?: unknown;
-  script?: unknown;
-}
-
-type UserApisSyncData = UserApiInfo[] | {
-  list?: UserApiInfo[];
-  scripts?: Record<string, string>;
-};
-
-interface UserApisSyncFile {
-  version?: string;
-  lastModified?: number;
-  data?: UserApisSyncData;
 }
 
 interface RemotePlaylistItem {
@@ -94,7 +72,6 @@ type WebdavRequestInit = {
   headers?: Record<string, string>;
   body?: string;
 };
-
 
 /** 音源文件与普通同步互不阻塞；同类请求仍串行，防止远端覆盖竞态。 */
 const syncInFlight = new Map<"sources" | "general", Promise<unknown>>();
@@ -276,7 +253,6 @@ function assertCloudNotStale(
   }
 }
 
-
 async function getConfig(): Promise<WebdavConfig | null> {
   const s = await loadSettings();
   const url = (s.webdavUrl ?? "").trim().replace(/\/+$/, "");
@@ -442,25 +418,6 @@ function toMusicList(value: unknown): MusicInfo[] {
   return value.map(toMusicInfo).filter((music): music is MusicInfo => music != null);
 }
 
-function buildUserApisSyncFile(sources: CustomSourceItem[]): UserApisSyncFile {
-  return {
-    version: "2",
-    lastModified: Date.now(),
-    data: sources
-      .filter((source) => typeof source.script === "string" && source.script.trim())
-      .map((source) => ({
-        id: source.id,
-        name: source.name,
-        description: source.description,
-        author: source.author ?? "",
-        homepage: source.homepage ?? "",
-        version: source.version ?? "",
-        allowShowUpdateAlert: source.allowShowUpdateAlert,
-        script: source.script,
-      })),
-  };
-}
-
 async function inflateDesktopScript(script: string): Promise<string> {
   const trimmed = script.trim();
   if (!trimmed.startsWith("gz_")) return script;
@@ -471,7 +428,7 @@ async function inflateDesktopScript(script: string): Promise<string> {
 }
 
 async function convertUserApiToCustomSource(
-  api: UserApiInfo,
+  api: UserApiSyncSource,
   scriptMap: Record<string, string>,
   index: number,
 ): Promise<CustomSourceItem | null> {
@@ -497,20 +454,6 @@ async function convertUserApiToCustomSource(
     createdAt: now,
     updatedAt: now,
   };
-}
-
-async function parseUserApisSyncFile(text: string): Promise<CustomSourceItem[]> {
-  let payload: UserApisSyncFile;
-  try {
-    payload = JSON.parse(text) as UserApisSyncFile;
-  } catch {
-    throw new Error("云端音源文件已损坏或不是有效的 JSON");
-  }
-  const data = payload.data;
-  const apis = Array.isArray(data) ? data : data?.list ?? [];
-  const scripts = Array.isArray(data) ? {} : data?.scripts ?? {};
-  const sources = await Promise.all(apis.map((api, index) => convertUserApiToCustomSource(api, scripts, index)));
-  return sources.filter((source): source is CustomSourceItem => source != null);
 }
 
 function buildPlayHistorySync(
@@ -722,10 +665,10 @@ export async function downloadSourcesSync(options?: { force?: boolean }): Promis
     const localSources = useCustomSourceStore.getState().sources;
     assertCloudNotStale("sources", text, localSources.length, options?.force);
 
-    const customSources = await parseUserApisSyncFile(text);
+    const customSources = await parseUserApisSyncFile(text, convertUserApiToCustomSource);
     operation.assertActive();
-    // 云端文件结构不符（data 缺失 / 为空 / 顶层数组等）会解析成 0 项；此处若整体替换
-    // 会把本地音源清空并写回持久化，随后上传成空。与移动端一致：0 项视为异常直接中止。
+    // 文件没有有效脚本时不能整体替换，否则会清空本地音源并在后续上传空文件。
+    // 与移动端一致：0 项视为异常直接中止。
     if (customSources.length === 0) {
       throw new Error("云端音源缺少有效脚本内容，无法初始化");
     }
