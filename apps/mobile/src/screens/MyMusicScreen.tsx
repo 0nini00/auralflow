@@ -20,7 +20,6 @@ import {
   openSettingsScreen,
 } from "@/navigation/navigationRef";
 import { buildLibraryQuickActions, type LibraryQuickActionType } from "@/services/libraryQuickActions";
-import { SETTINGS_CATEGORY_ICONS } from "@/navigation/settingsRouteModel";
 import { useAccountStore } from "@/stores/accountStore";
 import { useFavoritesStore } from "@/stores/favoritesStore";
 import { reportListeningStatsError, useListeningStatsStore } from "@/stores/listeningStatsStore";
@@ -34,8 +33,8 @@ interface MyMusicScreenProps {
 /**
  * 我的 —— 账号、快捷入口、服务与设置。
  *
- * 2026-10 重构：歌单与收藏已迁到「音乐库」；这里只保留「关于我」的内容，
- * 设置从抽屉搬入，顶部图标与页内「设置」入口都可直达。
+ * 2026-10 重构：歌单与收藏已迁到「音乐库」；这里只保留「关于我」的内容。
+ * 设置只保留顶部齿轮一个入口，页内不再重复放「设置」列表。
  */
 export function MyMusicScreen({ onNavigateToPlayer: _onNavigateToPlayer }: MyMusicScreenProps) {
   const mode = useThemeStore((state) => state.mode);
@@ -183,34 +182,6 @@ export function MyMusicScreen({ onNavigateToPlayer: _onNavigateToPlayer }: MyMus
           />
         </View>
 
-        <SectionHeader title="设置" style={styles.section} />
-        <View style={[styles.settingsCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
-          <SettingsRow
-            icon={SETTINGS_CATEGORY_ICONS.appearance}
-            title="外观"
-            description="主题、强调色与背景"
-            onPress={() => openSettingsScreen("Appearance")}
-          />
-          <SettingsRow
-            icon={SETTINGS_CATEGORY_ICONS.playback}
-            title="播放与音质"
-            description="在线播放与下载的默认音质"
-            onPress={() => openSettingsScreen("Playback")}
-          />
-          <SettingsRow
-            icon={SETTINGS_CATEGORY_ICONS.lyrics}
-            title="歌词与浮窗"
-            description="沉浸歌词、悬浮歌词与字号"
-            onPress={() => openSettingsScreen("Lyrics")}
-          />
-          <SettingsRow
-            icon={Settings}
-            title="全部设置"
-            description="音源、同步、存储与关于"
-            onPress={() => openSettingsScreen()}
-            divider={false}
-          />
-        </View>
       </ScreenScrollView>
     </ScreenScaffold>
   );
