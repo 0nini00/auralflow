@@ -34,6 +34,8 @@ export interface PlaybackActionButtonsProps {
   onLocate?: () => void;
   /** 额外的行动按钮（如「下载全部」），渲染在行尾 */
   extraActions?: PlaybackExtraAction[];
+  /** 紧凑模式：四个动作压在一行，不再出现「三个小按钮 + 一个大按钮」 */
+  dense?: boolean;
   /** 行级样式（独立渲染时控制外边距等） */
   style?: StyleProp<ViewStyle>;
 }
@@ -56,17 +58,19 @@ export function PlaybackActionButtons({
   onShuffle,
   onLocate,
   extraActions = [],
+  dense = false,
   style,
 }: PlaybackActionButtonsProps) {
   if (!show) return null;
 
   return (
-    <View style={[styles.row, style]}>
+    <View style={[styles.row, dense && styles.rowDense, style]}>
       <ActionButton
         label={playAllLabel}
         count={playAllCount}
         variant="brand"
         shrink
+        dense={dense}
         loading={playAllBusy}
         onPress={onPlayAll}
         accessibilityLabel={playAllLabel}
@@ -75,6 +79,7 @@ export function PlaybackActionButtons({
         label={shuffleLabel}
         variant="secondary"
         shrink
+        dense={dense}
         loading={shuffleBusy}
         onPress={onShuffle}
         accessibilityLabel={shuffleLabel}
@@ -83,6 +88,7 @@ export function PlaybackActionButtons({
         label={locateLabel}
         variant="secondary"
         shrink
+        dense={dense}
         disabled={!canLocateCurrentSong}
         onPress={onLocate}
         accessibilityLabel={locateLabel}
@@ -92,6 +98,7 @@ export function PlaybackActionButtons({
           key={action.label}
           label={action.label}
           shrink
+          dense={dense}
           variant={action.variant ?? "secondary"}
           loading={action.loading}
           disabled={action.disabled}
@@ -112,5 +119,8 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     alignItems: "center",
     gap: spacing.xs,
+  },
+  rowDense: {
+    gap: spacing.xxs,
   },
 });

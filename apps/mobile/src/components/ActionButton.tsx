@@ -14,6 +14,8 @@ export interface ActionButtonProps {
   grow?: boolean;
   shrink?: boolean;
   small?: boolean;
+  /** 紧凑排布：允许压到 88dp 以下，用于四个动作挤在一行 */
+  dense?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -29,6 +31,7 @@ export function ActionButton({
   grow = false,
   shrink = false,
   small = false,
+  dense = false,
   style,
 }: ActionButtonProps) {
   const mappedVariant = variant === "danger" ? "danger" : variant;
@@ -36,12 +39,12 @@ export function ActionButton({
     <Button
       label={label}
       variant={mappedVariant}
-      size={small ? "small" : "medium"}
+      size={small || dense ? "small" : "medium"}
       disabled={disabled}
       loading={loading}
       onPress={onPress}
       accessibilityLabel={accessibilityLabel}
-      style={[grow && styles.grow, shrink && styles.shrink, style]}
+      style={[grow && styles.grow, shrink && styles.shrink, dense && styles.dense, style]}
       trailing={count ? <Text style={styles.count}>{count}</Text> : undefined}
     />
   );
@@ -50,5 +53,6 @@ export function ActionButton({
 const styles = {
   grow: { flexGrow: 1 } satisfies ViewStyle,
   shrink: { flexGrow: 1, flexShrink: 1, flexBasis: 0 } satisfies ViewStyle,
+  dense: { minWidth: 0, paddingHorizontal: 10 } satisfies ViewStyle,
   count: { opacity: 0.72 } satisfies ViewStyle,
 };

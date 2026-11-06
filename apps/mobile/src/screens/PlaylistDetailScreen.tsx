@@ -400,6 +400,7 @@ export function PlaylistDetailScreen({
               actions={(!loading || refreshing) && !error ? (
                 <PlaybackActionButtons
                   show={detailActions.show}
+                  dense
                   playAllLabel={detailActions.playAllLabel}
                   shuffleLabel={detailActions.shuffleLabel}
                   locateLabel="定位"
