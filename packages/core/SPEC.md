@@ -17,7 +17,7 @@ tags: [auralflow, shared]
 
   > **历史说明**：本层曾包含 `local-media-match`（本地文件与在线候选的择优判定，`same-recording` / `other-performer` 两档），服务于「为本地曲联网找歌词/封面」。该功能已于 2026-10-20 **整体删除**（见 `auralflow-architecture` §9）：本地曲的歌词只来自文件自身（内嵌标签 / 同目录旁挂 `.lrc` / 用户手写），封面同理，不再联网匹配。`local-media-match.ts` 文件与其 16 条测试已移除，全仓零引用——**不要按「这里还有一个同曲判定」去理解**，现在承担该职责的是 `song-variant`（用于在线源之间的变体识别，不涉及本地文件）。
 - **记什么**：入历史与打点阈值（`history/listen-threshold`）、心动模式缓冲推进（`recommendations/heartbeat-queue`）、WebDAV 加法合并与歌单归类（`webdav-merge`：`isWebdavLocalPlaylistRef` 判 `userList` 的一条记录是本地歌单还是云端歌单引用，`scrubSyncedCloudPlaylistRefs` 清理历史上被误物化成「本地歌单」的云端引用）与同步拒绝的错误层级（`webdav-sync-error`：`CloudSyncRefusalError` / `CloudDataStaleError`）。同步服务与设置页一律按类型判断该拒绝属于哪一种，不匹配错误文案。已下线来源的历史条目清理也在这一层（`removed-source`：`isRemovedSource` / `dropRemovedSourceEntries`，两端在读盘后与同步合并后调用，直接丢弃、不备份）。
-- **算了什么**：听歌统计聚合（`stats/aggregate`：`aggregateListeningStats` 把历史归一成总时长/次数、Top 歌曲与歌手、按天趋势）。两端历史形状不同（桌面是去重的 `MusicInfo[]` + 侧挂播放时间表，移动是 `HistoryEntry{key,song,playedAt}`），所以由各端 store 先产出统一的 `{song, playedAt?}[]` 再调用；**时间未知的条目只进总数与榜单、不进趋势**，两端都不允许伪造播放时间。
+- **算了什么**：听歌统计聚合（`stats/listening-session`：`createListeningSession` / `sampleListeningSession` 采集独立收听会话，`aggregateListeningEvents` 归一成实测总时长 / 会话数、Top 歌曲与歌手、按天趋势）。只累计前台连续推进的时间，跳转 / 暂停 / 缓冲不计入；同一 `sessionId` 的 checkpoint 幂等合并，暂停恢复沿用原会话。两端各自负责会话生命周期与落盘（落盘边界严格解析，坏条目不允许静默解释为空库）；`stats/aggregate` 现在只保留结果类型。
 - **更新与发布相关**：发布说明清洗（`release-notes`：`summarizeReleaseNotes` 把 GitHub 发布正文降成纯文本摘要，丢表格/分隔线/代码块）与 GitHub 加速镜像地址改写（`github-mirror`：`GITHUB_MIRROR_PREFIX` / `isMirrorableGithubUrl` / `toMirroredGithubUrl`，刻意手写解析而不用 `new URL`——RN 的 polyfill 不完整）。两端各自接线：移动端镜像失败回退直连，桌面端的镜像/直连双清单由 `desktop/build-release.ps1` 产出。
 - **能不能连**：出站主机判定（`outbound-host`）、免 key 网关的客户端与响应映射（`mobile-api`）。
 
@@ -36,7 +36,7 @@ tags: [auralflow, shared]
 - 不做 IO：不发请求、不读文件、不读写存储。需要 IO 的能力以依赖注入暴露（`mobile-api` 接收一个 `fetchText`，桌面与移动各自提供实现）。
 - 无构建步骤：`main` / `types` 直接指向 `src/index.ts`，两端经 tsconfig `paths` 消费源码。改完即生效，代价是没有产物隔离——在 core 里引入平台依赖会立刻让两端都编译失败。这是它保持纯净的机制，不是巧合。
 
-**已知的边界瑕疵**（实情，非设计意图）：`sources/custom-source.ts` 里定义了一套更早的 `CustomSourceContext` 契约与 `createCustomSourceProvider` 包装器，两端运行时都未接线，仅作契约保留；`mobile-api.ts` 的 `createRacingBuiltinMusicApiClient` 多网关竞速已就绪但未接线，当前只有单网关客户端。两者都是「活在 core 里但无人使用」的代码——新增功能前先确认是否该复活它们，而不是再写一份。
+**已知的边界瑕疵**（实情，非设计意图）：`mobile-api.ts` 的 `createRacingBuiltinMusicApiClient` 多网关竞速已就绪但未接线，当前只有单网关客户端。新增相关功能前先核对现有实现。旧 `sources/custom-source.ts` 包装器没有生产消费者，已移除；双端运行时仍复用顶层 `custom-source.ts` 的脚本、版本与远程地址工具。
 
 ## 测试
 

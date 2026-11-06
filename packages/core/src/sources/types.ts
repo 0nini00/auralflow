@@ -149,6 +149,7 @@ export interface LyricResult {
 }
 
 export interface SearchResult {
+  hasMore?: boolean;
   songs?: MusicInfo[];
   playlists?: PlaylistInfo[];
   artists?: ArtistInfo[];
