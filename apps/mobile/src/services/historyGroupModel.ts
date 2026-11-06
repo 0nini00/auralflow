@@ -1,9 +1,24 @@
 import type { MusicInfo } from "@lx/core";
+import {
+  DAY_MS,
+  addDays,
+  addMonths,
+  dayStartOf,
+  filterEntriesByDay as filterEntriesByLocalDay,
+  formatHistoryDayTitle,
+  getMonthCalendarDays,
+  groupEntriesByDay,
+  isSameDay,
+  type HistoryCalendarDay,
+} from "@lx/core";
 
 /**
  * 播放历史「分时间记录」模型：
  * - 历史以条目存储（每条含 playedAt），同一天同一首歌只记一条，跨天保留多次播放；
- * - 展示按时间分组：今天 / 昨天 / M月D日（近 7 天）/ YYYY年M月D日（更早）。
+ * - 展示按时间分组：今天 / 昨天 / M月D日（近 7 天）/ YYYY年M月D日（更远）。
+ *
+ * 日期口径（本地日归零、日历加减、今天/昨天标题、月历格子）已上提到 `@lx/core`，
+ * 桌面端与移动端共用同一份实现；这里只保留带 `playedAtSynthetic` 的移动端条目语义。
  */
 
 export interface HistoryEntry {
@@ -29,8 +44,7 @@ export interface HistoryEntry {
 /**
  * 该条目是否带**真实**播放时间。
  * 合成占位时间与非法值（非有限数 / `<= 0`）都算「时间未知」，与桌面端
- * `isUsablePlayedAt`（`desktop/src/stores/historyStore.ts:65`）以及 core
- * `aggregateListeningStats` 的 `toPositiveTimestamp`（`packages/core/src/stats/aggregate.ts:140`）同口径。
+ * `isUsablePlayedAt`（`@lx/core` 的 `history/entries.ts`）同口径。
  */
 export function hasRealPlayedAt(entry: HistoryEntry): boolean {
   return entry.playedAtSynthetic !== true && Number.isFinite(entry.playedAt) && entry.playedAt > 0;
@@ -45,83 +59,15 @@ export function historySongKey(song: Pick<MusicInfo, "source" | "id">): string {
   return `${song.source}:${song.id}`;
 }
 
-function toDateText(date: Date): string {
-  const y = date.getFullYear();
-  const m = `${date.getMonth() + 1}`.padStart(2, "0");
-  const d = `${date.getDate()}`.padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-export function dayStartOf(time: number): number {
-  const date = new Date(time);
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-}
-
-export const DAY_MS = 24 * 60 * 60 * 1000;
+export { DAY_MS, addDays, addMonths, dayStartOf, formatHistoryDayTitle, isSameDay, type HistoryCalendarDay };
 
 /** 按「今天 / 昨天 / 具体日期」对条目分组，保持每组内时间倒序。 */
 export function groupHistoryEntries(entries: HistoryEntry[]): HistoryGroup[] {
-  const todayStart = dayStartOf(Date.now());
-  const groups = new Map<string, HistoryEntry[]>();
-  for (const entry of entries) {
-    const dayStart = dayStartOf(entry.playedAt);
-    const title = formatHistoryDayTitle(dayStart, todayStart);
-    const list = groups.get(title) ?? [];
-    list.push(entry);
-    groups.set(title, list);
-  }
-  return [...groups.entries()].map(([title, list]) => ({
-    title,
-    // 同一标题内按播放时间倒序（entries 已整体倒序，这里防御性再排一次）
-    entries: [...list].sort((a, b) => b.playedAt - a.playedAt),
-  }));
-}
-
-/** 判断两个时间戳是否属于同一天（用于「同一天同一首歌去重」）。 */
-export function isSameDay(a: number, b: number): boolean {
-  return toDateText(new Date(a)) === toDateText(new Date(b));
+  return groupEntriesByDay(entries).map(({ title, entries: grouped }) => ({ title, entries: grouped }));
 }
 
 export function filterEntriesByDay(entries: HistoryEntry[], dayStart: number): HistoryEntry[] {
-  const start = dayStartOf(dayStart);
-  const end = addDays(start, 1);
-  return entries
-    .filter((e) => e.playedAt >= start && e.playedAt < end)
-    .sort((a, b) => b.playedAt - a.playedAt);
-}
-
-/** 使用本地日历日期，夏令时切换日不一定是 24 小时。 */
-export function addDays(dayStart: number, n: number): number {
-  const date = new Date(dayStart);
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + n).getTime();
-}
-
-export function formatHistoryDayTitle(dayStart: number, now = Date.now()): string {
-  const date = new Date(dayStart);
-  const nowDate = new Date(now);
-  const todayStart = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()).getTime();
-
-  if (dayStart === todayStart) {
-    return "今天";
-  } else if (dayStart === addDays(todayStart, -1)) {
-    return "昨天";
-  } else {
-    return date.getFullYear() === nowDate.getFullYear()
-      ? `${date.getMonth() + 1}月${date.getDate()}日`
-      : `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
-  }
-}
-
-/** 月导航从月初计算，避免 31 日切到短月时溢出。 */
-export function addMonths(time: number, n: number): number {
-  const date = new Date(time);
-  return new Date(date.getFullYear(), date.getMonth() + n, 1).getTime();
-}
-
-export interface HistoryCalendarDay {
-  dayStart: number;
-  disabled: boolean;
-  selected: boolean;
+  return filterEntriesByLocalDay(entries, dayStart);
 }
 
 /** 日历只标记真实播放日；合成时间仍按既有规则在历史列表中展示。 */
@@ -131,24 +77,6 @@ export function getHistoryCalendarDays(
   selectedDay: number,
   now = Date.now(),
 ): (HistoryCalendarDay | null)[] {
-  const first = new Date(addMonths(month, 0));
-  const year = first.getFullYear();
-  const monthIndex = first.getMonth();
-  const offset = first.getDay();
-  const dayCount = new Date(year, monthIndex + 1, 0).getDate();
-  const weekLength = 7;
-  const cellCount = Math.ceil((offset + dayCount) / weekLength) * weekLength;
-  const today = dayStartOf(now);
-  const recordedDays = new Set(entries.filter(hasRealPlayedAt).map((entry) => dayStartOf(entry.playedAt)));
-
-  return Array.from({ length: cellCount }, (_, index) => {
-    const day = index - offset + 1;
-    if (day < 1 || day > dayCount) return null;
-    const dayStart = new Date(year, monthIndex, day).getTime();
-    return {
-      dayStart,
-      disabled: dayStart > today || !recordedDays.has(dayStart),
-      selected: dayStart === selectedDay,
-    };
-  });
+  const recordedDays = entries.filter(hasRealPlayedAt).map((entry) => dayStartOf(entry.playedAt));
+  return getMonthCalendarDays(recordedDays, month, selectedDay, now);
 }

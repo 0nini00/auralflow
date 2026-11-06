@@ -8,6 +8,8 @@ const { createLoader, mobileRequire, mobileRoot } = require("./helpers/loadTs.cj
 const model = createLoader({})("src/services/historyGroupModel.ts");
 const paletteModel = createLoader({})("src/services/themePaletteModel.ts");
 const coreVariant = createLoader({})("../../packages/core/src/song-variant.ts");
+// 组件 harness 里的 @lx/core 边界必须是真实 core：否则模型 re-export 的日期函数会变成 undefined。
+const coreModel = createLoader({})("../../packages/core/src/index.ts");
 const local = (year, month, day, hour = 0) => new Date(year, month - 1, day, hour).getTime();
 const entry = (id, playedAt, extra = {}) => ({
   key: `tx:${id}`, song: { id, source: "tx", name: id, singer: "Test", interval: 100 }, playedAt, ...extra,
@@ -133,7 +135,7 @@ function setupUI(t, { mode = "light", width = 390, height = 844, fontScale = 1 }
     "react-native": native,
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 24, bottom: 16, left: 0, right: 0 }) },
     "@react-native-async-storage/async-storage": { getItem: async () => null, setItem: async () => {} },
-    "@lx/core": { ...coreVariant, isPreviewDuration: () => false },
+    "@lx/core": { ...coreModel, ...coreVariant, isPreviewDuration: () => false },
     "lucide-react-native": Object.fromEntries(["ChevronLeft", "ChevronRight", "ChevronDown", "X", "CalendarDays"].map((name) => [name, name])),
   };
   const cache = new Map();

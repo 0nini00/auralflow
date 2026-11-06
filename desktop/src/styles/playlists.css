@@ -269,6 +269,216 @@
   color: var(--af-accent-strong);
 }
 
+/* 播放历史：按天浏览 */
+.af-history-daybar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 6px 8px;
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-md);
+  background: var(--af-bg-secondary);
+}
+
+.af-history-daynav {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.af-history-daystep {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: var(--af-radius-sm);
+  background: transparent;
+  color: var(--af-text-secondary);
+  cursor: pointer;
+}
+
+.af-history-daystep:hover:not(:disabled) {
+  background: var(--af-bg-hover);
+  color: var(--af-text-primary);
+}
+
+.af-history-daystep:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.af-history-daypicker {
+  position: relative;
+}
+
+.af-history-daytitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 132px;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--af-radius-sm);
+  background: transparent;
+  color: var(--af-text-primary);
+  font-size: var(--af-font-size-sm);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.af-history-daytitle:hover,
+.af-history-daytitle[aria-expanded="true"] {
+  border-color: var(--af-border-secondary);
+  background: var(--af-bg-hover);
+}
+
+.af-history-unknown {
+  margin-left: auto;
+  padding: 4px 10px;
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-full);
+  background: transparent;
+  color: var(--af-text-tertiary);
+  font-size: var(--af-font-size-xs);
+  cursor: pointer;
+}
+
+.af-history-unknown:hover,
+.af-history-unknown.is-active {
+  border-color: var(--af-accent-primary);
+  color: var(--af-accent-strong);
+}
+
+.af-history-calendar {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  width: 272px;
+  padding: 12px;
+  border: 1px solid var(--af-border-secondary);
+  border-radius: var(--af-radius-lg);
+  background: var(--af-bg-elevated);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+}
+
+.af-history-calendar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.af-history-calendar-label {
+  color: var(--af-text-primary);
+  font-size: var(--af-font-size-sm);
+  font-weight: 700;
+}
+
+.af-history-calendar-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--af-radius-sm);
+  background: transparent;
+  color: var(--af-text-secondary);
+  cursor: pointer;
+}
+
+.af-history-calendar-nav:hover:not(:disabled) {
+  background: var(--af-bg-hover);
+  color: var(--af-text-primary);
+}
+
+.af-history-calendar-nav:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.af-history-calendar-week,
+.af-history-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.af-history-calendar-week {
+  margin-bottom: 4px;
+  color: var(--af-text-tertiary);
+  font-size: var(--af-font-size-xs);
+  text-align: center;
+}
+
+.af-history-calendar-cell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 0;
+  border: none;
+  border-radius: var(--af-radius-full);
+  background: transparent;
+  color: var(--af-text-secondary);
+  font-size: var(--af-font-size-sm);
+  cursor: pointer;
+}
+
+.af-history-calendar-cell:hover:not(:disabled) {
+  background: var(--af-bg-hover);
+  color: var(--af-text-primary);
+}
+
+.af-history-calendar-cell:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.af-history-calendar-cell.is-selected {
+  background: var(--af-accent-primary);
+  color: var(--af-text-on-accent);
+}
+
+.af-history-calendar-dot {
+  position: absolute;
+  bottom: 4px;
+  width: 3px;
+  height: 3px;
+  border-radius: var(--af-radius-full);
+  background: var(--af-accent-primary);
+}
+
+.af-history-calendar-cell.is-selected .af-history-calendar-dot {
+  background: currentColor;
+}
+
+.af-history-calendar-today {
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px;
+  border: none;
+  border-radius: var(--af-radius-sm);
+  background: var(--af-bg-secondary);
+  color: var(--af-text-secondary);
+  font-size: var(--af-font-size-xs);
+  cursor: pointer;
+}
+
+.af-history-calendar-today:hover {
+  background: var(--af-bg-hover);
+  color: var(--af-text-primary);
+}
+
 .af-quick-content {
   min-width: 0;
   display: flex;

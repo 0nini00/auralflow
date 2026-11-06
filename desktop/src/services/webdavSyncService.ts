@@ -1,9 +1,9 @@
 import { loadSettings } from "@lx/tauri-bridge";
-import { buildUserApisSyncFile, parseUserApisSyncFile, type UserApiSyncSource, CloudDataStaleError, CloudSyncRefusalError, isNumericPlaylistId, isWebdavLocalPlaylistRef, type MusicInfo } from "@lx/core";
+import { buildUserApisSyncFile, parseUserApisSyncFile, type UserApiSyncSource, CloudDataStaleError, CloudSyncRefusalError, historyEntryKey, isNumericPlaylistId, isUsablePlayedAt, isWebdavLocalPlaylistRef, type HistoryEntry, type MusicInfo } from "@lx/core";
 import { outboundRequest, type OutboundResponse } from "@/services/outboundHttp";
 import { favoritesPersistence, useFavoritesStore } from "@/stores/favoritesStore";
 import { playlistPersistence, usePlaylistStore, type Playlist } from "@/stores/playlistStore";
-import { historyPersistence, musicKey, useHistoryStore } from "@/stores/historyStore";
+import { historyPersistence, useHistoryStore } from "@/stores/historyStore";
 import { useWyAccountStore } from "@/stores/wyAccountStore";
 import { customSourceAccess, customSourcePersistence, useCustomSourceStore, type CustomSourceItem } from "@/stores/customSourceStore";
 import { awaitCustomSourceOperation, type CustomSourceOperation } from "@/services/customSourceAccess";
@@ -456,22 +456,18 @@ async function convertUserApiToCustomSource(
   };
 }
 
-function buildPlayHistorySync(
-  history: MusicInfo[],
-  playedAtByKey: Record<string, number>,
-): PlayHistorySyncItem[] {
-  return history
-    .filter((music) => music?.id)
-    .map((music) => {
-      // 只写真实记录过的播放时间；没有就写 0（未知），不编造时间。
-      const recorded = playedAtByKey[musicKey(music)];
-      const playedAt = typeof recorded === "number" && Number.isFinite(recorded) && recorded > 0 ? recorded : 0;
+function buildPlayHistorySync(entries: HistoryEntry[]): PlayHistorySyncItem[] {
+  return entries
+    .filter((entry) => entry?.song?.id)
+    .map(({ song, playedAt }) => {
+      // 只写真实记录过的播放时间；未知写 0，不编造时间（移动端按 `playedAt > 0` 过滤）。
+      const time = isUsablePlayedAt(playedAt) ? playedAt : 0;
       return {
-        id: playedAt > 0 ? `${music.source}_${music.id}_${playedAt}` : `${music.source}_${music.id}`,
-        musicInfo: music,
-        playedAt,
+        id: time > 0 ? `${song.source}_${song.id}_${time}` : `${song.source}_${song.id}`,
+        musicInfo: song,
+        playedAt: time,
         playTime: 0,
-        maxTime: music.interval ?? 0,
+        maxTime: song.interval ?? 0,
         listId: null,
         source: "List",
       } satisfies PlayHistorySyncItem;
@@ -503,44 +499,39 @@ function buildPlaylistsSyncFile(): PlaylistsSyncFile {
         ...cloudRefs,
       ],
     },
-    playHistory: buildPlayHistorySync(
-      useHistoryStore.getState().history,
-      useHistoryStore.getState().playedAtByKey,
-    ),
+    playHistory: buildPlayHistorySync(useHistoryStore.getState().entries),
   };
 }
 
 interface ParsedPlayHistory {
-  history: MusicInfo[];
-  /** 云端条目**真实带了**的播放时间戳（键 = `${source}:${id}`）；缺失 / 0 / 非法的条目不进表 */
-  playedAtByKey: Record<string, number>;
+  /** 云端历史条目（含重复歌曲的不同天记录）；时间未知的 `playedAt` 为 0 */
+  entries: HistoryEntry[];
 }
 
 function parsePlayHistory(value: unknown): ParsedPlayHistory {
-  const history: MusicInfo[] = [];
-  const playedAtByKey: Record<string, number> = {};
-  if (!Array.isArray(value)) return { history, playedAtByKey };
+  const entries: HistoryEntry[] = [];
+  if (!Array.isArray(value)) return { entries };
 
   for (const item of value) {
     const music = isObject(item) && "musicInfo" in item ? toMusicInfo(item.musicInfo) : toMusicInfo(item);
     if (!music) continue;
-    history.push(music);
 
     // 只认正的有限数：0 是「时间未知」哨兵，字段缺失也不补值。
     const playedAt = isObject(item) ? item.playedAt : undefined;
-    if (typeof playedAt === "number" && Number.isFinite(playedAt) && playedAt > 0) {
-      playedAtByKey[musicKey(music)] = playedAt;
-    }
+    entries.push({
+      key: historyEntryKey(music),
+      song: music,
+      playedAt: isUsablePlayedAt(playedAt) ? playedAt : 0,
+    });
   }
-  return { history, playedAtByKey };
+  return { entries };
 }
 
 interface ParsedPlaylistsSyncFile {
   favorites: MusicInfo[];
   playlists: Playlist[];
-  history: MusicInfo[];
-  /** 云端历史里带回来的真实播放时间戳（键 = `${source}:${id}`），供 historyStore 合并 */
-  historyPlayedAt: Record<string, number>;
+  /** 云端历史条目（按天保留），供 historyStore 合并 */
+  historyEntries: HistoryEntry[];
   /** userList 里的云端歌单引用（网易云 / QQ），原样透传不做本地化 */
   cloudRefs: RemotePlaylistItem[];
 }
@@ -594,10 +585,10 @@ function parsePlaylistsSyncFile(text: string): ParsedPlaylistsSyncFile {
     }
   }
 
-  const { history, playedAtByKey: historyPlayedAt } = parsePlayHistory(
+  const { entries: historyEntries } = parsePlayHistory(
     payload.playHistory ?? data.playHistory ?? payload.history ?? data.history,
   );
-  return { favorites, playlists, history, historyPlayedAt, cloudRefs };
+  return { favorites, playlists, historyEntries, cloudRefs };
 }
 
 /** 上传自定义音源到 WebDAV（覆盖远端 user_apis.json）。 */
@@ -739,12 +730,12 @@ export async function downloadPlaylistsSync(options?: { force?: boolean; allowMi
 
     const favorites = useFavoritesStore.getState().favorites;
     const playlists = usePlaylistStore.getState().playlists;
-    const history = useHistoryStore.getState().history;
-    const totalLocal = favorites.length + playlists.length + history.length;
+    const historyEntries = useHistoryStore.getState().entries;
+    const totalLocal = favorites.length + playlists.length + historyEntries.length;
 
     assertCloudNotStale("playlists", text, totalLocal, options?.force);
 
-    writeLocalBackup("playlists", { favorites, playlists, history });
+    writeLocalBackup("playlists", { favorites, playlists, historyEntries });
 
     const parsed = parsePlaylistsSyncFile(text);
     // 云端歌单引用只透传保留，供下次上传写回，避免抹掉移动端的云端歌单与其歌曲快照。
@@ -756,12 +747,12 @@ export async function downloadPlaylistsSync(options?: { force?: boolean; allowMi
     // 合并而非覆盖：本地与远端收藏/歌单/历史并集,保留双端数据不丢失。
     useFavoritesStore.getState().mergeAll(parsed.favorites);
     usePlaylistStore.getState().mergeAll(parsed.playlists);
-    useHistoryStore.getState().mergeAll(parsed.history, parsed.historyPlayedAt);
+    useHistoryStore.getState().mergeAll(parsed.historyEntries);
 
     const remoteLm = extractRemoteLastModified(text) ?? Date.now();
     writeLocalMeta("playlists", {
       lastModified: remoteLm,
-      itemCount: parsed.favorites.length + parsed.playlists.length + parsed.history.length,
+      itemCount: parsed.favorites.length + parsed.playlists.length + parsed.historyEntries.length,
     });
   });
 }

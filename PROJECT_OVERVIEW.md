@@ -73,6 +73,8 @@ flowchart TB
 | `outbound-host.ts` | 315 | SSRF 守卫，与 Rust 双实现契约（49 条 TSV 用例两侧共读）；自行按 RFC 3986 取 host（不信 RN 的 `URL` polyfill），并归一化到客户端实际连接的形式后再比对黑名单 |
 | `mobile-api.ts` | 253 | gdstudio 网关依赖注入传输；`createRacingBuiltinMusicApiClient` 多网关竞速（空数组不视为成功）已就绪但移动端未接线，当前仅单网关客户端 |
 | `history/listen-threshold.ts` | 100 | 入历史 / 打点阈值追踪（默认 120s 或 50%；只累计播放中的连续推进，排除 seek 与暂停造成的虚假进度） |
+| `history/day-groups.ts` | 121 | 历史按天口径唯一实现：本地日归零、日历加减、今天/昨天标题、分组与月历格子；桌面 `HistoryView` 与移动端 `historyGroupModel` 共用 |
+| `history/entries.ts` | 115 | 历史条目模型 `HistoryEntry` 与按天去重：同日同曲只留一条、跨天保留；归一化 / 合并 / 派生唯一歌曲 / 统计入参 |
 | `recommendations/heartbeat-queue.ts` | 97 | 心动模式待播缓冲的补充判定与逐曲推进（batch 播尽时从 buffer 取出并追加） |
 | `stats/aggregate.ts` | 65 | 只保留结果类型（`ListeningStats` / `ListeningStatsTrack` / `ListeningStatsArtist` / `ListeningStatsDay`）。聚合实现已迁到 `stats/listening-session.ts`；旧的 `aggregateListeningStats` 已删除，不要再按「两套聚合口径」理解 |
 | `cover-image.ts` | 149 | 缩略图处理 |
@@ -98,6 +100,7 @@ Tauri v2 + React 18.3.1 + Vite 5，提供原生 OS 交互体验。
 |---|---|---|
 | Rust 后端 | 系统级任务，46 IPC 命令 | `outbound.rs`（SSRF + 每跳验证 ≤10）、`lyric_window.rs`（794 行 独立透明窗口：锁定=鼠标穿透+150ms 光标轮询+悬停解锁小窗，置顶 1.5s 巡检 + token/epoch 防竞态）、`local_audio.rs`（walkdir + audiotags/lofty 双库；`set_audio_cover` 按字节魔数校验图片，与手动封面落盘共用同一张表）、`media_cache.rs`（两层：song-audio 2GiB、song-covers 512MiB，命中刷新 mtime 因此是真 LRU；另有启动时的容量守卫 `sweep_caches`）、`downloads.rs`（流式 + 取消 + 180ms 节流 + 2GiB 上限 + `write_download_text_file` 写旁挂 lrc 文本；**音频标签不在 Rust 侧**——下载完成后由前端另调 `set_audio_metadata` / `set_audio_lyrics` / `set_audio_cover`）、`tray.rs`、`logging.rs`（`tauri-plugin-log` 落盘到 `app_log_dir()`，2 MiB×3 轮转）、`smtc.rs`（Windows 系统媒体控制：媒体键 / 媒体浮层 / 锁屏，封面走内存流）、`taskbar.rs`（任务栏缩略图三按钮——用封面替换预览已于 2026-10-09 退役，`SetWindowSubclass` 子类化，全程 fail-soft） |
 | React 前端 | UI 与业务 | `playerEngine.ts`（425 行 HTMLAudio + rAF + 500ms 纠偏 + 余弦淡入淡出 90/140ms fadeToken + 外部暂停 500ms 保护窗；进度经 `stores/playerPersistence.ts` 每 10s 刻度落盘、启动后由 `stores/playerResumeTarget.ts` 交给引擎续播，跨窗口由 `stores/playerSync.ts` 经 BroadcastChannel + Tauri 事件同步）、`customSourceRuntime.ts`（1112 行 new Function 参数遮蔽，非沙箱——脚本在本 WebView 全权执行 + LRU(8) + HTTP 代理 Rust；能力白名单只有 `musicUrl`（kg/tx/wy），`local` 另有 `lyric`/`pic`）、`webdavSyncService.ts`（865 行 同步锁 + 冲突检测）、`wyAccountService.ts`（694 行 weapi/eapi——`wyProvider.ts` 内另有一份 eapiEncrypt——+ 扫码/Cookie 登录，Cookie 经 Rust DPAPI 加密落盘） |
+| 播放历史 | 按天条目 + 单日视图 | `stores/historyStore.ts`（`entries` 为真相源，同 `key + 本地日` 去重；`history` 是派生的唯一歌曲列表，仅供最近播放封面/计数）；`views/HistoryView.tsx` 顶部 `‹ 日期 ›` + `HistoryCalendar` 日历弹层，日期口径来自 `@lx/core` 的 `history/day-groups` |
 | 缓存 | 播放 URL / 歌词持久索引 | `persistentCache.ts`（URL 6h / 本地 365d / 歌词 30d / 空结果 7d，LRU 500/1000 条） |
 | 导航 | 19 路由 BrowserRouter v6 | 首页(index) / search / library→收藏歌单重定向 / local / playlists / downloads / history / stats / playlist/:id / artist/:id / album/:id / daily / cloud / charts / playlist-square / fm / settings / *(兜底重定向) |
 | 视觉 | 玻璃拟态 | `--af-*` CSS 变量 + `backdrop-filter`、`ImmersiveLyricsOverlay`（纯 CSS/DOM 逐字卡拉 OK：clip-path/背景渐变） |
@@ -145,7 +148,7 @@ React Native 0.86 + React 19.2.3，面向 Android（minSdk 24）。
 
 ### 6. WebDAV 加法合并
 
-`webdav-merge.ts` 是纯函数、无副作用、可单测。合并规则：收藏按 `source:id` 去重取并集；本地歌单同名 id 按 `updatedAt` 新者胜、歌曲保留并集；云端引用歌单按 id 并集保留较新者；播放历史并集按顺序截断上限。**删除不传播**——本地有而远端无的实体保留本地版本。远端布局：新根 `/AuralFlow/`（读时回退旧根 `/LX_Music/`），`playlists.json`（v3）+ `user_apis.json`（v2），桌面脚本以 `gz_` 前缀压缩互通。
+`webdav-merge.ts` 是纯函数、无副作用、可单测。合并规则：收藏按 `source:id` 去重取并集；本地歌单同名 id 按 `updatedAt` 新者胜、歌曲保留并集；云端引用歌单按 id 并集保留较新者；播放历史按 `key + 本地日` 求并集（同曲不同天各自保留）后截断上限。**删除不传播**——本地有而远端无的实体保留本地版本。远端布局：新根 `/AuralFlow/`（读时回退旧根 `/LX_Music/`），`playlists.json`（v3）+ `user_apis.json`（v2），桌面脚本以 `gz_` 前缀压缩互通。
 
 **防「用云端覆盖更新本地」的守卫是 fail-closed 的**：`assertCloudNotStale` 在无法确认云端更新时间（`lastModified` 缺失 / 无法解析）时中止，而不是静默放行；`sources` 因下载是整体替换（`replaceAll`），在本地缺少同步标记时同样中止；`playlists` 因下载是加法合并、不丢本地实体，此时放行以避免每次全新安装都被拦。云端解析出 0 项音源一律中止（否则会用空文件清空本地音源）。其余防线：本地备份 + PUT 成功后才写 meta。
 

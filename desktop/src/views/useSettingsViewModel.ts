@@ -328,7 +328,7 @@ const handleClearPlaybackHistory = async () => {
   setDataPending(true);
   try {
     await libraryReset("recent");
-    useHistoryStore.getState().replaceAll([]);
+    useHistoryStore.getState().clear();
     setDataStatus("已清空播放历史。");
   } catch (err) {
     setDataStatus(`清理失败：${err instanceof Error ? err.message : String(err)}`);

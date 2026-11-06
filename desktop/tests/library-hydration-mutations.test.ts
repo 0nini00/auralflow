@@ -84,6 +84,7 @@ it('历史写入和新建歌单在读盘完成后仍保留已有数据', async (
   loads.get('playlists')!({ playlists: [existing] });
   await Promise.all([historyPersistence.ready, playlistPersistence.ready]);
   expect(useHistoryStore.getState().history).toEqual([b, a]);
-  expect(useHistoryStore.getState().playedAtByKey['wy:a']).toBe(1);
+  const legacy = useHistoryStore.getState().entries.find((entry) => entry.key === 'wy:a');
+  expect(legacy?.playedAt).toBe(1);
   expect(usePlaylistStore.getState().playlists).toEqual([existing, created]);
 });
