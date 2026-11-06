@@ -11,6 +11,7 @@ import {
 } from "@lx/core";
 import { useAccountStore } from "./accountStore";
 import { LatestRequestGate } from "@/services/latestRequestGate";
+import { isOwnedWyPlaylist } from "@/services/wyPlaylistOwnership";
 import { createSerialTaskQueue } from "@/utils/serialTaskQueue";
 import type { CreateLocalPlaylistInput, CreateLocalPlaylistWithSongInput, CreateLocalPlaylistWithSongsInput, LocalPlaylist } from "../services/localPlaylistModel";
 import {
@@ -41,6 +42,8 @@ import {
 
 export interface PlaylistState {
   playlists: WyPlaylistInfo[];
+  playlistsLoading: boolean;
+  playlistsError: string | null;
   currentPlaylist: WyPlaylistInfo | null;
   currentPlaylistSongs: MusicInfo[];
   localPlaylists: LocalPlaylist[];
@@ -48,8 +51,10 @@ export interface PlaylistState {
   error: string | null;
 }
 
+export type FetchPlaylistsResult = { ok: true } | { ok: false; error: string };
+
 interface PlaylistActions {
-  fetchPlaylists: (userId: string) => Promise<void>;
+  fetchPlaylists: (userId: string) => Promise<FetchPlaylistsResult>;
   /** 新建网易云自建歌单成功后刷新歌单列表。 */
   createWyPlaylist: (name: string, description?: string) => Promise<void>;
   /** 编辑网易云自建歌单（名称/简介），成功后更新本地歌单缓存。 */
@@ -177,6 +182,7 @@ const playlistDetailRequestGate = new LatestRequestGate();
 
 export const usePlaylistStore = create<PlaylistStore>((set, get) => {
   const enqueue = createSerialTaskQueue();
+  const playlistListRequestGate = new LatestRequestGate();
   let hydrated = false;
 
   async function hydrateLocalPlaylists(): Promise<void> {
@@ -210,6 +216,8 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => {
 
   return ({
   playlists: [],
+  playlistsLoading: false,
+  playlistsError: null,
   currentPlaylist: null,
   currentPlaylistSongs: [],
   localPlaylists: [],
@@ -217,42 +225,54 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => {
   error: null,
 
   fetchPlaylists: async (userId: string) => {
-    set({ loading: true, error: null });
+    const matchesAccount = () => {
+      const account = useAccountStore.getState();
+      return account.isLoggedIn && account.user?.userId === userId;
+    };
+    if (!matchesAccount()) return { ok: false, error: "网易云账号已变更，请重新加载歌单" };
+    const requestId = playlistListRequestGate.begin();
+    const isCurrent = () => playlistListRequestGate.isCurrent(requestId) && matchesAccount();
+    set({ playlistsLoading: true, playlistsError: null });
     try {
       const playlists = await getUserPlaylists(userId);
-      set({ playlists, loading: false });
+      if (!isCurrent()) return { ok: false, error: "歌单请求已失效，请重试" };
+      set({ playlists });
+      return { ok: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : "获取歌单失败";
-      set({ error: message, loading: false });
+      if (isCurrent()) set({ playlistsError: message });
+      return { ok: false, error: message };
+    } finally {
+      if (playlistListRequestGate.isCurrent(requestId)) set({ playlistsLoading: false });
     }
   },
 
   createWyPlaylist: async (name, description) => {
-    set({ loading: true, error: null });
+    set({ playlistsLoading: true, playlistsError: null });
     try {
       await createWyPlaylistApi(name, { description });
       const { user } = useAccountStore.getState();
       if (user) {
         const playlists = await getUserPlaylists(user.userId);
-        set({ playlists, loading: false });
+        set({ playlists, playlistsLoading: false });
       } else {
-        set({ loading: false });
+        set({ playlistsLoading: false });
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "创建歌单失败";
-      set({ error: message, loading: false });
+      set({ playlistsError: message, playlistsLoading: false });
       throw error;
     }
   },
 
   updateWyPlaylistInfo: async (playlistId, changes) => {
-    set({ loading: true, error: null });
+    set({ playlistsLoading: true, playlistsError: null });
     try {
       await updateWyPlaylistInfoApi(playlistId, changes);
       // 成功后本地乐观更新缓存字段。
       set((state) => ({
-        loading: false,
-        error: null,
+        playlistsLoading: false,
+        playlistsError: null,
         playlists: state.playlists.map((pl) =>
           pl.id === playlistId && pl.source === "wy"
             ? {
@@ -265,24 +285,24 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => {
       }));
     } catch (error) {
       const message = error instanceof Error ? error.message : "编辑歌单失败";
-      set({ error: message, loading: false });
+      set({ playlistsError: message, playlistsLoading: false });
       throw error;
     }
   },
 
   deleteWyPlaylist: async (playlistId) => {
-    set({ loading: true, error: null });
+    set({ playlistsLoading: true, playlistsError: null });
     try {
       await deleteWyPlaylistApi(playlistId);
       // 删除成功后从本地列表移除。
       set((state) => ({
-        loading: false,
-        error: null,
+        playlistsLoading: false,
+        playlistsError: null,
         playlists: state.playlists.filter((pl) => !(pl.id === playlistId && pl.source === "wy")),
       }));
     } catch (error) {
       const message = error instanceof Error ? error.message : "删除歌单失败";
-      set({ error: message, loading: false });
+      set({ playlistsError: message, playlistsLoading: false });
       throw error;
     }
   },
@@ -348,10 +368,14 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => {
   },
 
   clearPlaylists: () => {
+    playlistListRequestGate.invalidate();
     set({
       playlists: [],
+      playlistsLoading: false,
+      playlistsError: null,
       currentPlaylist: null,
       currentPlaylistSongs: [],
+      loading: false,
     });
   },
 
@@ -401,8 +425,9 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => {
       if (!target) {
         throw new Error("网易云歌单不存在");
       }
-      if (target.subscribed === true) {
-        throw new Error("收藏歌单不支持添加歌曲");
+      const account = useAccountStore.getState();
+      if (!isOwnedWyPlaylist(target, account.isLoggedIn ? account.user?.userId : undefined)) {
+        throw new Error("只能向当前账号创建的网易云歌单添加歌曲");
       }
 
       await addPlaylistTracks(playlistId, [String(song.id)]);
@@ -442,8 +467,9 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => {
       if (!target) {
         throw new Error("网易云歌单不存在");
       }
-      if (target.subscribed === true) {
-        throw new Error("收藏歌单不支持删除歌曲");
+      const account = useAccountStore.getState();
+      if (!isOwnedWyPlaylist(target, account.isLoggedIn ? account.user?.userId : undefined)) {
+        throw new Error("只能从当前账号创建的网易云歌单删除歌曲");
       }
 
       await removePlaylistTracks(playlistId, [String(song.id)]);

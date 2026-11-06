@@ -2,6 +2,7 @@ import type { MusicInfo } from "@lx/core";
 import type { LocalPlaylist } from "./localPlaylistModel";
 import { getLocalPlaylistTrackCount, resolveLocalPlaylistCover } from "./localPlaylistModel";
 import type { WyPlaylistInfo } from "./wyPlaylistService";
+import { isOwnedWyPlaylist } from "./wyPlaylistOwnership";
 
 export interface LocalPlaylistSongOption {
   id: string;
@@ -45,11 +46,12 @@ export function getAddToLocalPlaylistEmptyText(options: LocalPlaylistSongOption[
 export function buildOwnedWyPlaylistSongOptions(
   playlists: WyPlaylistInfo[],
   song: Pick<MusicInfo, "source" | "id">,
+  userId: string | undefined,
 ): WyPlaylistSongOption[] {
   if (song.source !== "wy") return [];
 
   return playlists
-    .filter((playlist) => playlist.source === "wy" && playlist.subscribed !== true)
+    .filter((playlist) => isOwnedWyPlaylist(playlist, userId))
     .map((playlist) => ({
       id: playlist.id,
       name: playlist.name,

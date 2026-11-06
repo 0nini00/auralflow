@@ -366,9 +366,10 @@ async function manipulatePlaylistTracks(
     imme: "true",
   });
 
-  let data = await postWyWeapi("/playlist/manipulate/tracks", buildPayload(ids), cookie);
+  // 歌曲增删保留登录会话形态，与桌面端一致。
+  let data = await postWyWeapi("/playlist/manipulate/tracks", buildPayload(ids), cookie, { pcCookie: false });
   if (op === "add" && data.code === 512) {
-    data = await postWyWeapi("/playlist/manipulate/tracks", buildPayload([...ids, ...ids]), cookie);
+    data = await postWyWeapi("/playlist/manipulate/tracks", buildPayload([...ids, ...ids]), cookie, { pcCookie: false });
   }
   if (data.code !== 200 && data.code !== 201) {
     throw new Error(String(data.message || "网易云歌单歌曲操作失败"));

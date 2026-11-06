@@ -16,9 +16,9 @@ import { Check, Cloud, FolderHeart, ListMusic, Plus, X } from "lucide-react-nati
 import type { MusicInfo } from "@lx/core";
 
 import { CachedImage } from "@/components/CachedImage";
+import { useWyPlaylistSongOptions } from "@/hooks/useWyPlaylistSongOptions";
 import { resolveLocalPlaylistCover } from "@/services/localPlaylistModel";
 import {
-  buildOwnedWyPlaylistSongOptions,
   buildLocalPlaylistSongOptions,
   getAddToWyPlaylistEmptyText,
   getAddToLocalPlaylistEmptyText,
@@ -51,7 +51,6 @@ export function AddToLocalPlaylistModal({
   const { height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
-  const playlists = usePlaylistStore((state) => state.playlists);
   const localPlaylists = usePlaylistStore((state) => state.localPlaylists);
   const addSongsToLocalPlaylist = usePlaylistStore((state) => state.addSongsToLocalPlaylist);
   const addSongToWyPlaylist = usePlaylistStore((state) => state.addSongToWyPlaylist);
@@ -80,12 +79,17 @@ export function AddToLocalPlaylistModal({
   }, [localPlaylists, primarySong, targetSongs]);
 
   const emptyText = targetSongs.length === 0 ? "没有可添加的歌曲" : getAddToLocalPlaylistEmptyText(options);
-  const wyOptions = useMemo(
-    () => (targetSongs.length === 1 && primarySong ? buildOwnedWyPlaylistSongOptions(playlists, primarySong) : []),
-    [playlists, primarySong, targetSongs.length],
-  );
+  const {
+    options: wyOptions,
+    loading: wyLoading,
+    error: wyError,
+    loginRequired: wyLoginRequired,
+    retry: retryWyPlaylists,
+  } = useWyPlaylistSongOptions({ visible, song: primarySong, songCount: targetSongs.length });
   const wyEmptyText = targetSongs.length > 1
     ? "批量收藏仅支持本地歌单"
+    : wyLoginRequired
+    ? "登录网易云后可添加到自建歌单"
     : primarySong
     ? getAddToWyPlaylistEmptyText(wyOptions, primarySong)
     : "没有可添加的歌曲";
@@ -379,7 +383,24 @@ export function AddToLocalPlaylistModal({
               <Text style={[styles.sectionTitle, { color: palette.text }]}>网易云自建歌单</Text>
             </View>
 
-            {wyEmptyText ? (
+            {wyLoading ? (
+              <View style={styles.emptyContainer}>
+                <ActivityIndicator color={palette.primaryInk} size="small" />
+                <Text style={[styles.emptyText, { color: palette.textMuted }]}>正在加载网易云歌单</Text>
+              </View>
+            ) : wyError ? (
+              <View style={styles.emptyContainer}>
+                <Text style={[styles.emptyText, { color: palette.textMuted }]}>{wyError}</Text>
+                <Touchable
+                  onPress={retryWyPlaylists}
+                  accessibilityRole="button"
+                  accessibilityLabel="重试加载网易云歌单"
+                  style={styles.retryButton}
+                >
+                  <Text style={[styles.badgeAddAction, { color: palette.primaryInk }]}>点击重试</Text>
+                </Touchable>
+              </View>
+            ) : wyEmptyText ? (
               <View style={styles.emptyContainer}>
                 <Text style={[styles.emptyText, { color: palette.textMuted }]}>
                   {wyEmptyText}
@@ -628,5 +649,10 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: typography.caption,
+  },
+  retryButton: {
+    marginTop: spacing.s,
+    minHeight: 44,
+    justifyContent: "center",
   },
 });

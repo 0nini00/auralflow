@@ -1,4 +1,5 @@
 import type { WyPlaylistInfo } from "./wyPlaylistService";
+import { isOwnedWyPlaylist } from "./wyPlaylistOwnership";
 
 export interface WyPlaylistGroup {
   key: "owned" | "collected";
@@ -13,15 +14,10 @@ export function buildWyPlaylistGroups(
   userId: string | undefined,
   likedPlaylistId: string | undefined,
 ): WyPlaylistGroup[] {
-  const owned = userId
-    ? playlists.filter(
-        (playlist) =>
-          playlist.id !== likedPlaylistId &&
-          playlist.subscribed !== true &&
-          playlist.creator?.userId === userId,
-      )
-    : [];
-  const collected = playlists.filter((playlist) => playlist.subscribed === true);
+  const owned = playlists.filter(
+    (playlist) => playlist.id !== likedPlaylistId && isOwnedWyPlaylist(playlist, userId),
+  );
+  const collected = playlists.filter((playlist) => playlist.source === "wy" && playlist.subscribed === true);
 
   return [
     {

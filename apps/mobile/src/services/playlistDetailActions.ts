@@ -1,4 +1,5 @@
 import type { MusicInfo } from "@lx/core";
+import { isOwnedWyPlaylist, type WyPlaylistOwnership } from "./wyPlaylistOwnership";
 
 export interface PlaylistDetailActionsModel {
   show: boolean;
@@ -10,13 +11,13 @@ export interface PlaylistDetailActionInput {
   source?: string;
 }
 
-export interface PlaylistDetailRemoveInput {
-  source?: string;
-  subscribed?: boolean;
-}
+export type PlaylistDetailRemoveInput = WyPlaylistOwnership;
 
-export function canRemoveSongsFromPlaylistDetail(input: PlaylistDetailRemoveInput): boolean {
-  return input.source === "wy" && input.subscribed === false;
+export function canRemoveSongsFromPlaylistDetail(
+  input: PlaylistDetailRemoveInput,
+  userId: string | undefined,
+): boolean {
+  return isOwnedWyPlaylist(input, userId);
 }
 
 export function buildPlaylistDetailActions(

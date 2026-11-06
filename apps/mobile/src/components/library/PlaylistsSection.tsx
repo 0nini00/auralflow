@@ -59,8 +59,8 @@ export function PlaylistsSection() {
   const user = useAccountStore((state) => state.user);
 
   const playlists = usePlaylistStore((state) => state.playlists);
-  const playlistsLoading = usePlaylistStore((state) => state.loading);
-  const playlistsError = usePlaylistStore((state) => state.error);
+  const playlistsLoading = usePlaylistStore((state) => state.playlistsLoading);
+  const playlistsError = usePlaylistStore((state) => state.playlistsError);
   const localPlaylists = usePlaylistStore((state) => state.localPlaylists);
   const fetchPlaylists = usePlaylistStore((state) => state.fetchPlaylists);
   const loadLocalPlaylists = usePlaylistStore((state) => state.loadLocalPlaylists);
