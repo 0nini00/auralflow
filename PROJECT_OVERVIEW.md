@@ -10,13 +10,13 @@ parent: auralflow-goal
 
 AuralFlow 是基于 TypeScript 与 Rust 构建的双端音乐播放器。桌面端与移动端通过 `@lx/core` 复用平台无关的领域模型与纯逻辑，同时分别维护各自的播放引擎、状态编排、网络适配与系统集成。
 
-> pnpm monorepo · 4 个 workspace 包 · 版本 0.10.9（桌面与 Android 同步） · 仓库 https://github.com/0nini00/auralflow.git · 本文数字为 2026-11-04 实测（`wc -l`，含空行；每次改动模块或测试后请同步更新，见 §9「文档维护约定」）
+> pnpm monorepo · 4 个 workspace 包 · 版本 0.10.9（桌面与 Android 同步） · 仓库 https://github.com/0nini00/auralflow.git · 本文数字为 2026-11-06 实测（`wc -l`，含空行；每次改动模块或测试后请同步更新，见 §9「文档维护约定」）
 
 ## 架构分层
 
 ```mermaid
 flowchart TB
-    subgraph Core["@lx/core（packages/core · 58 文件 7732 行 TS · 无构建）"]
+    subgraph Core["@lx/core（packages/core · 70 文件 7771 行 TS · 无构建）"]
         C1[sources/ 源注册与领域模型]
         C2[lyrics/ 解析 · 行定位 · 浮窗时钟]
         C3[playback-quality 质量排序唯一真相源]
@@ -30,7 +30,7 @@ flowchart TB
         D1[React 18.3.1 前端<br/>19 路由 BrowserRouter v6<br/>16 个持有状态的 Zustand store]
         D2[playerEngine.ts 425 行<br/>HTMLAudio + rAF + 余弦淡入淡出]
         D3[customSourceRuntime.ts 1112 行<br/>new Function 参数遮蔽（非沙箱）+ LRU(8) + HTTP 代理]
-        D4[Rust 后端 25 文件 7569 行<br/>38 IPC 命令]
+        D4[Rust 后端 27 文件 8865 行<br/>46 IPC 命令]
         D5["@lx/tauri-bridge IPC 桥 425 行"]
     end
 
@@ -39,7 +39,7 @@ flowchart TB
         M2[playerStore.ts 1268 行<br/>静音间隙技巧（15s 静音占位轨）]
         M3[playbackService.ts<br/>RNTP 后台 PlaybackActiveTrackChanged]
         M4[19 个持有状态的 Zustand store<br/>Drawer > NativeStack > BottomTabs]
-        M5[Android 原生 17 Java + 2 Kotlin 3740 行<br/>11 个注册原生模块 + lx_bridge 脚本沙箱]
+        M5[Android 原生 19 Java + 2 Kotlin 3963 行<br/>11 个注册原生模块 + lx_bridge 脚本沙箱]
     end
 
     Core --> Desktop
@@ -74,7 +74,7 @@ flowchart TB
 | `mobile-api.ts` | 253 | gdstudio 网关依赖注入传输；`createRacingBuiltinMusicApiClient` 多网关竞速（空数组不视为成功）已就绪但移动端未接线，当前仅单网关客户端 |
 | `history/listen-threshold.ts` | 100 | 入历史 / 打点阈值追踪（默认 120s 或 50%；只累计播放中的连续推进，排除 seek 与暂停造成的虚假进度） |
 | `recommendations/heartbeat-queue.ts` | 97 | 心动模式待播缓冲的补充判定与逐曲推进（batch 播尽时从 buffer 取出并追加） |
-| `stats/aggregate.ts` | 270 | 听歌统计聚合（`aggregateListeningStats`）：总时长 / 次数 / Top 歌曲与歌手 / 按天趋势；按宿主本地日历日归组，时间未知的条目只进总数与榜单、不进趋势 |
+| `stats/aggregate.ts` | 65 | 只保留结果类型（`ListeningStats` / `ListeningStatsTrack` / `ListeningStatsArtist` / `ListeningStatsDay`）。聚合实现已迁到 `stats/listening-session.ts`；旧的 `aggregateListeningStats` 已删除，不要再按「两套聚合口径」理解 |
 | `cover-image.ts` | 149 | 缩略图处理 |
 | `switch-step-queue.ts` | 57 | 连点合并 |
 | `playlist-link.ts` | 39 | 歌单分享链接解析 |
@@ -82,11 +82,11 @@ flowchart TB
 | `github-mirror.ts` | 61 | GitHub 加速镜像地址改写（刻意手写解析而不用 `new URL`，RN 的 polyfill 不完整） |
 | `removed-source.ts` | 57 | 已下线来源的历史条目清理（`isRemovedSource` / `dropRemovedSourceEntries`） |
 
-合计 58 文件 6885 行（35 个模块文件 + 23 个测试文件；另含 5 个 barrel：`index.ts` / `lyrics/index.ts` / `sources/index.ts` / `history/index.ts` / `recommendations/index.ts`）。
+合计 70 文件 7771 行（42 个模块文件 + 28 个测试文件；另含 5 个 barrel：`index.ts` / `lyrics/index.ts` / `sources/index.ts` / `history/index.ts` / `recommendations/index.ts`）。
 
 `@lx/core` 独立于 UI 框架与平台运行时，**无构建步骤**（`main` / `types` 直接指向 `src/index.ts`）。播放队列、播放状态、缓存 IO、自定义音源运行时（桌面同 WebView 非沙箱执行、移动端隐藏 WebView）、平台网络请求仍由双端分别实现。跨源匹配与搜索结果合并去重曾位于 `sources/resolver.ts`，f91c469 判定其解析链不可达后删除，该职责现由双端各自实现。
 
-带自动化测试的是两侧，而非只有一个包：JS/TS 侧 `pnpm test:core`（vitest 3.2.4，23 个测试文件 293 例，逐文件条数以 `pnpm test:core` 输出为准）；Rust 侧 `pnpm test:rust`（74 个 `#[test]`，分布在 11 个文件——`window_state.rs` 13 / `commands/local_audio.rs` 11 / `smtc.rs` 9 / `taskbar.rs` 9 / `secret_store.rs` 6 / `audio_session.rs` 5 / `logging.rs` 5 / `outbound.rs` 5 / `models.rs` 3 / `commands/media_cache.rs` 3 / `main.rs` 1）。其中 `outbound-host.test.ts` 锚定「guard 判定的 host 必须等于真实请求的 host」这一不变量——用 Node 的 WHATWG `URL` 作参照物做差分断言；`outbound-host.test.ts` 与 `outbound.rs` 另外**共读同一份跨端清单** `packages/core/outbound-host.cases.tsv`（49 条 URL，两侧各断言一遍），补上了「同一批 URL 两边结论相同」这条此前缺失的校验；`main.rs` 的 `launch_contract_tests` 钉住 AUMID 与 `tauri.conf.json` 的一致性（identifier 与主窗 `additionalBrowserArgs` 必须逐字相同）；`webdav-sync-error.test.ts` 锚定同步拒绝的类型层级（两个错误类的 instanceof 关系），因为自动同步正是靠它决定吞掉哪一种拒绝。根目录 `pnpm test:all` 串起「双端类型检查 + 双端 lint + 两侧测试」，`.github/workflows/ci.yml` 在 CI 里跑同一批命令，外加 `assembleDebug`（Rust 任务必须 windows runner：`smtc.rs` / `taskbar.rs` / `audio_session.rs` / `secret_store.rs` 的测试都依赖 Windows API）。**两端另有各自的套件**：桌面前端 `pnpm test:desktop`（vitest，默认 `environment: node`，其中 9 个文件用 `@vitest-environment jsdom` 逐文件覆盖；72 个文件 584 例）、移动端 `pnpm mobile:test`（`node --test`，36 个文件 585 例，其中两个文件会用真 `javac` + jaudiotagger + `ffmpeg` 编译并运行原生源码片段）。真正依赖真机运行时的行为仍只有类型检查、lint 与真机手测。
+带自动化测试的是两侧，而非只有一个包：JS/TS 侧 `pnpm test:core`（vitest 3.2.4，28 个测试文件 297 例，逐文件条数以 `pnpm test:core` 输出为准）；Rust 侧 `pnpm test:rust`（98 个 `#[test]`，分布在 11 个文件（逐文件条数以 `pnpm test:rust` 输出为准））。其中 `outbound-host.test.ts` 锚定「guard 判定的 host 必须等于真实请求的 host」这一不变量——用 Node 的 WHATWG `URL` 作参照物做差分断言；`outbound-host.test.ts` 与 `outbound.rs` 另外**共读同一份跨端清单** `packages/core/outbound-host.cases.tsv`（49 条 URL，两侧各断言一遍），补上了「同一批 URL 两边结论相同」这条此前缺失的校验；`main.rs` 的 `launch_contract_tests` 钉住 AUMID 与 `tauri.conf.json` 的一致性（identifier 与主窗 `additionalBrowserArgs` 必须逐字相同）；`webdav-sync-error.test.ts` 锚定同步拒绝的类型层级（两个错误类的 instanceof 关系），因为自动同步正是靠它决定吞掉哪一种拒绝。根目录 `pnpm test:all` 串起「双端类型检查 + 双端 lint + 两侧测试」，`.github/workflows/ci.yml` 在 CI 里跑同一批命令，外加 `assembleDebug`（Rust 任务必须 windows runner：`smtc.rs` / `taskbar.rs` / `audio_session.rs` / `secret_store.rs` 的测试都依赖 Windows API）。**两端另有各自的套件**：桌面前端 `pnpm test:desktop`（vitest，默认 `environment: node`，其中 9 个文件用 `@vitest-environment jsdom` 逐文件覆盖；91 个文件 660 例）、移动端 `pnpm mobile:test`（`node --test`，47 个文件 649 例，其中两个文件会用真 `javac` + jaudiotagger + `ffmpeg` 编译并运行原生源码片段）。真正依赖真机运行时的行为仍只有类型检查、lint 与真机手测。
 
 ## 各端职责说明
 
@@ -96,7 +96,7 @@ Tauri v2 + React 18.3.1 + Vite 5，提供原生 OS 交互体验。
 
 | 层 | 职责 | 关键实现 |
 |---|---|---|
-| Rust 后端 | 系统级任务，38 IPC 命令 | `outbound.rs`（SSRF + 每跳验证 ≤10）、`lyric_window.rs`（794 行 独立透明窗口：锁定=鼠标穿透+150ms 光标轮询+悬停解锁小窗，置顶 1.5s 巡检 + token/epoch 防竞态）、`local_audio.rs`（walkdir + audiotags/lofty 双库；`set_audio_cover` 按字节魔数校验图片，与手动封面落盘共用同一张表）、`media_cache.rs`（两层：song-audio 2GiB、song-covers 512MiB，命中刷新 mtime 因此是真 LRU；另有启动时的容量守卫 `sweep_caches`）、`downloads.rs`（流式 + 取消 + 180ms 节流 + 2GiB 上限 + `write_download_text_file` 写旁挂 lrc 文本；**音频标签不在 Rust 侧**——下载完成后由前端另调 `set_audio_metadata` / `set_audio_lyrics` / `set_audio_cover`）、`tray.rs`、`logging.rs`（`tauri-plugin-log` 落盘到 `app_log_dir()`，2 MiB×3 轮转）、`smtc.rs`（Windows 系统媒体控制：媒体键 / 媒体浮层 / 锁屏，封面走内存流）、`taskbar.rs`（任务栏缩略图三按钮——用封面替换预览已于 2026-10-09 退役，`SetWindowSubclass` 子类化，全程 fail-soft） |
+| Rust 后端 | 系统级任务，46 IPC 命令 | `outbound.rs`（SSRF + 每跳验证 ≤10）、`lyric_window.rs`（794 行 独立透明窗口：锁定=鼠标穿透+150ms 光标轮询+悬停解锁小窗，置顶 1.5s 巡检 + token/epoch 防竞态）、`local_audio.rs`（walkdir + audiotags/lofty 双库；`set_audio_cover` 按字节魔数校验图片，与手动封面落盘共用同一张表）、`media_cache.rs`（两层：song-audio 2GiB、song-covers 512MiB，命中刷新 mtime 因此是真 LRU；另有启动时的容量守卫 `sweep_caches`）、`downloads.rs`（流式 + 取消 + 180ms 节流 + 2GiB 上限 + `write_download_text_file` 写旁挂 lrc 文本；**音频标签不在 Rust 侧**——下载完成后由前端另调 `set_audio_metadata` / `set_audio_lyrics` / `set_audio_cover`）、`tray.rs`、`logging.rs`（`tauri-plugin-log` 落盘到 `app_log_dir()`，2 MiB×3 轮转）、`smtc.rs`（Windows 系统媒体控制：媒体键 / 媒体浮层 / 锁屏，封面走内存流）、`taskbar.rs`（任务栏缩略图三按钮——用封面替换预览已于 2026-10-09 退役，`SetWindowSubclass` 子类化，全程 fail-soft） |
 | React 前端 | UI 与业务 | `playerEngine.ts`（425 行 HTMLAudio + rAF + 500ms 纠偏 + 余弦淡入淡出 90/140ms fadeToken + 外部暂停 500ms 保护窗；进度经 `stores/playerPersistence.ts` 每 10s 刻度落盘、启动后由 `stores/playerResumeTarget.ts` 交给引擎续播，跨窗口由 `stores/playerSync.ts` 经 BroadcastChannel + Tauri 事件同步）、`customSourceRuntime.ts`（1112 行 new Function 参数遮蔽，非沙箱——脚本在本 WebView 全权执行 + LRU(8) + HTTP 代理 Rust；能力白名单只有 `musicUrl`（kg/tx/wy），`local` 另有 `lyric`/`pic`）、`webdavSyncService.ts`（865 行 同步锁 + 冲突检测）、`wyAccountService.ts`（694 行 weapi/eapi——`wyProvider.ts` 内另有一份 eapiEncrypt——+ 扫码/Cookie 登录，Cookie 经 Rust DPAPI 加密落盘） |
 | 缓存 | 播放 URL / 歌词持久索引 | `persistentCache.ts`（URL 6h / 本地 365d / 歌词 30d / 空结果 7d，LRU 500/1000 条） |
 | 导航 | 19 路由 BrowserRouter v6 | 首页(index) / search / library→收藏歌单重定向 / local / playlists / downloads / history / stats / playlist/:id / artist/:id / album/:id / daily / cloud / charts / playlist-square / fm / settings / *(兜底重定向) |
@@ -114,7 +114,7 @@ React Native 0.86 + React 19.2.3，面向 Android（minSdk 24）。
 | 沉浸歌词 | PagerView 2 页 | `ImmersiveLyricsScreen`（useImmersiveController 522 行 + 下拉关闭）、`LyricView`（623 行 动态行高 + 累积偏移；仅行级高亮，逐字渲染为桌面能力） |
 | 列表 | 增量挂载（非 FlatList） | — |
 | 图片 | CachedImage（Glide） | `cacheService.ts` 2GB LRU（封面/音频 immutable 近似 FIFO，歌词 30 天，AsyncStorage 索引 reconcile；启动时 autoCleanCache 磁盘守卫） |
-| Android 原生 | 17 Java + 2 Kotlin 3740 行 | `LocalMusicPackage` 注册 **11 个模块**：`LocalMusicModule`（908 行 MediaStore + jaudiotagger，读写标签与内嵌封面）、`LyricOverlayModule` + `LyricOverlayService`（280 + 737 行 WindowManager 悬浮歌词，配套 `LyricOverlayPreferences` / `LyricNotificationReceiver`）、`SecureStorageModule`（Keystore AES-256-GCM）、`CryptoModule`（原生 weapi：AES-CBC + RSA NoPadding，固定向量会话自校验，失败回退 weapiJs）、`CoverColorModule`、`ApkInstallerModule`、`CustomSourceFilePickerModule`、`OrientationModule`、`WakeLockModule`、`BatteryOptimizationModule`（另有 `LocalAudioAssetsReader` / `LocalTagEditor` 两个未注册的辅助类，被 `LocalMusicModule` 与原生契约测试直接编译使用）；`lx_bridge`（隐藏 WebView 沙箱跑 LX 脚本：lx 注入 + 13 个全局名参数遮蔽 + RN 侧静态扫描拒 eval/Function，vendor.js 2510 行 CryptoJS + pako；RN fetch 不能禁重定向，自定义源能力白名单仅 musicUrl（kg/tx/wy）+ local 的 musicUrl/lyric/pic）；通知栏歌词按钮（`apply-track-player-patch.js` 补丁 RNTP `MusicService`） |
+| Android 原生 | 19 Java + 2 Kotlin 3963 行 | `LocalMusicPackage` 注册 **11 个模块**：`LocalMusicModule`（908 行 MediaStore + jaudiotagger，读写标签与内嵌封面）、`LyricOverlayModule` + `LyricOverlayService`（280 + 737 行 WindowManager 悬浮歌词，配套 `LyricOverlayPreferences` / `LyricNotificationReceiver`）、`SecureStorageModule`（Keystore AES-256-GCM）、`CryptoModule`（原生 weapi：AES-CBC + RSA NoPadding，固定向量会话自校验，失败回退 weapiJs）、`CoverColorModule`、`ApkInstallerModule`、`CustomSourceFilePickerModule`、`OrientationModule`、`WakeLockModule`、`BatteryOptimizationModule`（另有 `LocalAudioAssetsReader` / `LocalTagEditor` 两个未注册的辅助类，被 `LocalMusicModule` 与原生契约测试直接编译使用）；`lx_bridge`（隐藏 WebView 沙箱跑 LX 脚本：lx 注入 + 13 个全局名参数遮蔽 + RN 侧静态扫描拒 eval/Function，vendor.js 2510 行 CryptoJS + pako；RN fetch 不能禁重定向，自定义源能力白名单仅 musicUrl（kg/tx/wy）+ local 的 musicUrl/lyric/pic）；通知栏歌词按钮（`apply-track-player-patch.js` 补丁 RNTP `MusicService`） |
 | 权限 | 无 RECORD_AUDIO | INTERNET / SYSTEM_ALERT_WINDOW / WAKE_LOCK / FOREGROUND_SERVICE_MEDIA_PLAYBACK / POST_NOTIFICATIONS / READ_MEDIA_AUDIO |
 
 ## 关键设计决策摘要
