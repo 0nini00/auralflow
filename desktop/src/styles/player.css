@@ -1275,3 +1275,14 @@
     transition: none;
   }
 }
+
+
+/* 无当前歌曲时的占位条：只保留高度与顶边，避免内容区在首播时跳 88px。 */
+.af-player-bar-empty {
+  background: var(--af-bg-secondary);
+}
+
+.af-player-bar-empty::before,
+.af-player-bar-empty::after {
+  display: none;
+}

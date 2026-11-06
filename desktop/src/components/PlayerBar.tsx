@@ -175,7 +175,8 @@ export const PlayerBar: React.FC = () => {
   // 必须在 early return 之前调用（hooks 规则）；无当前歌曲时它会清掉氛围变量。
   useArtworkAmbience();
 
-  if (!currentTrack) return null;
+  // 无歌时保留同高占位：播放条整条消失/出现会让内容区高度跳 88px。
+  if (!currentTrack) return <div className="af-player-bar af-player-bar-empty" aria-hidden="true" />;
 
   const coverUrl = coverSrc(currentTrack.img || currentTrack.picUrl || '', PLAYER_COVER_CSS_SIZE);
   const lyricButtonLabel = lyricOpen

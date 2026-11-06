@@ -211,11 +211,7 @@ button {
  * 所以保留一条窄带，只留品牌行（及其中的按钮），其余子元素 display:none，既不可见也不可聚焦。
  */
 .af-sidebar-collapsed {
-  padding: 0;
-}
-
-.af-sidebar-collapsed > *:not(.af-sidebar-brand) {
-  display: none;
+  padding: 0 8px 12px;
 }
 
 .af-sidebar-collapsed .af-sidebar-brand {
@@ -224,6 +220,59 @@ button {
 }
 
 .af-sidebar-collapsed .af-sidebar-brand > *:not(.af-sidebar-collapse-toggle) {
+  display: none;
+}
+
+/* 收起态 = 图标栏：保留全部导航，只隐藏文字与分组标题。 */
+.af-sidebar-collapsed .af-logo-text,
+.af-sidebar-collapsed .af-sidebar-link > span:not(.af-nav-count),
+.af-sidebar-collapsed .af-user-text,
+.af-sidebar-collapsed .af-nav-label,
+.af-sidebar-collapsed .af-nav-count {
+  display: none;
+}
+
+.af-sidebar-collapsed .af-sidebar-nav {
+  align-items: center;
+}
+
+.af-sidebar-collapsed .af-nav-group {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.af-sidebar-collapsed .af-nav-group + .af-nav-group {
+  padding-top: 8px;
+  border-top: 1px solid var(--af-border-secondary);
+}
+
+.af-sidebar-collapsed .af-sidebar-link {
+  justify-content: center;
+  width: 40px;
+  height: 38px;
+  margin: 2px auto;
+  padding: 0;
+}
+
+.af-sidebar-collapsed .af-sidebar-footer {
+  align-items: center;
+  padding-top: 8px;
+}
+
+.af-sidebar-collapsed .af-user-button {
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin: 6px auto 0;
+  padding: 0;
+}
+
+.af-sidebar-collapsed .af-user-avatar {
+  width: 24px;
+  height: 24px;
+}
+
+.af-sidebar-collapsed .af-sidebar-resize-handle {
   display: none;
 }
 

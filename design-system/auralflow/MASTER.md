@@ -109,16 +109,17 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", …
 
 | 键 | 像素 | 语义 |
 |---|---|---|
+| `micro` | 11 | Tab 标签、角标，不承载关键信息 |
 | `caption` | 12 | 辅助说明 |
 | `meta` | 13 | 元信息 |
-| `body` | 14 | 正文 |
-| `title` | 16 | 标题 |
-| `heading` | 18 | 区块标题 |
-| `display` | 24 | 大标题 |
-| `displayLg` | 32 | 沉浸式大标题 |
+| `body` | 15 | 正文 |
+| `title` | 17 | 标题 |
+| `heading` | 20 | 区块标题 |
+| `display` | 28 | 大标题 |
+| `displayLg` | 34 | 沉浸式大标题 |
 
 ```ts
-export const typography = { caption: 12, meta: 13, body: 14, title: 16, heading: 18, display: 24, displayLg: 32 } as const;
+export const typography = { micro: 11, caption: 12, meta: 13, body: 15, title: 17, heading: 20, display: 28, displayLg: 34 } as const;
 ```
 
 ---
@@ -140,21 +141,28 @@ export const typography = { caption: 12, meta: 13, body: 14, title: 16, heading:
 
 | 间距键 | 值 | 圆角键 | 值 |
 |---|---|---|---|
-| `spacing.xxs` | 4 | `radius.sm` | 8 |
-| `spacing.xs` | 8 | `radius.md` | 12 |
-| `spacing.s` | 12 | `radius.lg` | 16 |
-| `spacing.m` | 16 | `radius.xl` | 20 |
-| `spacing.l` | 20 | `radius.pill` | 999 |
+| `spacing.line` | 2 | `radius.sm` | 8 |
+| `spacing.xxs` | 4 | `radius.md` | 12 |
+| `spacing.tight` | 6 | `radius.lg` | 16 |
+| `spacing.xs` | 8 | `radius.xl` | 20 |
+| `spacing.snug` | 10 | `radius.xxl` | 28 |
+| `spacing.s` | 12 | `radius.pill` | 999 |
+| `spacing.cozy` | 14 | | |
+| `spacing.m` | 16 | | |
+| `spacing.roomy` | 18 | | |
+| `spacing.l` | 20 | | |
 | `spacing.xl` | 24 | | |
+| `spacing.xxl` | 32 | | |
+| `spacing.xxxl` | 40 | | |
 
-布局常量同样收敛于 `tokens.ts`：`layout.pagePadding: 16`、`layout.headerHeight: 56`、`layout.playerBarHeight: 56`、`layout.songRowMinHeight: 60`、`layout.artworkSize: 48`。
+布局常量同样收敛于 `tokens.ts`：`layout.pagePadding: 20`、`layout.headerHeight: 56`、`layout.playerBarHeight: 64`、`layout.tabBarHeight: 64`、`layout.songRowMinHeight: 64`、`layout.artworkSize: 48`。
 
 ```ts
 export const layout = {
-  pagePadding: 16, tabletPagePadding: 20, songRowMinHeight: 60, songRowPadding: 8,
-  artworkSize: 48, headerHeight: 56, compactControlHeight: 36, playerBarHeight: 56,
+  pagePadding: 20, songRowMinHeight: 64, songRowPadding: 8,
+  artworkSize: 48, compactArtworkSize: 36, headerHeight: 56,
+  compactControlHeight: 36, playerBarHeight: 64, tabBarHeight: 64, miniPlayerGap: 6,
 } as const;
-export const breakpoints = { tablet: 768 } as const;
 ```
 
 ---
@@ -460,8 +468,8 @@ const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor
 
 | 机制 | 实现 |
 |---|---|
-| 触摸目标 | `touch.minTarget: 44`；`iconButtonHitSlop(size)` / `controlHitSlop(size)` 在容器小于 44 时四边扩展 hitSlop 补足 |
-| 图标按键规格 | `iconButton` 四档（sm/md/lg/xl），容器与图标字号成对定义，统一前全 app 有 5 种容器 + 13 种图标尺寸的混乱 |
+| 触摸目标 | `touch.minTarget: 44`；`controlHitSlop(size)` 在容器小于 44 时四边扩展 hitSlop 补足 |
+| 图标按键规格 | `control.iconButton` 三档（compact 36 / standard 44 / large 56），容器与图标尺寸成对定义 |
 | 触摸反馈 | `Touchable` 组件提供 `scale` / `opacity` 可见反馈，解决裸 `Pressable` 无反馈问题；原语内 `pressed && styles.pressed`（opacity 0.76） |
 | a11y 角色 | 所有原语普遍设 `accessibilityRole`（`button` 等）+ `accessibilityLabel`（Button 缺省回退到 `label`）+ `accessibilityState`（`disabled`/`selected`/`busy`） |
 | 加载态 | `accessibilityLiveRegion="polite"` 广播加载（`HomeScreen` 占位、`ScreenState`、`CacheSettings`） |
@@ -471,8 +479,8 @@ const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor
 
 ```ts
 export const touch = { minTarget: 44, iconButton: 36 } as const;
-export function iconButtonHitSlop(size: IconButtonSize) {
-  const inset = Math.max(0, (touch.minTarget - iconButton[size].size) / 2);
+export function controlHitSlop(size: number) {
+  const inset = Math.max(0, (touch.minTarget - size) / 2);
   return { top: inset, bottom: inset, left: inset, right: inset };
 }
 // 原语内

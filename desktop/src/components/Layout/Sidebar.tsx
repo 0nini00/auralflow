@@ -71,8 +71,8 @@ const SIDEBAR_MIN_WIDTH = 200;
 const SIDEBAR_MAX_WIDTH = 360;
 /** 键盘微调步长。 */
 const SIDEBAR_KEY_STEP = 8;
-/** 收起后只留一条窄带：30px 的图标按钮 + 两侧各 3px 呼吸位，其余让给内容区。 */
-const SIDEBAR_COLLAPSED_WIDTH = 36;
+/** 收起后是图标栏：64px 刚好放下 40px 的图标按钮，并保留两侧呼吸位。 */
+const SIDEBAR_COLLAPSED_WIDTH = 64;
 
 function clampSidebarWidth(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return SIDEBAR_DEFAULT_WIDTH;
@@ -207,7 +207,7 @@ export function Sidebar() {
             <div className="af-nav-group" key={group.label}>
               <div className="af-nav-label">{group.label}</div>
               {group.items.map((item) => (
-                <NavLink key={item.to} to={item.to} className="af-sidebar-link" end={item.to === "/"}>
+                <NavLink key={item.to} to={item.to} className="af-sidebar-link" end={item.to === "/"} title={item.label}>
                   <item.icon size={18} strokeWidth={1.7} />
                   <span>{item.label}</span>
                   {item.count && counts[item.count] > 0 ? (
@@ -221,11 +221,11 @@ export function Sidebar() {
       </nav>
 
       <div className="af-sidebar-footer">
-        <NavLink to="/stats" className="af-sidebar-link">
+        <NavLink to="/stats" className="af-sidebar-link" title="听歌统计">
           <BarChart3 size={18} strokeWidth={1.7} />
           <span>听歌统计</span>
         </NavLink>
-        <NavLink to="/settings" className="af-sidebar-link">
+        <NavLink to="/settings" className="af-sidebar-link" title="设置">
           <Settings size={18} strokeWidth={1.7} />
           <span>设置</span>
         </NavLink>
