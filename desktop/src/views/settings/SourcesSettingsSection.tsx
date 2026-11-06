@@ -340,7 +340,11 @@ export function SourcesSettingsSection({ model }: { model: SourcesSettingsModel 
                   <button
                     type="button"
                     className="af-custom-source-icon-button af-settings-danger-button"
-                    onClick={() => removeSource(source.id)}
+                    onClick={() => {
+                      if (window.confirm(`删除自定义音源「${source.name}」？删除后无法恢复。`)) {
+                        removeSource(source.id);
+                      }
+                    }}
                     title="删除"
                     aria-label="删除"
                   >

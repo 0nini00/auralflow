@@ -3,7 +3,9 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -242,7 +244,10 @@ export function ImmersiveCommentsSheet({
       statusBarTranslucent
       onRequestClose={() => { void handleClose(); }}
     >
-      <View style={styles.overlay}>
+      <KeyboardAvoidingView
+        style={styles.overlay}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
         <Pressable style={StyleSheet.absoluteFill} onPress={() => { void handleClose(); }} />
         <View style={[styles.sheet, { backgroundColor: palette.surface }]}>
           <View style={styles.header}>
@@ -378,7 +383,7 @@ export function ImmersiveCommentsSheet({
             </View>
           ) : null}
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

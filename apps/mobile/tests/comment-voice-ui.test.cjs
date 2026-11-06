@@ -69,7 +69,7 @@ function sheetModule(voice) {
   };
   const mocks = {
     react,
-    'react-native': Object.assign(Object.fromEntries(['ActivityIndicator','FlatList','Image','Modal','Pressable','Text','TextInput','View'].map(k => [k,k])), { StyleSheet: { create: v => v, absoluteFill: {} }, Alert: {} }),
+    'react-native': Object.assign(Object.fromEntries(['ActivityIndicator','FlatList','Image','KeyboardAvoidingView','Modal','Pressable','Text','TextInput','View'].map(k => [k,k])), { StyleSheet: { create: v => v, absoluteFill: {} }, Alert: {}, Platform: { OS: 'android', select: options => options.android ?? options.default } }),
     'lucide-react-native': { Heart: 'Heart', MessageCircle: 'MessageCircle', Send: 'Send', X: 'X' },
     '@/services/musicApi': {}, '@/services/wyPlaylistService': {},
     '@/stores/accountStore': { useAccountStore: selector => selector({ isLoggedIn: false }) },

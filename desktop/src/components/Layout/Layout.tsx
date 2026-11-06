@@ -1,5 +1,5 @@
 import { Outlet, useLocation } from "react-router-dom";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { PlayerBar } from "../PlayerBar";
@@ -28,6 +28,12 @@ export function Layout() {
   const location = useLocation();
   // 搜索页自带一个主搜索框，顶栏那个在这页会变成重复入口，收起
   const isSearchRoute = location.pathname === "/search";
+  const contentScrollRef = useRef<HTMLDivElement | null>(null);
+
+  // 所有路由共用同一个滚动容器：切页不重置的话，从长列表滚到底再进设置会停在半截。
+  useEffect(() => {
+    if (contentScrollRef.current) contentScrollRef.current.scrollTop = 0;
+  }, [location.pathname]);
 
   useEffect(() => {
     loadSettings()
@@ -65,7 +71,7 @@ export function Layout() {
               af-stage-with-panel 修饰类，但它在 CSS 里从无定义（空类），已删。 */}
           <div className="af-stage">
             <main className="af-content">
-              <div className="af-content-scroll">
+              <div className="af-content-scroll" ref={contentScrollRef}>
                 {/* 路由级兜底：单个页面渲染崩掉时只废掉内容区，
                     侧栏 / 顶栏 / 播放条仍然可用（用户能切到别的页或继续听）。
                     以 pathname 作 key，切页即自动清掉错误状态，不必手动重试。 */}

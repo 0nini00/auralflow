@@ -273,12 +273,26 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
     removeFromQueue(index);
   };
 
-  const handleClearQueue = async () => {
-
-    await clearQueue();
-
-    setQueueModalVisible(false);
-
+  const handleClearQueue = () => {
+    if (queue.length === 0) return;
+    // 队列是会话里最容易被误清空的状态：先确认，再执行。
+    Alert.alert(
+      "清空播放队列",
+      `确定清空队列中的 ${queue.length} 首歌吗？`,
+      [
+        { text: "取消", style: "cancel" },
+        {
+          text: "清空",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              await clearQueue();
+              setQueueModalVisible(false);
+            })();
+          },
+        },
+      ],
+    );
   };
 
   const handleStartSleepTimer = (minutes: number) => {

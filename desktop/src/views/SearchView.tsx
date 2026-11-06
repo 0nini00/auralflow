@@ -230,6 +230,13 @@ export function SearchView() {
     blurTimerRef.current = window.setTimeout(() => setSuggestionsOpen(false), 120);
   }
 
+  /** 结果行统一键盘激活：Enter / Space 触发该行已有的 onClick。 */
+  const resultRowKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    event.currentTarget.click();
+  };
+
   function handleSearchInputKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Escape") {
       setSuggestionsOpen(false);
@@ -668,6 +675,9 @@ export function SearchView() {
             <li
               key={`${artist.source}:${artist.id}`}
               className="af-search-result-item"
+              role="button"
+              tabIndex={0}
+              onKeyDown={resultRowKeyDown}
               onClick={() => {
                 if (artist.source === "wy") navigate(`/artist/${artist.id}`);
               }}
@@ -710,6 +720,9 @@ export function SearchView() {
               <li
                 key={`${album.source}:${album.id}`}
                 className="af-search-result-item"
+                role="button"
+                tabIndex={0}
+                onKeyDown={resultRowKeyDown}
                 onClick={() => {
                   if (album.source === "wy") navigate(buildAlbumDetailPath(album));
                 }}
@@ -766,6 +779,9 @@ export function SearchView() {
                   <li
                     key={playlistKey}
                     className="af-search-result-item"
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={resultRowKeyDown}
                     onClick={() => {
                       navigate(buildPlaylistDetailPath(playlist), { state: { playlist } });
                     }}
@@ -837,6 +853,9 @@ export function SearchView() {
               <li
                 key={group.key}
                 className="af-search-result-item"
+                role="button"
+                tabIndex={0}
+                onKeyDown={resultRowKeyDown}
                 onClick={() => playQueue(playableSongQueue, index)}
                 title="单击播放"
               >

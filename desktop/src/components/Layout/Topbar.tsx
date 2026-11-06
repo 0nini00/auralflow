@@ -69,17 +69,22 @@ export function Topbar() {
     }
   }, [location.pathname, searchParams]);
 
-  // Ctrl/Cmd + K 聚焦搜索：桌面播放器的通行约定，避免用户去点那个小框
+  // Ctrl/Cmd + K 聚焦搜索：桌面播放器的通行约定，避免用户去点那个小框。
+  // 搜索页把顶栏输入框藏起来了（避免重复入口），这时要把焦点交给页面自己的主搜索框。
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "k") return;
       event.preventDefault();
-      searchInputRef.current?.focus();
-      searchInputRef.current?.select();
+      const pageInput = location.pathname === "/search"
+        ? document.getElementById("search-input") as HTMLInputElement | null
+        : null;
+      const target = pageInput ?? searchInputRef.current;
+      target?.focus();
+      target?.select();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [location.pathname]);
 
   useEffect(() => {
     const trimmed = query.trim();

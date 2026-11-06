@@ -1,4 +1,4 @@
-import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Component, type CSSProperties, type ErrorInfo, type ReactNode } from "react";
 import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { debugLog } from "@lx/tauri-bridge";
@@ -7,6 +7,11 @@ interface ErrorBoundaryProps {
   children: ReactNode;
   /** 出错时展示的上下文名（如「主窗口」「歌词窗」），便于用户描述问题。 */
   scope?: string;
+  /**
+   * `fullscreen`：整个窗口不可用（根边界 / 窗口模块加载失败）时使用；
+   * `inline`（默认）：只占当前容器（路由内容区、右侧面板），外壳与播放条仍然可用。
+   */
+  variant?: "fullscreen" | "inline";
 }
 
 interface ErrorBoundaryState {
@@ -56,10 +61,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     const { error } = this.state;
     if (!error) return this.props.children;
 
-    return (
-      <div
-        role="alert"
-        style={{
+    const fullscreen = this.props.variant === "fullscreen";
+    const containerStyle: CSSProperties = fullscreen
+      ? {
           position: "fixed",
           inset: 0,
           zIndex: 10000,
@@ -72,8 +76,22 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           background: "var(--af-bg-base, #121212)",
           color: "var(--af-text-primary, #f5f5f5)",
           textAlign: "center",
-        }}
-      >
+        }
+      : {
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 14,
+          width: "100%",
+          minHeight: 240,
+          padding: "32px 24px",
+          color: "var(--af-text-primary, #f5f5f5)",
+          textAlign: "center",
+        };
+
+    return (
+      <div role="alert" style={containerStyle}>
         <AlertTriangle size={32} style={{ color: "var(--af-error, #e74c3c)" }} />
         <div style={{ fontSize: 18, fontWeight: 600 }}>界面渲染出错</div>
         <div
@@ -84,7 +102,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             color: "var(--af-text-secondary, #b3b3b3)",
           }}
         >
-          这次异常发生在本窗口的界面渲染中，音频播放不受影响。
+          {fullscreen
+            ? "这次异常发生在本窗口的界面渲染中，音频播放不受影响。"
+            : "只有这一块内容受影响，侧栏、播放条和其它页面仍可使用。"}
           可以先点「重试」；若反复出现，请重载窗口，把日志里的
           <code> [render] </code>
           一行连同操作步骤一起记录下来。

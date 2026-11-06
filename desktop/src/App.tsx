@@ -13,7 +13,7 @@ import { windowComponents, windowScopes } from "./windowModules";
  */
 function WindowShell({ role, children }: { role: AppWindowRole; children: ReactNode }) {
   return (
-    <ErrorBoundary scope={windowScopes[role]}>
+    <ErrorBoundary variant="fullscreen" scope={windowScopes[role]}>
       <Suspense fallback={null}>{children}</Suspense>
     </ErrorBoundary>
   );
