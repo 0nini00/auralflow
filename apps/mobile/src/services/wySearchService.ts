@@ -23,6 +23,7 @@ const WY_CLOUDSEARCH_EAPI_URL = "https://interface3.music.163.com/eapi/cloudsear
 export async function searchWySongsViaCloudSearch(
   keyword: string,
   limit = 30,
+  page = 1,
 ): Promise<MusicInfo[]> {
   const query = keyword.trim();
   if (!query) return [];
@@ -31,7 +32,7 @@ export async function searchWySongsViaCloudSearch(
     s: query,
     type: 1, // 1=单曲（对齐桌面 searchWyViaCloudSearch）
     limit,
-    offset: 0,
+    offset: (page - 1) * limit,
   });
 
   const cookie = await getWyCookie();

@@ -13,11 +13,8 @@ import { formatPlaylistSearchMeta } from "@/services/neteasePlaylistUtils";
 import { RESULT_COVER_CSS_SIZE, coverSrc } from "@/utils/imageReferrerPolicy";
 import { buildImportedPlaylistMarker } from "@/utils/shared";
 import { buildPlaylistDetailPath } from "@/utils/playlistRoute";
-import {
-  createEmptySearchResult,
-  mergeSearchResultInto,
-  SEARCH_ALL_TYPES,
-} from "@/services/search/searchAggregation";
+import { createEmptySearchResult } from "@/services/search/searchAggregation";
+import { createDesktopSearchSession, type DesktopSearchSnapshot } from "@/services/search/pagedSearch";
 import { searchResultCache } from "@/services/search/searchResultCache";
 import {
   buildSearchSuggestions,
@@ -26,8 +23,8 @@ import {
   recordSearchKeyword,
   type SearchSuggestion,
 } from "@/services/search/searchSuggestions";
-import type { MusicInfo, PlaylistInfo, ArtistInfo, AlbumInfo, SearchResult } from "@lx/core";
-import { groupHasSource, groupSongResults, withSongVariants } from "@lx/core";
+import type { MusicSource, PlaylistInfo, AlbumInfo, SearchResult, SearchType } from "@lx/core";
+import { groupHasSource, groupSongResults, normalizeSearchKeyword, withSongVariants } from "@lx/core";
 import {
   getSearchHistory,
   addSearchHistory,
@@ -55,7 +52,7 @@ const SONG_SOURCE_FILTERS: Array<{ id: SongSourceFilter; label: string }> = [
 ];
 
 function buildSearchKey(keyword: string): string {
-  return keyword;
+  return normalizeSearchKeyword(keyword);
 }
 
 function isResultFilter(value: string): value is ResultFilter {
@@ -76,79 +73,13 @@ function getFeaturedPlaylist(playlists: PlaylistInfo[]): PlaylistInfo | null {
   return [...playlists].sort((a, b) => (b.playCount ?? 0) - (a.playCount ?? 0))[0];
 }
 
-type BrowseSearchType = (typeof SEARCH_ALL_TYPES)[number];
-interface SearchCategoryStatus {
-  type: BrowseSearchType;
-  succeeded: number;
-  errors: string[];
-}
-interface CategorizedSearchResult extends SearchResult {
-  categories: SearchCategoryStatus[];
+interface PagedSearchResult extends SearchResult {
+  searchStates: DesktopSearchSnapshot["states"];
 }
 
-async function searchAllSources(
-  keyword: string,
-  type: BrowseSearchType,
-): Promise<SearchCategoryStatus & { result: SearchResult }> {
-  const providers = [registry.get("wy"), registry.get("tx")]
-    .filter((provider) => provider?.supportedSearchTypes.includes(type));
-  const settled = await Promise.allSettled(
-    providers.map((provider) => Promise.resolve().then(() => provider!.search(keyword, type, 1))),
-  );
-  const result: SearchResult = { songs: [], playlists: [], artists: [], albums: [] };
-  const seen = new Set<string>();
-  const errors: string[] = [];
-
-  for (const item of settled) {
-    if (item.status === "rejected") {
-      errors.push(item.reason instanceof Error ? item.reason.message : String(item.reason));
-      continue;
-    }
-
-    for (const song of item.value.songs ?? []) {
-      const key = `song:${song.source}:${song.id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      result.songs!.push(song);
-    }
-
-    for (const playlist of item.value.playlists ?? []) {
-      const key = `pl:${playlist.source}:${playlist.id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      result.playlists!.push(playlist);
-    }
-
-    for (const artist of item.value.artists ?? []) {
-      const key = `ar:${artist.source}:${artist.id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      result.artists!.push(artist);
-    }
-
-    for (const album of item.value.albums ?? []) {
-      const key = `al:${album.source}:${album.id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      result.albums!.push(album);
-    }
-  }
-
-  if (providers.length === 0) errors.push("该分类暂无可用音源");
-  return { type, result, errors, succeeded: settled.filter((item) => item.status === "fulfilled").length };
-}
-
-async function searchMergedSources(keyword: string): Promise<CategorizedSearchResult> {
-  const categories = await Promise.all(SEARCH_ALL_TYPES.map((type) => searchAllSources(keyword, type)));
-  if (categories.every((category) => category.succeeded === 0)) {
-    throw new Error(categories.flatMap((category) => category.errors).join("；"));
-  }
-  const result = createEmptySearchResult();
-  for (const category of categories) mergeSearchResultInto(result, category.result);
-  return {
-    ...result,
-    categories: categories.map(({ type, succeeded, errors }) => ({ type, succeeded, errors })),
-  };
+function toSearchType(filter: ResultFilter): SearchType | undefined {
+  if (filter === "overview") return undefined;
+  return filter === "artist" ? "singer" : filter;
 }
 
 export function SearchView() {
@@ -157,18 +88,13 @@ export function SearchView() {
   const initialQuery = searchParams.get("q") ?? "";
 
   const [query, setQuery] = useState(initialQuery);
-  const [songResults, setSongResults] = useState<MusicInfo[]>([]);
+  const [snapshot, setSnapshot] = useState<DesktopSearchSnapshot>({ states: [], result: createEmptySearchResult() });
+  const { songs: songResults = [], playlists: playlistResults = [], artists: artistResults = [], albums: albumResults = [] } = snapshot.result;
   const [songSourceFilter, setSongSourceFilter] = useState<SongSourceFilter>("all");
-  const [playlistResults, setPlaylistResults] = useState<PlaylistInfo[]>([]);
-  const [artistResults, setArtistResults] = useState<ArtistInfo[]>([]);
-  const [albumResults, setAlbumResults] = useState<AlbumInfo[]>([]);
-  const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [activeResultFilter, setActiveResultFilter] = useState<ResultFilter>("overview");
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [onlineSuggestions, setOnlineSuggestions] = useState<SearchSuggestion[]>([]);
-  const [searchError, setSearchError] = useState("");
-  const [searchCategories, setSearchCategories] = useState<SearchCategoryStatus[]>([]);
 
   const [actionStatus, setActionStatus] = useState("");
 
@@ -191,107 +117,52 @@ export function SearchView() {
     [localPlaylists],
   );
   const [busyPlaylistKey, setBusyPlaylistKey] = useState<string | null>(null);
-  const searchRequestSeqRef = useRef(0);
+  const searchSessionRef = useRef<ReturnType<typeof createDesktopSearchSession> | null>(null);
   const lastStartedSearchKeyRef = useRef<string | null>(null);
   const activeResultFilterRef = useRef<ResultFilter>("overview");
   const blurTimerRef = useRef<number | null>(null);
   const suggestRequestSeqRef = useRef(0);
 
-  const applySearchResult = useCallback((res: SearchResult) => {
-    setSongResults(res.songs ?? []);
-    setPlaylistResults(res.playlists ?? []);
-    setArtistResults(res.artists ?? []);
-    setAlbumResults(res.albums ?? []);
-  }, []);
-
   const handleSearch = useCallback(async (
     term = query,
     options?: { updateUrl?: boolean; preferCache?: boolean },
   ) => {
-    const trimmed = term.trim();
-    if (!trimmed) return;
+    const keyword = normalizeSearchKeyword(term);
+    if (!keyword) return;
+    const searchKey = buildSearchKey(keyword);
+    const cached = options?.preferCache ? searchResultCache.get(searchKey) : null;
+    const cachedResult = cached?.result as PagedSearchResult | undefined;
+    const cachedStates = cachedResult?.searchStates;
+    const restoredFilter = cachedStates && cached && isResultFilter(cached.activeFilter)
+      ? cached.activeFilter : activeResultFilterRef.current;
 
-    const searchKey = buildSearchKey(trimmed);
-
-    if (options?.preferCache) {
-      const cached = searchResultCache.get(searchKey);
-      // 旧缓存没有分类状态时重新查询，不能将未完成的分类伪装为成功空结果。
-      if (cached && "categories" in cached.result) {
-        const restoredFilter = isResultFilter(cached.activeFilter) ? cached.activeFilter : "overview";
-        searchRequestSeqRef.current += 1;
-        lastStartedSearchKeyRef.current = searchKey;
-        activeResultFilterRef.current = restoredFilter;
-        recordSearchKeyword(trimmed);
-        setQuery(trimmed);
-        if (options?.updateUrl !== false) {
-          setSearchParams({ q: trimmed });
-        }
-        setLoading(false);
-        setSearched(true);
-        setSearchError("");
-        setActiveResultFilter(restoredFilter);
-        setSongSourceFilter("all");
-        setSearchCategories((cached.result as CategorizedSearchResult).categories);
-        applySearchResult(cached.result);
-        return;
-      }
-    }
-
-    const requestId = searchRequestSeqRef.current + 1;
-    searchRequestSeqRef.current = requestId;
+    searchSessionRef.current?.dispose();
     lastStartedSearchKeyRef.current = searchKey;
-
-    recordSearchKeyword(trimmed);
-
-    addSearchHistory(trimmed);
-
+    activeResultFilterRef.current = restoredFilter;
+    recordSearchKeyword(keyword);
+    addSearchHistory(keyword);
     setSearchHistory(getSearchHistory());
-
     setSuggestionsOpen(false);
-
-    setQuery(trimmed);
-
-    if (options?.updateUrl !== false) {
-
-      setSearchParams({ q: trimmed });
-
-    }
-
-    setLoading(true);
-
+    setQuery(keyword);
     setSearched(true);
-
-    setSearchError("");
-    setSearchCategories([]);
-
-    setSongResults([]);
+    setActiveResultFilter(restoredFilter);
     setSongSourceFilter("all");
+    if (options?.updateUrl !== false) setSearchParams({ q: keyword });
 
-    setPlaylistResults([]);
-    setArtistResults([]);
-    setAlbumResults([]);
-
-    try {
-      const res = await searchMergedSources(trimmed);
-      if (requestId !== searchRequestSeqRef.current) return;
-      searchResultCache.set(searchKey, {
-        result: res,
-        activeFilter: activeResultFilterRef.current,
-      });
-      applySearchResult(res);
-      setSearchCategories(res.categories);
-    } catch (error) {
-      if (requestId !== searchRequestSeqRef.current) return;
-      setSearchError(error instanceof Error ? error.message : String(error));
-    } finally {
-      if (requestId === searchRequestSeqRef.current) {
-        setLoading(false);
-      }
-    }
-  }, [applySearchResult, query, setSearchParams]);
+    const providers = [registry.get("wy"), registry.get("tx")]
+      .filter((provider): provider is MusicSource => Boolean(provider));
+    const session = createDesktopSearchSession(keyword, providers, (next) => {
+      setSnapshot(next);
+      const result: PagedSearchResult = { ...next.result, searchStates: next.states };
+      searchResultCache.set(searchKey, { result, activeFilter: activeResultFilterRef.current });
+    }, cachedStates);
+    searchSessionRef.current = session;
+    setSnapshot(session.getSnapshot());
+    await session.start();
+  }, [query, setSearchParams]);
 
   useEffect(() => {
-    const trimmed = initialQuery.trim();
+    const trimmed = normalizeSearchKeyword(initialQuery);
     if (!trimmed) return;
 
     const searchKey = buildSearchKey(trimmed);
@@ -301,6 +172,9 @@ export function SearchView() {
 
   useEffect(() => {
     return () => {
+      searchSessionRef.current?.dispose();
+      searchSessionRef.current = null;
+      lastStartedSearchKeyRef.current = null;
       if (blurTimerRef.current !== null) {
         window.clearTimeout(blurTimerRef.current);
       }
@@ -451,12 +325,18 @@ export function SearchView() {
   const activeResultFilterLabel =
     SEARCH_RESULT_FILTERS.find((filter) => filter.id === activeResultFilter)?.label ?? "相关内容";
   const visibleResultCount = resultFilterCounts[activeResultFilter];
-  const selectedCategories = searchCategories.filter((category) =>
-    activeResultFilter === "overview" || category.type === (activeResultFilter === "artist" ? "singer" : activeResultFilter),
-  );
-  const categoryErrors = selectedCategories.flatMap((category) => category.errors);
-  const categoryFailed = selectedCategories.length > 0 && selectedCategories.every((category) => category.succeeded === 0);
-  const retrySearch = () => { void handleSearch(lastStartedSearchKeyRef.current ?? query); };
+  const activeSearchType = toSearchType(activeResultFilter);
+  const selectedStates = snapshot.states.filter((state) => !activeSearchType || state.source.category === activeSearchType);
+  const loading = selectedStates.some((state) => state.status === "loading" || state.status === "idle");
+  const categoryErrors = selectedStates.flatMap((state) => state.error ? [state.error] : []);
+  const categoryFailed = selectedStates.length > 0 && selectedStates.every((state) => state.page === 0 && state.status === "error");
+  const retrySearch = () => { void searchSessionRef.current?.retry(activeSearchType); };
+  const reloadSearch = () => { void handleSearch(lastStartedSearchKeyRef.current ?? query); };
+  const moreType = activeSearchType ?? "song";
+  const moreLabel = activeResultFilter === "overview" ? "单曲" : activeResultFilterLabel;
+  const moreStates = snapshot.states.filter((state) => state.source.category === moreType);
+  const moreLoading = moreStates.some((state) => state.status === "loading");
+  const canLoadMore = moreStates.some((state) => state.status === "ready" && state.hasMore);
   const showOverview = activeResultFilter === "overview";
   const showArtistResults = activeResultFilter === "artist";
   const showAlbumResults = activeResultFilter === "album";
@@ -631,7 +511,7 @@ export function SearchView() {
 
 
 
-      {loading && (
+      {loading && visibleResultCount === 0 && (
         <div className="af-skeleton-list" aria-busy="true" aria-label="加载中">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="af-skeleton-row" />
@@ -639,15 +519,7 @@ export function SearchView() {
         </div>
       )}
 
-      {!loading && searchError && (
-        <div className="af-empty-state">
-          <p>搜索失败</p>
-          <span>{searchError}</span>
-          <button type="button" className="af-btn-secondary" onClick={retrySearch}>重试</button>
-        </div>
-      )}
-
-      {!loading && !searchError && categoryErrors.length > 0 && (
+      {categoryErrors.length > 0 && (
         <div className="af-page-feedback" role="status">
           <strong>{categoryFailed ? `${activeResultFilterLabel}搜索失败` : "部分搜索结果加载失败"}</strong>
           <span>{categoryErrors.join("；")}</span>
@@ -655,15 +527,15 @@ export function SearchView() {
         </div>
       )}
 
-      {!loading && searched && !searchError && categoryErrors.length === 0 && visibleResultCount === 0 && (
+      {!loading && searched && categoryErrors.length === 0 && visibleResultCount === 0 && (
         <div className="af-empty-state">
           <p>{activeResultFilter === "overview" ? "没有找到相关内容" : `没有找到${activeResultFilterLabel}`}</p>
           <span>可以换个关键词试试</span>
-          <button type="button" className="af-btn-secondary" onClick={retrySearch}>重试</button>
+          <button type="button" className="af-btn-secondary" onClick={reloadSearch}>重试</button>
         </div>
       )}
 
-      {!loading && !searchError && showOverview && hasOverviewHighlights && (
+      {showOverview && hasOverviewHighlights && (
         <section className="af-search-section af-search-overview">
           <h2 className="af-search-section-title">综合</h2>
           <div className="af-search-overview-list">
@@ -788,7 +660,7 @@ export function SearchView() {
         </section>
       )}
 
-      {!loading && !searchError && showArtistResults && artistResults.length > 0 && (
+      {showArtistResults && artistResults.length > 0 && (
         <section className="af-search-section">
           <h2 className="af-search-section-title">歌手</h2>
           <ul className="af-search-results">
@@ -830,7 +702,7 @@ export function SearchView() {
         </section>
       )}
 
-      {!loading && !searchError && showAlbumResults && albumResults.length > 0 && (
+      {showAlbumResults && albumResults.length > 0 && (
         <section className="af-search-section">
           <h2 className="af-search-section-title">专辑</h2>
           <ul className="af-search-results">
@@ -872,7 +744,7 @@ export function SearchView() {
         </section>
       )}
 
-      {!loading && !searchError && showPlaylistResults && playlistResults.length > 0 && (
+      {showPlaylistResults && playlistResults.length > 0 && (
         <section className="af-search-section">
           <h2 className="af-search-section-title">歌单</h2>
           <ul className="af-search-results">
@@ -935,7 +807,7 @@ export function SearchView() {
         </section>
       )}
 
-      {!loading && !searchError && showSongResults && songGroups.length > 0 && (
+      {showSongResults && songGroups.length > 0 && (
         <section className="af-search-section">
           <div className="af-search-section-head">
             <h2 className="af-search-section-title">单曲</h2>
@@ -1017,6 +889,18 @@ export function SearchView() {
             })}
           </ul>
         </section>
+      )}
+      {(canLoadMore || (moreLoading && visibleResultCount > 0)) && (
+        <div className="af-search-section">
+          <button
+            type="button"
+            className="af-btn-secondary"
+            disabled={moreLoading}
+            onClick={() => { void searchSessionRef.current?.loadMore(moreType); }}
+          >
+            {moreLoading ? `正在加载${moreLabel}` : `加载更多${moreLabel}`}
+          </button>
+        </div>
       )}
     </div>
   );

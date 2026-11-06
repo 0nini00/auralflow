@@ -8,7 +8,7 @@ import {
   Alert,
 } from "react-native";
 import type { MusicInfo } from "@lx/core";
-import { groupHasSource, groupSongResults, withSongVariants } from "@lx/core";
+import { groupHasSource, groupSongResults, normalizeSearchKeyword, withSongVariants } from "@lx/core";
 import { layout, radius, spacing, touch, typography } from "@/theme/tokens";
 
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
@@ -27,13 +27,13 @@ import {
   PlaylistResultList,
 } from "@/components/SearchResultSections";
 import {
-  searchAll,
+  type SearchCategory,
   type SearchAlbumResult,
   type SearchArtistResult,
   type SearchPlaylistResult,
   type SearchResults,
 } from "@/services/musicApi";
-import { hasCachedResult } from "@/services/searchResultCache";
+import { createMobileSearchSession, collectSearchResults, type MobileSearchState } from "@/services/searchSession";
 import { LatestRequestGate } from "@/services/latestRequestGate";
 import { playQueue } from "@/services/playerService";
 import { runPlaybackUiAction } from "@/services/playbackUiAction";
@@ -64,7 +64,6 @@ import { usePlaylistStore } from "@/stores/playlistStore";
 import { useAccountStore } from "@/stores/accountStore";
 
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { withAlpha } from "@/services/themePaletteModel";
 import { useSearchQueryStore } from "@/stores/searchQueryStore";
 
 interface SearchScreenProps {
@@ -145,13 +144,14 @@ export function SearchScreen({
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor);
-  const primarySubtleBackground = withAlpha(palette.primary, palette.statusBar === "dark-content" ? 0.12 : 0.16);
   // 标记当前搜索结果是否来自缓存
-  const [fromCache, setFromCache] = useState(false);
+  const [searchStates, setSearchStates] = useState<MobileSearchState[]>([]);
+  const sessionRef = React.useRef<ReturnType<typeof createMobileSearchSession> | null>(null);
   // 竞态保护：快速连续搜索只保留最新一次结果
   const searchRequestSeqRef = React.useRef(0);
   const suggestionRequestGateRef = React.useRef(new LatestRequestGate());
   const setLastSearchKeyword = useSearchQueryStore((s) => s.setLastKeyword);
+  useEffect(() => () => { sessionRef.current?.dispose(); }, []);
 
   const loadHistory = useCallback(async () => {
     try {
@@ -194,7 +194,7 @@ export function SearchScreen({
 
   const runSearch = useCallback(
     async (rawKeyword: string) => {
-      const query = rawKeyword.trim();
+      const query = normalizeSearchKeyword(rawKeyword);
       if (!query) return;
       setLastSearchKeyword(query);
       setSubmittedQuery(query);
@@ -206,17 +206,24 @@ export function SearchScreen({
       setError(null);
       setActiveTab("all");
       setSongSourceFilter("all");
-      setFromCache(hasCachedResult("all", query, "all"));
+      sessionRef.current?.dispose();
+      setResults(EMPTY_RESULTS);
+      setSearchStates([]);
+      const session = createMobileSearchSession(query, (states) => {
+        if (requestId !== searchRequestSeqRef.current) return;
+        setSearchStates(states);
+        setResults(collectSearchResults(states));
+        setLoading(states.some(state => state.status === 'idle' || state.status === 'loading'));
+      });
+      sessionRef.current = session;
 
       try {
-        const nextResults = await searchAll("all", query);
+        await session.start();
         if (requestId !== searchRequestSeqRef.current) return;
-        setResults(nextResults);
         await addSearchHistory(query);
         await loadHistory();
       } catch (err) {
         if (requestId !== searchRequestSeqRef.current) return;
-        setResults(EMPTY_RESULTS);
         setError(err instanceof Error ? err.message : String(err));
       } finally {
         if (requestId === searchRequestSeqRef.current) {
@@ -348,8 +355,10 @@ export function SearchScreen({
     results.artists.length > 0 ||
     results.albums.length > 0 ||
     results.playlists.length > 0;
-  const showResults = Boolean(submittedQuery) && !loading && !error && hasResults;
-  const showEmptyResults = Boolean(submittedQuery) && !loading && !error && !hasResults;
+  const hasSearchErrors = searchStates.some(state => state.status === 'error');
+  const showResults = Boolean(submittedQuery) && hasResults;
+  const showEmptyResults = Boolean(submittedQuery) && !loading && !error && !hasSearchErrors && !hasResults;
+  const visibleCategories = SEARCH_TABS.filter(tab => tab.key !== 'all' && (activeTab === 'all' || activeTab === tab.key));
 
 
 
@@ -409,7 +418,7 @@ export function SearchScreen({
         </Pressable>
         </View>
 
-        {showResults && (
+        {Boolean(submittedQuery) && (
           <View style={styles.tabList}>
             {SEARCH_TABS.map((tab) => (
               <Pressable
@@ -560,13 +569,7 @@ export function SearchScreen({
           </View>
         )}
 
-        {loading && <LoadingState label="正在搜索" />}
-
-        {fromCache && !loading && !error && hasResults && (
-        <View style={[styles.cacheBadgeBox, { backgroundColor: primarySubtleBackground }]}>
-          <Text style={[styles.cacheBadgeText, { color: palette.primaryInk }]}>来自缓存</Text>
-        </View>
-        )}
+        {loading && !hasResults && <LoadingState label="正在搜索" />}
 
         {error && <ErrorState message={error} onRetry={() => void runSearch(submittedQuery)} />}
 
@@ -681,6 +684,23 @@ export function SearchScreen({
           onPress={handlePlaylistPress}
         />
         )}
+        {Boolean(submittedQuery) && visibleCategories.map(tab => {
+          const states = searchStates.filter(state => state.source.category === tab.key);
+          const busy = states.some(state => state.status === 'loading' || state.status === 'idle');
+          const failed = states.filter(state => state.status === 'error');
+          const more = states.some(state => state.status === 'ready' && state.hasMore);
+          return <View key={tab.key} style={styles.resultSection}>
+            {busy && <Text accessibilityRole="text" style={{ color: palette.textMuted }}>正在加载{tab.label}…</Text>}
+            {failed.length > 0 && <ErrorState
+              message={`${tab.label}：${failed.map(state => `${state.source.platform === 'wy' ? '网易云' : 'QQ'} ${state.error}`).join('；')}`}
+              onRetry={() => { void sessionRef.current?.retry(tab.key); }} />}
+            {more && <Pressable accessibilityRole="button" accessibilityLabel={`加载更多${tab.label}`} disabled={busy}
+              style={[styles.searchButton, { backgroundColor: palette.surface, opacity: busy ? 0.5 : 1 }]}
+              onPress={() => { void sessionRef.current?.loadMore(tab.key as SearchCategory); }}>
+              <Text style={{ color: palette.primaryInk }}>加载更多{tab.label}</Text>
+            </Pressable>}
+          </View>;
+        })}
       </ScreenScrollView>
     </ScreenScaffold>
   );
@@ -860,15 +880,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: radius.sm,
-  },
-  cacheBadgeBox: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: radius.md,
-    marginBottom: 12,
-  },
-  cacheBadgeText: {
-    fontSize: typography.caption,
   },
 });

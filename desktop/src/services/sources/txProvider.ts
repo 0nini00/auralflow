@@ -3,6 +3,7 @@ import type {
   MusicSource,
   PlaylistInfo,
   SearchResult,
+  SearchPage,
   SearchType,
 } from "@lx/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
@@ -13,8 +14,8 @@ import {
 } from "@/services/builtinMusicApiClient";
 import {
   canResolveWithBuiltinMusicApi,
-  searchBuiltinMusicApiWithMetadata,
 } from "@/services/builtinMusicApiModel";
+import { searchSongsPage } from "@/services/search/searchSongsPage";
 import {
   mapTxPlaylist,
   mapTxSong,
@@ -179,24 +180,29 @@ async function searchQqSongs(
   keyword: string,
   page: number,
   limit: number
-): Promise<MusicInfo[]> {
+): Promise<SearchPage<MusicInfo[]>> {
   const data = await qqSearch(keyword, page, limit, 0);
   const body = data?.body ?? {};
   const list = firstArray(body?.item_song, data?.item_song);
-  return list
-    .map(mapTxSong)
-    .filter((music): music is MusicInfo => music != null);
+  return {
+    result: list.map(mapTxSong).filter((music): music is MusicInfo => music != null),
+    hasMore: list.length >= limit,
+  };
 }
 
 async function searchSongs(
   keyword: string,
   page: number,
   limit: number
-): Promise<MusicInfo[]> {
+): Promise<SearchResult> {
   // 官方 musicu 搜索为主链，网关 joox 作为兜底与元数据补充
-  return searchBuiltinMusicApiWithMetadata(
+  return searchSongsPage(
     () => searchQqSongs(keyword, page, limit),
-    () => searchBuiltinMusicApiSongs("joox", keyword, page, Math.min(limit, 30), "tx"),
+    async () => {
+      const metadataLimit = Math.min(limit, 30);
+      const result = await searchBuiltinMusicApiSongs("joox", keyword, page, metadataLimit, "tx");
+      return { result, hasMore: result.length >= metadataLimit };
+    },
   );
 }
 
@@ -204,7 +210,7 @@ async function searchPlaylists(
   keyword: string,
   page: number,
   limit: number
-): Promise<PlaylistInfo[]> {
+): Promise<SearchResult> {
   const data = await qqSearch(keyword, page, limit, 3);
   const body = data?.body ?? {};
   const list = firstArray(
@@ -215,9 +221,10 @@ async function searchPlaylists(
     data?.item_playlist,
     data?.list,
   );
-  return list
-    .map(mapTxPlaylist)
-    .filter((playlist): playlist is PlaylistInfo => playlist != null);
+  return {
+    playlists: list.map(mapTxPlaylist).filter((playlist): playlist is PlaylistInfo => playlist != null),
+    hasMore: list.length >= limit,
+  };
 }
 
 function extractPlaylistSongs(data: any): any[] {
@@ -355,13 +362,11 @@ export const txProvider: MusicSource = {
 
   async search(keyword: string, type: SearchType, page = 1): Promise<SearchResult> {
     if (type === "song") {
-      const songs = await searchSongs(keyword, page, 50);
-      return { songs };
+      return searchSongs(keyword, page, 50);
     }
 
     if (type === "playlist") {
-      const playlists = await searchPlaylists(keyword, page, 30);
-      return { playlists };
+      return searchPlaylists(keyword, page, 30);
     }
 
     return {};

@@ -1,56 +1,22 @@
-import type { SearchResult } from "@lx/core";
+import { createSearchResultCache as createCache, type SearchCacheOptions, type SearchCacheParams, type SearchResult } from '@lx/core';
 
 export interface SearchResultCacheEntry {
   result: SearchResult;
   activeFilter: string;
 }
 
-export interface SearchResultCache {
-  get: (key: string) => SearchResultCacheEntry | null;
-  set: (key: string, entry: SearchResultCacheEntry) => void;
-  updateFilter: (key: string, activeFilter: string) => void;
-  clear: () => void;
-}
-
-export function createSearchResultCache(limit = 12): SearchResultCache {
-  const entries = new Map<string, SearchResultCacheEntry>();
-
-  const normalizeKey = (key: string) => key.trim();
-
+export function createSearchResultCache(options: number | Partial<SearchCacheOptions> = 12) {
+  const settings = typeof options === 'number' ? { maxEntries: options } : options;
+  const cache = createCache<SearchResultCacheEntry>({ ...settings, maxEntries: settings.maxEntries ?? 12 });
   return {
-    get(key) {
-      const normalized = normalizeKey(key);
-      const entry = entries.get(normalized);
-      if (!entry) return null;
-      entries.delete(normalized);
-      entries.set(normalized, entry);
-      return entry;
+    get: cache.get,
+    set: cache.set,
+    updateFilter(key: string, activeFilter: string, params: SearchCacheParams = {}) {
+      cache.update(key, (entry) => ({ ...entry, activeFilter }), params);
     },
-
-    set(key, entry) {
-      const normalized = normalizeKey(key);
-      if (!normalized) return;
-      entries.delete(normalized);
-      entries.set(normalized, entry);
-      while (entries.size > limit) {
-        const oldestKey = entries.keys().next().value;
-        if (!oldestKey) break;
-        entries.delete(oldestKey);
-      }
-    },
-
-    updateFilter(key, activeFilter) {
-      const normalized = normalizeKey(key);
-      const entry = entries.get(normalized);
-      if (!entry) return;
-      entries.delete(normalized);
-      entries.set(normalized, { ...entry, activeFilter });
-    },
-
-    clear() {
-      entries.clear();
-    },
+    clear: cache.clear,
   };
 }
 
+export type SearchResultCache = ReturnType<typeof createSearchResultCache>;
 export const searchResultCache = createSearchResultCache();

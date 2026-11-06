@@ -1,5 +1,6 @@
 import {
   createBuiltinMusicApiClient,
+  normalizeSearchKeyword,
   getBuiltinMusicApiGateway,
   mergeRomanization,
   mergeTranslation,
@@ -22,8 +23,8 @@ import { postWyEapi } from "./wyDirectProvider";
 import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
 import { parseNeteaseCommentResult, type SongCommentResult } from "./songCommentModel";
 
-const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 30;
+const SONG_PAGE_SIZE = { wy: 100, tx: 50 } as const;
 
 export interface SearchArtistResult {
   id: string;
@@ -145,11 +146,19 @@ function formatDate(value?: number | string): string | undefined {
   return date.toISOString().slice(0, 10);
 }
 
-async function searchNeteaseArtists(keyword: string): Promise<SearchArtistResult[]> {
-  const response = await fetchText(
-    `https://music.163.com/api/search/get/web?csrf_token=hlpretag=&hlposttag=&s=${encodeURIComponent(keyword)}&type=100&offset=0&total=true&limit=${DEFAULT_LIMIT}`
-  );
+function parseSearchResponse(response: string): Record<string, any> {
   const data = JSON.parse(response) as Record<string, any>;
+  if (data.code !== 200 || !data.result || typeof data.result !== 'object') {
+    throw new Error(`搜索接口拒绝请求（${String(data.code ?? '无状态码')}）`);
+  }
+  return data;
+}
+
+async function searchNeteaseArtists(keyword: string, page = 1): Promise<SearchArtistResult[]> {
+  const response = await fetchText(
+    `https://music.163.com/api/search/get/web?csrf_token=hlpretag=&hlposttag=&s=${encodeURIComponent(keyword)}&type=100&offset=${(page - 1) * DEFAULT_LIMIT}&total=true&limit=${DEFAULT_LIMIT}`
+  );
+  const data = parseSearchResponse(response);
   const artists = Array.isArray(data.result?.artists) ? data.result.artists : [];
   return artists.map((artist: any) => ({
     id: String(artist.id),
@@ -161,11 +170,11 @@ async function searchNeteaseArtists(keyword: string): Promise<SearchArtistResult
   }));
 }
 
-async function searchNeteaseAlbums(keyword: string): Promise<SearchAlbumResult[]> {
+async function searchNeteaseAlbums(keyword: string, page = 1): Promise<SearchAlbumResult[]> {
   const response = await fetchText(
-    `https://music.163.com/api/search/get/web?csrf_token=hlpretag=&hlposttag=&s=${encodeURIComponent(keyword)}&type=10&offset=0&total=true&limit=${DEFAULT_LIMIT}`
+    `https://music.163.com/api/search/get/web?csrf_token=hlpretag=&hlposttag=&s=${encodeURIComponent(keyword)}&type=10&offset=${(page - 1) * DEFAULT_LIMIT}&total=true&limit=${DEFAULT_LIMIT}`
   );
-  const data = JSON.parse(response) as Record<string, any>;
+  const data = parseSearchResponse(response);
   const albums = Array.isArray(data.result?.albums) ? data.result.albums : [];
   return albums.map((album: any) => ({
     id: String(album.id),
@@ -178,11 +187,11 @@ async function searchNeteaseAlbums(keyword: string): Promise<SearchAlbumResult[]
   }));
 }
 
-async function searchNeteasePlaylists(keyword: string): Promise<SearchPlaylistResult[]> {
+async function searchNeteasePlaylists(keyword: string, page = 1): Promise<SearchPlaylistResult[]> {
   const response = await fetchText(
-    `https://music.163.com/api/search/get/web?csrf_token=hlpretag=&hlposttag=&s=${encodeURIComponent(keyword)}&type=1000&offset=0&total=true&limit=${DEFAULT_LIMIT}`
+    `https://music.163.com/api/search/get/web?csrf_token=hlpretag=&hlposttag=&s=${encodeURIComponent(keyword)}&type=1000&offset=${(page - 1) * DEFAULT_LIMIT}&total=true&limit=${DEFAULT_LIMIT}`
   );
-  const data = JSON.parse(response) as Record<string, any>;
+  const data = parseSearchResponse(response);
   const playlists = Array.isArray(data.result?.playlists) ? data.result.playlists : [];
   return playlists.map((playlist: any) => ({
     id: String(playlist.id),
@@ -205,12 +214,13 @@ const SONGS_CACHE_NAMESPACE = "songs";
 async function searchDirectSongs(
   source: Extract<SourceTag, "wy" | "tx">,
   keyword: string,
+  page = 1,
 ): Promise<MusicInfo[]> {
   // 直连路径是网关挂掉时的完整兑底 + 元数据补全源，拉取量与桌面端对齐（wy 100 / tx 50）
   if (source === "wy") {
-    return searchWySongsViaCloudSearch(keyword, 100);
+    return searchWySongsViaCloudSearch(keyword, SONG_PAGE_SIZE.wy, page);
   }
-  return searchTxSongs(keyword, 50);
+  return searchTxSongs(keyword, SONG_PAGE_SIZE.tx, {}, page);
 }
 
 /**
@@ -225,20 +235,25 @@ async function searchDirectSongs(
 export async function searchSongs(
   source: Extract<SourceTag, "wy" | "tx">,
   keyword: string,
+  page = 1,
 ): Promise<MusicInfo[]> {
+  keyword = normalizeSearchKeyword(keyword);
+  const namespace = `${SONGS_CACHE_NAMESPACE}:page:${page}`;
   // 优先查缓存，命中则直接返回
-  const cached = getCachedResult<MusicInfo[]>(source, keyword, SONGS_CACHE_NAMESPACE);
+  const cached = getCachedResult<MusicInfo[]>(source, keyword, namespace);
   if (cached) return cached;
 
   const cacheAndReturn = (songs: MusicInfo[]): MusicInfo[] => {
-    setCachedResult(source, keyword, songs, SONGS_CACHE_NAMESPACE);
+    setCachedResult(source, keyword, songs, namespace);
     return songs;
   };
 
   let apiError: unknown;
   try {
-    const directSongs = await searchDirectSongs(source, keyword);
-    if (directSongs.length > 0) return cacheAndReturn(directSongs);
+    const directSongs = await searchDirectSongs(source, keyword, page);
+    // 首页空结果可能是被风控软拒（200 + 无 songs），不能当成“真的没有”缓存 5 分钟：
+    // 继续走网关兜底；只有非首页的空页才按真实末页缓存。
+    if (directSongs.length > 0 || page > 1) return cacheAndReturn(directSongs);
   } catch (error) {
     apiError = error;
   }
@@ -254,11 +269,11 @@ export async function searchSongs(
     const apiSongs = await builtinClient.searchSongs(
       apiSource,
       keyword,
-      DEFAULT_PAGE,
-      DEFAULT_LIMIT,
+      page,
+      SONG_PAGE_SIZE[source],
       source,
     );
-    if (apiSongs.length > 0) return cacheAndReturn(apiSongs);
+    return cacheAndReturn(apiSongs);
   } catch (fallbackError) {
     if (!apiError) throw fallbackError;
     const apiMessage = apiError instanceof Error ? apiError.message : String(apiError);
@@ -266,96 +281,51 @@ export async function searchSongs(
     throw new Error(`官方直连搜索失败：${apiMessage}\n内置音乐 API 搜索失败：${fallbackMessage}`);
   }
 
-  throw new Error("搜索无结果");
 }
 
-/** searchAll 缓存命名空间 */
-const ALL_CACHE_NAMESPACE = "all";
-
-/** 判断一组 allSettled 结果里是否至少有一个来源真正 fulfilled。 */
-function anyFulfilled(results: readonly PromiseSettledResult<unknown>[]): boolean {
-  return results.some((result) => result.status === "fulfilled");
+export type SearchCategory = keyof SearchResults;
+export function emptySearchResults(): SearchResults {
+  return { songs: [], artists: [], albums: [], playlists: [] };
 }
 
+/** 一个来源的一页结果；空页是正常结束，接口异常由分页会话独立展示。 */
+export async function searchCategoryPage(
+  source: Extract<SourceTag, "wy" | "tx">,
+  category: SearchCategory,
+  keyword: string,
+  page = 1,
+): Promise<{ result: SearchResults; hasMore: boolean }> {
+  if (!Number.isInteger(page) || page < 1) throw new Error("搜索页码无效");
+  keyword = normalizeSearchKeyword(keyword);
+  const namespace = `category:${category}:page:${page}`;
+  const cached = getCachedResult<SearchResults>(source, keyword, namespace);
+  if (cached) return { result: cached, hasMore: cached[category].length > 0 };
+  const result = emptySearchResults();
+  if (category === "songs") result.songs = await searchSongs(source, keyword, page);
+  else if (category === "playlists") result.playlists = source === "wy"
+    ? await searchNeteasePlaylists(keyword, page) : await searchTxPlaylists(keyword, {}, page);
+  else if (source === "wy" && category === "artists") result.artists = await searchNeteaseArtists(keyword, page);
+  else if (source === "wy" && category === "albums") result.albums = await searchNeteaseAlbums(keyword, page);
+  setCachedResult(source, keyword, result, namespace);
+  return { result, hasMore: result[category].length > 0 };
+}
+
+/** 兼容需要整页结果的调用者，各分类同时发起；页面交互使用渐进会话。 */
 export async function searchAll(source: SearchSource, keyword: string): Promise<SearchResults> {
-  // 优先查缓存，命中则直接返回（searchSongs 内部也会命中各自缓存）
-  const cached = getCachedResult<SearchResults>(source, keyword, ALL_CACHE_NAMESPACE);
-  if (cached) return cached;
-
-  // 综合搜索合并网易云与 QQ 音乐；单来源搜索只查询当前来源，避免来源切换后混入其他平台歌曲。
   const sources: Array<Extract<SourceTag, "wy" | "tx">> = source === "all" ? ["wy", "tx"] : [source];
-  const songResults = await Promise.allSettled(
-    sources.map((src) => searchSongs(src, keyword))
-  );
-  const songs: MusicInfo[] = [];
-  for (let i = 0; i < songResults.length; i += 1) {
-    const result = songResults[i];
-    if (result.status !== "fulfilled") continue;
-    songs.push(...result.value);
+  const requests = sources.flatMap(item => (["songs", "artists", "albums", "playlists"] as const)
+    .filter(category => item === "wy" || category === "songs" || category === "playlists")
+    .map(category => searchCategoryPage(item, category, keyword)));
+  const settled = await Promise.allSettled(requests);
+  if (settled.every(result => result.status === "rejected")) throw new Error("搜索请求全部失败，请重试");
+  const merged = emptySearchResults();
+  for (const entry of settled) {
+    if (entry.status !== "fulfilled") continue;
+    const { result } = entry.value;
+    merged.songs.push(...result.songs); merged.artists.push(...result.artists);
+    merged.albums.push(...result.albums); merged.playlists.push(...result.playlists);
   }
-  const mergedSongs = mergeDuplicateSongs(songs);
-
-  let anySourceFulfilled = false;
-  let finalResults: SearchResults;
-  if (source === "all") {
-    const [artistsResult, albumsResult, wyPlaylistsResult, txPlaylistsResult] = await Promise.allSettled([
-      searchNeteaseArtists(keyword),
-      searchNeteaseAlbums(keyword),
-      searchNeteasePlaylists(keyword),
-      searchTxPlaylists(keyword),
-    ]);
-    anySourceFulfilled =
-      anyFulfilled(songResults) ||
-      anyFulfilled([artistsResult, albumsResult, wyPlaylistsResult, txPlaylistsResult]);
-
-    finalResults = {
-      songs: mergedSongs,
-      artists: artistsResult.status === "fulfilled" ? artistsResult.value : [],
-      albums: albumsResult.status === "fulfilled" ? albumsResult.value : [],
-      playlists: [
-        ...(wyPlaylistsResult.status === "fulfilled" ? wyPlaylistsResult.value : []),
-        ...(txPlaylistsResult.status === "fulfilled" ? txPlaylistsResult.value : []),
-      ],
-    };
-  } else
-  if (source === "wy") {
-    // 与 all 分支一致用 allSettled：某个分类接口返回风控页/非 JSON 时，
-    // 不应让整个 wy 综合搜索 reject（歌曲结果此时已拿到）。
-    const [artistsResult, albumsResult, playlistsResult] = await Promise.allSettled([
-      searchNeteaseArtists(keyword),
-      searchNeteaseAlbums(keyword),
-      searchNeteasePlaylists(keyword),
-    ]);
-    anySourceFulfilled =
-      anyFulfilled(songResults) ||
-      anyFulfilled([artistsResult, albumsResult, playlistsResult]);
-
-    finalResults = {
-      songs: mergedSongs,
-      artists: artistsResult.status === "fulfilled" ? artistsResult.value : [],
-      albums: albumsResult.status === "fulfilled" ? albumsResult.value : [],
-      playlists: playlistsResult.status === "fulfilled" ? playlistsResult.value : [],
-    };
-  } else {
-    // 与 wy 分支一致用 allSettled：歌单接口返回风控页/非 JSON 时，
-    // 不应让整个 tx 综合搜索 reject（歌曲结果此时已拿到）。
-    const playlistsResult = await Promise.allSettled([searchTxPlaylists(keyword)]);
-    anySourceFulfilled = anyFulfilled(songResults) || anyFulfilled(playlistsResult);
-    finalResults = {
-      songs: mergedSongs,
-      artists: [],
-      albums: [],
-      playlists: playlistsResult[0]?.status === "fulfilled" ? playlistsResult[0].value : [],
-    };
-  }
-
-  // 仅当至少有一个来源真正 fulfilled 时才写缓存：
-  // 全部来源失败（网络/风控）时跳过缓存，避免“空结果”被当作真实的空结果缓存 5 分钟，
-  // 让 UI 仍能走网络错误路径并允许重试。注意单来源搜索为单源直调，走到写缓存处即该源已 fulfilled。
-  if (anySourceFulfilled) {
-    setCachedResult(source, keyword, finalResults, ALL_CACHE_NAMESPACE);
-  }
-  return finalResults;
+  return { ...merged, songs: mergeDuplicateSongs(merged.songs) };
 }
 
 export async function fetchNeteaseArtistDetail(artistId: string): Promise<ArtistDetailResult> {

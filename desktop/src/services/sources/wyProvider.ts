@@ -27,7 +27,7 @@ import {
   resolveWyPlaylistTracks,
 } from "@/services/neteasePlaylistUtils";
 import { searchBuiltinMusicApiSongs } from "@/services/builtinMusicApiClient";
-import { searchBuiltinMusicApiWithMetadata } from "@/services/builtinMusicApiModel";
+import { searchSongsPage } from "@/services/search/searchSongsPage";
 import CryptoJS from "crypto-js";
 
 // ─── 常量 ─────────────────────────────────────────────
@@ -170,17 +170,18 @@ async function searchWyViaCloudSearch(keyword: string, type: SearchType, page = 
 
   if (type === "song") {
     const rawSongs: any[] = body?.result?.songs ?? [];
-    return { songs: rawSongs.map(mapWySong) };
+    return { songs: rawSongs.map(mapWySong), hasMore: rawSongs.length >= limit };
   }
 
   if (type === "playlist") {
     const rawPlaylists: any[] = body?.result?.playlists ?? [];
-    return { playlists: rawPlaylists.map(mapWyPlaylist) };
+    return { playlists: rawPlaylists.map(mapWyPlaylist), hasMore: rawPlaylists.length >= limit };
   }
 
   if (type === "singer") {
     const rawArtists: any[] = body?.result?.artists ?? [];
     return {
+      hasMore: rawArtists.length >= limit,
       artists: rawArtists.map((artist) => ({
         id: String(artist.id),
         name: String(artist.name ?? ""),
@@ -196,6 +197,7 @@ async function searchWyViaCloudSearch(keyword: string, type: SearchType, page = 
   if (type === "album") {
     const rawAlbums: any[] = body?.result?.albums ?? [];
     return {
+      hasMore: rawAlbums.length >= limit,
       albums: rawAlbums.map((album) => ({
         id: String(album.id),
         name: String(album.name ?? ""),
@@ -332,11 +334,16 @@ export const wyProvider: MusicSource = {
   async search(keyword: string, type: SearchType, page = 1): Promise<SearchResult> {
     if (type === "song") {
       // 官方 eapi cloudsearch 为主链，网关仅作为兜底与元数据补充
-      const songs = await searchBuiltinMusicApiWithMetadata(
-        async () => (await searchWyViaCloudSearch(keyword, type, page)).songs ?? [],
-        () => searchBuiltinMusicApiSongs("netease", keyword, page, 30, "wy"),
+      return searchSongsPage(
+        async () => {
+          const result = await searchWyViaCloudSearch(keyword, type, page);
+          return { result: result.songs ?? [], hasMore: result.hasMore === true };
+        },
+        async () => {
+          const result = await searchBuiltinMusicApiSongs("netease", keyword, page, 30, "wy");
+          return { result, hasMore: result.length >= 30 };
+        },
       );
-      return { songs };
     }
 
     return searchWyViaCloudSearch(keyword, type, page);
