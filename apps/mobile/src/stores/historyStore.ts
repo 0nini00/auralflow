@@ -3,6 +3,7 @@ import { isRemovedSource, type HistoryPlayEntry, type MusicInfo } from "@lx/core
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { logger } from "@/services/logger";
 import {
+  dayStartOf,
   hasRealPlayedAt,
   historySongKey,
   isSameDay,
@@ -62,15 +63,15 @@ interface HistoryActions {
   clearHistory: () => Promise<void>;
   removeFromHistory: (songId: string, source: string, dayStart?: number) => Promise<void>;
   /**
-   * WebDAV 同步覆盖：用远端历史替换本地播放历史。
-   * `timestamps` 只含云端**真实带回来**的时间戳；缺键的条目按「时间未知」处理，不补假值。
+   * WebDAV 同步覆盖：用远端条目替换本地播放历史。
+   * 条目 `playedAt` 为 0 表示「时间未知」：本地补占位时间维持分组与 31 天窗口，但标记为合成。
    */
-  replaceAllHistory: (history: MusicInfo[], timestamps?: Record<string, number>) => Promise<void>;
+  replaceAllHistory: (entries: HistoryEntry[]) => Promise<void>;
   /**
-   * WebDAV 同步合并：本地与远端历史并集，同曲优先保留真实播放时间，其次取时间较新的条目。
-   * `timestamps` 同上，只含云端真实带回来的时间戳。
+   * WebDAV 同步合并：本地与远端条目按 `key + 本地日` 求并集（同曲不同天各自保留），
+   * 同一天保留时间较新的记录；时间未知的歌曲只要存在真实记录就不再保留占位条目。
    */
-  mergeHistory: (history: MusicInfo[], timestamps?: Record<string, number>) => Promise<void>;
+  mergeHistory: (entries: HistoryEntry[]) => Promise<void>;
 }
 
 type HistoryStore = HistoryState & HistoryActions;
@@ -83,14 +84,6 @@ function isHistoryEntry(value: unknown): value is HistoryEntry {
 /** 可用的**真实**播放时间戳：正的有限毫秒数（0 / 负数 / NaN / 非数字一律算「时间未知」）。 */
 function isUsableTimestamp(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
-}
-
-/** 同曲条目取舍：真实播放时间优先于合成占位时间，两者同类时取时间较新的那一条。 */
-function isBetterEntry(candidate: HistoryEntry, incumbent: HistoryEntry): boolean {
-  const candidateReal = hasRealPlayedAt(candidate);
-  const incumbentReal = hasRealPlayedAt(incumbent);
-  if (candidateReal !== incumbentReal) return candidateReal;
-  return candidate.playedAt > incumbent.playedAt;
 }
 
 /**
@@ -284,20 +277,19 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
     }
   },
 
-  replaceAllHistory: async (history, timestamps) => {
+  replaceAllHistory: async (remoteEntries) => {
     try {
       await ensureHistoryLoaded(get);
       const now = Date.now();
-      const entries: HistoryEntry[] = history
-        .filter((music) => music?.id)
-        .map((song, index) => {
-          const key = historySongKey(song);
-          const recorded = timestamps?.[key];
+      const entries: HistoryEntry[] = remoteEntries
+        .filter((entry) => entry?.song?.id)
+        .map((entry, index) => {
+          const key = entry.key || historySongKey(entry.song);
           // 云端带了真实播放时间就用；没有（0 / 缺失 / 非法）时只补一个本地占位时间供分组与
           // 31 天窗口使用，并标为合成——统计按时间未知、回传云端写 0，绝不冒充真实时间。
-          return isUsableTimestamp(recorded)
-            ? { key, song, playedAt: recorded }
-            : { key, song, playedAt: now - index, playedAtSynthetic: true };
+          return isUsableTimestamp(entry.playedAt)
+            ? { key, song: entry.song, playedAt: entry.playedAt }
+            : { key, song: entry.song, playedAt: now - index, playedAtSynthetic: true };
         });
       const normalized = withoutRemovedSources(normalizeEntries(entries, now));
       const derived = derive(normalized);
@@ -311,39 +303,40 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
     }
   },
 
-  mergeHistory: async (history, timestamps) => {
+  mergeHistory: async (remoteEntries) => {
     try {
       await ensureHistoryLoaded(get);
-      const { entries: current, historyTimestamps } = get();
+      const { entries: current } = get();
       const now = Date.now();
-      // 时间戳取两侧较新值：远端同步文件可能早于本地最近播放，避免时间回退。
-      const mergedTimestamps: Record<string, number> = { ...historyTimestamps };
-      for (const [key, value] of Object.entries(timestamps ?? {})) {
-        // 只接受云端**真实带回来**的合法时间：0 / 负数 / 非法值一律按「时间未知」忽略。
-        if (!isUsableTimestamp(value)) continue;
-        mergedTimestamps[key] = Math.max(mergedTimestamps[key] ?? 0, value);
-      }
-      const merged = new Map<string, HistoryEntry>();
-      for (const song of history) {
-        if (!song?.id) continue;
-        const key = historySongKey(song);
-        const recorded = mergedTimestamps[key];
-        // 云端没带真实时间（或只带了未知哨兵）时不编造：沿用本地内部时间基准维持分组与
-        // 31 天窗口，但显式标为合成——统计按时间未知处理、回传云端写 0。
-        merged.set(
-          key,
-          isUsableTimestamp(recorded)
-            ? { key, song, playedAt: recorded }
-            : { key, song, playedAt: now, playedAtSynthetic: true },
-        );
-      }
+      // 与桌面端同一口径：真实播放时间按 `key + 本地日` 求并集（同曲不同天各自保留），
+      // 同一天保留时间较新的记录；时间未知的歌曲每首最多留一条占位条目。
+      const realByDay = new Map<string, HistoryEntry>();
+      const unknownByKey = new Map<string, HistoryEntry>();
+      const addReal = (entry: HistoryEntry) => {
+        const id = `${entry.key}:${dayStartOf(entry.playedAt)}`;
+        const previous = realByDay.get(id);
+        if (!previous || entry.playedAt > previous.playedAt) realByDay.set(id, entry);
+      };
+      // 本地合成占位条目优先于远端「时间未知」：本地占位时间还能维持分组与 31 天窗口。
       for (const entry of current) {
-        const existing = merged.get(entry.key);
-        // 同曲保留较优条目：真实时间优先于合成占位时间（本地旧数据不因下载被降级成未知），
-        // 同类时取时间较新的条目，歌曲信息随之来自较新记录。
-        if (!existing || isBetterEntry(entry, existing)) merged.set(entry.key, entry);
+        if (hasRealPlayedAt(entry)) addReal(entry);
+        else unknownByKey.set(entry.key, entry);
       }
-      const normalized = withoutRemovedSources(normalizeEntries([...merged.values()], now));
+      for (const entry of remoteEntries) {
+        if (!entry?.song?.id) continue;
+        const key = entry.key || historySongKey(entry.song);
+        if (isUsableTimestamp(entry.playedAt)) {
+          addReal({ key, song: entry.song, playedAt: entry.playedAt });
+        } else if (!unknownByKey.has(key)) {
+          unknownByKey.set(key, { key, song: entry.song, playedAt: now, playedAtSynthetic: true });
+        }
+      }
+      const realKeys = new Set([...realByDay.values()].map((entry) => entry.key));
+      const merged = [...realByDay.values()];
+      for (const [key, entry] of unknownByKey) {
+        if (!realKeys.has(key)) merged.push(entry);
+      }
+      const normalized = withoutRemovedSources(normalizeEntries(merged, now));
       const derived = derive(normalized);
       await AsyncStorage.multiSet([
         [HISTORY_KEY, JSON.stringify(normalized)],

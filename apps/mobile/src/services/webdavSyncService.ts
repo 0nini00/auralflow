@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { buildUserApisSyncFile, parseUserApisSyncFile, type UserApiSyncSource, CloudDataStaleError, CloudSyncRefusalError, isWebdavLocalPlaylistRef, type MusicInfo } from "@lx/core";
-import { buildSongKey } from "@lx/core";
+import { buildSongKey, isUsablePlayedAt } from "@lx/core";
 import { usePlaylistStore } from "../stores/playlistStore";
 import { useFavoritesStore } from "../stores/favoritesStore";
 import type { WyPlaylistInfo } from "./wyPlaylistService";
@@ -573,25 +573,23 @@ async function buildPlaylistsSyncFile(): Promise<PlaylistsSyncFile> {
   };
 }
 
-function parsePlayHistory(value: unknown): {
-  history: MusicInfo[];
-  timestamps: Record<string, number>;
-} {
-  const history: MusicInfo[] = [];
-  const timestamps: Record<string, number> = {};
-  if (!Array.isArray(value)) return { history, timestamps };
+function parsePlayHistory(value: unknown): HistoryEntry[] {
+  const entries: HistoryEntry[] = [];
+  if (!Array.isArray(value)) return entries;
   for (const item of value) {
     // 两种方言都收：桌面端写的 `{ musicInfo, playedAt }` 包装条目，以及旧版/裸 `MusicInfo`。
     const music = isObject(item) && "musicInfo" in item ? toMusicInfo(item.musicInfo) : toMusicInfo(item);
     if (!music) continue;
-    history.push(music);
-    // 只认正的有限数（0 = 未知哨兵）：缺失 / 0 / 非法值都算「时间未知」，与桌面端
-    // `parsePlayHistory`（`desktop/src/services/webdavSyncService.ts:558`）同口径。
+    // 只认正的有限数（0 = 未知哨兵）：缺失 / 0 / 非法值都算「时间未知」，与桌面端同口径。
     // 这里不合成任何时间——本地要不要补内部占位时间由 historyStore 决定并打标记。
     const playedAt = isObject(item) ? getNumber(item.playedAt, 0) : 0;
-    if (playedAt > 0) timestamps[`${music.source}:${music.id}`] = playedAt;
+    entries.push({
+      key: `${music.source}:${music.id}`,
+      song: music,
+      playedAt: isUsablePlayedAt(playedAt) ? playedAt : 0,
+    });
   }
-  return { history, timestamps };
+  return entries;
 }
 
 // ---------------------------------------------------------------------------
@@ -765,8 +763,7 @@ function parsePlaylistsSyncFile(text: string): {
   favorites: MusicInfo[];
   playlists: WyPlaylistInfo[];
   localPlaylists: LocalPlaylist[];
-  history: MusicInfo[];
-  historyTimestamps: Record<string, number>;
+  historyEntries: HistoryEntry[];
   cloudSongs: Map<string, MusicInfo[]>;
 } {
   let payload: Record<string, unknown>;
@@ -827,10 +824,10 @@ function parsePlaylistsSyncFile(text: string): {
     }
   }
 
-  const { history, timestamps } = parsePlayHistory(
+  const historyEntries = parsePlayHistory(
     payload.playHistory ?? data.playHistory ?? payload.history ?? data.history,
   );
-  return { favorites, playlists, localPlaylists, history, historyTimestamps: timestamps, cloudSongs };
+  return { favorites, playlists, localPlaylists, historyEntries, cloudSongs };
 }
 
 // ---------------------------------------------------------------------------
@@ -1037,8 +1034,7 @@ export async function downloadPlaylistsSync(options?: {
       favorites,
       playlists,
       localPlaylists,
-      history,
-      historyTimestamps,
+      historyEntries,
       cloudSongs,
     } = parsePlaylistsSyncFile(text);
     await rememberCloudSongs(cloudSongs);
@@ -1051,16 +1047,15 @@ export async function downloadPlaylistsSync(options?: {
         cloudPlaylists: playlists,
         localPlaylists,
       });
-      // 注：下载侧按 key 折叠为单条（保留较新播放时间），跨天多次播放的完整记录
-      // 仅在本地上传时保留——与桌面端 200 条去重格式互通，属预期权衡。
-      await useHistoryStore.getState().mergeHistory(history, historyTimestamps);
+      // 与桌面端一致：按 key + 本地日求并集，同曲不同天各自保留。
+      await useHistoryStore.getState().mergeHistory(historyEntries);
       return;
     }
 
     await favoritesStore.replaceAll(favorites);
     playlistStore.replaceAllFromSync(playlists);
     await playlistStore.replaceLocalPlaylists(localPlaylists);
-    await useHistoryStore.getState().replaceAllHistory(history, historyTimestamps);
+    await useHistoryStore.getState().replaceAllHistory(historyEntries);
   });
 }
 

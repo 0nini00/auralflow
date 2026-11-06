@@ -66,6 +66,9 @@ async function fixture({ remote = remoteFile(), read, write } = {}) {
     ...loadCore("../../packages/core/src/removed-source.ts"),
     // webdavSyncService 的歌曲键已收敛到 core 的 buildSongKey
     ...loadCore("../../packages/core/src/song-variant.ts"),
+    // 历史按天口径：webdav 解析与 historyStore 合并都直接用了这些纯函数
+    ...loadCore("../../packages/core/src/history/day-groups.ts"),
+    ...loadCore("../../packages/core/src/history/entries.ts"),
   };
   const load = createLoader({
     zustand: { create: createStore },
@@ -354,4 +357,31 @@ test("桌面端写入的 playHistory 会落到移动端历史里，并原样带�
   assert.deepEqual(uploaded.map((item) => item.musicInfo.id).sort(), ["desktop001", "desktop002"]);
   assert.equal(uploaded.find((item) => item.musicInfo.id === "desktop001").playedAt, 1793775406370);
   assert.equal(uploaded.find((item) => item.musicInfo.id === "desktop002").playedAt, 0);
+});
+
+test("同一首歌不同天的云端历史合并后各自保留，未知时间被真实记录吸收", async () => {
+  const remote = remoteFile(300000);
+  const day1 = 1793775406370;
+  const day2 = day1 + 24 * 60 * 60 * 1000;
+  remote.playHistory = [
+    desktopHistoryItem("repeat", day2),
+    desktopHistoryItem("repeat", day1),
+    // 同一首歌既有真实记录又有未知条目：未知条目不能单独留下
+    desktopHistoryItem("mixed", day1),
+    desktopHistoryItem("mixed", 0),
+  ];
+  const f = await fixture({ remote });
+  await f.service.autoSyncPlaylistsOnce();
+
+  const entries = f.history.getState().entries;
+  const repeat = entries.filter((entry) => entry.key === "wy:repeat");
+  assert.deepEqual(repeat.map((entry) => entry.playedAt).sort(), [day1, day2].sort());
+  assert.ok(repeat.every((entry) => entry.playedAtSynthetic !== true));
+
+  const mixed = entries.filter((entry) => entry.key === "wy:mixed");
+  assert.deepEqual(mixed.map((entry) => entry.playedAt), [day1]);
+  assert.notEqual(mixed[0].playedAtSynthetic, true);
+
+  const uploaded = f.uploads[0].playHistory.filter((item) => item.musicInfo.id === "repeat");
+  assert.deepEqual(uploaded.map((item) => item.playedAt).sort(), [day1, day2].sort());
 });
