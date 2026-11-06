@@ -69,7 +69,7 @@ export function reconcileAudioCacheEntries(
         singer: indexed.singer,
         source: indexed.source,
         quality: indexed.quality,
-        path: indexed.path || file.path,
+        path: file.path,
         size: file.size,
         cachedAt: indexed.cachedAt,
       });

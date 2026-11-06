@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { MusicInfo } from "@lx/core";
+import { normalizeCloudDriveSongs, normalizeCloudDriveSnapshot, type CloudDriveSnapshot } from "@lx/core";
+export { normalizeCloudDriveSongs, type CloudDriveSnapshot } from "@lx/core";
 
 /**
  * 云盘列表的落盘缓存（移动端）。
@@ -18,67 +19,8 @@ const KEY_PREFIX = "auralflow.mobile.cloudDrive.v1:";
 /** 保鲜期：10 分钟内直接信任缓存，不发起请求。 */
 export const CLOUD_DRIVE_CACHE_TTL_MS = 10 * 60 * 1000;
 
-export interface CloudDriveSnapshot {
-  songs: MusicInfo[];
-  count: number;
-  usedBytes?: number;
-  maxBytes?: number;
-  nextOffset: number;
-  hasMore: boolean;
-  /** 写入时刻（毫秒时间戳）。 */
-  cachedAt: number;
-}
-
 function cacheKey(uid: string): string {
   return `${KEY_PREFIX}${uid}`;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function isMusicInfo(value: unknown): value is MusicInfo {
-  if (!isRecord(value)) return false;
-  return (
-    typeof value.source === "string" && value.source.trim().length > 0 &&
-    typeof value.id === "string" && value.id.trim().length > 0 &&
-    typeof value.name === "string" && value.name.trim().length > 0
-  );
-}
-
-/** 只保留结构合法的条目并按 `source:id` 去重：坏一行不该让整份缓存作废。 */
-export function normalizeCloudDriveSongs(value: unknown): MusicInfo[] {
-  if (!Array.isArray(value)) return [];
-  const seen = new Set<string>();
-  const songs: MusicInfo[] = [];
-  for (const item of value) {
-    if (!isMusicInfo(item)) continue;
-    const key = `${item.source}:${item.id}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    songs.push(item);
-  }
-  return songs;
-}
-
-function finiteNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function normalizeSnapshot(value: unknown): CloudDriveSnapshot | null {
-  if (!isRecord(value)) return null;
-  const songs = normalizeCloudDriveSongs(value.songs);
-  const cachedAt = finiteNumber(value.cachedAt);
-  if (songs.length === 0 || cachedAt === undefined) return null;
-  return {
-    songs,
-    count: finiteNumber(value.count) ?? songs.length,
-    usedBytes: finiteNumber(value.usedBytes),
-    maxBytes: finiteNumber(value.maxBytes),
-    nextOffset: finiteNumber(value.nextOffset) ?? songs.length,
-    hasMore: value.hasMore === true,
-    cachedAt,
-  };
 }
 
 /**
@@ -102,7 +44,7 @@ export async function loadCloudDriveSnapshot(
   } catch {
     return null;
   }
-  const snapshot = normalizeSnapshot(parsed);
+  const snapshot = normalizeCloudDriveSnapshot(parsed);
   if (!snapshot) return null;
   return { snapshot, fresh: Date.now() - snapshot.cachedAt < CLOUD_DRIVE_CACHE_TTL_MS };
 }

@@ -381,8 +381,8 @@ export async function listCachedAudio(): Promise<CachedAudioEntry[]> {
           size: entry.size || 0,
         }));
     }
-  } catch {
-    return [];
+  } catch (error) {
+    throw new Error(`无法读取离线缓存：${error instanceof Error ? error.message : String(error)}`);
   }
   const index = await loadAudioCacheIndex();
   const { entries, staleKeys } = reconcileAudioCacheEntries(index, files);
@@ -398,7 +398,7 @@ export async function listCachedAudio(): Promise<CachedAudioEntry[]> {
 /** 删除单条音频缓存文件及其索引记录。 */
 export async function deleteCachedAudio(entry: CachedAudioEntry): Promise<void> {
   await enqueueAudioCacheIndex(async () => {
-    await RNFS.unlink(entry.path).catch(() => undefined);
+    if (await RNFS.exists(entry.path)) await RNFS.unlink(entry.path);
     const index = await loadAudioCacheIndex();
     delete index[entry.key];
     await saveAudioCacheIndex(index);

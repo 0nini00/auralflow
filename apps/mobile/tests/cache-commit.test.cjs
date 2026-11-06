@@ -65,8 +65,20 @@ function setup(initialFiles = {}, options = {}) {
     "@/stores/playerStore": { usePlayerStore: { getState: () => ({}) } },
     "@/services/logger": { logger: { warn: (...args) => warnings.push(args) } },
   });
-  return { service: load("src/services/cacheService.ts"), files, jobs, warnings, moves, asyncStorage, storage };
+  return { service: load("src/services/cacheService.ts"), files, jobs, warnings, moves, asyncStorage, storage, rnfs };
 }
+
+test('离线列表读取失败不能伪装为空缓存', async () => {
+  const h = setup(); h.rnfs.readDir = async () => { throw new Error('permission denied'); };
+  await assert.rejects(h.service.listCachedAudio(), /permission denied/);
+});
+test('离线删除失败保留索引并向调用方拒绝', async () => {
+  const h = setup({ [audioPath]: 'audio' });
+  h.storage.set('auralflow.mobile.audioCacheIndex.v1', JSON.stringify({ 'wy-commit-flac': { name:'Song' } }));
+  h.rnfs.unlink = async () => { throw new Error('locked'); };
+  await assert.rejects(h.service.deleteCachedAudio({ key:'wy-commit-flac',path:audioPath }), /locked/);
+  assert.ok(JSON.parse(h.storage.get('auralflow.mobile.audioCacheIndex.v1'))['wy-commit-flac']);
+});
 
 for (const kind of ["audio", "cover"]) {
   test(`${kind} 下载中不可命中，完成后才发布最终文件`, settings, async () => {

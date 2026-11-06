@@ -37,7 +37,7 @@ function setup(sources, runtimeImpl) {
     "react-native-track-player": { __esModule: true, default: native, State: {}, RepeatMode: { Off: 0 }, Event: {}, AppKilledPlaybackBehavior: {}, Capability: {} },
     "@lx/core": core, "@/services/androidPitchService": {}, "./playbackUrlCache": cache, "@/services/playbackUrlCache": cache,
     "@/services/playbackFailurePolicy": {}, "@/services/lyricOverlayService": { isLyricOverlaySupported: () => false },
-    "@/services/listenTrackerService": { startListeningSession() {}, resetListeningSession() {} }, "./listenTrackerService": { startListeningSession() {}, resetListeningSession() {} },
+    "@/services/listenTrackerService": { startListeningSession() {}, resetListeningSession() {}, onPlaybackProgress() {}, seekListeningSession() {}, flushListeningSession: async () => {} }, "./listenTrackerService": { startListeningSession() {}, resetListeningSession() {}, onPlaybackProgress() {}, seekListeningSession() {}, flushListeningSession: async () => {} },
     "./musicApi": { getLyrics: async () => [], buildStreamHeaders: () => ({}) }, "./wyDirectProvider": {}, "./wyPlaylistService": recommendations,
     "./customSourceRuntime": { requestCustomSourceMusicUrl: runtimeImpl }, "../stores/customSourceStore": { useCustomSourceStore: { getState: () => customStore } }, "./hiddenFallbackService": { startHiddenSearch: async () => [], resolveHiddenFromGroups: async () => null, resolveHiddenFallback: async () => null },
     "./streamProbe": {},

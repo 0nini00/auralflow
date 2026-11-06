@@ -48,17 +48,7 @@ export function findContentDetailCurrentSongIndex(
   );
 }
 
-export function shuffleContentDetailSongs(
-  songs: MusicInfo[],
-  random: () => number = Math.random,
-): MusicInfo[] {
-  const next = [...songs];
-  for (let i = next.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(random() * (i + 1));
-    [next[i], next[j]] = [next[j], next[i]];
-  }
-  return next;
-}
+export { shuffleItems as shuffleContentDetailSongs } from "@lx/core";
 
 export interface ContentDetailLocateScrollOptions {
   headerOffset?: number;

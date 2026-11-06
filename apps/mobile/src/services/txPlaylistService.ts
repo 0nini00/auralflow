@@ -187,7 +187,8 @@ async function musicuRequest(body: unknown, options: TxPlaylistRequestOptions): 
 export async function searchTxSongs(
   keyword: string,
   limit = 30,
-  options: TxPlaylistRequestOptions = {}
+  options: TxPlaylistRequestOptions = {},
+  page = 1,
 ): Promise<MusicInfo[]> {
   const query = keyword.trim();
   if (!query) return [];
@@ -211,7 +212,7 @@ export async function searchTxSongs(
         query: query.length > 60 ? query.slice(0, 60) : query,
         search_type: 0, // 0=单曲（对齐桌面 searchQqSongs）
         num_per_page: limit,
-        page_num: 1,
+        page_num: page,
         highlight: 0,
         nqc_flag: 0,
         page_id: 1,
@@ -228,7 +229,8 @@ export async function searchTxSongs(
 
 export async function searchTxPlaylists(
   keyword: string,
-  options: TxPlaylistRequestOptions = {}
+  options: TxPlaylistRequestOptions = {},
+  page = 1,
 ): Promise<SearchPlaylistResult[]> {
   const query = keyword.trim();
   if (!query) return [];
@@ -252,7 +254,7 @@ export async function searchTxPlaylists(
         query: query.length > 60 ? query.slice(0, 60) : query,
         search_type: 3,
         num_per_page: DEFAULT_LIMIT,
-        page_num: 1,
+        page_num: page,
         highlight: 0,
         nqc_flag: 0,
         page_id: 1,

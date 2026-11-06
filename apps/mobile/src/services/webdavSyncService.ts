@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { CloudDataStaleError, CloudSyncRefusalError, isWebdavLocalPlaylistRef, type MusicInfo } from "@lx/core";
+import { buildUserApisSyncFile, parseUserApisSyncFile, type UserApiSyncSource, CloudDataStaleError, CloudSyncRefusalError, isWebdavLocalPlaylistRef, type MusicInfo } from "@lx/core";
 import { buildSongKey } from "@lx/core";
 import { usePlaylistStore } from "../stores/playlistStore";
 import { useFavoritesStore } from "../stores/favoritesStore";
@@ -45,30 +45,6 @@ export interface WebdavConfig {
   username: string;
   password: string;
   autoSyncPlaylists: boolean;
-}
-
-interface UserApiInfo {
-  id?: unknown;
-  name?: unknown;
-  description?: unknown;
-  author?: unknown;
-  homepage?: unknown;
-  version?: unknown;
-  allowShowUpdateAlert?: unknown;
-  script?: unknown;
-}
-
-type UserApisSyncData =
-  | UserApiInfo[]
-  | {
-      list?: UserApiInfo[];
-      scripts?: Record<string, string>;
-    };
-
-interface UserApisSyncFile {
-  version?: string;
-  lastModified?: number;
-  data?: UserApisSyncData;
 }
 
 interface RemotePlaylistItem {
@@ -861,25 +837,6 @@ function parsePlaylistsSyncFile(text: string): {
 // 自定义音源同步文件构建与解析
 // ---------------------------------------------------------------------------
 
-function buildUserApisSyncFile(sources: CustomSourceItem[]): UserApisSyncFile {
-  return {
-    version: "2",
-    lastModified: Date.now(),
-    data: sources
-      .filter((source) => typeof source.script === "string" && source.script.trim())
-      .map((source) => ({
-        id: source.id,
-        name: source.name,
-        description: source.description,
-        author: source.author ?? "",
-        homepage: source.homepage ?? "",
-        version: source.version ?? "",
-        allowShowUpdateAlert: source.allowShowUpdateAlert,
-        script: source.script,
-      })),
-  };
-}
-
 async function inflateDesktopScript(script: string): Promise<string> {
   const trimmed = script.trim();
   if (!trimmed.startsWith("gz_")) return script;
@@ -891,7 +848,7 @@ async function inflateDesktopScript(script: string): Promise<string> {
 }
 
 async function convertUserApiToCustomSource(
-  api: UserApiInfo,
+  api: UserApiSyncSource,
   scriptMap: Record<string, string>,
   index: number,
 ): Promise<CustomSourceItem | null> {
@@ -918,20 +875,6 @@ async function convertUserApiToCustomSource(
     createdAt: now,
     updatedAt: now,
   };
-}
-
-async function parseUserApisSyncFile(text: string): Promise<CustomSourceItem[]> {
-  let payload: UserApisSyncFile;
-  try {
-    payload = JSON.parse(text) as UserApisSyncFile;
-  } catch {
-    throw new Error("云端音源文件已损坏或不是有效的 JSON");
-  }
-  const data = payload.data;
-  const apis = Array.isArray(data) ? data : data?.list ?? [];
-  const scripts = Array.isArray(data) ? {} : data?.scripts ?? {};
-  const sources = await Promise.all(apis.map((api, index) => convertUserApiToCustomSource(api, scripts, index)));
-  return sources.filter((source): source is CustomSourceItem => source != null);
 }
 
 // ---------------------------------------------------------------------------
@@ -986,7 +929,7 @@ export async function downloadSourcesSync(options?: { force?: boolean }): Promis
     await assertCloudNotStale("sources", text, localSources.length, options?.force);
     await writeLocalBackup("sources", localSources);
 
-    const customSources = await parseUserApisSyncFile(text);
+    const customSources = await parseUserApisSyncFile(text, convertUserApiToCustomSource);
     if (!customSources.length) throw new Error("云端音源缺少有效脚本内容，无法初始化");
     await useCustomSourceStore.getState().replaceAll(customSources);
     await writeLocalMeta("sources", {
