@@ -74,7 +74,7 @@ flowchart TB
 | `mobile-api.ts` | 253 | gdstudio 网关依赖注入传输；`createRacingBuiltinMusicApiClient` 多网关竞速（空数组不视为成功）已就绪但移动端未接线，当前仅单网关客户端 |
 | `history/listen-threshold.ts` | 100 | 入历史 / 打点阈值追踪（默认 120s 或 50%；只累计播放中的连续推进，排除 seek 与暂停造成的虚假进度） |
 | `history/day-groups.ts` | 121 | 历史按天口径唯一实现：本地日归零、日历加减、今天/昨天标题、分组与月历格子；桌面 `HistoryView` 与移动端 `historyGroupModel` 共用 |
-| `history/entries.ts` | 115 | 历史条目模型 `HistoryEntry` 与按天去重：同日同曲只留一条、跨天保留；归一化 / 合并 / 派生唯一歌曲 / 统计入参 |
+| `history/entries.ts` | 216 | 历史条目模型 `HistoryEntry`、按天去重与保留策略：同日同曲只留一条、365 天窗口 / 4000 条上限 / 按整天裁剪 / 未知时间 200 条；另有 WebDAV 上传窗口（180 天 / 2000 条） |
 | `recommendations/heartbeat-queue.ts` | 97 | 心动模式待播缓冲的补充判定与逐曲推进（batch 播尽时从 buffer 取出并追加） |
 | `stats/aggregate.ts` | 65 | 只保留结果类型（`ListeningStats` / `ListeningStatsTrack` / `ListeningStatsArtist` / `ListeningStatsDay`）。聚合实现已迁到 `stats/listening-session.ts`；旧的 `aggregateListeningStats` 已删除，不要再按「两套聚合口径」理解 |
 | `cover-image.ts` | 149 | 缩略图处理 |
@@ -148,7 +148,7 @@ React Native 0.86 + React 19.2.3，面向 Android（minSdk 24）。
 
 ### 6. WebDAV 加法合并
 
-`webdav-merge.ts` 是纯函数、无副作用、可单测。合并规则：收藏按 `source:id` 去重取并集；本地歌单同名 id 按 `updatedAt` 新者胜、歌曲保留并集；云端引用歌单按 id 并集保留较新者；播放历史按 `key + 本地日` 求并集（同曲不同天各自保留）后截断上限。**删除不传播**——本地有而远端无的实体保留本地版本。远端布局：新根 `/AuralFlow/`（读时回退旧根 `/LX_Music/`），`playlists.json`（v3）+ `user_apis.json`（v2），桌面脚本以 `gz_` 前缀压缩互通。
+`webdav-merge.ts` 是纯函数、无副作用、可单测。合并规则：收藏按 `source:id` 去重取并集；本地歌单同名 id 按 `updatedAt` 新者胜、歌曲保留并集；云端引用歌单按 id 并集保留较新者；播放历史按 `key + 本地日` 求并集（同曲不同天各自保留）；本地保留最近 365 天 / 最多 4000 条，上传只带最近 180 天 / 最多 2000 条，控制每次同步体积。**删除不传播**——本地有而远端无的实体保留本地版本。远端布局：新根 `/AuralFlow/`（读时回退旧根 `/LX_Music/`），`playlists.json`（v3）+ `user_apis.json`（v2），桌面脚本以 `gz_` 前缀压缩互通。
 
 **防「用云端覆盖更新本地」的守卫是 fail-closed 的**：`assertCloudNotStale` 在无法确认云端更新时间（`lastModified` 缺失 / 无法解析）时中止，而不是静默放行；`sources` 因下载是整体替换（`replaceAll`），在本地缺少同步标记时同样中止；`playlists` 因下载是加法合并、不丢本地实体，此时放行以避免每次全新安装都被拦。云端解析出 0 项音源一律中止（否则会用空文件清空本地音源）。其余防线：本地备份 + PUT 成功后才写 meta。
 

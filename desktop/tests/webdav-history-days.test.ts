@@ -40,8 +40,9 @@ it("同曲不同天的历史按条目往返 WebDAV，不被压成一条", async 
   await Promise.all([historyPersistence.ready, favoritesPersistence.ready, playlistPersistence.ready]);
 
   const song: MusicInfo = { id: "a", source: "wy", name: "Song", singer: "Artist", albumName: "" };
-  const day1 = new Date(2026, 0, 1, 10).getTime();
-  const day2 = new Date(2026, 0, 2, 10).getTime();
+  // 上传只带最近 180 天：测试数据必须落在窗口内。
+  const day1 = Date.now() - 2 * 24 * 60 * 60 * 1000;
+  const day2 = Date.now() - 1 * 24 * 60 * 60 * 1000;
   useHistoryStore.getState().replaceAll([
     { key: "wy:a", song, playedAt: day2 },
     { key: "wy:a", song, playedAt: day1 },
@@ -65,4 +66,40 @@ it("同曲不同天的历史按条目往返 WebDAV，不被压成一条", async 
   await downloadPlaylistsSync({ force: true });
 
   expect(useHistoryStore.getState().entries.map((entry) => entry.playedAt)).toEqual([day2, day1]);
+});
+
+it("超过 180 天的历史只留在本地，不上传", async () => {
+  const values = new Map<string, string>();
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
+  });
+  f.load.mockResolvedValue(null);
+  f.save.mockResolvedValue(undefined);
+  const response = { ok: true, status: 200, statusText: "OK", headers: {}, text: async () => "" };
+  f.request.mockResolvedValue(response);
+
+  const { useHistoryStore, historyPersistence } = await import("@/stores/historyStore");
+  await historyPersistence.ready;
+
+  const recent = Date.now() - 10 * 24 * 60 * 60 * 1000;
+  const old = Date.now() - 200 * 24 * 60 * 60 * 1000;
+  useHistoryStore.getState().replaceAll([
+    { key: "wy:recent", song: { id: "recent", source: "wy", name: "Recent", singer: "S", albumName: "" }, playedAt: recent },
+    { key: "wy:old", song: { id: "old", source: "wy", name: "Old", singer: "S", albumName: "" }, playedAt: old },
+  ]);
+
+  let body = "";
+  f.request.mockImplementation(async (_url: string, init: { method: string; body?: string }) => {
+    if (init.method === "PUT") body = init.body ?? "";
+    return response;
+  });
+  const { uploadPlaylistsSync } = await import("@/services/webdavSyncService");
+  await uploadPlaylistsSync();
+
+  const payload = JSON.parse(body) as { playHistory: Array<{ musicInfo: { id: string } }> };
+  expect(payload.playHistory.map((item) => item.musicInfo.id)).toEqual(["recent"]);
+  // 本地仍然保留老记录，只是不同步。
+  expect(useHistoryStore.getState().entries.map((entry) => entry.key).sort()).toEqual(["wy:old", "wy:recent"]);
 });

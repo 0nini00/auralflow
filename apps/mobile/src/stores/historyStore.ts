@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { isRemovedSource, type HistoryPlayEntry, type MusicInfo } from "@lx/core";
+import { isRemovedSource, pruneHistoryEntries, trimHistorySong, type HistoryPlayEntry, type MusicInfo } from "@lx/core";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { logger } from "@/services/logger";
 import {
@@ -13,8 +13,6 @@ import {
 const HISTORY_KEY = "auralflow.mobile.playHistory";
 const HISTORY_TIMESTAMPS_KEY = "auralflow.mobile.playHistoryTimestamps";
 
-// 上限：移动端 AsyncStorage 有体积约束，取 2000 条平衡；与桌面端一致，不按天数过期。
-const MAX_HISTORY_ITEMS = 2000;
 
 // 启动 load* 未完成时用户即写入：串行化加载 + 写入，避免晚到的 load 回滚刚写入的记录。
 let historyLoadPromise: Promise<void> | null = null;
@@ -93,15 +91,16 @@ function isUsableTimestamp(value: unknown): value is number {
  * 「这个时间是不是真的」由 `playedAtSynthetic` 单独回答，两者不混用。
  */
 function normalizeEntries(entries: HistoryEntry[]): HistoryEntry[] {
-  return entries
+  const normalized = entries
     .filter((entry) => entry.song?.id)
     .map((entry) =>
       entry.playedAtSynthetic === true
-        ? { key: entry.key, song: entry.song, playedAt: entry.playedAt, playedAtSynthetic: true }
-        : { key: entry.key, song: entry.song, playedAt: entry.playedAt },
+        ? { key: entry.key, song: trimHistorySong(entry.song), playedAt: entry.playedAt, playedAtSynthetic: true }
+        : { key: entry.key, song: trimHistorySong(entry.song), playedAt: entry.playedAt },
     )
-    .sort((a, b) => b.playedAt - a.playedAt)
-    .slice(0, MAX_HISTORY_ITEMS);
+    .sort((a, b) => b.playedAt - a.playedAt);
+  // 与桌面端共用保留策略：最近 365 天 / 最多 4000 条 / 按整天裁剪 / 未知时间最多 200 条。
+  return pruneHistoryEntries(normalized);
 }
 
 /**

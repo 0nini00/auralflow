@@ -1,5 +1,5 @@
 import { loadSettings } from "@lx/tauri-bridge";
-import { buildUserApisSyncFile, parseUserApisSyncFile, type UserApiSyncSource, CloudDataStaleError, CloudSyncRefusalError, historyEntryKey, isNumericPlaylistId, isUsablePlayedAt, isWebdavLocalPlaylistRef, type HistoryEntry, type MusicInfo } from "@lx/core";
+import { buildUserApisSyncFile, parseUserApisSyncFile, type UserApiSyncSource, CloudDataStaleError, CloudSyncRefusalError, historyEntryKey, isNumericPlaylistId, isUsablePlayedAt, isWebdavLocalPlaylistRef, selectHistoryForSync, type HistoryEntry, type MusicInfo } from "@lx/core";
 import { outboundRequest, type OutboundResponse } from "@/services/outboundHttp";
 import { favoritesPersistence, useFavoritesStore } from "@/stores/favoritesStore";
 import { playlistPersistence, usePlaylistStore, type Playlist } from "@/stores/playlistStore";
@@ -457,7 +457,8 @@ async function convertUserApiToCustomSource(
 }
 
 function buildPlayHistorySync(entries: HistoryEntry[]): PlayHistorySyncItem[] {
-  return entries
+  // 本地可以留一年，上传只带最近 180 天 / 最多 2000 条：控制每次同步的体积。
+  return selectHistoryForSync(entries)
     .filter((entry) => entry?.song?.id)
     .map(({ song, playedAt }) => {
       // 只写真实记录过的播放时间；未知写 0，不编造时间（移动端按 `playedAt > 0` 过滤）。

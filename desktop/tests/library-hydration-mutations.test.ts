@@ -77,14 +77,15 @@ it('历史写入和新建歌单在读盘完成后仍保留已有数据', async (
   storage.load.mockImplementation((namespace: string) => new Promise((resolve) => { loads.set(namespace, resolve); }));
   const { useHistoryStore, historyPersistence } = await import('../src/stores/historyStore');
   const { usePlaylistStore, playlistPersistence } = await import('../src/stores/playlistStore');
+  const playedAt = new Date(2026, 10, 1, 12).getTime();
   useHistoryStore.getState().add(b);
   const created = usePlaylistStore.getState().createPlaylist('new');
   const existing = { id: 'old', name: 'old', songs: [a], createdAt: 1, updatedAt: 1 };
-  loads.get('recent')!({ history: [a], playedAtByKey: { 'wy:a': 1 } });
+  loads.get('recent')!({ history: [a], playedAtByKey: { 'wy:a': playedAt } });
   loads.get('playlists')!({ playlists: [existing] });
   await Promise.all([historyPersistence.ready, playlistPersistence.ready]);
   expect(useHistoryStore.getState().history).toEqual([b, a]);
   const legacy = useHistoryStore.getState().entries.find((entry) => entry.key === 'wy:a');
-  expect(legacy?.playedAt).toBe(1);
+  expect(legacy?.playedAt).toBe(playedAt);
   expect(usePlaylistStore.getState().playlists).toEqual([existing, created]);
 });

@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { buildUserApisSyncFile, parseUserApisSyncFile, type UserApiSyncSource, CloudDataStaleError, CloudSyncRefusalError, isWebdavLocalPlaylistRef, type MusicInfo } from "@lx/core";
-import { buildSongKey, isUsablePlayedAt } from "@lx/core";
+import { buildSongKey, isUsablePlayedAt, selectHistoryForSync } from "@lx/core";
 import { usePlaylistStore } from "../stores/playlistStore";
 import { useFavoritesStore } from "../stores/favoritesStore";
 import type { WyPlaylistInfo } from "./wyPlaylistService";
@@ -511,7 +511,8 @@ function buildPlayHistorySync(entries: HistoryEntry[]): PlayHistorySyncItem[] {
   // 使用分时间记录的条目：跨天多次播放会各保留一条。
   // 只有**真实**播放时间才写出；合成占位时间写 0（未知哨兵，与桌面端同一口径），
   // 否则本地占位值会被当成真实播放时间回写云端，并在两端互相污染。
-  return entries
+  // 本地可以留一年，上传只带最近 180 天 / 最多 2000 条：控制每次同步的体积。
+  return selectHistoryForSync(entries)
     .filter((entry) => entry.song?.id)
     .map((entry) => {
       const playedAt = hasRealPlayedAt(entry) ? entry.playedAt : 0;
