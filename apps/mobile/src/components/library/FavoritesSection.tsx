@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { IconButton } from "@/components/IconButton";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
 import { SongList } from "@/components/SongList";
-import { EmptyState } from "@/components/ScreenState";
+import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
 import { openLikedSongsScreen } from "@/navigation/navigationRef";
 import { playQueue } from "@/services/playerService";
 import { runPlaybackUiAction } from "@/services/playbackUiAction";
@@ -35,10 +35,12 @@ export function FavoritesSection() {
 
   const favorites = useFavoritesStore((state) => state.favorites);
   const loadFavorites = useFavoritesStore((state) => state.loadFromStorage);
+  const favoritesLoaded = useFavoritesStore((state) => state.loaded);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    void loadFavorites();
+    void loadFavorites().catch(() => setLoadError("读取收藏失败"));
   }, [loadFavorites]);
 
   const runPlayback = useCallback(async (action: () => Promise<void>) => {
@@ -63,6 +65,14 @@ export function FavoritesSection() {
     if (favorites.length === 0) return;
     void runPlayback(() => playQueue(shufflePlaylistSongs(favorites), 0));
   };
+
+  if (loadError) {
+    return <ErrorState message={loadError} />;
+  }
+
+  if (!favoritesLoaded) {
+    return <LoadingState label="正在读取收藏" />;
+  }
 
   if (favorites.length === 0) {
     return (

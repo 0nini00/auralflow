@@ -7,6 +7,8 @@ export type LibraryContentModel =
       emptyText: string;
       showClearHistory: boolean;
       showLocalScan: boolean;
+      /** 当前分支的数据还在读取（如本地曲库扫描中），不要先渲染空态。 */
+      loading: boolean;
       error: string | null;
     }
   | {
@@ -30,6 +32,7 @@ export function getLibraryContentModel(input: LibraryContentModelInput): Library
         emptyText: "播放歌曲后会自动记录到这里",
         showClearHistory: false,
         showLocalScan: false,
+        loading: false,
         error: null,
       };
     case "local":
@@ -39,6 +42,7 @@ export function getLibraryContentModel(input: LibraryContentModelInput): Library
         emptyText: "还没有扫描本地音乐",
         showClearHistory: false,
         showLocalScan: true,
+        loading: input.localLoading,
         error: input.localError,
       };
     case "downloads":

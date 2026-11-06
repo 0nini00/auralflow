@@ -462,8 +462,8 @@ describe('歌单来源、身份及请求代次', () => {
     await go('/playlist/A?source=tx');
     await click('收藏到本地歌单');
     expect(usePlaylistStore.getState().importPlaylist).toHaveBeenCalledWith('QQ 音乐歌单', expect.stringContaining('[af-imported-playlist:tx:A]'), [song('Import-song')], undefined);
-    expect(renderer!.root.findByProps({ rowHeight: 60 }).props.items).toEqual([song('Import-song')]);
-    expect(renderer!.root.findByProps({ rowHeight: 60 }).props.scrollRootSelector).toBe('.af-content-scroll');
+    expect(renderer!.root.findByProps({ rowHeight: 52 }).props.items).toEqual([song('Import-song')]);
+    expect(renderer!.root.findByProps({ rowHeight: 52 }).props.scrollRootSelector).toBe('.af-content-scroll');
   });
 
 
@@ -503,7 +503,7 @@ describe('浏览页面紧凑反馈', () => {
     await click('刷新');
     await act(async () => { refresh.reject(new Error('refresh unavailable')); });
     expect(page()).toContain('Kept-song');
-    expect(renderer!.root.findByProps({ rowHeight: 60 }).props.items).toEqual([song('Kept-song')]);
+    expect(renderer!.root.findByProps({ rowHeight: 52 }).props.items).toEqual([song('Kept-song')]);
     const meta = renderer!.root.findByProps({ className: 'af-playlist-detail-meta' });
     const feedback = meta.findByProps({ className: 'af-page-feedback', role: 'status' });
     expect(meta.children[0]).toMatchObject({ type: 'h1' });
@@ -527,7 +527,7 @@ describe('浏览页面紧凑反馈', () => {
     expect(text(empty)).toContain('initial unavailable');
     expect(button('重试')).toBeDefined();
     expect(renderer!.root.findAllByProps({ className: 'af-page-feedback' })).toHaveLength(0);
-    expect(renderer!.root.findAllByProps({ rowHeight: 60 })).toHaveLength(0);
+    expect(renderer!.root.findAllByProps({ rowHeight: 52 })).toHaveLength(0);
   });
 
   it('已有成功空歌单时刷新失败保留空歌单页面，不误判成初次失败', async () => {

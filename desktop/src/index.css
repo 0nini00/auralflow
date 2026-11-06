@@ -922,3 +922,31 @@ html[data-gradient-background] .af-app:not(.af-app-has-background) .af-player-ba
   display: flex;
   overflow: hidden;
 }
+
+/* 路由 chunk 加载占位：避免内容区纯空白 */
+.af-route-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 28px 0;
+}
+
+.af-route-loading span {
+  height: 14px;
+  border-radius: var(--af-radius-full);
+  background: var(--af-bg-tertiary);
+  animation: af-route-loading-pulse 1.2s ease-in-out infinite;
+}
+
+.af-route-loading span:nth-child(1) { width: 42%; }
+.af-route-loading span:nth-child(2) { width: 72%; }
+.af-route-loading span:nth-child(3) { width: 56%; }
+
+@keyframes af-route-loading-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.85; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .af-route-loading span { animation: none; }
+}

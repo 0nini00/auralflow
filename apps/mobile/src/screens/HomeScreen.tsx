@@ -78,14 +78,19 @@ export function HomeScreen({ onNavigateToSearch: _onNavigateToSearch, onNavigate
   const dailySongs = sections.find((section) => section.kind === "dailySongs");
   const styles = useMemo(() => createStyles(palette), [palette]);
   const [leaderboardSongs, setLeaderboardSongs] = useState<MusicInfo[]>([]);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(true);
+  const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
 
-  // 首页排行榜区块：展示首个官方榜的下方歌曲（横排 10 首），失败静默隐藏。
+  // 首页排行榜区块：展示首个官方榜的下方歌曲（横排 10 首）。
   const refreshLeaderboards = useCallback(() => {
+    setLeaderboardLoading(true);
+    setLeaderboardError(null);
     void fetchWyLeaderboardBoards()
       .then(async (list) => {
         const first = list.find((board) => board.group === "official");
         if (!first) {
           setLeaderboardSongs([]);
+          setLeaderboardLoading(false);
           return;
         }
         try {
@@ -93,9 +98,16 @@ export function HomeScreen({ onNavigateToSearch: _onNavigateToSearch, onNavigate
           setLeaderboardSongs(songs.slice(0, 10));
         } catch {
           setLeaderboardSongs([]);
+          setLeaderboardError("排行榜歌曲加载失败");
+        } finally {
+          setLeaderboardLoading(false);
         }
       })
-      .catch(() => setLeaderboardSongs([]));
+      .catch(() => {
+        setLeaderboardSongs([]);
+        setLeaderboardError("排行榜加载失败");
+        setLeaderboardLoading(false);
+      });
   }, []);
 
   useEffect(() => {
@@ -191,7 +203,9 @@ export function HomeScreen({ onNavigateToSearch: _onNavigateToSearch, onNavigate
           <HomeQuickActions actions={quickActions} onPress={handleQuickAction} />
         </View>
         <View style={styles.section}><SectionHeader title="推荐歌单" action={<SectionAction label="更多" onPress={openPlaylistSquareScreen} />} />{!recommendedPlaylists && (!loaded || refreshing) ? renderLoading("正在加载推荐歌单") : null}{recommendedPlaylists?.items?.length ? <PlaylistRail items={recommendedPlaylists.items.map((playlist) => ({ id: playlist.id, name: playlist.name, coverImgUrl: playlist.coverImgUrl }))} onPress={(id) => { const playlist = recommendedPlaylists.items.find((item) => item.id === id); if (playlist) openPlaylistDetailScreen(playlist); }} /> : null}{renderSectionError(recommendedPlaylists, "recommendedPlaylists")}</View>
-        <View style={styles.section}><SectionHeader title="排行榜" action={<SectionAction label="更多" onPress={openLeaderboardScreen} />} />{leaderboardSongs.length > 0 ? <AlbumRail items={leaderboardSongs.map((song) => ({ id: song.id, name: song.name, artistName: song.singer, coverImgUrl: song.picUrl || song.img }))} onPress={(id) => { const index = leaderboardSongs.findIndex((song) => song.id === id); if (index >= 0) void runPlayback(leaderboardSongs, index); }} /> : null}</View>
+        <View style={styles.section}><SectionHeader title="排行榜" action={<SectionAction label="更多" onPress={openLeaderboardScreen} />} />{leaderboardLoading ? renderLoading("正在加载排行榜") : null}
+        {!leaderboardLoading && leaderboardError ? <HomeSectionError message={leaderboardError} loading={false} onRetry={refreshLeaderboards} /> : null}
+        {leaderboardSongs.length > 0 ? <AlbumRail items={leaderboardSongs.map((song) => ({ id: song.id, name: song.name, artistName: song.singer, coverImgUrl: song.picUrl || song.img }))} onPress={(id) => { const index = leaderboardSongs.findIndex((song) => song.id === id); if (index >= 0) void runPlayback(leaderboardSongs, index); }} /> : null}</View>
         {isLoggedIn ? <View style={styles.section}><SectionHeader title="每日推荐" action={<SectionAction label="查看全部" onPress={openDailyRecommendScreen} />} />{!dailySongs && (!loaded || refreshing || sectionLoading.dailySongs) ? renderLoading("正在加载每日推荐") : null}{dailySongs?.items?.length ? <SongList songs={dailySongs.items.slice(0, SONG_PREVIEW_LIMIT)} hideSourceTag onPlay={(_song, index) => void runPlayback(dailySongs.items, index)} /> : null}{renderSectionError(dailySongs, "dailySongs")}</View> : null}
       </ScreenScrollView>
     </ScreenScaffold>

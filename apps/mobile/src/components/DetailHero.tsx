@@ -222,7 +222,7 @@ const styles = StyleSheet.create({
     // 左缘与封面左缘对齐，三键 flexGrow 平分整行。
     width: "100%",
     flexDirection: "row",
-    flexWrap: "nowrap",
+    flexWrap: "wrap",
     gap: spacing.xs,
   },
 });

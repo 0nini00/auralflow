@@ -726,6 +726,7 @@ export const SongItem = memo(function SongItem({  song,
         <Text
           style={[styles.songName, { color: isActive ? palette.primaryInk : palette.text }]}
           numberOfLines={1}
+          maxFontSizeMultiplier={1.3}
         >
           {song.name}
         </Text>

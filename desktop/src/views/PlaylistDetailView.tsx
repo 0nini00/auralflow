@@ -525,7 +525,7 @@ export function PlaylistDetailView() {
 
             <VirtualList
               items={songs}
-              rowHeight={60}
+              rowHeight={52}
               className="af-song-list-virtual"
               scrollToIndex={locateScrollIndex}
               scrollToKey={locateScrollKey}

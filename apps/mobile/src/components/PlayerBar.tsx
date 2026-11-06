@@ -235,7 +235,7 @@ export function PlayerBar({ onOpen }: PlayerBarProps) {
               此前两者拼成一行 12.5px 加粗再 adjustsFontSizeToFit 缩到 0.78
               （≈9.75px），长歌名反而比歌手更难读。
             */}
-            <Text style={[styles.trackName, { color: palette.text }]} numberOfLines={1}>
+            <Text style={[styles.trackName, { color: palette.text }]} numberOfLines={1} maxFontSizeMultiplier={1.3}>
               {currentSong.name}
             </Text>
             {/* 第二行的优先级：跨源注记（约 10s）> 当前歌词 > 歌手 */}

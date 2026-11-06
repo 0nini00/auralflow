@@ -178,6 +178,8 @@ function StepperRow({
         <Pressable
           onPress={onDecrement}
           disabled={!canDecrement}
+          hitSlop={6}
+          accessibilityState={{ disabled: !canDecrement }}
           style={[
             styles.stepBtn,
             { backgroundColor: canDecrement ? palette.surfaceMuted : palette.background },
@@ -193,6 +195,8 @@ function StepperRow({
         <Pressable
           onPress={onIncrement}
           disabled={!canIncrement}
+          hitSlop={6}
+          accessibilityState={{ disabled: !canIncrement }}
           style={[
             styles.stepBtn,
             { backgroundColor: canIncrement ? palette.surfaceMuted : palette.background },

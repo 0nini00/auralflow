@@ -78,7 +78,15 @@ export function Layout() {
                 <ErrorBoundary key={location.pathname} scope={`route:${location.pathname}`}>
                   {/* 页面模块按路由懒加载（见 MainWindow.tsx）。兜底边界套在 Suspense 外面：
                       某个页面的 chunk 拉取失败也只废掉内容区，外壳和播放条照常可用。 */}
-                  <Suspense fallback={null}>
+                  <Suspense
+                      fallback={
+                        <div className="af-route-loading" role="status" aria-label="页面加载中">
+                          <span />
+                          <span />
+                          <span />
+                        </div>
+                      }
+                    >
                     <Outlet />
                   </Suspense>
                 </ErrorBoundary>

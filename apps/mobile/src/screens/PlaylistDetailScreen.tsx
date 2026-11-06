@@ -29,6 +29,7 @@ import {
   buildPlaylistDetailActions,
   canRemoveSongsFromPlaylistDetail,
   findPlaylistCurrentSongIndex,
+  shufflePlaylistSongs,
 } from "@/services/playlistDetailActions";
 import { Touchable } from "@/components/Touchable";
 import { withAlpha } from "@/services/themePaletteModel";
@@ -93,6 +94,7 @@ export function PlaylistDetailScreen({
   // 网易云登录态：未登录时不渲染任何"写入云端歌单"的操作（收藏歌单 / 移除歌曲 / 删除歌单），
   // 本地收藏、下载、批量操作等本地能力不受影响。
   const isLoggedIn = useAccountStore((state) => state.isLoggedIn);
+  const wyUser = useAccountStore((state) => state.user);
   const playNextInQueue = usePlayerStore((state) => state.playNextInQueue);
   const downloadSong = useDownloadStore((state) => state.downloadSong);
 
@@ -164,14 +166,16 @@ export function PlaylistDetailScreen({
     await runPlayback(() => playQueue(songs, 0));
   };
 
+  const handleShuffle = async () => {
+    if (songs.length === 0) return;
+    await runPlayback(() => playQueue(shufflePlaylistSongs(songs), 0));
+  };
+
   const detailActions = buildPlaylistDetailActions(songs.length, {
     source: displayPlaylist.source,
   });
   // 移除歌曲 = 写回网易云云端歌单，需要账号：未登录时不展示删除入口（本地收藏/下载照旧）
-  const canRemoveSongs = isLoggedIn && canRemoveSongsFromPlaylistDetail({
-    source: displayPlaylist.source,
-    subscribed: displayPlaylist.subscribed,
-  });
+  const canRemoveSongs = isLoggedIn && canRemoveSongsFromPlaylistDetail(displayPlaylist, wyUser?.userId);
 
   const toggleSelection = (song: MusicInfo) => {
     const key = getSongKey(song);
@@ -309,7 +313,6 @@ export function PlaylistDetailScreen({
 
   // 收藏/取消收藏网易云歌单（此前 store action 已实现但无 UI 入口）。
   // 仅对"非本人创建"的 wy 歌单开放；收藏状态以本地覆写为准（服务端成功后才切换）。
-  const wyUser = useAccountStore((state) => state.user);
   const setWyPlaylistSubscribed = usePlaylistStore((state) => state.setWyPlaylistSubscribed);
   const [wySubscribeOverride, setWySubscribeOverride] = useState<boolean | null>(null);
   const [subscribingWyPlaylist, setSubscribingWyPlaylist] = useState(false);
@@ -401,6 +404,12 @@ export function PlaylistDetailScreen({
                     variant="brand"
                     label={detailActions.playAllLabel}
                     onPress={() => void handlePlayAll()}
+                  />
+                  <ActionButton
+                    shrink
+                    variant="secondary"
+                    label={detailActions.shuffleLabel}
+                    onPress={() => void handleShuffle()}
                   />
                   <ActionButton
                     shrink
@@ -551,7 +560,8 @@ function formatPlayCount(count: number): string {
 const styles = StyleSheet.create({
   heroActions: {
     flexDirection: "row",
-    flexWrap: "nowrap",
+    // 窄屏（360dp）下四个动作放不下一行时换行，而不是把「删除」挤出屏幕。
+    flexWrap: "wrap",
     alignItems: "center",
     gap: spacing.xs,
   },

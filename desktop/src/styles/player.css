@@ -251,6 +251,13 @@
   background: var(--af-accent-hover);
 }
 
+/* 进度/音量滑杆本体透明，焦点必须由轨道来体现，否则键盘用户看不见焦点。 */
+.af-progress-track:has(.af-progress-input:focus-visible),
+.af-volume-track:has(.af-volume-input:focus-visible) {
+  outline: 2px solid var(--af-border-focus);
+  outline-offset: 3px;
+}
+
 .af-progress-input {
   position: absolute;
   left: 0;
@@ -615,7 +622,8 @@
   transition: opacity var(--af-transition-fast);
 }
 
-.af-np-row:hover .af-np-row-remove {
+.af-np-row:hover .af-np-row-remove,
+.af-np-row:focus-within .af-np-row-remove {
   opacity: 1;
 }
 

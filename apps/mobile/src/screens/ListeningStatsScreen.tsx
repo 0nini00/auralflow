@@ -10,7 +10,7 @@ import {
 
 import { IconButton } from "@/components/IconButton";
 import { ScreenScaffold } from "@/components/ScreenScaffold";
-import { EmptyState } from "@/components/ScreenState";
+import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
 import { SectionHeader } from "@/components/SectionHeader";
 import { reportListeningStatsError, useListeningStatsStore } from "@/stores/listeningStatsStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
@@ -138,6 +138,7 @@ export function ListeningStatsScreen({ onBack }: { onBack?: () => void }) {
   const error = useListeningStatsStore((state) => state.error);
   const warning = useListeningStatsStore((state) => state.warning);
   const load = useListeningStatsStore((state) => state.load);
+  const loaded = useListeningStatsStore((state) => state.loaded);
   const stats = useMemo(() => aggregateListeningEvents(events), [events]);
 
   useEffect(() => {
@@ -177,7 +178,9 @@ export function ListeningStatsScreen({ onBack }: { onBack?: () => void }) {
 
         {error && <Text accessibilityRole="alert" style={[styles.scopeNote, { color: palette.text }]}>统计保存或读取失败：{error}</Text>}
         {warning && <Text accessibilityRole="alert" style={[styles.scopeNote, { color: palette.textMuted }]}>{warning}</Text>}
-        {!hasPlays ? (
+        {!loaded ? (
+          error ? <ErrorState message={`统计读取失败：${error}`} /> : <LoadingState label="正在读取收听统计" />
+        ) : !hasPlays ? (
           <EmptyState
             icon={ChartColumnBig}
             title="还没有听歌记录"

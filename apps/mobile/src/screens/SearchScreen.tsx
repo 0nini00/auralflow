@@ -429,6 +429,7 @@ export function SearchScreen({
                   activeTab === tab.key && { backgroundColor: palette.surfaceStrong, borderColor: palette.primaryInk, borderWidth: 1 },
                 ]}
                 onPress={() => setActiveTab(tab.key)}
+                hitSlop={{ top: 4, bottom: 4 }}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: activeTab === tab.key }}
               >
@@ -456,6 +457,7 @@ export function SearchScreen({
                     disabled && styles.sourceFilterChipDisabled,
                   ]}
                   onPress={() => setSongSourceFilter(filter.id)}
+                  hitSlop={{ top: 4, bottom: 4 }}
                   disabled={disabled}
                   accessibilityRole="button"
                   accessibilityState={{ selected: active, disabled }}
@@ -827,7 +829,9 @@ const styles = StyleSheet.create({
     maxWidth: 220,
   },
   historyItemDelete: {
-    // 紧凑 X 图标：胶囊内左词右×，命中区由 hitSlop 扩到 44px 触控标准
+    // 紧凑 X 图标：32×32 + 6px hitSlop = 44px 触控标准
+    width: 32,
+    height: 32,
     alignItems: "center",
     justifyContent: "center",
   },

@@ -16,7 +16,7 @@ import { DownloadList } from "@/components/DownloadList";
 import { HistorySection } from "@/components/HistorySection";
 import { ActionButton } from "@/components/ActionButton";
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
-import { ErrorState } from "@/components/ScreenState";
+import { ErrorState, LoadingState } from "@/components/ScreenState";
 import { SegmentedChips } from "@/components/SegmentedChips";
 import { FavoritesSection } from "@/components/library/FavoritesSection";
 import { PlaylistsSection } from "@/components/library/PlaylistsSection";
@@ -223,6 +223,9 @@ export function LibraryScreen({ onNavigateToPlayer }: LibraryScreenProps) {
   );
 
   const renderContent = () => {
+    if (contentModel.kind === "songList" && contentModel.loading) {
+      return <LoadingState label="正在读取本地音乐" />;
+    }
     switch (contentModel.kind) {
       case "downloads":
         return <LibraryDownloadsSection onNavigateToPlayer={onNavigateToPlayer} />;

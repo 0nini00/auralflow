@@ -86,7 +86,7 @@ export const touch = {
 
 export const layout = {
   pagePadding: 20,
-  songRowMinHeight: 60,
+  songRowMinHeight: 64,
   songRowPadding: 8,
   artworkSize: 48,
   /** 紧凑列表（下载项）的封面边长 */

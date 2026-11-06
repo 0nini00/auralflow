@@ -29,7 +29,7 @@ import {
   shuffleItems,
   type MusicInfo,
 } from "@lx/core";
-import { DETAIL_COVER_CSS_SIZE, coverSrc } from "@/utils/imageReferrerPolicy";
+import { DETAIL_COVER_CSS_SIZE, ROW_COVER_CSS_SIZE, coverSrc } from "@/utils/imageReferrerPolicy";
 
 /** 时间未知的条目不是任何一天，用 0 作为哨兵（日期时间戳不会为 0）。 */
 const UNKNOWN_DAY = 0;
@@ -83,7 +83,7 @@ export function HistoryView() {
         <div className="af-playlist-detail-info">
           <div className="af-playlist-detail-cover af-history-cover">
             {historyCover ? (
-              <img src={historyCover} alt="播放历史封面" />
+              <img src={historyCover} alt="" />
             ) : (
               <div className="af-cover-placeholder">
                 <History size={64} strokeWidth={1.5} />
@@ -205,7 +205,7 @@ export function HistoryView() {
                   {/* 定高行（封面 40 + 上下内边距 20）：单日最多 2000 条，只挂可见区 + overscan */}
                   <VirtualList
                     items={songs}
-                    rowHeight={60}
+                    rowHeight={52}
                     className="af-song-list-virtual"
                     scrollRootSelector=".af-content-scroll"
                     getItemKey={(song, index) => `${song.source}-${song.id}-${index}`}
@@ -222,7 +222,11 @@ export function HistoryView() {
                         <div className="af-col-title">
                           <div className="af-song-cover">
                             {song.img || song.picUrl ? (
-                              <img src={song.img || song.picUrl} alt={song.name} />
+                              <img
+                                src={coverSrc(song.img || song.picUrl || "", ROW_COVER_CSS_SIZE)}
+                                alt=""
+                                loading="lazy"
+                              />
                             ) : (
                               <div className="af-cover-placeholder" />
                             )}

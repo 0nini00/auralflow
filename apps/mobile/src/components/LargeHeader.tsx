@@ -39,6 +39,7 @@ export function LargeHeader({ title, eyebrow, right, style }: LargeHeaderProps) 
           accessibilityRole="header"
           style={[styles.title, { color: palette.text }]}
           numberOfLines={1}
+          maxFontSizeMultiplier={1.2}
           ellipsizeMode="tail"
         >
           {title}
