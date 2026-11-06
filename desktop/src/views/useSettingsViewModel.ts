@@ -10,6 +10,7 @@ import {
 } from "@lx/tauri-bridge";
 import { useThemeStore } from "@/stores/themeStore";
 import { useHistoryStore } from "@/stores/historyStore";
+import { confirmAction } from "@/components/ui/ConfirmDialog";
 import { useCustomSourceStore } from "@/stores/customSourceStore";
 import { broadcastLyricSettings } from "@/stores/lyricSettingsSync";
 import { playerEngine } from "@/services/playerEngine";
@@ -323,7 +324,12 @@ const handleImportCustomSourceText = async () => {
 };
 
 const handleClearPlaybackHistory = async () => {
-  if (!confirm('确定清空播放历史？\n\n不会删除收藏、歌单或缓存。')) return;
+  if (!(await confirmAction({
+    title: "清空播放历史",
+    message: "不会删除收藏、歌单或缓存；清空后无法恢复。",
+    confirmLabel: "清空",
+    danger: true,
+  }))) return;
   setDataStatus("清理中...");
   setDataPending(true);
   try {
@@ -338,7 +344,12 @@ const handleClearPlaybackHistory = async () => {
 };
 
 const handleClearMediaCache = async () => {
-  if (!confirm('确定清理资源缓存？\n\n歌曲音频与封面文件会被删除，播放地址和歌词缓存保留。')) return;
+  if (!(await confirmAction({
+    title: "清理资源缓存",
+    message: "歌曲音频与封面文件会被删除，播放地址和歌词缓存保留。",
+    confirmLabel: "清理",
+    danger: true,
+  }))) return;
   setDataStatus("清理中...");
   setDataPending(true);
   try {
@@ -357,7 +368,11 @@ const handleClearMediaCache = async () => {
 };
 
 const handleClearPlaybackUrlCache = async () => {
-  if (!confirm('确定清理歌曲 URL 缓存？\n\n下次播放会重新解析播放地址，歌词与音频/封面缓存保留。')) return;
+  if (!(await confirmAction({
+    title: "清理播放地址缓存",
+    message: "下次播放会重新解析播放地址，歌词与音频/封面缓存保留。",
+    confirmLabel: "清理",
+  }))) return;
   setDataStatus("清理中...");
   setDataPending(true);
   try {
@@ -373,7 +388,11 @@ const handleClearPlaybackUrlCache = async () => {
 };
 
 const handleClearLyricsCache = async () => {
-  if (!confirm('确定清空歌词缓存？\n\n下次播放会重新获取歌词，不影响音频、封面和播放地址缓存。')) return;
+  if (!(await confirmAction({
+    title: "清空歌词缓存",
+    message: "下次播放会重新获取歌词，不影响音频、封面和播放地址缓存。",
+    confirmLabel: "清空",
+  }))) return;
   setDataStatus("清理中...");
   setDataPending(true);
   try {

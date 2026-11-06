@@ -4,6 +4,7 @@ import { useLibraryStore } from '@/stores/libraryStore';
 import { usePlayerStore } from '@/stores/playerStore';
 import { LocalMusicService, localSongToMusicInfo, type LocalSong } from '@/services/localMusicService';
 import { MetadataEditModal } from '@/components/MetadataEditModal';
+import { confirmAction } from '@/components/ui/ConfirmDialog';
 import { LocalLibraryBrowser } from '@/components/LocalLibraryBrowser';
 
 export function LocalMusicView() {
@@ -77,8 +78,14 @@ export function LocalMusicView() {
     }
   };
 
-  const handleRemoveTrack = (trackId: string) => {
-    if (confirm('确定要从曲库中移除这首歌吗？不会删除本地文件。')) removeSong(trackId);
+  const handleRemoveTrack = async (trackId: string) => {
+    const ok = await confirmAction({
+      title: "移出曲库",
+      message: "确定要从此曲库移除这首歌吗？不会删除本地文件。",
+      confirmLabel: "移除",
+      danger: true,
+    });
+    if (ok) removeSong(trackId);
   };
 
   return (

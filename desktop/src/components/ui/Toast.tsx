@@ -61,7 +61,8 @@ export function showToast(message: string, options: ToastOptions = {}): number {
   items = [...items.slice(-2), item];
   emit();
 
-  const duration = options.duration ?? (item.kind === "error" ? 4000 : 2600);
+  // 带「撤销」的提示要留出反应时间：2.6s 连读完都紧张。
+  const duration = options.duration ?? (item.actionLabel ? 6000 : item.kind === "error" ? 4000 : 2600);
   window.setTimeout(() => dismiss(id), duration);
   return id;
 }

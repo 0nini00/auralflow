@@ -6,6 +6,7 @@ import { usePlayerStore } from '@/stores/playerStore';
 import { useWyAccountStore } from '@/stores/wyAccountStore';
 import { getSource } from '@/services/sources/sourceService';
 import { SongAddMenu } from '@/components/SongAddMenuButton';
+import { confirmAction } from '@/components/ui/ConfirmDialog';
 import { DownloadQualityMenu } from '@/components/DownloadQualityButton';
 import { VirtualList } from '@/components/VirtualList';
 import { formatDuration } from '@/lib/utils';
@@ -331,9 +332,15 @@ export function PlaylistDetailView() {
     }
   };
 
-  const handleUnsubscribe = () => {
+  const handleUnsubscribe = async () => {
     if (!isWySubscribed) return;
-    if (!confirm(`取消收藏歌单"${playlist.name}"？`)) return;
+    const ok = await confirmAction({
+      title: "取消收藏",
+      message: `取消收藏歌单「${playlist.name}」？`,
+      confirmLabel: "取消收藏",
+      danger: true,
+    });
+    if (!ok) return;
     setWyActionPending(true);
     setActionStatus('');
     wySetSubscribed(playlist.id, false)

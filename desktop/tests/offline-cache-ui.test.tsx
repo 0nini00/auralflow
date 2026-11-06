@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const api = vi.hoisted(() => ({ list:vi.fn(),play:vi.fn(),remove:vi.fn() }));
 vi.mock('@/services/offlineCache',()=>({offlineCache:api}));
 vi.mock('../src/components/VirtualList',()=>({VirtualList:({items,renderItem}:any)=><div>{items.map((item:any)=><div key={item.key}>{renderItem(item)}</div>)}</div>}));
+vi.mock('@/components/ui/ConfirmDialog', () => ({ confirmAction: vi.fn(async () => true) }));
 import { OfflineCacheLibrary } from '../src/components/OfflineCacheLibrary';
 let view:ReactTestRenderer;
 const items=[{key:'a',name:'A',singer:'Artist',quality:'320k',bytes:100,path:'/a',albumName:''},{key:'b',name:'B',singer:'Artist',quality:'320k',bytes:100,path:'/b',albumName:''}];

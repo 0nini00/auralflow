@@ -2,6 +2,7 @@ import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useDialogFocus } from '@/hooks/useDialogFocus';
+import { confirmAction } from '@/components/ui/ConfirmDialog';
 import { usePlaylistStore } from '@/stores/playlistStore';
 import { useFavoritesStore } from '@/stores/favoritesStore';
 import { useHistoryStore } from '@/stores/historyStore';
@@ -156,11 +157,16 @@ export function PlaylistsView() {
     }
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm('确定要删除这个歌单吗？')) {
-      deletePlaylist(id);
-      setActiveMenu(null);
-    }
+  const handleDelete = async (id: string) => {
+    const ok = await confirmAction({
+      title: "删除歌单",
+      message: "确定要删除这个歌单吗？歌单里的歌曲不会从曲库删除。",
+      confirmLabel: "删除",
+      danger: true,
+    });
+    if (!ok) return;
+    deletePlaylist(id);
+    setActiveMenu(null);
   };
 
   const handleDuplicate = (id: string) => {

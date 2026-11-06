@@ -9,6 +9,7 @@ vi.mock('@tauri-apps/api/core', () => ({ convertFileSrc: (path: string) => `asse
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
 vi.mock('@lx/tauri-bridge', () => ({ scanDirectory: vi.fn(), getAudioInfo: vi.fn() }));
 vi.mock('@/components/MetadataEditModal', () => ({ MetadataEditModal: () => null }));
+vi.mock('@/components/ui/ConfirmDialog', () => ({ confirmAction: vi.fn(async () => true) }));
 vi.mock('@/stores/libraryStore', async () => {
   const { create } = await import('zustand');
   return { useLibraryStore: create(() => ({ localSongs: [], scanPaths: [], isScanning: false,
@@ -84,7 +85,7 @@ describe('本地音乐页面集成', () => {
     expect(useLibraryStore.getState().addSongs).toHaveBeenLastCalledWith([tracks[1]]);
     await click('刷新');
     expect(useLibraryStore.getState().refreshLibrary).toHaveBeenCalledOnce();
-    click('移除 Alpha');
+    await act(async () => { root().findByProps({ 'aria-label': '移除 Alpha' }).props.onClick(); });
     expect(useLibraryStore.getState().removeSong).toHaveBeenCalledWith('0');
   });
 });

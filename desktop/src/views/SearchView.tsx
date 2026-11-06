@@ -14,6 +14,7 @@ import { RESULT_COVER_CSS_SIZE, coverSrc } from "@/utils/imageReferrerPolicy";
 import { buildImportedPlaylistMarker } from "@/utils/shared";
 import { buildPlaylistDetailPath } from "@/utils/playlistRoute";
 import { createEmptySearchResult } from "@/services/search/searchAggregation";
+import { showToast } from "@/components/ui/Toast";
 import { createDesktopSearchSession, type DesktopSearchSnapshot } from "@/services/search/pagedSearch";
 import { searchResultCache } from "@/services/search/searchResultCache";
 import {
@@ -30,6 +31,7 @@ import {
   addSearchHistory,
   removeSearchHistory,
   clearSearchHistory,
+  replaceSearchHistory,
 } from "@/services/search/searchHistory";
 
 type ResultFilter = "overview" | "song" | "artist" | "album" | "playlist";
@@ -430,11 +432,17 @@ export function SearchView() {
               className="af-search-history-clear"
 
               onClick={() => {
-
+                const previous = getSearchHistory();
+                if (previous.length === 0) return;
                 clearSearchHistory();
-
                 setSearchHistory([]);
-
+                showToast("已清空搜索历史", {
+                  actionLabel: "撤销",
+                  onAction: () => {
+                    replaceSearchHistory(previous);
+                    setSearchHistory(previous);
+                  },
+                });
               }}
 
             >

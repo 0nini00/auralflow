@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { offlineCache, type OfflineAudioEntry } from '@/services/offlineCache';
 import { VirtualList } from './VirtualList';
 import { formatBytes } from '@/utils/formatBytes';
+import { confirmAction } from '@/components/ui/ConfirmDialog';
 
 export function OfflineCacheLibrary() {
   const [open, setOpen] = useState(false);
@@ -35,11 +36,19 @@ export function OfflineCacheLibrary() {
         <button disabled={busy || !visible.length} onClick={() => void run(() => offlineCache.play(visible, 0))}>播放筛选结果</button>
         <button disabled={busy || !visible.length} onClick={() => setSelected(new Set(visible.map(entry => entry.key)))}>全选筛选结果</button>
         <button disabled={busy || !selected.size} onClick={() => {
-          if (!window.confirm(`删除 ${selected.size} 首缓存？不会删除下载文件。`)) return;
-          void run(async () => {
-            try { await offlineCache.remove(entries.filter(entry => selected.has(entry.key))); }
-            finally { await refresh(); }
-          });
+          void (async () => {
+            const ok = await confirmAction({
+              title: "删除离线缓存",
+              message: `删除 ${selected.size} 首缓存？不会删除下载文件。`,
+              confirmLabel: "删除",
+              danger: true,
+            });
+            if (!ok) return;
+            await run(async () => {
+              try { await offlineCache.remove(entries.filter(entry => selected.has(entry.key))); }
+              finally { await refresh(); }
+            });
+          })();
         }}>删除所选缓存（{selected.size}）</button>
       </div>
       {error && <p role="alert">{error}</p>}

@@ -9,6 +9,7 @@ import { Bell, BellOff, ExternalLink, FlaskConical, GripVertical, RefreshCw, Tra
 import type { SourcesSettingsModel } from "../useSettingsViewModel";
 import { openCustomSourceUpdateModal } from "@/components/CustomSourceUpdateModal";
 import { SettingRow } from "./SettingRow";
+import { confirmAction } from "@/components/ui/ConfirmDialog";
 import { resolveDropSlot } from "@/utils/listReorder";
 
 export function SourcesSettingsSection({ model }: { model: SourcesSettingsModel }) {
@@ -341,9 +342,14 @@ export function SourcesSettingsSection({ model }: { model: SourcesSettingsModel 
                     type="button"
                     className="af-custom-source-icon-button af-settings-danger-button"
                     onClick={() => {
-                      if (window.confirm(`删除自定义音源「${source.name}」？删除后无法恢复。`)) {
-                        removeSource(source.id);
-                      }
+                      void confirmAction({
+                        title: "删除自定义音源",
+                        message: `删除「${source.name}」？删除后无法恢复。`,
+                        confirmLabel: "删除",
+                        danger: true,
+                      }).then((ok) => {
+                        if (ok) removeSource(source.id);
+                      });
                     }}
                     title="删除"
                     aria-label="删除"

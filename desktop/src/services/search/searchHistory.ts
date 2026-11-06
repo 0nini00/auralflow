@@ -34,6 +34,15 @@ export function removeSearchHistory(keyword: string): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 }
 
+/** 覆盖整份历史；撤销「清空」时用。 */
+export function replaceSearchHistory(values: readonly string[]): void {
+  const normalized = dedupeSearchHistory(
+    values.filter((item): item is string => typeof item === 'string'),
+    MAX_HISTORY_COUNT,
+  );
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+}
+
 export function clearSearchHistory(): void {
   localStorage.removeItem(STORAGE_KEY);
 }

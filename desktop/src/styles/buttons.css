@@ -598,3 +598,15 @@ button:focus-visible {
   background: var(--af-error-bg);
   color: var(--af-error-hover);
 }
+
+/* 确认框里的危险操作：错误色填充，和普通主按钮拉开语义 */
+.af-btn-primary.af-confirm-danger {
+  background: var(--af-error);
+  border-color: var(--af-error);
+  color: #fff;
+}
+
+.af-btn-primary.af-confirm-danger:hover:not(:disabled) {
+  background: var(--af-error-hover);
+  border-color: var(--af-error-hover);
+}

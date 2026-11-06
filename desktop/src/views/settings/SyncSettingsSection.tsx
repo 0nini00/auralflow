@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { loadSettings, patchSettings } from "@lx/tauri-bridge";
 import { CloudSyncRefusalError } from "@lx/core";
 import { useCustomSourceStore } from "@/stores/customSourceStore";
+import { confirmAction } from "@/components/ui/ConfirmDialog";
 
 interface WebdavConfig {
   webdavUrl: string;
@@ -184,8 +185,14 @@ export function SyncSettingsSection() {
     });
   };
 
-  const handleDownloadSources = () => {
-    if (!confirm("从 WebDAV 下载音源将覆盖本地自定义音源，确定继续？")) return;
+  const handleDownloadSources = async () => {
+    const ok = await confirmAction({
+      title: "下载音源",
+      message: "从 WebDAV 下载音源将覆盖本地自定义音源。",
+      confirmLabel: "下载并覆盖",
+      danger: true,
+    });
+    if (!ok) return;
     void runSync("下载音源", async () => {
       const { downloadSourcesSync } = await import("@/services/webdavSyncService");
       try {
@@ -194,7 +201,14 @@ export function SyncSettingsSection() {
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         if (e instanceof CloudSyncRefusalError) {
-          if (confirm(msg + "\n\n是否强制用云端覆盖本地？")) {
+          if (await confirmAction({
+            title: "云端数据较旧",
+            message: `${msg}
+
+是否强制用云端覆盖本地？`,
+            confirmLabel: "强制覆盖",
+            danger: true,
+          })) {
             await downloadSourcesSync({ force: true });
             return "已强制从 WebDAV 下载音源";
           }
@@ -212,8 +226,13 @@ export function SyncSettingsSection() {
     });
   };
 
-  const handleDownloadPlaylists = () => {
-    if (!confirm("从 WebDAV 下载歌单和历史将与本地合并（并集去重，保留本地独有内容），确定继续？")) return;
+  const handleDownloadPlaylists = async () => {
+    const ok = await confirmAction({
+      title: "下载歌单与历史",
+      message: "将从 WebDAV 合并下载（并集去重，保留本地独有内容）。",
+      confirmLabel: "下载",
+    });
+    if (!ok) return;
     void runSync("下载歌单历史", async () => {
       const { downloadPlaylistsSync } = await import("@/services/webdavSyncService");
       try {
@@ -222,7 +241,14 @@ export function SyncSettingsSection() {
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         if (e instanceof CloudSyncRefusalError) {
-          if (confirm(msg + "\n\n是否强制用云端覆盖本地？")) {
+          if (await confirmAction({
+            title: "云端数据较旧",
+            message: `${msg}
+
+是否强制用云端覆盖本地？`,
+            confirmLabel: "强制覆盖",
+            danger: true,
+          })) {
             await downloadPlaylistsSync({ force: true });
             return "已强制从 WebDAV 下载歌单和历史";
           }

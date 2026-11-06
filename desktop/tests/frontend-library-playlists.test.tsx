@@ -9,6 +9,7 @@ import { useDialogFocus } from '../src/hooks/useDialogFocus';
 
 const network = vi.hoisted(() => ({ fetch: vi.fn(), export: vi.fn(), import: vi.fn() }));
 vi.mock('@/hooks/useDialogFocus', () => ({ useDialogFocus: vi.fn() }));
+vi.mock('@/components/ui/ConfirmDialog', () => ({ confirmAction: vi.fn(async () => true) }));
 vi.mock('@/stores/libraryPersistence', async () => ({ createLibraryStore: (await import('zustand')).create, attachLibraryPersistence: vi.fn() }));
 vi.mock('@/stores/favoritesStore', async () => {
   const { create } = await import('zustand');
@@ -146,7 +147,7 @@ describe('歌单页面真实组件与 store', () => {
     expect(network.export).toHaveBeenCalledWith([usePlaylistStore.getState().playlists[0]]);
     openMenu(); click('复制歌单');
     expect(usePlaylistStore.getState().playlists).toHaveLength(2);
-    openMenu(); click('删除歌单');
+    openMenu(); await act(async () => { button('删除歌单').props.onClick(); });
     expect(usePlaylistStore.getState().playlists).toHaveLength(1);
   });
   it('标题链接沿原路由打开歌单，操作菜单本身不触发导航', () => {

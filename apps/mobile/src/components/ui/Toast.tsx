@@ -61,7 +61,8 @@ export function showToast(message: string, options: ToastOptions = {}): number {
   };
   items = [...items.slice(-1), item];
   emit();
-  const duration = options.duration ?? (item.kind === "error" ? 3800 : 2400);
+  // 带「撤销」的提示要留出反应时间。
+  const duration = options.duration ?? (item.actionLabel ? 5000 : item.kind === "error" ? 3800 : 2400);
   setTimeout(() => dismiss(id), duration);
   return id;
 }
