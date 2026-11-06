@@ -105,9 +105,16 @@ export interface LibraryPersistenceController {
  * 把所有 store 的待写内容一把落盘。
  */
 const persistenceControllers = new Set<LibraryPersistenceController>();
+const beforeFlushHooks = new Set<() => void | Promise<void>>();
+
+export function registerLibraryFlushHook(hook: () => void | Promise<void>): () => void {
+  beforeFlushHooks.add(hook);
+  return () => { beforeFlushHooks.delete(hook); };
+}
 
 /** 等待所有写盘结束；任一失败必须阻止退出方误报保存成功。 */
 export async function flushLibraryPersistence(): Promise<void> {
+  await Promise.all([...beforeFlushHooks].map((hook) => hook()));
   do {
     const results = await Promise.allSettled(
       [...persistenceControllers].map((controller) => controller.flush()),
@@ -137,6 +144,8 @@ export const LIBRARY_NAMESPACE_LABELS: Record<LibraryNamespace, string> = {
   dailyRecommend: "每日推荐",
   playback: "播放会话",
   cloudDrive: "音乐云盘缓存",
+  audioIndex: "本地音频索引",
+  listeningStats: "真实收听统计",
 };
 
 /** 当前因读盘失败而停用写盘的命名空间（引用稳定，可直接给 useSyncExternalStore）。 */

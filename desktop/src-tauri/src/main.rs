@@ -281,6 +281,7 @@ pub fn run() {
             commands::cache_remote_image,
             commands::lookup_cached_media,
             commands::get_media_cache_stats,
+            commands::list_cached_audio,
             commands::clear_media_cache,
             // 媒体缓存按 key 定向失效（试听片段 / 坏链）
             commands::remove_cached_media,

@@ -65,7 +65,7 @@ function setup() {
     saveCachedPlaybackUrl: async () => {},
     invalidateCachedPlaybackUrl: async () => {},
   };
-  const tracker = { startListeningSession: () => {}, resetListeningSession: () => {} };
+  const tracker = { startListeningSession() {}, resetListeningSession() {}, onPlaybackProgress() {}, seekListeningSession() {}, flushListeningSession: async () => {} };
 
   const mocks = {
     zustand: mobileRequire("zustand"),

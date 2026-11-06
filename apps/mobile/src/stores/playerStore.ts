@@ -34,7 +34,7 @@ import {
 } from "@/services/lyricOverlayService";
 import { syncLyricOverlayPlaybackClock } from "@/services/lyricOverlayPlayback";
 import { logger } from "@/services/logger";
-import { onPlaybackProgress, resetListeningSession } from "@/services/listenTrackerService";
+import { flushListeningSession, onPlaybackProgress, resetListeningSession, seekListeningSession, startListeningSession } from "@/services/listenTrackerService";
 
 
 
@@ -403,6 +403,7 @@ interface PlayerActions {
   stop: () => Promise<void>;
   seekTo: (position: number) => Promise<void>;
   setPlaybackRate: (rate: number) => Promise<void>;
+  flushListeningStats: () => Promise<void>;
   setVolume: (volume: number) => Promise<void>;
   toggleMute: () => Promise<void>;
 
@@ -595,6 +596,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       await TrackPlayer.add(nextTracks);
       if (!isCurrentPlaybackRequest(requestId)) return;
 
+      resetListeningSession();
       const newSongIndex = previousQueueLength;
       try {
         await TrackPlayer.skip(newSongIndex, startPosition && startPosition > 0 ? startPosition : 0);
@@ -640,6 +642,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
         sleepTimerSongCount: sleepTimerNext.remainingSongs,
         sleepTimerLastTrackKey: sleepTimerNext.lastTrackKey,
       });
+      startListeningSession(song, get().position, nextPlaybackRate);
       // 新播放会话重新允许试听检测（用户手动重试时再次拦截，防缓存命中后漏网）
       previewRejectedKeys.clear();
 
@@ -739,6 +742,9 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       set({ position });
       return;
     }
+    const previous = get();
+    onPlaybackProgress(previous.position, previous.isPlaying, previous.playbackRate);
+    seekListeningSession(position, previous.isPlaying, previous.playbackRate);
     try {
       if (get().onSilenceGap) {
         // 曲末 2s 静音间隙内的 seek：原生活动轨是占位轨，直接 seekTo 会被按
@@ -748,18 +754,36 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
         } catch { /* 占位轨 skip 失败：继续按原位置 seek */ }
       }
       await TrackPlayer.seekTo(position);
-    } catch { /* seek 失败：仍落 UI 位置 */ }
+    } catch (error) {
+      seekListeningSession(previous.position, previous.isPlaying, previous.playbackRate);
+      set({ error: error instanceof Error ? error.message : '跳转播放位置失败' });
+      throw error;
+    }
     set({ position });
     void syncLyricOverlayPlaybackClock().catch((error) => logger.warn("悬浮歌词进度同步失败", error));
   },
 
   setPlaybackRate: async (rate: number) => {
     const nextRate = clampPlaybackRate(rate);
+    const previous = get();
+    onPlaybackProgress(previous.position, previous.isPlaying, previous.playbackRate);
     set({ playbackRate: nextRate });
-    await syncPlaybackParameters();
+    try {
+      await syncPlaybackParameters();
+    } catch (error) {
+      set({ playbackRate: previous.playbackRate, error: error instanceof Error ? error.message : '修改播放速度失败' });
+      throw error;
+    }
+    seekListeningSession(get().position, get().isPlaying, nextRate);
     if (isLyricOverlaySupported()) {
       void setLyricOverlayClockRate(nextRate).catch(() => {});
     }
+  },
+
+  flushListeningStats: async () => {
+    const state = get();
+    if (!state.onSilenceGap) onPlaybackProgress(state.position, state.isPlaying, state.playbackRate);
+    await flushListeningSession();
   },
 
   setVolume: async (volume: number) => {
@@ -1176,6 +1200,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   updateProgress: (position: number, duration: number, buffered?: number) => {
     if (!get().currentUrl) return;
     set({ position, duration, buffered: buffered ?? get().buffered });
+    onPlaybackProgress(position, get().isPlaying, get().playbackRate);
   },
 
   setLyrics: (lyrics: Array<{ time: number; text: string; tr?: string; roma?: string }>) => {
@@ -1206,6 +1231,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       syncSleepTimerClock();
     }
     set({ isPlaying });
+    onPlaybackProgress(get().position, state === State.Playing && isPlaying, get().playbackRate);
     void syncLyricOverlayPlaybackClock(state).catch((error) => logger.warn("悬浮歌词播放状态同步失败", error));
   },
 }));
@@ -1216,6 +1242,11 @@ let playerListenersSetup = false;
 export function setupPlayerListeners() {
   if (playerListenersSetup) return;
   playerListenersSetup = true;
+  AppState.addEventListener('change', state => {
+    if (state !== 'active') {
+      void usePlayerStore.getState().flushListeningStats().catch(error => logger.error('后台保存收听统计失败', error));
+    }
+  });
 
   const updateProgress = usePlayerStore.getState().updateProgress;
 
@@ -1248,8 +1279,6 @@ export function setupPlayerListeners() {
     // 试听兜底判定，会造成曲末误报"检测到试听片段"。整段忽略。
     if (usePlayerStore.getState().onSilenceGap) return;
     updateProgress(position, duration, buffered);
-    // 听歌时长追踪：连续播放满 2 分钟或 50% 时记录历史与网易云打点
-    onPlaybackProgress(position, usePlayerStore.getState().isPlaying);
     // 曲末提前预解析下一首：剩余 10s 内触发一次（内部按「当前曲→下一首」组合与
     // 预读 key 双重去重，0.25s 的进度事件不会重复解析）。无下一首/单曲循环无副作用。
     prefetchUpcomingSongNearEnd(position, duration);
@@ -1284,9 +1313,12 @@ export function setupPlayerListeners() {
 
   // 原生活动轨切换：进入/离开曲末静音占位轨时打标，供进度忽略与 seek 映射使用。
   // （切歌主逻辑在 playbackService 的同名监听里，这里只维护 UI 状态标记。）
-  TrackPlayer.addEventListener(Event.PlaybackActiveTrackChanged, ({ track }) => {
+  TrackPlayer.addEventListener(Event.PlaybackActiveTrackChanged, ({ track, lastTrack, lastPosition }) => {
     const onSilenceGap = track?.id === SILENCE_GAP_TRACK_ID;
     if (onSilenceGap) {
+      const state = usePlayerStore.getState();
+      if (lastTrack && state.currentSong && lastTrack.id !== `${state.currentSong.source}-${state.currentSong.id}`) return;
+      if (typeof lastPosition === 'number') onPlaybackProgress(lastPosition, false, state.playbackRate);
       resetListeningSession();
     }
     if (usePlayerStore.getState().onSilenceGap !== onSilenceGap) {

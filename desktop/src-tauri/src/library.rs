@@ -28,6 +28,8 @@ const ALLOWED_NAMESPACES: &[&str] = &[
     "playback",
     // 云盘列表的落盘缓存（按 uid 分区、带保鲜期，见前端 services/cloudDriveCache）。
     "cloudDrive",
+    "audioIndex",
+    "listeningStats",
 ];
 
 fn validate(namespace: &str) -> Result<(), String> {

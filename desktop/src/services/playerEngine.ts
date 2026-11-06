@@ -19,6 +19,8 @@ export interface PlayerEngineState {
   currentTime: number;
   /** currentTime 的采样时刻（Date.now()）：跨 WebView 同一时间基准，UI 插值用它做锚点 */
   currentTimeSampledAt: number;
+  /** 与媒体位置同次采样的单调时钟，仅供本进程真实收听统计。 */
+  currentTimeSampledAtMonotonic: number;
   volume: number;
   playbackRate: number;
   error: string | null;
@@ -41,6 +43,7 @@ class PlayerEngine {
     duration: 0,
     currentTime: 0,
     currentTimeSampledAt: Date.now(),
+    currentTimeSampledAtMonotonic: performance.now(),
     volume: 0.8,
     playbackRate: 1.0,
     error: null,
@@ -116,6 +119,8 @@ class PlayerEngine {
 
     on("ended", () => {
       this.stopProgressLoop();
+      // 先发布原生确认的末尾位置，统计才能结算最后一次 timeupdate 后的播放。
+      this.patchState({ currentTime: this.audio.currentTime || 0 });
       this.patchState({ status: "idle", currentTime: 0 });
       this.endedListeners.forEach((l) => l());
     });
@@ -128,12 +133,17 @@ class PlayerEngine {
       // tick 里的 !paused 守卫拦不住，rAF 会以 60fps 空转并每帧 patchState，
       // 上层每帧写一条日志 + 一次 Tauri IPC，直到用户手动切歌。
       this.stopProgressLoop();
-      this.patchState({ status: "error", error });
+      this.patchState({ status: "error", error, currentTime: this.audio.currentTime || 0 });
     });
   }
 
   getState(): PlayerEngineState {
     return { ...this.state };
+  }
+
+  sampleCurrentTime(): PlayerEngineState {
+    this.patchState({ currentTime: this.audio.currentTime || 0 });
+    return this.getState();
   }
 
   subscribe(listener: StateListener): Unsubscribe {
@@ -342,7 +352,7 @@ class PlayerEngine {
   setPlaybackRate(rate: number): void {
     const clamped = Math.max(0.25, Math.min(rate, 3.0));
     this.audio.playbackRate = clamped;
-    this.patchState({ playbackRate: clamped });
+    this.patchState({ playbackRate: clamped, currentTime: this.audio.currentTime || 0 });
   }
 
   /** 预加载下一首 URL，让浏览器提前缓存，切换时更快起播。 */
@@ -415,7 +425,7 @@ class PlayerEngine {
   private patchState(patch: Partial<PlayerEngineState>): void {
     // 采样时刻与 currentTime 同帧写入，供 UI 层按真实采样时间外推
     if (patch.currentTime !== undefined) {
-      patch = { ...patch, currentTimeSampledAt: Date.now() };
+      patch = { ...patch, currentTimeSampledAt: Date.now(), currentTimeSampledAtMonotonic: performance.now() };
     }
     this.state = { ...this.state, ...patch };
     this.stateListeners.forEach((l) => l(this.getState()));

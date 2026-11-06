@@ -6,6 +6,7 @@ import {
 } from "../services/playerService";
 import { getCurrentPlaybackRequestId, isCurrentPlaybackRequest } from "@/services/playbackRequest";
 import { logger } from "@/services/logger";
+import { startListeningSession } from "@/services/listenTrackerService";
 import { invalidateCachedPlaybackUrl } from "@/services/playbackUrlCache";
 import { getAudioInterruptionAction } from "@/services/audioInterruptionPolicy";
 import { getNextQueueNavigationState } from "@/services/queueNavigationModel";
@@ -63,7 +64,10 @@ export default async function playbackService(data: { serviceId: string }): Prom
       resetPlaybackFailures();
       subscriptions.forEach((subscription) => subscription.remove());
       cancelPendingPlayback();
-      finish();
+      // Headless 任务在最后一次统计落盘结束后才能返回。
+      void usePlayerStore.getState().flushListeningStats().catch(error => {
+        logger.error('后台播放服务结束时保存收听统计失败', error);
+      }).finally(finish);
       logger.info("后台播放服务已结束", session.id);
     },
   };
@@ -241,6 +245,10 @@ export default async function playbackService(data: { serviceId: string }): Prom
           await TrackPlayer.seekTo(0);
           if (!await hasNativePlaybackIntent(operation.requestId) || !owns(operation)) return;
           await TrackPlayer.play();
+          if (!owns(operation)) return;
+          const current = usePlayerStore.getState();
+          if (current.currentSong) startListeningSession(current.currentSong, 0, current.playbackRate);
+          usePlayerStore.setState({ position: 0, isPlaying: true, onSilenceGap: false });
           return;
         }
         if (queue.length === 0 && playbackContext.type !== "personalFm" && playbackContext.type !== "heartbeat") return;

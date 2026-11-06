@@ -89,12 +89,13 @@ export function ImmersivePlaySettingSheet({
               palette={palette}
               canDecrement={playbackRate > RATE_MIN}
               canIncrement={playbackRate < RATE_MAX}
-              onDecrement={() =>
-                setPlaybackRate(Math.max(RATE_MIN, Math.round((playbackRate - RATE_STEP) / RATE_STEP) * RATE_STEP))
-              }
-              onIncrement={() =>
-                setPlaybackRate(Math.min(RATE_MAX, Math.round((playbackRate + RATE_STEP) / RATE_STEP) * RATE_STEP))
-              }
+              onDecrement={() => {
+                // setPlaybackRate 失败会把原因写进 playerStore.error；这里只需吞掉 rejection。
+                void setPlaybackRate(Math.max(RATE_MIN, Math.round((playbackRate - RATE_STEP) / RATE_STEP) * RATE_STEP)).catch(() => undefined);
+              }}
+              onIncrement={() => {
+                void setPlaybackRate(Math.min(RATE_MAX, Math.round((playbackRate + RATE_STEP) / RATE_STEP) * RATE_STEP)).catch(() => undefined);
+              }}
             />
 
             {/* 歌词字号：步进按钮，1 步 1px */}

@@ -5,7 +5,7 @@ import { ChevronRight, Cloud, Code2, RefreshCw, Settings } from "lucide-react-na
 import { SettingsRow } from "@/components/settings/SettingsRow";
 import { Touchable } from "@/components/Touchable";
 
-import { aggregateListeningStats } from "@lx/core";
+import { aggregateListeningEvents } from "@lx/core";
 
 import { AccountInfo } from "@/components/AccountInfo";
 import { IconButton } from "@/components/IconButton";
@@ -23,7 +23,7 @@ import { buildLibraryQuickActions, type LibraryQuickActionType } from "@/service
 import { SETTINGS_CATEGORY_ICONS } from "@/navigation/settingsRouteModel";
 import { useAccountStore } from "@/stores/accountStore";
 import { useFavoritesStore } from "@/stores/favoritesStore";
-import { useHistoryStore } from "@/stores/historyStore";
+import { reportListeningStatsError, useListeningStatsStore } from "@/stores/listeningStatsStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, typography } from "@/theme/tokens";
 
@@ -49,14 +49,18 @@ export function MyMusicScreen({ onNavigateToPlayer: _onNavigateToPlayer }: MyMus
   const checkStatus = useAccountStore((state) => state.checkStatus);
   const favorites = useFavoritesStore((state) => state.favorites);
   const loadFavorites = useFavoritesStore((state) => state.loadFromStorage);
-  const statsEntries = useHistoryStore((state) => state.statsEntries);
+  const statsEntries = useListeningStatsStore((state) => state.events);
+  const loadStats = useListeningStatsStore((state) => state.load);
+  const statsError = useListeningStatsStore((state) => state.error);
+  const statsWarning = useListeningStatsStore((state) => state.warning);
+  useEffect(() => { void loadStats().catch(reportListeningStatsError); }, [loadStats]);
 
   const weekStats = useMemo(() => {
     const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
     const recent = statsEntries.filter(
-      (entry) => typeof entry.playedAt === "number" && entry.playedAt >= cutoff,
+      (entry) => entry.startedAt >= cutoff,
     );
-    return aggregateListeningStats(recent);
+    return aggregateListeningEvents(recent);
   }, [statsEntries]);
 
   useEffect(() => {
@@ -106,7 +110,7 @@ export function MyMusicScreen({ onNavigateToPlayer: _onNavigateToPlayer }: MyMus
 
         <View style={[styles.statsCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
           <View style={styles.statsHeader}>
-            <Text style={[styles.statsTitle, { color: palette.text }]}>本周听歌</Text>
+            <Text style={[styles.statsTitle, { color: palette.text }]}>近 7 天听歌</Text>
             <Touchable
               onPress={openListeningStatsScreen}
               activeScale={0.97}
@@ -119,12 +123,15 @@ export function MyMusicScreen({ onNavigateToPlayer: _onNavigateToPlayer }: MyMus
               <ChevronRight size={14} color={palette.primaryInk} />
             </Touchable>
           </View>
+          <Text style={[styles.statsLabel, { color: palette.textMuted }]}>本机此版本起的真实收听</Text>
+          {statsError && <Text accessibilityRole="alert" style={{ color: palette.text }}>统计保存或读取失败：{statsError}</Text>}
+          {statsWarning && <Text accessibilityRole="alert" style={{ color: palette.textMuted }}>{statsWarning}</Text>}
           <View style={styles.statsRow}>
             <View style={styles.statsCol}>
               <Text style={[styles.statsValue, { color: palette.text }]}>
                 {formatWeekDuration(weekStats.totalMs)}
               </Text>
-              <Text style={[styles.statsLabel, { color: palette.textMuted }]}>本周时长</Text>
+              <Text style={[styles.statsLabel, { color: palette.textMuted }]}>收听时长</Text>
             </View>
             <View style={[styles.statsDivider, { backgroundColor: palette.border }]} />
             <View style={styles.statsCol}>

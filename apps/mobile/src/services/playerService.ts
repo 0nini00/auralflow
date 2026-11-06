@@ -8,7 +8,7 @@ import { resolveWySongUrl } from "./wyDirectProvider";
 import { isVipOfficialFirst } from "./officialPriority";
 import { usePlayerStore } from "../stores/playerStore";
 import type { PlayMode } from "../stores/playerStore";
-import { startListeningSession } from "./listenTrackerService";
+import { resetListeningSession } from "./listenTrackerService";
 import { useCustomSourceStore } from "../stores/customSourceStore";
 import { requestCustomSourceMusicUrl } from "./customSourceRuntime";
 import { cacheCover, cacheLyrics, getCachedLyrics, cacheAudioFile, getCachedAudioFile, isLocalFilePlayable, CACHEABLE_AUDIO_SOURCES } from "./cacheService";
@@ -1070,9 +1070,8 @@ async function playSongCore(song: MusicInfo, startPosition?: number, requestId?:
     // 2. 播放（远端音源需带防盗链 headers；startPosition 用于快照恢复续播）
     await play(effectiveSong, url, headers, startPosition, intent);
     if (!isCurrentPlaybackRequest(intent)) return;
-    // 3. 启动听歌时长追踪（满足 2 分钟或 50% 播放条件才记入历史与打点，过期请求不启动）
+    // 3. 播放统计由底层成功提交入口建立，歌词只更新仍在播的曲目。
     if (usePlayerStore.getState().currentSong === effectiveSong) {
-      startListeningSession(effectiveSong, startPosition ?? 0);
       // 歌词同样以「本曲仍是在播曲」为前提加载，避免过期请求把别首歌的歌词
       // 写进 store 造成音词错位；intent 序号贯穿 loadLyrics 的每个 await 之后
       loadLyrics(effectiveSong, intent);
@@ -1092,6 +1091,7 @@ async function playSongCore(song: MusicInfo, startPosition?: number, requestId?:
   } catch (error) {
     if (!isCurrentPlaybackRequest(intent)) return;
     const message = error instanceof Error ? error.message : "播放失败";
+    resetListeningSession();
     usePlayerStore.setState({ currentUrl: null, isPlaying: false });
     setError(message);
     throw error;

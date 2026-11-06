@@ -1,4 +1,3 @@
-import { Platform } from "react-native";
 import TrackPlayer from "react-native-track-player";
 
 import { usePlayerStore } from "@/stores/playerStore";
@@ -17,7 +16,5 @@ import { usePlayerStore } from "@/stores/playerStore";
 export async function syncPlaybackParameters(): Promise<void> {
   const rate = usePlayerStore.getState().playbackRate || 1;
 
-  try {
-    await TrackPlayer.setRate(rate);
-  } catch {}
+  await TrackPlayer.setRate(rate);
 }

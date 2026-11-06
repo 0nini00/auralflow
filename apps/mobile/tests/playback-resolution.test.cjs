@@ -21,7 +21,7 @@ function setup(overrides = {}) {
     "react-native-track-player":{__esModule:true,default:native,State:{},RepeatMode:{Off:0},Event:{},AppKilledPlaybackBehavior:{},Capability:{}},
     "@lx/core":core,"@/services/androidPitchService":{}, "./playbackUrlCache":cache,"@/services/playbackUrlCache":cache,
     "@/services/playbackFailurePolicy":{},"@/services/lyricOverlayService":{isLyricOverlaySupported:()=>false},
-    "@/services/listenTrackerService":{startListeningSession(){},resetListeningSession(){}},"./listenTrackerService":{startListeningSession(){},resetListeningSession(){}},
+    "@/services/listenTrackerService":{startListeningSession() {}, resetListeningSession() {}, onPlaybackProgress() {}, seekListeningSession() {}, flushListeningSession: async () => {}},"./listenTrackerService":{startListeningSession() {}, resetListeningSession() {}, onPlaybackProgress() {}, seekListeningSession() {}, flushListeningSession: async () => {}},
     // parseUrl / resolveWySongUrl / probeStreamUrl 默认不接线：现有用例都走缓存命中，
     // 谁真去调就抛错（TypeError 或显式错误），防止用例悄悄踩进真实解析链。
     "./musicApi":{getLyrics:async()=>[],buildStreamHeaders:()=>({}), parseUrl: overrides.parseUrl ?? (async()=>{throw new Error("网关通道未接线");})},

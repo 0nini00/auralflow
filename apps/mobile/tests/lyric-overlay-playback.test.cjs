@@ -32,7 +32,7 @@ function setup() {
     "@/services/playbackFailurePolicy": {},
     "../services/playerService": { cancelPendingPlayback: () => load("src/services/playbackRequest.ts").beginPlaybackRequest() },
     "@/services/lyricOverlayService": overlay,
-    "@/services/listenTrackerService": { resetListeningSession() {} },
+    "@/services/listenTrackerService": { startListeningSession() {}, resetListeningSession() {}, onPlaybackProgress() {}, seekListeningSession() {}, flushListeningSession: async () => {} },
   });
   return { load, native, overlay, calls, errors, setNativeState: state => { nativeState = state; } };
 }

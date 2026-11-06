@@ -20,6 +20,7 @@ public class LocalMusicPackage implements ReactPackage {
     modules.add(new LocalMusicModule(reactContext));
     modules.add(new DownloadFileModule(reactContext));
     modules.add(new SecureStorageModule(reactContext));
+    modules.add(new ListeningStatsModule(reactContext));
     modules.add(new CryptoModule(reactContext));
     modules.add(new CustomSourceFilePickerModule(reactContext));
     modules.add(new LyricOverlayModule(reactContext));

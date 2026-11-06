@@ -30,7 +30,7 @@ function setup(blockAt) {
     },
     saveCachedPlaybackUrl: async () => {}, invalidateCachedPlaybackUrl: async () => {},
   };
-  const tracker = { startListeningSession: () => {}, resetListeningSession: () => {} };
+  const tracker = { startListeningSession() {}, resetListeningSession() {}, onPlaybackProgress() {}, seekListeningSession() {}, flushListeningSession: async () => {} };
   const mocks = {
     zustand: mobileRequire("zustand"),
     "@/services/logger": { logger: { info() {}, warn() {}, error() {} } },

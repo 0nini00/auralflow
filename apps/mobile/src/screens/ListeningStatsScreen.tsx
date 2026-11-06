@@ -2,7 +2,7 @@ import React, { useEffect, useMemo } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { ChartColumnBig, ChevronLeft, TrendingUp } from "lucide-react-native";
 import {
-  aggregateListeningStats,
+  aggregateListeningEvents,
   type ListeningStatsArtist,
   type ListeningStatsDay,
   type ListeningStatsTrack,
@@ -12,21 +12,12 @@ import { IconButton } from "@/components/IconButton";
 import { ScreenScaffold } from "@/components/ScreenScaffold";
 import { EmptyState } from "@/components/ScreenState";
 import { SectionHeader } from "@/components/SectionHeader";
-import { useHistoryStore } from "@/stores/historyStore";
+import { reportListeningStatsError, useListeningStatsStore } from "@/stores/listeningStatsStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { radius, spacing, typography } from "@/theme/tokens";
 
-/**
- * 听歌统计。
- *
- * 聚合在 `@lx/core` 的 `aggregateListeningStats`（纯函数、被单测钉住），这里只做展示：
- * 数字卡片 + Top 歌曲 / Top 歌手 / 按天趋势，全部是纯 RN 视图条形，不引入图表库。
- *
- * 诚实边界：统计只覆盖**本地保存的播放历史**（上限 2000 条、滚动 31 天，
- * 见 `stores/historyStore.ts` 的 MAX_HISTORY_ITEMS / MAX_HISTORY_AGE_MS），
- * 所以页面上必须写明"不是全部时间"——不要删掉这句。
- */
-export const HISTORY_SCOPE_NOTE = "统计基于本地历史（上限 2000 条、滚动 31 天），不代表全部时间的听歌数据。";
+/** 旧历史不具备真实收听时长，不迁移为统计事件。 */
+export const HISTORY_SCOPE_NOTE = "仅统计本机从此版本开始的真实收听；旧历史不回填，WebDAV 历史不参与统计。";
 
 /** Top 榜单显示条数（core 返回完整排名，截断是展示决策） */
 const TOP_LIST_SIZE = 10;
@@ -37,7 +28,8 @@ const TREND_BAR_MAX_HEIGHT = 88;
 
 /** 毫秒 → 人话时长（小于 1 分钟也显示分钟，避免出现 0 秒这种无意义读数） */
 function formatTotalDuration(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return "0 分钟";
+  if (!Number.isFinite(ms) || ms <= 0) return "0 秒";
+  if (ms < 60000) return `${Math.round(ms / 1000)} 秒`;
   const totalMinutes = Math.max(1, Math.round(ms / 60000));
   if (totalMinutes < 60) return `${totalMinutes} 分钟`;
   const hours = Math.floor(totalMinutes / 60);
@@ -142,17 +134,15 @@ export function ListeningStatsScreen({ onBack }: { onBack?: () => void }) {
     () => getThemePalette(getResolvedTheme(mode, systemTheme), accentColor),
     [mode, systemTheme, accentColor],
   );
-  const entries = useHistoryStore((state) => state.entries);
-  const statsEntries = useHistoryStore((state) => state.statsEntries);
-  const loadHistory = useHistoryStore((state) => state.loadHistory);
-  // 统计入参用 store 的派生数组而不是裸 entries：合成占位时间的条目已被按「时间未知」处理
-  // （不带 playedAt），只进总数/总时长/榜单，不进按天趋势——否则趋势图会拿假时间撒谎。
-  const stats = useMemo(() => aggregateListeningStats(statsEntries), [statsEntries]);
+  const events = useListeningStatsStore((state) => state.events);
+  const error = useListeningStatsStore((state) => state.error);
+  const warning = useListeningStatsStore((state) => state.warning);
+  const load = useListeningStatsStore((state) => state.load);
+  const stats = useMemo(() => aggregateListeningEvents(events), [events]);
 
-  // 与 CacheSettings 同口径：进页面主动拉一次本地历史，启动期加载失败时这里还能救回来
   useEffect(() => {
-    void loadHistory().catch((error) => console.error("[听歌统计] 加载播放历史失败", error));
-  }, [loadHistory]);
+    void load().catch(reportListeningStatsError);
+  }, [load]);
 
   const topTracks = stats.topTracks.slice(0, TOP_LIST_SIZE);
   const topArtists = stats.topArtists.slice(0, TOP_LIST_SIZE);
@@ -162,8 +152,8 @@ export function ListeningStatsScreen({ onBack }: { onBack?: () => void }) {
     (best, day) => (best === null || day.plays > best.plays ? day : best),
     null,
   );
-  const maxTrackPlays = topTracks.reduce((max, track) => Math.max(max, track.plays), 0);
-  const maxArtistPlays = topArtists.reduce((max, artist) => Math.max(max, artist.plays), 0);
+  const maxTrackMs = topTracks.reduce((max, track) => Math.max(max, track.totalMs), 0);
+  const maxArtistMs = topArtists.reduce((max, artist) => Math.max(max, artist.totalMs), 0);
   const hasPlays = stats.totalPlays > 0;
 
   return (
@@ -182,34 +172,26 @@ export function ListeningStatsScreen({ onBack }: { onBack?: () => void }) {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Text accessibilityRole="summary" style={[styles.scopeNote, { color: palette.textMuted }]}>
           {HISTORY_SCOPE_NOTE}
-          {`当前本地历史 ${entries.length} 条。`}
+          {`当前有效收听 ${stats.totalPlays} 次。`}
         </Text>
 
+        {error && <Text accessibilityRole="alert" style={[styles.scopeNote, { color: palette.text }]}>统计保存或读取失败：{error}</Text>}
+        {warning && <Text accessibilityRole="alert" style={[styles.scopeNote, { color: palette.textMuted }]}>{warning}</Text>}
         {!hasPlays ? (
           <EmptyState
             icon={ChartColumnBig}
             title="还没有听歌记录"
-            description="播放过的歌曲会记进本地历史，统计随之生成；历史为空时这里不会显示任何数字。"
+            description="开始播放后按实际收听时间记录，暂停与跳转不增加时长。"
           />
         ) : (
           <>
             <View style={styles.statGrid}>
-              <StatCard label="总时长" value={formatTotalDuration(stats.totalMs)} hint="按歌曲时长累加" />
-              <StatCard label="播放次数" value={`${stats.totalPlays}`} hint="历史条目数（一条 = 一次）" />
-              <StatCard
-                wide
-                label="时长未知的次数"
-                value={`${stats.playsWithoutDuration}`}
-                hint={
-                  stats.playsWithoutDuration > 0
-                    ? "这些记录没有歌曲时长信息，未计入总时长"
-                    : "全部记录都带歌曲时长"
-                }
-              />
+              <StatCard label="总时长" value={formatTotalDuration(stats.totalMs)} hint="按实际播放经过时间累计" />
+              <StatCard label="播放次数" value={`${stats.totalPlays}`} hint="有效会话数，同曲重播独立计次" />
             </View>
 
             <View style={styles.section}>
-              <SectionHeader title="Top 歌曲" description={`按播放次数排序，最多列出前 ${TOP_LIST_SIZE} 首`} />
+              <SectionHeader title="Top 歌曲" description={`按实际收听时长排序，最多列出前 ${TOP_LIST_SIZE} 首`} />
               {topTracks.length > 0 ? (
                 <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>
                   {topTracks.map((track, index) => (
@@ -218,19 +200,19 @@ export function ListeningStatsScreen({ onBack }: { onBack?: () => void }) {
                       rank={index + 1}
                       title={track.song.name || "未知歌曲"}
                       meta={trackMeta(track)}
-                      ratio={maxTrackPlays > 0 ? track.plays / maxTrackPlays : 0}
+                      ratio={maxTrackMs > 0 ? track.totalMs / maxTrackMs : 0}
                     />
                   ))}
                 </View>
               ) : (
                 <Text style={[styles.sectionEmpty, { color: palette.textMuted }]}>
-                  历史条目缺少歌曲标识，无法排出歌曲榜
+                  收听记录缺少歌曲标识，无法排出歌曲榜
                 </Text>
               )}
             </View>
 
             <View style={styles.section}>
-              <SectionHeader title="Top 歌手" description={`按播放次数排序，最多列出前 ${TOP_LIST_SIZE} 位`} />
+              <SectionHeader title="Top 歌手" description={`按实际收听时长排序，最多列出前 ${TOP_LIST_SIZE} 位`} />
               {topArtists.length > 0 ? (
                 <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>
                   {topArtists.map((artist, index) => (
@@ -239,13 +221,13 @@ export function ListeningStatsScreen({ onBack }: { onBack?: () => void }) {
                       rank={index + 1}
                       title={artist.name}
                       meta={artistMeta(artist)}
-                      ratio={maxArtistPlays > 0 ? artist.plays / maxArtistPlays : 0}
+                      ratio={maxArtistMs > 0 ? artist.totalMs / maxArtistMs : 0}
                     />
                   ))}
                 </View>
               ) : (
                 <Text style={[styles.sectionEmpty, { color: palette.textMuted }]}>
-                  历史条目缺少歌手信息，无法排出歌手榜
+                  收听记录缺少歌手信息，无法排出歌手榜
                 </Text>
               )}
             </View>
@@ -253,7 +235,7 @@ export function ListeningStatsScreen({ onBack }: { onBack?: () => void }) {
             <View style={styles.section}>
               <SectionHeader
                 title="按天趋势"
-                description={`最近 ${TREND_DAY_LIMIT} 天内有记录的日子（按本地日历日切分）`}
+                description={`最近 ${TREND_DAY_LIMIT} 个有收听记录的日子（按本地日历日切分）`}
               />
               {trendDays.length > 0 && busiestDay ? (
                 <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>
@@ -299,7 +281,7 @@ export function ListeningStatsScreen({ onBack }: { onBack?: () => void }) {
                 </View>
               ) : (
                 <Text style={[styles.sectionEmpty, { color: palette.textMuted }]}>
-                  历史条目没有可用的播放时间，无法生成按天趋势
+                  收听记录没有可用的播放时间，无法生成按天趋势
                 </Text>
               )}
             </View>

@@ -20,7 +20,7 @@ function setup() {
     '@/services/logger': { logger: { info() {}, warn() {}, error() {} } }, '@/services/androidPitchService': {},
     '@/services/playbackUrlCache': cache, './playbackUrlCache': cache, '@/services/playbackFailurePolicy': {},
     '@/services/lyricOverlayService': { isLyricOverlaySupported: () => false },
-    '@/services/listenTrackerService': { resetListeningSession() {} }, './listenTrackerService': {},
+    '@/services/listenTrackerService': { startListeningSession() {}, resetListeningSession() {}, onPlaybackProgress() {}, seekListeningSession() {}, flushListeningSession: async () => {} }, './listenTrackerService': { startListeningSession() {}, resetListeningSession() {}, onPlaybackProgress() {}, seekListeningSession() {}, flushListeningSession: async () => {} },
     './musicApi': { getLyrics: async () => { calls.push('oldLyrics'); return [{ time: 1, text: 'stale' }]; } },
     './wyDirectProvider': {}, './wyPlaylistService': {}, './customSourceRuntime': {}, '../stores/customSourceStore': {}, './streamProbe': {}, './hiddenFallbackService': { startHiddenSearch: async () => [], resolveHiddenFromGroups: async () => null, resolveHiddenFallback: async () => null },
     '@/services/crossSourceFallbackService': {}, '@/stores/playbackSettingsStore': { usePlaybackSettingsStore: { getState: () => ({}) } },

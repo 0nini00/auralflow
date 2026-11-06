@@ -20,6 +20,7 @@ import { useDiscoveryStore } from "./discoveryStore";
 import { customSourceAccess, customSourcePersistence, useCustomSourceStore } from "./customSourceStore";
 import { useVariantPinStore } from "./variantPinStore";
 import { CustomSourceDisabledError, type CustomSourceOperation } from "@/services/customSourceAccess";
+import { finishListeningStats, pauseListeningStats, registerListeningStatsSampler, seekListeningStats, startListeningStats, sampleListeningStats } from "./listeningStatsStore";
 
 export type RepeatMode = "off" | "all" | "one";
 
@@ -230,9 +231,14 @@ export function setPlaybackFailedAutoNext(value: unknown) {
 const getLocalPlaybackMusic = createLocalPlaybackLookup(() => useLibraryStore.getState().localSongs);
 
 const syncEngineToStore = (set: any, get: any) => {
+  registerListeningStatsSampler(() => {
+    const engine = playerEngine.sampleCurrentTime();
+    return { at: engine.currentTimeSampledAtMonotonic, position: engine.currentTime, playing: engine.status === "playing", rate: engine.playbackRate };
+  });
   /** Previous engine status: detect mid-play error vs resolve failure */
   let previousEngineStatus: PlayerStore["status"] | "idle" = "idle";
   let autoSkipTimer: ReturnType<typeof setTimeout> | null = null;
+  let listeningKey: string | null = null;
 
   playerEngine.subscribe((engineState) => {
     if (engineState.currentMusic?.isLocal) {
@@ -245,6 +251,36 @@ const syncEngineToStore = (set: any, get: any) => {
     const { isMuted, volume: storeVolume } = get() as PlayerStore;
     const prevStatus = previousEngineStatus;
     previousEngineStatus = engineState.status;
+
+    if (engineState.status === "loading" && listeningKey !== null) {
+      finishListeningStats();
+      listeningKey = null;
+    }
+
+    if (engineState.currentMusic && engineState.status !== "loading") {
+      const key = buildPlayRequestKey(engineState.currentMusic);
+      const sample = {
+        at: engineState.currentTimeSampledAtMonotonic,
+        position: engineState.currentTime,
+        playing: engineState.status === "playing",
+        rate: engineState.playbackRate,
+      };
+      if (engineState.status === "playing" && listeningKey !== key) {
+        startListeningStats(engineState.currentMusic, sample);
+        listeningKey = key;
+      } else if (listeningKey === key) {
+        if (prevStatus === "playing" && engineState.status !== "playing") pauseListeningStats(sample);
+        sampleListeningStats(sample);
+      }
+      if (engineState.status === "error") {
+        finishListeningStats();
+        listeningKey = null;
+      }
+    }
+    if (engineState.currentMusic == null && listeningKey !== null) {
+      finishListeningStats();
+      listeningKey = null;
+    }
 
     if (engineTargetKey != null) {
       const engineKey = engineState.currentMusic
@@ -314,6 +350,8 @@ const syncEngineToStore = (set: any, get: any) => {
   });
 
   playerEngine.onEnded(() => {
+    finishListeningStats();
+    listeningKey = null;
     const { repeatMode, queue, currentIndex, fmMode } = get();
     // 定时关闭（按时间）：曲结束时若定时器到期直接停，不进入下一首
     const sleep = useSleepTimerStore.getState();
@@ -712,6 +750,8 @@ export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
       const { status, current } = get();
       invalidatePlayRequest();
       playerEngine.pause();
+      const engine = playerEngine.getState();
+      pauseListeningStats({ at: engine.currentTimeSampledAtMonotonic, position: engine.currentTime, playing: false, rate: engine.playbackRate });
       if (status === "loading") {
         set({ status: "paused", current, progress: 0, duration: 0, progressSampledAt: Date.now(), error: null });
       }
@@ -732,6 +772,7 @@ export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
       invalidatePlayRequest();
 
       playerEngine.stop();
+      finishListeningStats();
 
       set({
 
@@ -980,7 +1021,13 @@ export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
     },
 
     setProgress: (progress) => {
+      const before = playerEngine.sampleCurrentTime();
+      sampleListeningStats({ at: before.currentTimeSampledAtMonotonic, position: before.currentTime, playing: before.status === "playing", rate: before.playbackRate });
+      // seek 同步推送进度；先重置测量基点，避免小幅跳转被误认成连续播放。
+      seekListeningStats({ at: typeof performance !== "undefined" ? performance.now() : Date.now(), position: progress, playing: before.status === "playing", rate: before.playbackRate });
       playerEngine.seek(progress);
+      const engine = playerEngine.getState();
+      seekListeningStats({ at: engine.currentTimeSampledAtMonotonic, position: engine.currentTime, playing: engine.status === "playing", rate: engine.playbackRate });
     },
 
     setVolume: (volume) => {

@@ -1,7 +1,7 @@
-import { AlertTriangle, BarChart3, Clock, Play, TrendingUp, Trophy, Users } from "lucide-react";
+import { BarChart3, Clock, Play, TrendingUp, Trophy, Users } from "lucide-react";
 import { useMemo } from "react";
-import { aggregateListeningStats, type HistoryPlayEntry } from "@lx/core";
-import { MAX_HISTORY, useHistoryStore } from "@/stores/historyStore";
+import { aggregateListeningEvents } from "@lx/core";
+import { useListeningStatsStore } from "@/stores/listeningStatsStore";
 
 /** 趋势区最多展示最近多少天（core 的 byDay 只含数据里出现过的天，空白天不补零）。 */
 const TREND_WINDOW_DAYS = 30;
@@ -26,42 +26,25 @@ function barWidth(value: number, max: number): string {
   return `${Math.max(4, Math.min(100, (value / max) * 100))}%`;
 }
 
-/**
- * 听歌统计：把本机播放历史（`useHistoryStore.history` + 真实时间戳）交给 core 的
- * `aggregateListeningStats` 聚合，界面只负责画数字卡片与纯 CSS 条形榜——不引入图表库。
- *
- * 诚实边界（都写在界面上）：
- * - 历史上限 `MAX_HISTORY` 条，更早的播放不在统计里；
- * - 桌面旧历史没有时间戳，那部分只进总数 / 总时长 / 榜单，不进趋势；
- * - 时长字段缺失的记录计入次数但不计入总时长（`playsWithoutDuration`）。
- */
+/** 本机独立收听会话；旧历史与 WebDAV 历史不冒充真实收听事件。 */
 export function StatsView() {
-  const statsEntries = useHistoryStore((s) => s.statsEntries);
-  // 这两个切片本身不直接渲染，只作为重算依赖：`statsEntries` 是读取当前 store 的稳定引用，
-  // 不把 history / 时间戳列进依赖，删历史或清空后统计数字会停在旧值上。
-  const history = useHistoryStore((s) => s.history);
-  const playedAtByKey = useHistoryStore((s) => s.playedAtByKey);
-
-  const entries = useMemo(() => statsEntries(), [statsEntries, history, playedAtByKey]);
-  const stats = useMemo(() => aggregateListeningStats(entries), [entries]);
-  const missingPlayedAt = useMemo(
-    () => entries.filter((entry: HistoryPlayEntry) => entry.playedAt == null).length,
-    [entries],
-  );
+  const events = useListeningStatsStore((s) => s.events);
+  const error = useListeningStatsStore((s) => s.error);
+  const loaded = useListeningStatsStore((s) => s.loaded);
+  const stats = useMemo(() => aggregateListeningEvents(events), [events]);
 
   const topTracks = stats.topTracks.slice(0, RANK_LIMIT);
   const topArtists = stats.topArtists.slice(0, RANK_LIMIT);
   const trend = stats.byDay.slice(-TREND_WINDOW_DAYS);
 
-  // 桌面历史按 `source:id` 去重，每首歌的次数恒为 1，靠次数排不出长度差：
-  // 榜单条形优先用累计时长，一条时长都没有时才退回次数。
+  // 榜单按真实累计收听时长排序。
   const trackByDuration = stats.topTracks.some((track) => track.totalMs > 0);
   const artistByDuration = stats.topArtists.some((artist) => artist.totalMs > 0);
   const maxTrackValue = Math.max(0, ...topTracks.map((track) => (trackByDuration ? track.totalMs : track.plays)));
   const maxArtistValue = Math.max(0, ...topArtists.map((artist) => (artistByDuration ? artist.totalMs : artist.plays)));
   const maxDayPlays = Math.max(0, ...trend.map((day) => day.plays));
 
-  if (stats.totalPlays === 0) {
+  if (!loaded) {
     return (
       <div className="af-stats-view af-animate-slide-in">
         <header className="af-stats-head">
@@ -69,9 +52,24 @@ export function StatsView() {
         </header>
         <div className="af-empty-state">
           <BarChart3 size={32} />
+          <p>正在读取收听统计…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (stats.totalPlays === 0) {
+    return (
+      <div className="af-stats-view af-animate-slide-in">
+        <header className="af-stats-head">
+          <h1 className="af-heading-1">听歌统计</h1>
+        </header>
+        {error && <p role="alert" className="af-stats-notice">统计保存或读取失败：{error}</p>}
+        <div className="af-empty-state">
+          <BarChart3 size={32} />
           <p>还没有可以统计的播放记录</p>
           <span>
-            播放过的歌曲会进入本机播放历史（上限 {MAX_HISTORY} 条），之后这里会显示总时长、次数与榜单。
+            仅统计本机从此版本开始的真实收听；旧历史不回填，WebDAV 历史不参与统计。
           </span>
         </div>
       </div>
@@ -83,53 +81,34 @@ export function StatsView() {
       <header className="af-stats-head">
         <h1 className="af-heading-1">听歌统计</h1>
         <p className="af-text-body">
-          数据来自本机播放历史（上限 {MAX_HISTORY} 条，更早的播放已被截断）；开启 WebDAV 同步时，
-          云端历史（含其它设备）会合并进来一起统计。
+          仅统计本机从此版本开始的真实收听；旧历史不回填，WebDAV 历史不参与统计。
         </p>
       </header>
 
+      {error && <p role="alert" className="af-stats-notice">统计保存或读取失败：{error}</p>}
       <section className="af-stats-cards" aria-label="总览">
         <article className="af-stats-card">
           <span className="af-stats-card-label">
             <Clock size={14} />总时长
           </span>
           <strong className="af-stats-card-value">{formatTotalDuration(stats.totalMs)}</strong>
-          <span className="af-stats-card-note">按每条记录的歌曲时长累计</span>
+          <span className="af-stats-card-note">按实际播放经过时间累计，暂停与跳转不计时</span>
         </article>
         <article className="af-stats-card">
           <span className="af-stats-card-label">
             <Play size={14} />总次数
           </span>
           <strong className="af-stats-card-value">{stats.totalPlays} 次</strong>
-          <span className="af-stats-card-note">历史条数（同一首歌只保留一条记录）</span>
+          <span className="af-stats-card-note">有效收听会话数，同曲重播独立计次</span>
         </article>
-        {stats.playsWithoutDuration > 0 && (
-          <article className="af-stats-card af-stats-card-warn">
-            <span className="af-stats-card-label">
-              <AlertTriangle size={14} />时长未知
-            </span>
-            <strong className="af-stats-card-value">{stats.playsWithoutDuration} 次</strong>
-            <span className="af-stats-card-note">这些记录没有歌曲时长，未计入总时长</span>
-          </article>
-        )}
       </section>
-
-      {missingPlayedAt > 0 && (
-        <p className="af-stats-notice">
-          <AlertTriangle size={14} />
-          <span>
-            部分历史没有播放时间，趋势可能不完整（{missingPlayedAt} / {stats.totalPlays} 条缺少时间；
-            旧版本记录的历史不会回填时间）。
-          </span>
-        </p>
-      )}
 
       <section className="af-stats-panel">
         <h2 className="af-stats-panel-title">
           <Trophy size={16} />Top 歌曲
         </h2>
         <p className="af-stats-panel-note">
-          按累计时长排序。历史里同一首歌只保留一条记录、次数恒为 1，所以不按次数排名。
+          按实际累计收听时长排序，每次重播分别累计。
         </p>
         {topTracks.length === 0 ? (
           <p className="af-stats-panel-empty">历史里没有可排名的歌曲。</p>

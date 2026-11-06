@@ -9,7 +9,7 @@ function setup(config = {}) {
   const calls = [];
   const queue = ["A", "B", "C", "D", "E", "F"].map(id => ({ source: "tx", id }));
   const state = { currentSong: queue[0], queue, currentIndex: 0, error: null, loading: false,
-    playbackContext: { type: "queue" }, playMode: "list", tempPlayList: [], shuffleHistory: [], playedIndices: [], volume: 1 };
+    flushListeningStats: async () => {}, playbackContext: { type: "queue" }, playMode: "list", tempPlayList: [], shuffleHistory: [], playedIndices: [], volume: 1 };
   const settings = { autoSkipOnPlaybackError: config.autoSkip !== false };
   const behavior = { next: async () => {}, retry: async () => {}, invalidate: async () => {} };
   const addListener = (event, callback) => {
@@ -44,6 +44,7 @@ function setup(config = {}) {
       setupPlayerListeners: () => calls.push("setupPlayerListeners"), shouldAttributePlaybackErrorToCurrentSong: () => true, SILENCE_GAP_TRACK_ID: "gap" },
     "@/services/logger": { logger: { info: (...args) => calls.push(["info", ...args]), warn: (...args) => calls.push(["warn", ...args]), error: (...args) => calls.push(["error", ...args]) } },
     "@/services/playbackUrlCache": { invalidateCachedPlaybackUrl: () => { calls.push("invalidateCachedPlaybackUrl"); return behavior.invalidate(); } },
+    "@/services/listenTrackerService": { startListeningSession() {}, resetListeningSession() {}, onPlaybackProgress() {}, seekListeningSession() {}, flushListeningSession: async () => {} },
     "../services/playerService": playerService,
   });
   request = load("src/services/playbackRequest.ts");
@@ -309,7 +310,7 @@ function nativeNavigationSetup(blockAt, { autoSkip = false } = {}) {
   const coreLoad = createLoader({});
   const cache = { getCachedPlaybackUrl: async () => ({ url: "https://fixture.invalid/audio", quality: "320k" }),
     saveCachedPlaybackUrl: async () => {}, invalidateCachedPlaybackUrl: async () => {} };
-  const tracker = { startListeningSession() {}, resetListeningSession() {} };
+  const tracker = { startListeningSession() {}, resetListeningSession() {}, onPlaybackProgress() {}, seekListeningSession() {}, flushListeningSession: async () => {} };
   const playlistApi = {};
   const load = createLoader({
     zustand: mobileRequire("zustand"),
