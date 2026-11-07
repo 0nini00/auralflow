@@ -70,6 +70,17 @@
             <data android:scheme="file" android:host="*" android:pathPattern=".*\\.js" />
             <data android:scheme="file" android:host="*" android:pathPattern=".*\\.json" />
         </intent-filter>
+        <!-- QQ / 部分文件管理器把 .js 标成 text/plain 或 application/octet-stream。
+             只按 JS MIME 声明会漏；这里用通配 MIME + 路径后缀兜住，仍然只对
+             .js/.json 生效，不会让 PDF / APK / ZIP 出现在「打开方式」里。 -->
+        <intent-filter android:label="@string/app_name">
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <data android:scheme="content" android:host="*" android:mimeType="*/*" android:pathPattern=".*\\.js" />
+            <data android:scheme="content" android:host="*" android:mimeType="*/*" android:pathPattern=".*\\.json" />
+            <data android:scheme="file" android:host="*" android:mimeType="*/*" android:pathPattern=".*\\.js" />
+            <data android:scheme="file" android:host="*" android:mimeType="*/*" android:pathPattern=".*\\.json" />
+        </intent-filter>
       </activity>
 
       <!-- react-native-track-player v4 的播放服务。库自身 Manifest 在某些 pnpm/AGP 组合下不会被合并，
