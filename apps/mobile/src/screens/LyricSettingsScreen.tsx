@@ -3,6 +3,8 @@ import { Pressable, StyleSheet, Switch, Text, View, type TextStyle } from "react
 
 import { SettingsCard } from "@/components/settings/SettingsCard";
 import { PaletteSlider } from "@/components/settings/PaletteSlider";
+import { ImmersiveBackgroundSheet } from "@/components/ImmersiveBackgroundSheet";
+import { IMMERSIVE_BACKGROUND_OPTIONS } from "@/services/immersiveBackgroundSettings";
 import {
   useLyricSettingsStore,
   FONT_OPTIONS,
@@ -63,7 +65,9 @@ export function LyricSettingsContent() {
   const fontWeight = useLyricSettingsStore((s) => s.fontWeight);
   const manualOffsetMs = useLyricSettingsStore((s) => s.manualOffsetMs);
   const coverSpin = useLyricSettingsStore((s) => s.coverSpin);
-  const ambientCoverTint = useLyricSettingsStore((s) => s.ambientCoverTint);
+  const immersiveBackground = useLyricSettingsStore((s) => s.immersiveBackground);
+  const [backgroundVisible, setBackgroundVisible] = React.useState(false);
+  const backgroundLabel = IMMERSIVE_BACKGROUND_OPTIONS.find((option) => option.value === immersiveBackground)?.label;
   const showLyricProgress = useLyricSettingsStore((s) => s.showLyricProgress);
   const enableAnimation = useLyricSettingsStore((s) => s.enableAnimation);
   const animationIntensity = useLyricSettingsStore((s) => s.animationIntensity);
@@ -74,7 +78,6 @@ export function LyricSettingsContent() {
   const setInactiveColor = useLyricSettingsStore((s) => s.setInactiveColor);
   const setFontFamily = useLyricSettingsStore((s) => s.setFontFamily);
   const setCoverSpin = useLyricSettingsStore((s) => s.setCoverSpin);
-  const setAmbientCoverTint = useLyricSettingsStore((s) => s.setAmbientCoverTint);
   const setShowLyricProgress = useLyricSettingsStore((s) => s.setShowLyricProgress);
   const setTextOpacity = useLyricSettingsStore((s) => s.setTextOpacity);
   const setEnableAnimation = useLyricSettingsStore((s) => s.setEnableAnimation);
@@ -191,14 +194,16 @@ export function LyricSettingsContent() {
           accessibilityLabel="封面旋转"
         />
         <Hairline palette={palette} />
-        <SwitchRow
-          palette={palette}
-          title="氛围色背景"
-          subtitle="用封面主色给播放页背景染色"
-          value={ambientCoverTint}
-          onValueChange={setAmbientCoverTint}
-          accessibilityLabel="氛围色背景"
-        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="播放背景"
+          accessibilityValue={{ text: backgroundLabel }}
+          onPress={() => setBackgroundVisible(true)}
+          style={styles.switchRow}
+        >
+          <Text style={[styles.rowTitle, styles.copy, { color: palette.text }]}>播放背景</Text>
+          <Text style={[styles.rowSubtitle, { color: palette.primaryInk }]}>{backgroundLabel}</Text>
+        </Pressable>
         <Hairline palette={palette} />
         <SwitchRow
           palette={palette}
@@ -304,6 +309,7 @@ export function LyricSettingsContent() {
           </Text>
         </View>
       </SettingsCard>
+      <ImmersiveBackgroundSheet visible={backgroundVisible} onClose={() => setBackgroundVisible(false)} palette={palette} />
     </>
   );
 }

@@ -2,43 +2,39 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { createLoader } = require("./helpers/loadTs.cjs");
 
-// 「用其他应用打开」的音源脚本靠 AndroidManifest 的 intent-filter 命中，
-// RN 的 Linking 会把 ACTION_VIEW 的 data URI 直接抛给 JS（onCreate 走 getInitialURL，
-// 已运行时走 url 事件），所以这里只管把 URI 认成「导入音源」意图。
+// Linking 只提供 URI，文件分类必须等待原生读取实际 MIME 与 DISPLAY_NAME。
 
 const load = createLoader({});
 const { parseMobileDeepLink } = load("src/services/mobileDeepLinkService.ts");
 
-test("下载器的 content:// 文档 id（不带扩展名）也认，文件名交给调用方兜文案", () => {
+test("下载器的不透明文档 URI 进入文件解析，不预先当作音源脚本", () => {
   const uri = "content://com.android.providers.downloads.documents/document/msf%3A1000012345";
-  assert.deepEqual(parseMobileDeepLink(uri), { type: "importSource", uri, fileName: null });
+  assert.deepEqual(parseMobileDeepLink(uri), { type: "openFile", uri });
 });
 
-test("下载器把真实路径编码在最后一个 segment 里时能取出文件名", () => {
+test("编码的文档路径保留原 URI 交给文件解析", () => {
   const uri =
     "content://com.android.externalstorage.documents/document/primary%3ADownload%2Fmy-source.js";
   assert.deepEqual(parseMobileDeepLink(uri), {
-    type: "importSource",
+    type: "openFile",
     uri,
-    fileName: "my-source.js",
   });
 });
 
-test("file:// 的本地脚本认成导入音源", () => {
+test("file:// 本地脚本进入文件解析", () => {
   const uri = "file:///storage/emulated/0/Download/auralflow-source.js";
   assert.deepEqual(parseMobileDeepLink(uri), {
-    type: "importSource",
+    type: "openFile",
     uri,
-    fileName: "auralflow-source.js",
   });
 });
 
-test("音频/安装包等明确不是脚本的文件拒绝导入", () => {
+test("音频和误送文件都交给文件边界识别类型并明确处理", () => {
   for (const uri of [
     "content://media/external/audio/media/12345/song.mp3",
     "file:///storage/emulated/0/Download/app.apk",
   ]) {
-    assert.equal(parseMobileDeepLink(uri), null, uri);
+    assert.deepEqual(parseMobileDeepLink(uri), { type: "openFile", uri });
   }
 });
 

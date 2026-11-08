@@ -1,6 +1,12 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  DEFAULT_IMMERSIVE_BACKGROUND,
+  isImmersiveBackgroundMode,
+  normalizeImmersiveBackground,
+  type ImmersiveBackgroundMode,
+} from "@/services/immersiveBackgroundSettings";
 import type {
 
   LyricAnimationIntensity,
@@ -59,8 +65,8 @@ export interface LyricSettingsState {
   /** 歌词滚动进度条显示开关 */
   showLyricProgress: boolean;
 
-  /** 沉浸页氛围色背景：从封面提取主色给背景染色（默认关，保持纯色） */
-  ambientCoverTint: boolean;
+  /** 沉浸页背景模式，默认保留封面氛围。 */
+  immersiveBackground: ImmersiveBackgroundMode;
 
 
 
@@ -81,7 +87,7 @@ export interface LyricSettingsState {
   setChineseConversion: (mode: ChineseConversionMode) => void;
   setCoverSpin: (enabled: boolean) => void;
   setShowLyricProgress: (enabled: boolean) => void;
-  setAmbientCoverTint: (enabled: boolean) => void;
+  setImmersiveBackground: (mode: ImmersiveBackgroundMode) => void;
   resetSettings: () => void;
 }
 
@@ -138,7 +144,7 @@ chineseConversion: "off",
 
   showLyricProgress: true,
 
-  ambientCoverTint: true,
+  immersiveBackground: DEFAULT_IMMERSIVE_BACKGROUND,
 
 } as const;
 
@@ -177,15 +183,30 @@ setChineseConversion: (chineseConversion) => set({ chineseConversion }),
 
       setShowLyricProgress: (showLyricProgress) => set({ showLyricProgress }),
 
-      setAmbientCoverTint: (ambientCoverTint) => set({ ambientCoverTint }),
+      setImmersiveBackground: (immersiveBackground) => {
+        if (!isImmersiveBackgroundMode(immersiveBackground)) throw new Error("无效的播放背景模式");
+        set({ immersiveBackground });
+      },
 
       resetSettings: () => set({ ...DEFAULT_LYRIC_SETTINGS }),
     }),
     {
       name: "auralflow-lyric-settings",
       storage: createJSONStorage(() => AsyncStorage),
+      partialize: (state) => Object.fromEntries(
+        (Object.keys(DEFAULT_LYRIC_SETTINGS) as Array<keyof typeof DEFAULT_LYRIC_SETTINGS>)
+          .map((key) => [key, state[key]]),
+      ),
       merge: (persisted, current) => {
-        const merged = { ...current, ...(persisted as Partial<LyricSettingsState>) } as LyricSettingsState;
+        const saved = persisted && typeof persisted === "object"
+          ? persisted as Partial<LyricSettingsState> & { ambientCoverTint?: unknown }
+          : {};
+        const { ambientCoverTint, ...settings } = saved;
+        const merged: LyricSettingsState = {
+          ...current,
+          ...settings,
+          immersiveBackground: normalizeImmersiveBackground(saved.immersiveBackground, ambientCoverTint),
+        };
         // 歌词对齐设置已移除：统一居中（覆盖存量 left/right 持久化值）
         merged.textAlign = "center";
         merged.fontFamily = normalizeLyricFontFamily(merged.fontFamily);

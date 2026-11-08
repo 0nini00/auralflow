@@ -1,5 +1,11 @@
 import { Image as ImageIcon, Monitor, Moon, RotateCcw, Sun } from "lucide-react";
-import { APPEARANCE_DEFAULTS, APPEARANCE_LIMITS, type Theme } from "@/stores/themeStore";
+import {
+  APPEARANCE_DEFAULTS,
+  APPEARANCE_LIMITS,
+  IMMERSIVE_BACKGROUND_OPTIONS,
+  type ImmersiveBackgroundMode,
+  type Theme,
+} from "@/stores/themeStore";
 import type { AppearanceSettingsModel } from "../useSettingsViewModel";
 import { IMMERSIVE_LYRIC_FONT_OPTIONS } from "../useSettingsViewModel";
 import { SettingRow } from "./SettingRow";
@@ -104,6 +110,7 @@ export function AppearanceSettingsSection({ model }: { model: AppearanceSettings
     backgroundMaskOpacity,
     gradientBackgroundEnabled,
     gradientBackgroundFollowArtwork,
+    immersiveBackground,
     patchAppearance,
     resetAppearance,
     accentColorInput,
@@ -135,6 +142,7 @@ export function AppearanceSettingsSection({ model }: { model: AppearanceSettings
     backgroundMaskOpacity === APPEARANCE_DEFAULTS.backgroundMaskOpacity &&
     gradientBackgroundEnabled === APPEARANCE_DEFAULTS.gradientBackgroundEnabled &&
     gradientBackgroundFollowArtwork === APPEARANCE_DEFAULTS.gradientBackgroundFollowArtwork &&
+    immersiveBackground === APPEARANCE_DEFAULTS.immersiveBackground &&
     lyricFontIsDefault;
 
   const restoreAllAppearance = () => {
@@ -417,6 +425,25 @@ export function AppearanceSettingsSection({ model }: { model: AppearanceSettings
   <div className="af-settings-group">
     <label className="af-settings-label">沉浸式歌词</label>
     <div className="af-settings-card">
+      <SettingRow label="沉浸式播放背景" hint="选择沉浸式播放页的背景效果">
+        <select
+          className="af-settings-select af-appearance-select"
+          value={immersiveBackground}
+          onChange={(event) => patchAppearance({ immersiveBackground: event.target.value as ImmersiveBackgroundMode })}
+          aria-label="沉浸式播放背景"
+        >
+          {IMMERSIVE_BACKGROUND_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <AppearanceResetButton
+          label="沉浸式播放背景"
+          disabled={immersiveBackground === APPEARANCE_DEFAULTS.immersiveBackground}
+          onClick={() => patchAppearance({ immersiveBackground: APPEARANCE_DEFAULTS.immersiveBackground })}
+        />
+      </SettingRow>
       <SettingRow label="歌词字体" hint="只作用于沉浸式歌词页，主界面字体不可配置">
         <select
           className="af-settings-select af-appearance-select"

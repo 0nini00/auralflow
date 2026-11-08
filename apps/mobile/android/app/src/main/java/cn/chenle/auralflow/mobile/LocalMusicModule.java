@@ -146,6 +146,48 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
     return "LocalMusicModule";
   }
 
+  /** 外部打开只读取当前授权的单个文件，不扫描媒体库或持久化曲库。 */
+  @ReactMethod
+  public void readLocalAudioFile(String uriString, Promise promise) {
+    try {
+      audioAssetsExecutor.execute(() -> {
+        try {
+          promise.resolve(resolveLocalAudioFile(uriString));
+        } catch (Exception error) {
+          promise.reject("LOCAL_AUDIO_READ_FAILED", error);
+        }
+      });
+    } catch (RejectedExecutionException error) {
+      promise.reject("LOCAL_AUDIO_READ_FAILED", error);
+    }
+  }
+
+  private WritableMap resolveLocalAudioFile(String uriString) throws Exception {
+    if (uriString == null) throw new IllegalArgumentException("音频 URI 不能为空");
+    URI parsed = new URI(uriString);
+    String scheme = parsed.getScheme();
+    if ((!"file".equals(scheme) && !"content".equals(scheme)) || parsed.isOpaque()
+        || parsed.getFragment() != null || parsed.getPath() == null || parsed.getPath().isEmpty()) {
+      throw new IllegalArgumentException("仅支持 file:// 或 content:// 音频 URI");
+    }
+    if ("file".equals(scheme)) {
+      if (!new File(parsed).isFile()) throw new FileNotFoundException("音频不是可读文件");
+    } else if (parsed.getAuthority() == null || parsed.getAuthority().isEmpty()) {
+      throw new IllegalArgumentException("content URI 缺少提供方");
+    }
+    Uri uri = Uri.parse(parsed.toString());
+    ContentResolver resolver = getReactApplicationContext().getContentResolver();
+    try (InputStream input = resolver.openInputStream(uri)) {
+      if (input == null) throw new FileNotFoundException("无法打开音频文件");
+      input.read();
+    }
+    WritableMap song = buildSongFromUri(resolver, uri);
+    // 外部授权属于 URI，提供方的 _DATA 路径不一定可直接访问。
+    song.putString("filePath", uriString);
+    song.putString("contentUri", uriString);
+    return song;
+  }
+
   /** 只读提取；整个 I/O 流程与 Native 调用线程及播放控制隔离。 */
   @ReactMethod
   public void readAudioAssets(String uriString, Promise promise) {

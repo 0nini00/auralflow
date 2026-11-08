@@ -42,6 +42,8 @@ interface LocalMusicNativeModule {
 
   pickLocalAudioFiles(): Promise<NativeLocalSong[]>;
 
+  readLocalAudioFile(uri: string): Promise<NativeLocalSong>;
+
   updateAudioMetadata(mediaId: string, metadata: Record<string, string>): Promise<number>;
 
 
@@ -192,6 +194,40 @@ export async function pickLocalAudioFiles(): Promise<LocalMusicInfo[]> {
   const songs = await nativeLocalMusicModule.pickLocalAudioFiles();
   if (!Array.isArray(songs)) throw new Error("本地音乐导入结果格式错误");
   return songs.map((song) => ({ ...mapNativeLocalSong(song), localOrigin: "manual" }));
+}
+
+/** 读取外部打开的音频用于当前播放，不将临时授权写入本地曲库。 */
+export async function readLocalAudioFile(uri: string): Promise<LocalMusicInfo> {
+  if (Platform.OS !== "android") throw new Error("外部音频打开当前仅支持 Android");
+  if (typeof uri !== "string" || !uri) throw new Error("音频 URI 不能为空");
+  let parsed: URL;
+  try {
+    parsed = new URL(uri);
+  } catch {
+    throw new Error("音频 URI 格式无效");
+  }
+  if ((parsed.protocol !== "file:" && parsed.protocol !== "content:") || !parsed.pathname || parsed.hash
+      || (parsed.protocol === "content:" && !parsed.hostname) || (parsed.protocol === "file:" && parsed.hostname)) {
+    throw new Error("仅支持 file:// 或 content:// 音频 URI");
+  }
+  if (!nativeLocalMusicModule || typeof nativeLocalMusicModule.readLocalAudioFile !== "function") {
+    throw new Error("Android 本地音乐原生模块未注册（readLocalAudioFile 缺失）");
+  }
+  const song = await nativeLocalMusicModule.readLocalAudioFile(uri);
+  if (!song || typeof song.id !== "string" || !song.id
+      || typeof song.title !== "string" || typeof song.artist !== "string" || typeof song.album !== "string"
+      || typeof song.duration !== "number" || !Number.isFinite(song.duration) || song.duration < 0
+      || typeof song.filePath !== "string" || !song.filePath
+      || (song.contentUri !== undefined && typeof song.contentUri !== "string")
+      || (song.lyrics !== undefined && typeof song.lyrics !== "string")
+      || (song.albumArtUri !== undefined && typeof song.albumArtUri !== "string")) {
+    throw new Error("外部音频读取结果无效");
+  }
+  return {
+    ...mapNativeLocalSong(song),
+    url: parsed.protocol === "file:" ? parsed.href : uri,
+    localOrigin: "manual",
+  };
 }
 
 function validateNativeScan(result: NativeLocalScan): void {

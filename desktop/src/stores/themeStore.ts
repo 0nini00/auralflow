@@ -6,6 +6,13 @@ export type EffectiveTheme = "light" | "dark";
 /** 封面取色的作用范围：仅播放条 / 播放条与沉浸歌词页 */
 export type ArtworkAmbienceScope = "player" | "player-immersive";
 
+export const IMMERSIVE_BACKGROUND_OPTIONS = [
+  { value: "cover", label: "封面背景" },
+  { value: "liquid", label: "液态渐变" },
+  { value: "aurora", label: "极光光幕" },
+] as const;
+export type ImmersiveBackgroundMode = typeof IMMERSIVE_BACKGROUND_OPTIONS[number]["value"];
+
 /**
  * 外观设置。这里是外观默认值的**唯一来源**：
  * theme.css 不再重复这些字面量，启动时 applyInitialAppearance()（main.tsx 里早于 React
@@ -29,6 +36,7 @@ export interface AppearanceSettings {
   gradientBackgroundEnabled: boolean;
   /** 渐变背景跟随封面主色（关闭则只用强调色系） */
   gradientBackgroundFollowArtwork: boolean;
+  immersiveBackground: ImmersiveBackgroundMode;
 }
 
 export const APPEARANCE_DEFAULTS: AppearanceSettings = {
@@ -44,6 +52,7 @@ export const APPEARANCE_DEFAULTS: AppearanceSettings = {
   backgroundMaskOpacity: 100,
   gradientBackgroundEnabled: false,
   gradientBackgroundFollowArtwork: true,
+  immersiveBackground: "cover",
 };
 
 /** 滑块的取值范围：设置行与归一化共用同一份，避免两处各写一套边界。 */
@@ -207,6 +216,9 @@ const isTheme = (value: unknown): value is Theme =>
 const isScope = (value: unknown): value is ArtworkAmbienceScope =>
   value === "player" || value === "player-immersive";
 
+const isImmersiveBackgroundMode = (value: unknown): value is ImmersiveBackgroundMode =>
+  IMMERSIVE_BACKGROUND_OPTIONS.some((option) => option.value === value);
+
 const readBoolean = (value: unknown, fallback: boolean): boolean =>
   typeof value === "boolean" ? value : fallback;
 
@@ -263,6 +275,9 @@ function normalizeAppearance(value: unknown): AppearanceSettings {
       raw.gradientBackgroundFollowArtwork,
       defaults.gradientBackgroundFollowArtwork,
     ),
+    immersiveBackground: isImmersiveBackgroundMode(raw.immersiveBackground)
+      ? raw.immersiveBackground
+      : defaults.immersiveBackground,
   };
 }
 

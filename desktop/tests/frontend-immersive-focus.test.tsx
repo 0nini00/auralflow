@@ -2,7 +2,10 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-const actions = vi.hoisted(() => ({ close: vi.fn(), player: {} as any }));
+const actions = vi.hoisted(() => {
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  return { close: vi.fn(), player: {} as any };
+});
 vi.mock('@/stores/playerStore', () => ({ usePlayerStore: Object.assign(() => actions.player, { getState: () => actions.player }) }));
 vi.mock('@lx/tauri-bridge', () => ({ loadSettings: async () => ({}), patchSettings: async () => ({}), isLyricWindowOpen: async () => false, getLyricWindowState: async () => ({ locked: false }) }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));

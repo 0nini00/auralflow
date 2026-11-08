@@ -4,7 +4,6 @@ import {
   Alert,
   AppState,
   Appearance,
-  Linking,
   Pressable,
   StyleSheet,
   Text,
@@ -22,7 +21,9 @@ import { MobilePactModal } from "@/components/MobilePactModal";
 import { UpdateModal } from "@/components/UpdateModal";
 import { RootNavigator, navigationRef } from "@/navigation";
 import { acceptMobilePact, hasAcceptedMobilePact } from "@/services/mobilePactService";
-import { parseMobileDeepLink } from "@/services/mobileDeepLinkService";
+import { useMobileDeepLinks, type ResolvedMobileIntent } from "@/hooks/useMobileDeepLinks";
+import { readLocalAudioFile } from "@/services/localMusicService";
+import { playQueue } from "@/services/playerService";
 import { initPlaybackSnapshotPersistence } from "@/services/playbackSnapshot";
 import { autoCleanCache } from "@/services/cacheService";
 import { consumeLastJSError } from "@/services/globalErrorCapture";
@@ -64,8 +65,40 @@ async function importSourceFromIntent(uri: string): Promise<void> {
   }
 }
 
-/** 同一次会话里同一个 URI 只弹一次确认：JS 重挂载会再读一次 initialURL。 */
-const handledSourceImportUris = new Set<string>();
+async function dispatchMobileIntent(intent: ResolvedMobileIntent, isCurrent: () => boolean): Promise<void> {
+  const nav = (name: string, params?: unknown) => {
+    (navigationRef.navigate as (screen: string, params?: unknown) => void)(name, params);
+  };
+  switch (intent.type) {
+    case "search":
+      nav("MainTabs", { screen: "SearchTab", params: { initialKeyword: intent.keyword } });
+      break;
+    case "homeMode":
+      nav(intent.mode === "fm" ? "PersonalFm" : "DailyRecommend");
+      break;
+    case "searchDetail":
+      nav("MainTabs", { screen: "SearchTab", params: { initialDetailRoute: intent.route } });
+      break;
+    case "playAudio": {
+      const song = await readLocalAudioFile(intent.uri);
+      if (!isCurrent()) return;
+      await playQueue([song], 0);
+      if (!isCurrent()) return;
+      navigationRef.navigate("Player");
+      break;
+    }
+    case "importSource":
+      Alert.alert(
+        "导入自定义音源",
+        intent.fileName ? `是否导入音源脚本「${intent.fileName}」？` : "是否导入此自定义音源文件？",
+        [
+          { text: "取消", style: "cancel" },
+          { text: "导入", onPress: () => void importSourceFromIntent(intent.uri) },
+        ],
+      );
+      break;
+  }
+}
 
 export default function App() {
   const [booting, setBooting] = useState(true);
@@ -75,6 +108,8 @@ export default function App() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
   const [localDataReady, setLocalDataReady] = useState(false);
+  const [navigationReady, setNavigationReady] = useState(false);
+  useMobileDeepLinks(navigationReady && !booting && !bootError && pactAccepted === true, dispatchMobileIntent);
 
   const themeMode = useThemeStore((s) => s.mode);
   const systemTheme = useThemeStore((s) => s.systemTheme);
@@ -255,94 +290,6 @@ export default function App() {
     return () => subscription.remove();
   }, [lyricOverlaySettingsLoaded, syncLyricOverlayVisible]);
 
-  // Deep links: auralflow://search|daily|fm|playlist|album|artist
-  useEffect(() => {
-    // 导航容器可能晚于深链就绪（如协议未同意时根本未挂载）：
-    // 重试有上限（约 4s），超时放弃；新深链到达会取消上一条未派发的深链，
-    // 避免连点两次深链重复导航、或几分钟前的旧深链在协议同意后突然执行。
-    const MAX_NAV_RETRIES = 50;
-    const NAV_RETRY_INTERVAL_MS = 80;
-    let pendingIntent: ReturnType<typeof parseMobileDeepLink> = null;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    let retries = 0;
-
-    const dispatchIntent = () => {
-      const intent = pendingIntent;
-      pendingIntent = null;
-      if (!intent) return;
-      const nav = (name: string, params?: any) => {
-        (navigationRef as any).navigate(name, params);
-      };
-      switch (intent.type) {
-        case "search":
-          nav("MainTabs", {
-            screen: "SearchTab",
-            params: { initialKeyword: intent.keyword },
-          });
-          break;
-        case "homeMode":
-          if (intent.mode === "fm") {
-            nav("PersonalFm");
-          } else {
-            nav("DailyRecommend");
-          }
-          break;
-        case "searchDetail":
-          nav("MainTabs", {
-            screen: "SearchTab",
-            params: { initialDetailRoute: intent.route },
-          });
-          break;
-        case "importSource":
-          // 外部文件一律先确认：误点一个下载残留文件不应该直接改音源列表。
-          if (handledSourceImportUris.has(intent.uri)) break;
-          handledSourceImportUris.add(intent.uri);
-          Alert.alert(
-            "导入自定义音源",
-            intent.fileName
-              ? `检测到音源脚本「${intent.fileName}」，导入后即可用于解析与兜底搜索。`
-              : "检测到外部文件，导入后作为自定义音源使用。",
-            [
-              { text: "取消", style: "cancel" },
-              { text: "导入", onPress: () => void importSourceFromIntent(intent.uri) },
-            ],
-          );
-          break;
-      }
-    };
-
-    const go = () => {
-      if (!navigationRef.isReady()) {
-        if (retries >= MAX_NAV_RETRIES) return;
-        retries += 1;
-        retryTimer = setTimeout(go, NAV_RETRY_INTERVAL_MS);
-        return;
-      }
-      retryTimer = null;
-      dispatchIntent();
-    };
-
-    const handleUrl = (rawUrl: string | null) => {
-      if (!rawUrl) return;
-      const intent = parseMobileDeepLink(rawUrl);
-      if (!intent) return;
-      if (retryTimer) {
-        clearTimeout(retryTimer);
-        retryTimer = null;
-      }
-      pendingIntent = intent;
-      retries = 0;
-      go();
-    };
-
-    void Linking.getInitialURL().then(handleUrl).catch(() => undefined);
-    const sub = Linking.addEventListener("url", (event) => handleUrl(event.url));
-    return () => {
-      sub.remove();
-      if (retryTimer) clearTimeout(retryTimer);
-    };
-  }, []);
-
   // 协议同意且本地音源加载完成后，延迟检查自定义音源更新，避免阻塞首屏。
   useEffect(() => {
     if (!canRunStartupNetworkTasks(pactAccepted) || !customSourcesLoaded) return;
@@ -405,7 +352,7 @@ export default function App() {
             </View>
           ) : (
             <>
-              <NavigationContainer ref={navigationRef} theme={navigationTheme}>
+              <NavigationContainer ref={navigationRef} theme={navigationTheme} onReady={() => setNavigationReady(true)}>
                 <AppShell>
                   <RootNavigator />
                 </AppShell>

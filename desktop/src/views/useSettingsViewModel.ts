@@ -80,6 +80,7 @@ const {
   backgroundMaskOpacity,
   gradientBackgroundEnabled,
   gradientBackgroundFollowArtwork,
+  immersiveBackground,
   patchAppearance,
   resetAppearance,
   previewAccentColor,
@@ -445,6 +446,7 @@ const getCapabilityTitle = (source: typeof customSources[number]) => {
     backgroundMaskOpacity,
     gradientBackgroundEnabled,
     gradientBackgroundFollowArtwork,
+    immersiveBackground,
     patchAppearance,
     resetAppearance,
     previewAccentColor,
@@ -531,6 +533,7 @@ export type AppearanceSettingsModel = Pick<SettingsViewModel,
   | "backgroundMaskOpacity"
   | "gradientBackgroundEnabled"
   | "gradientBackgroundFollowArtwork"
+  | "immersiveBackground"
   | "patchAppearance"
   | "resetAppearance"
   | "accentColorInput"

@@ -12,11 +12,14 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
  * （immersive-window-drag.test.tsx 用的是手写假目标，只验证调用链）。
  */
 
-const deps = vi.hoisted(() => ({
-  startDragging: vi.fn(async () => undefined),
-  toggleMaximize: vi.fn(async () => undefined),
-  player: {} as any,
-}));
+const deps = vi.hoisted(() => {
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  return {
+    startDragging: vi.fn(async () => undefined),
+    toggleMaximize: vi.fn(async () => undefined),
+    player: {} as any,
+  };
+});
 
 vi.mock('@/utils/appWindow', () => ({
   tryGetCurrentWindow: () => ({ startDragging: deps.startDragging, toggleMaximize: deps.toggleMaximize }),

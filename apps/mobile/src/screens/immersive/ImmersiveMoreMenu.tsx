@@ -10,11 +10,17 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
+  Captions,
   Download,
   FolderPlus,
+  Heart,
+  MessageCircle,
   MoreHorizontal,
+  Palette,
   Share2,
+  SlidersHorizontal,
   Sparkles,
+  Timer,
   Video,
   X,
   type LucideIcon,
@@ -38,6 +44,17 @@ export interface ImmersiveMoreMenuProps {
   visible: boolean;
   onClose: () => void;
   palette: ThemePalette;
+  isLiked: boolean;
+  onToggleLike: () => void;
+  floatingLyricActive: boolean;
+  onToggleFloatingLyric: () => void;
+  canShowComments: boolean;
+  onOpenComments: () => void;
+  sleepLabel: string;
+  sleepActive: boolean;
+  onOpenSleep: () => void;
+  onOpenPlaySetting: () => void;
+  onOpenBackground: () => void;
   canAddToPlaylist?: boolean;
   onAddToPlaylist?: () => void;
   onOpenDownload?: () => void;
@@ -52,6 +69,17 @@ export function ImmersiveMoreMenu({
   visible,
   onClose,
   palette,
+  isLiked,
+  onToggleLike,
+  floatingLyricActive,
+  onToggleFloatingLyric,
+  canShowComments,
+  onOpenComments,
+  sleepLabel,
+  sleepActive,
+  onOpenSleep,
+  onOpenPlaySetting,
+  onOpenBackground,
   canAddToPlaylist,
   onAddToPlaylist,
   onOpenDownload,
@@ -65,6 +93,41 @@ export function ImmersiveMoreMenu({
   const { height: windowHeight } = useWindowDimensions();
 
   const menuItems = [
+    {
+      icon: Heart,
+      label: isLiked ? "取消喜欢" : "喜欢",
+      onPress: onToggleLike,
+      active: isLiked,
+    },
+    {
+      icon: Captions,
+      label: floatingLyricActive ? "关闭悬浮歌词" : "打开悬浮歌词",
+      onPress: onToggleFloatingLyric,
+      active: floatingLyricActive,
+    },
+    canShowComments
+      ? {
+          icon: MessageCircle,
+          label: "评论",
+          onPress: onOpenComments,
+        }
+      : undefined,
+    {
+      icon: Timer,
+      label: sleepActive ? `睡眠定时：${sleepLabel}` : "睡眠定时",
+      onPress: onOpenSleep,
+      active: sleepActive,
+    },
+    {
+      icon: SlidersHorizontal,
+      label: "播放设置",
+      onPress: onOpenPlaySetting,
+    },
+    {
+      icon: Palette,
+      label: "背景效果",
+      onPress: onOpenBackground,
+    },
     {
       icon: Download,
       label: "下载歌曲",
@@ -171,6 +234,7 @@ export function ImmersiveMoreMenu({
                 }}
                 accessibilityRole="button"
                 accessibilityLabel={item.label}
+                accessibilityState={{ selected: item.active === true }}
               >
                 <View
                   style={[

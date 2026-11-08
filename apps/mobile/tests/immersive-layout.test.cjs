@@ -98,7 +98,7 @@ test("非法布局输入显式报错", () => {
 });
 
 // 仅执行 JSX 渲染契约；不模拟 Yoga、原生滚动或动画，真机验证仍需单独执行。
-function renderScreen({ width = 390, height = 844, currentPage = 0, overlay = {} } = {}) {
+function renderScreen({ width = 390, height = 844, currentPage = 0, overlay = {}, background = 'cover', visible = true } = {}) {
   const { mobileRequire } = require("./helpers/loadTs.cjs");
   const ts = mobileRequire("typescript");
   const React = mobileRequire("react");
@@ -130,7 +130,7 @@ function renderScreen({ width = 390, height = 844, currentPage = 0, overlay = {}
     insets: { top: 20, bottom: 20, left: 12, right: 12 },
     currentSong: { id: "1", name: "Song", singer: "Artist", source: "wy" },
     currentPage, isLyricsPage: currentPage === 1,
-    palette: { background: "#000000" },
+    palette: { background: "#000000", primary: "#58a87a", text: "#ffffff", textMuted: "#aaaaaa" },
     sleepTimerControl: {}, currentSongActions: {}, queueModel: {},
     ...overlay,
   };
@@ -157,7 +157,7 @@ function renderScreen({ width = 390, height = 844, currentPage = 0, overlay = {}
     "@/theme/sheetTokens": createLoader({})("src/theme/sheetTokens.ts"),
     "@/services/immersiveLayoutModel": model,
     "@/stores/themeStore": { useThemeStore: (select) => select({}), getResolvedTheme: () => "dark" },
-    "@/stores/lyricSettingsStore": { useLyricSettingsStore: (select) => select({ fontSize: 22, showLyricProgress: true }) },
+    "@/stores/lyricSettingsStore": { useLyricSettingsStore: (select) => select({ fontSize: 22, showLyricProgress: true, immersiveBackground: background }) },
   };
   const source = fs.readFileSync(path.join(mobileRoot, "src/screens/ImmersiveLyricsScreen.tsx"), "utf8");
   const code = ts.transpileModule(source, { compilerOptions: {
@@ -169,7 +169,9 @@ function renderScreen({ width = 390, height = 844, currentPage = 0, overlay = {}
     const components = [
       "@/components/LyricView", "@/components/AddToLocalPlaylistModal", "@/components/CachedImage",
       "@/components/MiniLyric", "@/components/DownloadQualityModal",
+      "@/components/ImmersiveBackground", "@/components/ImmersiveBackgroundSheet",
       "@/screens/immersive/ImmersiveTopBar", "@/screens/immersive/ImmersiveTransport",
+      "@/screens/immersive/ImmersiveMoreMenu",
       "@/screens/immersive/ImmersiveCommentsSheet", "@/screens/immersive/ImmersiveModals",
       "@/screens/immersive/ImmersivePlaySettingSheet", "@/screens/immersive/ImmersiveCoverPage",
       "react-native-linear-gradient",
@@ -186,12 +188,87 @@ function renderScreen({ width = 390, height = 844, currentPage = 0, overlay = {}
     width = changes.width ?? width;
     height = changes.height ?? height;
     if (changes.insets) controller.insets = changes.insets;
+    if (changes.overlay) Object.assign(controller, changes.overlay);
+    if (changes.background) background = changes.background;
+    visible = changes.visible ?? visible;
     cursor = 0;
-    result.tree = loaded.exports.ImmersiveLyricsScreen({ visible: true, onClose() {} });
+    result.tree = loaded.exports.ImmersiveLyricsScreen({ visible, onClose() {} });
     return result;
   } };
   return result.rerender();
 }
+
+test("右上角更多承接全部次级操作，原歌名歌手与封面歌词位置不变", () => {
+  const screen = renderScreen();
+  const media = ancestors(screen.tree, 'PagerView')[0].at(-1);
+  media.props.onLayout({ nativeEvent: { layout: { width: 366, height: 430 } } });
+  screen.rerender();
+  const top = descendants(screen.tree, 'ImmersiveTopBar')[0];
+  assert.equal(top.props.songName, 'Song');
+  assert.equal(top.props.artist, 'Artist');
+  assert.equal(typeof top.props.onOpenMore, 'function');
+  top.props.onOpenMore(); screen.rerender();
+  const menu = descendants(screen.tree, 'ImmersiveMoreMenu')[0];
+  assert.equal(menu.props.visible, true);
+  assert.equal(screen.gesture.isEnabled, false);
+  for (const name of ['onOpenBackground', 'onOpenPlaySetting', 'onOpenSleep', 'onToggleLike']) {
+    assert.equal(typeof menu.props[name], 'function', name);
+  }
+  assert.equal(descendants(screen.tree, 'ImmersiveTransport')[0].props.onMoreMenuVisibleChange, undefined);
+  assert.equal(descendants(screen.tree, 'PagerView').length, 1);
+  assert.equal(descendants(screen.tree, 'MiniLyric').length, 1);
+  menu.props.onClose(); screen.rerender();
+  assert.equal(screen.gesture.isEnabled, true);
+});
+
+test("背景入口展开时停用封面下拉，关闭恢复，不修改媒体分页", () => {
+  const screen = renderScreen();
+  const menu = descendants(screen.tree, 'ImmersiveMoreMenu')[0];
+  assert.ok(menu, '更多菜单应由页面持有');
+  menu.props.onOpenBackground(); screen.rerender();
+  const sheet = descendants(screen.tree, 'ImmersiveBackgroundSheet')[0];
+  assert.equal(sheet.props.visible, true);
+  assert.equal(screen.gesture.isEnabled, false);
+  assert.equal(descendants(screen.tree, 'PagerView')[0].props.children.length, 2);
+  sheet.props.onClose(); screen.rerender();
+  assert.equal(screen.gesture.isEnabled, true);
+});
+
+test("动态背景独立铺底，不插进歌词或播放控制，弹层与退出时停帧", () => {
+  for (const mode of ['liquid', 'aurora']) {
+    const screen = renderScreen({ background: mode, overlay: { isPlaying: true } });
+    const background = descendants(screen.tree, 'ImmersiveBackground')[0];
+    assert.ok(background, mode);
+    assert.equal(background.props.mode, mode);
+    assert.equal(background.props.color, '#58a87a');
+    assert.equal(background.props.playing, true);
+    assert.equal(background.props.active, true);
+    assert.equal(descendants(background, 'LyricView').length, 0);
+    assert.equal(descendants(background, 'ImmersiveTransport').length, 0);
+    screen.rerender({ overlay: { queueModalVisible: true } });
+    assert.equal(descendants(screen.tree, 'ImmersiveBackground')[0].props.active, false);
+    screen.rerender({ visible: false });
+    assert.equal(descendants(screen.tree, 'ImmersiveBackground').length, 0);
+  }
+  for (const mode of ['none', 'cover']) {
+    assert.equal(descendants(renderScreen({ background: mode }).tree, 'ImmersiveBackground').length, 0);
+  }
+});
+
+test("背景图形失败显示明确提示，不能伪装成功或影响歌词显示", () => {
+  const screen = renderScreen({ background: 'liquid' });
+  const background = descendants(screen.tree, 'ImmersiveBackground')[0];
+  assert.ok(background);
+  background.props.onError('WebGL unavailable'); screen.rerender();
+  const alert = descendants(screen.tree, 'Text').find(item => item.props.accessibilityRole === 'alert');
+  assert.ok(alert);
+  assert.match(JSON.stringify(alert.props.children), /WebGL unavailable/);
+  assert.equal(descendants(screen.tree, 'LyricView').length, 1);
+  screen.rerender({ background: 'aurora' });
+  assert.ok(descendants(screen.tree, 'Text').find(item => item.props.accessibilityRole === 'alert'));
+  screen.rerender({ background: 'cover' });
+  assert.equal(descendants(screen.tree, 'Text').some(item => item.props.accessibilityRole === 'alert'), false);
+});
 function descendants(node, type) {
   if (!node || typeof node !== "object") return [];
   if (Array.isArray(node)) return node.flatMap((child) => descendants(child, type));

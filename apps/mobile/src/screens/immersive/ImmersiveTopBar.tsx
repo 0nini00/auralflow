@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { Pressable, Text, View, type LayoutChangeEvent } from "react-native";
-import { ChevronDown, SlidersHorizontal, Timer } from "lucide-react-native";
+import { ChevronDown, MoreHorizontal } from "lucide-react-native";
 import type { ThemePalette } from "@/stores/themeStore";
-import { IconButton } from "@/components/IconButton";
+import { IconButton } from "@/components/ui/IconButton";
 import { styles } from "@/screens/immersive/immersiveStyles";
 import { Marquee } from "@/screens/immersive/Marquee";
 
@@ -12,25 +12,21 @@ export interface ImmersiveTopBarProps {
   artist: string;
   palette: ThemePalette;
   onClose: () => void;
-  onOpenPlaySetting: () => void;
+  onOpenMore: () => void;
+  moreMenuVisible?: boolean;
   onPressArtist?: () => void;
-  sleepLabel: string;
-  sleepActive: boolean;
-  onOpenSleep: () => void;
 }
 
-/** 顶部信息栏：关闭 / 歌名歌手 / 睡眠 / 设置 */
+/** 顶部信息栏：关闭 / 歌名歌手 / 更多 */
 export function ImmersiveTopBar({
   insetsTop,
   songName,
   artist,
   palette,
   onClose,
-  onOpenPlaySetting,
+  onOpenMore,
+  moreMenuVisible = false,
   onPressArtist,
-  sleepLabel,
-  sleepActive,
-  onOpenSleep,
 }: ImmersiveTopBarProps) {
   const [titleWidth, setTitleWidth] = useState(0);
 
@@ -38,9 +34,9 @@ export function ImmersiveTopBar({
     <View style={[styles.topBar, { paddingTop: insetsTop + 8 }]}>
       <IconButton
         onPress={onClose}
-        tone="strong"
+        tone="default"
         accessibilityLabel="关闭播放器"
-        render={({ size, color }) => <ChevronDown size={size} color={color} />}
+        render={({ size }) => <ChevronDown size={size} color={palette.text} />}
       />
 
       <View
@@ -72,18 +68,11 @@ export function ImmersiveTopBar({
       </View>
 
       <IconButton
-        onPress={onOpenSleep}
-        tone={sleepActive ? "accent" : "strong"}
-        selected={sleepActive}
-        accessibilityLabel={sleepActive ? `睡眠定时：${sleepLabel}` : "睡眠定时"}
-        render={({ size, color }) => <Timer size={size} color={color} />}
-      />
-
-      <IconButton
-        onPress={onOpenPlaySetting}
-        tone="strong"
-        accessibilityLabel="播放设置"
-        render={({ size, color }) => <SlidersHorizontal size={size} color={color} />}
+        onPress={onOpenMore}
+        tone="default"
+        accessibilityLabel="更多选项"
+        accessibilityState={{ expanded: moreMenuVisible }}
+        render={({ size }) => <MoreHorizontal size={size} color={palette.text} />}
       />
     </View>
   );

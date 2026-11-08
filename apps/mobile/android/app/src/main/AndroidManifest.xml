@@ -46,40 +46,134 @@
             <category android:name="android.intent.category.BROWSABLE" />
             <data android:scheme="auralflow" />
         </intent-filter>
-        <!-- 外部音源脚本：从浏览器 / 文件管理器「用其他应用打开」刚下载的 .js 音源。
-             MIME 与扩展名拆成两条 filter：
-             - MIME 版命中下载器（DownloadsProvider 给的 content:// URI 通常不带扩展名）；
-             - 扩展名版兜住没有 MIME 类型的 file:// 场景。
-             刻意不声明 application/octet-stream 与 */*：那会让 APK / ZIP / PDF 的
-             「打开方式」里也出现本应用。JS 内容由 JS 侧确认后按音源脚本读入。 -->
+        <!-- 本地音乐与音源脚本：下载器提供的 content URI 通常不含文件名，先按 MIME 匹配。
+             text/plain / application/octet-stream 不能在清单里判断真实扩展名；运行时须读取
+             DISPLAY_NAME 与 MIME，再拒绝不支持的文件。通用 MIME 也可能让其它文件出现本应用。
+             限制为 content/file，避免截获 HTTP 链接；不声明无条件 */*。 -->
         <intent-filter android:label="@string/app_name">
             <action android:name="android.intent.action.VIEW" />
             <category android:name="android.intent.category.DEFAULT" />
-            <data android:scheme="content" android:mimeType="application/javascript" />
-            <data android:scheme="content" android:mimeType="text/javascript" />
-            <data android:scheme="content" android:mimeType="application/x-javascript" />
-            <data android:scheme="content" android:mimeType="application/json" />
-            <data android:scheme="file" android:mimeType="application/javascript" />
-            <data android:scheme="file" android:mimeType="text/javascript" />
-            <data android:scheme="file" android:mimeType="application/x-javascript" />
-            <data android:scheme="file" android:mimeType="application/json" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="content" />
+            <data android:scheme="file" />
+            <data android:mimeType="audio/*" />
+            <data android:mimeType="application/ogg" />
+            <data android:mimeType="application/javascript" />
+            <data android:mimeType="text/javascript" />
+            <data android:mimeType="application/x-javascript" />
+            <data android:mimeType="application/json" />
+            <data android:mimeType="text/plain" />
+            <data android:mimeType="application/octet-stream" />
         </intent-filter>
+        <!-- 无 MIME 的本地 URI 以扩展名匹配；与带 MIME 的入口分开，保留大小写常见写法。
+             API 31+ 的 pathSuffix 补齐多点文件名/目录；同 filter 的 pathPattern 保留旧版限制。
+             API 24-30 忽略 pathSuffix，多点路径需发送方提供正确或通用 MIME。 -->
         <intent-filter android:label="@string/app_name">
             <action android:name="android.intent.action.VIEW" />
             <category android:name="android.intent.category.DEFAULT" />
-            <data android:scheme="file" android:host="*" android:pathPattern=".*\\.js" />
-            <data android:scheme="file" android:host="*" android:pathPattern=".*\\.json" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="content" />
+            <data android:scheme="file" />
+            <data android:host="*" />
+            <data android:pathPattern=".*\\.mp3" />
+            <data android:pathPattern=".*\\.MP3" />
+            <data android:pathPattern=".*\\.m4a" />
+            <data android:pathPattern=".*\\.M4A" />
+            <data android:pathPattern=".*\\.m4b" />
+            <data android:pathPattern=".*\\.M4B" />
+            <data android:pathPattern=".*\\.flac" />
+            <data android:pathPattern=".*\\.FLAC" />
+            <data android:pathPattern=".*\\.wav" />
+            <data android:pathPattern=".*\\.WAV" />
+            <data android:pathPattern=".*\\.aac" />
+            <data android:pathPattern=".*\\.AAC" />
+            <data android:pathPattern=".*\\.ogg" />
+            <data android:pathPattern=".*\\.OGG" />
+            <data android:pathPattern=".*\\.opus" />
+            <data android:pathPattern=".*\\.OPUS" />
+            <data android:pathPattern=".*\\.amr" />
+            <data android:pathPattern=".*\\.AMR" />
+            <data android:pathPattern=".*\\.js" />
+            <data android:pathPattern=".*\\.JS" />
+            <data android:pathPattern=".*\\.json" />
+            <data android:pathPattern=".*\\.JSON" />
+            <data android:pathSuffix=".mp3" />
+            <data android:pathSuffix=".MP3" />
+            <data android:pathSuffix=".m4a" />
+            <data android:pathSuffix=".M4A" />
+            <data android:pathSuffix=".m4b" />
+            <data android:pathSuffix=".M4B" />
+            <data android:pathSuffix=".flac" />
+            <data android:pathSuffix=".FLAC" />
+            <data android:pathSuffix=".wav" />
+            <data android:pathSuffix=".WAV" />
+            <data android:pathSuffix=".aac" />
+            <data android:pathSuffix=".AAC" />
+            <data android:pathSuffix=".ogg" />
+            <data android:pathSuffix=".OGG" />
+            <data android:pathSuffix=".opus" />
+            <data android:pathSuffix=".OPUS" />
+            <data android:pathSuffix=".amr" />
+            <data android:pathSuffix=".AMR" />
+            <data android:pathSuffix=".js" />
+            <data android:pathSuffix=".JS" />
+            <data android:pathSuffix=".json" />
+            <data android:pathSuffix=".JSON" />
         </intent-filter>
-        <!-- QQ / 部分文件管理器把 .js 标成 text/plain 或 application/octet-stream。
-             只按 JS MIME 声明会漏；这里用通配 MIME + 路径后缀兜住，仍然只对
-             .js/.json 生效，不会让 PDF / APK / ZIP 出现在「打开方式」里。 -->
+        <!-- 误标 MIME 的本地文件仍可凭扩展名打开；此处 */* 始终受后缀与本地 scheme 约束。
+             pathSuffix 与 pathPattern 按 OR 匹配；旧版仅使用 pathPattern，不扩大匹配范围。 -->
         <intent-filter android:label="@string/app_name">
             <action android:name="android.intent.action.VIEW" />
             <category android:name="android.intent.category.DEFAULT" />
-            <data android:scheme="content" android:host="*" android:mimeType="*/*" android:pathPattern=".*\\.js" />
-            <data android:scheme="content" android:host="*" android:mimeType="*/*" android:pathPattern=".*\\.json" />
-            <data android:scheme="file" android:host="*" android:mimeType="*/*" android:pathPattern=".*\\.js" />
-            <data android:scheme="file" android:host="*" android:mimeType="*/*" android:pathPattern=".*\\.json" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="content" />
+            <data android:scheme="file" />
+            <data android:host="*" />
+            <data android:mimeType="*/*" />
+            <data android:pathPattern=".*\\.mp3" />
+            <data android:pathPattern=".*\\.MP3" />
+            <data android:pathPattern=".*\\.m4a" />
+            <data android:pathPattern=".*\\.M4A" />
+            <data android:pathPattern=".*\\.m4b" />
+            <data android:pathPattern=".*\\.M4B" />
+            <data android:pathPattern=".*\\.flac" />
+            <data android:pathPattern=".*\\.FLAC" />
+            <data android:pathPattern=".*\\.wav" />
+            <data android:pathPattern=".*\\.WAV" />
+            <data android:pathPattern=".*\\.aac" />
+            <data android:pathPattern=".*\\.AAC" />
+            <data android:pathPattern=".*\\.ogg" />
+            <data android:pathPattern=".*\\.OGG" />
+            <data android:pathPattern=".*\\.opus" />
+            <data android:pathPattern=".*\\.OPUS" />
+            <data android:pathPattern=".*\\.amr" />
+            <data android:pathPattern=".*\\.AMR" />
+            <data android:pathPattern=".*\\.js" />
+            <data android:pathPattern=".*\\.JS" />
+            <data android:pathPattern=".*\\.json" />
+            <data android:pathPattern=".*\\.JSON" />
+            <data android:pathSuffix=".mp3" />
+            <data android:pathSuffix=".MP3" />
+            <data android:pathSuffix=".m4a" />
+            <data android:pathSuffix=".M4A" />
+            <data android:pathSuffix=".m4b" />
+            <data android:pathSuffix=".M4B" />
+            <data android:pathSuffix=".flac" />
+            <data android:pathSuffix=".FLAC" />
+            <data android:pathSuffix=".wav" />
+            <data android:pathSuffix=".WAV" />
+            <data android:pathSuffix=".aac" />
+            <data android:pathSuffix=".AAC" />
+            <data android:pathSuffix=".ogg" />
+            <data android:pathSuffix=".OGG" />
+            <data android:pathSuffix=".opus" />
+            <data android:pathSuffix=".OPUS" />
+            <data android:pathSuffix=".amr" />
+            <data android:pathSuffix=".AMR" />
+            <data android:pathSuffix=".js" />
+            <data android:pathSuffix=".JS" />
+            <data android:pathSuffix=".json" />
+            <data android:pathSuffix=".JSON" />
         </intent-filter>
       </activity>
 

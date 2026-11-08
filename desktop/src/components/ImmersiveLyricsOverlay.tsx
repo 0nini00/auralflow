@@ -1,6 +1,7 @@
 import { useDialogFocus } from '@/hooks/useDialogFocus';
-import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import { ImmersivePlayerControls, type ImmersivePlayerControlsHandle, type LyricDisplayOption } from '@/components/ImmersivePlayerControls';
+import { ImmersiveBackground } from '@/components/ImmersiveBackground';
 import { PlayerVisualizerRenderer } from '@/components/playerVisualizers/PlayerVisualizerRenderer';
 import { SongAddMenuButton } from '@/components/SongAddMenuButton';
 import { useInterpolatedPlaybackProgress } from '@/hooks/useInterpolatedPlaybackProgress';
@@ -14,11 +15,12 @@ import {
 } from '@/services/lyrics/animationIntensity';
 import { broadcastLyricSettings, subscribeLyricSettings } from '@/stores/lyricSettingsSync';
 import { usePlayerStore } from '@/stores/playerStore';
+import { IMMERSIVE_BACKGROUND_OPTIONS, useThemeStore, type ImmersiveBackgroundMode } from '@/stores/themeStore';
 import { buildMusicShareText } from '@/utils/shareLink';
 import { toggleDesktopLyricFromPlayer } from '@/utils/desktopLyricToggle';
 import { IMMERSIVE_COVER_CSS_SIZE, coverSrc } from '@/utils/imageReferrerPolicy';
 import { useWindowDrag } from '@/hooks/useWindowDrag';
-import { X } from 'lucide-react';
+import { Waves, X } from 'lucide-react';
 import { getLyricWindowState, isLyricWindowOpen, loadSettings, patchSettings } from '@lx/tauri-bridge';
 import { listen } from '@tauri-apps/api/event';
 
@@ -51,6 +53,16 @@ export function ImmersiveLyricsOverlay({
 
 // 关闭时卸载内容，使播放器订阅、歌词请求与动画时钟一起释放；再次打开重新读取设置。
 function ImmersiveLyricsContent({ open, onClose }: ImmersiveLyricsOverlayProps) {
+  const immersiveBackground = useThemeStore((state) => state.immersiveBackground);
+  const patchAppearance = useThemeStore((state) => state.patchAppearance);
+  const [backgroundError, setBackgroundError] = useState('');
+  const reportBackgroundError = useCallback((message: string) => {
+    setBackgroundError(message);
+  }, []);
+  const handleBackgroundChange = (mode: ImmersiveBackgroundMode) => {
+    if (mode === 'cover') setBackgroundError('');
+    patchAppearance({ immersiveBackground: mode });
+  };
   const {
     current: currentTrack,
     queue,
@@ -329,6 +341,7 @@ function ImmersiveLyricsContent({ open, onClose }: ImmersiveLyricsOverlayProps) 
       onDoubleClick={handleWindowDragDoubleClick}
       data-anim-intensity={animationIntensity}
       data-panel-open={panelOpen}
+      data-background={immersiveBackground}
       style={{
         '--af-immersive-progress': `${progressPercent}%`,
         '--af-immersive-volume': `${volumePercent}%`,
@@ -339,14 +352,20 @@ function ImmersiveLyricsContent({ open, onClose }: ImmersiveLyricsOverlayProps) 
         '--af-immersive-anim-scale': animationIntensityScale,
       } as CSSProperties}
     >
-      {coverUrl && (
-        <div
-          className="af-immersive-cover-glow"
-          style={{ backgroundImage: buildCssUrl(coverUrl) }}
-          aria-hidden="true"
-        />
+      {immersiveBackground === 'cover' ? (
+        <>
+          {coverUrl && (
+            <div
+              className="af-immersive-cover-glow"
+              style={{ backgroundImage: buildCssUrl(coverUrl) }}
+              aria-hidden="true"
+            />
+          )}
+          <div className="af-immersive-noise" aria-hidden="true" />
+        </>
+      ) : (
+        <ImmersiveBackground mode={immersiveBackground} playing={isPlaying} onError={reportBackgroundError} />
       )}
-      <div className="af-immersive-noise" aria-hidden="true" />
 
       {/*
         退出入口：常驻在顶部预留区右侧。以前只藏在「更多」面板里，主操作隐形、也不容易找到；
@@ -409,9 +428,27 @@ function ImmersiveLyricsContent({ open, onClose }: ImmersiveLyricsOverlayProps) 
         queue={{ tracks: queue, currentIndex, play: playByIndex, remove: removeFromQueue }}
         desktopLyrics={{ open: desktopLyricOpen, label: desktopLyricButtonLabel, toggle: handleDesktopLyricToggle }}
         onPanelOpenChange={setPanelOpen}
-        error={lyricError}
+        error={[
+          lyricError,
+          immersiveBackground !== 'cover' && backgroundError
+            ? `动态背景无法显示：${backgroundError}。可在“更多”中切换为封面背景。`
+            : '',
+        ].filter(Boolean).join(' ')}
         shareStatus={shareStatus}
       >
+        <label className="af-immersive-more-speed">
+          <Waves size={18} aria-hidden="true" />
+          <span>背景效果</span>
+          <select
+            aria-label="沉浸式播放背景"
+            value={immersiveBackground}
+            onChange={(event) => handleBackgroundChange(event.target.value as ImmersiveBackgroundMode)}
+          >
+            {IMMERSIVE_BACKGROUND_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </label>
         {currentTrack && (
           <SongAddMenuButton
             song={currentTrack}

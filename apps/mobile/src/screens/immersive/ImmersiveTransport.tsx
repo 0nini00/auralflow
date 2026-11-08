@@ -2,12 +2,7 @@ import React, { useRef, useState } from "react";
 import { ActivityIndicator, Animated, StyleSheet, Text, View } from "react-native";
 import {
   ArrowRight,
-  Captions,
-  FolderPlus,
-  Heart,
   ListMusic,
-  MessageCircle,
-  MoreHorizontal,
   Pause,
   Play,
   Repeat,
@@ -23,7 +18,6 @@ import { hapticLight } from "@/services/hapticService";
 import { ProgressBar } from "@/components/ProgressBar";
 import { formatTime } from "@/services/playerService";
 import { usePlayerStore } from "@/stores/playerStore";
-import { ImmersiveMoreMenu } from "@/screens/immersive/ImmersiveMoreMenu";
 import { styles } from "@/screens/immersive/immersiveStyles";
 import { getNextMobilePlayMode, getMobilePlayModeLabel } from "@/services/mobilePlayModeModel";
 import { withAlpha } from "@/services/themePaletteModel";
@@ -31,8 +25,6 @@ import { withAlpha } from "@/services/themePaletteModel";
 export interface ImmersiveTransportProps {
   insetsBottom: number;
   compact: boolean;
-  moreMenuVisible: boolean;
-  onMoreMenuVisibleChange: (visible: boolean) => void;
   onSeek: (time: number) => void;
   playMode: MobilePlayMode;
   playModeControl: { label: string; active: boolean };
@@ -43,21 +35,6 @@ export interface ImmersiveTransportProps {
   isPlaying: boolean;
   loading: boolean;
   palette: ThemePalette;
-  isLiked: boolean;
-  onToggleLike: () => void;
-  floatingLyricActive: boolean;
-  onToggleFloatingLyric: () => void;
-  canAddToPlaylist: boolean;
-  onAddToPlaylist: () => void;
-  canShare: boolean;
-  shareLabel: string;
-  onShare: () => void;
-  canShowSimilarSongs?: boolean;
-  onOpenSimilarSongs?: () => void;
-  onOpenDownload: () => void;
-  onPlayMv?: () => void;
-  canShowComments: boolean;
-  onOpenComments: () => void;
   onOpenQueue: () => void;
   queueLabel: string;
 }
@@ -103,15 +80,12 @@ function PlayModeIcon({
 /**
  * 底部播放区：
  * - PlayInfo：进度条 + 当前时间/状态/总时间
- * - ControlBtn：上一首 / 播放暂停 / 下一首
- * - MoreBtn：播放模式 / 喜欢 / 桌面歌词 / 评论 / 更多
+ * - 单行五键：播放模式 / 上一首 / 播放暂停 / 下一首 / 队列
  * 控件常驻显示，不做桌面端风格的自动隐藏。
  */
 export function ImmersiveTransport({
   insetsBottom,
   compact,
-  moreMenuVisible,
-  onMoreMenuVisibleChange,
   onSeek,
   playMode,
   playModeControl,
@@ -122,20 +96,6 @@ export function ImmersiveTransport({
   isPlaying,
   loading,
   palette,
-  isLiked,
-  onToggleLike,
-  floatingLyricActive,
-  onToggleFloatingLyric,
-  canAddToPlaylist,
-  onAddToPlaylist,
-  canShare,
-  onShare,
-  canShowSimilarSongs,
-  onOpenSimilarSongs,
-  onOpenDownload,
-  onPlayMv,
-  canShowComments,
-  onOpenComments,
   onOpenQueue,
   queueLabel,
 }: ImmersiveTransportProps) {
@@ -182,21 +142,32 @@ export function ImmersiveTransport({
       {/* ── PlayInfo：进度 + 时间行（叶子组件，内部订阅 0.25s 进度，按钮区不随进度重渲染） ── */}
       <ImmersivePlayInfo onSeek={onSeek} palette={palette} />
 
-      {/* ── ControlBtn：上一首 / 播放暂停 / 下一首（大按钮，space-evenly） ── */}
+      {/* 五键常驻同一行，进度更新仍只重渲染上方叶子组件。 */}
       <View style={[styles.mainControls, compact && localStyles.compactControls]}>
+        <IconButton
+          onPress={handleToggleModeWithToast}
+          tone={playModeControl.active ? "accent" : "strong"}
+          selected={playModeControl.active}
+          accessibilityLabel={`播放模式：${playModeControl.label}`}
+          render={({ size }) => (
+            <PlayModeIcon mode={playMode} color={playModeControl.active ? palette.primaryInk : palette.text} size={size} />
+          )}
+        />
+
         <IconButton
           size="lg"
           tone="strong"
+          style={localStyles.skipButton}
           onPress={() => {
             hapticLight();
             onPrevious();
           }}
           accessibilityLabel="上一首"
-          render={({ size, color }) =>
+          render={({ size }) =>
             loading ? (
-              <ActivityIndicator color={color} size="small" />
+              <ActivityIndicator color={palette.text} size="small" />
             ) : (
-              <SkipBack size={size} color={color} fill={color} />
+              <SkipBack size={size} color={palette.text} fill={palette.text} />
             )
           }
         />
@@ -213,13 +184,13 @@ export function ImmersiveTransport({
               borderColor: withAlpha(palette.onActionFill, 0.12),
             },
           ]}
-          render={({ size, color }) =>
+          render={({ size }) =>
             loading ? (
-              <ActivityIndicator color={color} size="large" />
+              <ActivityIndicator color={palette.onActionFill} size="large" />
             ) : isPlaying ? (
-              <Pause size={size} color={color} fill={color} />
+              <Pause size={size} color={palette.onActionFill} fill={palette.onActionFill} />
             ) : (
-              <Play size={size} color={color} fill={color} />
+              <Play size={size} color={palette.onActionFill} fill={palette.onActionFill} />
             )
           }
         />
@@ -227,73 +198,27 @@ export function ImmersiveTransport({
         <IconButton
           size="lg"
           tone="strong"
+          style={localStyles.skipButton}
           onPress={() => {
             hapticLight();
             onNext();
           }}
           accessibilityLabel="下一首"
-          render={({ size, color }) =>
+          render={({ size }) =>
             loading ? (
-              <ActivityIndicator color={color} size="small" />
+              <ActivityIndicator color={palette.text} size="small" />
             ) : (
-              <SkipForward size={size} color={color} fill={color} />
+              <SkipForward size={size} color={palette.text} fill={palette.text} />
             )
           }
         />
-      </View>
-
-      {/* ── MoreBtn：播放模式 / 喜欢 / 桌面歌词 / 评论 / 更多 ── */}
-      <View style={styles.moreBtnRow}>
-        <IconButton
-          onPress={handleToggleModeWithToast}
-          tone={playModeControl.active ? "accent" : "strong"}
-          selected={playModeControl.active}
-          accessibilityLabel={`播放模式：${playModeControl.label}`}
-          render={({ size, color }) => (
-            <PlayModeIcon mode={playMode} color={color} size={size} />
-          )}
-        />
-
-        <IconButton
-          onPress={onToggleLike}
-          tone={isLiked ? "accent" : "strong"}
-          selected={isLiked}
-          accessibilityLabel={isLiked ? "取消喜欢" : "喜欢"}
-          render={({ size, color }) => (
-            <Heart size={size} color={color} fill={isLiked ? color : "transparent"} />
-          )}
-        />
-
-        <IconButton
-          onPress={() => void onToggleFloatingLyric()}
-          tone={floatingLyricActive ? "accent" : "strong"}
-          selected={floatingLyricActive}
-          accessibilityLabel={floatingLyricActive ? "关闭悬浮歌词" : "打开悬浮歌词"}
-          render={({ size, color }) => <Captions size={size} color={color} />}
-        />
-
-        {canShowComments ? (
-          <IconButton
-            onPress={onOpenComments}
-            tone="strong"
-            accessibilityLabel="评论"
-            render={({ size, color }) => <MessageCircle size={size} color={color} />}
-          />
-        ) : null}
-
         <IconButton
           onPress={onOpenQueue}
           tone="strong"
           accessibilityLabel={queueLabel}
-          render={({ size, color }) => <ListMusic size={size} color={color} />}
+          render={({ size }) => <ListMusic size={size} color={palette.text} />}
         />
 
-        <IconButton
-          onPress={() => onMoreMenuVisibleChange(true)}
-          tone="strong"
-          accessibilityLabel="更多选项"
-          render={({ size, color }) => <MoreHorizontal size={size} color={color} />}
-        />
       </View>
 
       {/* ── 播放模式微型小胶囊提示（点击后左下角浮现1.1s后淡出，不占主屏幕） ── */}
@@ -315,24 +240,15 @@ export function ImmersiveTransport({
         </Animated.View>
       ) : null}
 
-      <ImmersiveMoreMenu
-        visible={moreMenuVisible}
-        onClose={() => onMoreMenuVisibleChange(false)}
-        palette={palette}
-        canAddToPlaylist={canAddToPlaylist}
-        onAddToPlaylist={onAddToPlaylist}
-        onOpenDownload={onOpenDownload}
-        onPlayMv={onPlayMv}
-        canShare={canShare}
-        onShare={onShare}
-        canShowSimilarSongs={canShowSimilarSongs}
-        onOpenSimilarSongs={onOpenSimilarSongs}
-      />
     </View>
   );
 }
 
 const localStyles = StyleSheet.create({
+  skipButton: {
+    width: 48,
+    height: 48,
+  },
   playButton: {
     width: 66,
     height: 66,

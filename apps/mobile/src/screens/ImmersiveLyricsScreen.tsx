@@ -32,11 +32,14 @@ import { COVER_SIZE_LARGE } from "@lx/core";
 
 import { LyricView } from "@/components/LyricView";
 import { AddToLocalPlaylistModal } from "@/components/AddToLocalPlaylistModal";
+import { ImmersiveBackground } from "@/components/ImmersiveBackground";
+import { ImmersiveBackgroundSheet } from "@/components/ImmersiveBackgroundSheet";
 import { CachedImage } from "@/components/CachedImage";
 import { MiniLyric } from "@/components/MiniLyric";
 import { DownloadQualityModal } from "@/components/DownloadQualityModal";
 import { ImmersiveTopBar } from "@/screens/immersive/ImmersiveTopBar";
 import { ImmersiveTransport } from "@/screens/immersive/ImmersiveTransport";
+import { ImmersiveMoreMenu } from "@/screens/immersive/ImmersiveMoreMenu";
 import { ImmersiveCommentsSheet } from "@/screens/immersive/ImmersiveCommentsSheet";
 import { ImmersiveModals } from "@/screens/immersive/ImmersiveModals";
 import { ImmersivePlaySettingSheet } from "@/screens/immersive/ImmersivePlaySettingSheet";
@@ -141,7 +144,8 @@ const FlyOverlay = React.memo(function FlyOverlay({
  */
 export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScreenProps) {
   const showLyricProgress = useLyricSettingsStore((s) => s.showLyricProgress);
-  const ambientCoverTint = useLyricSettingsStore((s) => s.ambientCoverTint);
+  const immersiveBackground = useLyricSettingsStore((s) => s.immersiveBackground);
+  const dynamicBackground = immersiveBackground === "liquid" || immersiveBackground === "aurora";
   const coverSpin = useLyricSettingsStore((s) => s.coverSpin);
   // 播放页恒定深色（方案 Q2）：不再跟随系统主题
   const isDark = true;
@@ -152,6 +156,8 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
   const viewportMeasured = React.useRef(false);
   const [mediaViewport, setMediaViewport] = React.useState({ width: 0, height: 0 });
   const [moreMenuVisible, setMoreMenuVisible] = React.useState(false);
+  const [backgroundSheetVisible, setBackgroundSheetVisible] = React.useState(false);
+  const [backgroundError, setBackgroundError] = React.useState("");
 
   const {
     insets,
@@ -244,12 +250,12 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
   });
   const overlayVisible = queueModalVisible || commentsVisible || playSettingVisible || sleepModalVisible
     || rateModalVisible || volumeModalVisible || addToPlaylistVisible || coverMenuVisible
-    || coverSongDownloadVisible || moreMenuVisible;
+    || coverSongDownloadVisible || moreMenuVisible || backgroundSheetVisible;
 
-  // 氛围色背景：从封面提取主色，仅在开关打开且取色成功时叠加渐变
+  // 两种动效与原封面氛围共用取色；纯色模式不额外请求封面。
   const [ambient, setAmbient] = React.useState<CoverColors>({ base: "", accent: "" });
   React.useEffect(() => {
-    if (!visible || !ambientCoverTint || !artwork) {
+    if (!visible || immersiveBackground === "none" || !artwork) {
       setAmbient({ base: "", accent: "" });
       return;
     }
@@ -260,7 +266,11 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     return () => {
       cancelled = true;
     };
-  }, [visible, ambientCoverTint, artwork, isDark]);
+  }, [visible, immersiveBackground, artwork, isDark]);
+
+  React.useEffect(() => {
+    if (!dynamicBackground) setBackgroundError("");
+  }, [dynamicBackground]);
 
   // ── 封面飞入/飞回转场 ──
   // 起点在挂载前一次性捕获（渲染期读取，首帧就能停在迷你栏封面位置）。
@@ -529,8 +539,16 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
               setViewport({ width, height });
             }}
           >
-            {/* 氛围色背景（可选开关）：封面主色自上而下淡出的渐变，压在内容层之下 */}
-            {ambientCoverTint && ambient.base ? (
+            {visible && dynamicBackground ? (
+              <ImmersiveBackground
+                mode={immersiveBackground}
+                color={ambient.accent || ambient.base || palette.primary}
+                playing={isPlaying}
+                active={!closing && !overlayVisible}
+                onError={setBackgroundError}
+              />
+            ) : null}
+            {immersiveBackground === "cover" && ambient.base ? (
               <LinearGradient
                 pointerEvents="none"
                 style={StyleSheet.absoluteFill}
@@ -557,12 +575,18 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
                   artist={currentSong.singer || "未知歌手"}
                   palette={palette}
                   onClose={requestClose}
-                  onOpenPlaySetting={() => setPlaySettingVisible(true)}
+                  onOpenMore={() => setMoreMenuVisible(true)}
+                  moreMenuVisible={moreMenuVisible}
                   onPressArtist={canOpenArtist ? handleOpenArtist : undefined}
-                  sleepLabel={sleepTimerControl.label}
-                  sleepActive={!!sleepTimerControl.active}
-                  onOpenSleep={() => setSleepModalVisible(true)}
                 />
+                {dynamicBackground && backgroundError ? (
+                  <Text
+                    accessibilityRole="alert"
+                    style={{ color: palette.textMuted, paddingHorizontal: 24, paddingBottom: 8 }}
+                  >
+                    动态背景无法显示：{backgroundError}。可在右上角更多的“背景效果”中切换背景。
+                  </Text>
+                ) : null}
               </Animated.View>
             </ScrollView>
 
@@ -622,8 +646,6 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
                     <ImmersiveTransport
                       insetsBottom={0}
                       compact={layout.compact}
-                      moreMenuVisible={moreMenuVisible}
-                      onMoreMenuVisibleChange={setMoreMenuVisible}
                       onSeek={handleSeek}
                       playMode={playMode}
                       playModeControl={playModeControl}
@@ -634,43 +656,6 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
                       isPlaying={isPlaying}
                       loading={loading}
                       palette={palette}
-                      isLiked={isLiked}
-                      onToggleLike={() => void handleLike()}
-                      floatingLyricActive={floatingLyricActive}
-                      onToggleFloatingLyric={handleToggleFloatingLyric}
-                      canAddToPlaylist={currentSongActions.show}
-                      onAddToPlaylist={() => setAddToPlaylistVisible(true)}
-                      canShare={currentSongActions.show}
-                      shareLabel={currentSongActions.shareLabel}
-                      onShare={() => {
-                        void handleShare();
-                      }}
-                      onOpenDownload={openCoverSongDownload}
-                      onPlayMv={
-                        currentMvId
-                          ? () => {
-                              // 先关闭播放页 Modal 再压 MV 路由，否则新页面被 Modal 盖住不可见。
-                              // 跳 MV 无需转场，直接 onClose 立即关闭。
-                              onClose();
-                              openMvPlayerScreen({
-                                mvId: currentMvId,
-                                title: currentSong.name,
-                                artist: currentSong.singer,
-                                posterUrl: currentSong.img || currentSong.picUrl,
-                              });
-                            }
-                          : undefined
-                      }
-                      canShowComments={currentSong.source === "wy"}
-                      onOpenComments={() => setCommentsVisible(true)}
-                      canShowSimilarSongs={currentSong.source === "wy"}
-                      onOpenSimilarSongs={() => {
-                        onClose();
-                        openSimilarSongsScreen({
-                          songId: currentSong.id,
-                          songName: currentSong.name,
-                        });
-                      }}
                       onOpenQueue={() => setQueueModalVisible(true)}
                       queueLabel={queueModel.triggerLabel}
                     />
@@ -681,6 +666,46 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
             </View>
 
             {(isSplit || isLyricsPage) && <KeepAwake />}
+            <ImmersiveMoreMenu
+              visible={visible && moreMenuVisible}
+              onClose={() => setMoreMenuVisible(false)}
+              palette={palette}
+              isLiked={isLiked}
+              onToggleLike={() => void handleLike()}
+              floatingLyricActive={floatingLyricActive}
+              onToggleFloatingLyric={handleToggleFloatingLyric}
+              canAddToPlaylist={currentSongActions.show}
+              onAddToPlaylist={() => setAddToPlaylistVisible(true)}
+              canShare={currentSongActions.show}
+              onShare={() => { void handleShare(); }}
+              onOpenDownload={openCoverSongDownload}
+              onPlayMv={currentMvId ? () => {
+                onClose();
+                openMvPlayerScreen({
+                  mvId: currentMvId,
+                  title: currentSong.name,
+                  artist: currentSong.singer,
+                  posterUrl: currentSong.img || currentSong.picUrl,
+                });
+              } : undefined}
+              canShowComments={currentSong.source === "wy"}
+              onOpenComments={() => setCommentsVisible(true)}
+              canShowSimilarSongs={currentSong.source === "wy"}
+              onOpenSimilarSongs={() => {
+                onClose();
+                openSimilarSongsScreen({ songId: currentSong.id, songName: currentSong.name });
+              }}
+              sleepLabel={sleepTimerControl.label}
+              sleepActive={!!sleepTimerControl.active}
+              onOpenSleep={() => setSleepModalVisible(true)}
+              onOpenPlaySetting={() => setPlaySettingVisible(true)}
+              onOpenBackground={() => setBackgroundSheetVisible(true)}
+            />
+            <ImmersiveBackgroundSheet
+              visible={visible && backgroundSheetVisible}
+              onClose={() => setBackgroundSheetVisible(false)}
+              palette={palette}
+            />
             <ImmersivePlaySettingSheet
               visible={playSettingVisible}
               onClose={() => setPlaySettingVisible(false)}

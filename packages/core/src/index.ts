@@ -29,3 +29,4 @@ export * from "./shuffle";
 export * from "./user-apis-sync";
 export * from "./paged-search";
 export * from "./stats/listening-session";
+export * from "./immersive-background";

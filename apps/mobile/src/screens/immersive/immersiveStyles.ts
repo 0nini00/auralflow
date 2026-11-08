@@ -182,7 +182,7 @@ export const styles = StyleSheet.create({
     width: 16,
   },
 
-  // 底部播放区（文档流三段式：PlayInfo / ControlBtn / MoreBtn）
+  // 底部播放区：进度信息与单行五键控制。
   playerArea: {
     paddingHorizontal: 20,
     paddingTop: 8,
@@ -205,9 +205,9 @@ export const styles = StyleSheet.create({
   mainControls: {
     width: "100%",
     flexDirection: "row",
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
     alignItems: "center",
-    justifyContent: "space-evenly",
+    justifyContent: "space-between",
     paddingVertical: 14,
   },
 
@@ -232,14 +232,6 @@ export const styles = StyleSheet.create({
     alignItems: "center",
   },
 
-  moreBtnRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "center",
-    justifyContent: "space-evenly",
-    gap: 8,
-    marginTop: 2,
-  },
   rateModalOverlay: {
     flex: 1,
     justifyContent: "center",
