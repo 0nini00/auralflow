@@ -1,27 +1,26 @@
 import {
   IMMERSIVE_BACKGROUND_VERTEX_SHADER,
-  IMMERSIVE_BACKGROUND_FRAGMENT_SHADER,
-  type DynamicImmersiveBackgroundMode,
+  IMMERSIVE_BLOOM_FRAGMENT_SHADER,
 } from '@lx/core';
 
 export interface ImmersiveBackgroundConfiguration {
-  mode: DynamicImmersiveBackgroundMode;
   color: string;
+  accent: string;
   playing: boolean;
   active: boolean;
   reducedMotion: boolean;
 }
 
-/** 只注入模式、颜色和运行状态；不把文件地址或播放会话带入背景页面。 */
+/** 只注入颜色和运行状态；不把文件地址或播放会话带入背景页面。 */
 export function createImmersiveBackgroundUpdate(config: ImmersiveBackgroundConfiguration): string {
-  if (!config || (config.mode !== 'liquid' && config.mode !== 'aurora')
-      || typeof config.color !== 'string' || !/^#[\da-f]{6}$/i.test(config.color)
+  if (!config || typeof config.color !== 'string' || !/^#[\da-f]{6}$/i.test(config.color)
+      || typeof config.accent !== 'string' || !/^#[\da-f]{6}$/i.test(config.accent)
       || typeof config.playing !== 'boolean' || typeof config.active !== 'boolean'
       || typeof config.reducedMotion !== 'boolean') {
-    throw new Error('沉浸背景配置无效：请检查模式、颜色及播放状态');
+    throw new Error('沉浸背景配置无效：请检查颜色及播放状态');
   }
-  const { mode, color, playing, active, reducedMotion } = config;
-  return `window.AuralFlowImmersiveBackground.update(${JSON.stringify({ mode, color, playing, active, reducedMotion })});true;`;
+  const { color, accent, playing, active, reducedMotion } = config;
+  return `window.AuralFlowImmersiveBackground.update(${JSON.stringify({ color, accent, playing, active, reducedMotion })});true;`;
 }
 
 // 静态页面里的代码由测试在 vm 中完整运行；不依赖 Hermes 的函数源码序列化。
@@ -30,11 +29,12 @@ const RUNTIME = String.raw`
   'use strict';
   const canvas = document.getElementById('background');
   const FRAME_MS = 1000 / 30;
-  const MAX_PIXELS = 540 * 960;
-  const MAX_DIMENSION = 960;
+  const MAX_PIXELS = 360 * 640;
+  const MAX_DIMENSION = 640;
   const MAX_DPR = 1.5;
   let gl = null, program = null, buffer = null, shaders = [], uniforms = null;
   let config = null, color = null, targetColor = null;
+  let accent = null, targetAccent = null;
   let frame = null, time = 12, lastDraw = performance.now();
   let disposed = false, failed = false, lost = false, hasSize = false;
 
@@ -61,7 +61,7 @@ const RUNTIME = String.raw`
     post('error', error instanceof Error ? error.message : String(error));
   }
   function canDraw() {
-    return !disposed && !failed && !lost && !document.hidden && hasSize && config && color && program;
+    return !disposed && !failed && !lost && !document.hidden && hasSize && config && color && accent && program;
   }
   function animating() {
     return canDraw() && config.active && config.playing && !config.reducedMotion;
@@ -73,8 +73,8 @@ const RUNTIME = String.raw`
       gl.useProgram(program);
       gl.uniform1f(uniforms.time, time);
       gl.uniform1f(uniforms.aspect, canvas.width / canvas.height);
-      gl.uniform1i(uniforms.mode, config.mode === 'liquid' ? 0 : 1);
       gl.uniform3fv(uniforms.color, color);
+      gl.uniform3fv(uniforms.accent, accent);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     } catch (error) { fail(error); }
   }
@@ -85,8 +85,9 @@ const RUNTIME = String.raw`
       const elapsed = Math.min((now - lastDraw) / 1000, 0.1);
       lastDraw = now;
       time += elapsed;
-      const blend = 1 - Math.exp(-elapsed / 0.7);
+      const blend = 1 - Math.exp(-elapsed / 1.2);
       color = color.map((channel, index) => channel + (targetColor[index] - channel) * blend);
+      accent = accent.map((channel, index) => channel + (targetAccent[index] - channel) * blend);
       draw();
     }
     if (animating()) frame = requestAnimationFrame(tick);
@@ -113,27 +114,33 @@ const RUNTIME = String.raw`
   }
   function update(next) {
     if (disposed) return;
-    if (!next || (next.mode !== 'liquid' && next.mode !== 'aurora')
-        || typeof next.color !== 'string' || !/^#[\da-f]{6}$/i.test(next.color)
+    if (!next || typeof next.color !== 'string' || !/^#[\da-f]{6}$/i.test(next.color)
+        || typeof next.accent !== 'string' || !/^#[\da-f]{6}$/i.test(next.accent)
         || typeof next.playing !== 'boolean' || typeof next.active !== 'boolean'
         || typeof next.reducedMotion !== 'boolean') {
       fail(new Error('沉浸背景收到无效配置')); return;
     }
-    const modeChanged = !config || config.mode !== next.mode;
-    const colorChanged = !config || config.color !== next.color;
+    const baseChanged = !config || config.color !== next.color;
+    const accentChanged = !config || config.accent !== next.accent;
     const first = !config;
-    config = { mode: next.mode, color: next.color, playing: next.playing,
+    config = { color: next.color, accent: next.accent, playing: next.playing,
       active: next.active, reducedMotion: next.reducedMotion };
-    if (colorChanged) {
+    if (baseChanged) {
       targetColor = [1, 3, 5].map(index => parseInt(next.color.slice(index, index + 2), 16) / 255);
       if (!color || !animating()) color = targetColor.slice();
     }
-    if (first || modeChanged || (colorChanged && !animating())) draw();
+    if (accentChanged) {
+      targetAccent = [1, 3, 5].map(index => parseInt(next.accent.slice(index, index + 2), 16) / 255);
+      if (!accent || !animating()) accent = targetAccent.slice();
+    }
+    if (first || ((baseChanged || accentChanged) && !animating())) draw();
     syncAnimation();
   }
   function visibility() {
     if (disposed) return;
-    if (!document.hidden && targetColor && !animating()) color = targetColor.slice();
+    if (!document.hidden && targetColor && !animating()) {
+      color = targetColor.slice(); accent = targetAccent.slice();
+    }
     draw(); syncAnimation();
   }
   function compile(type, source) {
@@ -173,9 +180,10 @@ const RUNTIME = String.raw`
       gl.enableVertexAttribArray(position);
       gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
       uniforms = { time: uniform('uTime'), aspect: uniform('uAspect'),
-        mode: uniform('uMode'), color: uniform('uColor') };
+        color: uniform('uColor'), accent: uniform('uAccent') };
       failed = false;
       if (targetColor) color = targetColor.slice();
+      if (targetAccent) accent = targetAccent.slice();
       resize();
     } catch (error) { fail(error); }
   }
@@ -212,7 +220,7 @@ const RUNTIME = String.raw`
 /** 固定离线页面；改变播放状态、模式或封面色只通过 update 注入，不重新加载。 */
 export function createImmersiveBackgroundDocument(): string {
   const vertex = JSON.stringify(IMMERSIVE_BACKGROUND_VERTEX_SHADER).replace(/</g, '\\u003c');
-  const fragment = JSON.stringify(IMMERSIVE_BACKGROUND_FRAGMENT_SHADER).replace(/</g, '\\u003c');
+  const fragment = JSON.stringify(IMMERSIVE_BLOOM_FRAGMENT_SHADER).replace(/</g, '\\u003c');
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; media-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">

@@ -15,8 +15,7 @@ const STORAGE_KEY = "auralflow-lyric-settings";
 const options = [
   { value: "none", label: "纯色" },
   { value: "cover", label: "封面氛围" },
-  { value: "liquid", label: "液态渐变" },
-  { value: "aurora", label: "极光光幕" },
+  { value: "bloom", label: "柔光色域" },
 ];
 
 function fixture(persisted) {
@@ -51,7 +50,9 @@ for (const [label, persisted, expected] of [
   ["旧开关开启", { ambientCoverTint: true }, "cover"],
   ["旧开关关闭", { ambientCoverTint: false }, "none"],
   ["旧存档无开关", {}, "cover"],
-  ["新模式优先于旧开关", { ambientCoverTint: false, immersiveBackground: "aurora" }, "aurora"],
+  ["新模式优先于旧开关", { ambientCoverTint: false, immersiveBackground: "bloom" }, "bloom"],
+  ["液态渐变迁移为柔光色域", { immersiveBackground: "liquid" }, "bloom"],
+  ["极光光幕迁移为柔光色域", { immersiveBackground: "aurora" }, "bloom"],
   ["无效新模式不回退旧开关", { ambientCoverTint: false, immersiveBackground: "invalid" }, "cover"],
   ["null模式", { immersiveBackground: null }, "cover"],
   ["数字模式", { immersiveBackground: 1 }, "cover"],
@@ -96,19 +97,19 @@ for (const option of options) {
 }
 
 test("非法setter输入明确拒绝且不改变状态或写盘", async () => {
-  const h = fixture({ immersiveBackground: "aurora" });
+  const h = fixture({ immersiveBackground: "bloom" });
   await h.ready;
   assert.equal(typeof h.store.getState().setImmersiveBackground, "function");
   const before = h.writes.length;
   for (const value of [undefined, null, false, "invalid", "", 123]) {
     assert.throws(() => h.store.getState().setImmersiveBackground(value), /背景/);
   }
-  assert.equal(h.store.getState().immersiveBackground, "aurora");
+  assert.equal(h.store.getState().immersiveBackground, "bloom");
   assert.equal(h.writes.length, before);
 });
 
 test("恢复默认同时重置背景与既有歌词设置，保存中不含旧key", async () => {
-  const h = fixture({ ambientCoverTint: false, immersiveBackground: "liquid", fontSize: 25, showTranslation: false });
+  const h = fixture({ ambientCoverTint: false, immersiveBackground: "bloom", fontSize: 25, showTranslation: false });
   await h.ready;
   h.store.getState().resetSettings();
   assert.equal(h.store.getState().immersiveBackground, "cover");
@@ -164,7 +165,7 @@ function loadUi(h) {
   return relative => load(path.join(mobileRoot, relative));
 }
 
-test("共用背景面板提供四个可访问单选，选择即时保存且继续预览", async t => {
+test("共用背景面板提供三个可访问单选，选择即时保存且继续预览", async t => {
   const h = fixture(); await h.ready;
   const { ImmersiveBackgroundSheet } = loadUi(h)("src/components/ImmersiveBackgroundSheet.tsx");
   let closed = 0;
@@ -173,7 +174,7 @@ test("共用背景面板提供四个可访问单选，选择即时保存且继�
   t.after(() => act(() => root.unmount()));
   const radios = () => root.root.findAll(node => node.type === "Pressable" && node.props.accessibilityRole === "radio");
   assert.deepEqual(radios().map(node => node.props.accessibilityLabel), options.map(option => `播放背景：${option.label}`));
-  assert.deepEqual(radios().map(node => node.props.accessibilityState.selected), [false, true, false, false]);
+  assert.deepEqual(radios().map(node => node.props.accessibilityState.selected), options.map((_, index) => index === 1));
   for (let i = 0; i < options.length; i++) {
     act(() => radios()[i].props.onPress());
     assert.equal(h.saved().immersiveBackground, options[i].value);
@@ -200,9 +201,9 @@ test("歌词设置入口打开同一背景面板并随选项和关闭状态更�
   assert.equal(root.root.findAllByType("Switch").some(node => node.props.accessibilityLabel === "氛围色背景"), false);
   assert.equal(opener().props.accessibilityValue.text, "封面氛围");
   act(() => opener().props.onPress());
-  act(() => root.root.findByProps({ accessibilityLabel: "播放背景：极光光幕" }).props.onPress());
-  assert.equal(h.store.getState().immersiveBackground, "aurora");
-  assert.equal(opener().props.accessibilityValue.text, "极光光幕");
+  act(() => root.root.findByProps({ accessibilityLabel: "播放背景：柔光色域" }).props.onPress());
+  assert.equal(h.store.getState().immersiveBackground, "bloom");
+  assert.equal(opener().props.accessibilityValue.text, "柔光色域");
   act(() => root.root.findByType("Modal").props.onRequestClose());
   assert.equal(root.root.findAllByType("Modal").length, 0);
 });

@@ -1,15 +1,14 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { AccessibilityInfo, AppState, StyleSheet, View } from 'react-native';
 import WebView, { type WebViewMessageEvent } from 'react-native-webview';
-import type { DynamicImmersiveBackgroundMode } from '@lx/core';
 import {
   createImmersiveBackgroundDocument,
   createImmersiveBackgroundUpdate,
 } from '@/services/immersiveBackgroundDocument';
 
 export interface ImmersiveBackgroundProps {
-  mode: DynamicImmersiveBackgroundMode;
   color: string;
+  accent: string;
   playing: boolean;
   active: boolean;
   onError: (message: string) => void;
@@ -43,10 +42,10 @@ export const ImmersiveBackground = memo(function ImmersiveBackground(props: Imme
   }, []);
   const sendConfiguration = useCallback(() => {
     if (!mounted.current || !ready.current || !webview.current) return;
-    const { mode, color, playing, active } = latest.current;
+    const { color, accent, playing, active } = latest.current;
     try {
       webview.current.injectJavaScript(createImmersiveBackgroundUpdate({
-        mode, color, playing, active: active && appActive.current, reducedMotion: reducedMotion.current,
+        color, accent, playing, active: active && appActive.current, reducedMotion: reducedMotion.current,
       }));
     } catch (error) {
       report(error instanceof Error ? error.message : String(error));
@@ -107,7 +106,7 @@ export const ImmersiveBackground = memo(function ImmersiveBackground(props: Imme
     };
   }, [clearReadyTimer, report, sendConfiguration]);
 
-  useEffect(() => { sendConfiguration(); }, [props.mode, props.color, props.playing, props.active, sendConfiguration]);
+  useEffect(() => { sendConfiguration(); }, [props.color, props.accent, props.playing, props.active, sendConfiguration]);
 
   const handleMessage = useCallback((event: WebViewMessageEvent) => {
     if (!mounted.current) return;

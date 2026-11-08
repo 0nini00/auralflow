@@ -155,6 +155,11 @@ function renderScreen({ width = 390, height = 844, currentPage = 0, overlay = {}
     "@/screens/immersive/immersiveFlySource": { getImmersiveFlySource: () => null },
     // 弹层 token 走真实模块：遮罩/圆角改了用例随之变化，不再抄一份常量。
     "@/theme/sheetTokens": createLoader({})("src/theme/sheetTokens.ts"),
+    "@/theme/tokens": {
+      radius: { sm: 8, md: 12, lg: 16, xl: 20, xxl: 28, pill: 999 },
+      spacing: { line: 2, xxs: 4, tight: 6, xs: 8, snug: 10, s: 12, m: 16, l: 24, xl: 32 },
+      typography: { caption: 12, body: 15, title: 17, heading: 20, display: 28 },
+    },
     "@/services/immersiveLayoutModel": model,
     "@/stores/themeStore": { useThemeStore: (select) => select({}), getResolvedTheme: () => "dark" },
     "@/stores/lyricSettingsStore": { useLyricSettingsStore: (select) => select({ fontSize: 22, showLyricProgress: true, immersiveBackground: background }) },
@@ -174,6 +179,7 @@ function renderScreen({ width = 390, height = 844, currentPage = 0, overlay = {}
       "@/screens/immersive/ImmersiveMoreMenu",
       "@/screens/immersive/ImmersiveCommentsSheet", "@/screens/immersive/ImmersiveModals",
       "@/screens/immersive/ImmersivePlaySettingSheet", "@/screens/immersive/ImmersiveCoverPage",
+      "@/components/SheetFrame", "@/components/Touchable",
       "react-native-linear-gradient",
     ];
     if (components.includes(name)) {
@@ -235,12 +241,12 @@ test("背景入口展开时停用封面下拉，关闭恢复，不修改媒体�
 });
 
 test("动态背景独立铺底，不插进歌词或播放控制，弹层与退出时停帧", () => {
-  for (const mode of ['liquid', 'aurora']) {
+  for (const mode of ['bloom']) {
     const screen = renderScreen({ background: mode, overlay: { isPlaying: true } });
     const background = descendants(screen.tree, 'ImmersiveBackground')[0];
     assert.ok(background, mode);
-    assert.equal(background.props.mode, mode);
     assert.equal(background.props.color, '#58a87a');
+    assert.equal(background.props.accent, '#58a87a');
     assert.equal(background.props.playing, true);
     assert.equal(background.props.active, true);
     assert.equal(descendants(background, 'LyricView').length, 0);
@@ -256,7 +262,7 @@ test("动态背景独立铺底，不插进歌词或播放控制，弹层与退�
 });
 
 test("背景图形失败显示明确提示，不能伪装成功或影响歌词显示", () => {
-  const screen = renderScreen({ background: 'liquid' });
+  const screen = renderScreen({ background: 'bloom' });
   const background = descendants(screen.tree, 'ImmersiveBackground')[0];
   assert.ok(background);
   background.props.onError('WebGL unavailable'); screen.rerender();
@@ -264,7 +270,7 @@ test("背景图形失败显示明确提示，不能伪装成功或影响歌词�
   assert.ok(alert);
   assert.match(JSON.stringify(alert.props.children), /WebGL unavailable/);
   assert.equal(descendants(screen.tree, 'LyricView').length, 1);
-  screen.rerender({ background: 'aurora' });
+  screen.rerender({ background: 'bloom' });
   assert.ok(descendants(screen.tree, 'Text').find(item => item.props.accessibilityRole === 'alert'));
   screen.rerender({ background: 'cover' });
   assert.equal(descendants(screen.tree, 'Text').some(item => item.props.accessibilityRole === 'alert'), false);

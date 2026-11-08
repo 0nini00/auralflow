@@ -1,17 +1,11 @@
 import React from "react";
 import {
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
-  useWindowDimensions,
   View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Check,
   Clock,
@@ -19,13 +13,12 @@ import {
   Music2,
   Volume2,
   VolumeX,
-  X,
 } from "lucide-react-native";
 import type { ThemePalette } from "@/stores/themeStore";
 import type { MusicInfo } from "@lx/core";
 import { QueueModal } from "@/components/QueueModal";
+import { SheetFrame } from "@/components/SheetFrame";
 import { Touchable } from "@/components/Touchable";
-import { sheet } from "@/theme/sheetTokens";
 import { radius, spacing, typography } from "@/theme/tokens";
 import { withAlpha } from "@/services/themePaletteModel";
 import { hapticLight } from "@/services/hapticService";
@@ -112,63 +105,22 @@ export function ImmersiveModals({
   queue,
   onQueueNavigate,
 }: ImmersiveModalsProps) {
-  const { height: windowHeight } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
   const customSongCountValid = isPositiveNumericInput(customSongCount);
   const customMinutesValid = isPositiveNumericInput(customMinutes);
 
   return (
     <>
       {/* ── 1. 倍速调节抽屉 (Bottom Sheet) ── */}
-      <Modal
+      <SheetFrame
         visible={rateModalVisible}
-        transparent
-        animationType="slide"
-        statusBarTranslucent
-        onRequestClose={() => setRateModalVisible(false)}
+        onClose={() => setRateModalVisible(false)}
+        palette={palette}
+        title={rateModel.title || "倍速播放"}
+        subtitle="支持 0.5x ~ 2.0x 无级或档位调节"
+        icon={Gauge}
+        closeLabel="关闭倍速设置"
+        scroll={false}
       >
-        <View style={styles.sheetOverlay}>
-          <Pressable
-            style={styles.sheetBackdrop}
-            onPress={() => setRateModalVisible(false)}
-            accessibilityRole="button"
-            accessibilityLabel="关闭倍速设置"
-          />
-          <View
-            style={[
-              styles.sheetCard,
-              {
-                backgroundColor: palette.surface,
-                paddingBottom: Math.max(insets.bottom, spacing.m),
-              },
-            ]}
-          >
-            <View style={styles.sheetHandleContainer}>
-              <View style={[styles.sheetHandle, { backgroundColor: palette.border }]} />
-            </View>
-
-            <View style={styles.sheetHeader}>
-              <View style={styles.sheetTitleGroup}>
-                <View style={styles.titleWithIcon}>
-                  <Gauge size={18} color={palette.primaryInk} />
-                  <Text style={[styles.sheetTitle, { color: palette.text }]}>
-                    {rateModel.title || "倍速播放"}
-                  </Text>
-                </View>
-                <Text style={[styles.sheetSubtitle, { color: palette.textMuted }]}>
-                  支持 0.5x ~ 2.0x 无级或档位调节
-                </Text>
-              </View>
-              <Touchable
-                style={[styles.closeIconButton, { backgroundColor: palette.surfaceMuted }]}
-                onPress={() => setRateModalVisible(false)}
-                accessibilityRole="button"
-                accessibilityLabel="关闭"
-              >
-                <X size={18} color={palette.textMuted} />
-              </Touchable>
-            </View>
-
             <View style={styles.optionGrid}>
               {rateModel.options.map((option: any) => {
                 const active = option.active;
@@ -211,66 +163,19 @@ export function ImmersiveModals({
                 );
               })}
             </View>
-          </View>
-        </View>
-      </Modal>
+      </SheetFrame>
 
       {/* ── 2. 音量调节抽屉 (Bottom Sheet) ── */}
-      <Modal
+      <SheetFrame
         visible={volumeModalVisible}
-        transparent
-        animationType="slide"
-        statusBarTranslucent
-        onRequestClose={() => setVolumeModalVisible(false)}
+        onClose={() => setVolumeModalVisible(false)}
+        palette={palette}
+        title={volumeModel.title || "播放音量"}
+        subtitle={volumeModel.meta || undefined}
+        icon={volumeModel.muted ? VolumeX : Volume2}
+        closeLabel="关闭音量设置"
+        scroll={false}
       >
-        <View style={styles.sheetOverlay}>
-          <Pressable
-            style={styles.sheetBackdrop}
-            onPress={() => setVolumeModalVisible(false)}
-            accessibilityRole="button"
-            accessibilityLabel="关闭音量设置"
-          />
-          <View
-            style={[
-              styles.sheetCard,
-              {
-                backgroundColor: palette.surface,
-                paddingBottom: Math.max(insets.bottom, spacing.m),
-              },
-            ]}
-          >
-            <View style={styles.sheetHandleContainer}>
-              <View style={[styles.sheetHandle, { backgroundColor: palette.border }]} />
-            </View>
-
-            <View style={styles.sheetHeader}>
-              <View style={styles.sheetTitleGroup}>
-                <View style={styles.titleWithIcon}>
-                  {volumeModel.muted ? (
-                    <VolumeX size={18} color={palette.danger} />
-                  ) : (
-                    <Volume2 size={18} color={palette.primaryInk} />
-                  )}
-                  <Text style={[styles.sheetTitle, { color: palette.text }]}>
-                    {volumeModel.title || "播放音量"}
-                  </Text>
-                </View>
-                {volumeModel.meta ? (
-                  <Text style={[styles.sheetSubtitle, { color: palette.textMuted }]}>
-                    {volumeModel.meta}
-                  </Text>
-                ) : null}
-              </View>
-              <Touchable
-                style={[styles.closeIconButton, { backgroundColor: palette.surfaceMuted }]}
-                onPress={() => setVolumeModalVisible(false)}
-                accessibilityRole="button"
-                accessibilityLabel="关闭"
-              >
-                <X size={18} color={palette.textMuted} />
-              </Touchable>
-            </View>
-
             <View style={styles.optionGrid}>
               {volumeModel.options.map((option: any) => {
                 const active = option.active;
@@ -341,63 +246,21 @@ export function ImmersiveModals({
                 {volumeModel.muteLabel}
               </Text>
             </Touchable>
-          </View>
-        </View>
-      </Modal>
+      </SheetFrame>
 
       {/* ── 3. 睡眠定时抽屉 (Bottom Sheet) ── */}
-      <Modal
+      <SheetFrame
         visible={sleepModalVisible}
-        transparent
-        animationType="slide"
-        statusBarTranslucent
-        onRequestClose={() => setSleepModalVisible(false)}
+        onClose={() => setSleepModalVisible(false)}
+        palette={palette}
+        title="睡眠定时"
+        subtitle="到达设定时间或歌曲播完后自动停止播放"
+        icon={Clock}
+        closeLabel="关闭睡眠定时"
+        maxHeightRatio={0.85}
+        keyboard
+        scroll={false}
       >
-        <View style={styles.sheetOverlay}>
-          <Pressable
-            style={styles.sheetBackdrop}
-            onPress={() => setSleepModalVisible(false)}
-            accessibilityRole="button"
-            accessibilityLabel="关闭睡眠定时"
-          />
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-            style={styles.sheetKeyboardWrap}
-          >
-            <View
-              style={[
-                styles.sheetCard,
-                {
-                  backgroundColor: palette.surface,
-                  maxHeight: windowHeight * 0.85,
-                  paddingBottom: Math.max(insets.bottom, spacing.m),
-                },
-              ]}
-            >
-              <View style={styles.sheetHandleContainer}>
-                <View style={[styles.sheetHandle, { backgroundColor: palette.border }]} />
-              </View>
-
-              <View style={styles.sheetHeader}>
-                <View style={styles.sheetTitleGroup}>
-                  <View style={styles.titleWithIcon}>
-                    <Clock size={18} color={palette.primaryInk} />
-                    <Text style={[styles.sheetTitle, { color: palette.text }]}>睡眠定时</Text>
-                  </View>
-                  <Text style={[styles.sheetSubtitle, { color: palette.textMuted }]}>
-                    到达设定时间或歌曲播完后自动停止播放
-                  </Text>
-                </View>
-                <Touchable
-                  style={[styles.closeIconButton, { backgroundColor: palette.surfaceMuted }]}
-                  onPress={() => setSleepModalVisible(false)}
-                  accessibilityRole="button"
-                  accessibilityLabel="关闭"
-                >
-                  <X size={18} color={palette.textMuted} />
-                </Touchable>
-              </View>
-
               <ScrollView
                 style={styles.sleepScrollArea}
                 contentContainerStyle={styles.sleepScrollContent}
@@ -621,10 +484,7 @@ export function ImmersiveModals({
                   </Touchable>
                 </View>
               </ScrollView>
-            </View>
-          </KeyboardAvoidingView>
-        </View>
-      </Modal>
+      </SheetFrame>
 
       {/* ── 4. 播放队列抽屉 ── */}
       <QueueModal
@@ -644,70 +504,6 @@ export function ImmersiveModals({
 }
 
 const styles = StyleSheet.create({
-  sheetOverlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: sheet.scrim,
-  },
-  sheetBackdrop: {
-    ...StyleSheet.absoluteFill,
-  },
-  sheetKeyboardWrap: {
-    width: "100%",
-    justifyContent: "flex-end",
-  },
-  sheetCard: {
-    width: "100%",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: -4 },
-    elevation: 20,
-  },
-  sheetHandleContainer: {
-    alignItems: "center",
-    paddingVertical: 10,
-  },
-  sheetHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-  },
-  sheetHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.l,
-    paddingBottom: spacing.s,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(0, 0, 0, 0.06)",
-  },
-  sheetTitleGroup: {
-    flex: 1,
-    gap: 3,
-  },
-  titleWithIcon: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-  },
-  sheetTitle: {
-    fontSize: typography.title,
-    fontWeight: "700",
-  },
-  sheetSubtitle: {
-    fontSize: typography.caption,
-  },
-  closeIconButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: "center",
-    alignItems: "center",
-  },
   optionGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -749,6 +545,7 @@ const styles = StyleSheet.create({
   },
   sleepScrollArea: {
     flexGrow: 0,
+    flexShrink: 1,
   },
   sleepScrollContent: {
     paddingHorizontal: spacing.l,

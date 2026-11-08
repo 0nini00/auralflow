@@ -7,7 +7,7 @@ const { createLoader, mobileRequire, mobileRoot, deferred } = require('./helpers
 
 const load = createLoader({});
 const documentApi = () => load('src/services/immersiveBackgroundDocument.ts');
-const CONFIG = { mode: 'liquid', color: '#3080c0', playing: true, active: true, reducedMotion: false };
+const CONFIG = { color: '#3080c0', accent: '#3f8f7a', playing: true, active: true, reducedMotion: false };
 
 function eventTarget() {
   const listeners = new Map();
@@ -39,7 +39,7 @@ function runtime(options = {}) {
     uniform3fv: (location, value) => uniforms.set(location.name, [...value]), viewport() {},
     isContextLost: () => lost,
     drawArrays() {
-      frames.push({ time: uniforms.get('uTime'), mode: uniforms.get('uMode'), color: uniforms.get('uColor') });
+      frames.push({ time: uniforms.get('uTime'), color: uniforms.get('uColor'), accent: uniforms.get('uAccent') });
     },
   };
   const canvas = Object.assign(eventTarget(), {
@@ -83,7 +83,7 @@ function runtime(options = {}) {
 test('背景文档无外部资产，明确阻断网络并使用core同一份着色器', () => {
   const h = runtime();
   const core = load('../../packages/core/src/immersive-background.ts');
-  assert.deepEqual(h.shaders, [core.IMMERSIVE_BACKGROUND_VERTEX_SHADER, core.IMMERSIVE_BACKGROUND_FRAGMENT_SHADER]);
+  assert.deepEqual(h.shaders, [core.IMMERSIVE_BACKGROUND_VERTEX_SHADER, core.IMMERSIVE_BLOOM_FRAGMENT_SHADER]);
   assert.match(h.html, /default-src 'none'/);
   assert.match(h.html, /connect-src 'none'/);
   assert.doesNotMatch(h.html, /<(?:script|img|link|iframe)[^>]+(?:src|href)=/i);
@@ -116,10 +116,10 @@ test('系统减弱动态和文档隐藏停止RAF，恢复不累积循环', () =>
   h.configure(); h.visibility(true);
   assert.equal(h.callbacks.size, 0);
   const count = h.frames.length;
-  h.configure({ mode: 'aurora', color: '#ff2222' });
+  h.configure({ color: '#ff2222' });
   assert.equal(h.frames.length, count);
   h.visibility(false);
-  assert.equal(h.frames.at(-1).mode, 1);
+  assert.deepEqual(h.frames.at(-1).color, [1, 34 / 255, 34 / 255]);
   assert.equal(h.callbacks.size, 1);
   h.visibility(false);
   assert.equal(h.callbacks.size, 1);
@@ -128,10 +128,10 @@ test('系统减弱动态和文档隐藏停止RAF，恢复不累积循环', () =>
 test('暂停时切模式颜色尺寸仍重绘静帧，分辨率有上限', () => {
   const h = runtime(); h.configure({ playing: false });
   const time = h.frames[0].time;
-  h.configure({ playing: false, mode: 'aurora', color: '#cc6633' });
-  assert.deepEqual(h.frames.at(-1), { time, mode: 1, color: [0.8, 0.4, 0.2] });
+  h.configure({ playing: false, color: '#cc6633' });
+  assert.deepEqual(h.frames.at(-1), { time, color: [0.8, 0.4, 0.2], accent: [63 / 255, 143 / 255, 122 / 255] });
   h.resize(2160, 3840);
-  assert.ok(h.canvas.width * h.canvas.height <= 540 * 960);
+  assert.ok(h.canvas.width * h.canvas.height <= 360 * 640);
   assert.ok(Math.abs(h.canvas.width / h.canvas.height - 2160 / 3840) < 0.01);
   assert.equal(h.callbacks.size, 0);
   const count = h.frames.length;
@@ -167,10 +167,9 @@ test('上下文丢失后保留最新配置，恢复重绘并明确通知宿主',
   const h = runtime(); h.configure(); h.lose();
   assert.equal(h.callbacks.size, 0);
   assert.match(h.messages.at(-1).message, /上下文.*丢失/);
-  h.configure({ mode: 'aurora', playing: false, color: '#cc6633' });
+  h.configure({ playing: false, color: '#cc6633' });
   h.restore();
   assert.equal(h.messages.at(-1).type, 'restored');
-  assert.equal(h.frames.at(-1).mode, 1);
   assert.deepEqual(h.frames.at(-1).color, [0.8, 0.4, 0.2]);
   assert.equal(h.callbacks.size, 0);
 });
@@ -189,7 +188,7 @@ test('页面卸载取消RAF、删除GL资源并移除监听', () => {
 });
 
 test('注入只接受明确背景配置，不将任意文本拼入脚本', () => {
-  for (const patch of [{ color: '#fff' }, { color: '#fff;alert(1)' }, { mode: 'cover' },
+  for (const patch of [{ color: '#fff' }, { color: '#fff;alert(1)' }, { accent: '#fff' },
     { playing: 1 }, { active: null }, { reducedMotion: 'false' }]) {
     assert.throws(() => documentApi().createImmersiveBackgroundUpdate({ ...CONFIG, ...patch }), /配置|颜色|模式/);
   }
@@ -228,7 +227,7 @@ function componentHarness(options = {}) {
   new Function('require', 'module', 'exports', code)(name => {
     assert.ok(Object.hasOwn(mocks, name), `未模拟依赖：${name}`); return mocks[name];
   }, module, module.exports);
-  let tree, props = { mode: 'liquid', color: '#3080c0', playing: true, active: true, onError: value => failures.push(value) };
+  let tree, props = { color: '#3080c0', accent: '#3f8f7a', playing: true, active: true, onError: value => failures.push(value) };
   const find = (node, type) => node?.type === type ? node : node?.props?.children?.map(child => find(child, type)).find(Boolean);
   return {
     injected, failures,
@@ -262,12 +261,12 @@ test('组件HTML固定，ready前不注入，ready后使用最新配置', async 
   const h = componentHarness();
   try {
     const first = h.render();
-    const second = h.render({ mode: 'aurora', color: '#cc6633', playing: false });
+    const second = h.render({ color: '#cc6633', accent: '#7a5f3f', playing: false });
     assert.strictEqual(first.source, second.source);
     assert.equal(h.injected.length, 0);
     await Promise.resolve();
     h.message('ready');
-    assert.deepEqual(h.config(), { mode: 'aurora', color: '#cc6633', playing: false, active: true, reducedMotion: false });
+    assert.deepEqual(h.config(), { color: '#cc6633', accent: '#7a5f3f', playing: false, active: true, reducedMotion: false });
     h.render({ playing: true });
     assert.equal(h.config().playing, true);
   } finally { h.unmount(); }
@@ -280,10 +279,10 @@ test('背景加载超时后有效ready清除该实例的加载错误并发送最
     const web = h.render(); web.onLoadStart();
     t.mock.timers.tick(10_000);
     assert.match(h.failures.at(-1), /加载超时/);
-    h.render({ mode: 'aurora', color: '#cc6633' });
+    h.render({ color: '#cc6633', accent: '#7a5f3f' });
     h.message('ready');
     assert.equal(h.failures.at(-1), '');
-    assert.equal(h.config().mode, 'aurora');
+    assert.equal(h.config().accent, '#7a5f3f');
     assert.equal(h.config().color, '#cc6633');
   } finally { h.unmount(); }
 });

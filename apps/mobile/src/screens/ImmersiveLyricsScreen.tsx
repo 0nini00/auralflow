@@ -2,7 +2,6 @@ import React from "react";
 import {
   AppState,
   BackHandler,
-  Modal,
   Pressable,
   ScrollView,
   StatusBar,
@@ -33,6 +32,8 @@ import { COVER_SIZE_LARGE } from "@lx/core";
 import { LyricView } from "@/components/LyricView";
 import { AddToLocalPlaylistModal } from "@/components/AddToLocalPlaylistModal";
 import { ImmersiveBackground } from "@/components/ImmersiveBackground";
+import { SheetFrame } from "@/components/SheetFrame";
+import { Touchable } from "@/components/Touchable";
 import { ImmersiveBackgroundSheet } from "@/components/ImmersiveBackgroundSheet";
 import { CachedImage } from "@/components/CachedImage";
 import { MiniLyric } from "@/components/MiniLyric";
@@ -56,6 +57,7 @@ import { withAlpha } from "@/services/themePaletteModel";
 import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
 import { openMvPlayerScreen, openSimilarSongsScreen } from "@/navigation";
 import { sheet } from "@/theme/sheetTokens";
+import { radius, spacing, typography } from "@/theme/tokens";
 
 export interface ImmersiveLyricsScreenProps {
   visible: boolean;
@@ -145,7 +147,7 @@ const FlyOverlay = React.memo(function FlyOverlay({
 export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScreenProps) {
   const showLyricProgress = useLyricSettingsStore((s) => s.showLyricProgress);
   const immersiveBackground = useLyricSettingsStore((s) => s.immersiveBackground);
-  const dynamicBackground = immersiveBackground === "liquid" || immersiveBackground === "aurora";
+  const dynamicBackground = immersiveBackground === "bloom";
   const coverSpin = useLyricSettingsStore((s) => s.coverSpin);
   // 播放页恒定深色（方案 Q2）：不再跟随系统主题
   const isDark = true;
@@ -541,8 +543,8 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
           >
             {visible && dynamicBackground ? (
               <ImmersiveBackground
-                mode={immersiveBackground}
                 color={ambient.accent || ambient.base || palette.primary}
+                accent={palette.primary}
                 playing={isPlaying}
                 active={!closing && !overlayVisible}
                 onError={setBackgroundError}
@@ -718,30 +720,26 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
               onClose={() => setAddToPlaylistVisible(false)}
             />
 
-            <Modal
+            <SheetFrame
               visible={coverMenuVisible}
-              transparent
-              animationType="fade"
-              onRequestClose={closeCoverMenu}
-              statusBarTranslucent
+              onClose={closeCoverMenu}
+              palette={palette}
+              title={currentSong.name}
+              subtitle="封面与歌曲操作"
+              closeLabel="关闭封面菜单"
+              scroll={false}
             >
-              <Pressable style={menuStyles.overlay} onPress={closeCoverMenu}>
-                <Pressable
-                  style={[menuStyles.sheet, { backgroundColor: palette.surface }]}
-                  onPress={(e) => e.stopPropagation()}
+              <View style={coverMenuStyles.list}>
+                <Touchable
+                  style={[coverMenuStyles.row, { backgroundColor: palette.surfaceMuted }]}
+                  onPress={() => void handleCoverDownload()}
+                  accessibilityRole="button"
+                  accessibilityLabel="下载封面"
                 >
-                  <Text style={[menuStyles.title, { color: palette.text }]} numberOfLines={1}>
-                    {currentSong.name}
-                  </Text>
-                  <Pressable style={menuStyles.row} onPress={() => void handleCoverDownload()}>
-                    <Text style={[menuStyles.rowText, { color: palette.text }]}>下载封面</Text>
-                  </Pressable>
-                  <Pressable style={[menuStyles.row, menuStyles.cancel]} onPress={closeCoverMenu}>
-                    <Text style={[menuStyles.rowText, { color: palette.textMuted }]}>取消</Text>
-                  </Pressable>
-                </Pressable>
-              </Pressable>
-            </Modal>
+                  <Text style={[coverMenuStyles.rowText, { color: palette.text }]}>下载封面</Text>
+                </Touchable>
+              </View>
+            </SheetFrame>
 
             <DownloadQualityModal
               visible={coverSongDownloadVisible}
@@ -812,38 +810,22 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
   );
 }
 
-const menuStyles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: sheet.scrim,
-  },
-  sheet: {
-    width: "78%",
-    maxWidth: 320,
-    borderRadius: 16,
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-    overflow: "hidden",
-  },
-  title: {
-    fontSize: 15,
-    fontWeight: "700",
-    textAlign: "center",
-    paddingVertical: 10,
-    marginBottom: 4,
+const coverMenuStyles = StyleSheet.create({
+  list: {
+    paddingHorizontal: spacing.l,
+    paddingTop: spacing.xxs,
+    paddingBottom: spacing.xs,
   },
   row: {
-    paddingVertical: 13,
-    borderRadius: 8,
+    flexDirection: "row",
     alignItems: "center",
+    gap: spacing.s,
+    minHeight: 52,
+    paddingHorizontal: spacing.m,
+    borderRadius: radius.md,
   },
   rowText: {
-    fontSize: 15,
+    fontSize: typography.body,
     fontWeight: "600",
-  },
-  cancel: {
-    marginTop: 4,
   },
 });

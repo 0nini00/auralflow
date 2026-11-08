@@ -3,10 +3,9 @@ import {
   View,
   Text,
   Pressable,
-  Modal,
-  ScrollView,
   StyleSheet,
 } from "react-native";
+import { SheetFrame } from "@/components/SheetFrame";
 import type { ThemePalette } from "@/stores/themeStore";
 import { radius, typography } from "@/theme/tokens";
 import {
@@ -15,7 +14,6 @@ import {
   LYRIC_FONT_SIZE_MAX,
 } from "@/stores/lyricSettingsStore";
 import { usePlayerStore } from "@/stores/playerStore";
-import { sheet } from "@/theme/sheetTokens";
 
 /** 倍速值域：0.5x-2.0x，步进 0.25（对齐 playerRateModel 边界） */
 const RATE_MIN = 0.5;
@@ -78,11 +76,13 @@ export function ImmersivePlaySettingSheet({
   const setManualOffset = useLyricSettingsStore((s) => s.setManualOffset);
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.overlay} onPress={onClose}>
-        <View style={[styles.sheet, { backgroundColor: palette.surface, borderColor: palette.border }]}>
-          <Text style={[styles.title, { color: palette.text }]}>播放设置</Text>
-          <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+    <SheetFrame
+      visible={visible}
+      onClose={onClose}
+      palette={palette}
+      title="播放设置"
+      closeLabel="关闭播放设置"
+    >
             {/* 倍速：步进按钮，1 步 0.25x（值域 0.5x-2.0x，与 playerRateModel 边界一致） */}
             <StepperRow
               label="倍速"
@@ -143,10 +143,7 @@ export function ImmersivePlaySettingSheet({
               ) : null}
             </StepperRow>
 
-          </ScrollView>
-        </View>
-      </Pressable>
-    </Modal>
+    </SheetFrame>
   );
 }
 
@@ -216,29 +213,6 @@ function StepperRow({
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: sheet.scrim,
-    padding: 24,
-  },
-  sheet: {
-    width: "100%",
-    maxWidth: 360,
-    maxHeight: "80%",
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    padding: 16,
-  },
-  title: {
-    fontSize: typography.title,
-    fontWeight: "700",
-    paddingBottom: 10,
-  },
-  scroll: {
-    flexGrow: 0,
-  },
   row: {
     flexDirection: "row",
     alignItems: "center",

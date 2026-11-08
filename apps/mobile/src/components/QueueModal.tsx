@@ -422,14 +422,14 @@ const styles = StyleSheet.create({
   content: {
     flex: 0,
     maxHeight: "78%",
-    borderRadius: 16,
+    borderRadius: sheet.radius,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
   },
   sheetContent: {
     flex: 0,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderTopLeftRadius: sheet.radius,
+    borderTopRightRadius: sheet.radius,
     overflow: "hidden",
   },
   header: {

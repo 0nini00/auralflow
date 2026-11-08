@@ -22,7 +22,7 @@ export function ImmersiveBackgroundSheet({ visible, onClose, palette }: Immersiv
   const { height } = useWindowDimensions();
 
   return (
-    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
       <View style={styles.overlay}>
         <Pressable
           style={StyleSheet.absoluteFill}
