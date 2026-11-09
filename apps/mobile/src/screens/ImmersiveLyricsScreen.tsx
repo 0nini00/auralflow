@@ -164,6 +164,7 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
   const {
     insets,
     palette,
+    chromePalette,
     currentSong,
     isPlaying,
     loading,
@@ -671,7 +672,7 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
             <ImmersiveMoreMenu
               visible={visible && moreMenuVisible}
               onClose={() => setMoreMenuVisible(false)}
-              palette={palette}
+              palette={chromePalette}
               isLiked={isLiked}
               onToggleLike={() => void handleLike()}
               floatingLyricActive={floatingLyricActive}
@@ -706,12 +707,12 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
             <ImmersiveBackgroundSheet
               visible={visible && backgroundSheetVisible}
               onClose={() => setBackgroundSheetVisible(false)}
-              palette={palette}
+              palette={chromePalette}
             />
             <ImmersivePlaySettingSheet
               visible={playSettingVisible}
               onClose={() => setPlaySettingVisible(false)}
-              palette={palette}
+              palette={chromePalette}
             />
 
             <AddToLocalPlaylistModal
@@ -723,7 +724,7 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
             <SheetFrame
               visible={coverMenuVisible}
               onClose={closeCoverMenu}
-              palette={palette}
+              palette={chromePalette}
               title={currentSong.name}
               subtitle="封面与歌曲操作"
               closeLabel="关闭封面菜单"
@@ -752,7 +753,7 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
               visible={commentsVisible}
               onClose={() => setCommentsVisible(false)}
               song={currentSong}
-              palette={palette}
+              palette={chromePalette}
             />
           </Animated.View>
 
@@ -771,7 +772,7 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
             handleStartSongSleepTimer={handleStartSongSleepTimer}
             handleToggleMute={handleToggleMute}
             management={queueModel.management}
-            palette={palette}
+            palette={chromePalette}
             queue={queue}
             queueModalVisible={queueModalVisible}
             queueModel={queueModel}

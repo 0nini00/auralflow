@@ -26,7 +26,7 @@ import {
 } from "@/services/lyricOverlayService";
 import { useFavoritesStore } from "@/stores/favoritesStore";
 import { useDownloadStore, type DownloadQuality } from "@/stores/downloadStore";
-import { getThemePalette, useThemeStore } from "@/stores/themeStore";
+import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { openArtistDetailScreen } from "@/navigation/navigationRef";
 import { hapticLight } from "@/services/hapticService";
 import { logger } from "@/services/logger";
@@ -89,6 +89,15 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
   const palette = useMemo(
     () => getThemePalette("dark", accentColor),
     [accentColor],
+  );
+
+  // 播放页本身恒暗，但弹层是应用级界面：浅色主题下必须跟着亮起来，
+  // 否则在白底应用里点开菜单会突然掉进一块黑色面板。
+  const themeMode = useThemeStore((s) => s.mode);
+  const systemTheme = useThemeStore((s) => s.systemTheme);
+  const chromePalette = useMemo(
+    () => getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor),
+    [themeMode, systemTheme, accentColor],
   );
 
   const showTranslation = useLyricSettingsStore((s) => s.showTranslation);
@@ -458,6 +467,7 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
     onClose,
     insets,
     palette,
+    chromePalette,
     currentSong,
     isPlaying,
     loading,

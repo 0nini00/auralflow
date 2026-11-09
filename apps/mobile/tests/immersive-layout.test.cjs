@@ -131,6 +131,7 @@ function renderScreen({ width = 390, height = 844, currentPage = 0, overlay = {}
     currentSong: { id: "1", name: "Song", singer: "Artist", source: "wy" },
     currentPage, isLyricsPage: currentPage === 1,
     palette: { background: "#000000", primary: "#58a87a", text: "#ffffff", textMuted: "#aaaaaa" },
+    chromePalette: { background: "#ffffff", surface: "#ffffff", surfaceMuted: "#f0f0f0", border: "#dddddd", primary: "#58a87a", text: "#111111", textMuted: "#666666" },
     sleepTimerControl: {}, currentSongActions: {}, queueModel: {},
     ...overlay,
   };
