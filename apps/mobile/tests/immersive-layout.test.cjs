@@ -218,7 +218,7 @@ test("右上角更多承接全部次级操作，原歌名歌手与封面歌词�
   const menu = descendants(screen.tree, 'ImmersiveMoreMenu')[0];
   assert.equal(menu.props.visible, true);
   assert.equal(screen.gesture.isEnabled, false);
-  for (const name of ['onOpenBackground', 'onOpenPlaySetting', 'onOpenSleep', 'onToggleLike']) {
+  for (const name of ['onOpenPlaySetting', 'onOpenSleep', 'onToggleLike']) {
     assert.equal(typeof menu.props[name], 'function', name);
   }
   assert.equal(descendants(screen.tree, 'ImmersiveTransport')[0].props.onMoreMenuVisibleChange, undefined);
@@ -228,17 +228,12 @@ test("右上角更多承接全部次级操作，原歌名歌手与封面歌词�
   assert.equal(screen.gesture.isEnabled, true);
 });
 
-test("背景入口展开时停用封面下拉，关闭恢复，不修改媒体分页", () => {
+test("背景入口只在设置页，播放页不再挂载背景面板", () => {
   const screen = renderScreen();
   const menu = descendants(screen.tree, 'ImmersiveMoreMenu')[0];
   assert.ok(menu, '更多菜单应由页面持有');
-  menu.props.onOpenBackground(); screen.rerender();
-  const sheet = descendants(screen.tree, 'ImmersiveBackgroundSheet')[0];
-  assert.equal(sheet.props.visible, true);
-  assert.equal(screen.gesture.isEnabled, false);
-  assert.equal(descendants(screen.tree, 'PagerView')[0].props.children.length, 2);
-  sheet.props.onClose(); screen.rerender();
-  assert.equal(screen.gesture.isEnabled, true);
+  assert.equal(menu.props.onOpenBackground, undefined);
+  assert.equal(descendants(screen.tree, 'ImmersiveBackgroundSheet').length, 0);
 });
 
 test("动态背景独立铺底，不插进歌词或播放控制，弹层与退出时停帧", () => {
@@ -257,7 +252,7 @@ test("动态背景独立铺底，不插进歌词或播放控制，弹层与退�
     screen.rerender({ visible: false });
     assert.equal(descendants(screen.tree, 'ImmersiveBackground').length, 0);
   }
-  for (const mode of ['none', 'cover']) {
+  for (const mode of ['cover']) {
     assert.equal(descendants(renderScreen({ background: mode }).tree, 'ImmersiveBackground').length, 0);
   }
 });

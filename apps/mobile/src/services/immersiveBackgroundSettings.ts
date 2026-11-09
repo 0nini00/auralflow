@@ -1,5 +1,4 @@
 export const IMMERSIVE_BACKGROUND_OPTIONS = [
-  { value: "none", label: "纯色" },
   { value: "cover", label: "封面氛围" },
   { value: "bloom", label: "柔光色域" },
 ] as const;
@@ -20,6 +19,9 @@ export function normalizeImmersiveBackground(
   if (isImmersiveBackgroundMode(value)) return value;
   // 旧的两种动态背景已合并为柔光色域，存量选择迁移到新值。
   if (value === "liquid" || value === "aurora") return "bloom";
-  if (value === undefined && legacyAmbientCoverTint === false) return "none";
+  // 纯色背景已下架：存量值回落到默认的封面氛围，避免背景变成空档。
+  if (value === "none" || (value === undefined && legacyAmbientCoverTint === false)) {
+    return DEFAULT_IMMERSIVE_BACKGROUND;
+  }
   return DEFAULT_IMMERSIVE_BACKGROUND;
 }

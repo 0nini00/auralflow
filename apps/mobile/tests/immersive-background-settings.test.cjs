@@ -13,7 +13,6 @@ const middleware = mobileRequire("zustand/middleware");
 const ts = mobileRequire("typescript");
 const STORAGE_KEY = "auralflow-lyric-settings";
 const options = [
-  { value: "none", label: "纯色" },
   { value: "cover", label: "封面氛围" },
   { value: "bloom", label: "柔光色域" },
 ];
@@ -48,7 +47,8 @@ test("默认背景为封面氛围，只有一个模式字段", async () => {
 
 for (const [label, persisted, expected] of [
   ["旧开关开启", { ambientCoverTint: true }, "cover"],
-  ["旧开关关闭", { ambientCoverTint: false }, "none"],
+  ["旧开关关闭", { ambientCoverTint: false }, "cover"],
+  ["纯色背景下架", { immersiveBackground: "none" }, "cover"],
   ["旧存档无开关", {}, "cover"],
   ["新模式优先于旧开关", { ambientCoverTint: false, immersiveBackground: "bloom" }, "bloom"],
   ["液态渐变迁移为柔光色域", { immersiveBackground: "liquid" }, "bloom"],
@@ -165,7 +165,7 @@ function loadUi(h) {
   return relative => load(path.join(mobileRoot, relative));
 }
 
-test("共用背景面板提供三个可访问单选，选择即时保存且继续预览", async t => {
+test("共用背景面板提供两个可访问单选，选择即时保存且继续预览", async t => {
   const h = fixture(); await h.ready;
   const { ImmersiveBackgroundSheet } = loadUi(h)("src/components/ImmersiveBackgroundSheet.tsx");
   let closed = 0;
@@ -174,7 +174,7 @@ test("共用背景面板提供三个可访问单选，选择即时保存且继�
   t.after(() => act(() => root.unmount()));
   const radios = () => root.root.findAll(node => node.type === "Pressable" && node.props.accessibilityRole === "radio");
   assert.deepEqual(radios().map(node => node.props.accessibilityLabel), options.map(option => `播放背景：${option.label}`));
-  assert.deepEqual(radios().map(node => node.props.accessibilityState.selected), options.map((_, index) => index === 1));
+  assert.deepEqual(radios().map(node => node.props.accessibilityState.selected), options.map((_, index) => index === 0));
   for (let i = 0; i < options.length; i++) {
     act(() => radios()[i].props.onPress());
     assert.equal(h.saved().immersiveBackground, options[i].value);

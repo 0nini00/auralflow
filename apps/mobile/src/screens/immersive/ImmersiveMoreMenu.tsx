@@ -54,7 +54,6 @@ export interface ImmersiveMoreMenuProps {
   sleepActive: boolean;
   onOpenSleep: () => void;
   onOpenPlaySetting: () => void;
-  onOpenBackground: () => void;
   canAddToPlaylist?: boolean;
   onAddToPlaylist?: () => void;
   onOpenDownload?: () => void;
@@ -79,7 +78,6 @@ export function ImmersiveMoreMenu({
   sleepActive,
   onOpenSleep,
   onOpenPlaySetting,
-  onOpenBackground,
   canAddToPlaylist,
   onAddToPlaylist,
   onOpenDownload,
@@ -122,11 +120,6 @@ export function ImmersiveMoreMenu({
       icon: SlidersHorizontal,
       label: "播放设置",
       onPress: onOpenPlaySetting,
-    },
-    {
-      icon: Palette,
-      label: "背景效果",
-      onPress: onOpenBackground,
     },
     {
       icon: Download,

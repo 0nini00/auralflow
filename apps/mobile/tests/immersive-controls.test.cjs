@@ -217,7 +217,7 @@ function menuProps(events) {
 
 test("更多菜单承接全部扩展操作，活动开关与睡眠状态准确可达", t => {
   const h = harness(t, "ImmersiveMoreMenu", menuProps([]));
-  for (const label of ["喜欢", "打开悬浮歌词", "评论", "睡眠定时", "播放设置", "背景效果", "下载歌曲", "添加到歌单", "播放 MV", "分享音乐", "相似歌曲推荐"]) {
+  for (const label of ["喜欢", "打开悬浮歌词", "评论", "睡眠定时", "播放设置", "下载歌曲", "添加到歌单", "播放 MV", "分享音乐", "相似歌曲推荐"]) {
     assert.ok(h.button(label), label);
   }
   h.update({ isLiked: true, floatingLyricActive: true, sleepActive: true });
@@ -229,7 +229,7 @@ test("更多菜单承接全部扩展操作，活动开关与睡眠状态准确�
 
 for (const [label, action] of [
   ["喜欢", "like"], ["打开悬浮歌词", "floating"], ["评论", "comments"], ["睡眠定时", "sleep"],
-  ["播放设置", "settings"], ["背景效果", "background"], ["下载歌曲", "download"], ["添加到歌单", "playlist"],
+  ["播放设置", "settings"], ["下载歌曲", "download"], ["添加到歌单", "playlist"],
   ["播放 MV", "mv"], ["分享音乐", "share"], ["相似歌曲推荐", "similar"],
 ]) {
   test(`菜单“${label}”先关闭，再等待原生弹层退出后执行`, t => {
@@ -252,5 +252,4 @@ test("不可用的评论、歌单、MV、分享和相似入口不占菜单位置
   });
   for (const label of ["评论", "添加到歌单", "播放 MV", "分享音乐", "相似歌曲推荐"]) assert.equal(h.button(label), undefined, label);
   assert.ok(h.button("播放设置"));
-  assert.ok(h.button("背景效果"));
 });

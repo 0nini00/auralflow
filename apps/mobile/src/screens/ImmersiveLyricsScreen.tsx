@@ -34,7 +34,6 @@ import { AddToLocalPlaylistModal } from "@/components/AddToLocalPlaylistModal";
 import { ImmersiveBackground } from "@/components/ImmersiveBackground";
 import { SheetFrame } from "@/components/SheetFrame";
 import { Touchable } from "@/components/Touchable";
-import { ImmersiveBackgroundSheet } from "@/components/ImmersiveBackgroundSheet";
 import { CachedImage } from "@/components/CachedImage";
 import { MiniLyric } from "@/components/MiniLyric";
 import { DownloadQualityModal } from "@/components/DownloadQualityModal";
@@ -158,7 +157,6 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
   const viewportMeasured = React.useRef(false);
   const [mediaViewport, setMediaViewport] = React.useState({ width: 0, height: 0 });
   const [moreMenuVisible, setMoreMenuVisible] = React.useState(false);
-  const [backgroundSheetVisible, setBackgroundSheetVisible] = React.useState(false);
   const [backgroundError, setBackgroundError] = React.useState("");
 
   const {
@@ -253,12 +251,12 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
   });
   const overlayVisible = queueModalVisible || commentsVisible || playSettingVisible || sleepModalVisible
     || rateModalVisible || volumeModalVisible || addToPlaylistVisible || coverMenuVisible
-    || coverSongDownloadVisible || moreMenuVisible || backgroundSheetVisible;
+    || coverSongDownloadVisible || moreMenuVisible;
 
-  // 两种动效与原封面氛围共用取色；纯色模式不额外请求封面。
+  // 两种动效与封面氛围共用取色；无封面时不额外请求。
   const [ambient, setAmbient] = React.useState<CoverColors>({ base: "", accent: "" });
   React.useEffect(() => {
-    if (!visible || immersiveBackground === "none" || !artwork) {
+    if (!visible || !artwork) {
       setAmbient({ base: "", accent: "" });
       return;
     }
@@ -587,7 +585,7 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
                     accessibilityRole="alert"
                     style={{ color: palette.textMuted, paddingHorizontal: 24, paddingBottom: 8 }}
                   >
-                    动态背景无法显示：{backgroundError}。可在右上角更多的“背景效果”中切换背景。
+                    动态背景无法显示：{backgroundError}。可在设置 → 歌词设置 → 播放背景中切换背景。
                   </Text>
                 ) : null}
               </Animated.View>
@@ -702,12 +700,6 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
               sleepActive={!!sleepTimerControl.active}
               onOpenSleep={() => setSleepModalVisible(true)}
               onOpenPlaySetting={() => setPlaySettingVisible(true)}
-              onOpenBackground={() => setBackgroundSheetVisible(true)}
-            />
-            <ImmersiveBackgroundSheet
-              visible={visible && backgroundSheetVisible}
-              onClose={() => setBackgroundSheetVisible(false)}
-              palette={chromePalette}
             />
             <ImmersivePlaySettingSheet
               visible={playSettingVisible}
