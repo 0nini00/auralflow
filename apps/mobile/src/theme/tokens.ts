@@ -1,4 +1,5 @@
 import { Platform } from "react-native";
+import { RADIUS, TYPE_SCALE } from "@lx/core";
 
 /**
  * 移动端统一设计 token。
@@ -49,26 +50,13 @@ export const spacing = {
   xxxl: 40,
 } as const;
 
-export const radius = {
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 20,
-  xxl: 28,
-  pill: 999,
-} as const;
+/**
+ * 圆角与字号来自 @lx/core 的共享令牌，不再本地维护一份：
+ * 两端同一张表，桌面 CSS 由 design-tokens-contract 测试盯住。
+ */
+export const radius = RADIUS;
 
-export const typography = {
-  /** Tab 标签、角标，不承载关键信息 */
-  micro: 11,
-  caption: 12,
-  meta: 13,
-  body: 15,
-  title: 17,
-  heading: 20,
-  display: 28,
-  displayLg: 34,
-} as const;
+export const typography = TYPE_SCALE.mobile;
 
 /** 触控目标与图标尺寸：保证最小可点区域符合移动端人体工学 */
 export const touch = {

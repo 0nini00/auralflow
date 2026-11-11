@@ -96,7 +96,8 @@
   color-scheme: dark;
 
   /* Background System — 墨黑，比中性黑更接近「听歌的房间」 */
-  --af-bg-base: #080a09;
+  /* 与移动端 CANVAS.dark 同值：两端同一个画布底 */
+  --af-bg-base: #0b0f0d;
   --af-bg-page: #0d100e;
   --af-bg-elevated: #141816;
   --af-bg-surface: #101312;

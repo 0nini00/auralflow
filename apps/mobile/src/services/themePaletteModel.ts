@@ -1,3 +1,5 @@
+import { BRAND } from "@lx/core";
+
 export type ThemeMode = "light" | "dark" | "system";
 export type ResolvedTheme = "light" | "dark";
 
@@ -26,17 +28,23 @@ export interface ThemePalette {
   isDark: boolean;
 }
 
-export const DEFAULT_ACCENT_COLOR = "#0d7a42";
+// 与桌面端 APPEARANCE_DEFAULTS.accentColor 同值：两端共用一个品牌强调色。
+// primaryInk / actionFill 仍取更深的一档，文字对比度由它们保证。
+// 显式标成 string：BRAND.accent 是字面量类型，直接导出会让 `accentColor = 默认值`
+// 这种默认参数被收窄成 "#17a34a"，所有传任意 hex 的调用点都会报类型错。
+export const DEFAULT_ACCENT_COLOR: string = BRAND.accent;
 const LEGACY_DEFAULT_ACCENT_COLOR = "#1db954";
 const LEGACY_RED_ACCENT_COLOR = "#d83b40";
 const LEGACY_BRAND_GREEN = "#3bd877";
+/** 旧默认强调色（深绿）；换成品牌强调色后，存量用户按旧默认迁移一次。 */
+const LEGACY_ACTION_GREEN = "#0d7a42";
 const HEX_COLOR_PATTERN = /^#?[0-9a-f]{6}$/;
 
 /** 品牌绿在浅色/深色下的可读行动色（对比度见 PROPOSAL §5.1） */
-const DEFAULT_ACCENT_INK_LIGHT = "#0d7a42";
+const DEFAULT_ACCENT_INK_LIGHT = BRAND.action;
 const DEFAULT_ACCENT_INK_DARK = "#6fe7ac";
 /** 按钮填充用的深绿：与浅色文字行动色同档，白字 5.4:1 */
-const DEFAULT_ACTION_FILL = "#0d7a42";
+const DEFAULT_ACTION_FILL = BRAND.action;
 const ACTION_FILL_TEXT = "#ffffff";
 /** 强调色填充上的深色候选（与桌面端同一个思路，色值沿移动端的墨绿） */
 const ACCENT_TEXT_DARK = "#062a19";
@@ -183,6 +191,7 @@ export function migrateAccentColor(color: string | null | undefined): string {
   return normalized === LEGACY_DEFAULT_ACCENT_COLOR
     || normalized === LEGACY_RED_ACCENT_COLOR
     || normalized === LEGACY_BRAND_GREEN
+    || normalized === LEGACY_ACTION_GREEN
     ? DEFAULT_ACCENT_COLOR
     : normalized;
 }

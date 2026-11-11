@@ -1,5 +1,6 @@
 // @lx/core 公共入口
 export * from "./sources";
+export * from "./design-tokens";
 export * from "./song-variant";
 export * from "./hidden-source";
 export * from "./lyrics";

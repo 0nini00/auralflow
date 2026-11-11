@@ -56,6 +56,10 @@ function harness(t, componentName, props, options = {}) {
     "@/services/playerService": { formatTime: value => `${Math.floor(value / 60)}:${String(value % 60).padStart(2, "0")}` },
     "@/services/hapticService": { hapticLight: () => events.push("haptic") },
   };
+  // @lx/core 按真实源码加载：theme/tokens.ts 现在从这里取 RADIUS/TYPE_SCALE，
+  // 否则手写 loader 会把它当成「未声明的宿主边界」。共享 helper 已能解析
+  // core 的目录导入与 core 自己的依赖，直接复用它。
+  const coreLoader = createLoader({});
   const modules = new Map();
   function load(filename) {
     if (modules.has(filename)) return modules.get(filename).exports;
@@ -72,6 +76,7 @@ function harness(t, componentName, props, options = {}) {
     modules.set(filename, module);
     const requireModule = name => {
       if (Object.hasOwn(mocks, name)) return mocks[name];
+      if (name === "@lx/core") return coreLoader("../../packages/core/src/index.ts");
       const target = name.startsWith("@/")
         ? path.join(mobileRoot, "src", name.slice(2))
         : name.startsWith(".") ? path.resolve(path.dirname(filename), name) : null;

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { BRAND } from "@lx/core";
 
 export type Theme = "light" | "dark" | "auto";
 export type EffectiveTheme = "light" | "dark";
@@ -43,7 +44,7 @@ export const APPEARANCE_DEFAULTS: AppearanceSettings = {
   // 深色是音乐播放器的第一印象；想跟随系统仍在设置里选「自动」。
   theme: "dark",
   // 交互层用更深、更可读的绿（浅底文字 5.4:1）；品牌荧光绿 #3bd877 仍可在设置里选。
-  accentColor: "#17a34a",
+  accentColor: BRAND.accent,
   artworkAmbienceEnabled: true,
   artworkAmbienceIntensity: 100,
   artworkAmbienceScope: "player-immersive",
