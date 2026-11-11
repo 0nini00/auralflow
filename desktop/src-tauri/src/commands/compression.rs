@@ -16,7 +16,14 @@ fn parse_zlib_format(format: Option<String>) -> ZlibFormat {
 }
 
 #[tauri::command]
-pub fn zlib_inflate(data: Vec<u8>, format: Option<String>) -> Result<Vec<u8>, String> {
+pub async fn zlib_inflate(data: Vec<u8>, format: Option<String>) -> Result<Vec<u8>, String> {
+    // 解压后的体积不可预知（gzip 可几十倍膨胀），不能占着主线程做 read_to_end。
+    tauri::async_runtime::spawn_blocking(move || zlib_inflate_blocking(data, format))
+        .await
+        .map_err(|err| format!("解压任务失败: {}", err))?
+}
+
+fn zlib_inflate_blocking(data: Vec<u8>, format: Option<String>) -> Result<Vec<u8>, String> {
     match parse_zlib_format(format) {
         ZlibFormat::Gzip => {
             let mut output = Vec::new();
@@ -55,7 +62,13 @@ pub fn zlib_inflate(data: Vec<u8>, format: Option<String>) -> Result<Vec<u8>, St
 }
 
 #[tauri::command]
-pub fn zlib_deflate(data: Vec<u8>, format: Option<String>) -> Result<Vec<u8>, String> {
+pub async fn zlib_deflate(data: Vec<u8>, format: Option<String>) -> Result<Vec<u8>, String> {
+    tauri::async_runtime::spawn_blocking(move || zlib_deflate_blocking(data, format))
+        .await
+        .map_err(|err| format!("压缩任务失败: {}", err))?
+}
+
+fn zlib_deflate_blocking(data: Vec<u8>, format: Option<String>) -> Result<Vec<u8>, String> {
     match parse_zlib_format(format) {
         ZlibFormat::Gzip => {
             let mut encoder =

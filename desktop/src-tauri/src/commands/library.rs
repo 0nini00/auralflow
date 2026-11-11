@@ -2,8 +2,12 @@
 
 /// 读取某个用户数据 namespace（favorites/playlists/library/customSources/recent）
 #[tauri::command]
-pub fn library_load(app: AppHandle, namespace: String) -> Result<Value, String> {
-    crate::library::load(&app, &namespace)
+pub async fn library_load(app: AppHandle, namespace: String) -> Result<Value, String> {
+    // 整文件读 + 全量 JSON 解析，与 library_save 同理放进阻塞池：
+    // Tauri 2 的同步 command 跑在主线程，收藏/歌单 JSON 可达 MB 级。
+    tauri::async_runtime::spawn_blocking(move || crate::library::load(&app, &namespace))
+        .await
+        .map_err(|err| format!("读取任务失败: {}", err))?
 }
 
 /// 写入某个用户数据 namespace（整体覆盖）。

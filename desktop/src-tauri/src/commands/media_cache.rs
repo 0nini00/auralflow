@@ -1,3 +1,6 @@
+use tauri_plugin_log::log;
+use tokio::io::AsyncWriteExt;
+
 fn ensure_remote_cache_url(url: &str, label: &str) -> Result<reqwest::Url, String> {
     crate::outbound::assert_public_url(url, &format!("{}缓存", label))
 }
@@ -344,9 +347,13 @@ async fn cache_remote_file(
     let temp_path = cache_dir.join(format!("{}.{}.download", key, unique_temp_suffix()));
     let mut temp_guard = TempFileGuard::new(temp_path.clone());
 
-    let mut writer = std::io::BufWriter::with_capacity(
+    // 用 tokio 的异步文件：异步 fn 里每个 chunk 都做同步 write_all 会占住
+    // tokio worker（多首并发预缓存时其它 IPC 一起变慢）。
+    let mut writer = tokio::io::BufWriter::with_capacity(
         1024 * 1024,
-        std::fs::File::create(&temp_path).map_err(|err| format!("创建{}缓存文件失败: {}", label, err))?,
+        tokio::fs::File::create(&temp_path)
+            .await
+            .map_err(|err| format!("创建{}缓存文件失败: {}", label, err))?,
     );
     let mut downloaded = 0u64;
     while let Some(chunk) = response
@@ -356,6 +363,7 @@ async fn cache_remote_file(
     {
         writer
             .write_all(&chunk)
+            .await
             .map_err(|err| format!("写入{}缓存失败: {}", label, err))?;
         downloaded += chunk.len() as u64;
         // 出站地址已被 assert_public_url 限定公网，但失控 CDN / 误配音源仍可能
@@ -369,8 +377,12 @@ async fn cache_remote_file(
     if downloaded == 0 {
         return Err(format!("{}下载为空", label));
     }
-    // flush + rename 放阻塞线程池：async 读循环里只做用户态缓冲，最后的落盘
-    // 收尾不该占住 tokio worker。
+    writer
+        .flush()
+        .await
+        .map_err(|err| format!("保存{}缓存失败: {}", label, err))?;
+    drop(writer);
+    // rename 仍是阻塞 IO，放线程池收尾。
     let temp_for_rename = temp_path.clone();
     let final_for_rename = path.clone();
     let label_owned = label.to_string();
@@ -378,10 +390,6 @@ async fn cache_remote_file(
         // 直接 rename 覆盖（Windows 上等价于 MOVEFILE_REPLACE_EXISTING）：
         // 先 remove 会制造「目标已删、新文件未就位」的空窗，并发下载时还会
         // 误删另一个任务刚提交的文件。
-        writer
-            .flush()
-            .map_err(|err| format!("保存{}缓存失败: {}", label_owned, err))?;
-        drop(writer);
         std::fs::rename(&temp_for_rename, &final_for_rename)
             .map_err(|err| format!("完成{}缓存失败: {}", label_owned, err))
     })
@@ -415,6 +423,40 @@ pub async fn get_media_cache_stats(app: AppHandle) -> Result<MediaCacheStats, St
 /// 单个文件删除失败（被占用/权限不足）跳过继续，不影响下载主流程。
 /// 命中缓存时会刷新 mtime（见 `touch_cache_file`），因此这里的“最旧”是真正的 LRU。
 /// 写入一律走「临时文件 + rename」，这里跳过 `.download` / `.tmp`，不会误删进行中的写入。
+/// 容量清理是整目录遍历 + 逐个删除：放进阻塞池，别占住 tokio worker。
+/// 清理失败不能影响已经成功的缓存写入，只记日志。
+async fn sweep_cache_async(cache_dir: PathBuf, max_bytes: u64) {
+    if let Err(err) = tauri::async_runtime::spawn_blocking(move || {
+        enforce_cache_limit(&cache_dir, max_bytes)
+    })
+    .await
+    {
+        log::warn!("缓存容量清理任务失败（不影响本次写入）: {}", err);
+    }
+}
+
+/// 逐项删除缓存目录内容。
+///
+/// remove_dir_all 在 Windows 上撞到正在写入的文件会整体失败，目录停在删了一半的状态，
+/// 设置页直接报错。改成 best-effort：删不掉的跳过（进行中的写入由 TempFileGuard 与
+/// 启动清理收口），绝不把整次清理变成失败。
+fn clear_cache_dir_best_effort(cache_dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(cache_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let result = if path.is_dir() {
+            std::fs::remove_dir_all(&path)
+        } else {
+            std::fs::remove_file(&path)
+        };
+        if let Err(err) = result {
+            log::warn!("清理缓存项失败（跳过）{}: {}", path.display(), err);
+        }
+    }
+}
+
 pub(super) fn enforce_cache_limit(cache_dir: &Path, max_bytes: u64) {
     let Ok(entries) = std::fs::read_dir(cache_dir) else {
         return; // 目录不存在视为缓存为空
@@ -525,7 +567,7 @@ pub async fn cache_remote_audio(
     let (path, written) = cache_remote_file(url, cache_key, dir.clone(), AUDIO_CACHE_EXTS, "mp3", "歌曲音频").await?;
     // 容量清理是一次全目录遍历：只有真的写了新文件才值得跑，命中缓存的播放请求不走这里。
     if written {
-        enforce_cache_limit(&dir, SONG_AUDIO_CACHE_MAX_BYTES);
+        sweep_cache_async(dir, SONG_AUDIO_CACHE_MAX_BYTES).await;
     }
     Ok(path)
 }
@@ -588,7 +630,7 @@ pub async fn cache_remote_image(
     let (path, written) = cache_remote_file(url, cache_key, dir.clone(), COVER_CACHE_EXTS, "jpg", "封面图片").await?;
     // 封面缓存此前无上限，长期使用会无限增长（本地音乐的内嵌封面也落在这里）
     if written {
-        enforce_cache_limit(&dir, SONG_COVER_CACHE_MAX_BYTES);
+        sweep_cache_async(dir, SONG_COVER_CACHE_MAX_BYTES).await;
     }
     Ok(path)
 }
@@ -661,15 +703,18 @@ pub fn remove_cached_media(
 ) -> Result<bool, String> {
     let (cache_dir, allowed, _min_bytes) = media_kind_config(&app, &kind)?;
     let key = sanitized_cache_key(&cache_key)?;
-    // 删除路径不做 LRU touch：刷新完 mtime 紧接着就删，白白多开一个写句柄
-    let Some(path) = find_cached_file(&cache_dir, &key, allowed, false)? else {
-        return Ok(false);
-    };
-    match std::fs::remove_file(&path) {
-        Ok(()) => Ok(true),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(err) => Err(format!("删除媒体缓存失败: {}", err)),
+    // 同一个 key 可能因为不同 Content-Type 落成多个扩展名（.mp3 / .flac ...）。
+    // 只删第一个会让残留文件在下次 lookup 时复活，前端以为「已删除」其实还在播旧文件。
+    let mut removed = false;
+    for ext in allowed {
+        let path = cache_dir.join(format!("{}.{}", key, ext));
+        match std::fs::remove_file(&path) {
+            Ok(()) => removed = true,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(format!("删除媒体缓存失败: {}", err)),
+        }
     }
+    Ok(removed)
 }
 
 /// 只清理资源缓存（音频与封面文件），保留播放地址 / 歌词等元信息缓存。
@@ -684,10 +729,7 @@ pub async fn clear_media_cache(app: AppHandle) -> Result<MediaCacheStats, String
             song_audio_cache_dir(&app)?,
             song_cover_cache_dir(&app)?,
         ] {
-            if cache_dir.exists() {
-                std::fs::remove_dir_all(&cache_dir)
-                    .map_err(|err| format!("删除媒体缓存失败: {}", err))?;
-            }
+            clear_cache_dir_best_effort(&cache_dir);
         }
         media_cache_stats(&app)
     })

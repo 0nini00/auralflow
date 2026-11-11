@@ -59,6 +59,9 @@ pub fn load(app: &AppHandle, namespace: &str) -> Result<Value, String> {
     if !path.exists() {
         return Ok(Value::Null);
     }
+    // 读者也要持锁：Windows 上 rename 要求目标没有其它句柄，读的这几毫秒里撞上
+    // save 的原子替换会让写入报「提交文件失败」，而调用方通常只 catch 掉。
+    let _guard = lock_persistence();
     let content =
         fs::read_to_string(&path).map_err(|e| format!("读取 {} 失败: {}", namespace, e))?;
     if content.trim().is_empty() {
