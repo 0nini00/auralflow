@@ -196,10 +196,18 @@ export function createImmersiveBackgroundRenderer(
     draw();
     syncAnimation();
   };
+  /** 上一次读到的封面色 inline 值：沉浸页每帧都在改 --af-immersive-progress，
+   *  观察器会跟着每帧触发；只有这个变量变了才值得做一次 getComputedStyle。 */
+  let lastArtworkRaw = '';
+
   const updateColor = () => {
     if (disposed || failed || !parent) return;
     try {
+      const artworkRaw = parent.style.getPropertyValue('--af-immersive-artwork-rgb').trim();
+      // 没有有效封面色时会回退到主题强调色（随主题变化），那条路径不能靠它短路。
+      if (artworkRaw && artworkRaw === lastArtworkRaw) return;
       const next = readColor(parent);
+      lastArtworkRaw = artworkRaw;
       if (targetColor?.every((channel, i) => channel === next[i])) return;
       targetColor = next;
       if (!animating()) { color = next; draw(); }

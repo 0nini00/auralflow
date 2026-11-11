@@ -98,7 +98,7 @@ function QueueList() {
         <span>{queue.length} 首</span>
       </div>
       <VirtualList items={queue} rowHeight={46} scrollRootSelector=".af-np-body"
-        scrollToIndex={currentIndex} scrollToKey={queue.length} scrollAlign="center" scrollBehavior="auto"
+        scrollToIndex={currentIndex} scrollToKey={currentIndex} scrollAlign="center" scrollBehavior="auto"
         getItemKey={(song, index) => `${song.source}:${song.id}:${index}`}
         renderItem={(song, index) => {
         const active = index === currentIndex;

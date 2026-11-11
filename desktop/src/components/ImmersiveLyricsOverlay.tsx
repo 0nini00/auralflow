@@ -63,30 +63,29 @@ function ImmersiveLyricsContent({ open, onClose }: ImmersiveLyricsOverlayProps) 
     if (mode === 'cover') setBackgroundError('');
     patchAppearance({ immersiveBackground: mode });
   };
-  const {
-    current: currentTrack,
-    queue,
-    currentIndex,
-    status,
-    progress,
-    progressSampledAt,
-    duration,
-    volume,
-    isMuted,
-    playbackRate,
-    repeatMode,
-    isShuffle,
-    togglePlay,
-    toggleMute,
-    setVolume,
-    setProgress,
-    setPlaybackRate,
-    setPlayMode,
-    playByIndex,
-    prev,
-    next,
-    removeFromQueue,
-  } = usePlayerStore();
+  // 窄选择器：整店订阅会让任何 store 变化都重渲染整页（含整篇歌词与可视化）。
+  const currentTrack = usePlayerStore((s) => s.current);
+  const queue = usePlayerStore((s) => s.queue);
+  const currentIndex = usePlayerStore((s) => s.currentIndex);
+  const status = usePlayerStore((s) => s.status);
+  const progress = usePlayerStore((s) => s.progress);
+  const progressSampledAt = usePlayerStore((s) => s.progressSampledAt);
+  const duration = usePlayerStore((s) => s.duration);
+  const volume = usePlayerStore((s) => s.volume);
+  const isMuted = usePlayerStore((s) => s.isMuted);
+  const playbackRate = usePlayerStore((s) => s.playbackRate);
+  const repeatMode = usePlayerStore((s) => s.repeatMode);
+  const isShuffle = usePlayerStore((s) => s.isShuffle);
+  const togglePlay = usePlayerStore((s) => s.togglePlay);
+  const toggleMute = usePlayerStore((s) => s.toggleMute);
+  const setVolume = usePlayerStore((s) => s.setVolume);
+  const setProgress = usePlayerStore((s) => s.setProgress);
+  const setPlaybackRate = usePlayerStore((s) => s.setPlaybackRate);
+  const setPlayMode = usePlayerStore((s) => s.setPlayMode);
+  const playByIndex = usePlayerStore((s) => s.playByIndex);
+  const prev = usePlayerStore((s) => s.prev);
+  const next = usePlayerStore((s) => s.next);
+  const removeFromQueue = usePlayerStore((s) => s.removeFromQueue);
 
   const [showTranslation, setShowTranslation] = useState(true);
   const [showRomanization, setShowRomanization] = useState(false);

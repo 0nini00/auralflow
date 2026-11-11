@@ -30,26 +30,25 @@ import { getLyricWindowState, isLyricWindowOpen } from '@lx/tauri-bridge';
 import { useArtworkAmbience } from '@/hooks/useArtworkAmbience';
 
 export const PlayerBar: React.FC = () => {
-  const {
-    current: currentTrack,
-    status,
-    progress: storeProgress,
-    progressSampledAt,
-    duration,
-    volume,
-    isMuted,
-    playbackRate,
-    repeatMode,
-    isShuffle,
-    togglePlay,
-    toggleMute: storeToggleMute,
-    setVolume,
-    next,
-    prev: previous,
-    setPlayMode,
-    setProgress,
-    playbackNotice,
-  } = usePlayerStore();
+  // 窄选择器：整店订阅会让任何一次 store 变化（含每 250ms 的进度锚点）都重渲染整条播放栏。
+  const currentTrack = usePlayerStore((s) => s.current);
+  const status = usePlayerStore((s) => s.status);
+  const storeProgress = usePlayerStore((s) => s.progress);
+  const progressSampledAt = usePlayerStore((s) => s.progressSampledAt);
+  const duration = usePlayerStore((s) => s.duration);
+  const volume = usePlayerStore((s) => s.volume);
+  const isMuted = usePlayerStore((s) => s.isMuted);
+  const playbackRate = usePlayerStore((s) => s.playbackRate);
+  const repeatMode = usePlayerStore((s) => s.repeatMode);
+  const isShuffle = usePlayerStore((s) => s.isShuffle);
+  const togglePlay = usePlayerStore((s) => s.togglePlay);
+  const storeToggleMute = usePlayerStore((s) => s.toggleMute);
+  const setVolume = usePlayerStore((s) => s.setVolume);
+  const next = usePlayerStore((s) => s.next);
+  const previous = usePlayerStore((s) => s.prev);
+  const setPlayMode = usePlayerStore((s) => s.setPlayMode);
+  const setProgress = usePlayerStore((s) => s.setProgress);
+  const playbackNotice = usePlayerStore((s) => s.playbackNotice);
 
   const nowPlayingOpen = useUiStore((s) => s.nowPlayingOpen);
   const toggleNowPlaying = useUiStore((s) => s.toggleNowPlaying);

@@ -6,6 +6,8 @@ import type { LyricLine } from '@lx/core';
  * 状态来自 playerSync 接收主窗口广播；按钮通过 dispatchLyricAction 反向。
  */
 
+import { useMemo } from "react";
+import { calculateLyricLineProgress } from "@lx/core";
 import { usePlayerStore } from "@/stores/playerStore";
 import { useLyrics } from "@/hooks/useLyrics";
 import { useInterpolatedPlaybackProgress } from "@/hooks/useInterpolatedPlaybackProgress";
@@ -146,13 +148,25 @@ export function LyricWindowView() {
     };
   }, []);
 
-  const { lines: displayLines, currentIndex } = buildDesktopLyricLines({
-    lines: lyrics,
-    currentLine,
-    hasCurrentMusic: Boolean(current),
-    showTranslation,
-    currentTime: lyricTime,
-  });
+  // 只随「行 / 译文开关 / 有没有歌」重建：currentTime 每帧都在变，塞进来会让整篇
+  // 歌词每帧重算 + 每行对象换新引用，KaraokeLine 的 memo 全部失活。
+  const lyricBase = useMemo(
+    () => buildDesktopLyricLines({
+      lines: lyrics,
+      currentLine,
+      hasCurrentMusic: Boolean(current),
+      showTranslation,
+    }),
+    [lyrics, currentLine, showTranslation, current],
+  );
+  const { lines: displayLines, currentIndex } = lyricBase;
+  // 逐字/行进度只对当前行有意义，每帧只算这一行。
+  const currentLineProgress = useMemo(
+    () => (currentIndex >= 0
+      ? calculateLyricLineProgress(lyrics, currentIndex, lyricTime)
+      : 0),
+    [lyrics, currentIndex, lyricTime],
+  );
 
   /** 窗口一次显示几行：单行模式、或关掉「显示下一行」时固定 1 行 */
   const visibleLines = singleLine || !showNextLine ? 1 : Math.max(1, Math.min(4, Math.trunc(maxLineNum || 1)));
@@ -338,6 +352,7 @@ export function LyricWindowView() {
                   showRomanization={showRomanization}
                   showRuby={showRuby}
                   progress={lyricTime}
+                  lineProgress={currentLineProgress}
                   align={align}
                   activeColor={activeColor}
                   enableAnimation={enableAnimation}
@@ -348,6 +363,7 @@ export function LyricWindowView() {
               ) : (
                 <LyricLineText
                   line={line}
+                  lineProgress={currentLineProgress}
                   sourceLine={line.index >= 0 ? lyrics[line.index] : undefined}
                   showRomanization={showRomanization}
                   showRuby={showRuby}
@@ -712,6 +728,8 @@ export function LyricWindowView() {
 
 interface LyricLineTextProps {
   line: DesktopLyricDisplayLine;
+  /** 当前行的播放进度（0..1）。只有当前行需要逐帧变，单独传避免整篇重建。 */
+  lineProgress: number;
   sourceLine?: LyricLine;
   showRomanization: boolean;
   showRuby: boolean;
@@ -726,6 +744,7 @@ interface LyricLineTextProps {
 
 function LyricLineText({
   line,
+  lineProgress: lineProgressValue,
   sourceLine,
   showRomanization,
   showRuby,
@@ -744,7 +763,7 @@ function LyricLineText({
   const textShadow = isCurrent
     ? `0 1px 8px ${shadowColor}`
     : `0 1px 4px ${shadowColor}`;
-  const lineProgress = `${Math.round((line.progress ?? 0) * 1000) / 10}%`;
+  const lineProgress = `${Math.round(lineProgressValue * 1000) / 10}%`;
 
   return (
     <div
@@ -776,6 +795,8 @@ function LyricLineText({
 
 interface KaraokeLineProps {
   line: DesktopLyricDisplayLine;
+  /** 当前行的播放进度（0..1）。只有当前行需要逐帧变，单独传避免整篇重建。 */
+  lineProgress: number;
   sourceLine?: LyricLine;
   showRomanization: boolean;
   showRuby: boolean;
@@ -797,6 +818,7 @@ function getWordAbsoluteStart(lineStart: number, wordStart: number) {
 /** 当前行的逐字卡拉OK 渲染：外层结构复用 LyricLineText 的当前行样式 */
 const KaraokeLine = memo(function KaraokeLine({
   line,
+  lineProgress: lineProgressValue,
   sourceLine,
   showRomanization,
   showRuby,
@@ -810,7 +832,7 @@ const KaraokeLine = memo(function KaraokeLine({
 }: KaraokeLineProps) {
   const karaokeWords = (line.words ?? []).filter((word) => word.text.trim().length > 0);
   const lineStart = line.time ?? 0;
-  const lineProgress = `${Math.round((line.progress ?? 0) * 1000) / 10}%`;
+  const lineProgress = `${Math.round(lineProgressValue * 1000) / 10}%`;
 
   return (
     <div

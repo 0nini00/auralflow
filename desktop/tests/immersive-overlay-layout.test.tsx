@@ -8,7 +8,7 @@ const deps = vi.hoisted(() => ({
   loadSettings: vi.fn(), patchSettings: vi.fn(), broadcast: vi.fn(), subscribe: vi.fn(),
   getCurrentWindow: vi.fn(), toggleDesktop: vi.fn(), copy: vi.fn(),
 }));
-vi.mock('@/stores/playerStore', () => ({ usePlayerStore: Object.assign(() => { deps.playerReads(); return deps.player; }, { getState: () => deps.player }) }));
+vi.mock('@/stores/playerStore', () => ({ usePlayerStore: Object.assign((selector?: unknown) => { deps.playerReads(); return typeof selector === 'function' ? (selector as (state: typeof deps.player) => unknown)(deps.player) : deps.player; }, { getState: () => deps.player }) }));
 vi.mock('@lx/tauri-bridge', () => ({
   loadSettings: deps.loadSettings, patchSettings: deps.patchSettings,
   isLyricWindowOpen: async () => false, getLyricWindowState: async () => ({ locked: false }),

@@ -48,7 +48,7 @@ export function QueuePanel({ tracks, currentIndex, play, remove, classes, id, on
       {tracks.length === 0 && classes.empty ? (
           <div className={classes.empty}>播放列表为空</div>
         ) : <VirtualList items={tracks} rowHeight={64} className={classes.list}
-          scrollToIndex={currentIndex} scrollToKey={tracks.length} scrollAlign="center" scrollBehavior="auto"
+          scrollToIndex={currentIndex} scrollToKey={currentIndex} scrollAlign="center" scrollBehavior="auto"
           getItemKey={(track, index) => `${track.source}:${track.id}:${index}`}
           renderItem={(track, index) => (
           <div

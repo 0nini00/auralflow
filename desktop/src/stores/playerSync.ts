@@ -129,7 +129,13 @@ function setupMainWindow(channel: BroadcastChannel | null) {
 
 // ─── 从窗口（桌面歌词 / 迷你播放器）──────────────────────────
 
+/** 已应用的最新快照时刻：两条通道（BroadcastChannel + Tauri 事件）到达顺序不保证，
+ *  旧快照晚到会把新状态写回去（歌词窗闪回上一首）。 */
+let lastAppliedUpdatedAt = 0;
+
 function applyState(snapshot: PlaybackSnapshot) {
+  if (Number.isFinite(snapshot.updatedAt) && snapshot.updatedAt < lastAppliedUpdatedAt) return;
+  if (Number.isFinite(snapshot.updatedAt)) lastAppliedUpdatedAt = snapshot.updatedAt;
   usePlayerStore.setState(applyPlaybackSnapshotToStorePatch(snapshot));
 }
 

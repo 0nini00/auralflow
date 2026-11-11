@@ -52,6 +52,8 @@ class PlayerEngine {
   private endedListeners = new Set<EndedListener>();
   private previewListeners = new Set<PreviewListener>();
   private progressRaf: number | null = null;
+  /** 上一次向 store 推进度锚点的时刻：rAF 每帧都推会让所有订阅者 60fps 重渲染。 */
+  private lastProgressEmitAt = 0;
   /** rAF 被窗口遮挡 / 全屏 / 合成器繁忙而节流时，用低频 interval 兜底推送真实 currentTime，避免 store 进度与歌词冻结。 */
   private progressInterval: ReturnType<typeof setInterval> | null = null;
   private fadeRaf: number | null = null;
@@ -372,7 +374,13 @@ class PlayerEngine {
     if (this.progressRaf != null) return;
 
     const tick = () => {
-      this.patchState({ currentTime: this.audio.currentTime || 0 });
+      // 锚点 4 次/秒就够：UI 用 progress + progressSampledAt 的插值时钟自行外推；
+      // 播放/暂停、seek、切歌、ended 仍由各自的 patchState 立即刷新。
+      const now = performance.now();
+      if (now - this.lastProgressEmitAt >= 250) {
+        this.lastProgressEmitAt = now;
+        this.patchState({ currentTime: this.audio.currentTime || 0 });
+      }
       if (!this.audio.paused && !this.audio.ended) {
         this.progressRaf = requestAnimationFrame(tick);
       } else {
@@ -394,7 +402,8 @@ class PlayerEngine {
     this.progressInterval = setInterval(() => {
       if (this.audio.paused || this.audio.ended) return;
       const current = this.audio.currentTime || 0;
-      if (Math.abs(current - this.state.currentTime) > 0.15) {
+      // 阈值要高于锚点推送间隔（250ms）对应的正常滞后，否则会变成重复推送
+      if (Math.abs(current - this.state.currentTime) > 0.45) {
         this.patchState({ currentTime: current });
       }
     }, 500);

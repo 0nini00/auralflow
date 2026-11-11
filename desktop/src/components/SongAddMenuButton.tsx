@@ -98,6 +98,9 @@ export function SongAddMenu({ song, anchor, onClose, onDismiss }: SongAddMenuPro
   const close = () => {
     setError("");
     onClose();
+    // 任何关闭路径（点菜单项 / 点空白 / 选中歌单）都把焦点还给触发按钮；
+    // 否则焦点回落到 body，下一次 Tab 从文档开头重新数起。
+    anchor.focus();
   };
 
   /** 点空白：先收起菜单，再让宿主决定要不要连带收起自己的面板。 */

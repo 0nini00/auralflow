@@ -1,7 +1,7 @@
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 const deps = vi.hoisted(() => ({ state: {} as any, time: 73, seek: vi.fn() }));
-vi.mock('@/stores/playerStore', () => ({ usePlayerStore: () => deps.state }));
+vi.mock('@/stores/playerStore', () => ({ usePlayerStore: (selector?: unknown) => (typeof selector === 'function' ? (selector as (state: typeof deps.state) => unknown)(deps.state) : deps.state) }));
 vi.mock('@/hooks/useInterpolatedPlaybackProgress', () => ({ useInterpolatedPlaybackProgress: () => deps.time }));
 vi.mock('@/hooks/useArtworkAmbience', () => ({ useArtworkAmbience: vi.fn() }));
 vi.mock('@/stores/sleepTimerStore', () => ({ useSleepTimerStore: (select: any) => select({ mode: 'off', remainingSec: 0, remainingSongs: 0, startTimer: vi.fn(), startSongs: vi.fn(), cancel: vi.fn() }) }));

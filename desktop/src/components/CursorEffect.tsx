@@ -43,6 +43,8 @@ export function CursorEffect({ mode }: Props) {
       const arr = particlesRef.current;
       arr.push({ x: e.clientX, y: e.clientY, r: 6, life: 1 });
       if (arr.length > 40) arr.splice(0, arr.length - 40);
+      // 循环在粒子清空时会自己停下，新粒子到了再唤醒。
+      if (rafRef.current == null) rafRef.current = requestAnimationFrame(tick);
     };
     window.addEventListener("mousemove", onMove);
 
@@ -64,6 +66,11 @@ export function CursorEffect({ mode }: Props) {
         ctx.fill();
       }
       ctx.globalAlpha = 1;
+      // 没有粒子就停帧：原来无条件自续，鼠标静止时也在 60fps 清整块全屏 canvas。
+      if (arr.length === 0) {
+        rafRef.current = null;
+        return;
+      }
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);

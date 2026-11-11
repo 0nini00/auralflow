@@ -7,7 +7,7 @@ const deps = vi.hoisted(() => {
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   return { player: {} as any, reportBackgroundError: undefined as undefined | ((message: string) => void) };
 });
-vi.mock('@/stores/playerStore', () => ({ usePlayerStore: Object.assign(() => deps.player, { getState: () => deps.player }) }));
+vi.mock('@/stores/playerStore', () => ({ usePlayerStore: Object.assign((selector?: unknown) => (typeof selector === 'function' ? (selector as (state: typeof deps.player) => unknown)(deps.player) : deps.player), { getState: () => deps.player }) }));
 vi.mock('@lx/tauri-bridge', () => ({ loadSettings: async () => ({}), patchSettings: async () => ({}), isLyricWindowOpen: async () => false, getLyricWindowState: async () => ({ locked: false }) }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
 vi.mock('@/stores/lyricSettingsSync', () => ({ subscribeLyricSettings: () => () => {}, broadcastLyricSettings: vi.fn() }));
