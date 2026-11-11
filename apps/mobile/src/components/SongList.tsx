@@ -7,6 +7,7 @@ import { CachedImage } from "./CachedImage";
 import { DownloadQualityModal } from "./DownloadQualityModal";
 import { AddToLocalPlaylistModal } from "./AddToLocalPlaylistModal";
 import { ActionMenuSheet, type ActionMenuAnchor, type ActionMenuItem } from "./ActionMenuSheet";
+import { afterModalDismiss } from "@/utils/modalSequence";
 import { VariantPickerSheet } from "./VariantPickerSheet";
 import { IconButton } from "./IconButton";
 import { Touchable } from "./Touchable";
@@ -272,6 +273,20 @@ export function SongList({
     ],
   );
 
+  // 首帧 header 还没 onLayout，getItemLayout 的 offset 会少算整个头部高度；
+  // initialScrollIndex 一旦此刻生效就永久偏一段。等 headerHeight 就绪后再补一次定位。
+  const hasListHeader = Boolean(ListHeaderComponent);
+  const pendingInitialScrollRef = useRef<number | null>(
+    hasListHeader && initialScrollIndex != null && initialScrollIndex > 0 ? initialScrollIndex : null,
+  );
+  useEffect(() => {
+    if (!hasListHeader || headerHeight <= 0) return;
+    const index = pendingInitialScrollRef.current;
+    if (index == null) return;
+    pendingInitialScrollRef.current = null;
+    flatListRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0 });
+  }, [hasListHeader, headerHeight]);
+
   // legacy（嵌 ScrollView）路径的空态提前返回；virtualized 路径的空态由
   // ListEmptyComponent 呈现，保证详情页头部（ListHeaderComponent）在空态下仍可见
   // （virtualized 的 useRef/useCallback 钩子必须全部在此早退之前执行，避免 hook 顺序违规）
@@ -318,17 +333,19 @@ export function SongList({
         : "下载";
     const items: ActionMenuItem[] = [
       { label: buildSongQueueActionLabels().playNextLabel, icon: "playNext", onPress: () => playNextInQueue(song) },
-      { label: "收藏到歌单", icon: "playlist", onPress: () => openAddToPlaylist(song) },
+      // 这三个都会在菜单关闭的同帧挂载另一个 Modal；Android 上二级弹层会点不穿，
+      // 必须等一级收完动画（与 QueueModal / ImmersiveMoreMenu 的处理一致）。
+      { label: "收藏到歌单", icon: "playlist", onPress: () => afterModalDismiss(() => openAddToPlaylist(song)) },
     ];
     // 跨源变体存在时才给「其他版本」入口（无变体时该面板无从选择）
     if (getSongVariants(song).length > 0) {
-      items.push({ label: "其他版本", icon: "variant", onPress: () => setVariantPickerSong(song) });
+      items.push({ label: "其他版本", icon: "variant", onPress: () => afterModalDismiss(() => setVariantPickerSong(song)) });
     }
     if (showDownloadAction) {
       items.push({
         label: downloadLabel,
         icon: "download",
-        onPress: () => openDownload(song),
+        onPress: () => afterModalDismiss(() => openDownload(song)),
         disabled: status === "completed",
       });
     }
@@ -374,7 +391,7 @@ export function SongList({
             if (listRef) listRef.current = node;
           }}
           data={songs}
-          initialScrollIndex={initialScrollIndex}
+          initialScrollIndex={hasListHeader && headerHeight <= 0 ? undefined : initialScrollIndex}
           getItemLayout={(_data, index) => ({
             length: layout.songRowMinHeight,
             offset: headerHeight + layout.songRowMinHeight * index,

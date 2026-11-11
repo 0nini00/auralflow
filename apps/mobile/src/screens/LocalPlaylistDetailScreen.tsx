@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useRef, useState } from "react";
-import { Alert, Animated, FlatList, StyleSheet, Text, View } from "react-native";
+import { Alert, FlatList, StyleSheet, Text, View } from "react-native";
+import { useHeaderReveal } from "@/hooks/useHeaderReveal";
 import type { MusicInfo } from "@lx/core";
 import {
   Download,
@@ -56,14 +57,7 @@ export function LocalPlaylistDetailScreen({
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
-  const scrollY = useRef(new Animated.Value(0)).current;
-  const handleScroll = useMemo(
-    () => Animated.event(
-      [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-      { useNativeDriver: false },
-    ),
-    [scrollY],
-  );
+  const { reveal: headerReveal, onScroll: handleScroll } = useHeaderReveal();
 
   const playlist = usePlaylistStore((state) =>
     state.localPlaylists.find((item) => item.id === playlistId),
@@ -287,7 +281,7 @@ export function LocalPlaylistDetailScreen({
 
   return (
     <ScreenScaffold>
-      <FloatingDetailHeader title={playlist.name} onBack={onBack} scrollY={scrollY} />
+      <FloatingDetailHeader title={playlist.name} onBack={onBack} reveal={headerReveal} />
       <SongList
         virtualized
         onScroll={handleScroll}

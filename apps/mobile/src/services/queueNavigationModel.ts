@@ -1,5 +1,19 @@
 import type { PlayMode } from "@/stores/playerStore";
 
+/**
+ * 「稍后播放」把一首歌插到当前曲之后时，插入点之后的所有索引都要 +1。
+ * 随机历史 / 已播集合存的是队列索引，不平移就会指向错位的歌：
+ * 随机模式会重播本轮已听过的、漏掉没听过的，上一首也可能跳错。
+ */
+export function shiftQueueIndicesAfterInsert(
+  indices: readonly number[],
+  insertPoint: number,
+  grew: boolean,
+): number[] {
+  if (!grew) return [];
+  return indices.map((index) => (index >= insertPoint ? index + 1 : index));
+}
+
 export interface NextQueueNavigationInput {
   queueLength: number;
   currentIndex: number;

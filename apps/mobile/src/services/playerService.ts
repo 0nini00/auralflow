@@ -25,7 +25,7 @@ import {
   PRIMARY_BUDGET_MS,
   withBudget,
 } from "@lx/core";
-import { getNextQueueNavigationState, getPreviousQueueNavigationState } from "@/services/queueNavigationModel";
+import { getNextQueueNavigationState, getPreviousQueueNavigationState, shiftQueueIndicesAfterInsert } from "@/services/queueNavigationModel";
 import { dequeueTempPlayList, insertSongToPlayNext } from "@/services/songQueueActions";
 import { buildPlaybackQualityTiers, getPlaybackQualityFallbacks, normalizePlaybackQuality, normalizeSourceQualityLabel, resolveEffectivePlaybackQuality, type PlaybackQuality } from "@/services/playbackQualityModel";
 import {
@@ -90,6 +90,23 @@ const RESOLVE_RACE_BUDGET_MS = 12_000;
 /** FM 当前批次（播放历史）上限：只保留最新 50 条，对齐桌面端 fmHistory 上限。 */
 const FM_HISTORY_MAX = 50;
 const prefetchCache = new Map<string, PrefetchedUrl>();
+/** 预读缓存条数上限：TTL 只在命中路径上判断，没被再次查到的条目否则永远留着。 */
+const PREFETCH_CACHE_MAX_ENTRIES = 200;
+
+function setCachedPrefetch(key: string, entry: PrefetchedUrl): void {
+  if (!prefetchCache.has(key) && prefetchCache.size >= PREFETCH_CACHE_MAX_ENTRIES) {
+    let oldestKey: string | undefined;
+    let oldestAt = Number.POSITIVE_INFINITY;
+    for (const [candidateKey, candidate] of prefetchCache) {
+      if (candidate.fetchedAt < oldestAt) {
+        oldestAt = candidate.fetchedAt;
+        oldestKey = candidateKey;
+      }
+    }
+    if (oldestKey !== undefined) prefetchCache.delete(oldestKey);
+  }
+  prefetchCache.set(key, entry);
+}
 
 /** 在线音频流统一浏览器 UA / wy、tx CDN 防盗链头由 musicApi 共享（播放与下载共用）。 */
 
@@ -373,7 +390,7 @@ async function resolveSongUrl(
       for (const qualityCandidate of qualityCandidates) {
         const cachedAudioPath = await getCachedAudioFile(candidate, qualityCandidate);
         if (!cachedAudioPath) continue;
-        prefetchCache.set(buildPlaybackPrefetchKey(candidate, qualityCandidate), {
+        setCachedPrefetch(buildPlaybackPrefetchKey(candidate, qualityCandidate), {
           url: cachedAudioPath,
           headers: undefined,
           fetchedAt: Date.now(),
@@ -399,7 +416,7 @@ async function resolveSongUrl(
       // 持久化缓存可能存的是本地音频文件（#2 媒体缓存）：校验文件未被清理策略回收
       if (persisted.url.startsWith("file://")) {
         if (await isLocalFilePlayable(persisted.url)) {
-          prefetchCache.set(buildPlaybackPrefetchKey(persistedSong, persisted.quality), {
+          setCachedPrefetch(buildPlaybackPrefetchKey(persistedSong, persisted.quality), {
             url: persisted.url,
             headers: undefined,
             fetchedAt: Date.now(),
@@ -410,7 +427,7 @@ async function resolveSongUrl(
       } else {
         // 旧持久化条目可能没存 headers（修复前写入）：按实际来源补齐防盗链头，避免命中旧缓存仍 403
         const persistedHeaders = persisted.headers ?? buildStreamHeaders(persistedSong.source);
-        prefetchCache.set(buildPlaybackPrefetchKey(persistedSong, persisted.quality), {
+        setCachedPrefetch(buildPlaybackPrefetchKey(persistedSong, persisted.quality), {
           url: persisted.url,
           headers: persistedHeaders,
           fetchedAt: Date.now(),
@@ -637,7 +654,7 @@ async function resolveSongUrl(
   const cacheQuality = resolvedQuality ?? qualityOverride ?? quality;
 
   // 3. 写入预读缓存（以实际解析成功的实体为键，候选链查询自会命中）
-  prefetchCache.set(buildPlaybackPrefetchKey(resolvedSong, cacheQuality), { url, headers, fetchedAt: Date.now() });
+  setCachedPrefetch(buildPlaybackPrefetchKey(resolvedSong, cacheQuality), { url, headers, fetchedAt: Date.now() });
 
   // 3.5 写入持久化 URL 缓存（本地文件不缓存）
   if (!resolvedSong.isLocal && resolvedSong.source !== "local") {
@@ -649,7 +666,7 @@ async function resolveSongUrl(
       void cacheAudioFile(url, resolvedSong, cacheQuality, headers)
         .then((localPath) => {
           if (!localPath) return;
-          prefetchCache.set(buildPlaybackPrefetchKey(resolvedSong, cacheQuality), {
+          setCachedPrefetch(buildPlaybackPrefetchKey(resolvedSong, cacheQuality), {
             url: localPath,
             headers: undefined,
             fetchedAt: Date.now(),
@@ -1285,11 +1302,18 @@ export async function playNext(auto = false): Promise<void> {
     const { nextSong, tempPlayList: nextTempList } = dequeueTempPlayList(tempPlayList);
     if (nextSong) {
       const inserted = insertSongToPlayNext({ queue, currentIndex, song: nextSong });
+      // 与 playNextInQueue 同一规则：插入点之后的索引整体 +1，否则随机历史 /
+      // 已播集合会指向错位的歌（随机模式重播或漏播）。
+      const grew = inserted.queue.length === queue.length + 1;
+      const insertPoint = inserted.currentIndex + 1;
+      const { shuffleHistory, playedIndices } = usePlayerStore.getState();
       usePlayerStore.setState({
         queue: inserted.queue,
         currentIndex: inserted.currentIndex,
         tempPlayList: nextTempList,
         playbackContext: { type: "queue" },
+        shuffleHistory: shiftQueueIndicesAfterInsert(shuffleHistory, insertPoint, grew),
+        playedIndices: shiftQueueIndicesAfterInsert(playedIndices, insertPoint, grew),
       });
       // 空队列场景：insertSongToPlayNext 返回 currentIndex=0 且 queue=[nextSong]，直接播这首。
       const targetIndex = queue.length === 0 || currentIndex < 0 ? 0 : currentIndex + 1;

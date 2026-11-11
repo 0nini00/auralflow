@@ -14,6 +14,11 @@ interface FloatingDetailHeaderProps {
    * 不传（如骨架屏）：直接显示实底标题栏。
    */
   scrollY?: Animated.Value;
+  /**
+   * 直接给 0..1 的显隐值（推荐）：调用方按滚动阈值驱动，避免逐帧写 Animated.Value。
+   * 传了它就不再使用 scrollY 的插值。
+   */
+  reveal?: Animated.Value;
   right?: React.ReactNode;
 }
 
@@ -28,6 +33,7 @@ export function FloatingDetailHeader({
   title,
   onBack,
   scrollY,
+  reveal: revealProp,
   right,
 }: FloatingDetailHeaderProps) {
   const mode = useThemeStore((state) => state.mode);
@@ -35,19 +41,20 @@ export function FloatingDetailHeader({
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
 
-  const reveal = scrollY
-    ? scrollY.interpolate({
-        inputRange: [72, 132],
-        outputRange: [0, 1],
-        extrapolate: "clamp",
-      })
-    : 1;
+  const revealOpacity = revealProp
+    ?? (scrollY
+      ? scrollY.interpolate({
+          inputRange: [72, 132],
+          outputRange: [0, 1],
+          extrapolate: "clamp",
+        })
+      : 1);
 
   return (
     <View style={styles.root} pointerEvents="box-none">
       <Animated.View
         pointerEvents="none"
-        style={[StyleSheet.absoluteFill, { backgroundColor: palette.background, opacity: reveal }]}
+        style={[StyleSheet.absoluteFill, { backgroundColor: palette.background, opacity: revealOpacity }]}
       />
       <View style={styles.content} pointerEvents="box-none">
         <IconButton
@@ -60,7 +67,7 @@ export function FloatingDetailHeader({
         <Animated.Text
           numberOfLines={1}
           pointerEvents="none"
-          style={[styles.title, { color: palette.text, opacity: reveal }]}
+          style={[styles.title, { color: palette.text, opacity: revealOpacity }]}
         >
           {title}
         </Animated.Text>

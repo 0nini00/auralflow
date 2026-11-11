@@ -2,7 +2,6 @@
 import { layout, radius, spacing, typography } from "@/theme/tokens";
 import {
   Alert,
-  Animated,
   FlatList,
   RefreshControl,
   StyleSheet,
@@ -10,6 +9,7 @@ import {
   View,
   Pressable,
 } from "react-native";
+import { useHeaderReveal } from "@/hooks/useHeaderReveal";
 import type { MusicInfo } from "@lx/core";
 import { Download, FolderPlus, ListEnd, ListStart, Music2, SquareCheckBig } from "lucide-react-native";
 import type { WyPlaylistInfo } from "@/services/wyPlaylistService";
@@ -59,14 +59,7 @@ export function PlaylistDetailScreen({
   onNavigateToPlayer,
 }: PlaylistDetailScreenProps) {
   const listRef = useRef<FlatList<MusicInfo> | null>(null);
-  const scrollY = useRef(new Animated.Value(0)).current;
-  const handleScroll = useMemo(
-    () => Animated.event(
-      [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-      { useNativeDriver: false },
-    ),
-    [scrollY],
-  );
+  const { reveal: headerReveal, onScroll: handleScroll } = useHeaderReveal();
   const mountedRef = useRef(true);
   // 批量下载同步锁：batchDownloadQuality 是异步 state，同帧双击都会通过 batchBusy 检查
   const batchRunningRef = useRef(false);
@@ -353,7 +346,7 @@ export function PlaylistDetailScreen({
       <FloatingDetailHeader
         title={displayPlaylist.name}
         onBack={onBack}
-        scrollY={scrollY}
+        reveal={headerReveal}
       />
       <SongList
         virtualized

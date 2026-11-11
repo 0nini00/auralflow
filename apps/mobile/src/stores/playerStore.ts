@@ -1,6 +1,7 @@
 import type { LocalMediaPlaybackState } from "@/services/localMediaPlaybackModel";
 import { create } from "zustand";
 import { reorderQueueState, type QueueReorderStatus } from "@/services/queueReorderModel";
+import { shiftQueueIndicesAfterInsert } from "@/services/queueNavigationModel";
 import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import TrackPlayer, {
@@ -541,7 +542,13 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
         lastTrackKey: pre.sleepTimerLastTrackKey,
       }, song);
       if (sleepTimerNext.shouldPause) {
-        set({ isPlaying: false, sleepTimerSongActive: false, sleepTimerSongCount: 0 });
+        set({ isPlaying: false, sleepTimerSongActive: false, sleepTimerSongCount: 0, onSilenceGap: false });
+        // 只改 JS 状态不够：原生还停在静音占位轨上，15s 后走到队列末尾会触发
+        // PlaybackQueueEnded → advanceAfterTrackFinished 继续起播下一首，定时器等于失效。
+        // 占位轨本身无声，直接暂停不损失任何内容。
+        if (isPlayerSetup) {
+          await TrackPlayer.pause().catch(() => undefined);
+        }
         return;
       }
 
@@ -912,12 +919,11 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       // 插入点之后的索引整体 +1：否则随机历史与已播集合会指向错位的歌。
       const grew = inserted.queue.length === state.queue.length + 1;
       const insertPoint = inserted.currentIndex + 1;
-      const shift = (index: number) => (grew && index >= insertPoint ? index + 1 : index);
       return {
         queue: inserted.queue,
         currentIndex: inserted.currentIndex,
-        shuffleHistory: grew ? state.shuffleHistory.map(shift) : [],
-        playedIndices: grew ? state.playedIndices.map(shift) : [],
+        shuffleHistory: shiftQueueIndicesAfterInsert(state.shuffleHistory, insertPoint, grew),
+        playedIndices: shiftQueueIndicesAfterInsert(state.playedIndices, insertPoint, grew),
         pinnedNextSong: shouldStartNow ? null : song,
       };
     });
@@ -1334,6 +1340,8 @@ export function setupPlayerListeners() {
     const onSilenceGap = track?.id === SILENCE_GAP_TRACK_ID;
     if (onSilenceGap) {
       const state = usePlayerStore.getState();
+      // 归属不符 = 上一首遗留的占位轨事件（currentSong 已经换了），整条忽略：
+      // 否则标记会被陈旧事件置真，后续进度与听歌统计会被当成「间隙」吞掉。
       if (lastTrack && state.currentSong && lastTrack.id !== `${state.currentSong.source}-${state.currentSong.id}`) return;
       if (typeof lastPosition === 'number') onPlaybackProgress(lastPosition, false, state.playbackRate);
       resetListeningSession();

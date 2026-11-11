@@ -55,66 +55,42 @@ const SPACING_ROWS = 4;
 const LYRIC_INITIAL_NUM_TO_RENDER = 30;
 const AnimatedView = Animated.createAnimatedComponent(View);
 
-/** easeInOutQuad 缓动。 */
-function easeInOutQuad(t: number, b: number, c: number, d: number): number {
-  t /= d / 2;
-  if (t < 1) return (c / 2) * t * t + b;
-  t -= 1;
-  return (-c / 2) * (t * (t - 2) - 1) + b;
-}
-
 /**
- * 平滑滚动到指定偏移（10ms 步进 + easeInOutQuad 缓动 + scrollToOffset animated:false）。
- * 返回取消函数；新滚动 / 用户拖动时调用取消，避免动画与新目标打架。
+ * 平滑滚动到指定偏移。
+ *
+ * 旧实现用 10ms 步进自己补间：600ms 内 60 次 JS→native scrollToOffset，任何一次
+ * JS 阻塞都会把滚动切成阶梯。现在只下发一次目标，交原生滚动动画完成。
+ * duration 参数保留在签名里（调用方按行距节奏发起），不再参与计算。
  */
 function smoothScrollToOffset(
   list: FlatList<LyricLine> | null,
   info: NativeSyntheticEvent<NativeScrollEvent>["nativeEvent"] | null,
   to: number,
-  duration: number,
+  _duration: number,
   onDone?: () => void,
 ): () => void {
-  let cancelled = false;
-  let timer: ReturnType<typeof setTimeout> | null = null;
   if (list == null || info == null) {
     onDone?.();
     return () => undefined;
   }
 
-  let start = info.contentOffset.y;
-  if (to > start) {
+  const start = info.contentOffset.y;
+  let target = to;
+  if (target > start) {
     const maxScrollTop = Math.max(0, info.contentSize.height - info.layoutMeasurement.height);
-    if (to > maxScrollTop) to = maxScrollTop;
-  } else if (to < start) {
-    if (to < 0) to = 0;
-  } else {
+    if (target > maxScrollTop) target = maxScrollTop;
+  } else if (target < start && target < 0) {
+    target = 0;
+  }
+  if (target === start) {
     onDone?.();
     return () => undefined;
   }
 
-  const change = to - start;
-  const increment = 10;
-  let currentTime = 0;
-
-  const step = () => {
-    if (cancelled) return;
-    timer = null;
-    currentTime += increment;
-    const val = Math.trunc(easeInOutQuad(currentTime, start, change, duration));
-    list?.scrollToOffset({ offset: val, animated: false });
-    if (currentTime < duration) {
-      timer = setTimeout(step, increment);
-    } else {
-      onDone?.();
-    }
-  };
-
-  step();
-  return () => {
-    cancelled = true;
-    if (timer) clearTimeout(timer);
-    timer = null;
-  };
+  list.scrollToOffset({ offset: target, animated: true });
+  // 原生动画不回报完成时机；下一次滚动会直接覆盖目标，无需取消。
+  onDone?.();
+  return () => undefined;
 }
 
 export function LyricView({
@@ -247,7 +223,7 @@ export function LyricView({
   }, []);
 
   // 滚动到目标行：
-  //  - 相邻行（diff==1）→ 平滑滚动动画（easeInOutQuad 600ms，按动态行高精确计算偏移）
+  //  - 相邻行（diff==1）→ 平滑滚动（原生动画，按动态行高精确计算偏移）
   //  - 跨行/seek/首次 → scrollToIndex viewPosition 0.42（立即定位，不播动画）
   const handleScrollToActive = useCallback(
     (index: number, adjacent = false) => {

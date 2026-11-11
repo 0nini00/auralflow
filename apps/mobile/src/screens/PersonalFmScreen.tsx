@@ -179,13 +179,22 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
   };
 
   const handleFmSongPress = async (_song: MusicInfo, index: number) => {
-    if (isFmPlaying) {
-      if (index === 0) {
-        await handleTogglePlay();
-      }
+    if (!isFmPlaying) {
+      await handleStart(index);
       return;
     }
-    await handleStart(index);
+    // 播放中列表传的是 fmSongs.slice(1)，index 是相对切片的下标；点到哪首就播哪首。
+    // 旧实现把「第一行」当成暂停按钮，其余行直接 return，等于整个列表点不动。
+    setStarting(true);
+    setError(null);
+    try {
+      await startPersonalFmWithSongs(fmSongs, true, index + 1);
+      onNavigateToPlayer();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setStarting(false);
+    }
   };
 
   const handleNext = async () => {

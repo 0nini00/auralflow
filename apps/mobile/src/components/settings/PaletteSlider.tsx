@@ -38,14 +38,14 @@ export function PaletteSlider({ value, min, max, step, palette, onChange, style 
   const usableWidth = Math.max(0, trackW - THUMB_SIZE);
   const ratio = trackW > 0 ? (value - min) / (max - min) : 0;
 
-  const updateFromPageX = (pageX: number) => {
+  // 直接用 locationX（相对本视图原点），不再每次 move 都排一次异步 measure：
+  // measure 回调的顺序没有保证，拖快时会让圆点回跳。
+  const updateFromLocationX = (locationX: number) => {
     if (usableWidth <= 0) return;
-    trackRef.current?.measure((_x, _y, _w, _h, pageX0) => {
-      const localX = pageX - pageX0 - THUMB_SIZE / 2;
-      const r = Math.max(0, Math.min(1, localX / usableWidth));
-      const snapped = Math.round((min + r * (max - min)) / stepSize) * stepSize;
-      onChange(Math.max(min, Math.min(max, snapped)));
-    });
+    const localX = locationX - THUMB_SIZE / 2;
+    const r = Math.max(0, Math.min(1, localX / usableWidth));
+    const snapped = Math.round((min + r * (max - min)) / stepSize) * stepSize;
+    onChange(Math.max(min, Math.min(max, snapped)));
   };
 
   return (
@@ -55,8 +55,8 @@ export function PaletteSlider({ value, min, max, step, palette, onChange, style 
       onLayout={(e: LayoutChangeEvent) => setTrackW(e.nativeEvent.layout.width)}
       onStartShouldSetResponder={() => true}
       onMoveShouldSetResponder={() => true}
-      onResponderGrant={(e) => updateFromPageX(e.nativeEvent.pageX)}
-      onResponderMove={(e) => updateFromPageX(e.nativeEvent.pageX)}
+      onResponderGrant={(e) => updateFromLocationX(e.nativeEvent.locationX)}
+      onResponderMove={(e) => updateFromLocationX(e.nativeEvent.locationX)}
     >
       <View style={[styles.track, { backgroundColor: palette.surfaceMuted }]} />
       <View
@@ -85,7 +85,8 @@ export function PaletteSlider({ value, min, max, step, palette, onChange, style 
 const styles = StyleSheet.create({
   trackWrap: {
     position: "relative",
-    height: 22,
+    // 触控区至少 44px（仓库 touch.minTarget），视觉轨道仍居中、高度不变
+    height: 44,
     justifyContent: "center",
   },
   track: {
@@ -98,11 +99,15 @@ const styles = StyleSheet.create({
   fill: {
     position: "absolute",
     left: 0,
+    top: "50%",
+    marginTop: -2,
     height: 4,
     borderRadius: 2,
   },
   thumb: {
     position: "absolute",
+    top: "50%",
+    marginTop: -THUMB_SIZE / 2,
     width: THUMB_SIZE,
     height: THUMB_SIZE,
     borderRadius: THUMB_SIZE / 2,

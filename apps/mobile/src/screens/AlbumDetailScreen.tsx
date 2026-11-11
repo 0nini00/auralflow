@@ -1,12 +1,12 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { layout, radius, spacing, typography } from "@/theme/tokens";
 import {
-  Animated,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { useHeaderReveal } from "@/hooks/useHeaderReveal";
 import type { MusicInfo } from "@lx/core";
 
 import { ActionButton } from "@/components/ActionButton";
@@ -66,14 +66,7 @@ export function AlbumDetailScreen({
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor);
   const currentSong = usePlayerStore((state) => state.currentSong);
-  const scrollY = useRef(new Animated.Value(0)).current;
-  const handleScroll = useMemo(
-    () => Animated.event(
-      [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-      { useNativeDriver: false },
-    ),
-    [scrollY],
-  );
+  const { reveal: headerReveal, onScroll: handleScroll } = useHeaderReveal();
 
   const requestSequenceRef = useRef(0);
   const currentIdRef = useRef(album.id);
@@ -200,7 +193,7 @@ export function AlbumDetailScreen({
 
   return (
     <ScreenScaffold>
-      <FloatingDetailHeader title={heroTitle} onBack={onBack} scrollY={scrollY} />
+      <FloatingDetailHeader title={heroTitle} onBack={onBack} reveal={headerReveal} />
       <SongList
         virtualized
         onScroll={handleScroll}
