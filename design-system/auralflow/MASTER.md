@@ -1,8 +1,10 @@
 # AuralFlow 设计系统 · MASTER
 
-> 跨端（桌面 / 移动）设计系统主文档。所有技术事实均取自当前代码库 `desktop/src` 与 `apps/mobile/src`，含表与最小代码示例。日期基准：2026-08-27。
+> 跨端（桌面 / 移动）设计系统主文档。所有技术事实取自当前代码库 `desktop/src` 与 `apps/mobile/src`。日期基准：2026-11-11。
 >
-> **2026-10 更新**：移动端已按 [`docs/mobile-redesign/PROPOSAL.md`](../../docs/mobile-redesign/PROPOSAL.md) 重构——暖中性画布 `#F3F3EF`、可读行动色 `primaryInk`、64px 标签栏与迷你播放器、删除 Drawer。本文移动端章节（§2.2 / §3.2 / §4.2 / §5.2 / §9.2）为 2026-08 基线，新 token 以移动端方案与 `apps/mobile/src/theme/tokens.ts` 为准。
+> **令牌唯一真相源**：圆角、字号、间距、品牌色与画布统一在 [`packages/core/src/design-tokens.ts`](../../packages/core/src/design-tokens.ts)。移动端直接 import，桌面端的 CSS 变量由 [`desktop/tests/design-tokens-contract.test.ts`](../../desktop/tests/design-tokens-contract.test.ts) 逐值比对——改了一边忘了另一边会红。本文只描述「这套令牌怎么用」，不再复述数值的第二份副本。
+>
+> 字号是**唯一有意分叉**：手机视距更近，正文比桌面大一档（15 vs 14），两张表并列写在 shared 文件里。
 
 ---
 
@@ -15,10 +17,10 @@ AuralFlow 桌面端与移动端共享同一套视觉语言——强调色、深�
 | 载体 | Tauri + Web，CSS 变量 + `af-` 类名 | React Native，TypeScript token + 内联样式 |
 | 令牌介质 | `--af-*` CSS 变量（运行时可改写） | `theme/tokens.ts` 常量对象 + `getThemePalette()` 调色板 |
 | 主题切换 | `data-theme="dark"` 选择器 + `themeStore.applyAppearance` 运行时写变量 | `useThemeStore` + `getThemePalette(resolvedTheme, accentColor)` 无 Context |
-| 强调色 | 同一默认值 `#3bd877`，用户可自定义 | 同一默认值 `#3bd877`，用户可自定义 |
+| 强调色 | `BRAND.accent` `#17a34a`，用户可自定义 | 同一个 `BRAND.accent`，用户可自定义 |
 | 平台原生适配 | `@media(max-width:768px)`、`prefers-reduced-motion`、自定义滚动条 | 触摸目标 ≥44px、`hitSlop` 补足、`isAndroid` 分支 |
 
-两端视觉基调一致：圆角面板（桌面 `--af-radius-xl: 20px`，移动 `radius.xl: 20`）、柔和阴影、强调色渐变 `linear-gradient(135deg, #3bd877 0%, #4fdc85 100%)`。差异在于渲染路径——桌面用 CSS 文件分层（`index.css` 711 行 + 10 个 `styles/*.css`），移动用 token 对象与 `StyleSheet.create`。
+两端视觉基调一致：同一张圆角表（`RADIUS`，20 是最大面板档）、同一套品牌绿三档（`BRAND`：vivid 装饰 / accent 交互 / action 填充）、同一块画布底色（`CANVAS`：浅色 `#f3f3ef`、深色 `#0b0f0d`）。差异只在渲染路径——桌面用 CSS 文件分层（`index.css` + 14 个 `styles/*.css`），移动用 token 对象与 `StyleSheet.create`。
 
 ---
 
@@ -28,46 +30,41 @@ AuralFlow 桌面端与移动端共享同一套视觉语言——强调色、深�
 
 | 变量族 | light | dark | 用途 |
 |---|---|---|---|
-| `--af-bg-base` | `#f8f9fa` | `#0a0a0a` | 应用根底色 |
-| `--af-bg-page` | `#ffffff` | `#121212` | 主内容面板 |
-| `--af-bg-elevated` | `#ffffff` | `#1a1a1a` | 侧边栏 / 播放条 |
-| `--af-bg-surface` | `#f8f9fa` | `#1e1e1e` | 卡片表面 |
-| `--af-text-primary` | `#0f172a` | `#f8fafc` | 主文字 |
-| `--af-text-secondary` | `#475569` | `#cbd5e1` | 次文字 |
-| `--af-accent-primary` | `#3bd877` | `#3bd877` | 强调主色 |
-| `--af-accent-primary-rgb` | `59, 216, 119` | `59, 216, 119` | RGB 三元组，供 `rgba()` |
-| `--af-accent-gradient` | `linear-gradient(135deg,#3bd877 0%,#4fdc85 100%)` | `linear-gradient(135deg,#3bd877 0%,#5edf8f 100%)` | 强调渐变 |
-| `--af-border-focus` | `rgba(59,216,119,0.4)` | `rgba(59,216,119,0.5)` | 聚焦描边 |
-| `--af-shadow-sm/md/lg/xl` | `0 1px 2px rgba(0,0,0,.05)` … | `0 1px 2px rgba(0,0,0,.3)` … | 阴影（暗色加深） |
+| `--af-bg-base` | `#f3f3ef` | `#0b0f0d` | 应用根底色（= `CANVAS`） |
+| `--af-bg-page` | `#fbfbf8` | `#0d100e` | 主内容面板 |
+| `--af-bg-elevated` | `#ffffff` | `#141816` | 侧边栏 / 播放条 |
+| `--af-bg-surface` | `#f0f0eb` | `#101312` | 卡片表面 |
+| `--af-text-primary` | `#15180f` | `#eef2ee` | 主文字 |
+| `--af-text-secondary` | `#565d54` | `#a3aea6` | 次文字 |
+| `--af-text-tertiary` | `#6a6f67` | `#79837b` | 三级文字 |
+| `--af-border-primary` | `#e4e4dd` | `#232925` | 结构边框 |
+| `--af-shadow-sm/md/lg/xl` | `0 1px 2px rgba(20,25,15,.05)` … | `0 1px 2px rgba(0,0,0,.5)` … | 阴影（暗色加深） |
 
-`--af-accent-primary-rgb` 是关键设计：将主色拆成赤/绿/蓝三个数字字符串存于变量，用于 `rgba(var(--af-accent-primary-rgb), 0.10)` 这类半透明填充，避免在 CSS 中重复硬编码颜色。
+**强调色不在 theme.css 里**：`--af-accent-primary` / `-rgb` / `-gradient` / `-hover` / `--af-border-focus` / `--af-text-on-accent` 全部由 `themeStore.applyAppearance` 运行时 `setProperty` 注入，默认值来自 `APPEARANCE_DEFAULTS.accentColor`（= `BRAND.accent` `#17a34a`）。这样换强调色不需要重写样式表。
 
-```css
-/* theme.css */
-:root { --af-accent-primary: #3bd877; --af-accent-primary-rgb: 59, 216, 119; }
-[data-theme="dark"] { --af-bg-base: #0a0a0a; --af-text-primary: #f8fafc; }
-/* 消费方 */
-.af-sidebar-link.active {
-  background: rgba(var(--af-accent-primary-rgb), 0.10);
-  color: var(--af-accent-primary);
-}
+```ts
+// stores/themeStore.ts
+export const APPEARANCE_DEFAULTS = { theme: "dark", accentColor: BRAND.accent, ... };
+// 运行时拆分 RGB，供 rgba(var(--af-accent-primary-rgb), 0.10) 这类半透明填充
+root.style.setProperty("--af-accent-primary-rgb", `${red}, ${green}, ${blue}`);
 ```
 
 ### 2.2 移动 `getThemePalette`
 
 | Palette 字段 | light | dark |
 |---|---|---|
-| `background` | `#f8f9fa` | `#121212` |
-| `surface` | `#ffffff` | `#1a1a1a` |
-| `surfaceMuted` | `#f1f3f5` | `#1e1e1e` |
-| `surfaceStrong` | `#e9ecef` | `#2a2a2a` |
-| `border` | `#e2e8f0` | `#334155` |
-| `text` | `#0f172a` | `#f8fafc` |
-| `textMuted` | `#475569` | `#cbd5e1` |
-| `textSubtle` | `#94a3b8` | `#64748b` |
+| `background` | `#f3f3ef` | `#0b0f0d` |
+| `surface` | `#ffffff` | `#121815` |
+| `surfaceMuted` | `#ebebe4` | `#19211d` |
+| `surfaceStrong` | `#e0e0d6` | `#222c27` |
+| `border` | `#e3e3d9` | `#26312c` |
+| `text` | `#161a16` | `#f1f5f2` |
+| `textMuted` | `#5b615a` | `#a7b3ae` |
+| `textSubtle` | `#646863` | `#79837b` |
 | `danger` | `#ef4444` | `#ef4444` |
-| `primary` | 用户自定义 accent | 用户自定义 accent |
-| `primaryText` | 由 `getReadableTextColor` 算出 | 同左 |
+| `primary` | `BRAND.accent` `#17a34a`，用户可自定义 | 同左 |
+| `primaryInk` | `BRAND.action` `#0d7a42`（浅色下压深） | `#6fe7ac`（深色下提亮） |
+| `actionFill` / `onActionFill` | `#0d7a42` / 白字 | 同左 |
 | `statusBar` | `dark-content` | `light-content` |
 
 调色板由 `buildThemePalette(theme, accentColor)` 生成，`primaryText` 通过亮度公式 `(0.299r+0.587g+0.114b)/255 > 0.58` 决定深色或白色文字。移动端色值与桌面 `theme.css` 对齐（注释明确标注「对齐桌面 --af-bg-page / elevated / surface」）。
@@ -119,7 +116,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", …
 | `displayLg` | 34 | 沉浸式大标题 |
 
 ```ts
-export const typography = { micro: 11, caption: 12, meta: 13, body: 15, title: 17, heading: 20, display: 28, displayLg: 34 } as const;
+// apps/mobile/src/theme/tokens.ts —— 数值来自 @lx/core，不在这里维护第二份
+import { TYPE_SCALE } from "@lx/core";
+export const typography = TYPE_SCALE.mobile;
 ```
 
 ---
@@ -128,25 +127,39 @@ export const typography = { micro: 11, caption: 12, meta: 13, body: 15, title: 1
 
 ### 4.1 桌面
 
-| 间距 Token | 值 | 圆角 Token | 值 |
-|---|---|---|---|
-| `--af-spacing-xs` | 4px | `--af-radius-sm` | 8px |
-| `--af-spacing-sm` | 8px | `--af-radius-md` | 12px |
-| `--af-spacing-md` / `--af-space-md` | 16px | `--af-radius-lg` | 16px |
-| `--af-spacing-lg` | 24px | `--af-radius-xl` | 20px |
-| `--af-spacing-xl` | 32px | `--af-radius-full` | 9999px |
-| `--af-spacing-2xl` | 48px | `--af-button-radius` | 10px |
+**桌面没有间距令牌**——`theme.css` 里有明确的删除记录：旧的 `--af-spacing-*` 全仓 `var()` 引用数为 0，留着只会让人误以为间距受统一约束。真实约定是「取值落在 2px 网格上」，高频值 4 / 6 / 8 / 10 / 12 / 16 / 20 / 24 / 32，同一组件内保持一致即可。
+
+| 圆角 Token | 值（= `RADIUS`） |
+|---|---|
+| `--af-radius-xs` | 6px |
+| `--af-radius-sm` | 8px |
+| `--af-radius-md` | 10px |
+| `--af-radius-lg` | 14px |
+| `--af-radius-xl` | 20px |
+| `--af-radius-full` | 9999px |
+| `--af-button-radius` | 10px（= md） |
+
+以上每一项都由 `desktop/tests/design-tokens-contract.test.ts` 与 `@lx/core` 的 `RADIUS` / `TYPE_SCALE.desktop` 比对。
 
 ### 4.2 移动 `tokens.ts`
 
 | 间距键 | 值 | 圆角键 | 值 |
 |---|---|---|---|
-| `spacing.line` | 2 | `radius.sm` | 8 |
-| `spacing.xxs` | 4 | `radius.md` | 12 |
-| `spacing.tight` | 6 | `radius.lg` | 16 |
-| `spacing.xs` | 8 | `radius.xl` | 20 |
-| `spacing.snug` | 10 | `radius.xxl` | 28 |
-| `spacing.s` | 12 | `radius.pill` | 999 |
+| `spacing.line` | 2 | `radius.xs` | 6 |
+| `spacing.xxs` | 4 | `radius.sm` | 8 |
+| `spacing.tight` | 6 | `radius.md` | 10 |
+| `spacing.xs` | 8 | `radius.lg` | 14 |
+| `spacing.snug` | 10 | `radius.xl` | 20 |
+| `spacing.s` | 12 | `radius.xxl` | 28 |
+| `spacing.cozy` | 14 | `radius.pill` | 9999 |
+| `spacing.m` | 16 | | |
+| `spacing.roomy` | 18 | | |
+| `spacing.l` | 20 | | |
+| `spacing.xl` | 24 | | |
+| `spacing.xxl` | 32 | | |
+| `spacing.xxxl` | 40 | | |
+
+`radius` 与 `typography` 都是 `@lx/core` 的直接 re-export（`export const radius = RADIUS`），不在本地维护副本。
 | `spacing.cozy` | 14 | | |
 | `spacing.m` | 16 | | |
 | `spacing.roomy` | 18 | | |
@@ -403,10 +416,10 @@ transition: opacity calc(0.8s / var(--af-immersive-anim-scale, 1)) ease;
 | `--af-accent-gradient-hover` | `linear-gradient(135deg, hover 0%, accent 100%)` |
 | `--af-border-focus` | `rgba(r,g,b, dark?0.5:0.4)` |
 
-旧强调色 `#1db954` 与 `#d83b40` 由 `migrateAccentColor` 自动迁移到 `#3bd877`。
+旧强调色 `#1db954` / `#d83b40` / 品牌荧光绿 `#3bd877` 由各自的迁移逻辑统一收敛到 `BRAND.accent`（`#17a34a`）：桌面走 `themeStore` 的版本迁移，移动端走 `migrateAccentColor`。
 
 ```ts
-const applyAppearance = (theme, accentColor = DEFAULT_ACCENT_COLOR) => {
+const applyAppearance = (theme, accentColor = APPEARANCE_DEFAULTS.accentColor) => {
   document.documentElement.setAttribute("data-theme", theme);
   const [red, green, blue] = hexToRgb(normalizeHexColor(accentColor));
   root.style.setProperty("--af-accent-primary", normalizedAccent);
