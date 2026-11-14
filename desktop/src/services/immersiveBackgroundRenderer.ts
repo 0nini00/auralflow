@@ -19,6 +19,11 @@ export interface ImmersiveBackgroundRenderer {
 }
 
 type Color = [number, number, number];
+/** 着色器的两个颜色输入：背景主色，以及封面接近灰阶时借用色相的主题强调色。 */
+interface Palette {
+  color: Color;
+  accent: Color;
+}
 const FRAME_INTERVAL_MS = 1000 / 30;
 const MAX_PIXELS = 1280 * 720;
 const MAX_DPR = 1.5;
@@ -35,19 +40,26 @@ function parseColor(value: string): Color | null {
   return rgb.map((channel) => channel / 255) as Color;
 }
 
-function readColor(parent: HTMLElement): Color {
+function readPalette(parent: HTMLElement): Palette {
   const computed = getComputedStyle(parent);
-  const artwork = parseColor(computed.getPropertyValue('--af-immersive-artwork-rgb'));
-  if (artwork) return artwork;
+  const accent = parseColor(computed.getPropertyValue('--af-accent-primary-rgb'));
+  if (!accent) throw new Error('无法读取沉浸背景颜色：主题强调色无效');
   // 与沉浸页 CSS 的声明一致：没有有效封面色时使用当前主题强调色。
-  const accent = parseColor(computed.getPropertyValue('--af-accent-primary-rgb'))
-    ?? parseColor(getComputedStyle(document.documentElement).getPropertyValue('--af-accent-primary-rgb'));
-  if (accent) return accent;
-  throw new Error('无法读取沉浸背景颜色：封面色和主题强调色均无效');
+  return { color: parseColor(computed.getPropertyValue('--af-immersive-artwork-rgb')) ?? accent, accent };
+}
+
+function samePalette(a: Palette, b: Palette): boolean {
+  return a.color.every((channel, i) => channel === b.color[i])
+    && a.accent.every((channel, i) => channel === b.accent[i]);
+}
+
+function blendPalette(from: Palette, to: Palette, amount: number): Palette {
+  const mix = (a: Color, b: Color) => a.map((channel, i) => channel + (b[i] - channel) * amount) as Color;
+  return { color: mix(from.color, to.color), accent: mix(from.accent, to.accent) };
 }
 
 interface Graphics {
-  draw(time: number, mode: ImmersiveBackgroundMode, color: Color): void;
+  draw(time: number, mode: ImmersiveBackgroundMode, palette: Palette): void;
   dispose(): void;
 }
 
@@ -100,14 +112,16 @@ function createGraphics(gl: WebGLRenderingContext, canvas: HTMLCanvasElement): G
     const aspectUniform = uniform('uAspect');
     const modeUniform = uniform('uMode');
     const colorUniform = uniform('uColor');
+    const accentUniform = uniform('uAccent');
     return {
-      draw(time, mode, color) {
+      draw(time, mode, palette) {
         gl.viewport(0, 0, canvas.width, canvas.height);
         gl.useProgram(program);
         gl.uniform1f(timeUniform, time);
         gl.uniform1f(aspectUniform, canvas.width / canvas.height);
         gl.uniform1i(modeUniform, mode === 'liquid' ? 0 : 1);
-        gl.uniform3fv(colorUniform, color);
+        gl.uniform3fv(colorUniform, palette.color);
+        gl.uniform3fv(accentUniform, palette.accent);
         gl.drawArrays(gl.TRIANGLES, 0, 6);
       },
       dispose,
@@ -126,8 +140,8 @@ export function createImmersiveBackgroundRenderer(
   const preference = matchMedia('(prefers-reduced-motion: reduce)');
   let state: ImmersiveBackgroundState = { mode: options.mode, playing: options.playing };
   let graphics: Graphics | null = null;
-  let color: Color | null = null;
-  let targetColor: Color | null = null;
+  let palette: Palette | null = null;
+  let target: Palette | null = null;
   let disposed = false;
   let failed = false;
   let contextLost = false;
@@ -153,9 +167,9 @@ export function createImmersiveBackgroundRenderer(
   const canDraw = () => !disposed && !failed && !contextLost && hasSize && !document.hidden;
   const animating = () => canDraw() && state.playing && !preference.matches;
   const draw = () => {
-    if (!canDraw() || !graphics || !color) return;
+    if (!canDraw() || !graphics || !palette) return;
     try {
-      graphics.draw(time, state.mode, color);
+      graphics.draw(time, state.mode, palette);
     } catch (error) {
       fail(error);
     }
@@ -167,9 +181,8 @@ export function createImmersiveBackgroundRenderer(
       const elapsed = Math.min((now - lastDraw) / 1000, 0.1);
       lastDraw = now;
       time += elapsed;
-      if (color && targetColor) {
-        const blend = 1 - Math.exp(-elapsed / COLOR_BLEND_SECONDS);
-        color = color.map((channel, i) => channel + (targetColor![i] - channel) * blend) as Color;
+      if (palette && target) {
+        palette = blendPalette(palette, target, 1 - Math.exp(-elapsed / COLOR_BLEND_SECONDS));
       }
       draw();
     }
@@ -196,35 +209,27 @@ export function createImmersiveBackgroundRenderer(
     draw();
     syncAnimation();
   };
-  /** 上一次读到的封面色 inline 值：沉浸页每帧都在改 --af-immersive-progress，
-   *  观察器会跟着每帧触发；只有这个变量变了才值得做一次 getComputedStyle。 */
-  let lastArtworkRaw = '';
-
   const updateColor = () => {
     if (disposed || failed || !parent) return;
     try {
-      const artworkRaw = parent.style.getPropertyValue('--af-immersive-artwork-rgb').trim();
-      // 没有有效封面色时会回退到主题强调色（随主题变化），那条路径不能靠它短路。
-      if (artworkRaw && artworkRaw === lastArtworkRaw) return;
-      const next = readColor(parent);
-      lastArtworkRaw = artworkRaw;
-      if (targetColor?.every((channel, i) => channel === next[i])) return;
-      targetColor = next;
-      if (!animating()) { color = next; draw(); }
+      const next = readPalette(parent);
+      if (target && samePalette(target, next)) return;
+      target = next;
+      if (!animating()) { palette = next; draw(); }
     } catch (error) {
       fail(error);
     }
   };
   const refresh = () => {
     if (disposed) return;
-    if (!animating() && targetColor) color = [...targetColor];
+    if (!animating() && target) palette = target;
     draw();
     syncAnimation();
   };
   const initialize = () => {
     try {
       if (!parent) throw new Error('沉浸背景画布缺少父容器');
-      color = targetColor = readColor(parent);
+      palette = target = readPalette(parent);
       const gl = canvas.getContext('webgl', { alpha: false, antialias: false, depth: false, stencil: false, preserveDrawingBuffer: true });
       if (!gl) throw new Error('当前环境无法创建 WebGL 沉浸背景');
       graphics = createGraphics(gl, canvas);
@@ -251,10 +256,10 @@ export function createImmersiveBackgroundRenderer(
 
   const resizeObserver = new ResizeObserver(resize);
   const colorObserver = new MutationObserver(updateColor);
-  if (parent) {
-    resizeObserver.observe(parent);
-    colorObserver.observe(parent, { attributes: true, attributeFilter: ['style', 'class'] });
-  }
+  if (parent) resizeObserver.observe(parent);
+  // 封面色（--af-artwork-rgb）与强调色都写在根节点上，只观察根节点。
+  // 沉浸页自己的 inline style 每帧都在改播放进度，而它上面的 --af-immersive-artwork-rgb
+  // 是一段固定的 var() 引用，观察它既每帧空转，也看不出封面色变没变。
   colorObserver.observe(document.documentElement, { attributes: true });
   document.addEventListener('visibilitychange', refresh);
   preference.addEventListener('change', refresh);
@@ -267,7 +272,7 @@ export function createImmersiveBackgroundRenderer(
       if (disposed) return;
       const modeChanged = next.mode !== state.mode;
       state = { mode: next.mode, playing: next.playing };
-      if (!animating() && targetColor) color = [...targetColor];
+      if (!animating() && target) palette = target;
       if (modeChanged) draw();
       syncAnimation();
     },

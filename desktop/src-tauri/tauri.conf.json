@@ -61,6 +61,13 @@
     ]
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "auralflow"
+        ]
+      }
+    },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY3REEwMDRDOTFGMTQ4RTcKUldUblNQR1JUQURhOTZSdlI0bG0wT29Oa29KandlWjJiWG03TDh5S2Vmb3FWY2Z1MnFrWDBhSUQK",
       "endpoints": [

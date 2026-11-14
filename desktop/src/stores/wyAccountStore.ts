@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { patchSettings } from "@lx/tauri-bridge";
 import type { MusicInfo } from "@lx/core";
 import { setVipOfficialFirst } from "@/services/playback/officialPriority";
+import { WyAuthExpiredError } from "@/services/wyAuthError";
 import {
   setWyCookie,
   getWyCookie,
@@ -148,8 +149,9 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
     } catch (e) {
       if (generation !== accountGeneration) return;
       const msg = e instanceof Error ? e.message : String(e);
-      const authBroken =
-        /过期|无效|不一致|未设置网易云|缺少 MUSIC_U|请重新登录|请重新填写 Cookie/.test(msg);
+      // 登录态失效按错误类型判定，不匹配文案：「歌单 ID 无效」这类业务错误
+      // 曾因消息里带关键词而被误判、把用户的 Cookie 清掉；改文案也会让判定静默失效。
+      const authBroken = e instanceof WyAuthExpiredError;
 
       clearPlaylistCaches(generation);
       if (authBroken) {

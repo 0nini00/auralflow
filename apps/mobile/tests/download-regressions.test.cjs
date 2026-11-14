@@ -428,3 +428,39 @@ test("MP3标签部分写入失败不得发布损坏音频", settings, async () =
   assert.deepEqual(h.saved(), []);
   assert.equal(h.files.size, 0);
 });
+
+test("清空下载先中断在途与排队任务，收尾后不落盘也不回写记录", settings, async () => {
+  const h = setup({ manualNative: true, manualStop: true });
+  const playing = h.store.getState().downloadSong(song, "flac");
+  await until(() => h.jobs.length === 1);
+  const queued = h.store.getState().downloadSong(secondSong, "flac");
+  await new Promise(setImmediate);
+  const cleared = h.store.getState().clearDownloads();
+  await new Promise(setImmediate);
+  // 清空必须先停掉在途的原生下载（排队任务同步被取消）
+  assert.equal(h.jobs[0].stopped, true, "清空下载必须先停止在途原生任务");
+  assert.equal((await queued).status, "cancelled");
+  assert.deepEqual(h.saved(), []);
+  // 在途任务收尾完成后，清空不得留下任何文件或记录
+  h.jobs[0].finish();
+  await cleared;
+  assert.equal((await playing).status, "cancelled");
+  assert.deepEqual(h.saved(), []);
+  assert.equal(h.files.size, 0);
+  assert.equal(h.store.getState().downloading.length, 0);
+  assert.equal(h.store.getState().downloads.length, 0);
+});
+
+test("清空下载同时取消已暂停任务，不留下无法继续的残留", settings, async () => {
+  const h = setup({ manualNative: true });
+  const first = h.store.getState().downloadSong(song, "flac");
+  await until(() => h.jobs.length === 1);
+  h.store.getState().pauseDownload(song, "flac");
+  assert.equal((await first).status, "inProgress");
+  assert.equal(h.store.getState().downloading[0].status, "paused");
+  await h.store.getState().clearDownloads();
+  assert.equal(h.service.isDownloadPaused(song, "flac"), false);
+  assert.equal(h.store.getState().downloading.length, 0);
+  assert.deepEqual(h.saved(), []);
+  assert.equal(h.files.size, 0);
+});

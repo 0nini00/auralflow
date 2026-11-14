@@ -1,7 +1,12 @@
 import type { AlbumInfo, ArtistInfo, MusicInfo, PlaylistInfo } from "@lx/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { getSearchHistory, replaceSearchHistory } from "./searchHistory";
 
-const RECENT_SEARCH_KEY = "af_recent_search_keywords";
+/**
+ * 旧版把「顶栏最近关键词」单独存一份；现已并入搜索历史（`af-search-history`，见 searchHistory.ts）。
+ * 旧键只在首次读取时一次性迁移，不再有写入方。
+ */
+const LEGACY_RECENT_SEARCH_KEY = "af_recent_search_keywords";
 const MAX_RECENT_KEYWORDS = 10;
 const MAX_SUGGESTIONS = 8;
 
@@ -30,33 +35,33 @@ function getStorage(): Storage | null {
 }
 
 export function getStoredSearchKeywords(): string[] {
-  const storage = getStorage();
-  if (!storage) return [];
-
-  const raw = storage.getItem(RECENT_SEARCH_KEY);
-  if (!raw) return [];
-
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
-  } catch {
-    storage.removeItem(RECENT_SEARCH_KEY);
-    return [];
-  }
+  migrateLegacyRecentKeywords();
+  return getSearchHistory().slice(0, MAX_RECENT_KEYWORDS);
 }
 
-export function recordSearchKeyword(keyword: string): void {
-  const trimmed = keyword.trim();
+/**
+ * 最近关键词与搜索页历史共用一个存储：过去顶栏只写 `af_recent_search_keywords`，
+ * 从顶栏搜过的词不出现在搜索页历史里，清空/撤销也各管一半。旧键读到时并入
+ * 搜索历史（既有历史更新、排在前面）后删除。
+ */
+function migrateLegacyRecentKeywords(): void {
   const storage = getStorage();
-  if (!trimmed || !storage) return;
+  if (!storage) return;
+  const raw = storage.getItem(LEGACY_RECENT_SEARCH_KEY);
+  if (raw == null) return;
+  storage.removeItem(LEGACY_RECENT_SEARCH_KEY);
 
-  const normalized = normalizeKeyword(trimmed);
-  const next = [
-    trimmed,
-    ...getStoredSearchKeywords().filter((item) => normalizeKeyword(item) !== normalized),
-  ].slice(0, MAX_RECENT_KEYWORDS);
-  storage.setItem(RECENT_SEARCH_KEY, JSON.stringify(next));
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+    const legacy = parsed.filter(
+      (item): item is string => typeof item === "string" && item.trim().length > 0,
+    );
+    if (legacy.length === 0) return;
+    replaceSearchHistory([...getSearchHistory(), ...legacy]);
+  } catch {
+    // 旧键内容损坏：删掉当作没有
+  }
 }
 
 function appendSuggestion(

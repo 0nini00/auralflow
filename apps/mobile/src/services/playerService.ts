@@ -1021,14 +1021,21 @@ async function resolveCrossSourceSubstitute(
 
   for (const candidate of candidates) {
     if (!isCurrentPlaybackRequest(intent)) throw new Error(primaryMessage);
+    let resolved: { song: MusicInfo; url: string; headers?: Record<string, string> };
     try {
-      const resolved = await resolveSongUrl(candidate);
-      if (!isCurrentPlaybackRequest(intent)) throw new Error(primaryMessage);
-      return resolved;
-    } catch {
+      resolved = await resolveSongUrl(candidate);
+    } catch (error) {
       // 该候选解析不出来（多数是没导入可用的 QQ 音源脚本）：继续试下一条，
-      // 全部失败才判终局，避免只因排序第一的候选恰是付费曲就放弃整首歌
+      // 全部失败才判终局，避免只因排序第一的候选恰是付费曲就放弃整首歌。
+      // 失败原因逐个留档：线上要能区分「网络抖动」与「没有可用脚本」。
+      logger.warn("跨源替代候选解析失败", {
+        song: `${candidate.source}:${candidate.id}`,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      continue;
     }
+    if (!isCurrentPlaybackRequest(intent)) throw new Error(primaryMessage);
+    return resolved;
   }
   throw new Error(`${primaryMessage}（${describeCrossSourceFailure(candidates)}）`);
 }

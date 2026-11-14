@@ -196,11 +196,18 @@ export default function App() {
         await Promise.all([
           loadTheme(),
           loadPlaybackSettings(),
-          checkAccountStatus(),
           loadCustomSources(),
           loadLyricOverlaySettings(),
           loadWebdavConfig(),
         ]);
+
+        // 账号状态校验带 Cookie 请求 music.163.com（弱网最长 15s）：只读本地
+        // 凭证先渲染界面，网络校验移到后台，不挡启动屏。
+        // 各页面（首页/云盘/每日推荐）在需要时会自行 checkStatus，
+        // 这里只负责把「已登录」尽快标出来；失败不阻塞启动。
+        void checkAccountStatus().catch((error) => {
+          console.error("[启动] 账号状态校验失败", error);
+        });
 
         setLocalDataReady(false);
         const backgroundLabels = [

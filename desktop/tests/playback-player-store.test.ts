@@ -5,6 +5,7 @@ const fixture = vi.hoisted(() => ({
   state: { featureEnabled: true, featureReady: true, sources: [] },
   persistence: { ready: Promise.resolve() },
   setVolume: vi.fn(), subscribe: vi.fn(), play: vi.fn(), pause: vi.fn(), stop: vi.fn(), resume: vi.fn(), getEngineState: vi.fn(), resolve: vi.fn(), cached: vi.fn(), history: vi.fn(),
+  cacheMedia: vi.fn(), invalidatePersistent: vi.fn(), invalidatePrefetched: vi.fn(),
 }));
 vi.mock('../src/stores/customSourceStore', async () => {
   const { createCustomSourceAccess } = await import('../src/services/customSourceAccess');
@@ -19,9 +20,9 @@ vi.mock('../src/services/playerEngine', () => ({ playerEngine: {
   setVolume: fixture.setVolume, subscribe: fixture.subscribe, onEnded: vi.fn(), onPreviewDetected: vi.fn(),
 } }));
 vi.mock('../src/services/playback/playbackResolver', () => ({ resolvePlaybackUrl: fixture.resolve }));
-vi.mock('../src/services/playback/prefetchService', () => ({ getPrefetchedTrack: fixture.cached, prefetchNearbyTracks: vi.fn(async () => {}), prefetchTracks: vi.fn(async () => {}), invalidatePrefetchedTrack: vi.fn() }));
-vi.mock('../src/services/persistentCache', () => ({ invalidateCachedPlaybackUrl: vi.fn(async () => {}) }));
-vi.mock('../src/services/mediaCache', () => ({ removeCachedAudioForMusic: vi.fn(async () => {}) }));
+vi.mock('../src/services/playback/prefetchService', () => ({ getPrefetchedTrack: fixture.cached, prefetchNearbyTracks: vi.fn(async () => {}), prefetchTracks: vi.fn(async () => {}), invalidatePrefetchedTrack: fixture.invalidatePrefetched }));
+vi.mock('../src/services/persistentCache', () => ({ invalidateCachedPlaybackUrl: fixture.invalidatePersistent, isLocalCachedPlaybackUrl: (url: string) => url.startsWith('asset://') }));
+vi.mock('../src/services/mediaCache', () => ({ removeCachedAudioForMusic: vi.fn(async () => {}), cacheResolvedPlaybackMedia: fixture.cacheMedia }));
 vi.mock('../src/services/playback/crossSourceFallbackService', () => ({ findTxVariants: vi.fn(async () => []), describeCrossSourceFailure: () => '无候选' }));
 vi.mock('../src/stores/historyStore', () => ({ useHistoryStore: { getState: () => ({ add: fixture.history }) } }));
 vi.mock('../src/stores/sleepTimerStore', () => ({ useSleepTimerStore: { getState: () => ({ mode: 'off' }) } }));
@@ -33,8 +34,9 @@ function resolved(backend = 'customSource') {
 }
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => { resolve = done; });
-  return { promise, resolve };
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
 }
 async function load() {
   const { customSourceAccess } = await import('../src/stores/customSourceStore');
@@ -54,6 +56,9 @@ beforeEach(() => {
   fixture.play.mockResolvedValue(undefined);
   fixture.getEngineState.mockReturnValue({ currentMusic: null });
   fixture.resolve.mockResolvedValue(resolved('builtinNetease'));
+  // 媒体缓存默认直通：只有新增的落盘用例会改写返回值
+  fixture.cacheMedia.mockImplementation(async (_music: unknown, resolved: { url: string }) => resolved);
+  fixture.invalidatePersistent.mockResolvedValue(undefined);
 });
 describe('playerStore LX 快路径及在途结果', () => {
   it('关闭时 wy 的 LX 预取快路径不播放，仍解析内置', async () => {
@@ -296,4 +301,41 @@ it('「下一首播放」在私人 FM 里也能插播，不被推荐流吞掉', 
 
   expect(usePlayerStore.getState().current?.id).toBe('FM-X');
   expect(usePlayerStore.getState().fmMode).toBe(false);
+});
+
+// 预取阶段刻意 cacheMedia:false（不为可能永远不播的邻曲下载整曲），但真正播到
+// 预取条目时若不补媒体缓存，顺序播放永远只消费预取快路径，磁盘音频缓存与离线
+// 列表再也不会被填充。
+it('预取命中时补媒体缓存，并播放补缓存后返回的地址', async () => {
+  const { usePlayerStore } = await load();
+  fixture.cached.mockReturnValue({ ...resolved('builtinNetease'), fetchedAt: Date.now() });
+  fixture.cacheMedia.mockImplementation(async () => ({ music, backend: 'builtinNetease', quality: '128k', url: 'asset://local-audio' }));
+
+  await usePlayerStore.getState().play(music);
+
+  expect(fixture.cacheMedia).toHaveBeenCalledTimes(1);
+  expect(fixture.play).toHaveBeenCalledWith(music, 'asset://local-audio', undefined, undefined);
+});
+
+it('被新请求取代的预取失败不再清缓存、不再全链重解析', async () => {
+  const { usePlayerStore } = await load();
+  fixture.cached.mockReturnValueOnce({ ...resolved('builtinNetease'), fetchedAt: Date.now() });
+  const stalled = deferred<void>();
+  fixture.play.mockImplementationOnce(() => stalled.promise);
+  const first = usePlayerStore.getState().play(music);
+  await vi.waitFor(() => expect(fixture.play).toHaveBeenCalledTimes(1));
+
+  // 用户已切到下一首：没有预取条目，走正常解析链路
+  const next = { ...music, id: '2' } as MusicInfo;
+  fixture.resolve.mockResolvedValue({ ...resolved('builtinNetease'), music: next });
+  await usePlayerStore.getState().play(next);
+  expect(fixture.play).toHaveBeenCalledTimes(2);
+
+  // 旧引擎调用此时才以「已被更新的操作取消」失败：属于被取代的请求，不得再动缓存
+  stalled.reject(new Error('播放加载已被更新的操作取消'));
+  await first;
+
+  expect(fixture.resolve).toHaveBeenCalledTimes(1);
+  expect(fixture.invalidatePrefetched).not.toHaveBeenCalled();
+  expect(fixture.invalidatePersistent).not.toHaveBeenCalled();
 });

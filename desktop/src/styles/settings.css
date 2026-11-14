@@ -324,10 +324,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.af-appearance-select {
-  min-width: 200px;
-}
-
 .af-appearance-reset,
 .af-appearance-cancel {
   flex: 0 0 auto;
@@ -431,17 +427,34 @@
   white-space: nowrap;
 }
 
+/* 设置行里的下拉触发器（components/ui/Select），展开的菜单是自绘的 .af-dropdown-menu。
+   描边、底色、圆角与同样出现在设置行里的分段选择器（.af-segment）一致：两者都是「多选一」。 */
 .af-settings-select {
-  width: 100%;
-  padding: 10px 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  /* 与菜单的最小宽度（menuPosition.ts 的 SELECT_MENU_MIN_WIDTH）相同，展开后上下同宽；
+     也让长短选项来回切换时，右侧的「恢复默认」不跟着左右跳 */
+  min-width: 180px;
+  min-height: 36px;
+  padding: 0 10px 0 12px;
   background: var(--af-bg-surface);
   border: 1px solid var(--af-border-secondary);
-  border-radius: var(--af-radius-md);
+  border-radius: var(--af-radius-sm);
   color: var(--af-text-primary);
-  font-size: var(--af-font-size-base);
+  font-size: var(--af-font-size-sm);
+  white-space: nowrap;
   cursor: pointer;
-  transition: all var(--af-transition-base);
-  outline: none;
+  transition:
+    background var(--af-transition-fast),
+    border-color var(--af-transition-fast);
+}
+
+.af-settings-select > svg {
+  flex: 0 0 auto;
+  color: var(--af-text-tertiary);
+  transition: transform var(--af-transition-fast);
 }
 
 .af-settings-select:hover {
@@ -449,14 +462,17 @@
   background: var(--af-bg-surface-hover);
 }
 
+.af-settings-select[aria-expanded="true"] {
+  border-color: var(--af-accent-strong);
+}
+
+.af-settings-select[aria-expanded="true"] > svg {
+  transform: rotate(180deg);
+}
+
 /* 主界面背景图的路径可能很长：这一节的设置行提示允许换行，不撑破行 */
 .af-appearance-section .af-setting-row-hint {
   overflow-wrap: anywhere;
-}
-
-.af-settings-select:focus {
-  border-color: var(--af-accent-strong);
-  box-shadow: 0 0 0 3px rgba(var(--af-accent-primary-rgb), 0.1);
 }
 
 .af-settings-input-group {

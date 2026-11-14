@@ -89,7 +89,9 @@ export interface SongListProps {
  * 只有可视区行在树上，几千首的歌单滚动也保持跟手。
  */
 const INITIAL_MOUNT_COUNT = 60;
-const MOUNT_BATCH_SIZE = 100;
+// 一批是一次同步 setMountedCount：100 行会顶出一个 100+ms 的长帧，千首列表
+// 快速滚动时表现为周期性顿挫；25 行把单帧控制在 ~16ms 量级。
+const MOUNT_BATCH_SIZE = 25;
 
 const SOURCE_LABELS: Record<string, string> = {
   wy: "网易云",

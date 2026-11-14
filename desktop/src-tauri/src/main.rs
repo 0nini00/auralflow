@@ -117,23 +117,15 @@ pub fn run() {
     }
     let result = tauri::Builder::default()
         // 单实例锁：重复启动时聚焦已有主窗口，而不是开一个新进程新窗口。
-        // argv 透传给深链处理（与正常启动一致）。
-        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            use tauri::{Emitter, Manager};
+        // 二次启动携带的深链 URL 由 single-instance 的 deep-link feature 自动转发给
+        // deep-link 插件（见 Cargo.toml 的 features 与 tauri.conf.json 的 schemes 配置），
+        // 这里不再手工解析 argv——旧实现发的 `deep-link-url` 事件前端从未监听。
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            use tauri::Manager;
             if let Some(main) = app.get_webview_window("main") {
                 let _ = main.show();
                 let _ = main.unminimize();
                 let _ = main.set_focus();
-            }
-            // 二次启动携带的深链转发给前端处理链（app 克隆成 'static 后再发射）
-            if let Some(url) = argv.iter().find_map(|arg| {
-                arg.strip_prefix("auralflow://")
-                    .map(|_| arg.clone())
-            }) {
-                let app = app.clone();
-                std::thread::spawn(move || {
-                    let _ = app.emit("deep-link-url", url);
-                });
             }
         }))
         .plugin(tauri_plugin_shell::init())
@@ -369,6 +361,24 @@ mod launch_contract_tests {
             main_window["additionalBrowserArgs"].as_str(),
             Some(crate::lyric_window::ADDITIONAL_BROWSER_ARGS),
             "主窗与歌词窗的 additionalBrowserArgs 必须逐字相同：第二份 WebView2 环境参数不一致会静默创建失败"
+        );
+    }
+
+    /// 深链 scheme 是两处约定：tauri.conf.json 的 `plugins.deep-link.desktop.schemes`
+    /// （`register_all()` 据此写 Windows 注册表、插件据此识别 CLI 参数）与前端
+    /// `DeepLinkHandler` 解析的 `auralflow:` 协议。配置一旦丢失，注册表不再注册
+    /// 该协议、二次启动的 URL 也会被插件忽略——表现为点深链静默无反应。
+    #[test]
+    fn deep_link_scheme_stays_configured_in_tauri_conf() {
+        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json"))
+            .expect("tauri.conf.json 必须是合法 JSON");
+
+        let schemes = conf["plugins"]["deep-link"]["desktop"]["schemes"]
+            .as_array()
+            .expect("tauri.conf.json 必须配置 plugins.deep-link.desktop.schemes");
+        assert!(
+            schemes.iter().any(|scheme| scheme.as_str() == Some("auralflow")),
+            "深链 scheme 必须包含 auralflow（前端 DeepLinkHandler 按该协议解析）"
         );
     }
 }

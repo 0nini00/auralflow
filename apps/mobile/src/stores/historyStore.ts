@@ -193,8 +193,11 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
         }
         const normalized = withoutRemovedSources(normalizeEntries(entries));
         const derived = derive(normalized);
-        // 迁移/规整后一次性回写新格式（失败不影响内存态）。
-        await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(normalized)).catch(() => undefined);
+        // 迁移/规整后一次性回写新格式（失败不影响内存态）。回写只发生在真的需要
+        // 迁移时：新格式加载路径每轮 JSON.stringify 4000 条既慢又挤 JS 线程。
+        if (!Array.isArray(parsed) || parsed.length === 0 || !isHistoryEntry(parsed[0]) || parsed.length !== normalized.length) {
+          await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(normalized)).catch(() => undefined);
+        }
         set({
           entries: normalized,
           ...derived,

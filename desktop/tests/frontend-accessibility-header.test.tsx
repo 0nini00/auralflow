@@ -11,8 +11,10 @@ vi.mock('react-router-dom', () => ({
   Link: ({ to, children }: any) => <a href={to}>{children}</a>,
 }));
 vi.mock('@/stores/themeStore', () => ({ useThemeStore: () => ({ effectiveTheme: 'dark', setTheme: vi.fn() }) }));
+// 顶栏提交与搜索页共用同一份搜索历史（addSearchHistory），不再另写「最近关键词」键
+vi.mock('@/services/search/searchHistory', () => ({ addSearchHistory: api.record }));
 vi.mock('@/services/search/searchSuggestions', () => ({
-  fetchWySearchSuggestions: api.fetch, recordSearchKeyword: api.record,
+  fetchWySearchSuggestions: api.fetch,
   buildSearchSuggestions: (query: string) => query ? [1, 2].map((n) => ({ value: `${query}-${n}`, label: `${query}-${n}`, meta: '本地', type: 'recent' })) : [],
   mergeSearchSuggestions: (online: unknown[], local: unknown[]) => [...online, ...local],
 }));

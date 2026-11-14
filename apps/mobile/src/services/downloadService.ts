@@ -125,6 +125,8 @@ interface QueueTask {
   filePath?: string;
   interrupted: Promise<void>;
   interrupt: () => void;
+  /** 对外 Promise 结算（含半成品清理与记录回滚）后 resolve，供「清空下载」等待在途任务收尾 */
+  settled: Promise<void>;
   onProgress?: (info: DownloadProgressInfo) => void;
   onWarnings?: (warnings: string[]) => void;
   onComplete?: CompleteDownload;
@@ -194,10 +196,15 @@ export function enqueueDownloadTask(
   }
   return new Promise<string>((resolve, reject) => {
     let interrupt!: () => void;
+    let markSettled!: () => void;
     const interrupted = new Promise<void>((notify) => { interrupt = notify; });
+    const settled = new Promise<void>((notify) => { markSettled = notify; });
     const task: QueueTask = {
-      key, song, quality, state: "active", interrupted, interrupt,
-      onProgress, onWarnings, onComplete, resolve, reject,
+      key, song, quality, state: "active", interrupted, interrupt, settled,
+      onProgress, onWarnings, onComplete,
+      // 所有结算路径（成功、失败、取消、暂停）都置位 settled
+      resolve: (path) => { markSettled(); resolve(path); },
+      reject: (error) => { markSettled(); reject(error); },
     };
     downloadTasks.add(task);
     taskQueue.push(task);
@@ -680,10 +687,16 @@ function formatDownloadReason(error: unknown): string {
 }
 
 /**
- * 取消所有下载任务（排队中 + 进行中）
+ * 取消所有下载任务（排队中 + 进行中）。
+ * 返回的 Promise 在全部被中断的任务完成收尾（原生写入停止、半成品清理、
+ * 记录回滚）后 resolve：清空下载必须先等它结束，再删文件与记录。
  */
-export function cancelAllDownloads(): void {
-  for (const task of downloadTasks) interruptTask(task, "cancelled");
+export function cancelAllDownloads(): Promise<void> {
+  const settling: Promise<void>[] = [];
+  for (const task of Array.from(downloadTasks)) {
+    if (interruptTask(task, "cancelled")) settling.push(task.settled);
+  }
+  return Promise.all(settling).then(() => undefined);
 }
 
 /** 删除该音质的音频变体及其旁挂歌词，不触碰其他音质。 */

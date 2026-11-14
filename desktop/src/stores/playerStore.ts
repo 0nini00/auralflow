@@ -7,9 +7,9 @@ import { resolvePlaybackUrl, type PlaybackBackendId } from "@/services/playback/
 import { prefetchNearbyTracks, prefetchTracks, getPrefetchedTrack, invalidatePrefetchedTrack } from "@/services/playback/prefetchService";
 import { selectCachedPlaybackTarget } from "@/services/playback/prefetchModel";
 import { getPlayModeState, type PlayModeId } from "@/services/playback/playModeControl";
-import { invalidateCachedPlaybackUrl } from "@/services/persistentCache";
+import { invalidateCachedPlaybackUrl, isLocalCachedPlaybackUrl } from "@/services/persistentCache";
 import { takeResumeProgress } from "./playerResumeTarget";
-import { removeCachedAudioForMusic } from "@/services/mediaCache";
+import { cacheResolvedPlaybackMedia, removeCachedAudioForMusic } from "@/services/mediaCache";
 
 import { debugLog, patchSettings } from "@lx/tauri-bridge";
 import { applySwitchStepRequest, buildSongKey, createSwitchStepQueueState, finishSwitchStep, orderPlaybackCandidates } from "@lx/core";
@@ -140,6 +140,41 @@ async function playThroughEngine(music: MusicInfo, url: string, assertPlaybackAl
   // 恢复语义是「按播放继续听」，不是「启动就自动播放」。
   const startAt = takeResumeProgress(music) ?? undefined;
   await playerEngine.play(music, url, assertPlaybackAllowed, startAt);
+}
+
+/**
+ * 预取条目在预取阶段刻意跳过了媒体缓存（cacheMedia:false，不为可能永远不播的
+ * 邻曲下载整曲）。真正播到它时必须补上正规解析链的落盘步骤：命中磁盘直接放
+ * 本地文件，未命中先播远端并后台落盘 —— 否则顺序播放永远只消费预取快路径，
+ * 磁盘音频缓存与离线列表再也不会被填充。
+ *
+ * 生命周期失效必须上抛（本曲已无权再用该地址）；媒体缓存自身的失败只记日志、
+ * 继续用原地址（与 playbackResolver 里 prepareResolvedPlaybackMedia 的语义一致）。
+ */
+async function prepareConsumedPrefetch(
+  target: { music: MusicInfo; url: string; quality?: string; backend?: PlaybackBackendId },
+  operation?: CustomSourceOperation,
+): Promise<{ music: MusicInfo; url: string; quality?: string; backend?: PlaybackBackendId }> {
+  if (!target.backend || !target.quality || isLocalCachedPlaybackUrl(target.url)) return target;
+  try {
+    const cached = await cacheResolvedPlaybackMedia(
+      target.music,
+      {
+        url: target.url,
+        music: target.music,
+        quality: target.quality,
+        backend: target.backend,
+        resolverName: target.backend,
+        trace: [],
+      },
+      operation,
+    );
+    return { ...target, url: cached.url, music: cached.music };
+  } catch (error) {
+    operation?.assertActive();
+    debugLog(`[prefetch] 预取条目的媒体缓存处理失败，改用原地址: ${error instanceof Error ? error.message : String(error)}`);
+    return target;
+  }
 }
 
 async function invalidatePersistentPlaybackCache(
@@ -498,8 +533,14 @@ export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
 
             try {
               playedMusic = cachedTarget.music;
-              await playResolved(cachedTarget);
+              const prepared = await prepareConsumedPrefetch(cachedTarget, operation);
+              if (requestId !== activePlayRequestId) return;
+              playedMusic = prepared.music;
+              await playResolved(prepared);
             } catch (cachedError) {
+              // 引擎以「已被更新的操作取消」失败说明本请求已被取代：不能再作废
+              // 缓存或重跑一次全链解析——那些动作只对被取代前的请求有意义。
+              if (requestId !== activePlayRequestId) return;
               invalidatePrefetchedTrack(music);
               if (cachedTarget.music.source !== music.source || cachedTarget.music.id !== music.id) {
                 invalidatePrefetchedTrack(cachedTarget.music);

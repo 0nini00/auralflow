@@ -5,9 +5,9 @@ import {
   buildSearchSuggestions,
   fetchWySearchSuggestions,
   mergeSearchSuggestions,
-  recordSearchKeyword,
   type SearchSuggestion,
 } from "@/services/search/searchSuggestions";
+import { addSearchHistory } from "@/services/search/searchHistory";
 import { useThemeStore } from "@/stores/themeStore";
 import { useUiStore } from "@/stores/uiStore";
 import { runWindowCommand, useWindowDrag } from "@/hooks/useWindowDrag";
@@ -116,7 +116,7 @@ export function Topbar() {
       return;
     }
 
-    recordSearchKeyword(trimmed);
+    addSearchHistory(trimmed);
     setQuery(trimmed);
     navigate(`/search?q=${encodeURIComponent(trimmed)}`);
   }

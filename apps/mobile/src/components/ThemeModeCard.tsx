@@ -15,11 +15,12 @@ const THEME_OPTIONS: Array<{ value: ThemeMode; label: string; icon: typeof Sun }
 ];
 
 /**
- * 预设主题色：第一项是默认深绿（与按钮/文字行动色同档）。
+ * 预设主题色：第一项直接引用默认强调色，点它等价于全新安装的默认状态
+ * （写死旧色值会让重启后的读盘迁移把选择折回默认色）。
  * 其余颜色都选在「白字可读」的深度，保证 actionFill + onActionFill 不变。
  */
 const ACCENT_OPTIONS = [
-  { label: "默认绿", value: "#0d7a42" },
+  { label: "默认绿", value: DEFAULT_ACCENT_COLOR },
   { label: "松针", value: "#146b52" },
   { label: "湖蓝", value: "#1d6fa5" },
   { label: "靛青", value: "#3b4fa8" },

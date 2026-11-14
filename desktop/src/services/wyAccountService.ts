@@ -4,6 +4,7 @@ import { eapi, weapi } from "@/lib/crypto/weapi";
 import { createQrSvgDataUri } from "@/services/qrCode";
 export { normalizeWyCookie } from "@lx/core";
 import { normalizeWyCookie, toCloudMusicInfos, type MusicInfo, type WyCloudItem } from "@lx/core";
+import { WyAuthExpiredError } from "@/services/wyAuthError";
 import {
   buildNeteasePcCookie,
   buildPlaylistSubscribeRequests,
@@ -234,8 +235,8 @@ async function weapiCall(
   data: Record<string, unknown>,
   options: WeapiRequestOptions = {},
 ): Promise<Record<string, unknown>> {
-  if (!cookie) throw new Error("未设置网易云 Cookie");
-  if (!/MUSIC_U=/.test(cookie)) throw new Error("Cookie 中缺少 MUSIC_U，请复制已登录请求的 Cookie");
+  if (!cookie) throw new WyAuthExpiredError("未设置网易云 Cookie");
+  if (!/MUSIC_U=/.test(cookie)) throw new WyAuthExpiredError("Cookie 中缺少 MUSIC_U，请复制已登录请求的 Cookie");
   const requestCookie = options.pcCookie ? buildNeteasePcCookie(cookie) : cookie;
   return postWeapi(path, data, requestCookie, csrfToken());
 }
@@ -288,7 +289,7 @@ async function weapiPost(
   if (json.code !== 200) {
     // 登录态失效时抛统一文案，便于上层清会话而不是当成普通业务错误
     if (isAuthExpiredCode(json.code)) {
-      throw new Error("网易云登录已过期，请重新登录");
+      throw new WyAuthExpiredError("网易云登录已过期，请重新登录");
     }
     throw new Error(String(json.message || `API error code=${json.code}`));
   }
@@ -357,16 +358,16 @@ export function assertMatchingWyLoginSession(
   accountSession: WyLoginSession,
 ): void {
   if (isAuthExpiredCode(loginStatus.code) || isAuthExpiredCode(accountSession.code)) {
-    throw new Error("网易云登录已过期，请重新填写 Cookie");
+    throw new WyAuthExpiredError("网易云登录已过期，请重新填写 Cookie");
   }
 
   const loginUserId = getSessionUserId(loginStatus);
   const accountUserId = getSessionUserId(accountSession);
   if (!loginUserId || !accountUserId) {
-    throw new Error("Cookie 已过期或无效");
+    throw new WyAuthExpiredError("Cookie 已过期或无效");
   }
   if (loginUserId !== accountUserId) {
-    throw new Error("网易云登录状态与账号信息不一致，请重新登录");
+    throw new WyAuthExpiredError("网易云登录状态与账号信息不一致，请重新登录");
   }
 }
 

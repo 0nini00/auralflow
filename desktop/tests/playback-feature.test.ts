@@ -476,4 +476,15 @@ describe('会员直连优先', () => {
     expect(out.backend).toBe('customSource');
     expect(fixture.builtin).not.toHaveBeenCalled();
   });
+
+  it('官方直连兜底被探活明确拒绝（403）时不得定稿该地址', async () => {
+    fixture.toggle(false);
+    const txMusic = { ...music, source: 'tx' as const };
+    fixture.builtin.mockRejectedValue(new Error('内置失败'));
+    fixture.provider.mockResolvedValue({ ...resolved('builtinProvider'), music: txMusic });
+    fixture.probe.mockResolvedValue({ ok: false, reason: 'HTTP 403', definitive: true });
+    const { resolvePlaybackUrl } = await import('../src/services/playback/playbackResolver');
+    await expect(resolvePlaybackUrl(txMusic, undefined, '320k', { bypassCache: true }))
+      .rejects.toThrow('官方直连兜底探活失败');
+  });
 });

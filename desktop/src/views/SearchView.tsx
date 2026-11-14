@@ -21,7 +21,6 @@ import {
   buildSearchSuggestions,
   fetchWySearchSuggestions,
   mergeSearchSuggestions,
-  recordSearchKeyword,
   type SearchSuggestion,
 } from "@/services/search/searchSuggestions";
 import type { MusicSource, PlaylistInfo, AlbumInfo, SearchResult, SearchType } from "@lx/core";
@@ -142,7 +141,6 @@ export function SearchView() {
     searchSessionRef.current?.dispose();
     lastStartedSearchKeyRef.current = searchKey;
     activeResultFilterRef.current = restoredFilter;
-    recordSearchKeyword(keyword);
     addSearchHistory(keyword);
     setSearchHistory(getSearchHistory());
     setSuggestionsOpen(false);

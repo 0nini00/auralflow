@@ -6,6 +6,7 @@ import {
   DownloadInterruptedError,
   type DownloadProgressInfo,
   type DownloadQuality,
+  cancelAllDownloads,
   cancelDownload,
   clearDownloadedFiles,
   downloadSong,
@@ -401,10 +402,14 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
 
   clearDownloads: async () => {
     try {
+      // 先中断全部排队与在途任务并等它们收尾（文件清理、记录回滚），再删记录与文件：
+      // 否则被中断的任务会在清空之后把半成品或记录落回来。
+      await cancelAllDownloads();
+      downloadAttempts.clear();
       await queueDownloadsMutation(async () => {
         await saveDownloads([]);
         await clearDownloadedFiles();
-        set({ downloads: [], failedDownloads: [] });
+        set({ downloads: [], downloading: [], failedDownloads: [] });
       });
     } catch (error) {
       set({ error: error instanceof Error ? error.message : "清空下载失败" });

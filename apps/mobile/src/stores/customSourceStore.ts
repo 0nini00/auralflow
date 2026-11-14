@@ -361,12 +361,18 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => {
       .map((source) => source.id);
     // 限制并发，避免一次拉起过多自定义音源更新请求（对齐桌面端 CONCURRENCY = 2）
     const CONCURRENCY = 2;
+    // 单批失败不能中断其余批次：全部跑完再统一上报首个失败原因，
+    // 否则一次写盘抖动就会让排在后面的音源永远得不到检查。
+    let firstFailure: PromiseRejectedResult | undefined;
     for (let i = 0; i < ids.length; i += CONCURRENCY) {
       const batch = ids.slice(i, i + CONCURRENCY);
       const results = await Promise.allSettled(batch.map((id) => get().checkSourceUpdate(id)));
-      const failed = results.find((result) => result.status === "rejected");
-      if (failed?.status === "rejected") throw failed.reason;
+      const failed = results.find(
+        (result): result is PromiseRejectedResult => result.status === "rejected",
+      );
+      if (failed && !firstFailure) firstFailure = failed;
     }
+    if (firstFailure) throw firstFailure.reason;
   },
 
   checkStartupUpdates: async () => {

@@ -1,6 +1,15 @@
 import { Pause, Volume2 } from "lucide-react";
+import { Select } from "@/components/ui";
 import type { PlaybackSettingsModel } from "../useSettingsViewModel";
 import { SettingRow } from "./SettingRow";
+
+const QUALITY_OPTIONS = [
+  { value: "128k", label: "标准 128K" },
+  { value: "192k", label: "较高 192K" },
+  { value: "320k", label: "高品质 320K" },
+  { value: "flac", label: "无损 FLAC" },
+  { value: "flac24bit", label: "Hi-Res" },
+];
 
 export function PlaybackSettingsSection({ model }: { model: PlaybackSettingsModel }) {
   const {
@@ -19,19 +28,13 @@ export function PlaybackSettingsSection({ model }: { model: PlaybackSettingsMode
 
   <div className="af-settings-card">
     <SettingRow label="音质偏好" hint="在线播放与下载的默认音质">
-      <select
-        className="af-settings-select"
-        aria-label="音质偏好"
-        style={{ minWidth: 160 }}
+      <Select
+        label="音质偏好"
+        triggerClassName="af-settings-select"
+        options={QUALITY_OPTIONS}
         value={defaultQuality}
-        onChange={(e) => { void handleDefaultQualityChange(e.target.value); }}
-      >
-        <option value="128k">标准 128K</option>
-        <option value="192k">较高 192K</option>
-        <option value="320k">高品质 320K</option>
-        <option value="flac">无损 FLAC</option>
-        <option value="flac24bit">Hi-Res</option>
-      </select>
+        onChange={(quality) => { void handleDefaultQualityChange(quality); }}
+      />
     </SettingRow>
     <SettingRow label="其他媒体播放时" hint="系统里其他应用开始播放时 AuralFlow 的反应">
       <div className="af-segment">

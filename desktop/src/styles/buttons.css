@@ -470,6 +470,16 @@ button:focus-visible {
   color: var(--af-error-ink);
 }
 
+/* 下拉选择（components/ui/Select）的选项：文字与勾选标记分居两端，数字等宽避免逐项跳动 */
+.af-select-option {
+  justify-content: space-between;
+  font-variant-numeric: tabular-nums;
+}
+
+.af-select-option[aria-checked="true"] {
+  color: var(--af-accent-strong);
+}
+
 /* 「其他版本」菜单：条目 = 来源徽标 + 歌名 + 歌手 + 时长，行尾星标 pin 本机首选 */
 .af-variant-menu {
   max-height: min(360px, calc(100vh - 16px));

@@ -201,7 +201,13 @@ export const usePlaylistStore = createLibraryStore<PlaylistStore>()((set, get) =
 
 const CLOUD_REF_SCRUB_BACKUP_KEY = 'auralflow:library:playlists:scrub-backup';
 
-function backupDroppedPlaylists(dropped: Playlist[]): void {
+/**
+ * 把将被剔除的歌单备份进 localStorage。
+ *
+ * 返回 false 表示备份没落盘（配额、被禁用）；调用方必须放弃本次剔除——
+ * 「先备份再丢弃」里的备份是硬前置，没有备份的删除等于静默销毁用户数据。
+ */
+function backupDroppedPlaylists(dropped: Playlist[]): boolean {
   try {
     const raw = localStorage.getItem(CLOUD_REF_SCRUB_BACKUP_KEY);
     const previous = raw ? ((JSON.parse(raw) as { dropped?: Playlist[] }).dropped ?? []) : [];
@@ -209,8 +215,10 @@ function backupDroppedPlaylists(dropped: Playlist[]): void {
       CLOUD_REF_SCRUB_BACKUP_KEY,
       JSON.stringify({ savedAt: Date.now(), dropped: [...previous, ...dropped] }),
     );
-  } catch (err) {
-    void err;
+    return true;
+  } catch (error) {
+    console.warn('[歌单] 备份被剔除的云端歌单失败，本次保留不删：', error);
+    return false;
   }
 }
 
@@ -254,7 +262,7 @@ export function scrubSyncedCloudPlaylists(playlists: Playlist[]): Playlist[] {
     return playlists;
   }
 
-  backupDroppedPlaylists(dropped);
+  if (!backupDroppedPlaylists(dropped)) return playlists;
   console.warn(
     `[歌单] 已剔除 ${dropped.length} 个被 WebDAV 同步误导入的云端歌单（本地为 0 首）：` +
       `${dropped.map((p) => p.name).join('、')}。` +

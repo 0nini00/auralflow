@@ -10,15 +10,13 @@ import { DownloadQualityButton } from '@/components/DownloadQualityButton';
 import { VirtualList } from '@/components/VirtualList';
 import { formatDuration } from '@/lib/utils';
 import { coverSrc } from '@/utils/imageReferrerPolicy';
+import { formatBytes } from '@/utils/formatBytes';
 
 type PendingPlayAction = 'play-all' | 'shuffle' | `track:${number}` | null;
 
-/** 容量展示：按 1024 进制，保留一位小数，GB 以下退到 MB。 */
-function formatBytes(bytes?: number): string {
-  if (!bytes || !Number.isFinite(bytes) || bytes <= 0) return '—';
-  const gb = bytes / 1024 / 1024 / 1024;
-  if (gb >= 1) return `${gb.toFixed(1)} GB`;
-  return `${(bytes / 1024 / 1024).toFixed(0)} MB`;
+/** 容量展示：无数据/0 显示占位「—」，其余交给共享的 formatBytes（与下载页同一实现）。 */
+function formatCapacity(bytes?: number): string {
+  return bytes ? formatBytes(bytes) : '—';
 }
 
 /**
@@ -147,7 +145,7 @@ export function CloudDriveView() {
           <div className="af-playlist-detail-meta">
             <h1>音乐云盘</h1>
             <p className="af-playlist-description">
-              你自己上传到网易云的文件 · 已用 {formatBytes(usedBytes)} / {formatBytes(maxBytes)}
+              你自己上传到网易云的文件 · 已用 {formatCapacity(usedBytes)} / {formatCapacity(maxBytes)}
             </p>
             <p className="af-playlist-stats">
               {count} 首歌曲{songs.length < count ? ` · 已加载 ${songs.length} 首` : ''}

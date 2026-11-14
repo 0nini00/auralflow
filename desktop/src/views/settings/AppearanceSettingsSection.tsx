@@ -1,9 +1,9 @@
 import { Image as ImageIcon, Monitor, Moon, RotateCcw, Sun } from "lucide-react";
+import { Select } from "@/components/ui";
 import {
   APPEARANCE_DEFAULTS,
   APPEARANCE_LIMITS,
   IMMERSIVE_BACKGROUND_OPTIONS,
-  type ImmersiveBackgroundMode,
   type Theme,
 } from "@/stores/themeStore";
 import type { AppearanceSettingsModel } from "../useSettingsViewModel";
@@ -426,18 +426,13 @@ export function AppearanceSettingsSection({ model }: { model: AppearanceSettings
     <label className="af-settings-label">沉浸式歌词</label>
     <div className="af-settings-card">
       <SettingRow label="沉浸式播放背景" hint="选择沉浸式播放页的背景效果">
-        <select
-          className="af-settings-select af-appearance-select"
+        <Select
+          label="沉浸式播放背景"
+          triggerClassName="af-settings-select"
+          options={IMMERSIVE_BACKGROUND_OPTIONS}
           value={immersiveBackground}
-          onChange={(event) => patchAppearance({ immersiveBackground: event.target.value as ImmersiveBackgroundMode })}
-          aria-label="沉浸式播放背景"
-        >
-          {IMMERSIVE_BACKGROUND_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          onChange={(mode) => patchAppearance({ immersiveBackground: mode })}
+        />
         <AppearanceResetButton
           label="沉浸式播放背景"
           disabled={immersiveBackground === APPEARANCE_DEFAULTS.immersiveBackground}
@@ -445,18 +440,13 @@ export function AppearanceSettingsSection({ model }: { model: AppearanceSettings
         />
       </SettingRow>
       <SettingRow label="歌词字体" hint="只作用于沉浸式歌词页，主界面字体不可配置">
-        <select
-          className="af-settings-select af-appearance-select"
+        <Select
+          label="歌词字体"
+          triggerClassName="af-settings-select"
+          options={IMMERSIVE_LYRIC_FONT_OPTIONS}
           value={immersiveLyricFontFamily}
-          onChange={(event) => { void handleImmersiveLyricFontFamilyChange(event.target.value); }}
-          aria-label="歌词字体"
-        >
-          {IMMERSIVE_LYRIC_FONT_OPTIONS.map((option) => (
-            <option key={option.label} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          onChange={(fontFamily) => { void handleImmersiveLyricFontFamilyChange(fontFamily); }}
+        />
         <AppearanceResetButton
           label="歌词字体"
           disabled={lyricFontIsDefault}

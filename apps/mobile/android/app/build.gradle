@@ -16,13 +16,27 @@ def hasReleaseKeystore = keystorePropertiesFile.exists()
 if (hasReleaseKeystore) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
-def releaseRequested = gradle.startParameter.taskNames.any { taskName ->
-    taskName.toLowerCase().contains("release")
-}
-if (releaseRequested && !hasReleaseKeystore) {
-    throw new GradleException(
-        "Release 构建缺少正式签名配置。请设置 AURALFLOW_KEYSTORE_DIR 并提供 keystore.properties。"
+// 是否 release 构建必须按真正进入执行图的任务判断，不能只看命令行任务名：
+// `gradlew assemble` / `build` / `bundle` 的名字里都没有 "release"，却会构建
+// release 变体，只按名字判断会让这些调用在缺 keystore 时静默产出未签名包。
+// 只认本模块（app）产出 release 制品的任务：其它子项目（RN 库）的 release 任务
+// 不依赖这里的签名配置；单测组装（assembleReleaseUnitTest）也不产出发布制品。
+def producesReleaseArtifact = { task ->
+    task.project == project && (
+        task.name == "assembleRelease" ||
+        task.name == "packageRelease" ||
+        task.name == "packageReleaseUniversalApk" ||
+        task.name == "packageReleaseBundle" ||
+        task.name == "bundleRelease" ||
+        task.name == "installRelease"
     )
+}
+gradle.taskGraph.whenReady { graph ->
+    if (!hasReleaseKeystore && graph.allTasks.any(producesReleaseArtifact)) {
+        throw new GradleException(
+            "Release 构建缺少正式签名配置。请设置 AURALFLOW_KEYSTORE_DIR 并提供 keystore.properties。"
+        )
+    }
 }
 
 // Node 可执行文件由 NODE_BIN 覆盖，默认通过 PATH 解析，避免绑定特定操作系统路径。

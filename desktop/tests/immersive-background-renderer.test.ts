@@ -33,6 +33,7 @@ function setup(options: { playing?: boolean; mode?: Mode; context?: boolean; com
   const mutationCallbacks: MutationCallback[] = [];
   const resizeDisconnect = vi.fn();
   const mutationDisconnect = vi.fn();
+  const mutationTargets: Node[] = [];
   vi.stubGlobal('ResizeObserver', class {
     constructor(callback: ResizeObserverCallback) { resizeCallbacks.push(callback); }
     observe = vi.fn();
@@ -40,7 +41,7 @@ function setup(options: { playing?: boolean; mode?: Mode; context?: boolean; com
   });
   vi.stubGlobal('MutationObserver', class {
     constructor(callback: MutationCallback) { mutationCallbacks.push(callback); }
-    observe = vi.fn();
+    observe = vi.fn((target: Node) => { mutationTargets.push(target); });
     disconnect = mutationDisconnect;
   });
   vi.stubGlobal('getComputedStyle', vi.fn(() => ({
@@ -56,7 +57,7 @@ function setup(options: { playing?: boolean; mode?: Mode; context?: boolean; com
     width, height, x: 0, y: 0, left: 0, top: 0, right: width, bottom: height, toJSON: () => ({}),
   }));
   const uniforms = new Map<string, number | number[]>();
-  const frames: { time: number; mode: number; color: number[] }[] = [];
+  const frames: { time: number; mode: number; color: number[]; accent: number[] }[] = [];
   let resource = 0;
   const gl = {
     VERTEX_SHADER: 35633, FRAGMENT_SHADER: 35632, COMPILE_STATUS: 35713, LINK_STATUS: 35714,
@@ -77,6 +78,7 @@ function setup(options: { playing?: boolean; mode?: Mode; context?: boolean; com
       time: uniforms.get('uTime') as number,
       mode: uniforms.get('uMode') as number,
       color: uniforms.get('uColor') as number[],
+      accent: uniforms.get('uAccent') as number[],
     })),
   };
   vi.spyOn(canvas, 'getContext').mockImplementation(() => options.context === false ? null : gl as unknown as WebGLRenderingContext);
@@ -90,7 +92,7 @@ function setup(options: { playing?: boolean; mode?: Mode; context?: boolean; com
   };
   return {
     canvas, host, gl, frames, uniforms, onError, start, callbacks, requestFrame, cancelFrame,
-    resizeDisconnect, mutationDisconnect, removePreference,
+    resizeDisconnect, mutationDisconnect, mutationTargets, removePreference,
     frame(time: number) {
       now = time;
       const scheduled = [...callbacks.values()];
@@ -133,6 +135,7 @@ describe('沉浸背景渲染生命周期', () => {
     expect(h.frames).toHaveLength(1);
     expect(h.frames[0].mode).toBe(0);
     expect(h.frames[0].color).toEqual([48 / 255, 128 / 255, 192 / 255]);
+    expect(h.frames[0].accent).toEqual([100 / 255, 150 / 255, 200 / 255]);
     expect(h.callbacks.size).toBe(0);
     expect(h.canvas.getContext).toHaveBeenCalledWith('webgl', expect.objectContaining({ alpha: false, antialias: false, preserveDrawingBuffer: true }));
     expect(h.onError).not.toHaveBeenCalled();
@@ -190,8 +193,22 @@ describe('沉浸背景渲染生命周期', () => {
     h.resize(500, 300);
     h.color('', '70, 80, 90');
     expect(h.frames).toHaveLength(4);
-    expect(h.frames.at(-1)).toEqual({ time, mode: 1, color: [70 / 255, 80 / 255, 90 / 255] });
+    const accent = [70 / 255, 80 / 255, 90 / 255];
+    expect(h.frames.at(-1)).toEqual({ time, mode: 1, color: accent, accent });
     expect(h.callbacks.size).toBe(0);
+  });
+
+  it('封面色不变时，主题强调色变化也更新静帧', () => {
+    const h = setup(); h.start();
+    h.color('48, 128, 192', '10, 20, 30');
+    expect(h.frames).toHaveLength(2);
+    expect(h.frames.at(-1)!.color).toEqual([48 / 255, 128 / 255, 192 / 255]);
+    expect(h.frames.at(-1)!.accent).toEqual([10 / 255, 20 / 255, 30 / 255]);
+  });
+
+  it('只观察根节点：封面色与强调色都写在那里，沉浸页每帧改进度样式不会触发取色', () => {
+    const h = setup(); h.start();
+    expect(h.mutationTargets).toEqual([document.documentElement]);
   });
 
   it('播放中的封面色变更渐进过渡，无关根属性变化不重复绘制', () => {

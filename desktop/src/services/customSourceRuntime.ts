@@ -14,6 +14,7 @@ import { outboundRequest } from '@/services/outboundHttp';
 import { hiddenSourceSearchers } from '@/services/sources/hidden/hiddenSearchers';
 import { awaitCustomSourceOperation, CustomSourceDisabledError, type CustomSourceOperation } from '@/services/customSourceAccess';
 import { deflateBytes, inflateBytes, zlibFormatFromOptions } from '@/utils/compression';
+import { withTimeout } from '@/utils/withTimeout';
 
 export interface DesktopUserApiHeaderInfo {
   name: string;
@@ -900,7 +901,7 @@ async function buildDeepTestTarget(
   const tracks = await withTimeout(
     searcher.search(`${DEEP_TEST_SONG.name} ${DEEP_TEST_SONG.singer}`),
     searchTimeoutMs,
-    `搜索测试曲目超时（超过 ${Math.round(searchTimeoutMs / 1000)}s）`,
+    '搜索测试曲目',
   );
   const track = matchHiddenCandidates(DEEP_TEST_SONG, tracks)[0];
   if (!track) throw new Error('未在平台搜到匹配的测试曲目');
@@ -934,22 +935,6 @@ export interface DeepTestResult {
   message: string;
   sources?: Record<string, CustomSourceSourceInfo>;
   updateAlert?: CustomSourceUpdateAlert;
-}
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
 }
 
 export async function testCustomSourceDeep(api: CustomSourceItem, operation: CustomSourceOperation, updateAlertWaitMs = TEST_UPDATE_ALERT_WAIT_MS): Promise<DeepTestResult> {
@@ -1037,7 +1022,7 @@ export async function testCustomSourceDeep(api: CustomSourceItem, operation: Cus
       const result = await withTimeout(
         requestCustomSourceMusicUrl(api, target.music, quality, operation, undefined, target.platformRequest),
         chainBudget,
-        `取链测试超时（超过 ${Math.round(chainBudget / 1000)}s 未返回播放地址）`,
+        '取链测试',
       );
       operation.assertActive();
       if (!/^https?:\/\//.test(result.url)) throw new Error(`未返回可播放 URL：${result.url.slice(0, 128)}`);

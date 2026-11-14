@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
+import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
 
 /**
  * 处理 auralflow:// 深链。
@@ -53,6 +53,12 @@ export function DeepLinkHandler() {
         console.warn(`[deep-link] 无法解析深链：${raw}`, error);
       }
     };
+
+    // 冷启动（应用被深链拉起）：插件的 CLI 转发发生在前端挂载之前，
+    // onOpenUrl 收不到那一次，必须主动 getCurrent() 取回启动 URL。
+    getCurrent()
+      .then((urls) => { if (urls?.length) handleUrl(urls); })
+      .catch(() => undefined);
 
     onOpenUrl((urls) => handleUrl(urls))
       .then((fn) => { unlisten = fn; })

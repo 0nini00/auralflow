@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, create, type ReactTestRenderer } from "react-test-renderer";
+import { act, create, type ReactTestInstance, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.hoisted(() => {
@@ -8,6 +8,11 @@ vi.hoisted(() => {
     value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
   });
 });
+// test-renderer 没法把 portal 挂进 jsdom 的真实 body，下拉菜单改为就地渲染
+vi.mock("react-dom", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-dom")>()),
+  createPortal: (node: unknown) => node,
+}));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("@lx/tauri-bridge", () => ({
   loadSettings: vi.fn(async () => ({})),
@@ -54,8 +59,35 @@ async function mountSettings() {
   await act(async () => { renderer = create(<Harness />); });
 }
 
-function backgroundSelect() {
-  return renderer!.root.findByProps({ "aria-label": "沉浸式播放背景" });
+const BACKGROUND_LABEL_PREFIX = "沉浸式播放背景：";
+
+function text(node: ReactTestInstance): string {
+  return node.children.map(child => (typeof child === "string" ? child : text(child))).join("");
+}
+
+function backgroundTrigger() {
+  return renderer!.root.find(node =>
+    node.type === "button" && String(node.props["aria-label"]).startsWith(BACKGROUND_LABEL_PREFIX));
+}
+
+/** 触发器上显示的当前选项 */
+function backgroundLabel() {
+  return String(backgroundTrigger().props["aria-label"]).slice(BACKGROUND_LABEL_PREFIX.length);
+}
+
+function backgroundOptions() {
+  return renderer!.root.findAllByProps({ role: "menuitemradio" });
+}
+
+/** 触发器按事件里的 currentTarget 定位；test-renderer 没有布局，给个固定矩形即可 */
+function openBackgroundMenu() {
+  const anchor = { getBoundingClientRect: () => ({ top: 120, bottom: 156, left: 24, width: 180 }) };
+  act(() => backgroundTrigger().props.onClick({ currentTarget: anchor }));
+}
+
+function chooseBackground(label: string) {
+  openBackgroundMenu();
+  act(() => backgroundOptions().find(option => text(option) === label)!.props.onClick());
 }
 
 function resetAllButton() {
@@ -117,15 +149,15 @@ describe("沉浸式播放背景设置", () => {
 
   it("真实设置选择器通过 view model 即时更新 store 并落盘", async () => {
     await mountSettings();
-    expect(backgroundSelect().props.value).toBe("cover");
-    expect(backgroundSelect().findAllByType("option").map(option => ({
-      value: option.props.value, label: option.children.join(""),
-    }))).toEqual(IMMERSIVE_BACKGROUND_OPTIONS);
-    for (const mode of ["liquid", "aurora"] as const) {
-      act(() => backgroundSelect().props.onChange({ target: { value: mode } }));
-      expect(backgroundSelect().props.value).toBe(mode);
-      expect(useThemeStore.getState().immersiveBackground).toBe(mode);
-      expect(JSON.parse(localStorage.getItem("af-theme")!).state.immersiveBackground).toBe(mode);
+    expect(backgroundLabel()).toBe("封面背景");
+    openBackgroundMenu();
+    expect(backgroundOptions().map(text)).toEqual(IMMERSIVE_BACKGROUND_OPTIONS.map(option => option.label));
+    for (const { value, label } of IMMERSIVE_BACKGROUND_OPTIONS.slice(1)) {
+      chooseBackground(label);
+      expect(backgroundOptions()).toHaveLength(0);
+      expect(backgroundLabel()).toBe(label);
+      expect(useThemeStore.getState().immersiveBackground).toBe(value);
+      expect(JSON.parse(localStorage.getItem("af-theme")!).state.immersiveBackground).toBe(value);
     }
   });
 
@@ -142,11 +174,11 @@ describe("沉浸式播放背景设置", () => {
   it("仅改变沉浸背景也启用全部恢复默认，恢复后控件重新禁用", async () => {
     await mountSettings();
     expect(resetAllButton().props.disabled).toBe(true);
-    act(() => backgroundSelect().props.onChange({ target: { value: "liquid" } }));
+    chooseBackground("液态渐变");
     expect(resetAllButton().props.disabled).toBe(false);
     act(() => resetAllButton().props.onClick());
     expect(useThemeStore.getState().immersiveBackground).toBe("cover");
-    expect(backgroundSelect().props.value).toBe("cover");
+    expect(backgroundLabel()).toBe("封面背景");
     expect(resetAllButton().props.disabled).toBe(true);
   });
 });

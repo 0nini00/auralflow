@@ -7,7 +7,7 @@ const song = (id, source = "tx") => ({ id, source, name: id, singer: "Artist", i
 async function flush() { await new Promise(setImmediate); }
 async function until(predicate) { for (let i=0;i<100;i++) { if(predicate())return; await flush(); } assert.fail("播放链未到达检查点"); }
 function setup(overrides = {}) {
-  const calls=[]; const lookups=[]; const native={};
+  const calls=[]; const lookups=[]; const native={}; const logs=[];
   for(const method of ["setupPlayer","updateOptions","setRepeatMode","add","skip","remove","setRate","setVolume","play","stop","reset","pause"]) {
     native[method]=async(...args)=>{calls.push([method,...args]);};
   }
@@ -32,11 +32,11 @@ function setup(overrides = {}) {
     "@/services/crossSourceFallbackService":cross,
     "@/stores/playbackSettingsStore":{usePlaybackSettingsStore:{getState:()=>({defaultQuality:"320k"})}},
     "./cacheService":{CACHEABLE_AUDIO_SOURCES:new Set(),getCachedLyrics:async()=>[],cacheCover:async()=>{},cacheLyrics:async()=>{}},
-    "@/services/logger":{logger:{info(){},warn(){},error(){}}},
+    "@/services/logger":{logger:{info(...args){logs.push(["info",...args]);},warn(...args){logs.push(["warn",...args]);},error(...args){logs.push(["error",...args]);}}},
   });
   const store=load("src/stores/playerStore.ts").usePlayerStore;
   const service=load("src/services/playerService.ts");
-  return {store,service,calls,lookups,cache,cross,recommendations, load, requests: load("src/services/playbackRequest.ts")};
+  return {store,service,calls,lookups,cache,cross,recommendations, load, logs, requests: load("src/services/playbackRequest.ts")};
 }
 // 上限只是 runner 的安全网，不是断言：这些用例靠推进虚拟计时器消耗真实 CPU，墙钟时间只反映
 // 机器速度。5000ms 在并发跑整个套件时会把它们判成超时（实测同一用例 4.2s，转译未缓存时更高）。
@@ -59,6 +59,27 @@ test("12秒预算涵盖主源失败后的跨源候选，超时后迟到结果不
   assert.match(atDeadline,/解析超时/);
   assert.equal(h.calls.some(call=>call[0]==="play"),false);
   assert.equal(h.store.getState().loading,false);
+});
+
+test("跨源替代逐个记录候选失败原因，全部失败才报终局",options,async()=>{
+  const h=setup();const failures=["网络抖动：cand-a 取链超时","没有可用脚本：cand-b 无自定义源"];let attempts=0;
+  h.cross.findTxVariants=async()=>[song("cand-a"),song("cand-b")];
+  h.cache.getCachedPlaybackUrl=async track=>{
+    if(track.source==="wy")throw new Error("原曲不可用");
+    throw new Error(failures[attempts++]);
+  };
+  let message=null;
+  await h.service.playQueue([song("original","wy")]).catch(error=>{message=error.message;});
+  // 行为不变：每个候选都要试过
+  assert.equal(attempts,2);
+  // 每个候选的失败原因都要留档，线上能区分网络抖动与没有可用脚本
+  const logged=h.logs.filter(entry=>entry[0]==="warn"&&entry[1]==="跨源替代候选解析失败");
+  assert.deepEqual(logged.map(entry=>[entry[2].song,entry[2].reason]),[
+    ["tx:cand-a","网络抖动：cand-a 取链超时"],
+    ["tx:cand-b","没有可用脚本：cand-b 无自定义源"],
+  ]);
+  // 终局文案语义不变
+  assert.equal(message,"原曲不可用（无替代歌曲）");
 });
 
 for(const direction of ["next","previous"]){

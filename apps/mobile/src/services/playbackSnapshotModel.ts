@@ -45,7 +45,9 @@ export function getPlaybackSnapshotSaveTrigger(
 ): SnapshotSaveTrigger {
   if (hasStructuralChange(current, previous)) return "structural";
   if (previous.isPlaying && !current.isPlaying) return "pause";
-  if (Math.floor(current.position / 10) !== Math.floor(previous.position / 10)) return "progress";
+  // 跨 30 秒才落盘：0.25s 的进度 tick 每 10s 序列化整个队列一次，大队列每次几 ms
+  // 挤 JS 线程；崩溃丢失窗口从 10s 放大到 30s，换来的流畅是净收益。
+  if (Math.floor(current.position / 30) !== Math.floor(previous.position / 30)) return "progress";
   return "none";
 }
 

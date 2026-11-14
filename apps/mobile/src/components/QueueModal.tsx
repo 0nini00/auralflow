@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Modal, Pressable, StyleSheet, Text, TouchableWithoutFeedback, View, useWindowDimensions } from "react-native";
-import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { Alert, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import type { MusicInfo } from "@lx/core";
 import type { ThemePalette } from "@/stores/themeStore";
 import type { ImmersiveQueuePanelModel } from "@/services/playerQueueModel";
@@ -23,9 +22,8 @@ import { Touchable } from "@/components/Touchable";
 import { sheet } from "@/theme/sheetTokens";
 import { afterModalDismiss } from "@/utils/modalSequence";
 
-/** sheet 形态的面板高度占窗口比例 */
+/** 面板高度占窗口比例 */
 const QUEUE_SHEET_HEIGHT_RATIO = 0.72;
-const QUEUE_CARD_HEIGHT_RATIO = 0.65;
 const QUEUE_PANEL_CHROME_HEIGHT = 100;
 
 export interface QueueModalProps {
@@ -40,35 +38,19 @@ export interface QueueModalProps {
   onClear: () => void;
   /**
    * 队列菜单内发起路由跳转（如「播放 MV」）前的回调。
-   * 全屏播放页整体是 RN Modal（浮于导航栈之上），必须先关闭播放页再压路由，
-   * 否则新页面被盖住不可见；迷你播放栏场景无覆盖层，不传即可。
+   * 播放页整体是 RN Modal（浮于导航栈之上），必须先关闭播放页再压路由，
+   * 否则新页面被盖住不可见。
    */
   onRequestNavigate?: () => void;
-  /**
-   * 呈现形态：
-   * - "modal"（默认）：RN Modal 居中卡片。用于迷你播放栏（宿主容器不满屏，
-   *   无法承载应用内覆盖层）。
-   * - "sheet"：应用内底部弹层（BottomSheet，非 Modal）。用于全屏播放页——
-   *   队列面板与子弹窗不再构成嵌套 Modal，根除 Android 嵌套 Modal 白屏问题。
-   */
-  presentation?: "modal" | "sheet";
-  /**
-   * sheet 形态的宿主（仅 presentation="sheet" 时生效）：
-   * - "overlay"（默认）：BottomSheet 直接挂载为应用内覆盖层。用于已处于 RN Modal
-   *   内的全屏播放页（沉浸屏），避免与子弹窗构成嵌套 Modal。
-   * - "modal"：在 BottomSheet 外包一层全屏透明 RN Modal 作为宿主。用于宿主容器
-   *   不满屏的迷你播放栏，让弹层获得整屏空间，观感/动画与沉浸屏一致；PlayerBar
-   *   不在沉浸 Modal 内，故无嵌套 Modal 问题。
-   */
-  sheetHost?: "overlay" | "modal";
 }
 
 /**
- * 播放队列面板。
+ * 播放队列面板，由全屏播放器（ImmersiveModals）使用。
  *
  * 行样式复用 SongItem（封面/歌名/歌手·专辑/时长/喜欢/更多），
  * 更多菜单含队列专属的「从队列移除」。
- * 全屏播放器（ImmersiveModals）与迷你播放器（PlayerBar）共用。
+ * 以应用内底部弹层（BottomSheet）呈现：沉浸屏本身已在 RN Modal 内，
+ * 不能再套一层 Modal 子弹窗（Android 嵌套 Modal 白屏）。
  */
 export function QueueModal({
   visible,
@@ -80,8 +62,6 @@ export function QueueModal({
   onRemoveItem,
   onClear,
   onRequestNavigate,
-  presentation = "modal",
-  sheetHost = "overlay",
 }: QueueModalProps) {
   const listRef = useRef<QueueListHandle>(null);
   const { height: windowHeight } = useWindowDimensions();
@@ -231,13 +211,11 @@ export function QueueModal({
     return items;
   }, [actionSong, actionSlot, queue, currentItemIndex, onRemoveItem, onRequestNavigate]);
 
-  // 队列面板主体（modal/sheet 两形态共用）：标题行 + 虚拟化列表
-  const renderPanel = (sheetMode: boolean) => {
+  // 队列面板主体：标题行 + 虚拟化列表
+  const renderPanel = () => {
     // 弹层底色统一走 surface。此前用的是 palette.background（页面底色），
     // 在深色主题下比其它弹层更黑一档，看起来像「另一个 app 的弹窗」。
-    const containerStyle = sheetMode
-      ? [styles.sheetContent, { backgroundColor: palette.surface }]
-      : [styles.content, { backgroundColor: palette.surface, borderColor: palette.border }];
+    const containerStyle = [styles.sheetContent, { backgroundColor: palette.surface }];
     const content = (
       <Pressable onPress={() => undefined}>
         <View style={styles.header}>
@@ -276,102 +254,31 @@ export function QueueModal({
         {visible && !subSheetOpen ? (
           <DraggableQueueList ref={listRef} queue={queue} currentIndex={currentItemIndex} palette={palette}
             height={Math.max(QUEUE_ROW_HEIGHT, Math.min(queue.length * QUEUE_ROW_HEIGHT,
-              Math.round(windowHeight * (sheetMode ? QUEUE_SHEET_HEIGHT_RATIO : QUEUE_CARD_HEIGHT_RATIO)) - QUEUE_PANEL_CHROME_HEIGHT))}
+              Math.round(windowHeight * QUEUE_SHEET_HEIGHT_RATIO) - QUEUE_PANEL_CHROME_HEIGHT))}
             enabled={!menuVisible} onPlayItem={onPlayItem} onOpenMenu={openQueueMenu} />
         ) : null}
       </Pressable>
     );
-    // 只有落在独立原生窗口（RN Modal）里才需要自带手势根；沉浸屏本身已经是
-    // GestureHandlerRootView 的子节点，反复开合不再叠加一层 root。
-    if (presentation === "modal" || sheetHost === "modal") {
-      return (
-        <GestureHandlerRootView unstable_forceActive style={containerStyle}>
-          {content}
-        </GestureHandlerRootView>
-      );
-    }
+    // 面板不叠手势根：沉浸屏本身已是 GestureHandlerRootView 的子节点。
     return <View style={containerStyle}>{content}</View>;
   };
 
-  // sheet 形态：应用内底部弹层（BottomSheet），与子弹窗（Modal）不再嵌套
-  if (presentation === "sheet") {
-    const sheet = (
-      <BottomSheet
-        visible={visible && !subSheetOpen}
-        onClose={handleClose}
-        palette={palette}
-        maxHeightRatio={QUEUE_SHEET_HEIGHT_RATIO}
-        animated={false}
-      >
-        {renderPanel(true)}
-      </BottomSheet>
-    );
-    return (
-      <>
-        {sheetHost === "modal" ? (
-          // 迷你播放栏宿主容器不满屏：套一层全屏透明 Modal 让 BottomSheet 获得整屏空间，
-          // 移除动画，瞬间展示
-          <Modal transparent visible={visible} animationType="none" onRequestClose={handleClose}>
-            {sheet}
-          </Modal>
-        ) : (
-          // 沉浸屏本身是 RN Modal：直接挂应用内覆盖层，避免嵌套 Modal 白屏
-          sheet
-        )}
+  const queueSheet = (
+    <BottomSheet
+      visible={visible && !subSheetOpen}
+      onClose={handleClose}
+      palette={palette}
+      maxHeightRatio={QUEUE_SHEET_HEIGHT_RATIO}
+      animated={false}
+    >
+      {renderPanel()}
+    </BottomSheet>
+  );
 
-        <ActionMenuSheet
-          visible={menuVisible}
-          song={actionSong}
-          title={actionSong?.name ?? ""}
-          items={menuItems}
-          anchor={menuAnchor}
-          onClose={() => {
-            setMenuVisible(false);
-            setMenuAnchor(null);
-            setSubSheetOpen(false);
-          }}
-        />
-        {actionSong ? (
-          <AddToLocalPlaylistModal
-            visible={addToPlaylistVisible}
-            song={actionSong}
-            onClose={() => {
-              setAddToPlaylistVisible(false);
-              setSubSheetOpen(false);
-            }}
-          />
-        ) : null}
-        <DownloadQualityModal
-          visible={downloadVisible}
-          song={actionSong}
-          pendingQuality={pendingQuality}
-          defaultQuality={defaultQuality}
-          onClose={() => {
-            if (!downloading) {
-              setDownloadVisible(false);
-              setSubSheetOpen(false);
-            }
-          }}
-          onDownload={handleDownloadSelected}
-        />
-      </>
-    );
-  }
-
+  // 以应用内底部弹层（BottomSheet）呈现，与子弹窗（Modal）不构成嵌套 Modal。
   return (
     <>
-      <Modal
-        visible={visible && !subSheetOpen}
-        transparent
-        animationType="none"
-        onRequestClose={handleClose}
-      >
-        <TouchableWithoutFeedback accessibilityRole="button" accessibilityLabel="关闭播放列表" onPress={handleClose}>
-          <View style={styles.overlay}>
-            {renderPanel(false)}
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
+      {queueSheet}
 
       <ActionMenuSheet
         visible={menuVisible}
@@ -413,19 +320,6 @@ export function QueueModal({
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: "center",
-    backgroundColor: sheet.scrim,
-    padding: 24,
-  },
-  content: {
-    flex: 0,
-    maxHeight: "78%",
-    borderRadius: sheet.radius,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: "hidden",
-  },
   sheetContent: {
     flex: 0,
     borderTopLeftRadius: sheet.radius,

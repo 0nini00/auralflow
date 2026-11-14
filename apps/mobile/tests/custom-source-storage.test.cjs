@@ -5,7 +5,7 @@ const KEY = "auralflow.mobile.customSources";
 const source = id => ({ id, name: id, description: "fixture", script: id, enabled: true, allowShowUpdateAlert: true, testStatus: "idle", createdAt: 1, updatedAt: 1 });
 
 function fixture(options = {}) {
-  const memory = new Map([[KEY, JSON.stringify({ sources: [source("old")], customSourceAutoCheck: true })]]);
+  const memory = new Map([[KEY, JSON.stringify({ sources: options.sources ?? [source("old")], customSourceAutoCheck: true })]]);
   const writes = [];
   const invalidated = [];
   const runtime = {
@@ -74,4 +74,14 @@ test("音源检测结果和普通编辑在同一持久化边界提交", async ()
   await testing;
   assert.equal(h.store.getState().sources[0].enabled, false);
   assert.equal(JSON.parse(h.memory.get(KEY)).sources[0].enabled, false);
+});
+
+test("批量更新检查跑完全部批次，失败在最后统一上报", async () => {
+  // 3 个源、并发 2：首批判定失败后，第二批仍必须被检查
+  const h = fixture({ sources: [source("a"), source("b"), source("c")], write: async () => { throw new Error("write unavailable"); } });
+  const checks = [];
+  h.runtime.checkCustomSourceUpdate = async (item) => { checks.push(item.id); return { sources: {} }; };
+  // 失败仍要拒绝调用方，不能变成静默成功
+  await assert.rejects(h.store.getState().checkAllUpdates(), /write unavailable/);
+  assert.deepEqual(checks, ["a", "b", "c"]);
 });

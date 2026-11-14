@@ -5,6 +5,7 @@ import { useDialogFocus } from "@/hooks/useDialogFocus";
 import { useUpdateStore } from "@/stores/updateStore";
 import { flushLibraryPersistence } from "@/stores/libraryPersistence";
 import { installPendingUpdate, type UpdateProgress } from "@/services/updateService";
+import { formatBytes } from "@/utils/formatBytes";
 
 /**
  * 软件更新弹窗。
@@ -21,12 +22,6 @@ type Phase =
   | { kind: "downloading"; downloaded: number; total: number | null }
   | { kind: "installing" }
   | { kind: "failed"; reason: string };
-
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
-}
 
 function formatDate(iso: string | null): string {
   if (!iso) return "";

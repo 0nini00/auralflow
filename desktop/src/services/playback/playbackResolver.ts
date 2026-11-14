@@ -524,13 +524,17 @@ async function resolvePlaybackUrlUncapped(
       debugLog(`[resolve] 官方直连兜底成功 ${music.name} url=${resolved.url.slice(0, 60)}`);
       // 官方直连兜底同样要过试听判定：wy eapi 无 VIP 正是返回 30s 试听的场景
       // （见 @lx/core stream-integrity 的说明），而这条路径不参与竞速、此前完全没做判定。
-      // 判定为试听则按失败处理，与档位循环的「试听即作废、不写缓存、不进播放器」语义一致。
+      // 服务端明确拒绝（403/404/410/451）的地址必须作废——旧实现只挡「试听片段」，
+      // 明确拒绝会落进采纳分支，把死链写进 6 小时 URL 缓存并交给播放器。
+      // 试听片段与明确拒绝都按失败处理，与档位循环的「作废、不写缓存、不进播放器」语义一致。
       const fallbackProbe = await probeStreamUrl(
         resolved.url,
         buildStreamHeaders(resolved.music.source),
         probeBudgetMs(deadlineAt),
       );
-      if (
+      if (!fallbackProbe.ok && fallbackProbe.definitive) {
+        tierErrors.push(`官方直连兜底探活失败(${fallbackProbe.reason})`);
+      } else if (
         fallbackProbe.ok &&
         fallbackProbe.totalBytes != null &&
         isPreviewStream({

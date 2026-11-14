@@ -16,7 +16,9 @@ tauri-plugin-http = { version = "2", features = ["unsafe-headers"] }
 tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-deep-link = "2"
-tauri-plugin-single-instance = "2"
+# deep-link feature：二次启动时把 argv 里的深链 URL 转发给 deep-link 插件
+# （否则 auralflow:// 链接拉起的新进程只被聚焦逻辑吞掉，URL 到不了前端）。
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-autostart = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

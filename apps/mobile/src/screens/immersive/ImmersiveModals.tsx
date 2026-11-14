@@ -497,7 +497,6 @@ export function ImmersiveModals({
         onRemoveItem={handleRemoveQueueItem}
         onClear={() => void handleClearQueue()}
         onRequestNavigate={onQueueNavigate}
-        presentation="sheet"
       />
     </>
   );

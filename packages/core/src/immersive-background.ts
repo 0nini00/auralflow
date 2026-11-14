@@ -8,7 +8,11 @@ void main() {
   gl_Position = vec4(aPosition, 0.0, 1.0);
 }`;
 
-// 两种形态来自原创氛围示意；色相跟随主题，亮度压低以留出歌词对比度。
+// 桌面端的两种动态背景（uMode 0 = 液态渐变，1 = 极光光幕）。
+//
+// 两者都只用低频正弦叠加出形状，不采样哈希噪声：值噪声的格点在内部分辨率被压低、
+// 再放大到整窗后会露出方块和竖条。颜色在线性空间里混合，最后统一压暗并加抖动，
+// 给歌词留出对比度，也避免暗部渐变出现色带。
 export const IMMERSIVE_BACKGROUND_FRAGMENT_SHADER = `
 precision highp float;
 varying vec2 vUv;
@@ -16,61 +20,89 @@ uniform float uTime;
 uniform float uAspect;
 uniform int uMode;
 uniform vec3 uColor;
+uniform vec3 uAccent;
 
-float hash(vec2 p) {
-  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
+
+float hash21(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
 }
-float noise(vec2 p) {
-  vec2 i = floor(p), f = fract(p);
-  f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
-             mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0)), f.x), f.y);
+vec3 srgb2lin(vec3 c) { return c * c; }
+vec3 lin2srgb(vec3 c) { return sqrt(max(c, vec3(0.0))); }
+vec3 hueShift(vec3 c, float a) {
+  const vec3 k = vec3(0.57735026919);
+  float ca = cos(a), sa = sin(a);
+  return max(c * ca + cross(k, c) * sa + k * dot(k, c) * (1.0 - ca), vec3(0.0));
 }
-float fbm(vec2 p) {
-  float value = 0.0, amplitude = 0.5;
-  for (int i = 0; i < 4; i++) {
-    value += amplitude * noise(p);
-    p = mat2(1.6, 1.2, -1.2, 1.6) * p + 2.7;
-    amplitude *= 0.5;
+// 只留色相：封面主色不论明暗都落到同一档，再把蓝紫这类天生偏暗的色相提一点。
+vec3 tint(vec3 c) {
+  vec3 h = c / max(max(max(c.r, c.g), c.b), 1e-3);
+  return h * mix(1.0, 0.5 / max(dot(h, LUMA), 0.12), 0.45);
+}
+// 背景主色跟随封面；封面接近灰阶时没有色相可用，借主题强调色的色相并降低饱和度。
+vec3 keyColor() {
+  vec3 art = srgb2lin(uColor);
+  float peak = max(max(art.r, art.g), art.b);
+  float low = min(min(art.r, art.g), art.b);
+  float colorful = smoothstep(0.1, 0.4, (peak - low) / max(peak, 1e-3));
+  vec3 borrowed = tint(srgb2lin(uAccent));
+  borrowed = mix(vec3(dot(borrowed, LUMA)), borrowed, 0.55);
+  return mix(borrowed, tint(art), colorful);
+}
+
+// 液态渐变：逐级扭曲坐标，让三块相邻色相像颜料一样互相推挤。
+vec3 liquid(vec2 p, float t, vec3 key) {
+  vec2 q = p * 1.7;
+  for (int i = 1; i < 5; i++) {
+    float f = float(i);
+    q += vec2(sin(q.y * (0.8 + 0.50 * f) + t * (0.10 + 0.017 * f) + f * 1.7),
+              cos(q.x * (0.7 + 0.55 * f) - t * (0.085 + 0.021 * f) + f * 2.3)) * (0.5 / f);
   }
-  return value;
+  float a = 0.5 + 0.5 * sin(q.x * 1.6 + q.y * 0.7);
+  float b = 0.5 + 0.5 * sin(q.y * 1.8 - q.x * 0.6 + 1.9);
+  float c = 0.5 + 0.5 * sin(q.x - q.y + 3.7);
+  vec3 col = mix(key * 0.012, key * 0.15, smoothstep(0.05, 0.95, a));
+  col = mix(col, hueShift(key, 0.45) * 0.14, b * b * 0.65);
+  col = mix(col, hueShift(key, -0.55) * 0.11, c * c * 0.55);
+  // 两股色流交汇处的一线高光
+  return col + key * pow(a * b, 3.0) * 0.07;
 }
-vec3 palette(float amount) {
-  float peak = max(max(uColor.r, uColor.g), uColor.b);
-  vec3 primary = uColor / max(peak, 0.2);
-  vec3 secondary = mix(primary, primary.brg, 0.32);
-  return mix(mix(primary, secondary, clamp(amount, 0.0, 1.0)), vec3(1.0), 0.12);
+
+// 极光光幕：三层光幕各有一条起伏的下缘，下缘最亮，光向上拖出长尾并被竖向射线切开。
+vec3 aurora(vec2 p, float t, vec3 key) {
+  vec3 col = key * (0.008 + 0.022 * smoothstep(0.1, -0.55, p.y));
+  for (int i = 0; i < 3; i++) {
+    float f = float(i);
+    float x = p.x * (1.0 - f * 0.12) + f * 0.41;
+    float base = -0.16 + f * 0.11
+      + 0.13 * sin(x * 1.3 + t * 0.09 + f * 2.1)
+      + 0.05 * sin(x * 3.1 - t * 0.13 + f * 1.3);
+    float d = p.y - base;
+    float rise = exp(-max(d, 0.0) * (4.2 - f * 0.7));
+    float foot = smoothstep(-0.09, 0.02, d);
+    float xr = x + 0.04 * sin(p.y * 3.1 + t * 0.2 + f);
+    float ray = 0.5 + 0.5 * sin(xr * 13.0 + t * 0.21 + f * 4.0) * sin(xr * 5.3 - t * 0.16 + f);
+    float rays = mix(1.0, 0.3 + 0.9 * ray * ray, smoothstep(0.0, 0.3, d));
+    vec3 hue = hueShift(key, -0.35 + f * 0.35 + d * 0.6);
+    col += hue * rise * foot * rays * (0.095 - f * 0.018);
+  }
+  return col;
 }
+
 void main() {
   vec2 p = (vUv - 0.5) * vec2(uAspect, 1.0);
-  float t = uTime;
-  vec3 energy = vec3(0.0);
-  if (uMode == 0) {
-    vec2 flow = vec2(fbm(p * 1.7 + vec2(t * 0.055, 0.0)),
-                     fbm(p * 1.7 + vec2(4.1, -t * 0.04)));
-    float n = fbm(p * 2.2 + flow * 2.8 + vec2(-t * 0.035, t * 0.025));
-    vec2 center = p - vec2(sin(t * 0.12) * 0.5, 0.2 + cos(t * 0.15) * 0.12);
-    float cloud = exp(-dot(center, center) * 1.8);
-    energy = palette(n * 1.5 - 0.1) * (smoothstep(0.2, 0.78, n) * 0.75 + cloud * 0.22);
-    energy += palette(0.6) * smoothstep(0.64, 0.85, 1.0 - n) * 0.2;
-  } else {
-    for (int i = 0; i < 5; i++) {
-      float layer = float(i), x = p.x;
-      float curve = 0.22 + sin(x * 2.4 + t * 0.12 + layer * 0.4) * 0.14
-                   + sin(x * 5.2 - t * 0.16 + layer) * 0.055;
-      float distance = p.y - curve + layer * 0.034;
-      float band = exp(-abs(distance) * 38.0) * 0.45 + exp(-abs(distance) * 10.0) * 0.16;
-      float curtain = 0.45 + 0.55 * noise(vec2(x * 34.0 + t * 0.09, layer * 5.0));
-      energy += palette(layer * 0.22) * band * curtain;
-    }
-    energy += palette(0.2) * 0.07 * exp(-dot(p, p) * 1.2);
-  }
-  vec2 quiet = p * vec2(0.9, 1.5);
-  energy *= 1.0 - exp(-dot(quiet, quiet) * 3.8) * 0.37;
-  vec2 edge = p / vec2(uAspect, 1.0);
-  float vignette = clamp(1.0 - dot(edge, edge) * 0.6, 0.55, 1.0);
-  vec3 base = vec3(0.018) + uColor * 0.035;
-  gl_FragColor = vec4(base + energy / (vec3(1.0) + energy) * 0.5 * vignette, 1.0);
+  vec3 key = keyColor();
+  vec3 col;
+  if (uMode == 0) col = liquid(p, uTime, key);
+  else col = aurora(p, uTime, key);
+  vec2 edge = vUv - 0.5;
+  col *= 1.0 - dot(edge, edge) * 0.7;
+  vec3 outc = lin2srgb(vec3(1.0) - exp(-col * 1.6));
+  // 抖动：抑制 8bit 渐变在暗部的色带。固定图样，暂停时的静帧不会闪。
+  outc += (hash21(gl_FragCoord.xy) - 0.5) / 255.0;
+  gl_FragColor = vec4(outc, 1.0);
 }`;
 
 // 移动端专用：低频色团 + 抖动。不依赖高频噪声，低分辨率放大后依然平滑。

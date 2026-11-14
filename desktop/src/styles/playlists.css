@@ -1141,7 +1141,7 @@ button.af-playlist-card {
  * 它位于 .af-playlist-detail-header 里，而那个头部是固定深色渐变（#14181a → #121615，
  * 与主题无关），所以这里的文字和控件都按深色底配色，不跟 var(--af-bg-*) 走——
  * 否则浅色主题下会变成「深底上放一个白底控件 + 深灰标签」。
- * 展开列表已从原生 <select> 换成自绘菜单（见 DailyRecommendView 的 DailyDatePicker）。
+ * 展开列表已从原生 <select> 换成自绘菜单（见 components/ui/Select）。
  */
 .af-daily-history-controls {
   display: flex;
@@ -1189,16 +1189,6 @@ button.af-playlist-card {
 .af-daily-date-trigger:disabled {
   opacity: 0.55;
   cursor: not-allowed;
-}
-
-/* 菜单项：日期与勾选标记分开两端，数字等宽避免逐项跳动 */
-.af-daily-date-option {
-  justify-content: space-between;
-  font-variant-numeric: tabular-nums;
-}
-
-.af-daily-date-option[aria-checked="true"] {
-  color: var(--af-accent-strong);
 }
 
 /* 「返回今日」与日期触发器同一行；它不在 .af-playlist-actions 里，吃不到头部已有的

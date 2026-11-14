@@ -85,6 +85,9 @@ pub fn save(app: &AppHandle, namespace: &str, value: &Value) -> Result<(), Strin
 /// 清空指定 namespace（删文件）。
 pub fn reset(app: &AppHandle, namespace: &str) -> Result<(), String> {
     let path = namespace_path(app, namespace)?;
+    // 与 save/load 共用同一把持久化锁：删除与「临时文件 + rename」并发时，
+    // Windows 上 rename 可能因目标被占用而报「提交文件失败」。
+    let _guard = lock_persistence();
     if path.exists() {
         fs::remove_file(&path).map_err(|e| format!("删除 {} 失败: {}", namespace, e))?;
     }

@@ -383,14 +383,44 @@ pub fn cancel_download(task_id: String) -> Result<bool, String> {
     Ok(false)
 }
 
+/// 写下载附属文件（目前唯一用途：下载完成后在旁边补一份 `.lrc` 歌词）。
+///
+/// 这个命令与 `download_file` 跑在同一个 WebView 里、自定义音源脚本同样可达，
+/// 所以收得比通用写文件更紧：只允许 `.lrc`、目录必须已存在（不代建）、
+/// 且绝不覆盖既有文件——「任意路径 + 任意文件名 + 覆盖」等于给脚本一个
+/// 无提示改写用户文件的写原语。
 #[tauri::command]
 pub fn write_download_text_file(
     directory: String,
     file_name: String,
     contents: String,
 ) -> Result<String, String> {
-    let path = safe_join_download_path(&directory, &file_name)?;
-    std::fs::write(&path, contents.as_bytes())
+    let file_component = Path::new(&file_name)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "文件名无效".to_string())?;
+    if file_component.is_empty() || file_component == "." || file_component == ".." {
+        return Err("文件名无效".to_string());
+    }
+    if !file_component.to_ascii_lowercase().ends_with(".lrc") {
+        return Err("只允许写入 .lrc 歌词文件".to_string());
+    }
+
+    let dir = PathBuf::from(&directory);
+    if !dir.is_dir() {
+        return Err("下载目录不存在".to_string());
+    }
+
+    let path = dir.join(file_component);
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|err| match err.kind() {
+            std::io::ErrorKind::AlreadyExists => "同名歌词文件已存在，拒绝覆盖".to_string(),
+            _ => format!("写入下载附属文件失败: {}", err),
+        })?;
+    file.write_all(contents.as_bytes())
         .map_err(|err| format!("写入下载附属文件失败: {}", err))?;
     Ok(path.to_string_lossy().to_string())
 }
@@ -530,5 +560,58 @@ mod lifecycle_tests {
         std::fs::remove_dir_all(&dir).unwrap();
         assert!(result.is_err(), "目标已存在时必须拒绝替换");
         assert_eq!(contents, b"original");
+    }
+
+    #[test]
+    fn sidecar_writer_only_accepts_new_lrc_files_in_existing_dirs() {
+        let dir = std::env::temp_dir().join(format!("auralflow-sidecar-{}", unique_temp_suffix()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // 正常路径：新 .lrc 写入成功
+        let written = write_download_text_file(
+            dir.to_string_lossy().to_string(),
+            "song.lrc".to_string(),
+            "歌词".to_string(),
+        )
+        .unwrap();
+        assert_eq!(std::fs::read_to_string(&written).unwrap(), "歌词");
+
+        // 已存在的同名文件拒绝覆盖
+        assert!(write_download_text_file(
+            dir.to_string_lossy().to_string(),
+            "song.lrc".to_string(),
+            "替换内容".to_string(),
+        )
+        .is_err());
+        assert_eq!(std::fs::read_to_string(&written).unwrap(), "歌词");
+
+        // 非 .lrc 文件名拒绝
+        assert!(write_download_text_file(
+            dir.to_string_lossy().to_string(),
+            "song.txt".to_string(),
+            "x".to_string(),
+        )
+        .is_err());
+
+        // 目录不存在时不再代建
+        let missing = dir.join("missing-dir");
+        assert!(write_download_text_file(
+            missing.to_string_lossy().to_string(),
+            "song.lrc".to_string(),
+            "x".to_string(),
+        )
+        .is_err());
+        assert!(!missing.exists());
+
+        // 借文件名逃出目录的写法仍被 file_name() 收敛回目录内
+        let escaped = write_download_text_file(
+            dir.to_string_lossy().to_string(),
+            "../up.lrc".to_string(),
+            "x".to_string(),
+        )
+        .unwrap();
+        assert!(Path::new(&escaped).parent().unwrap().ends_with(dir.file_name().unwrap()));
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
