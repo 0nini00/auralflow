@@ -10,6 +10,7 @@ mod logging;
 mod lyric_window;
 mod mini_player;
 mod models;
+mod net;
 mod outbound;
 mod secret_store;
 mod smtc;

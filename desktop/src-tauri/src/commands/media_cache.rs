@@ -1,9 +1,7 @@
 // ─── 媒体缓存（歌曲音频 / 封面） ──────────────────────────────
 
-use super::shared::{
-    unique_temp_suffix, TempFileGuard, MEDIA_CONNECT_TIMEOUT, MEDIA_READ_TIMEOUT,
-    MEDIA_TOTAL_TIMEOUT,
-};
+use super::shared::{unique_temp_suffix, TempFileGuard};
+use crate::net::MEDIA_CACHE_UA;
 use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE, CONTENT_TYPE, USER_AGENT};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -13,7 +11,6 @@ use tokio::io::AsyncWriteExt;
 
 // ─── 常量：媒体缓存的全部可调参数集中在这一处 ─────────────────
 
-const MEDIA_CACHE_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const SONG_AUDIO_CACHE_DIR: &str = "song-audio";
 const SONG_COVER_CACHE_DIR: &str = "song-covers";
 /// 各缓存目录的容量上限（字节），超限后按修改时间从最旧开始淘汰。
@@ -359,13 +356,7 @@ async fn cache_remote_file(
     std::fs::create_dir_all(&cache_dir)
         .map_err(|err| format!("创建{}缓存目录失败: {}", label, err))?;
 
-    let client = reqwest::Client::builder()
-        .connect_timeout(MEDIA_CONNECT_TIMEOUT)
-        .read_timeout(MEDIA_READ_TIMEOUT)
-        .timeout(MEDIA_TOTAL_TIMEOUT)
-        .user_agent(MEDIA_CACHE_UA)
-        .redirect(crate::outbound::guarded_redirect_policy("媒体缓存"))
-        .build()
+    let client = crate::net::media_client(MEDIA_CACHE_UA, "媒体缓存")
         .map_err(|err| format!("创建{}下载客户端失败: {}", label, err))?;
 
     let mut response = client

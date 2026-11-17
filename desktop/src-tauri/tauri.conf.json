@@ -27,6 +27,7 @@
     "security": {
       "csp": "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data: blob: https: http:; connect-src 'self' https: http:; media-src 'self' blob: https: http:; font-src 'self' data:",
       "capabilities": [
+        "http-shared",
         "main",
         "lyric",
         "lyric-unlock",

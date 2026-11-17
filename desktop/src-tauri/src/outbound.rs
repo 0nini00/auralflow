@@ -109,7 +109,7 @@ pub fn assert_public_url(url: &str, label: &str) -> Result<reqwest::Url, String>
 }
 
 /// 重定向逐跳校验策略。跳转到内网时直接失败，而不是静默跟随。
-/// 所有对外下载的 reqwest 客户端都应挂上它。
+/// 由 `crate::net` 统一挂到每一个出站客户端上，业务代码不直接调用。
 pub fn guarded_redirect_policy(label: &'static str) -> reqwest::redirect::Policy {
     reqwest::redirect::Policy::custom(move |attempt| {
         if attempt.previous().len() >= 10 {
@@ -120,15 +120,6 @@ pub fn guarded_redirect_policy(label: &'static str) -> reqwest::redirect::Policy
             Err(message) => attempt.error(message),
         }
     })
-}
-
-/// 构造带重定向逐跳校验的客户端。
-fn build_guarded_client(timeout: Duration, label: &'static str) -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
-        .timeout(timeout)
-        .redirect(guarded_redirect_policy(label))
-        .build()
-        .map_err(|err| format!("创建{}客户端失败: {}", label, err))
 }
 
 #[derive(serde::Deserialize)]
@@ -179,7 +170,8 @@ pub async fn proxy_http_request(options: ProxyRequestOptions) -> Result<ProxyRes
             .min(MAX_TIMEOUT_MS),
     );
 
-    let client = build_guarded_client(timeout, LABEL)?;
+    let client = crate::net::proxy_client(timeout, LABEL)
+        .map_err(|err| format!("创建{}客户端失败: {}", LABEL, err))?;
     let mut request = client.request(method, url);
     for (name, value) in options.headers.unwrap_or_default() {
         request = request.header(name, value);

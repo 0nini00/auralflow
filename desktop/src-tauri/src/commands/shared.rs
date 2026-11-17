@@ -6,12 +6,7 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
-use std::time::{Duration, SystemTime};
-
-/// 媒体类出站请求（音频/封面缓存 `media_cache`、用户下载 `downloads`）共用的超时。
-pub(super) const MEDIA_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
-pub(super) const MEDIA_READ_TIMEOUT: Duration = Duration::from_secs(30);
-pub(super) const MEDIA_TOTAL_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+use std::time::SystemTime;
 
 /**
  * 并发下载的唯一后缀。

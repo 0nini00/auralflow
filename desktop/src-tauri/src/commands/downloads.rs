@@ -1,9 +1,6 @@
 // ─── 下载文件 ───────────────────────────────────────────────
 
-use super::shared::{
-    unique_temp_suffix, TempFileGuard, MEDIA_CONNECT_TIMEOUT, MEDIA_READ_TIMEOUT,
-    MEDIA_TOTAL_TIMEOUT,
-};
+use super::shared::{unique_temp_suffix, TempFileGuard};
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -257,13 +254,7 @@ pub async fn download_file(
     ));
     let mut temp_guard = TempFileGuard::new(temp_path.clone());
 
-    let client = reqwest::Client::builder()
-        .connect_timeout(MEDIA_CONNECT_TIMEOUT)
-        .read_timeout(MEDIA_READ_TIMEOUT)
-        .timeout(MEDIA_TOTAL_TIMEOUT)
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-        .redirect(crate::outbound::guarded_redirect_policy("下载"))
-        .build()
+    let client = crate::net::media_client(crate::net::DOWNLOAD_UA, "下载")
         .map_err(|err| format!("创建下载客户端失败: {}", err))?;
 
     let mut resp = await_download_step(
