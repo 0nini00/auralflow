@@ -21,10 +21,11 @@ tags: [auralflow, shared]
 - **更新与发布相关**：发布说明清洗（`release-notes`：`summarizeReleaseNotes` 把 GitHub 发布正文降成纯文本摘要，丢表格/分隔线/代码块）与 GitHub 加速镜像地址改写（`github-mirror`：`GITHUB_MIRROR_PREFIX` / `isMirrorableGithubUrl` / `toMirroredGithubUrl`，刻意手写解析而不用 `new URL`——RN 的 polyfill 不完整）。两端各自接线：移动端镜像失败回退直连，桌面端的镜像/直连双清单由 `desktop/build-release.ps1` 产出。
 - **能不能连**：出站主机判定（`outbound-host`）、免 key 网关的客户端与响应映射（`mobile-api`）。
 - **网易云怎么请求**：weapi / eapi / linuxapi 的算法与密钥（`wy-crypto`，AES / RSA / MD5 原语由两端注入，core 不带加密库）、Cookie 归一化与 csrf 提取（`wy-cookie`）、weapi 请求拼装 / 响应文本解析 / 登录失效判定（`wy-request`，只描述形状，不发请求）。
+- **脚本说了什么**：LX 自定义源脚本里与宿主无关的协议（`custom-source/`）——头部注释解析（`script-header`）、条目模型与读盘归一化（`model`）、能力清单与 updateAlert 校验、lx musicInfo 映射、取链请求的构造与应答校验（`runtime-protocol`）、远端脚本更新比对（`remote-script` / `remote-update`）、深度测试第二阶段的平台选择、预算分配与结果汇总（`deep-test`）。取脚本、搜索、取链、超时守卫与取消闸门都由两端注入。
 
 音源与领域模型的契约（`sources/`）也在这里——`MusicSource` / `MusicInfo` / `Lyric` 的形状是两端共同的词汇表。
 
-它**不是**播放器：播放编排、队列、缓存 IO、自定义音源运行时、平台网络请求都留在两端各自实现。理由见 `auralflow-architecture` 的关键设计决策。
+它**不是**播放器：播放编排、队列、缓存 IO、自定义音源的脚本宿主（桌面 `new Function`、移动端隐藏 WebView 桥，连同各自的运行时缓存与取消令牌）、平台网络请求都留在两端各自实现。理由见 `auralflow-architecture` 的关键设计决策。
 
 ## 边界
 
@@ -37,11 +38,11 @@ tags: [auralflow, shared]
 - 不做 IO：不发请求、不读文件、不读写存储。需要 IO 的能力以依赖注入暴露（`mobile-api` 接收一个 `fetchText`，桌面与移动各自提供实现）。
 - 无构建步骤：`main` / `types` 直接指向 `src/index.ts`，两端经 tsconfig `paths` 消费源码。改完即生效，代价是没有产物隔离——在 core 里引入平台依赖会立刻让两端都编译失败。这是它保持纯净的机制，不是巧合。
 
-**已知的边界瑕疵**（实情，非设计意图）：`mobile-api.ts` 的 `createRacingBuiltinMusicApiClient` 多网关竞速已就绪但未接线，当前只有单网关客户端。新增相关功能前先核对现有实现。旧 `sources/custom-source.ts` 包装器没有生产消费者，已移除；双端运行时仍复用顶层 `custom-source.ts` 的脚本、版本与远程地址工具。
+**已知的边界瑕疵**（实情，非设计意图）：`mobile-api.ts` 的 `createRacingBuiltinMusicApiClient` 多网关竞速已就绪但未接线，当前只有单网关客户端。新增相关功能前先核对现有实现。旧 `sources/custom-source.ts` 包装器没有生产消费者，已移除；脚本、版本与远程地址工具原在顶层 `custom-source.ts`，现为 `custom-source/remote-script.ts`，与双端运行时共用的其余脚本协议同在 `custom-source/` 下。
 
 ## 测试
 
-本包是 JS/TS 侧把「纯逻辑」测满的那一个：`pnpm core:test`（vitest），23 个测试文件 289 例，全部只测纯逻辑。其中 `outbound-host.test.ts` 用 Node 的 WHATWG `URL` 作参照物做差分断言，锚定「守卫判定的 host 必须等于 HTTP 客户端真正连接的 host」这一不变量——它测的不只是函数返回值，而是守卫与真实客户端的一致性；同一份 `packages/core/outbound-host.cases.tsv`（49 条）也被 Rust 侧 `outbound.rs` 用 `include_str!` 内联断言，任一侧改规则而未同步，两边测试会同时红。
+本包是 JS/TS 侧把「纯逻辑」测满的那一个：`pnpm core:test`（vitest），36 个测试文件 385 例，全部只测纯逻辑。其中 `outbound-host.test.ts` 用 Node 的 WHATWG `URL` 作参照物做差分断言，锚定「守卫判定的 host 必须等于 HTTP 客户端真正连接的 host」这一不变量——它测的不只是函数返回值，而是守卫与真实客户端的一致性；同一份 `packages/core/outbound-host.cases.tsv`（49 条）也被 Rust 侧 `outbound.rs` 用 `include_str!` 内联断言，任一侧改规则而未同步，两边测试会同时红。
 
 两端另有自己的套件（桌面前端 68 文件 557 例、移动端 33 文件 568 例，含真 `javac` + jaudiotagger + `ffmpeg` 编译原生源码片段的契约用例，见各自 SPEC）；但真正依赖真机运行时的行为仍只有 `typecheck` + lint + 真机手测。
 

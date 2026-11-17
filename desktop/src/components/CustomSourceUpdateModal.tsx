@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useDialogFocus } from "@/hooks/useDialogFocus";
 import { ExternalLink } from "lucide-react";
 import { open } from "@tauri-apps/plugin-shell";
-import { useCustomSourceStore, type CustomSourceItem } from "@/stores/customSourceStore";
+import type { CustomSourceItem } from "@lx/core";
+import { useCustomSourceStore } from "@/stores/customSourceStore";
 
 const OPEN_CUSTOM_SOURCE_UPDATE_MODAL_EVENT = "af-open-custom-source-update-modal";
 const DISMISSED_KEYS_STORAGE = "af-custom-source-update-dismissed";

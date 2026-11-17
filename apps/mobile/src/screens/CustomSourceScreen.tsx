@@ -13,12 +13,10 @@ import { ActionButton } from "@/components/ActionButton";
 import { SettingsCard } from "@/components/settings/SettingsCard";
 import { DraggableCardList } from "@/components/settings/DraggableCardList";
 import { Code2, GripVertical } from "lucide-react-native";
+import type { CustomSourceItem } from "@lx/core";
 
 import { EmptyState } from "@/components/ScreenState";
-import {
-  useCustomSourceStore,
-  type CustomSourceItem,
-} from "@/stores/customSourceStore";
+import { useCustomSourceStore } from "@/stores/customSourceStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { pickCustomSourceScriptFile } from "@/services/customSourceFilePicker";
 import { sheet } from "@/theme/sheetTokens";

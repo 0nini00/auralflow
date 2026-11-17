@@ -15,7 +15,6 @@ vi.mock("@/stores/customSourceStore", () => ({
   customSourcePersistence: { ready: Promise.resolve() },
   customSourceAccess: {},
 }));
-vi.mock("@/services/customSourceRuntime", () => ({ parseDesktopUserApiInfo: vi.fn() }));
 
 afterEach(() => {
   vi.unstubAllGlobals();

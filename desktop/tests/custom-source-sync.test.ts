@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CustomSourceItem } from "../src/stores/customSourceStore";
+import type { CustomSourceItem } from "@lx/core";
 import type { OutboundResponse } from "../src/services/outboundHttp";
 
 const fixture = vi.hoisted(() => ({
@@ -17,9 +17,8 @@ vi.mock("../src/services/outboundHttp", () => ({ outboundRequest: fixture.reques
 vi.mock("../src/utils/compression", () => ({ inflateBytes: fixture.inflate }));
 vi.mock("../src/services/logger", () => ({ logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock("../src/stores/wyAccountStore", () => ({ useWyAccountStore: { getState: () => ({ playlists: [] }) } }));
-// 不执行用户脚本；同步入口、访问令牌、源 store 和歌单合并逻辑均使用真实实现。
+// 不执行用户脚本；同步入口、访问令牌、源 store、头部解析和歌单合并逻辑均使用真实实现。
 vi.mock("../src/services/customSourceRuntime", () => ({
-  parseDesktopUserApiInfo: () => ({ name: "测试源", description: "" }),
   testCustomSourceDeep: vi.fn(),
   checkCustomSourceUpdate: vi.fn(),
   invalidateRuntimeCache: vi.fn(),
@@ -59,7 +58,10 @@ function response(body = "", status = 200): OutboundResponse {
   return { ok: status >= 200 && status < 300, status, statusText: String(status), headers: {}, text: async () => body, base64: () => body };
 }
 
-function remoteSources(script = "// remote script") {
+// 下载会按脚本头部注释解析名称等字段，云端脚本必须带合法头部。
+const REMOTE_SCRIPT = "/*\n * @name 云端源\n */\n// remote script";
+
+function remoteSources(script = REMOTE_SCRIPT) {
   return JSON.stringify({
     version: "2", lastModified: 2000, featureEnabled: false, featureReady: false,
     data: [{ id: "remote-source", name: "云端源", script, featureEnabled: false, featureReady: false }],
@@ -87,7 +89,7 @@ beforeEach(() => {
   fixture.loadSettings.mockResolvedValue(config);
   fixture.request.mockImplementation(async (_url: string, init: { method: string }) =>
     response(init.method === "GET" ? remoteSources() : ""));
-  fixture.inflate.mockResolvedValue(new TextEncoder().encode("// remote script"));
+  fixture.inflate.mockResolvedValue(new TextEncoder().encode(REMOTE_SCRIPT));
 });
 afterEach(() => { vi.unstubAllGlobals(); });
 
@@ -227,7 +229,7 @@ describe("WebDAV 音源总开关", () => {
     await entered.promise;
     await api.useCustomSourceStore.getState().setFeatureEnabled(false);
     await api.useCustomSourceStore.getState().setFeatureEnabled(true);
-    inflate.resolve(new TextEncoder().encode("// remote script"));
+    inflate.resolve(new TextEncoder().encode(REMOTE_SCRIPT));
     expect((await result).error).toMatchObject(disabled);
     expect(api.useCustomSourceStore.getState().sources).toEqual(original);
     expect(localStorage.setItem).not.toHaveBeenCalled();
@@ -301,7 +303,7 @@ describe("关闭 LX 时释放应用同步等待", () => {
     const pending = deferred<unknown>();
     const entered = deferred<void>();
     const pause = () => { entered.resolve(); return pending.promise; };
-    const sourceBody = remoteSources(stage === "inflate" ? "gz_dGVzdA==" : "// remote script");
+    const sourceBody = remoteSources(stage === "inflate" ? "gz_dGVzdA==" : REMOTE_SCRIPT);
     fixture.request.mockImplementation(async (url: string) => {
       if (!url.endsWith("/user_apis.json")) return response();
       if (stage === "body") return { ...response(), text: pause };
@@ -316,7 +318,7 @@ describe("关闭 LX 时释放应用同步等待", () => {
     await api.useCustomSourceStore.getState().setFeatureEnabled(false);
     const cancelled = await settledBeforeExternalResponse(result);
     const playlistError = await api.uploadPlaylistsSync().then(() => null, (error: unknown) => error);
-    pending.resolve(stage === "settings" ? config : stage === "body" ? sourceBody : new TextEncoder().encode("// remote script"));
+    pending.resolve(stage === "settings" ? config : stage === "body" ? sourceBody : new TextEncoder().encode(REMOTE_SCRIPT));
     await result;
     await nextTurn();
     expect(cancelled).toMatchObject({ error: disabled });

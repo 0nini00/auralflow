@@ -3,48 +3,29 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import RNFS from "react-native-fs";
 import { createSerialTaskQueue } from "@/utils/serialTaskQueue";
 import {
-  checkCustomSourceUpdate,
+  CUSTOM_SOURCE_REMOTE_CHECK_MIN_INTERVAL_MS,
+  buildCustomSourceUpdatePatch,
+  createCustomSourceId,
+  normalizeCustomSourceForStore,
   parseDesktopUserApiInfo,
+  patchCustomSource,
+  stripCustomSourceTransientState,
+  type CustomSourceItem,
+  type CustomSourceUpdateAlert,
+} from "@lx/core";
+import {
+  checkCustomSourceUpdate,
   testCustomSourceDeep,
   invalidateRuntimeCache,
-  type DesktopUserApiHeaderInfo,
-  type CustomSourceUpdateAlert,
 } from "@/services/customSourceRuntime";
 import { clearCrossSourceVariantCache } from "@/services/crossSourceFallbackService";
 import { moveSourceItem } from "@/services/sourceReorderModel";
 
 const STORAGE_KEY = "auralflow.mobile.customSources";
 
-export type CustomSourceTestStatus = "idle" | "testing" | "ok" | "failed";
-export type CustomSourceUpdateStatus = "idle" | "checking" | "latest" | "available" | "failed";
-
-export interface CustomSourceItem {
-  id: string;
-  name: string;
-  description: string;
-  script: string;
-  enabled: boolean;
-  allowShowUpdateAlert: boolean;
-  author?: string;
-  homepage?: string;
-  version?: string;
-  sources?: Record<string, CustomSourceSourceInfo>;
-  testStatus: CustomSourceTestStatus;
-  testMessage?: string;
-  updateStatus?: CustomSourceUpdateStatus;
-  updateMessage?: string;
-  updateLog?: string;
-  updateUrl?: string;
-  updateCheckedAt?: number;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface CustomSourceSourceInfo {
-  type: "music";
-  actions: string[];
-  qualitys: string[];
-}
+// 条目模型与读盘归一化在 @lx/core 的 custom-source 模块里，两端共用。
+// 条目类型同时从这里导出：播放链路（hiddenFallbackService）随 store 一起取用它。
+export type { CustomSourceItem };
 
 interface CustomSourceStore {
   sources: CustomSourceItem[];
@@ -73,77 +54,8 @@ interface PersistedCustomSourceState {
   customSourceAutoCheck?: boolean;
 }
 
-// 远端更新检查节流间隔：同一源距上次远端检查不足 24 小时不再重复拉取（对齐桌面端）
-const REMOTE_CHECK_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
-
-function makeId(): string {
-  return `user_api_${Math.random().toString().slice(2, 5)}_${Date.now()}`;
-}
-
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function patchSource(
-  sources: CustomSourceItem[],
-  id: string,
-  patch: Partial<CustomSourceItem>,
-): CustomSourceItem[] {
-  return sources.map((source) =>
-    source.id === id ? { ...source, ...patch, updatedAt: Date.now() } : source,
-  );
-}
-
-function buildUpdatePatch(updateAlert?: CustomSourceUpdateAlert): Partial<CustomSourceItem> {
-  const updateCheckedAt = Date.now();
-  if (!updateAlert) {
-    return {
-      updateStatus: "latest",
-      updateMessage: undefined,
-      updateLog: undefined,
-      updateUrl: undefined,
-      updateCheckedAt,
-    };
-  }
-  return {
-    updateStatus: "available",
-    updateMessage: "发现更新",
-    updateLog: updateAlert.log,
-    updateUrl: updateAlert.updateUrl,
-    updateCheckedAt,
-  };
-}
-
-function mergeHeaderInfo(source: CustomSourceItem): CustomSourceItem {
-  let info: DesktopUserApiHeaderInfo;
-  try {
-    info = parseDesktopUserApiInfo(source.script);
-  } catch {
-    return source;
-  }
-
-  return {
-    ...source,
-    name: info.name || source.name,
-    description: info.description || source.description,
-    author: info.author || undefined,
-    homepage: info.homepage || undefined,
-    version: info.version || undefined,
-  };
-}
-
-function normalizeCustomSourceForStore(source: CustomSourceItem): CustomSourceItem {
-  const normalized = mergeHeaderInfo(source);
-  return {
-    ...normalized,
-    testStatus:
-      normalized.testStatus === "testing" ? "idle" : normalized.testStatus ?? "idle",
-    testMessage: normalized.testStatus === "testing" ? undefined : normalized.testMessage,
-    updateStatus:
-      normalized.updateStatus === "checking" ? "idle" : normalized.updateStatus ?? "idle",
-    updateMessage: normalized.updateStatus === "checking" ? undefined : normalized.updateMessage,
-    allowShowUpdateAlert: normalized.allowShowUpdateAlert ?? true,
-  };
 }
 
 function parsePersistedState(raw: string | null): PersistedCustomSourceState {
@@ -163,16 +75,9 @@ function parsePersistedState(raw: string | null): PersistedCustomSourceState {
 
 /** 持久化到 AsyncStorage：写盘前剔除瞬态测试态 */
 async function persistState(sources: CustomSourceItem[], customSourceAutoCheck: boolean): Promise<void> {
-    const serializable = sources.map((source) => ({
-      ...source,
-      testStatus: "idle" as CustomSourceTestStatus,
-      testMessage: undefined,
-      updateStatus: source.updateStatus === "checking" ? "idle" : source.updateStatus,
-      updateMessage: source.updateStatus === "checking" ? undefined : source.updateMessage,
-    }));
     await AsyncStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ sources: serializable, customSourceAutoCheck }),
+      JSON.stringify({ sources: stripCustomSourceTransientState(sources), customSourceAutoCheck }),
     );
 }
 
@@ -214,7 +119,7 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => {
     const source = await withSources(async () => {
       const current = get().sources.find((item) => item.id === id);
       if (!current) return undefined;
-      set({ sources: patchSource(get().sources, id, deep
+      set({ sources: patchCustomSource(get().sources, id, deep
         ? { testStatus: "testing", testMessage: "测试中..." }
         : { updateStatus: "checking", updateMessage: "检测中..." }) });
       return current;
@@ -226,11 +131,11 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => {
       if (deep) {
         const result = await testCustomSourceDeep(source);
         patch = { sources: result.sources, testStatus: result.ok ? "ok" : "failed",
-          testMessage: result.message, ...buildUpdatePatch(result.updateAlert) };
+          testMessage: result.message, ...buildCustomSourceUpdatePatch(result.updateAlert) };
       } else {
         const result = await checkCustomSourceUpdate(source);
         patch = { sources: result.sources, testStatus: "ok", testMessage: "初始化正常",
-          ...buildUpdatePatch(result.updateAlert) };
+          ...buildCustomSourceUpdatePatch(result.updateAlert) };
       }
     } catch (error) {
       patch = deep
@@ -240,12 +145,12 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => {
 
     const isCurrentSource = (sources: CustomSourceItem[]) => sources.some((item) => item.id === id && item.script === source.script);
     try {
-      await commitSources((sources) => isCurrentSource(sources) ? patchSource(sources, id, patch) : sources);
+      await commitSources((sources) => isCurrentSource(sources) ? patchCustomSource(sources, id, patch) : sources);
     } catch (error) {
       // 检测态不落盘；写盘失败也要退出检测态，同时将失败交回 UI/同步调用方。
       await withSources(async () => {
         if (!isCurrentSource(get().sources)) return;
-        set({ sources: patchSource(get().sources, id, deep
+        set({ sources: patchCustomSource(get().sources, id, deep
           ? { testStatus: "failed", testMessage: formatError(error) }
           : { updateStatus: "failed", updateMessage: formatError(error) }) });
       });
@@ -267,7 +172,7 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => {
 
     const now = Date.now();
     const item: CustomSourceItem = {
-      id: makeId(),
+      id: createCustomSourceId(),
       name: info.name,
       description: info.description,
       script,
@@ -300,12 +205,12 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => {
     clearCrossSourceVariantCache();
   }),
 
-  toggleSource: (id, enabled) => commitSources((sources) => patchSource(sources, id, { enabled }), () => {
+  toggleSource: (id, enabled) => commitSources((sources) => patchCustomSource(sources, id, { enabled }), () => {
     if (!enabled) invalidateRuntimeCache(id);
     clearCrossSourceVariantCache();
   }),
 
-  toggleUpdateAlert: (id, enabled) => commitSources((sources) => patchSource(sources, id, { allowShowUpdateAlert: enabled })),
+  toggleUpdateAlert: (id, enabled) => commitSources((sources) => patchCustomSource(sources, id, { allowShowUpdateAlert: enabled })),
 
   setCustomSourceAutoCheck: (enabled) => withSources(async () => {
     const customSourceAutoCheck = Boolean(enabled);
@@ -338,7 +243,7 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => {
   applyRuntimeUpdateAlert: (id, alert) => commitSources((sources) => {
     const source = sources.find((item) => item.id === id);
     if (!source || source.updateStatus === "checking") return sources;
-    return patchSource(sources, id, {
+    return patchCustomSource(sources, id, {
       updateStatus: "available",
       updateMessage: "音源检测到新版本",
       updateLog: alert.log,
@@ -356,7 +261,7 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => {
         (source) =>
           !source.updateCheckedAt ||
           source.updateStatus === "failed" ||
-          now - source.updateCheckedAt >= REMOTE_CHECK_MIN_INTERVAL_MS,
+          now - source.updateCheckedAt >= CUSTOM_SOURCE_REMOTE_CHECK_MIN_INTERVAL_MS,
       )
       .map((source) => source.id);
     // 限制并发，避免一次拉起过多自定义音源更新请求（对齐桌面端 CONCURRENCY = 2）

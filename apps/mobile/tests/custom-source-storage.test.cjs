@@ -2,14 +2,15 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { createLoader, deferred, mobileRequire } = require("./helpers/loadTs.cjs");
 const KEY = "auralflow.mobile.customSources";
-const source = id => ({ id, name: id, description: "fixture", script: id, enabled: true, allowShowUpdateAlert: true, testStatus: "idle", createdAt: 1, updatedAt: 1 });
+// store 按脚本头部注释解析名称（@lx/core 的真实实现），夹具脚本必须带合法头部。
+const script = name => `/*\n * @name ${name}\n * @description fixture\n */`;
+const source = id => ({ id, name: id, description: "fixture", script: script(id), enabled: true, allowShowUpdateAlert: true, testStatus: "idle", createdAt: 1, updatedAt: 1 });
 
 function fixture(options = {}) {
   const memory = new Map([[KEY, JSON.stringify({ sources: options.sources ?? [source("old")], customSourceAutoCheck: true })]]);
   const writes = [];
   const invalidated = [];
   const runtime = {
-    parseDesktopUserApiInfo: script => ({ name: script, description: "fixture" }),
     invalidateRuntimeCache: id => invalidated.push(id),
     testCustomSourceDeep: async () => ({ ok: true, message: "ok", sources: {} }),
     checkCustomSourceUpdate: async () => ({ sources: {} }),
@@ -32,7 +33,7 @@ test("音源读取失败不能发布空的就绪状态或允许后续写入", as
   const h = fixture({ read: async () => { throw new Error("read unavailable"); } });
   await assert.rejects(h.store.getState().loadFromStorage(), /read unavailable/);
   assert.equal(h.store.getState().loaded, false);
-  await assert.rejects(h.store.getState().importScript("new"), /read unavailable/);
+  await assert.rejects(h.store.getState().importScript(script("new")), /read unavailable/);
   assert.equal(h.writes.length, 0);
 });
 
@@ -42,7 +43,7 @@ for (const operation of ["import", "replace", "toggle", "remove", "setting"]) {
     await h.store.getState().loadFromStorage();
     const before = structuredClone(h.store.getState().sources);
     const actions = {
-      import: () => h.store.getState().importScript("new"),
+      import: () => h.store.getState().importScript(script("new")),
       replace: () => h.store.getState().replaceAll([source("new")]),
       toggle: () => h.store.getState().toggleSource("old", false),
       remove: () => h.store.getState().removeSource("old"),
@@ -57,10 +58,10 @@ for (const operation of ["import", "replace", "toggle", "remove", "setting"]) {
 
 test("音源导入等待初始化，并发变更基于上次成功提交", async () => {
   const h = fixture();
-  await Promise.all([h.store.getState().importScript("A"), h.store.getState().importScript("B"), h.store.getState().toggleSource("old", false)]);
-  assert.deepEqual(h.store.getState().sources.map(item => item.script), ["old", "A", "B"]);
+  await Promise.all([h.store.getState().importScript(script("A")), h.store.getState().importScript(script("B")), h.store.getState().toggleSource("old", false)]);
+  assert.deepEqual(h.store.getState().sources.map(item => item.name), ["old", "A", "B"]);
   assert.equal(h.store.getState().sources[0].enabled, false);
-  assert.deepEqual(JSON.parse(h.memory.get(KEY)).sources.map(item => item.script), ["old", "A", "B"]);
+  assert.deepEqual(JSON.parse(h.memory.get(KEY)).sources.map(item => item.script), ["old", "A", "B"].map(script));
 });
 
 test("音源检测结果和普通编辑在同一持久化边界提交", async () => {

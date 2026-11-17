@@ -1,63 +1,52 @@
 import CryptoJS from 'crypto-js';
 import forge from 'node-forge';
 import {
-  compareCustomSourceVersions,
-  isLikelyCustomSourceRemoteUrl,
-  matchHiddenCandidates,
-  normalizeCustomSourceRemoteUrl,
-  normalizeCustomSourceScript,
-  normalizeCustomSourceVersion,
+  CUSTOM_SOURCE_CHECK_UPDATE_ALERT_WAIT_MS,
+  CUSTOM_SOURCE_INIT_TIMEOUT_MS,
+  CUSTOM_SOURCE_REMOTE_SCRIPT_ACCEPT,
+  CUSTOM_SOURCE_TEST_UPDATE_ALERT_WAIT_MS,
+  buildCustomSourceDeepTestInitFailure,
+  buildCustomSourceMusicUrlRequest,
+  checkCustomSourceRemoteUpdate,
+  normalizeCustomSourceInitSources,
+  normalizeCustomSourceUpdateAlert,
+  planCustomSourceDeepTest,
+  readCustomSourceMusicUrlResult,
+  readCustomSourceRemoteScript,
+  runCustomSourceDeepTestPlatforms,
+  toCustomSourceRuntimeRequestResult,
+  type CustomSourceDeepTestResult,
+  type CustomSourceItem,
+  type CustomSourcePlatformRequest,
+  type CustomSourceRuntimeInitResult,
+  type CustomSourceRuntimeRequestPayload,
+  type CustomSourceRuntimeRequestResult,
+  type CustomSourceSourceInfo,
+  type CustomSourceUpdateAlert,
   type MusicInfo,
 } from '@lx/core';
-import type { CustomSourceItem, CustomSourceSourceInfo } from '@/stores/customSourceStore';
 import { outboundRequest } from '@/services/outboundHttp';
 import { hiddenSourceSearchers } from '@/services/sources/hidden/hiddenSearchers';
 import { awaitCustomSourceOperation, CustomSourceDisabledError, type CustomSourceOperation } from '@/services/customSourceAccess';
 import { deflateBytes, inflateBytes, zlibFormatFromOptions } from '@/utils/compression';
 import { withTimeout } from '@/utils/withTimeout';
 
-export interface DesktopUserApiHeaderInfo {
-  name: string;
-  description: string;
-  author: string;
-  homepage: string;
-  version: string;
-}
-
-export interface CustomSourceUpdateAlert {
-  log: string;
-  updateUrl?: string;
-}
-
-export interface RuntimeInitResult {
-  sources?: Record<string, CustomSourceSourceInfo>;
-  updateAlert?: CustomSourceUpdateAlert;
-}
-
-interface RuntimeRequestResult {
-  source: string;
-  action: string;
-  data: {
-    type?: string;
-    url?: string;
-  } | string;
-}
+// 脚本协议（头部解析、能力归一化、取链请求、更新比对、深度测试编排）在 @lx/core 的
+// custom-source 模块里，两端共用；本文件只保留桌面端宿主：new Function 执行环境、
+// lx.request 出站代理、运行时缓存与取消令牌。
+//
+// 平台取链请求的类型随 requestCustomSourceMusicUrl 的签名一起从这里给出。
+export type { CustomSourcePlatformRequest };
 
 interface RuntimeInstance {
   operation: CustomSourceOperation;
   dispose: () => void;
-  init: Promise<RuntimeInitResult>;
-  request: (data: RuntimeRequestPayload) => Promise<RuntimeRequestResult>;
+  init: Promise<CustomSourceRuntimeInitResult>;
+  request: (data: CustomSourceRuntimeRequestPayload) => Promise<CustomSourceRuntimeRequestResult>;
   getUpdateAlert: () => CustomSourceUpdateAlert | undefined;
   waitForUpdateAlert: (timeoutMs: number) => Promise<CustomSourceUpdateAlert | undefined>;
   /** 消费方随时可更新监听器，命中缓存的旧 Runtime 也能接上运行时上浮 */
   setUpdateAlertListener: (listener?: UpdateAlertListener) => void;
-}
-
-interface RuntimeRequestPayload {
-  source: string;
-  action: 'musicUrl' | 'lyric' | 'pic';
-  info: Record<string, unknown>;
 }
 
 /** 运行时收到合法 updateAlert 且无 waiter 等待时回调（由消费方注入，用于写 store 上浮全局更新弹窗） */
@@ -67,212 +56,21 @@ interface CreateRuntimeOptions {
   onUpdateAlert?: UpdateAlertListener;
 }
 
-const INFO_LIMITS: Record<keyof DesktopUserApiHeaderInfo, number> = {
-  name: 24,
-  description: 36,
-  author: 56,
-  homepage: 1024,
-  version: 36,
-};
-
-function normalizeHeaderValue(key: keyof DesktopUserApiHeaderInfo, value: string): string {
-  const trimmed = value.trim();
-  if (key === 'version') {
-    const version = trimmed.match(/v?\d+(?:\.\d+){1,3}(?:[-+][\w.-]+)?/)?.[0];
-    if (version) return version;
-  }
-  const limit = INFO_LIMITS[key];
-  return trimmed.length > limit ? `${trimmed.slice(0, limit)}...` : trimmed;
-}
-
 const EVENT_NAMES = {
   request: 'request',
   inited: 'inited',
   updateAlert: 'updateAlert',
 } as const;
 
-const INIT_TIMEOUT_MS = 30_000;
-const TEST_UPDATE_ALERT_WAIT_MS = 800;
-const CHECK_UPDATE_ALERT_WAIT_MS = 5_000;
-
-const ALL_SOURCES = ['kg', 'kw', 'tx', 'wy', 'local'];
-const SUPPORT_QUALITIES: Record<string, string[]> = {
-  kg: ['128k', '320k', 'flac', 'flac24bit'],
-  kw: ['128k', '320k', 'flac', 'flac24bit'],
-  tx: ['128k', '320k', 'flac', 'flac24bit'],
-  wy: ['128k', '320k', 'flac', 'flac24bit'],
-  local: [],
-};
-const SUPPORT_ACTIONS: Record<string, string[]> = {
-  kg: ['musicUrl'],
-  kw: ['musicUrl'],
-  tx: ['musicUrl'],
-  wy: ['musicUrl'],
-  local: ['musicUrl', 'lyric', 'pic'],
-};
-
-export function parseDesktopUserApiInfo(script: string): DesktopUserApiHeaderInfo {
-  const block = /^\/\*[\s\S]+?\*\//.exec(script)?.[0];
-  if (!block) throw new Error('无效的自定义源文件：缺少 LX Music 头部注释');
-
-  const result: DesktopUserApiHeaderInfo = {
-    name: '',
-    description: '',
-    author: '',
-    homepage: '',
-    version: '',
-  };
-  const rxp = /^\s?\*\s?@(\w+)\s(.+)$/;
-  for (const line of block.split(/\r?\n/)) {
-    const match = rxp.exec(line);
-    if (!match) continue;
-    const key = match[1] as keyof DesktopUserApiHeaderInfo;
-    if (!(key in INFO_LIMITS)) continue;
-    result[key] = normalizeHeaderValue(key, match[2]);
-  }
-  result.name ||= `user_api_${new Date().toLocaleString()}`;
-  return result;
-}
-
-function normalizeInitSources(info: unknown): Record<string, CustomSourceSourceInfo> {
-  const input = info as { sources?: Record<string, CustomSourceSourceInfo> } | null;
-  const sources: Record<string, CustomSourceSourceInfo> = {};
-  for (const source of ALL_SOURCES) {
-    const userSource = input?.sources?.[source];
-    if (!userSource || userSource.type !== 'music') continue;
-    sources[source] = {
-      type: 'music',
-      actions: SUPPORT_ACTIONS[source].filter((action) => userSource.actions?.includes(action)),
-      qualitys: SUPPORT_QUALITIES[source].filter((quality) => userSource.qualitys?.includes(quality)),
-    };
-  }
-  return sources;
-}
-
-function normalizeUpdateAlert(data: unknown): CustomSourceUpdateAlert | undefined {
-  if (!data || typeof data !== 'object') return undefined;
-  const input = data as { log?: unknown; updateUrl?: unknown };
-  if (typeof input.log !== 'string' || !input.log.trim()) return undefined;
-
-  const updateUrl = typeof input.updateUrl === 'string' && /^https?:\/\//.test(input.updateUrl) && input.updateUrl.length <= 1024
-    ? input.updateUrl
-    : undefined;
-
-  return {
-    log: input.log.length > 1024 ? `${input.log.slice(0, 1024)}...` : input.log,
-    updateUrl,
-  };
-}
-
-function getRemoteScriptUrl(api: CustomSourceItem): string | null {
-  const candidate = api.homepage?.trim();
-  if (!candidate || !/^https?:\/\//.test(candidate)) return null;
-  try {
-    const normalized = normalizeCustomSourceRemoteUrl(candidate);
-    return isLikelyCustomSourceRemoteUrl(normalized) ? normalized : null;
-  } catch {
-    return null;
-  }
-}
-
 async function fetchRemoteScript(url: string, operation: CustomSourceOperation): Promise<string> {
   operation.assertActive();
   const response = await outboundRequest(url, {
     method: 'GET',
     headers: {
-      Accept: 'text/plain,application/javascript,*/*',
+      Accept: CUSTOM_SOURCE_REMOTE_SCRIPT_ACCEPT,
     },
   });
-  if (!response.ok) {
-    throw new Error(`远端音源请求失败: HTTP ${response.status} ${response.statusText}`);
-  }
-  const text = await response.text();
-  if (!text.trim()) throw new Error('远端音源脚本为空');
-  return text;
-}
-
-export async function checkCustomSourceRemoteUpdate(api: CustomSourceItem, operation: CustomSourceOperation): Promise<CustomSourceUpdateAlert | undefined> {
-  const updateUrl = getRemoteScriptUrl(api);
-  if (!updateUrl) return undefined;
-
-  operation.assertActive();
-  const remoteScript = await awaitCustomSourceOperation(operation, fetchRemoteScript(updateUrl, operation));
-  const localInfo = parseDesktopUserApiInfo(api.script);
-  const remoteInfo = parseDesktopUserApiInfo(remoteScript);
-  const localVersion = normalizeCustomSourceVersion(api.version || localInfo.version);
-  const remoteVersion = normalizeCustomSourceVersion(remoteInfo.version);
-  const hasScriptChanged = normalizeCustomSourceScript(remoteScript) !== normalizeCustomSourceScript(api.script);
-
-  if (remoteVersion && localVersion) {
-    if (compareCustomSourceVersions(remoteVersion, localVersion) <= 0) return undefined;
-    return {
-      log: `发现新版本：v${localVersion} -> v${remoteVersion}`,
-      updateUrl,
-    };
-  }
-  if (!remoteVersion && !hasScriptChanged) return undefined;
-  if (hasScriptChanged) {
-    return {
-      log: remoteVersion
-        ? `远端脚本内容已更新，当前版本 v${localVersion || '未知'}，远端版本 v${remoteVersion}`
-        : '远端脚本内容已更新',
-      updateUrl,
-    };
-  }
-  return undefined;
-}
-
-/**
- * 隐藏兜底音源取链请求：把平台标识与平台曲目元数据显式传给脚本。
- *
- * 隐藏平台的曲目不存在于 `MusicInfo.source`（那是 UI 来源），因此不能只靠
- * music 字段推断；songmid/interval/albumName 等也来自平台搜索结果而非原曲。
- */
-export interface CustomSourcePlatformRequest {
-  source: string;
-  songmid?: string;
-  interval?: number;
-  albumName?: string;
-  picUrl?: string;
-  extra?: Record<string, string | number>;
-}
-
-/**
- * 转换为 lx-music 协议的 musicInfo。
- *
- * tx 取链依赖 strMediaMid（脚本用它拼 M500{mid}.mp3 / F000{mid}.flac），
- * albumId 在 lx 的 tx musicInfo 里存的也是专辑 mid 而非数字 id；
- * songmid 与 songId 对 tx 是两个不同的值，不能都填 music.id。
- *
- * 隐藏兜底音源通过 platformRequest 覆盖 source/songmid/时长/专辑/封面，
- * extra 里携带酷狗 hash 等脚本必需字段。extra 展开放在最前：协议字段以显式
- * 映射为准，避免平台返回的同名字段（name/singer/songmid…）覆盖它们；
- * 只有 albumId/albumMid 例外，平台值优先于 tx 的专辑 mid。
- */
-function toOldMusicInfo(
-  music: MusicInfo,
-  platformRequest?: CustomSourcePlatformRequest,
-): Record<string, unknown> {
-  const tx = music.txMeta;
-  const songmid = platformRequest?.songmid ?? music.id;
-  const extra = platformRequest?.extra;
-  return {
-    ...extra,
-    name: music.name,
-    singer: music.singer,
-    source: platformRequest?.source ?? music.source,
-    songmid,
-    songId: tx?.songId || songmid,
-    interval: platformRequest?.interval ?? music.interval,
-    albumName: platformRequest?.albumName ?? music.albumName,
-    albumId: extra?.albumId ?? tx?.albumMid ?? '',
-    albumMid: extra?.albumMid ?? extra?.albumId ?? tx?.albumMid ?? '',
-    strMediaMid: tx?.strMediaMid ?? '',
-    img: platformRequest?.picUrl ?? music.picUrl ?? music.img ?? '',
-    types: [],
-    _types: {},
-    typeUrl: {},
-  };
+  return readCustomSourceRemoteScript(response);
 }
 
 function responseRawBody(rawBody: unknown): string {
@@ -511,8 +309,8 @@ function createRuntime(api: CustomSourceItem, parentOperation: CustomSourceOpera
     },
   };
   let initTimer: number | undefined;
-  let requestHandler: ((payload: RuntimeRequestPayload) => Promise<unknown>) | null = null;
-  let finishInit: (value: RuntimeInitResult) => void = () => undefined;
+  let requestHandler: ((payload: CustomSourceRuntimeRequestPayload) => Promise<unknown>) | null = null;
+  let finishInit: (value: CustomSourceRuntimeInitResult) => void = () => undefined;
   let failInit: (error: Error) => void = () => undefined;
   let initSettled = false;
   let updateAlert: CustomSourceUpdateAlert | undefined;
@@ -524,7 +322,7 @@ function createRuntime(api: CustomSourceItem, parentOperation: CustomSourceOpera
   let updateAlertSeen = false;
   let updateAlertListener: UpdateAlertListener | undefined = options?.onUpdateAlert;
   const updateAlertWaiters = new Set<(alert: CustomSourceUpdateAlert | undefined) => void>();
-  const init = new Promise<RuntimeInitResult>((resolve, reject) => {
+  const init = new Promise<CustomSourceRuntimeInitResult>((resolve, reject) => {
     finishInit = resolve;
     failInit = reject;
   });
@@ -559,7 +357,7 @@ function createRuntime(api: CustomSourceItem, parentOperation: CustomSourceOpera
           initSettled = true;
           if (initTimer !== undefined) window.clearTimeout(initTimer);
           try {
-            finishInit({ sources: normalizeInitSources(data), updateAlert });
+            finishInit({ sources: normalizeCustomSourceInitSources(data), updateAlert });
             resolve();
           } catch (error) {
             failInit(error instanceof Error ? error : new Error(String(error)));
@@ -568,7 +366,7 @@ function createRuntime(api: CustomSourceItem, parentOperation: CustomSourceOpera
           return;
         }
         if (eventName === EVENT_NAMES.updateAlert) {
-          const normalized = normalizeUpdateAlert(data);
+          const normalized = normalizeCustomSourceUpdateAlert(data);
           if (normalized && !updateAlertSeen) {
             updateAlertSeen = true;
             updateAlert = normalized;
@@ -584,7 +382,7 @@ function createRuntime(api: CustomSourceItem, parentOperation: CustomSourceOpera
         reject(new Error(`The event is not supported: ${eventName}`));
       });
     },
-    on(eventName: string, handler: (payload: RuntimeRequestPayload) => Promise<unknown>) {
+    on(eventName: string, handler: (payload: CustomSourceRuntimeRequestPayload) => Promise<unknown>) {
       if (!operation.isActive()) return Promise.reject(new CustomSourceDisabledError());
       if (eventName !== EVENT_NAMES.request) return Promise.reject(new Error(`The event is not supported: ${eventName}`));
       requestHandler = handler;
@@ -672,7 +470,7 @@ function createRuntime(api: CustomSourceItem, parentOperation: CustomSourceOpera
       initSettled = true;
       failInit(new Error('自定义音源初始化超时，脚本没有调用 lx.send(lx.EVENT_NAMES.inited, ...)'));
     }
-  }, INIT_TIMEOUT_MS);
+  }, CUSTOM_SOURCE_INIT_TIMEOUT_MS);
 
   return {
     operation,
@@ -708,20 +506,7 @@ function createRuntime(api: CustomSourceItem, parentOperation: CustomSourceOpera
       await awaitCustomSourceOperation(operation, init);
       if (!requestHandler) throw new Error('Request event is not defined');
       const response = await awaitCustomSourceOperation(operation, requestHandler({ source: data.source, action: data.action, info: data.info }));
-      if (data.action === 'musicUrl') {
-        if (typeof response !== 'string' || response.length > 2048 || !/^https?:/.test(response)) {
-          throw new Error('自定义音源没有返回可播放 URL');
-        }
-        return {
-          source: data.source,
-          action: data.action,
-          data: {
-            type: data.info.type as string,
-            url: response,
-          },
-        };
-      }
-      return { source: data.source, action: data.action, data: response as string };
+      return toCustomSourceRuntimeRequestResult(data, response);
     },
   };
 }
@@ -823,7 +608,7 @@ function primeRuntimeCache(api: CustomSourceItem, runtime: RuntimeInstance): voi
   runtimeCache.set(key, runtime);
 }
 
-export async function testCustomSource(api: CustomSourceItem, operation: CustomSourceOperation, updateAlertWaitMs = TEST_UPDATE_ALERT_WAIT_MS): Promise<RuntimeInitResult> {
+export async function testCustomSource(api: CustomSourceItem, operation: CustomSourceOperation, updateAlertWaitMs = CUSTOM_SOURCE_TEST_UPDATE_ALERT_WAIT_MS): Promise<CustomSourceRuntimeInitResult> {
   operation.assertActive();
   // 测试/更新检查使用独立的 runtime，不能动播放缓存里的实例：
   // 之前这里的 invalidateRuntimeCache 会在后台检查时中断正在进行的播放解析。
@@ -839,229 +624,56 @@ export async function testCustomSource(api: CustomSourceItem, operation: CustomS
 }
 
 // ─── 深度测试：真实取链 ────────────────────────────────────────
-// 初始化通过不代表脚本真的能取到播放地址（假阳性），这里用内置固定测试曲走一次真实
-// musicUrl 请求验证端到端可用性。超时 20s，与现有播放解析预期对齐。
+// 测哪些平台、预算怎么分、结果怎么汇总在 @lx/core 的 deep-test 里；这里负责脚本的
+// 启动与释放、运行时缓存的去留，并把取消令牌接进每一步。
 
-const DEEP_TEST_TIMEOUT_MS = 20_000;
-const DEEP_TEST_SEARCH_TIMEOUT_MS = 6_000;
-const DEEP_TEST_PLATFORM_BUDGET_MS = 25_000;
-const DEEP_TEST_MIN_PLATFORM_BUDGET_MS = 5_000;
-const DEEP_TEST_TOTAL_BUDGET_MS = 60_000;
-const DEEP_TEST_QUALITY = '128k';
-
-/** 内置固定测试曲（id 均为公开常驻曲目，可按需替换）：
- *  - wy：2034742057 林俊杰-江南（备选 1492167768）
- *  - tx：songmid 0039MnYb0qxYhV
- *  - kw/kg：用隐藏音源搜索按名找同曲，不依赖固定 id
- */
-const DEEP_TEST_TRACKS: Record<'wy' | 'tx', { id: string; name: string; singer: string; albumName: string }> = {
-  wy: { id: '2034742057', name: '江南', singer: '林俊杰', albumName: '第二天堂' },
-  tx: { id: '0039MnYb0qxYhV', name: '江南', singer: '林俊杰', albumName: '第二天堂' },
-};
-
-/** 深度测试固定曲目：与固定 wy/tx 曲目同一首歌，用于按平台搜索。 */
-const DEEP_TEST_SONG = { name: '江南', singer: '林俊杰', albumName: '第二天堂', interval: 267 };
-
-/** 脚本声明了 musicUrl 的平台逐个测试；不在这里枚举的平台不参与。 */
-const DEEP_TEST_PLATFORMS = ['wy', 'tx', 'kw', 'kg'] as const;
-type DeepTestPlatform = (typeof DEEP_TEST_PLATFORMS)[number];
-
-interface DeepTestTarget {
-  platform: DeepTestPlatform;
-  music: MusicInfo;
-  platformRequest?: CustomSourcePlatformRequest;
-}
-
-function compactTestDetail(value: string): string {
-  const trimmed = value.replace(/\s+/g, ' ').trim();
-  return trimmed.length > 160 ? `${trimmed.slice(0, 160)}...` : trimmed;
-}
-
-/** 为平台准备测试曲：wy/tx 用固定 id；kw/kg 先原生搜索同曲，再取平台元数据。 */
-async function buildDeepTestTarget(
-  platform: DeepTestPlatform,
-  searchTimeoutMs = DEEP_TEST_SEARCH_TIMEOUT_MS,
-): Promise<DeepTestTarget> {
-  if (platform === 'wy' || platform === 'tx') {
-    const track = DEEP_TEST_TRACKS[platform];
-    return {
-      platform,
-      music: {
-        id: track.id,
-        name: track.name,
-        singer: track.singer,
-        albumName: track.albumName,
-        source: platform,
-      },
-    };
-  }
-
-  const searcher = hiddenSourceSearchers.find((item) => item.id === platform);
-  if (!searcher) throw new Error('该平台没有可用的搜索实现');
-  const tracks = await withTimeout(
-    searcher.search(`${DEEP_TEST_SONG.name} ${DEEP_TEST_SONG.singer}`),
-    searchTimeoutMs,
-    '搜索测试曲目',
-  );
-  const track = matchHiddenCandidates(DEEP_TEST_SONG, tracks)[0];
-  if (!track) throw new Error('未在平台搜到匹配的测试曲目');
-
-  return {
-    platform,
-    // MusicInfo.source 是 UI 来源，这里只是占位；真正的平台来源由 platformRequest 透传。
-    music: {
-      id: track.id,
-      name: track.name,
-      singer: track.singer,
-      albumName: track.albumName ?? DEEP_TEST_SONG.albumName,
-      source: 'tx',
-      interval: track.interval,
-      picUrl: track.picUrl,
-    },
-    platformRequest: {
-      source: platform,
-      songmid: track.id,
-      interval: track.interval,
-      albumName: track.albumName,
-      picUrl: track.picUrl,
-      extra: track.extra,
-    },
-  };
-}
-
-/** 取链测试结果，结构兼容现有 testCustomSource 返回，ok 表示两阶段全部通过 */
-export interface DeepTestResult {
-  ok: boolean;
-  message: string;
-  sources?: Record<string, CustomSourceSourceInfo>;
-  updateAlert?: CustomSourceUpdateAlert;
-}
-
-export async function testCustomSourceDeep(api: CustomSourceItem, operation: CustomSourceOperation, updateAlertWaitMs = TEST_UPDATE_ALERT_WAIT_MS): Promise<DeepTestResult> {
+export async function testCustomSourceDeep(api: CustomSourceItem, operation: CustomSourceOperation, updateAlertWaitMs = CUSTOM_SOURCE_TEST_UPDATE_ALERT_WAIT_MS): Promise<CustomSourceDeepTestResult> {
   operation.assertActive();
   // 阶段一：复用现有 init 流程；同样不碰播放缓存里的 runtime。
   const runtime = createRuntime(api, operation);
-  let initResult: RuntimeInitResult;
+  let initResult: CustomSourceRuntimeInitResult;
   try {
     initResult = await awaitCustomSourceOperation(operation, runtime.init);
     initResult = { ...initResult, updateAlert: initResult.updateAlert ?? await runtime.waitForUpdateAlert(updateAlertWaitMs) };
   } catch (error) {
     runtime.dispose();
     operation.assertActive();
-    return { ok: false, message: `初始化失败：${error instanceof Error ? error.message : String(error)}`, sources: undefined, updateAlert: undefined };
+    return buildCustomSourceDeepTestInitFailure(error);
   }
 
   // 阶段二：脚本声明了哪些平台就逐个测哪些（wy/tx/kw/kg），不再只测 wy。
-  const sources = initResult.sources ?? {};
-  const declaredPlatforms = Object.keys(sources).filter((id) => sources[id]?.actions.includes('musicUrl'));
-  if (declaredPlatforms.length === 0) {
+  const plan = planCustomSourceDeepTest(initResult);
+  if (plan.verdict) {
     runtime.dispose();
     operation.assertActive();
-    return { ok: true, message: '初始化正常；未声明 musicUrl，仅验证初始化', sources, updateAlert: initResult.updateAlert };
-  }
-  const platforms = DEEP_TEST_PLATFORMS.filter((name) => declaredPlatforms.includes(name));
-  if (platforms.length === 0) {
-    runtime.dispose();
-    operation.assertActive();
-    return {
-      ok: false,
-      message: `初始化正常；脚本只声明了 ${declaredPlatforms.join('/')}，当前深度测试仅覆盖 wy/tx/kw/kg`,
-      sources,
-      updateAlert: initResult.updateAlert,
-    };
+    return plan.verdict;
   }
 
   // 深度测试重建的 Runtime 复用缓存，取链走现有 requestCustomSourceMusicUrl
   primeRuntimeCache(api, runtime);
-  const startedAt = Date.now();
-  const results: Array<{ platform: DeepTestPlatform; ok: boolean; detail: string }> = [];
-
-  for (let index = 0; index < platforms.length; index += 1) {
-    const platform = platforms[index];
-    const remaining = DEEP_TEST_TOTAL_BUDGET_MS - (Date.now() - startedAt);
-    if (remaining <= 0) {
-      results.push({ platform, ok: false, detail: '未测试（总预算耗尽）' });
-      continue;
-    }
-
-    // 总预算按剩余平台均摊：慢平台不能吃掉后面所有平台的测试机会。
-    const platformsLeft = platforms.length - index;
-    const platformBudget = Math.min(
-      remaining,
-      Math.max(
-        DEEP_TEST_MIN_PLATFORM_BUDGET_MS,
-        Math.min(DEEP_TEST_PLATFORM_BUDGET_MS, Math.floor(remaining / platformsLeft)),
-      ),
-    );
-    const platformStartedAt = Date.now();
-
-    // quality 兼容：128k 不在脚本声明白名单时退回声明的最低音质
-    const declared = sources[platform]?.qualitys ?? [];
-    const quality = declared.includes(DEEP_TEST_QUALITY) ? DEEP_TEST_QUALITY : declared[0] ?? DEEP_TEST_QUALITY;
-
-    let target: DeepTestTarget;
-    try {
-      target = await buildDeepTestTarget(platform, Math.min(DEEP_TEST_SEARCH_TIMEOUT_MS, platformBudget));
-      operation.assertActive();
-    } catch (error) {
-      operation.assertActive();
-      results.push({
-        platform,
-        ok: false,
-        detail: `搜索测试曲目失败：${compactTestDetail(error instanceof Error ? error.message : String(error))}`,
-      });
-      continue;
-    }
-
-    try {
-      const chainBudget = Math.min(
-        DEEP_TEST_TIMEOUT_MS,
-        platformBudget - (Date.now() - platformStartedAt),
-      );
-      if (chainBudget <= 0) throw new Error('总预算耗尽');
-      const result = await withTimeout(
-        requestCustomSourceMusicUrl(api, target.music, quality, operation, undefined, target.platformRequest),
-        chainBudget,
-        '取链测试',
-      );
-      operation.assertActive();
-      if (!/^https?:\/\//.test(result.url)) throw new Error(`未返回可播放 URL：${result.url.slice(0, 128)}`);
-      results.push({ platform, ok: true, detail: `${result.quality || quality}` });
-    } catch (error) {
-      // 生命周期失效要抛出，而不是伪装成「测试失败」。
-      operation.assertActive();
-      results.push({
-        platform,
-        ok: false,
-        detail: `取链失败：${compactTestDetail(error instanceof Error ? error.message : String(error))}`,
-      });
-    }
-  }
-
-  operation.assertActive();
-  const passed = results.filter((item) => item.ok).length;
-  const ok = passed === results.length;
+  const { passed, result } = await runCustomSourceDeepTestPlatforms(initResult, plan.platforms, {
+    searchers: hiddenSourceSearchers,
+    withTimeout,
+    requestMusicUrl: (target, quality) =>
+      requestCustomSourceMusicUrl(api, target.music, quality, operation, undefined, target.platformRequest),
+    // 生命周期失效要抛出，而不是伪装成「测试失败」。
+    assertActive: () => operation.assertActive(),
+  });
   // 全部平台都失败时才丢弃这个 runtime；有任一平台通过就保留，避免下次播放重新初始化。
   // 必须走 invalidateRuntimeCache：只 dispose 会留下缓存里的已释放实例，
   // 之后命中缓存时 request() 立即失败，该音源在本会话内不可用。
   if (passed === 0) invalidateRuntimeCache(api.id);
-
-  const summary = results
-    .map((item) => `${item.platform} ${item.ok ? '通过' : '失败'}:${item.detail}`)
-    .join('；');
-  return {
-    ok,
-    message: `初始化正常；取链测试 ${passed}/${results.length} 通过（${summary}）`,
-    sources: initResult.sources ?? sources,
-    updateAlert: initResult.updateAlert,
-  };
+  return result;
 }
 
-export async function checkCustomSourceUpdate(api: CustomSourceItem, operation: CustomSourceOperation): Promise<RuntimeInitResult> {
+export async function checkCustomSourceUpdate(api: CustomSourceItem, operation: CustomSourceOperation): Promise<CustomSourceRuntimeInitResult> {
   operation.assertActive();
-  const result = await testCustomSource(api, operation, CHECK_UPDATE_ALERT_WAIT_MS);
+  const result = await testCustomSource(api, operation, CUSTOM_SOURCE_CHECK_UPDATE_ALERT_WAIT_MS);
   if (result.updateAlert) return result;
-  const remoteAlert = await checkCustomSourceRemoteUpdate(api, operation);
+  const remoteAlert = await checkCustomSourceRemoteUpdate(
+    api,
+    (url) => awaitCustomSourceOperation(operation, fetchRemoteScript(url, operation)),
+  );
   operation.assertActive();
   return { ...result, updateAlert: remoteAlert };
 }
@@ -1077,21 +689,9 @@ export async function requestCustomSourceMusicUrl(
   operation.assertActive();
   const runtime = getCachedRuntime(api, operation, onUpdateAlert);
   const initResult = await awaitCustomSourceOperation(operation, runtime.init);
-  const sourceId = platformRequest?.source ?? music.source;
-  const sourceInfo = initResult.sources?.[sourceId];
-  if (!sourceInfo?.actions.includes('musicUrl')) throw new Error(`音源不支持 ${sourceId} 的播放链接解析`);
-  if (sourceInfo.qualitys.length && !sourceInfo.qualitys.includes(quality)) throw new Error(`音源不支持 ${quality} 音质`);
-
-  const result = await runtime.request({
-    source: sourceId,
-    action: 'musicUrl',
-    info: {
-      type: quality,
-      musicInfo: toOldMusicInfo(music, platformRequest),
-    },
-  });
+  const result = await runtime.request(
+    buildCustomSourceMusicUrlRequest(initResult.sources, music, quality, platformRequest),
+  );
   operation.assertActive();
-  const data = result.data as { url?: string; type?: string };
-  if (!data.url) throw new Error('自定义音源没有返回可播放 URL');
-  return { url: data.url, quality: data.type || quality, sources: initResult.sources };
+  return { ...readCustomSourceMusicUrlResult(result, quality), sources: initResult.sources };
 }

@@ -1,4 +1,4 @@
-import type { CustomSourceItem } from "@/stores/customSourceStore";
+import type { CustomSourceItem } from "@lx/core";
 
 export function buildCustomSourceUpdateDismissKey(source: CustomSourceItem): string {
   return [

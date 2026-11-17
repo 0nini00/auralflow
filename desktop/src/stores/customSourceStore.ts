@@ -1,49 +1,30 @@
 import { open } from '@tauri-apps/plugin-dialog';
 import { readTextFile } from '@tauri-apps/plugin-fs';
 import {
-  checkCustomSourceUpdate,
+  CUSTOM_SOURCE_REMOTE_CHECK_MIN_INTERVAL_MS,
+  buildCustomSourceUpdatePatch,
+  createCustomSourceId,
+  normalizeCustomSourceForStore,
   parseDesktopUserApiInfo,
+  patchCustomSource,
+  stripCustomSourceTransientState,
+  type CustomSourceItem,
+  type CustomSourceUpdateAlert,
+} from '@lx/core';
+import {
+  checkCustomSourceUpdate,
   testCustomSourceDeep,
   invalidateRuntimeCache,
   invalidateAllRuntimeCaches,
-  type DesktopUserApiHeaderInfo,
-  type CustomSourceUpdateAlert,
 } from '@/services/customSourceRuntime';
 import { attachLibraryPersistence, createLibraryStore } from './libraryPersistence';
 import { createCustomSourceAccess } from '@/services/customSourceAccess';
 import { clearCrossSourceVariantCache } from '@/services/playback/crossSourceFallbackService';
 import { moveItemToIndex } from '@/utils/listReorder';
 
-export type CustomSourceTestStatus = 'idle' | 'testing' | 'ok' | 'failed';
-export type CustomSourceUpdateStatus = 'idle' | 'checking' | 'latest' | 'available' | 'failed';
-
-export interface CustomSourceItem {
-  id: string;
-  name: string;
-  description: string;
-  script: string;
-  enabled: boolean;
-  allowShowUpdateAlert: boolean;
-  author?: string;
-  homepage?: string;
-  version?: string;
-  sources?: Record<string, CustomSourceSourceInfo>;
-  testStatus: CustomSourceTestStatus;
-  testMessage?: string;
-  updateStatus?: CustomSourceUpdateStatus;
-  updateMessage?: string;
-  updateLog?: string;
-  updateUrl?: string;
-  updateCheckedAt?: number;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface CustomSourceSourceInfo {
-  type: 'music';
-  actions: string[];
-  qualitys: string[];
-}
+// 条目模型与读盘归一化在 @lx/core 的 custom-source 模块里，两端共用。
+// 条目类型同时从这里导出：播放链路（hiddenFallbackService）随 store 一起取用它。
+export type { CustomSourceItem };
 
 interface CustomSourceStore {
   featureEnabled: boolean;
@@ -66,80 +47,13 @@ interface CustomSourceStore {
   replaceAll: (sources: CustomSourceItem[]) => void;
 }
 
-// 远端更新检查节流间隔：同一源距上次远端检查不足 24 小时不再重复拉取
-const REMOTE_CHECK_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
 // 失败源的重试间隔：不跟随启动频率，避免永久失效的源每次启动都重新执行脚本。
 const FAILED_CHECK_RETRY_MS = 30 * 60 * 1000;
 // 同一音源的检查进行中时复用同一个 Promise，避免启动检查与手动检查并发跑两遍脚本。
 const updateChecksInFlight = new Map<string, Promise<void>>();
 
-function makeId(): string {
-  return `user_api_${Math.random().toString(36).slice(2, 10)}_${Date.now()}`;
-}
-
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function patchSource(
-  sources: CustomSourceItem[],
-  id: string,
-  patch: Partial<CustomSourceItem>,
-): CustomSourceItem[] {
-  return sources.map((source) => (
-    source.id === id ? { ...source, ...patch, updatedAt: Date.now() } : source
-  ));
-}
-
-function buildUpdatePatch(updateAlert?: CustomSourceUpdateAlert): Partial<CustomSourceItem> {
-  const updateCheckedAt = Date.now();
-  if (!updateAlert) {
-    return {
-      updateStatus: 'latest',
-      updateMessage: undefined,
-      updateLog: undefined,
-      updateUrl: undefined,
-      updateCheckedAt,
-    };
-  }
-  return {
-    updateStatus: 'available',
-    updateMessage: '发现更新',
-    updateLog: updateAlert.log,
-    updateUrl: updateAlert.updateUrl,
-    updateCheckedAt,
-  };
-}
-
-function mergeHeaderInfo(source: CustomSourceItem): CustomSourceItem {
-  let info: DesktopUserApiHeaderInfo;
-  try {
-    info = parseDesktopUserApiInfo(source.script);
-  } catch {
-    return source;
-  }
-
-  return {
-    ...source,
-    name: info.name || source.name,
-    description: info.description || source.description,
-    author: info.author || undefined,
-    homepage: info.homepage || undefined,
-    version: info.version || undefined,
-  };
-}
-
-function normalizeCustomSourceForStore(source: CustomSourceItem): CustomSourceItem {
-  const normalized = mergeHeaderInfo(source);
-  return {
-    ...normalized,
-    testStatus:
-      normalized.testStatus === 'testing' ? 'idle' : normalized.testStatus ?? 'idle',
-    testMessage: normalized.testStatus === 'testing' ? undefined : normalized.testMessage,
-    updateStatus: normalized.updateStatus === 'checking' ? 'idle' : normalized.updateStatus ?? 'idle',
-    updateMessage: normalized.updateStatus === 'checking' ? undefined : normalized.updateMessage,
-    allowShowUpdateAlert: normalized.allowShowUpdateAlert ?? true,
-  };
 }
 
 export const useCustomSourceStore = createLibraryStore<CustomSourceStore>()((set, get) => ({
@@ -214,7 +128,7 @@ export const useCustomSourceStore = createLibraryStore<CustomSourceStore>()((set
         }
 
         const item: CustomSourceItem = {
-          id: makeId(),
+          id: createCustomSourceId(),
           name: info.name,
           description: info.description,
           script,
@@ -259,26 +173,26 @@ export const useCustomSourceStore = createLibraryStore<CustomSourceStore>()((set
 
       toggleSource: (id, enabled) => {
         customSourceAccess.capture();
-        set((state) => ({ sources: patchSource(state.sources, id, { enabled }) }));
+        set((state) => ({ sources: patchCustomSource(state.sources, id, { enabled }) }));
         clearCrossSourceVariantCache();
       },
 
       toggleUpdateAlert: (id, enabled) => {
         customSourceAccess.capture();
-        set((state) => ({ sources: patchSource(state.sources, id, { allowShowUpdateAlert: enabled }) }));
+        set((state) => ({ sources: patchCustomSource(state.sources, id, { allowShowUpdateAlert: enabled }) }));
       },
 
       // 对齐 LX Music mobile 行为：脚本在任意时刻 send updateAlert 都写入 store。
       // 手动检测（checkSourceUpdate）已在 checking 状态下自行消费同一事件并写入，
       // 这里若也覆盖会把「检测中...」的中问状态提前抹掉，因此 checking 时直接跳过；
-      // 复用 buildUpdatePatch 的字段结构，仅换提示语来源区分上报渠道。
+      // 复用 buildCustomSourceUpdatePatch 的字段结构，仅换提示语来源区分上报渠道。
       applyRuntimeUpdateAlert: (id, alert) => {
         if (!get().featureEnabled || !get().featureReady) return;
         const source = get().sources.find((item) => item.id === id);
         if (!source) return;
         if (source.updateStatus === 'checking') return;
         set((state) => ({
-          sources: patchSource(state.sources, id, {
+          sources: patchCustomSource(state.sources, id, {
             updateStatus: 'available',
             updateMessage: '音源运行时上报更新',
             updateLog: alert.log,
@@ -306,7 +220,7 @@ export const useCustomSourceStore = createLibraryStore<CustomSourceStore>()((set
         const source = get().sources.find((item) => item.id === id);
         if (!source) return;
         set((state) => ({
-          sources: patchSource(state.sources, id, { testStatus: 'testing', testMessage: '测试中...' }),
+          sources: patchCustomSource(state.sources, id, { testStatus: 'testing', testMessage: '测试中...' }),
         }));
 
         try {
@@ -314,17 +228,17 @@ export const useCustomSourceStore = createLibraryStore<CustomSourceStore>()((set
           const result = await testCustomSourceDeep(source, operation);
           if (!operation.isActive()) return;
           set((state) => ({
-            sources: patchSource(state.sources, id, {
+            sources: patchCustomSource(state.sources, id, {
               sources: result.sources,
               testStatus: result.ok ? 'ok' : 'failed',
               testMessage: result.message,
-              ...buildUpdatePatch(result.updateAlert),
+              ...buildCustomSourceUpdatePatch(result.updateAlert),
             }),
           }));
         } catch (error) {
           if (!operation.isActive()) return;
           set((state) => ({
-            sources: patchSource(state.sources, id, {
+            sources: patchCustomSource(state.sources, id, {
               testStatus: 'failed',
               testMessage: formatError(error),
             }),
@@ -341,7 +255,7 @@ export const useCustomSourceStore = createLibraryStore<CustomSourceStore>()((set
           const source = get().sources.find((item) => item.id === id);
           if (!source) return;
           set((state) => ({
-            sources: patchSource(state.sources, id, {
+            sources: patchCustomSource(state.sources, id, {
               updateStatus: 'checking',
               updateMessage: '检测中...',
             }),
@@ -351,17 +265,17 @@ export const useCustomSourceStore = createLibraryStore<CustomSourceStore>()((set
             const result = await checkCustomSourceUpdate(source, operation);
             if (!operation.isActive()) return;
             set((state) => ({
-              sources: patchSource(state.sources, id, {
+              sources: patchCustomSource(state.sources, id, {
                 sources: result.sources,
                 testStatus: 'ok',
                 testMessage: '初始化正常',
-                ...buildUpdatePatch(result.updateAlert),
+                ...buildCustomSourceUpdatePatch(result.updateAlert),
               }),
             }));
           } catch (error) {
             if (!operation.isActive()) return;
             set((state) => ({
-              sources: patchSource(state.sources, id, {
+              sources: patchCustomSource(state.sources, id, {
                 updateStatus: 'failed',
                 updateMessage: formatError(error),
                 updateCheckedAt: Date.now(),
@@ -388,7 +302,7 @@ export const useCustomSourceStore = createLibraryStore<CustomSourceStore>()((set
             if (!source.updateCheckedAt) return true;
             const interval = source.updateStatus === 'failed'
               ? FAILED_CHECK_RETRY_MS
-              : REMOTE_CHECK_MIN_INTERVAL_MS;
+              : CUSTOM_SOURCE_REMOTE_CHECK_MIN_INTERVAL_MS;
             return now - source.updateCheckedAt >= interval;
           })
           .map((source) => source.id);
@@ -427,13 +341,7 @@ export const customSourcePersistence = attachLibraryPersistence<CustomSourceStor
     shouldPersist: (state, previous) => state.featureEnabled !== previous.featureEnabled || state.sources !== previous.sources,
     pick: (state) => ({
       featureEnabled: state.featureEnabled,
-      sources: state.sources.map((source) => ({
-        ...source,
-        testStatus: 'idle' as CustomSourceTestStatus,
-        testMessage: undefined,
-        updateStatus: source.updateStatus === 'checking' ? 'idle' : source.updateStatus,
-        updateMessage: source.updateStatus === 'checking' ? undefined : source.updateMessage,
-      })),
+      sources: stripCustomSourceTransientState(state.sources),
     }),
     apply: (slice, set) => {
       if (slice.featureEnabled !== undefined && typeof slice.featureEnabled !== 'boolean') {

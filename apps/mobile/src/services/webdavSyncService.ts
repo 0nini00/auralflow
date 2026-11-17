@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { buildUserApisSyncFile, parseUserApisSyncFile, type UserApiSyncSource, CloudDataStaleError, CloudSyncRefusalError, isWebdavLocalPlaylistRef, type MusicInfo } from "@lx/core";
+import { buildUserApisSyncFile, parseDesktopUserApiInfo, parseUserApisSyncFile, type UserApiSyncSource, CloudDataStaleError, CloudSyncRefusalError, isWebdavLocalPlaylistRef, type CustomSourceItem, type MusicInfo } from "@lx/core";
 import { buildSongKey, isUsablePlayedAt, selectHistoryForSync } from "@lx/core";
 import { usePlaylistStore } from "../stores/playlistStore";
 import { useFavoritesStore } from "../stores/favoritesStore";
@@ -7,8 +7,7 @@ import type { WyPlaylistInfo } from "./wyPlaylistService";
 import type { LocalPlaylist } from "./localPlaylistModel";
 import { useHistoryStore } from "../stores/historyStore";
 import { hasRealPlayedAt, type HistoryEntry } from "./historyGroupModel";
-import { useCustomSourceStore, type CustomSourceItem } from "../stores/customSourceStore";
-import { parseDesktopUserApiInfo } from "./customSourceRuntime";
+import { useCustomSourceStore } from "../stores/customSourceStore";
 import { atobSafe, btoaSafe } from "../utils/base64";
 import { inflateBytes } from "../utils/compression";
 import { fetchWithTimeout } from "@/utils/fetchWithTimeout";

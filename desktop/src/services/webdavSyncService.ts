@@ -1,13 +1,12 @@
 import { loadSettings } from "@lx/tauri-bridge";
-import { buildUserApisSyncFile, parseUserApisSyncFile, type UserApiSyncSource, CloudDataStaleError, CloudSyncRefusalError, historyEntryKey, isNumericPlaylistId, isUsablePlayedAt, isWebdavLocalPlaylistRef, selectHistoryForSync, type HistoryEntry, type MusicInfo } from "@lx/core";
+import { buildUserApisSyncFile, parseDesktopUserApiInfo, parseUserApisSyncFile, type UserApiSyncSource, CloudDataStaleError, CloudSyncRefusalError, historyEntryKey, isNumericPlaylistId, isUsablePlayedAt, isWebdavLocalPlaylistRef, selectHistoryForSync, type CustomSourceItem, type HistoryEntry, type MusicInfo } from "@lx/core";
 import { outboundRequest, type OutboundResponse } from "@/services/outboundHttp";
 import { favoritesPersistence, useFavoritesStore } from "@/stores/favoritesStore";
 import { playlistPersistence, usePlaylistStore, type Playlist } from "@/stores/playlistStore";
 import { historyPersistence, useHistoryStore } from "@/stores/historyStore";
 import { useWyAccountStore } from "@/stores/wyAccountStore";
-import { customSourceAccess, customSourcePersistence, useCustomSourceStore, type CustomSourceItem } from "@/stores/customSourceStore";
+import { customSourceAccess, customSourcePersistence, useCustomSourceStore } from "@/stores/customSourceStore";
 import { awaitCustomSourceOperation, type CustomSourceOperation } from "@/services/customSourceAccess";
-import { parseDesktopUserApiInfo } from "@/services/customSourceRuntime";
 import { inflateBytes } from "@/utils/compression";
 import { logger } from "@/services/logger";
 
