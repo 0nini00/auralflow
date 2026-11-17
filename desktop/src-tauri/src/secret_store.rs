@@ -70,6 +70,7 @@ mod platform {
         fn drop(&mut self) {
             if !self.0.pbData.is_null() {
                 unsafe {
+                    // Drop 里释放系统分配的缓冲区：失败既无从上报也无从补救。
                     let _ = LocalFree(Some(HLOCAL(self.0.pbData as *mut core::ffi::c_void)));
                 }
             }

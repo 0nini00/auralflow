@@ -46,6 +46,7 @@ impl TempFileGuard {
 impl Drop for TempFileGuard {
     fn drop(&mut self) {
         if self.armed {
+            // 尽力清理：临时文件可能根本没建出来（创建前就失败了），删不掉也无从补救。
             let _ = std::fs::remove_file(&self.path);
         }
     }

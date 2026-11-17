@@ -489,7 +489,10 @@ mod platform {
         });
         if let Err(err) = controls.PlaybackPositionChangeRequested(&position_handler) {
             // 订阅失败就摘掉上面的按钮处理器，别留下半截会话
-            let _ = controls.RemoveButtonPressed(button_token);
+            crate::logging::ResultExt::log_warn(
+                controls.RemoveButtonPressed(button_token),
+                "[smtc] 回滚按钮处理器失败，会话里可能残留一个处理器",
+            );
             return Err(format!("订阅进度拖动失败: {}", err));
         }
 
@@ -646,6 +649,7 @@ mod platform {
         let (tx, rx) = mpsc::channel();
         store
             .when(move |result| {
+                // 接收端可能已因超时放弃等待并被丢弃：此时发不出去属预期。
                 let _ = tx.send(result.is_ok());
             })
             .map_err(step("监听封面落盘失败"))?;

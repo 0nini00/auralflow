@@ -7,6 +7,7 @@
 //! hook 接住并调 player store 的对应方法。
 //! 真正的"播放/暂停"动作仍由前端处理（Audio 在 webview 层）。
 
+use crate::logging::ResultExt;
 use std::sync::{Mutex, OnceLock};
 use tauri::{
     menu::{Menu, MenuItem},
@@ -88,7 +89,7 @@ pub fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             match id {
                 "show-window" => show_main_window(app),
                 "toggle-lyric" => {
-                    let _ = crate::lyric_window::toggle(app);
+                    crate::lyric_window::toggle(app).log_warn("[tray] 切换桌面歌词失败");
                 }
                 "toggle-mini" => {
                     let app = app.clone();
@@ -101,7 +102,8 @@ pub fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                 "quit" => request_quit(app),
                 action => {
                     // 把动作派到前端（前端持有播放器状态）
-                    let _ = app.emit("native-action", action);
+                    app.emit("native-action", action)
+                        .log_warn("[tray] 托盘菜单动作派发给前端失败");
                 }
             }
         })
@@ -128,11 +130,11 @@ pub fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
 /// 显示并聚焦主窗口；同时收起迷你播放器（回到主窗口就不该再占着桌面）。
 pub fn show_main_window(app: &AppHandle) {
-    let _ = crate::mini_player::hide(app);
+    crate::mini_player::hide(app).log_warn("[tray] 显示主窗口前收起迷你播放器失败");
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
+        window.show().log_warn("[tray] 显示主窗口失败");
+        window.unminimize().log_warn("[tray] 还原主窗口失败");
+        window.set_focus().log_warn("[tray] 聚焦主窗口失败");
     }
 }
 
@@ -159,6 +161,8 @@ pub fn request_quit(app: &AppHandle) {
         "app-before-quit",
         serde_json::json!({ "requestId": request_id }),
     ) {
+        // 带着 error 调 complete_quit 必然返回 Err，且除「状态锁损坏」外都已在它内部记过
+        // error 日志；锁损坏不可达（临界区内不会 panic）。这里再记一条只会重复，故显式丢弃。
         let _ = complete_quit(app, &request_id, Some(format!("发送保存请求失败: {}", err)));
         return;
     }
@@ -177,7 +181,9 @@ pub fn request_quit(app: &AppHandle) {
         if timed_out {
             tauri_plugin_log::log::error!("[quit] 等待前端保存确认超时，已取消退出");
             show_main_window(&handle);
-            let _ = handle.emit_to("main", "app-quit-failed", "等待保存确认超时，应用未退出");
+            handle
+                .emit_to("main", "app-quit-failed", "等待保存确认超时，应用未退出")
+                .log_warn("[quit] 通知前端退出已取消失败");
         }
     });
 }

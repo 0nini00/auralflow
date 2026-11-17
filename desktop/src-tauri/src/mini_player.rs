@@ -14,6 +14,7 @@ use tauri::{
     WebviewWindowBuilder,
 };
 
+use crate::logging::ResultExt;
 use crate::lyric_window::ADDITIONAL_BROWSER_ARGS;
 
 pub const MINI_PLAYER_LABEL: &str = "mini-player";
@@ -204,7 +205,9 @@ fn restore_position(window: &WebviewWindow, saved_x: Option<f64>, saved_y: Optio
             area.bottom - height - EDGE_MARGIN,
         ),
     };
-    let _ = window.set_position(LogicalPosition::new(x, y));
+    window
+        .set_position(LogicalPosition::new(x, y))
+        .log_warn("[mini-player] 恢复迷你播放器位置失败");
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -277,7 +280,9 @@ fn handle_moved(app: &AppHandle, position: PhysicalPosition<i32>) {
             && ((x - position.x as f64 / scale).abs() > 0.5
                 || (y - position.y as f64 / scale).abs() > 0.5)
         {
-            let _ = window.set_position(LogicalPosition::new(x, y));
+            window
+                .set_position(LogicalPosition::new(x, y))
+                .log_warn("[mini-player] 边缘吸附移动窗口失败");
         }
     }
 
@@ -302,10 +307,11 @@ fn schedule_persist(app: &AppHandle, x: f64, y: f64) {
         }
         let position = LAST_POSITION.lock().ok().and_then(|slot| *slot);
         if let Some((x, y)) = position {
-            let _ = crate::config::patch_settings(
+            crate::config::patch_settings(
                 &handle,
                 serde_json::json!({ "miniPlayerX": x, "miniPlayerY": y }),
-            );
+            )
+            .log_warn("[mini-player] 迷你播放器位置落盘失败");
         }
         PERSIST_THREAD_RUNNING.store(false, Ordering::SeqCst);
         return;

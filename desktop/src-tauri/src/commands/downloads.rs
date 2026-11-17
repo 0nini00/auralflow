@@ -1,6 +1,7 @@
 // ─── 下载文件 ───────────────────────────────────────────────
 
 use super::shared::{unique_temp_suffix, TempFileGuard};
+use crate::logging::ResultExt;
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -330,7 +331,7 @@ pub async fn download_file(
             let progress = total
                 .map(|size| downloaded as f64 / size.max(1) as f64 * 100.0)
                 .unwrap_or(0.0);
-            let _ = app.emit(
+            app.emit(
                 "download-progress",
                 DownloadProgressEvent {
                     task_id: task_id.clone(),
@@ -339,7 +340,8 @@ pub async fn download_file(
                     progress,
                     speed: downloaded as f64 / elapsed,
                 },
-            );
+            )
+            .log_warn("[download] 推送下载进度失败");
             last_emit = Instant::now();
         }
     }
@@ -358,28 +360,38 @@ pub async fn download_file(
     temp_guard.disarm();
 
     // 下载目录可由用户改到任意位置，放行该文件以便播放已下载曲目。
-    let _ = app.asset_protocol_scope().allow_file(&final_path);
+    app.asset_protocol_scope()
+        .allow_file(&final_path)
+        .log_warn("[download] 放行已下载文件失败，该文件将无法直接播放");
 
     let saved_path = final_path.to_string_lossy().to_string();
-    let _ = app.emit(
+    app.emit(
         "download-completed",
         DownloadCompletedEvent {
             task_id,
             saved_path: saved_path.clone(),
             total: downloaded,
         },
-    );
+    )
+    .log_warn("[download] 推送下载完成事件失败");
 
     Ok(saved_path)
 }
 
 #[tauri::command]
 pub fn cancel_download(task_id: String) -> Result<bool, String> {
-    if let Ok(map) = download_cancel_map().lock() {
-        if let Some(flag) = map.get(&task_id) {
-            flag.send_replace(true);
-            return Ok(true);
-        }
+    // 后续项：锁损坏时这里返回 Ok(false)，前端分不清「任务不存在」与「取消表坏了」。
+    // 本次只补日志，返回值不动（前端按布尔值分支）。
+    let Ok(map) = download_cancel_map().lock() else {
+        tauri_plugin_log::log::warn!(
+            "[download] 下载取消状态锁损坏，取消请求未送达（task_id={}）",
+            task_id
+        );
+        return Ok(false);
+    };
+    if let Some(flag) = map.get(&task_id) {
+        flag.send_replace(true);
+        return Ok(true);
     }
     Ok(false)
 }

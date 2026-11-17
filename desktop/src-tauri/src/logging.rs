@@ -120,10 +120,71 @@ pub fn open_in_file_manager(dir: &Path) -> Result<(), String> {
     }
 }
 
+/// 「失败只记日志、不改变控制流」的统一出口。
+///
+/// 窗口操作、事件推送、状态落盘这类调用失败时不该中断当前流程，但 `let _ = …`
+/// 会让失败彻底消失——用户报「点了没反应」时日志里什么都没有。用它代替 `let _ =`：
+/// 返回值照样丢弃，`Err` 带上下文记一条 warn。
+///
+/// 只有失败在预期之内且没有信息量时（清理可能不存在的临时文件、向可能已关闭的
+/// 通道发送、释放系统句柄）才保留 `let _ =`，并在旁边写明原因。
+pub trait ResultExt {
+    /// `context` 写成「[模块] 做什么失败」，错误本身由这里拼在后面。
+    fn log_warn(self, context: &str);
+}
+
+impl<T, E: std::fmt::Display> ResultExt for Result<T, E> {
+    fn log_warn(self, context: &str) {
+        if let Err(err) = self {
+            tauri_plugin_log::log::warn!("{}: {}", context, err);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tauri_plugin_log::log::Level;
+    use std::sync::Mutex;
+    use tauri_plugin_log::log::{self, Level, Log, Metadata, Record};
+
+    /// 捕获 `log` 输出的测试替身。测试进程里没有别的全局 logger，其它测试打的日志
+    /// 也会进来，所以断言只认带本测试专属上下文的行。
+    struct CaptureLogger(Mutex<Vec<String>>);
+
+    impl Log for CaptureLogger {
+        fn enabled(&self, _: &Metadata) -> bool {
+            true
+        }
+        fn log(&self, record: &Record) {
+            let line = format!("{} {}", record.level(), record.args());
+            self.0.lock().unwrap().push(line);
+        }
+        fn flush(&self) {}
+    }
+
+    static CAPTURE: CaptureLogger = CaptureLogger(Mutex::new(Vec::new()));
+
+    #[test]
+    fn log_warn_records_err_with_context_and_stays_silent_on_ok() {
+        log::set_logger(&CAPTURE).expect("测试进程里不应已有全局 logger");
+        log::set_max_level(LevelFilter::Warn);
+
+        Ok::<(), String>(()).log_warn("[result-ext-test] 成功路径");
+        Err::<(), _>("磁盘已满").log_warn("[result-ext-test] 失败路径");
+
+        let lines = CAPTURE.0.lock().unwrap();
+        assert!(
+            lines
+                .iter()
+                .any(|line| line == "WARN [result-ext-test] 失败路径: 磁盘已满"),
+            "Err 必须带上下文记成一条 warn，实际: {:?}",
+            lines
+        );
+        assert!(
+            !lines.iter().any(|line| line.contains("成功路径")),
+            "Ok 不应产生任何日志"
+        );
+    }
 
     #[test]
     fn rotation_policy_matches_spec() {

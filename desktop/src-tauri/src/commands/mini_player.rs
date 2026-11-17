@@ -1,5 +1,6 @@
 // ─── 迷你播放器 ───────────────────────────────────────────────
 
+use crate::logging::ResultExt;
 use tauri::AppHandle;
 
 #[tauri::command]
@@ -15,7 +16,7 @@ pub fn hide_mini_player(app: AppHandle) -> Result<(), String> {
 /// 双击迷你播放器 / 托盘左键：显示并聚焦主窗口，同时收起迷你条。
 #[tauri::command]
 pub fn show_main_window(app: AppHandle) -> Result<(), String> {
-    let _ = crate::mini_player::hide(&app);
+    crate::mini_player::hide(&app).log_warn("[mini-player] 回到主窗口前收起迷你播放器失败");
     crate::tray::show_main_window(&app);
     Ok(())
 }

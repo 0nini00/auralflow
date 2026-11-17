@@ -1,6 +1,7 @@
 // ─── 配置管理 ──────────────────────────────────────────────────
 
 use crate::config;
+use crate::logging::ResultExt;
 use crate::models::AppSettings;
 use serde_json::Value;
 use std::path::PathBuf;
@@ -25,7 +26,9 @@ fn allow_app_background_asset(app: &AppHandle, settings: &AppSettings) {
     else {
         return;
     };
-    let _ = app.asset_protocol_scope().allow_file(PathBuf::from(path));
+    app.asset_protocol_scope()
+        .allow_file(PathBuf::from(path))
+        .log_warn("[settings] 放行自定义背景图失败，背景将无法显示");
 }
 
 #[tauri::command]
@@ -118,6 +121,7 @@ fn write_debug_log(app: &AppHandle, message: &str) -> Result<(), String> {
     path.push("debug.log");
 
     if let Some(parent) = path.parent() {
+        // 建目录失败不单独处理：下面 open 会因目录不存在而失败，错误从那里返回。
         let _ = fs::create_dir_all(parent);
     }
     if let Ok(meta) = fs::metadata(&path) {

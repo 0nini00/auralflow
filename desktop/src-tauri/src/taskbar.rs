@@ -632,6 +632,7 @@ mod platform {
                 Err(err) => {
                     // 生成失败：把已经建好的图标全部释放，不留半套
                     for icon in icons.iter().take(created) {
+                        // 释放 GDI 句柄：失败无从补救，真正的错误在下面返回。
                         let _ = unsafe { DestroyIcon(*icon) };
                     }
                     return Err(err);
@@ -645,6 +646,7 @@ mod platform {
     fn destroy_icons(hook: &mut Hook) {
         if let Some(icons) = hook.icons.take() {
             for icon in icons {
+                // 释放 GDI 句柄：失败无从补救。
                 let _ = unsafe { DestroyIcon(icon) };
             }
         }
@@ -719,6 +721,7 @@ mod platform {
         let mut bits: *mut c_void = null_mut();
         let bitmap =
             unsafe { CreateDIBSection(Some(hdc), &info, DIB_RGB_COLORS, &mut bits, None, 0) };
+        // 释放临时 DC：失败无从补救（BOOL 是 must_use，显式忽略）。
         let _ = unsafe { DeleteDC(hdc) };
         let bitmap = bitmap.map_err(step("创建位图失败"))?;
         if bits.is_null() {
@@ -730,6 +733,7 @@ mod platform {
     }
 
     fn delete_bitmap(bitmap: HBITMAP) {
+        // 释放位图句柄：失败无从补救（BOOL 是 must_use，显式忽略）。
         let _ = unsafe { DeleteObject(HGDIOBJ(bitmap.0)) };
     }
 

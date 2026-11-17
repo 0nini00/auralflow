@@ -18,6 +18,7 @@ mod taskbar;
 mod tray;
 mod window_state;
 
+use logging::ResultExt;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// 关闭确认框是否还在等前端答复。前端回话（resolve_close_request）会清掉它；
@@ -124,9 +125,9 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             use tauri::Manager;
             if let Some(main) = app.get_webview_window("main") {
-                let _ = main.show();
-                let _ = main.unminimize();
-                let _ = main.set_focus();
+                main.show().log_warn("[app] 二次启动时显示主窗口失败");
+                main.unminimize().log_warn("[app] 二次启动时还原主窗口失败");
+                main.set_focus().log_warn("[app] 二次启动时聚焦主窗口失败");
             }
         }))
         .plugin(tauri_plugin_shell::init())
@@ -183,6 +184,7 @@ pub fn run() {
             // 目录会一直超着（移动端有等价的启动清理，桌面端此前没有）。放后台线程，
             // 不拖慢启动。
             let sweep_app = app.handle().clone();
+            // 丢弃的是 JoinHandle（不是 Result）：任务分离到后台，不等它跑完。
             let _ = tauri::async_runtime::spawn_blocking(move || {
                 crate::commands::sweep_caches(&sweep_app);
             });
@@ -190,7 +192,9 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
-                let _ = app.deep_link().register_all();
+                app.deep_link()
+                    .register_all()
+                    .log_warn("[app] 注册深链 scheme 失败，auralflow:// 链接将无法唤起应用");
             }
             Ok(())
         })
@@ -202,7 +206,15 @@ pub fn run() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 // 关窗一律先拦下来自己处理：隐藏到托盘 / 退出 / 问一次
                 api.prevent_close();
-                let settings = crate::config::load_settings(window.app_handle()).ok();
+                // 读不到设置时按「没回答过」处理（下面会问一次）；失败原因必须留痕。
+                let settings = crate::config::load_settings(window.app_handle())
+                    .inspect_err(|err| {
+                        tauri_plugin_log::log::warn!(
+                            "[app] 关窗时读取设置失败，按未回答过关闭确认处理: {}",
+                            err
+                        )
+                    })
+                    .ok();
                 let close_prompt_seen = settings
                     .as_ref()
                     .map(|settings| settings.close_prompt_seen)
@@ -212,7 +224,10 @@ pub fn run() {
                     // 这里绝不能顺手 hide——窗口一藏，前端弹窗还没来得及出现，
                     // 用户看到的就是「点了叉就没了、托盘里多一个图标」的迷惑体验。
                     CLOSE_PROMPT_PENDING.store(true, Ordering::SeqCst);
-                    let _ = window.app_handle().emit("app-close-requested", ());
+                    window
+                        .app_handle()
+                        .emit("app-close-requested", ())
+                        .log_warn("[app] 通知前端弹出关闭确认失败");
                     // 兜底：渲染进程卡死/崩了没人回话时，1.5s 后按默认行为关到托盘，
                     // 否则用户会陷入「点叉没反应、又不敢强杀」的死局。
                     let handle = window.app_handle().clone();
@@ -220,7 +235,9 @@ pub fn run() {
                         std::thread::sleep(std::time::Duration::from_millis(1500));
                         if CLOSE_PROMPT_PENDING.swap(false, Ordering::SeqCst) {
                             if let Some(window) = handle.get_webview_window("main") {
-                                let _ = window.hide();
+                                window
+                                    .hide()
+                                    .log_warn("[app] 关闭确认无人应答，兜底隐藏主窗口失败");
                             }
                             // 兜底也走「关到托盘」的完整语义：迷你播放器该出现就出现。
                             crate::mini_player::show_on_tray_hide(&handle);
@@ -233,7 +250,7 @@ pub fn run() {
                     .map(|settings| settings.close_to_tray)
                     .unwrap_or(true);
                 if close_to_tray {
-                    let _ = window.hide();
+                    window.hide().log_warn("[app] 关闭到托盘时隐藏主窗口失败");
                     // 隐藏到托盘后由迷你播放器接着显示「还在放什么」，
                     // 否则用户只看到窗口消失、并不确定应用还活着。
                     crate::mini_player::show_on_tray_hide(window.app_handle());
@@ -246,7 +263,7 @@ pub fn run() {
         .on_menu_event(|app, event| match event.id().as_ref() {
             "mini-show-main" => crate::tray::show_main_window(app),
             "mini-hide" => {
-                let _ = crate::mini_player::hide(app);
+                crate::mini_player::hide(app).log_warn("[mini-player] 菜单收起迷你播放器失败");
             }
             "mini-quit" => crate::tray::request_quit(app),
             _ => {}

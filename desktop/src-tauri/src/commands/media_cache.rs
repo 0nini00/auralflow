@@ -310,7 +310,9 @@ pub(super) fn persist_local_cover(
     if data.is_empty() {
         return None;
     }
-    let dir = song_cover_cache_dir(app).ok()?;
+    let dir = song_cover_cache_dir(app)
+        .inspect_err(|err| log::warn!("[cache] 本地封面落盘失败：{}", err))
+        .ok()?;
     let path_hash = format!(
         "{:x}",
         md5::compute(source_path.to_string_lossy().as_bytes())
@@ -322,15 +324,35 @@ pub(super) fn persist_local_cover(
     if cover_path.exists() {
         return Some(cover_path.to_string_lossy().to_string());
     }
-    std::fs::create_dir_all(&dir).ok()?;
+    std::fs::create_dir_all(&dir)
+        .inspect_err(|err| {
+            log::warn!(
+                "[cache] 本地封面落盘失败：创建封面缓存目录 {} 失败: {}",
+                dir.display(),
+                err
+            )
+        })
+        .ok()?;
 
     // 原子落盘：半截文件会被当成有效封面长期沿用
     let temp_path = dir.join(format!("{}.{}.tmp", file_name, unique_temp_suffix()));
-    if std::fs::write(&temp_path, data).is_err() {
+    if let Err(err) = std::fs::write(&temp_path, data) {
+        log::warn!(
+            "[cache] 本地封面落盘失败：写入 {} 失败: {}",
+            temp_path.display(),
+            err
+        );
+        // 尽力清理半截临时文件：它可能根本没建出来，删不掉也由启动清理兜底。
         let _ = std::fs::remove_file(&temp_path);
         return None;
     }
-    if std::fs::rename(&temp_path, &cover_path).is_err() {
+    if let Err(err) = std::fs::rename(&temp_path, &cover_path) {
+        log::warn!(
+            "[cache] 本地封面落盘失败：提交 {} 失败: {}",
+            cover_path.display(),
+            err
+        );
+        // 同上：尽力清理。
         let _ = std::fs::remove_file(&temp_path);
         return None;
     }

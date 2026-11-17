@@ -4,6 +4,7 @@
 //! 窗口属性：始终置顶（可切换）、无装饰、透明、不显示在任务栏、可拖动可调整大小。
 //! 位置/尺寸/字号/置顶状态持久化到 AppSettings。
 
+use crate::logging::ResultExt;
 use serde_json::json;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
@@ -89,18 +90,25 @@ pub fn toggle(app: &AppHandle) -> Result<bool, String> {
         existing
             .close()
             .map_err(|e| format!("关闭歌词窗口失败: {}", e))?;
-        let _ = app.emit("lyric-window-open-changed", json!({ "open": false }));
+        emit_open_changed(app, false);
         Ok(false)
     } else if LYRIC_CREATE_PENDING.swap(true, Ordering::SeqCst) {
         LYRIC_CREATE_PENDING.store(false, Ordering::SeqCst);
         invalidate_lyric_window_epoch("toggle-cancel-create");
-        let _ = app.emit("lyric-window-open-changed", json!({ "open": false }));
+        emit_open_changed(app, false);
         Ok(false)
     } else {
-        let _ = app.emit("lyric-window-open-changed", json!({ "open": true }));
+        emit_open_changed(app, true);
         schedule_create(app);
         Ok(true)
     }
+}
+
+/// 通知前端歌词窗的开关状态。发不出去只记日志：状态以后端为准，
+/// 前端随时可以用 `get_lyric_window_state` 再查。
+fn emit_open_changed(app: &AppHandle, open: bool) {
+    app.emit("lyric-window-open-changed", json!({ "open": open }))
+        .log_warn("[lyric-window] 通知前端歌词窗开关状态失败");
 }
 
 /// 查询桌面歌词窗口是否已存在
@@ -245,7 +253,8 @@ pub fn set_locked(
 
     LYRIC_LOCKED.store(locked, Ordering::SeqCst);
     LYRIC_LOCK_RUNTIME_KNOWN.store(true, Ordering::SeqCst);
-    let _ = app.emit("lyric-settings-changed", json!({ "lyricLocked": locked }));
+    app.emit("lyric-settings-changed", json!({ "lyricLocked": locked }))
+        .log_warn("[lyric-window] 通知前端歌词锁定状态失败");
 
     schedule_apply_locked_window_state(app, locked);
     Ok(true)
@@ -325,10 +334,16 @@ fn schedule_apply_locked_window_state(app: &AppHandle, locked: bool) {
         // 解锁失败时窗口仍处于鼠标穿透、unlock 按钮已关闭、光标轮询已停止的状态，
         // 用户没有任何解锁入口。必须把错误暴露到前端而不是静默丢弃。
         if let Err(message) = apply_locked_window_state(&app, locked) {
-            let _ = app.emit(
+            tauri_plugin_log::log::warn!(
+                "[lyric-window] 应用锁定状态失败（locked={}）: {}",
+                locked,
+                message
+            );
+            app.emit(
                 "lyric-window-lock-failed",
                 json!({ "locked": locked, "message": message }),
-            );
+            )
+            .log_warn("[lyric-window] 通知前端锁定失败事件失败");
         }
     });
 }
@@ -443,17 +458,21 @@ fn create(app: &AppHandle) -> Result<(), String> {
         );
         // 首次创建仍可能使用主屏 DPI；按目标显示器直接提交物理坐标与尺寸。
         let scale = monitor.scale_factor();
-        let _ = window
-            .set_position(LogicalPosition::new(geometry.x, geometry.y).to_physical::<i32>(scale));
-        let _ = window
-            .set_size(LogicalSize::new(geometry.width, geometry.height).to_physical::<u32>(scale));
+        window
+            .set_position(LogicalPosition::new(geometry.x, geometry.y).to_physical::<i32>(scale))
+            .log_warn("[lyric-window] 恢复歌词窗位置失败");
+        window
+            .set_size(LogicalSize::new(geometry.width, geometry.height).to_physical::<u32>(scale))
+            .log_warn("[lyric-window] 恢复歌词窗尺寸失败");
     } else if let (Some(x), Some(y)) = (settings.lyric_window_x, settings.lyric_window_y) {
         if x.is_finite() && y.is_finite() {
-            let _ = window.set_position(LogicalPosition::new(x, y));
+            window
+                .set_position(LogicalPosition::new(x, y))
+                .log_warn("[lyric-window] 恢复歌词窗位置失败");
         }
     }
 
-    let _ = app.emit("lyric-window-open-changed", json!({ "open": true }));
+    emit_open_changed(app, true);
 
     // 监听 move/resize → 写回 settings（debounce 300ms 限频，避免拖动期间频繁写盘）
     let app_for_event = app.clone();
@@ -471,11 +490,12 @@ fn create(app: &AppHandle) -> Result<(), String> {
         WindowEvent::Destroyed => {
             LYRIC_CREATE_PENDING.store(false, Ordering::SeqCst);
             invalidate_lyric_window_epoch("destroyed");
-            let _ = set_locked(&app_for_event, false, None, "window-destroyed");
+            set_locked(&app_for_event, false, None, "window-destroyed")
+                .log_warn("[lyric-window] 窗口销毁后复位锁定状态失败");
             close_unlock_window(&app_for_event);
             clear_always_on_top_loop();
             clear_lock_cursor_poll();
-            let _ = app_for_event.emit("lyric-window-open-changed", json!({ "open": false }));
+            emit_open_changed(&app_for_event, false);
         }
         _ => {}
     });
@@ -495,9 +515,10 @@ fn schedule_create(app: &AppHandle) {
             LYRIC_CREATE_PENDING.store(false, Ordering::SeqCst);
             return;
         }
-        if create(&app).is_err() {
+        if let Err(err) = create(&app) {
+            tauri_plugin_log::log::warn!("[lyric-window] 创建歌词窗口失败: {}", err);
             LYRIC_CREATE_PENDING.store(false, Ordering::SeqCst);
-            let _ = app.emit("lyric-window-open-changed", json!({ "open": false }));
+            emit_open_changed(&app, false);
         }
     });
 }
@@ -505,8 +526,10 @@ fn schedule_create(app: &AppHandle) {
 fn create_unlock_window(app: &AppHandle) -> Result<(), String> {
     let pinned = lyric_pinned();
     if let Some(unlock) = app.get_webview_window(LYRIC_UNLOCK_LABEL) {
-        let _ = unlock.set_always_on_top(pinned);
-        let _ = unlock.show();
+        unlock
+            .set_always_on_top(pinned)
+            .log_warn("[lyric-window] 设置解锁按钮置顶失败");
+        unlock.show().log_warn("[lyric-window] 显示解锁按钮失败");
         return Ok(());
     }
 
@@ -529,7 +552,9 @@ fn create_unlock_window(app: &AppHandle) -> Result<(), String> {
     .build()
     .map_err(|e| format!("创建桌面歌词解锁按钮失败: {}", e))?;
 
-    let _ = unlock.set_always_on_top(pinned);
+    unlock
+        .set_always_on_top(pinned)
+        .log_warn("[lyric-window] 设置解锁按钮置顶失败");
     unlock
         .show()
         .map_err(|e| format!("显示桌面歌词解锁按钮失败: {}", e))?;
@@ -542,7 +567,8 @@ fn schedule_create_unlock_window(app: &AppHandle) {
         if !has_runtime_lock_target() {
             return;
         }
-        if create_unlock_window(&app).is_err() {
+        if let Err(err) = create_unlock_window(&app) {
+            tauri_plugin_log::log::warn!("[lyric-window] {}", err);
             return;
         }
         if !has_runtime_lock_target() {
@@ -556,7 +582,9 @@ fn schedule_create_unlock_window(app: &AppHandle) {
 
 fn close_unlock_window(app: &AppHandle) {
     if let Some(unlock) = app.get_webview_window(LYRIC_UNLOCK_LABEL) {
-        let _ = unlock.close();
+        unlock
+            .close()
+            .log_warn("[lyric-window] 关闭解锁按钮窗口失败");
     }
 }
 
@@ -578,9 +606,13 @@ fn sync_unlock_window_position(app: &AppHandle) {
     };
 
     let pinned = lyric_pinned();
-    let _ = unlock.set_position(unlock_position(position, size, scale));
-    let _ = unlock.set_always_on_top(pinned);
-    let _ = unlock.show();
+    unlock
+        .set_position(unlock_position(position, size, scale))
+        .log_warn("[lyric-window] 同步解锁按钮位置失败");
+    unlock
+        .set_always_on_top(pinned)
+        .log_warn("[lyric-window] 设置解锁按钮置顶失败");
+    unlock.show().log_warn("[lyric-window] 显示解锁按钮失败");
 }
 
 fn unlock_position(
@@ -629,9 +661,13 @@ fn ensure_always_on_top_loop(app: &AppHandle) {
                 clear_always_on_top_loop();
                 break;
             };
-            let _ = window.set_always_on_top(true);
+            window
+                .set_always_on_top(true)
+                .log_warn("[lyric-window] 置顶巡检重申歌词窗置顶失败");
             if let Some(unlock) = app.get_webview_window(LYRIC_UNLOCK_LABEL) {
-                let _ = unlock.set_always_on_top(true);
+                unlock
+                    .set_always_on_top(true)
+                    .log_warn("[lyric-window] 置顶巡检重申解锁按钮置顶失败");
             }
         }
     });
@@ -676,16 +712,23 @@ fn ensure_lock_cursor_poll(app: &AppHandle) {
             }
 
             // 进入窗口：临时解除穿透；移出窗口：恢复穿透
-            if window.set_ignore_cursor_events(!inside).is_ok() {
-                let _ = app.emit(
-                    if inside {
-                        "lyric-cursor-enter"
-                    } else {
-                        "lyric-cursor-leave"
-                    },
-                    json!({}),
+            if let Err(err) = window.set_ignore_cursor_events(!inside) {
+                tauri_plugin_log::log::warn!(
+                    "[lyric-window] 切换鼠标穿透失败（inside={}）: {}",
+                    inside,
+                    err
                 );
+                continue;
             }
+            app.emit(
+                if inside {
+                    "lyric-cursor-enter"
+                } else {
+                    "lyric-cursor-leave"
+                },
+                json!({}),
+            )
+            .log_warn("[lyric-window] 通知前端光标进出事件失败");
         }
         // 只在自己仍是当前代时释放守卫，否则会把后继任务的守卫误清。
         if LOCK_CURSOR_POLL_GENERATION.load(Ordering::SeqCst) == generation {

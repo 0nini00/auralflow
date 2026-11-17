@@ -58,6 +58,7 @@ pub fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
     // 目标已存在时直接覆盖（已实测），因此无需先 remove —— 那样反而会制造
     // 「旧文件已删、新文件未就位」的丢数据窗口。
     fs::rename(&tmp_path, path).map_err(|e| {
+        // 尽力清理临时文件：提交失败的原因已由下面的 Err 返回，删不掉也不改变结论。
         let _ = fs::remove_file(&tmp_path);
         format!("提交文件失败 {}: {}", path.display(), e)
     })

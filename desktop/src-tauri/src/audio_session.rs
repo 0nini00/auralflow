@@ -304,6 +304,7 @@ mod platform {
 
     impl Drop for SnapshotGuard {
         fn drop(&mut self) {
+            // Drop 里释放句柄：失败既无从上报也无从补救。
             let _ = unsafe { CloseHandle(self.0) };
         }
     }

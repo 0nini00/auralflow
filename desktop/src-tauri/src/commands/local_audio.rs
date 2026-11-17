@@ -153,7 +153,16 @@ fn extract_metadata(
     let mut cover_path: Option<String> = None;
     let mut lyrics: Option<String> = None;
 
-    if let Ok(tagged_file) = lofty::read_from_path(path) {
+    // 后续项：标签读不出来时仍以「文件名 + Unknown Artist/Album + 时长 0」入库，
+    // 前端分不清「真的没标签」与「文件读坏了」。本次只补日志，返回的数据不动。
+    let tagged_file = lofty::read_from_path(path).inspect_err(|err| {
+        tauri_plugin_log::log::warn!(
+            "[local-audio] 读取音频标签失败，按文件名与未知艺术家入库 {}: {}",
+            path.display(),
+            err
+        )
+    });
+    if let Ok(tagged_file) = tagged_file {
         duration = tagged_file
             .properties()
             .duration()
@@ -254,7 +263,18 @@ pub async fn scan_directory(app: AppHandle, path: String) -> Result<Vec<AudioFil
         for entry in walkdir::WalkDir::new(&scan_root)
             .follow_links(false)
             .into_iter()
-            .filter_map(|e| e.ok())
+            // 后续项：读不了的目录项（权限不足、路径过长等）被跳过，扫描结果静默变少。
+            // 本次只补日志，仍然跳过。
+            .filter_map(|entry| {
+                entry
+                    .inspect_err(|err| {
+                        tauri_plugin_log::log::warn!(
+                            "[local-audio] 遍历目录项失败（已跳过）: {}",
+                            err
+                        )
+                    })
+                    .ok()
+            })
         {
             let entry_path = entry.path();
             if entry_path.is_file() && is_audio_file(entry_path) {
