@@ -87,37 +87,31 @@ export function localSongToMusicInfo(song: LocalSong): MusicInfo {
 }
 
 export class LocalMusicService {
+  /** 用户取消返回 null；对话框本身打不开（权限、插件异常）则抛错，不与「取消」混为一谈。 */
   static async selectDirectory(): Promise<string | null> {
-    try {
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        title: '选择音乐文件夹',
-      });
-      return selected as string | null;
-    } catch {
-      return null;
-    }
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: '选择音乐文件夹',
+    });
+    return selected as string | null;
   }
 
+  /** 用户取消返回空数组；对话框本身打不开则抛错。 */
   static async selectFiles(): Promise<string[]> {
-    try {
-      const selected = await open({
-        directory: false,
-        multiple: true,
-        title: '选择音乐文件',
-        filters: [
-          {
-            name: 'Audio',
-            extensions: this.getSupportedFormats(),
-          },
-        ],
-      });
-      if (!selected) return [];
-      return Array.isArray(selected) ? selected : [selected];
-    } catch {
-      return [];
-    }
+    const selected = await open({
+      directory: false,
+      multiple: true,
+      title: '选择音乐文件',
+      filters: [
+        {
+          name: 'Audio',
+          extensions: this.getSupportedFormats(),
+        },
+      ],
+    });
+    if (!selected) return [];
+    return Array.isArray(selected) ? selected : [selected];
   }
 
   static async scanDirectory(path: string): Promise<LocalSong[]> {
@@ -125,13 +119,9 @@ export class LocalMusicService {
     return audioFiles.map(rustToLocalSong);
   }
 
-  static async getAudioInfo(path: string): Promise<LocalSong | null> {
-    try {
-      const audioFile = await getAudioInfo(path);
-      return rustToLocalSong(audioFile);
-    } catch {
-      return null;
-    }
+  /** 读取失败抛错（带 Rust 侧给的原因）；要不要因为一个文件放弃整批，由调用方决定。 */
+  static async getAudioInfo(path: string): Promise<LocalSong> {
+    return rustToLocalSong(await getAudioInfo(path));
   }
 
   static getSupportedFormats(): string[] {

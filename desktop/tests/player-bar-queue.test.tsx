@@ -28,10 +28,9 @@ vi.mock('@/stores/sleepTimerStore', () => ({ useSleepTimerStore: (select: any) =
 vi.mock('@/components/ImmersiveLyricsOverlay', () => ({ ImmersiveLyricsOverlay: () => null }));
 vi.mock('@/components/SongAddMenuButton', () => ({ SongAddMenuButton: () => null }));
 vi.mock('@/components/DownloadQualityButton', () => ({ DownloadQualityButton: () => null }));
-vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
 vi.mock('@/stores/lyricSettingsSync', () => ({ subscribeLyricSettings: () => () => {} }));
 vi.mock('@/utils/desktopLyricToggle', () => ({ toggleDesktopLyricFromPlayer: vi.fn() }));
-vi.mock('@lx/tauri-bridge', () => ({ isLyricWindowOpen: async () => false, getLyricWindowState: async () => ({ locked: false }) }));
+vi.mock('@lx/tauri-bridge', async (importOriginal) => ({ TAURI_EVENTS: (await importOriginal<typeof import('@lx/tauri-bridge')>()).TAURI_EVENTS, listenTauriEvent: async () => () => {}, isLyricWindowOpen: async () => false, getLyricWindowState: async () => ({ locked: false }) }));
 
 import { PlayerBar } from '../src/components/PlayerBar';
 import { NowPlayingPanel } from '../src/components/NowPlayingPanel';

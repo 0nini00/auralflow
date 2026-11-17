@@ -17,9 +17,10 @@ import { findTxVariants, describeCrossSourceFailure } from "@/services/playback/
 import { useHistoryStore } from "./historyStore";
 import { useSleepTimerStore } from "./sleepTimerStore";
 import { useDiscoveryStore } from "./discoveryStore";
-import { customSourceAccess, customSourcePersistence, useCustomSourceStore } from "./customSourceStore";
+import { customSourceAccess } from "./customSourceStore";
 import { useVariantPinStore } from "./variantPinStore";
-import { CustomSourceDisabledError, type CustomSourceOperation } from "@/services/customSourceAccess";
+import { requireCustomSourceOperation, usesCustomSourceRuntime, type CustomSourceOperation } from "@/services/customSourceAccess";
+import { openCustomSourceAccess } from "@/services/customSourceGate";
 import { finishListeningStats, pauseListeningStats, registerListeningStatsSampler, seekListeningStats, startListeningStats, sampleListeningStats } from "./listeningStatsStore";
 
 export type RepeatMode = "off" | "all" | "one";
@@ -489,9 +490,8 @@ export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
         let operation: CustomSourceOperation | undefined;
         const playResolved = (resolved: { music: MusicInfo; url: string; backend?: PlaybackBackendId }) => {
           // 同一原始令牌同时覆盖解析返回和引擎内部淡出、起播的异步边界。
-          const assertPlaybackAllowed = resolved.backend === 'customSource' || resolved.backend === 'hiddenSource' ? () => {
-            if (!operation) throw new CustomSourceDisabledError();
-            operation.assertActive();
+          const assertPlaybackAllowed = usesCustomSourceRuntime(resolved.backend) ? () => {
+            requireCustomSourceOperation(resolved.backend, operation);
           } : undefined;
           assertPlaybackAllowed?.();
           return playThroughEngine(resolved.music, resolved.url, assertPlaybackAllowed);
@@ -508,9 +508,8 @@ export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
             return;
           }
 
-          if (!useCustomSourceStore.getState().featureReady) await customSourcePersistence.ready;
+          operation = await openCustomSourceAccess();
           if (requestId !== activePlayRequestId) return;
-          operation = useCustomSourceStore.getState().featureEnabled ? customSourceAccess.capture() : undefined;
 
           // 优先使用预加载缓存，命中则跳过网络解析
 
@@ -521,7 +520,7 @@ export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
             useVariantPinStore.getState().getPinnedVariantKey(buildSongKey(music)),
           );
           let cachedTarget = selectCachedPlaybackTarget(music, getPrefetchedTrack(music));
-          if ((cachedTarget?.backend === 'customSource' || cachedTarget?.backend === 'hiddenSource') && (
+          if (cachedTarget && usesCustomSourceRuntime(cachedTarget.backend) && (
             !operation?.isActive() || cachedTarget.customSourceVersion !== customSourceAccess.version
           )) {
             cachedTarget = null;
@@ -627,7 +626,12 @@ export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
               failPlayback(`${e instanceof Error ? e.message : String(e)}（${reason}）`);
               return;
             } catch (fallbackErr) {
-              debugLog(`[fallback] 跨源降级过程异常: ${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`);
+              // 降级自身出错（典型：QQ 搜索请求失败）要和原始错误一起给用户，
+              // 否则只剩一句网易云的报错，看不出自动换源其实没跑成。
+              const fallbackMessage = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+              debugLog(`[fallback] 跨源降级过程异常: ${fallbackMessage}`);
+              failPlayback(`${e instanceof Error ? e.message : String(e)}（自动切换 QQ 音乐失败：${fallbackMessage}）`);
+              return;
             }
           }
 

@@ -11,9 +11,9 @@ const mocks = vi.hoisted(() => ({
   subscribers: new Set<() => void>(),
   snapshot: {} as Pick<PlaybackSnapshot, "current" | "status" | "progress">,
 }));
-vi.mock("@tauri-apps/api/event", () => ({ listen: mocks.listen }));
-vi.mock("@lx/tauri-bridge", () => ({
-  TASKBAR_ACTION_EVENT: "taskbar-action",
+vi.mock("@lx/tauri-bridge", async (importOriginal) => ({
+  TAURI_EVENTS: (await importOriginal<typeof import("@lx/tauri-bridge")>()).TAURI_EVENTS,
+  listenTauriEvent: mocks.listen,
   loadSettings: mocks.loadSettings,
   taskbarSetEnabled: mocks.setEnabled,
   taskbarUpdateTrack: mocks.updateTrack,

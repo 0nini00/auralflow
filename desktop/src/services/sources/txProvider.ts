@@ -21,14 +21,12 @@ import {
   mapTxSong,
 } from "./txSearchMappers";
 
-// Tauri 环境用 plugin-http 绕过 CORS，纯 web dev 模式回退到 window.fetch
-const safeFetch: typeof fetch = (...args) => {
-  try {
-    return Promise.resolve(tauriFetch(...args)).catch(() => window.fetch(...args));
-  } catch {
-    return window.fetch(...args);
-  }
-};
+// QQ 音乐请求只走 plugin-http（Rust 侧发请求，不受 CORS 约束，能带 Origin/Referer/Cookie）。
+// 这里曾在失败后改用 window.fetch 重试，注释说是照顾「纯 web dev 模式」。去掉的理由：
+// - 浏览器的 fetch 会丢弃 Origin / Referer / Cookie 这些受限请求头，发出去的已经不是同一个请求；
+// - 应用其余部分（网易云 provider、设置、曲库）都直接依赖 Tauri，本来就跑不了纯浏览器模式；
+// - 重试失败后抛的是浏览器那句 "Failed to fetch"，plugin-http 的真实报错（权限范围、
+//   JS 包与 Rust 插件版本不匹配、网络错误）被它盖掉，排查时看不到原因。
 
 // ─── QQ 音乐 API 端点 ─────────────────────────────
 
@@ -81,7 +79,7 @@ const TX_APP_HEADERS: Record<string, string> = {
 };
 
 async function qqFetch(url: string): Promise<any> {
-  const resp = await safeFetch(url, { headers: COMMON_HEADERS });
+  const resp = await tauriFetch(url, { headers: COMMON_HEADERS });
   if (!resp.ok) {
     throw new Error(`QQ Music request failed: ${resp.status}`);
   }
@@ -90,7 +88,7 @@ async function qqFetch(url: string): Promise<any> {
 }
 
 async function qqPost(url: string, body: unknown): Promise<any> {
-  const resp = await safeFetch(url, {
+  const resp = await tauriFetch(url, {
     method: "POST",
     headers: {
       ...COMMON_HEADERS,
@@ -125,7 +123,7 @@ async function qqMusicuRequest(method: string, module: string, param: Record<str
     },
   });
 
-  const resp = await safeFetch(MUSIC_U_API, {
+  const resp = await tauriFetch(MUSIC_U_API, {
     method: "POST",
     headers: {
       ...TX_APP_HEADERS,

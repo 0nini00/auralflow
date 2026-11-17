@@ -6,12 +6,14 @@ const fixture = vi.hoisted(() => {
   const state = { featureEnabled: true, featureReady: true, sources: [{ id: 'lx', name: 'LX', enabled: true }], applyRuntimeUpdateAlert: vi.fn() };
   let version = 0;
   let controller = new AbortController();
+  const isEnabled = () => state.featureReady && state.featureEnabled;
   const access = {
     get version() { return version; },
+    isEnabled,
     capture() {
       const captured = version;
       const signal = controller.signal;
-      const isActive = () => state.featureReady && state.featureEnabled && version === captured && !signal.aborted;
+      const isActive = () => isEnabled() && version === captured && !signal.aborted;
       const assertActive = () => { if (!isActive()) throw new Error('LX 未启用或操作已失效'); };
       assertActive();
       return { signal, isActive, assertActive };

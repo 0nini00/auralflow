@@ -6,7 +6,7 @@ vi.mock("@/stores/libraryStore", () => ({ useLibraryStore: { getState: () => ({ 
 vi.mock("@/stores/customSourceStore", () => ({
   useCustomSourceStore: { getState: () => ({ featureEnabled: false, featureReady: true }) },
   customSourcePersistence: { ready: Promise.resolve() },
-  customSourceAccess: { version: 0 },
+  customSourceAccess: { version: 0, isEnabled: () => false },
 }));
 vi.mock("@/services/playerEngine", () => ({ playerEngine: {
   play: f.play, stop: f.stop, pause: f.pause, subscribe: vi.fn(cb => { f.subscription = cb; }),
@@ -71,4 +71,27 @@ it("旧曲最后一个兜底候选迟到失败不能停止已经播放的新曲"
   expect(usePlayerStore.getState().current?.id).toBe("B");
   expect(usePlayerStore.getState().status).toBe("playing");
   expect(usePlayerStore.getState().error).toBeNull();
+});
+
+it("跨源降级自身出错时，播放错误同时说明原始原因和换源失败的原因", async () => {
+  const a = { id: "A", source: "wy", name: "A", singer: "s" } as any;
+  f.resolve.mockRejectedValue(new Error("A resolve failed"));
+  f.find.mockRejectedValue(new Error("QQ search unreachable"));
+  const { usePlayerStore } = await import("@/stores/playerStore");
+
+  await usePlayerStore.getState().play(a);
+
+  expect(usePlayerStore.getState().status).toBe("error");
+  expect(usePlayerStore.getState().error).toBe("A resolve failed（自动切换 QQ 音乐失败：QQ search unreachable）");
+});
+
+it("跨源降级确实没有候选时，仍报告「未找到」而不是换源失败", async () => {
+  const a = { id: "A", source: "wy", name: "A", singer: "s" } as any;
+  f.resolve.mockRejectedValue(new Error("A resolve failed"));
+  f.find.mockResolvedValue([]);
+  const { usePlayerStore } = await import("@/stores/playerStore");
+
+  await usePlayerStore.getState().play(a);
+
+  expect(usePlayerStore.getState().error).toBe("A resolve failed（no candidates）");
 });

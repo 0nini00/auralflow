@@ -9,6 +9,7 @@ vi.mock('@tauri-apps/api/core', () => ({ convertFileSrc: (path: string) => `asse
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
 vi.mock('@lx/tauri-bridge', () => ({ scanDirectory: vi.fn(), getAudioInfo: vi.fn() }));
 vi.mock('@/components/MetadataEditModal', () => ({ MetadataEditModal: () => null }));
+vi.mock('@/services/logger', () => ({ logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/components/ui/ConfirmDialog', () => ({ confirmAction: vi.fn(async () => true) }));
 vi.mock('@/stores/libraryStore', async () => {
   const { create } = await import('zustand');
@@ -68,6 +69,33 @@ describe('本地音乐页面集成', () => {
     vi.mocked(usePlayerStore.getState().playQueue).mockRejectedValueOnce(new Error('play failed'));
     await click('播放 Alpha');
     expect(root().findByProps({ role: 'alert' }).children.join('')).toContain('play failed');
+  });
+
+  it('选择对话框打不开时显示原因，不当成用户取消', async () => {
+    vi.spyOn(LocalMusicService, 'selectDirectory').mockRejectedValue(new Error('dialog.open not allowed'));
+    vi.spyOn(LocalMusicService, 'selectFiles').mockRejectedValue(new Error('dialog.open not allowed'));
+    mount();
+    await click('扫描文件夹');
+    expect(root().findByProps({ role: 'alert' }).children.join('')).toContain('dialog.open not allowed');
+    await click('添加文件');
+    expect(root().findByProps({ role: 'alert' }).children.join('')).toBe('添加音乐失败：Error: dialog.open not allowed');
+    expect(useLibraryStore.getState().addSongs).not.toHaveBeenCalled();
+  });
+
+  it('添加文件时个别文件读取失败：其余照常添加，并列出失败的文件与原因', async () => {
+    const broken = 'C:\\Music\\Broken.ape';
+    vi.spyOn(LocalMusicService, 'selectFiles').mockResolvedValue([tracks[1].path, broken]);
+    vi.spyOn(LocalMusicService, 'getAudioInfo').mockImplementation(async (path) => {
+      if (path === broken) throw new Error('不支持的音频格式');
+      return tracks[1];
+    });
+    mount();
+    await click('添加文件');
+    expect(useLibraryStore.getState().addSongs).toHaveBeenLastCalledWith([tracks[1]]);
+    const alert = root().findByProps({ role: 'alert' }).children.join('');
+    expect(alert).toContain('1 个文件读取失败，其余文件已添加');
+    expect(alert).toContain(`${broken}：Error: 不支持的音频格式`);
+    expect(useLibraryStore.getState().setScanning).toHaveBeenLastCalledWith(false);
   });
 
   it('扫描、添加、刷新和确认移除仍连接原有接口', async () => {

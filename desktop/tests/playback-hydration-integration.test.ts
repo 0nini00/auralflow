@@ -3,7 +3,7 @@ const f = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn() }));
 vi.mock("@/stores/libraryStore", () => ({ useLibraryStore: { getState: () => ({ localSongs: [] }), subscribe: vi.fn() } }));
 vi.mock("@/stores/customSourceStore", () => ({
   useCustomSourceStore: { getState: () => ({ featureEnabled: false, featureReady: true }) },
-  customSourcePersistence: { ready: Promise.resolve() }, customSourceAccess: { version: 0 },
+  customSourcePersistence: { ready: Promise.resolve() }, customSourceAccess: { version: 0, isEnabled: () => false },
 }));
 vi.mock("@/services/playback/playbackResolver", () => ({ resolvePlaybackUrl: vi.fn() }));
 vi.mock("@/services/playback/prefetchService", () => ({

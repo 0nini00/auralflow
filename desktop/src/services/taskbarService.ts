@@ -1,6 +1,7 @@
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import {
-  TASKBAR_ACTION_EVENT,
+  TAURI_EVENTS,
+  listenTauriEvent,
   loadSettings,
   taskbarSetEnabled,
   taskbarUpdateTrack,
@@ -92,9 +93,9 @@ export function setupTaskbarThumbnails(): () => void {
 
   let unlisten: UnlistenFn | null = null;
   let disposedBeforeListen = false;
-  void listen<TaskbarActionEvent>(TASKBAR_ACTION_EVENT, (event) => {
+  void listenTauriEvent(TAURI_EVENTS.taskbarAction, (payload) => {
     if (!enabled || disposed) return;
-    handleAction(event.payload);
+    handleAction(payload);
   })
     .then((fn) => {
       if (disposedBeforeListen) fn();

@@ -7,12 +7,14 @@ import { CloseConfirmModal } from '../src/components/CloseConfirmModal';
 const api = vi.hoisted(() => ({
   resolve: vi.fn(),
   ack: vi.fn(),
-  listeners: new Map<string, Array<(event: unknown) => void>>(),
+  listeners: new Map<string, Array<(payload: unknown) => void>>(),
 }));
 
-vi.mock('@lx/tauri-bridge', () => ({ resolveCloseRequest: api.resolve, ackCloseRequest: api.ack }));
-vi.mock('@tauri-apps/api/event', () => ({
-  listen: (name: string, handler: (event: unknown) => void) => {
+vi.mock('@lx/tauri-bridge', async (importOriginal) => ({
+  TAURI_EVENTS: (await importOriginal<typeof import('@lx/tauri-bridge')>()).TAURI_EVENTS,
+  resolveCloseRequest: api.resolve,
+  ackCloseRequest: api.ack,
+  listenTauriEvent: (name: string, handler: (payload: unknown) => void) => {
     const list = api.listeners.get(name) ?? [];
     list.push(handler);
     api.listeners.set(name, list);
@@ -32,7 +34,7 @@ const rememberSwitch = () => document.querySelector<HTMLInputElement>('input[rol
 /** Rust 侧 emit("app-close-requested") */
 async function requestClose() {
   await act(async () => {
-    for (const handler of api.listeners.get('app-close-requested') ?? []) handler({ payload: null });
+    for (const handler of api.listeners.get('app-close-requested') ?? []) handler(null);
   });
 }
 

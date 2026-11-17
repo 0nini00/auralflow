@@ -30,7 +30,7 @@ references: [core, desktop, mobile]
 | 层级 | 实现 | 职责 | 入口 |
 |---|---|---|---|
 | 官方直连 | `wyProvider`（weapi/eapi 加密）、`txProvider`（musicu 接口） | 用平台官方协议直取播放 URL，作为所有竞速通道失败后的兜底，不参与竞速 | `sourceService.ts` 注册到 `SourceRegistry` |
-| gdstudio 网关 | 免 key 聚合网关（`music-api.gdstudio.xyz`，`types=search/url/lyric`） | 移动走 `@lx/core` 的 `createBuiltinMusicApiClient(fetchText)`；桌面独立实现（浏览器 fetch 优先、Tauri HTTP 兜底），网关搜索用于官方结果的元数据补充（`mergeSongSearchMetadata`）与兜底 | `packages/core/src/mobile-api.ts` / `desktop/src/services/builtinMusicApiClient.ts` |
+| gdstudio 网关 | 免 key 聚合网关（`music-api.gdstudio.xyz`，`types=search/url/lyric`） | 双端都走 `@lx/core` 的 `createBuiltinMusicApiClient(fetchText)`，各自注入传输层（桌面：Tauri HTTP 优先、浏览器 fetch 兜底），网关搜索用于官方结果的元数据补充（`mergeSongSearchMetadata`）与兜底 | `packages/core/src/mobile-api.ts` / `desktop/src/services/builtinMusicApiClient.ts` |
 | LX 自定义源 | `lx` 对象契约 + 参数遮蔽执行 | 用户导入的 LX Music 脚本，经注入的 `lx` 对象（EVENT_NAMES/`send`/`on`/`request`/`utils`）与宿主交互 | `customSourceRuntime.ts`（桌面）/ `lx_bridge`（移动） |
 
 **优先级语义**：网关与自定义源是**并发竞速**关系，不是先后兜底。官方直连是竞速全败后的最后兜底。`MusicInfo.gateway` 标记内置 API 的真实来源与曲目 ID，是播放/歌词元数据，不构成独立 UI 来源标签——最终歌曲仍按 `wy` 或 `tx` 展示。
@@ -113,7 +113,7 @@ VIP 歌曲、wy eapi 无 VIP、自定义音源脚本都可能返回 30s 试听 U
 
 ### 4.1 mobile-api.ts — 内置网关客户端
 
-- **`createBuiltinMusicApiClient(fetchText)`**：DI 注入 `fetchText`（URL→文本），核心逻辑不耦合具体 HTTP 实现。**现状：仅移动端接线**（`musicApi.ts` 用 RN fetch 实现 `fetchText`）；桌面未用 core 客户端，在 `builtinMusicApiClient.ts` 独立实现（浏览器 fetch 优先，失败回退 Tauri HTTP plugin）。
+- **`createBuiltinMusicApiClient(fetchText)`**：DI 注入 `fetchText`（URL→文本），核心逻辑不耦合具体 HTTP 实现。**现状：双端接线**——移动端 `musicApi.ts` 用 RN fetch 实现 `fetchText`，桌面 `builtinMusicApiClient.ts` 注入 `fetchBuiltinMusicApiText`（Tauri HTTP plugin 优先，失败后浏览器 fetch 用剩余时间兜底），不再有桌面副本。
 - **搜索空数组不算成功**：`searchSongs` 对非数组响应（HTML 错误页/限流页）抛错而非返回空，避免竞速把「快速空结果」当成功吞掉其它网关的真实数据。
 - **`createRacingBuiltinMusicApiClient`**：多网关并发竞速，能力已就绪但**未接线**。`resolveUrl`/`getLyric` 先到先得；`searchSongs` 用 `Promise.allSettled` 且空数组不视为成功，防快速空结果吞掉其它网关的真实数据；单网关退化为直通。
 - **`mapBuiltinMusicApiSong`**：要求 `id`+`name` 非空，把网关响应映射为 `MusicInfo`，携带 `gateway{source,trackId,lyricId,picId}` 驱动后续网关调用；joox 封面用 `image.joox.com` 拼 `picId`；`mvId` 仅 wy 写入。

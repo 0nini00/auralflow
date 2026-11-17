@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
-import { ackCloseRequest, resolveCloseRequest } from "@lx/tauri-bridge";
+import { TAURI_EVENTS, ackCloseRequest, listenTauriEvent, resolveCloseRequest } from "@lx/tauri-bridge";
 import { useDialogFocus } from "@/hooks/useDialogFocus";
 
 type CloseAction = "tray" | "quit";
@@ -23,7 +22,7 @@ export function CloseConfirmModal() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const unlistenPromise = listen("app-close-requested", () => {
+    const unlistenPromise = listenTauriEvent(TAURI_EVENTS.appCloseRequested, () => {
       // 先告诉 Rust「框已经出来了」，取消它的无人应答兜底：用户想多久都行。
       void ackCloseRequest().catch(() => undefined);
       setError("");

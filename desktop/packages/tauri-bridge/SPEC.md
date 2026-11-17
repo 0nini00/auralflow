@@ -9,7 +9,7 @@ tags: [auralflow, desktop]
 
 ## 职责
 
-单文件包（`src/index.ts`，约 430 行）：把 Tauri 的 `invoke` 包装成有名字、有参数类型、有返回值类型的方法，让桌面前端调用 Rust 命令时不必手写命令字符串，也不必在两处维护参数形状。它同时是「Rust 命令有哪些」的可读清单。
+单文件包（`src/index.ts`，约 430 行）：把 Tauri 的 `invoke` 包装成有名字、有参数类型、有返回值类型的方法，让桌面前端调用 Rust 命令时不必手写命令字符串，也不必在两处维护参数形状。它同时是「Rust 命令有哪些」的可读清单。文件末尾另有 Rust → WebView 事件的登记表：`TAURI_EVENTS`（事件名）、`TauriEventPayloads`（各事件载荷）与按事件名推导载荷类型的 `listenTauriEvent`；`desktop/tests/tauri-event-contract.test.ts` 把这张表与 Rust 源码里的 emit 调用逐一比对。
 
 ## 边界
 

@@ -9,7 +9,8 @@ import {
   normalizeSourceQualityLabel,
   raceStaggeredPriority,
 } from '@lx/core';
-import { customSourceAccess, customSourcePersistence, useCustomSourceStore } from '@/stores/customSourceStore';
+import { useCustomSourceStore } from '@/stores/customSourceStore';
+import { requireCustomSourceAccess } from '@/services/customSourceGate';
 import { requestCustomSourceMusicUrl } from '@/services/customSourceRuntime';
 import type { PlaybackAttempt, PlaybackBackend, PlaybackRequest, PlaybackResolvedUrl } from './types';
 
@@ -44,8 +45,7 @@ export const customSourceBackend: PlaybackBackend = {
    * 追加 128k,导致用户选无损时第一轮就可能拿到 128k。
    */
   async resolve(request: PlaybackRequest): Promise<PlaybackResolvedUrl> {
-    if (!useCustomSourceStore.getState().featureReady) await customSourcePersistence.ready;
-    const operation = customSourceAccess.capture();
+    const operation = await requireCustomSourceAccess();
     const enabledSources = useCustomSourceStore.getState().sources.filter((source) => source.enabled);
     if (!enabledSources.length) {
       throw new Error('当前备用播放方式为自定义音源,但尚未导入或启用任何 LX Music 自定义音源');

@@ -1,7 +1,8 @@
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import type { MusicInfo } from "@lx/core";
 import {
-  SMTC_ACTION_EVENT,
+  TAURI_EVENTS,
+  listenTauriEvent,
   loadSettings,
   smtcSetEnabled,
   smtcUpdateProgress,
@@ -166,9 +167,9 @@ export function setupSystemMediaControls(): () => void {
 
   let unlisten: UnlistenFn | null = null;
   let disposedBeforeListen = false;
-  void listen<SmtcActionEvent>(SMTC_ACTION_EVENT, (event) => {
+  void listenTauriEvent(TAURI_EVENTS.smtcAction, (payload) => {
     if (!enabled || disposed) return;
-    handleAction(event.payload);
+    handleAction(payload);
   })
     .then((fn) => {
       if (disposedBeforeListen) fn();

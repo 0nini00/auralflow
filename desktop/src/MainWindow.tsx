@@ -1,7 +1,6 @@
 import { lazy, useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { showToast, ToastHost } from "@/components/ui/Toast";
-import { listen } from "@tauri-apps/api/event";
 import { Layout } from "./components/Layout/Layout";
 // 首页是 initial route：窗口 show() 只等两个 rAF，拆成 chunk 会让内容区先空一帧，
 // 所以这里保持静态导入；其余页面仍然按需加载。
@@ -29,7 +28,7 @@ import { playerEngine } from "./services/playerEngine";
 import { logger } from "./services/logger";
 import { normalizePauseOnExternalPlayback } from "./services/mediaInterruptionPolicy";
 import { flushLibraryPersistence } from "./stores/libraryPersistence";
-import { completeAppQuit, loadSettings } from "@lx/tauri-bridge";
+import { TAURI_EVENTS, completeAppQuit, listenTauriEvent, loadSettings } from "@lx/tauri-bridge";
 
 /**
  * 路由页面按需加载：进入哪个页面才拉取那一份 chunk。
@@ -88,7 +87,7 @@ export default function MainWindow() {
       if (disposed) fn();
       else unlisteners.push(fn);
     };
-    void listen<{ requestId: string }>("app-before-quit", (event) => {
+    void listenTauriEvent(TAURI_EVENTS.appBeforeQuit, ({ requestId }) => {
       void (async () => {
         let failure: string | null = null;
         try {
@@ -98,14 +97,14 @@ export default function MainWindow() {
           logger.warn('退出前保存失败，已取消退出', error);
           showToast(`退出前保存失败：${failure}`, { kind: 'error' });
         }
-        await completeAppQuit(event.payload.requestId, failure);
+        await completeAppQuit(requestId, failure);
       })().catch((error) => logger.warn('退出完成应答失败', error));
     })
       .then(registerUnlisten)
       .catch((error) => logger.warn('无法监听退出保存请求', error));
-    void listen<string>('app-quit-failed', ({ payload }) => {
-      logger.warn('退出已取消', payload);
-      showToast(payload, { kind: 'error' });
+    void listenTauriEvent(TAURI_EVENTS.appQuitFailed, (message) => {
+      logger.warn('退出已取消', message);
+      showToast(message, { kind: 'error' });
     }).then(registerUnlisten).catch((error) => logger.warn('无法监听退出失败通知', error));
     return () => {
       disposed = true;
@@ -133,7 +132,13 @@ export default function MainWindow() {
           playerEngine.setPauseOnExternalPlayback(normalizePauseOnExternalPlayback(s.pauseOnExternalPlayback));
           setPlaybackFailedAutoNext(s.playbackFailedAutoNext);
         })
-        .catch(() => undefined);
+        .catch((error) => {
+          // 读不到设置时，音量、外部播放暂停策略、失败自动切歌都停在默认值。
+          // 用户看到的是「音量又变了 / 设置没生效」，必须说明原因，而不是悄悄用默认值顶上。
+          logger.warn("读取设置失败，音量与播放策略未应用", error);
+          const detail = error instanceof Error ? error.message : String(error);
+          showToast(`读取设置失败，音量与播放策略未应用：${detail}`, { kind: "error" });
+        });
     };
     loadCursor();
     window.addEventListener("af-cursor-change", loadCursor);

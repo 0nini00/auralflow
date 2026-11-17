@@ -6,6 +6,7 @@ import { LocalMusicService, localSongToMusicInfo, type LocalSong } from '@/servi
 import { MetadataEditModal } from '@/components/MetadataEditModal';
 import { confirmAction } from '@/components/ui/ConfirmDialog';
 import { LocalLibraryBrowser } from '@/components/LocalLibraryBrowser';
+import { logger } from '@/services/logger';
 
 export function LocalMusicView() {
   const { localSongs, addSongs, removeSong, isScanning, setScanning, addScanPath, scanPaths, refreshLibrary } = useLibraryStore();
@@ -40,10 +41,17 @@ export function LocalMusicView() {
       const paths = await LocalMusicService.selectFiles();
       if (paths.length === 0) return;
       setScanning(true);
-      const results = await Promise.all(paths.map((path) => LocalMusicService.getAudioInfo(path)));
-      const songs = results.filter((song): song is LocalSong => song !== null);
+      // 逐个文件结算：坏文件不拖累其余文件，但要说清是哪个、为什么。
+      const results = await Promise.allSettled(paths.map((path) => LocalMusicService.getAudioInfo(path)));
+      const songs = results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []));
+      const failures = results.flatMap((result, index) => (
+        result.status === 'rejected' ? [`${paths[index]}：${String(result.reason)}`] : []
+      ));
       addSongs(songs);
-      if (songs.length < paths.length) setError(`${paths.length - songs.length} 个文件读取失败，其余文件已添加。`);
+      if (failures.length) {
+        logger.warn('[本地音乐] 部分文件读取失败', failures);
+        setError(`${failures.length} 个文件读取失败，其余文件已添加：\n${failures.join('\n')}`);
+      }
     } catch (cause) {
       setError(`添加音乐失败：${String(cause)}`);
     } finally {

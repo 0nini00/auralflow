@@ -72,3 +72,17 @@ it('单曲主源结束时，仍能继续翻满页的元数据来源', async () =
   expect(api.metadata).toHaveBeenCalledWith('netease', 'alpha', 2, 30, 'wy');
   expect(result.hasMore).toBe(true);
 });
+
+it('QQ 请求失败时原样抛出 plugin-http 的错误，不改用 window.fetch 重试', async () => {
+  const browserFetch = vi.fn();
+  vi.stubGlobal('window', { fetch: browserFetch });
+  api.fetch.mockRejectedValue(new Error('missing client-config header'));
+  try {
+    await expect(txProvider.search('alpha', 'playlist', 1)).rejects.toThrow('missing client-config header');
+    await expect(txProvider.getLyric({ id: 'mid', source: 'tx', name: 'Song', singer: 'Singer' } as MusicInfo))
+      .rejects.toThrow('missing client-config header');
+    expect(browserFetch).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

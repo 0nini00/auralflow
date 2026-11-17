@@ -26,8 +26,7 @@ import {
   type DesktopLyricDisplayLine,
 } from "@/utils/desktopLyric";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { listen } from "@tauri-apps/api/event";
-import { getLyricWindowState, loadSettings, patchSettings, prepareLyricWindowLock, setLyricWindowHeight, setLyricWindowPinned, setLyricWindowLocked, toggleLyricWindow } from "@lx/tauri-bridge";
+import { TAURI_EVENTS, getLyricWindowState, listenTauriEvent, loadSettings, patchSettings, prepareLyricWindowLock, setLyricWindowHeight, setLyricWindowPinned, setLyricWindowLocked, toggleLyricWindow } from "@lx/tauri-bridge";
 import { Play, Pause, SkipBack, SkipForward, X, Pin, PinOff, Plus, Minus, Lock, Unlock } from "lucide-react";
 import type { CSSProperties, MouseEvent } from "react";
 import { memo, useEffect, useRef, useState } from "react";
@@ -261,8 +260,8 @@ export function LyricWindowView() {
     let disposed = false;
     const unlisteners: Array<() => void> = [];
     void Promise.all([
-      listen("lyric-cursor-enter", () => setCursorHover(true)),
-      listen("lyric-cursor-leave", () => setCursorHover(false)),
+      listenTauriEvent(TAURI_EVENTS.lyricCursorEnter, () => setCursorHover(true)),
+      listenTauriEvent(TAURI_EVENTS.lyricCursorLeave, () => setCursorHover(false)),
     ]).then((fns) => {
       if (disposed) {
         fns.forEach((fn) => fn());
