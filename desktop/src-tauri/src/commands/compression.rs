@@ -1,5 +1,7 @@
 // ─── 压缩/解压 ─────────────────────────────────────────────────
 
+use std::io::{Read, Write};
+
 #[derive(Clone, Copy)]
 enum ZlibFormat {
     Zlib,

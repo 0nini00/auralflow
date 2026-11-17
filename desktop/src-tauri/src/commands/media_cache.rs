@@ -1,12 +1,57 @@
+// ─── 媒体缓存（歌曲音频 / 封面） ──────────────────────────────
+
+use super::shared::{
+    unique_temp_suffix, TempFileGuard, MEDIA_CONNECT_TIMEOUT, MEDIA_READ_TIMEOUT,
+    MEDIA_TOTAL_TIMEOUT,
+};
+use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE, CONTENT_TYPE, USER_AGENT};
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_log::log;
 use tokio::io::AsyncWriteExt;
+
+// ─── 常量：媒体缓存的全部可调参数集中在这一处 ─────────────────
+
+const MEDIA_CACHE_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const SONG_AUDIO_CACHE_DIR: &str = "song-audio";
+const SONG_COVER_CACHE_DIR: &str = "song-covers";
+/// 各缓存目录的容量上限（字节），超限后按修改时间从最旧开始淘汰。
+/// 命中缓存会刷新 mtime，因此是真正的 LRU（常用的不会被先删）。
+/// 当前固定值，可按需直接调整；如需用户可配，后续接 AppSettings。
+const SONG_AUDIO_CACHE_MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+/// 封面（含本地音乐内嵌封面落盘）体量小但数量多，单独给 512 MiB 上限。
+const SONG_COVER_CACHE_MAX_BYTES: u64 = 512 * 1024 * 1024;
+
+const AUDIO_CACHE_EXTS: &[&str] = &["mp3", "flac", "m4a", "aac", "ogg", "opus", "wav"];
+const COVER_CACHE_EXTS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "bmp"];
+
+/// 音频缓存的最小可信体积。历史样本里出现过 74 字节的 mp3（下载中断的残包）；
+/// 旧逻辑只要求「文件存在且非空」，于是查询会一次次命中它、播放器一加载就报错。
+/// 24 KiB 远低于任何可播放音频（128k 的 1.5 秒也有约 24 KB），不会误伤正常文件。
+const MIN_AUDIO_CACHE_BYTES: u64 = 24 * 1024;
+/// 封面缓存的对应门槛：几十字节的「图片」同样只可能是残包。
+const MIN_COVER_CACHE_BYTES: u64 = 512;
+/// 单个缓存文件的大小上限（与用户下载的 MAX_DOWNLOAD_SIZE 同一量级）。
+const MAX_CACHE_FILE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
+/// 启动清理的年龄门槛：只有「昨天之前」的临时文件才当作残片。
+const STALE_TEMP_CACHE_AGE: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaCacheStats {
+    pub audio_cache_size: u64,
+    pub cover_cache_size: u64,
+    pub total_size: u64,
+}
 
 fn ensure_remote_cache_url(url: &str, label: &str) -> Result<reqwest::Url, String> {
     crate::outbound::assert_public_url(url, &format!("{}缓存", label))
 }
 
 /// 只做字符净化（不提供回退）：查询侧用它判断调用方是否给了一个可用的 key。
-pub(super) fn sanitize_cache_key(raw: &str) -> String {
+fn sanitize_cache_key(raw: &str) -> String {
     raw.chars()
         .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '-' || *ch == '_')
         .take(80)
@@ -214,24 +259,6 @@ fn find_cached_file(
     Ok(None)
 }
 
-/**
- * 并发下载的唯一后缀。
- *
- * 同一首歌可能被重复请求（播放中再次点击同一首、多窗口、重试），若两个任务共用
- * 同一个 `.download` 临时文件，两次 `File::create` + 交错 `write_all` 会产出
- * 字节错乱的文件，再被 rename 成正式缓存后永久命中。
- */
-pub(super) fn unique_temp_suffix() -> String {
-    use std::sync::atomic::AtomicU64;
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let nanos = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|elapsed| elapsed.subsec_nanos())
-        .unwrap_or(0);
-    format!("{}-{}-{}", std::process::id(), seq, nanos)
-}
-
 /// 把本地音乐的内嵌封面写入封面缓存目录，返回文件路径。
 ///
 /// 扫描整库时把封面 base64 塞进 IPC 载荷、再持久化进 library.json，会让内存与
@@ -270,31 +297,6 @@ pub(super) fn persist_local_cover(
     Some(cover_path.to_string_lossy().to_string())
 }
 
-/// 下载/落盘临时文件守卫：任何提前返回（含 `?` 错误路径）都会清掉残片，
-/// 成功提交（rename）后调用 `disarm()` 交出所有权。
-pub(super) struct TempFileGuard {
-    path: PathBuf,
-    armed: bool,
-}
-
-impl TempFileGuard {
-    pub(super) fn new(path: PathBuf) -> Self {
-        Self { path, armed: true }
-    }
-
-    pub(super) fn disarm(&mut self) {
-        self.armed = false;
-    }
-}
-
-impl Drop for TempFileGuard {
-    fn drop(&mut self) {
-        if self.armed {
-            let _ = std::fs::remove_file(&self.path);
-        }
-    }
-}
-
 /// 单条缓存写入结果：`(路径, 是否本次新写入)`。命中（false）时调用方不必再跑容量清理。
 async fn cache_remote_file(
     url: String,
@@ -315,9 +317,9 @@ async fn cache_remote_file(
         .map_err(|err| format!("创建{}缓存目录失败: {}", label, err))?;
 
     let client = reqwest::Client::builder()
-        .connect_timeout(super::MEDIA_CONNECT_TIMEOUT)
-        .read_timeout(super::MEDIA_READ_TIMEOUT)
-        .timeout(super::MEDIA_TOTAL_TIMEOUT)
+        .connect_timeout(MEDIA_CONNECT_TIMEOUT)
+        .read_timeout(MEDIA_READ_TIMEOUT)
+        .timeout(MEDIA_TOTAL_TIMEOUT)
         .user_agent(MEDIA_CACHE_UA)
         .redirect(crate::outbound::guarded_redirect_policy("媒体缓存"))
         .build()
@@ -457,7 +459,7 @@ fn clear_cache_dir_best_effort(cache_dir: &Path) {
     }
 }
 
-pub(super) fn enforce_cache_limit(cache_dir: &Path, max_bytes: u64) {
+fn enforce_cache_limit(cache_dir: &Path, max_bytes: u64) {
     let Ok(entries) = std::fs::read_dir(cache_dir) else {
         return; // 目录不存在视为缓存为空
     };
@@ -505,9 +507,6 @@ fn is_temp_cache_file(path: &Path) -> bool {
     )
 }
 
-/// 启动清理的年龄门槛：只有「昨天之前」的临时文件才当作残片。
-const STALE_TEMP_CACHE_AGE: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
-
 /// 启动时清理「写入中断」留下的临时文件（`.download` / `.tmp`）。
 ///
 /// 正常失败路径由 `TempFileGuard` 清掉临时文件，但进程被强杀、断电、蓝屏时 Drop
@@ -550,7 +549,7 @@ fn sweep_stale_temp_files(cache_dir: &Path, max_age: std::time::Duration) -> u64
 
 /// 命中缓存时刷新 mtime，让按时间淘汰成为真正的 LRU。
 /// 失败无所谓（被占用 / 无写权限），淘汰退化为 FIFO，不影响本次命中。
-pub(super) fn touch_cache_file(path: &Path) {
+fn touch_cache_file(path: &Path) {
     let Ok(file) = std::fs::File::options().write(true).open(path) else {
         return;
     };
@@ -597,9 +596,6 @@ pub fn sweep_caches(app: &AppHandle) {
     enforce_cache_limit(&cover_dir, SONG_COVER_CACHE_MAX_BYTES);
 }
 
-const AUDIO_CACHE_EXTS: &[&str] = &["mp3", "flac", "m4a", "aac", "ogg", "opus", "wav"];
-const COVER_CACHE_EXTS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "bmp"];
-
 /// 命中的媒体缓存条目：文件路径 + 体积。
 ///
 /// 前端要靠 `bytes` 做两件事：判断落盘的是不是「试听片段」（见 @lx/core stream-integrity），
@@ -610,15 +606,6 @@ pub struct CachedMedia {
     pub path: String,
     pub bytes: u64,
 }
-
-/// 音频缓存的最小可信体积。历史样本里出现过 74 字节的 mp3（下载中断的残包）；
-/// 旧逻辑只要求「文件存在且非空」，于是查询会一次次命中它、播放器一加载就报错。
-/// 24 KiB 远低于任何可播放音频（128k 的 1.5 秒也有约 24 KB），不会误伤正常文件。
-const MIN_AUDIO_CACHE_BYTES: u64 = 24 * 1024;
-/// 封面缓存的对应门槛：几十字节的「图片」同样只可能是残包。
-const MIN_COVER_CACHE_BYTES: u64 = 512;
-/// 单个缓存文件的大小上限（与用户下载的 MAX_DOWNLOAD_SIZE 同一量级）。
-const MAX_CACHE_FILE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 #[tauri::command]
 pub async fn cache_remote_image(
@@ -737,27 +724,6 @@ pub async fn clear_media_cache(app: AppHandle) -> Result<MediaCacheStats, String
     .map_err(|err| format!("清理任务失败: {}", err))?
 }
 
-/// 按字节魔数识别图片格式，返回扩展名。
-///
-/// 桌面端只有这里一张图片魔数表：`local_audio::set_audio_cover`（把封面写进音频标签，
-/// 供下载在线曲时使用）靠它做白名单。此前它只看声明的 MIME 字符串、认不出来就当
-/// JPEG，于是 `data:image/svg+xml` 这类活动内容也能被贴成「JPEG」写进音频文件。
-pub(super) fn sniff_image_extension(bytes: &[u8]) -> Option<&'static str> {
-    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        Some("png")
-    } else if bytes.starts_with(b"\xff\xd8\xff") {
-        Some("jpg")
-    } else if bytes.starts_with(b"GIF8") {
-        Some("gif")
-    } else if bytes.starts_with(b"BM") {
-        Some("bmp")
-    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
-        Some("webp")
-    } else {
-        None
-    }
-}
-
 #[cfg(test)]
 mod cache_lookup_tests {
     use super::*;
@@ -822,31 +788,5 @@ mod cache_lookup_tests {
         assert!(complete.exists(), "正式缓存文件永远不归这个清理管");
 
         let _ = std::fs::remove_dir_all(&dir);
-    }
-}
-
-#[cfg(test)]
-mod image_magic_tests {
-    use super::*;
-
-    /// 魔数表是桌面端唯一的一张，
-    /// 认不出来的字节一律 `None` —— `set_audio_cover` 靠这个挡掉 SVG 这类活动内容。
-    #[test]
-    fn sniff_recognizes_supported_images_and_rejects_anything_else() {
-        assert_eq!(sniff_image_extension(b"\x89PNG\r\n\x1a\n\x00\x00"), Some("png"));
-        assert_eq!(sniff_image_extension(b"\xff\xd8\xff\xe0"), Some("jpg"));
-        assert_eq!(sniff_image_extension(b"GIF89a"), Some("gif"));
-        assert_eq!(sniff_image_extension(b"BM\x00\x00"), Some("bmp"));
-        assert_eq!(
-            sniff_image_extension(b"RIFF\x00\x00\x00\x00WEBPVP8 "),
-            Some("webp")
-        );
-
-        // RIFF 容器但不是 WEBP（WAV / AVI）不算图片。
-        assert_eq!(sniff_image_extension(b"RIFF\x00\x00\x00\x00WAVEfmt "), None);
-        // SVG 是活动内容：此前 `set_audio_cover` 会把这类字节当 JPEG 写进音频文件。
-        assert_eq!(sniff_image_extension(b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>"), None);
-        assert_eq!(sniff_image_extension(b""), None);
-        assert_eq!(sniff_image_extension(b"not an image at all"), None);
     }
 }

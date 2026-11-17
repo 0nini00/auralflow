@@ -1,5 +1,8 @@
 // ─── 用户数据持久化（B-mid） ──────────────────────────────────
 
+use serde_json::Value;
+use tauri::AppHandle;
+
 /// 读取某个用户数据 namespace（favorites/playlists/library/customSources/recent）
 #[tauri::command]
 pub async fn library_load(app: AppHandle, namespace: String) -> Result<Value, String> {

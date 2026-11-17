@@ -1,5 +1,16 @@
 // ─── 下载文件 ───────────────────────────────────────────────
 
+use super::shared::{
+    unique_temp_suffix, TempFileGuard, MEDIA_CONNECT_TIMEOUT, MEDIA_READ_TIMEOUT,
+    MEDIA_TOTAL_TIMEOUT,
+};
+use std::collections::HashMap;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
+use tauri::{AppHandle, Emitter, Manager};
+
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadProgressEvent {
@@ -247,9 +258,9 @@ pub async fn download_file(
     let mut temp_guard = TempFileGuard::new(temp_path.clone());
 
     let client = reqwest::Client::builder()
-        .connect_timeout(super::MEDIA_CONNECT_TIMEOUT)
-        .read_timeout(super::MEDIA_READ_TIMEOUT)
-        .timeout(super::MEDIA_TOTAL_TIMEOUT)
+        .connect_timeout(MEDIA_CONNECT_TIMEOUT)
+        .read_timeout(MEDIA_READ_TIMEOUT)
+        .timeout(MEDIA_TOTAL_TIMEOUT)
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
         .redirect(crate::outbound::guarded_redirect_policy("下载"))
         .build()
@@ -294,7 +305,6 @@ pub async fn download_file(
     // 只看第一个 chunk 会让 `<` 与后续分片分离、嗅探漏网。
     let mut sniff_buffer: Vec<u8> = Vec::new();
     let mut sniffed = false;
-    const SNIFF_BYTES: usize = 512;
 
     while let Some(chunk) = await_download_step(&mut cancel_flag, resp.chunk())
         .await
@@ -428,6 +438,7 @@ pub fn write_download_text_file(
 #[cfg(test)]
 mod lifecycle_tests {
     use super::*;
+    use std::io::Read;
 
     #[test]
     fn empty_http_success_is_rejected_before_publishing() {

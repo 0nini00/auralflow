@@ -1,5 +1,12 @@
 // ─── 配置管理 ──────────────────────────────────────────────────
 
+use crate::config;
+use crate::models::AppSettings;
+use serde_json::Value;
+use std::path::PathBuf;
+use std::sync::atomic::Ordering;
+use tauri::{AppHandle, Manager};
+
 #[tauri::command]
 pub fn load_settings(app: AppHandle) -> Result<AppSettings, String> {
     let settings = config::load_settings(&app)?;

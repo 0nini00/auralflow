@@ -1,3 +1,7 @@
+// ─── 桌面歌词窗口 ─────────────────────────────────────────────
+
+use tauri::AppHandle;
+
 /// 切换桌面歌词窗口（开/关）。返回 true=已打开，false=已关闭。
 #[tauri::command]
 pub fn toggle_lyric_window(app: AppHandle) -> Result<bool, String> {

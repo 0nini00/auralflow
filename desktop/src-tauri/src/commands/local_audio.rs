@@ -1,5 +1,12 @@
 // ─── 本地音频扫描 ───────────────────────────────────────────────
 
+use super::media_cache::persist_local_cover;
+use super::shared::{sniff_image_extension, unique_temp_suffix, TempFileGuard};
+use crate::models::{AudioFile, SUPPORTED_FORMATS};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use tauri::{AppHandle, Manager};
+
 /// 判断是否为音频文件
 fn is_audio_file(path: &std::path::Path) -> bool {
     // 标签写入留下的临时副本（见 write_audio_file_safely）保留了原扩展名，
@@ -493,8 +500,8 @@ fn set_audio_cover_blocking(path: &str, cover_data: &str) -> Result<(), String> 
     }
     // 采信字节魔数，而不是声明的 MIME 字符串：此前「认不出来就当 JPEG」会把
     // `data:image/svg+xml` 这类活动内容贴成「JPEG」写进音频文件。
-    // 魔数白名单全仓只有一份（`media_cache::sniff_image_extension`），这里直接复用。
-    let mime_type = match super::media_cache::sniff_image_extension(&data) {
+    // 魔数白名单全仓只有一份（`shared::sniff_image_extension`），这里直接复用。
+    let mime_type = match sniff_image_extension(&data) {
         Some("png") => lofty::picture::MimeType::Png,
         Some("jpg") => lofty::picture::MimeType::Jpeg,
         Some("bmp") => lofty::picture::MimeType::Bmp,
@@ -553,6 +560,7 @@ fn set_audio_lyrics_blocking(path: &str, lyrics: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     fn wave_fixture(path: &Path) {
         let samples = vec![0u8; 16_000];
