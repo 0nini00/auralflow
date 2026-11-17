@@ -2,6 +2,8 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { createLoader, deferred, mobileRequire } = require("./helpers/loadTs.cjs");
 
+// 歌曲身份键用 core 的真实实现：被测的 playerStore / PlayerBar 都从 @lx/core 取它。
+const { buildSongKey } = createLoader({})("../../packages/core/src/song-variant.ts");
 const State = Object.fromEntries(["None", "Ready", "Playing", "Paused", "Stopped", "Buffering", "Loading", "Ended", "Error"].map(s => [s, s]));
 // 上限只是 runner 的安全网，不是断言：本文件的用例回读原生状态并推进挂钟，墙钟时间只反映机器
 // 速度。5000ms 在并发跑整个套件时会把它判成超时（实测 8.6s），断言本身与耗时无关。
@@ -25,7 +27,7 @@ function setup() {
     "react-native": {},
     "react-native-track-player": { __esModule: true, default: native, State, Event: {}, RepeatMode: {} },
     "@react-native-async-storage/async-storage": {},
-    "@lx/core": {},
+    "@lx/core": { buildSongKey },
     "@/services/logger": { logger: { warn: (...args) => errors.push(args), error: (...args) => errors.push(args) } },
     "@/services/androidPitchService": {},
     "@/services/playbackUrlCache": {},
@@ -129,7 +131,7 @@ function loadMiniLyricStatus(h, store, setLyrics) {
     "@/services/lyricOverlayService": { ...h.overlay, setLyricOverlayLyrics: setLyrics },
     "@/services/lyricOverlayPlayback": h.load("src/services/lyricOverlayPlayback.ts"),
     "@/services/logger": { logger: { warn: (...args) => h.errors.push(args) } },
-    "@lx/core": { shouldCalibrateClock: () => true },
+    "@lx/core": { buildSongKey, shouldCalibrateClock: () => true },
     "@/services/playerService": {}, "@/services/playerQueueModel": {},
     "@/services/chineseConversionService": { convertChineseText: text => text },
     "@/components/QueueModal": {}, "@/stores/lyricOverlayStore": {},

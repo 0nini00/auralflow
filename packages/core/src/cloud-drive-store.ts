@@ -7,6 +7,7 @@
  * 取页与缓存读写都是 IO，由调用方注入。
  */
 import type { CloudDriveSnapshot } from "./cloud-drive-snapshot";
+import { buildSongKey } from "./song-variant";
 import type { MusicInfo } from "./sources/types";
 
 export interface CloudDrivePage {
@@ -91,10 +92,10 @@ const EMPTY_DATA: CloudDriveData = {
  * 不去重就会出现两条一模一样的行（列表 key 也会撞）。
  */
 function mergePage(current: MusicInfo[], incoming: MusicInfo[]): MusicInfo[] {
-  const seen = new Set(current.map((song) => `${song.source}:${song.id}`));
+  const seen = new Set(current.map(buildSongKey));
   const merged = [...current];
   for (const song of incoming) {
-    const key = `${song.source}:${song.id}`;
+    const key = buildSongKey(song);
     if (seen.has(key)) continue;
     seen.add(key);
     merged.push(song);

@@ -800,7 +800,7 @@ function getNearbySongs(): MusicInfo[] {
     const result: MusicInfo[] = [];
     const push = (song: MusicInfo | undefined) => {
       if (!song) return;
-      const key = `${song.source}:${song.id}`;
+      const key = buildSongKey(song);
       if (seen.has(key)) return;
       seen.add(key);
       result.push(song);
@@ -954,7 +954,7 @@ export function prefetchUpcomingSongNearEnd(position: number, duration: number):
   const nextSong = getNextSongForPrefetch();
   if (!nextSong) return;
   const currentSong = usePlayerStore.getState().currentSong;
-  const key = `${currentSong ? `${currentSong.source}:${currentSong.id}` : "-"}->${nextSong.source}:${nextSong.id}`;
+  const key = `${currentSong ? buildSongKey(currentSong) : "-"}->${buildSongKey(nextSong)}`;
   if (key === lastUpcomingPrefetchKey) return;
   lastUpcomingPrefetchKey = key;
   prefetchSong(nextSong);
@@ -1029,7 +1029,7 @@ async function resolveCrossSourceSubstitute(
       // 全部失败才判终局，避免只因排序第一的候选恰是付费曲就放弃整首歌。
       // 失败原因逐个留档：线上要能区分「网络抖动」与「没有可用脚本」。
       logger.warn("跨源替代候选解析失败", {
-        song: `${candidate.source}:${candidate.id}`,
+        song: buildSongKey(candidate),
         reason: error instanceof Error ? error.message : String(error),
       });
       continue;
@@ -1058,7 +1058,7 @@ async function playSongCore(song: MusicInfo, startPosition?: number, requestId?:
       duration: song.interval || 0,
       lyrics: [],
     });
-    logger.info("开始解析播放", { requestId: intent, song: `${song.source}:${song.id}` });
+    logger.info("开始解析播放", { requestId: intent, song: buildSongKey(song) });
     // 点了就立刻有反馈：解析 + 装车这几百毫秒里先把上一首的声音压掉，
     // 否则「耳朵里还在放上一首」会让人以为没点上而重复点击（随后多跳一首）。
     // 只压原生音量、保留管线和前台服务；UI 播放态等待新曲提交。
@@ -1121,81 +1121,6 @@ async function playSongCore(song: MusicInfo, startPosition?: number, requestId?:
     throw error;
   } finally {
     // 请求被更新的播放意图取代时，loading 归新请求所有，不提前清掉它的加载态
-    if (isCurrentPlaybackRequest(intent)) {
-      setLoading(false);
-    }
-  }
-}
-
-/**
- * 切换当前曲的播放音质：清缓存 → 按目标音质重解析 → 尽量从原进度续播。
- * 本地曲等不走音质阶梯的源会直接抛错。
- */
-export async function switchCurrentPlaybackQuality(quality: string): Promise<void> {
-  const store = usePlayerStore.getState();
-  const currentSong = store.currentSong;
-  if (!currentSong) {
-    throw new Error("当前没有正在播放的歌曲");
-  }
-  if (currentSong.isLocal || currentSong.source === "local") {
-    throw new Error("本地歌曲不支持切换在线音质");
-  }
-
-  // 失效旧音质的持久化 URL 缓存，确保切换后按新音质重新解析（对齐桌面端）
-  invalidateCachedPlaybackUrl(currentSong, currentSong.quality);
-
-  const resumePosition = store.position;
-  const wasPlaying = store.isPlaying;
-  const nextSong: MusicInfo = {
-    ...currentSong,
-    quality: quality as MusicInfo["quality"],
-  };
-
-  // 队列里同步更新 quality，后续切回这首仍用新音质；不改设置页默认音质
-  const nextQueue = store.queue.map((item) =>
-    item.source === currentSong.source && String(item.id) === String(currentSong.id)
-      ? { ...item, quality: nextSong.quality }
-      : item,
-  );
-  usePlayerStore.setState({ queue: nextQueue, currentSong: nextSong });
-
-  invalidatePrefetchForSong(currentSong);
-  invalidatePrefetchForSong(nextSong);
-
-  const { play, setLoading, setError } = usePlayerStore.getState();
-  // 切音质也是一次播放意图：解析期间用户改点其它歌/重播本曲时，本次结果作废
-  const intent = beginPlaybackRequest();
-  try {
-    setLoading(true);
-    setError(null);
-    const resolved = await runPlaybackResolution(() => resolveSongUrl(nextSong, quality), intent);
-    if (!isCurrentPlaybackRequest(intent)) return;
-    // 候选链兜底可能解析到其它变体：与 playSongCore 相同，把 UI/歌词切到实际发声的实体
-    const effectiveSong = resolved.song;
-    if (effectiveSong !== nextSong) {
-      usePlayerStore.setState({
-        currentSong: effectiveSong,
-        duration: effectiveSong.interval || 0,
-        lyrics: [],
-      });
-      if (effectiveSong.source !== nextSong.source && effectiveSong.source === "tx") {
-        usePlayerStore.getState().notifyPlaybackNotice("已切换 QQ 音乐源");
-      }
-      loadLyrics(effectiveSong, intent);
-    }
-    // 直接以原进度开播（play 内部 seek 后才淡入），避免「先从头播再跳回」的回跳感
-    await play(effectiveSong, resolved.url, resolved.headers, resumePosition > 1 ? resumePosition : undefined, intent);
-    if (!isCurrentPlaybackRequest(intent)) return;
-    if (!wasPlaying) {
-      // 暂停态切音质：立即压回暂停（淡入刚起即被按住，几乎无感）
-      await usePlayerStore.getState().pause();
-    }
-    prefetchNearbySongs();
-  } catch (error) {
-    if (!isCurrentPlaybackRequest(intent)) return;
-    setError(error instanceof Error ? error.message : "切换音质失败");
-    throw error;
-  } finally {
     if (isCurrentPlaybackRequest(intent)) {
       setLoading(false);
     }
@@ -1333,8 +1258,8 @@ export async function playNext(auto = false): Promise<void> {
   // 随机模式会现场抽号、FM 会去拉推荐，两条路径都会绕过插入位置。
   if (store.pinnedNextSong) {
     const pinned = store.pinnedNextSong;
-    const pinnedKey = `${pinned.source}:${pinned.id}`;
-    const pinnedIndex = queue.findIndex((item) => `${item.source}:${item.id}` === pinnedKey);
+    const pinnedKey = buildSongKey(pinned);
+    const pinnedIndex = queue.findIndex((item) => buildSongKey(item) === pinnedKey);
     if (pinnedIndex >= 0) {
       // 插播即离开推荐流：playFromQueue 在 FM 上下文里只会改批次下标，不会切歌。
       usePlayerStore.setState({ pinnedNextSong: null, playbackContext: { type: "queue" } });
@@ -1647,12 +1572,12 @@ export async function playNextHeartbeatSong(requestId?: number): Promise<void> {
         const refill = await runPlaybackResolution(() => getHeartbeatModeList(nextSong.id, context.playlistId));
         const latest = usePlayerStore.getState().playbackContext;
         if (latest === owner && latest.type === "heartbeat") {
-          const existingKeys = new Set(latest.currentBatch.map((s) => `${s.source}:${s.id}`));
+          const existingKeys = new Set(latest.currentBatch.map(buildSongKey));
           const { nextBuffer: appended } = appendHeartbeatRefill(latest.buffer, refill, existingKeys);
           usePlayerStore.getState().appendHeartbeatBuffer(appended.slice(latest.buffer.length), true);
         }
       } catch (err) {
-        console.warn("[Heartbeat] 续批推荐失败 (静默忽略):", err);
+        logger.warn("[Heartbeat] 续批推荐失败 (静默忽略):", err);
       }
     })();
   }
@@ -1691,7 +1616,7 @@ async function loadLocalMedia(song: MusicInfo): Promise<void> {
         if (!isCurrent()) return;
         const { lyrics, ...media } = result;
         usePlayerStore.setState({ lyrics, localMedia: { ...media, songKey, requestId } });
-        if (result.status !== "loading" && result.issues.length) logger.warn("本地资料补全", { song: `${song.source}:${song.id}`, issues: result.issues });
+        if (result.status !== "loading" && result.issues.length) logger.warn("本地资料补全", { song: buildSongKey(song), issues: result.issues });
       }, isCurrent);
     } catch (error) {
       if (!isCurrent()) return;

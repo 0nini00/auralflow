@@ -3,6 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { WyPlaylistInfo } from "../services/wyPlaylistService";
 import { getTxPlaylistDetail } from "../services/txPlaylistService";
 import {
+  buildSongKey,
   dropRemovedSourceEntries,
   mergeWebdavCloudPlaylists,
   mergeWebdavLocalPlaylists,
@@ -10,6 +11,7 @@ import {
   type MusicInfo,
 } from "@lx/core";
 import { useAccountStore } from "./accountStore";
+import { logger } from "@/services/logger";
 import { LatestRequestGate } from "@/services/latestRequestGate";
 import { isOwnedWyPlaylist } from "@/services/wyPlaylistOwnership";
 import { createSerialTaskQueue } from "@/utils/serialTaskQueue";
@@ -111,7 +113,7 @@ async function backupScrubbedLocalPlaylists(dropped: LocalPlaylist[]): Promise<v
     );
   } catch (error) {
     // 备份失败不阻断清理：被剔除的条目本地均为 0 首（纯引用），没有用户数据可丢
-    console.warn("[歌单] 备份被清理的本地歌单失败（清理仍会继续）", error);
+    logger.warn("[歌单] 备份被清理的本地歌单失败（清理仍会继续）", error);
   }
 }
 
@@ -129,7 +131,7 @@ async function scrubLocalPlaylists(localPlaylists: LocalPlaylist[]): Promise<Loc
   const { kept, dropped, suspicious } = scrubSyncedCloudPlaylistRefs(localPlaylists);
 
   if (suspicious.length > 0) {
-    console.warn(
+    logger.warn(
       "[歌单] 检测到疑似同步污染的本地歌单（纯数字 id 但含歌曲），已保留未删除：",
       suspicious.map((playlist) => playlist.name),
     );
@@ -144,7 +146,7 @@ async function scrubLocalPlaylists(localPlaylists: LocalPlaylist[]): Promise<Loc
     return { ...playlist, songs: result.kept };
   });
   if (removedSongs > 0) {
-    console.warn(`[歌单] 已清理 ${removedSongs} 首来源已下线的歌曲`);
+    logger.warn(`[歌单] 已清理 ${removedSongs} 首来源已下线的歌曲`);
   }
 
   if (dropped.length === 0) {
@@ -153,7 +155,7 @@ async function scrubLocalPlaylists(localPlaylists: LocalPlaylist[]): Promise<Loc
   }
 
   await backupScrubbedLocalPlaylists(dropped);
-  console.warn(
+  logger.warn(
     `[歌单] 已清理 ${dropped.length} 个被 WebDAV 同步误导入的云端歌单（本地为 0 首）：` +
       `${dropped.map((playlist) => playlist.name).join("、")}。` +
       `原始数据已备份到 AsyncStorage:${LOCAL_PLAYLISTS_SCRUB_BACKUP_KEY}`,
@@ -170,10 +172,6 @@ function parseLocalPlaylists(raw: string | null): LocalPlaylist[] {
   } catch (error) {
     throw error instanceof Error ? error : new Error("本地歌单数据格式错误");
   }
-}
-
-function songKey(song: Pick<MusicInfo, "source" | "id">): string {
-  return `${song.source}:${song.id}`;
 }
 
 type PlaylistStore = PlaylistState & PlaylistActions;
@@ -431,10 +429,10 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => {
       }
 
       await addPlaylistTracks(playlistId, [String(song.id)]);
-      const key = songKey(song);
+      const key = buildSongKey(song);
       const { currentPlaylist, currentPlaylistSongs } = get();
       const shouldUpdateCurrentSongs = currentPlaylist?.source === "wy" && currentPlaylist.id === playlistId;
-      const hasSongInCurrent = currentPlaylistSongs.some((item) => songKey(item) === key);
+      const hasSongInCurrent = currentPlaylistSongs.some((item) => buildSongKey(item) === key);
 
       set({
         playlists: get().playlists.map((playlist) =>
@@ -473,7 +471,7 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => {
       }
 
       await removePlaylistTracks(playlistId, [String(song.id)]);
-      const key = songKey(song);
+      const key = buildSongKey(song);
       const { currentPlaylist, currentPlaylistSongs } = get();
       const shouldUpdateCurrentSongs = currentPlaylist?.source === "wy" && currentPlaylist.id === playlistId;
 
@@ -487,7 +485,7 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => {
           ? { ...currentPlaylist, trackCount: Math.max(0, (currentPlaylist.trackCount ?? 0) - 1) }
           : currentPlaylist,
         currentPlaylistSongs: shouldUpdateCurrentSongs
-          ? currentPlaylistSongs.filter((item) => songKey(item) !== key)
+          ? currentPlaylistSongs.filter((item) => buildSongKey(item) !== key)
           : currentPlaylistSongs,
         error: null,
       });

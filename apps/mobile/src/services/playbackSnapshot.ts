@@ -4,6 +4,7 @@ import type { MusicInfo } from "@lx/core";
 import { usePlayerStore, type PlayMode, type PlaybackContext } from "../stores/playerStore";
 import { clampPlaybackRate, DEFAULT_PLAYBACK_RATE } from "@/services/playerRateModel";
 import { normalizePersistedVolumeState } from "@/services/playerVolumeModel";
+import { logger } from "@/services/logger";
 import { loadLyricsForRestoredSong } from "./playerService";
 import { getPlaybackSnapshotSaveTrigger, isPlaybackSnapshotEmpty } from "./playbackSnapshotModel";
 
@@ -150,10 +151,6 @@ export async function loadPlaybackSnapshot(): Promise<PlaybackSnapshot | null> {
   }
 }
 
-export async function clearPlaybackSnapshot(): Promise<void> {
-  await enqueueSnapshotWrite(() => AsyncStorage.removeItem(SNAPSHOT_KEY));
-}
-
 // ─────────────────────────────────────────────────────────────
 // 订阅 store 变化，debounce 保存
 // ─────────────────────────────────────────────────────────────
@@ -168,7 +165,7 @@ function scheduleSave(): void {
   saveTimer = setTimeout(() => {
     saveTimer = null;
     void savePlaybackSnapshot().catch((error) => {
-      console.error("[播放快照] 保存失败", error);
+      logger.error("[播放快照] 保存失败", error);
     });
   }, SAVE_DEBOUNCE_MS);
 }
@@ -179,7 +176,7 @@ function saveImmediately(): void {
     saveTimer = null;
   }
   void savePlaybackSnapshot().catch((error) => {
-    console.error("[播放快照] 保存失败", error);
+    logger.error("[播放快照] 保存失败", error);
   });
 }
 
@@ -213,7 +210,7 @@ export function initPlaybackSnapshotPersistence(): void {
   })();
   void initializationPromise
     .catch((error) => {
-      console.error("[播放快照] 初始化失败", error);
+      logger.error("[播放快照] 初始化失败", error);
     })
     .finally(() => {
       initializationPromise = null;

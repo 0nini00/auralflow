@@ -188,7 +188,7 @@ function renderScreen({ width = 390, height = 844, currentPage = 0, overlay = {}
       return { __esModule: true, default: component, [component]: component };
     }
     // 本测试不执行图片解码、取色、导航及用户动作，不能冒充其运行时验证。
-    if (["@lx/core", "@/services/coverColorService", "@/services/themePaletteModel", "@/navigation"].includes(name)) return {};
+    if (["@lx/core", "@/services/coverColorService", "@/services/themePaletteModel", "@/navigation/navigationRef"].includes(name)) return {};
     throw new Error("Unmocked screen dependency: " + name);
   }, loaded, loaded.exports);
   const result = { gesture, tree: null, rerender: (changes = {}) => {

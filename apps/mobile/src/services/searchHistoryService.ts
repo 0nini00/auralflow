@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { logger } from "@/services/logger";
 import { updateSearchHistory } from "./searchHistoryModel";
 
 const SEARCH_HISTORY_KEY = "auralflow.mobile.search.history";
@@ -40,7 +41,7 @@ export async function addSearchHistory(keyword: string): Promise<void> {
 
     await AsyncStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(updated));
   } catch (error) {
-    console.error("[搜索历史] 保存搜索历史失败", error);
+    logger.error("[搜索历史] 保存搜索历史失败", error);
   }
 }
 
@@ -54,7 +55,7 @@ export async function removeSearchHistory(keyword: string): Promise<void> {
     const updated = history.filter((item) => item !== target);
     await AsyncStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(updated));
   } catch (error) {
-    console.error("[搜索历史] 删除搜索历史失败", error);
+    logger.error("[搜索历史] 删除搜索历史失败", error);
   }
 }
 
@@ -70,7 +71,7 @@ export async function replaceSearchHistory(values: readonly string[]): Promise<v
     }
     await AsyncStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(normalized));
   } catch (error) {
-    console.error("[搜索历史] 恢复搜索历史失败", error);
+    logger.error("[搜索历史] 恢复搜索历史失败", error);
   }
 }
 
@@ -81,6 +82,6 @@ export async function clearSearchHistory(): Promise<void> {
   try {
     await AsyncStorage.removeItem(SEARCH_HISTORY_KEY);
   } catch (error) {
-    console.error("[搜索历史] 清空搜索历史失败", error);
+    logger.error("[搜索历史] 清空搜索历史失败", error);
   }
 }

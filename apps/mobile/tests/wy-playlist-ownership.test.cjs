@@ -60,6 +60,7 @@ function fixture({ userId = "A", read = async () => [owned], write = async () =>
     "@react-native-async-storage/async-storage": { getItem: async () => null, setItem: async () => {} },
     "./accountStore": { useAccountStore: account },
     "../services/txPlaylistService": {},
+    "@/services/logger": { logger: { warn() {} } },
     "../services/wyPlaylistService": {
       getUserPlaylists: read,
       addPlaylistTracks: async (...args) => { calls.push(["add", ...args]); await write(); },

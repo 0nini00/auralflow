@@ -23,7 +23,7 @@ import {
 } from "@/services/lyricOverlayService";
 import { syncLyricOverlayPlaybackClock } from "@/services/lyricOverlayPlayback";
 import { logger } from "@/services/logger";
-import { shouldCalibrateClock } from "@lx/core";
+import { buildSongKey, shouldCalibrateClock } from "@lx/core";
 import { playFromQueue, playNext } from "@/services/playerService";
 import { convertChineseText } from "@/services/chineseConversionService";
 import { useLyricOverlayStore } from "@/stores/lyricOverlayStore";
@@ -326,7 +326,7 @@ function MiniLyricStatus({ overlayVisible, color, fallbackText }: MiniLyricStatu
       ? convertText(lyrics[currentIndex]?.text ?? "")
       : fallbackText;
 
-  const songKey = currentSong ? `${currentSong.source}:${currentSong.id}` : "";
+  const songKey = currentSong ? buildSongKey(currentSong) : "";
 
   // 歌词归属打标：只在歌词数组身份变化那一刻按 store 当时的 currentSong 归属。
   // 切歌在途窗口（currentSong 已是新歌、歌词还是上一首的）里旧歌词不归新歌所有，

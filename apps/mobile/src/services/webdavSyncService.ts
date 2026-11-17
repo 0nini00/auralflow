@@ -15,6 +15,7 @@ import { getSecureItem, removeSecureItem, setSecureItem } from "@/services/secur
 import { migrateLegacySecret } from "@/services/secureStorageMigrationModel";
 import { assertHttpsWebdavUrl } from "@/services/webdavUrlModel";
 import { logger } from "@/services/logger";
+import { backupCorruptStorageValue } from "@/services/corruptStorageBackup";
 
 /**
  * 移动端 WebDAV 同步服务。
@@ -117,16 +118,27 @@ async function withSyncLock<T>(label: string, fn: () => Promise<T>): Promise<T> 
 // 配置管理
 // ---------------------------------------------------------------------------
 
+/**
+ * 解析已保存的 WebDAV 配置。读不懂（不是 JSON 对象）时先备份原始值、落盘日志，再按「未配置」处理：
+ * 配置坏了唯一的修复方式是用户在设置里重填，而重填必然覆盖原键，所以原始值必须先留一份。
+ */
+async function parseStoredWebdavConfig(raw: string): Promise<Partial<WebdavConfig>> {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("WebDAV 配置数据格式错误");
+    }
+    return parsed as Partial<WebdavConfig>;
+  } catch (error) {
+    await backupCorruptStorageValue(CONFIG_KEY, raw, error);
+    return {};
+  }
+}
+
 export async function loadWebdavConfig(): Promise<WebdavConfig> {
   const raw = await AsyncStorage.getItem(CONFIG_KEY);
-  let parsed: Partial<WebdavConfig> = {};
-  if (raw) {
-    try {
-      parsed = JSON.parse(raw) as Partial<WebdavConfig>;
-    } catch {
-      parsed = {};
-    }
-  }
+  // 键不存在 = 从未配置过，与「存在但读不懂」分开处理
+  const parsed = raw === null ? {} : await parseStoredWebdavConfig(raw);
 
   const legacyPassword = typeof parsed.password === "string" ? parsed.password : "";
   const password = await migrateLegacySecret({
@@ -584,7 +596,7 @@ function parsePlayHistory(value: unknown): HistoryEntry[] {
     // 这里不合成任何时间——本地要不要补内部占位时间由 historyStore 决定并打标记。
     const playedAt = isObject(item) ? getNumber(item.playedAt, 0) : 0;
     entries.push({
-      key: `${music.source}:${music.id}`,
+      key: buildSongKey(music),
       song: music,
       playedAt: isUsablePlayedAt(playedAt) ? playedAt : 0,
     });
@@ -714,7 +726,7 @@ function syncOpenCloudPlaylistSongs(state: {
 function sameSongKeyOrder(a: MusicInfo[], b: MusicInfo[]): boolean {
   if (a.length !== b.length) return false;
   for (let index = 0; index < a.length; index += 1) {
-    if (`${a[index].source}:${a[index].id}` !== `${b[index].source}:${b[index].id}`) return false;
+    if (buildSongKey(a[index]) !== buildSongKey(b[index])) return false;
   }
   return true;
 }

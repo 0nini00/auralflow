@@ -5,7 +5,6 @@ import {
   StyleSheet,
   Text,
   View,
-  type GestureResponderEvent,
   type PressableProps,
   type StyleProp,
   type TextStyle,
@@ -144,5 +143,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export type ButtonPressEvent = GestureResponderEvent;
 export { withAlpha };

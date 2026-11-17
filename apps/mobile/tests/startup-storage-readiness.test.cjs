@@ -13,7 +13,7 @@ function visit(node) {
 }
 visit(ast);
 assert.ok(expression, "必须执行真实 App 启动恢复表达式");
-const runStartup = new Function("loadLocalPlaylists", "loadFavorites", "loadHistory", "loadLocalSongs", "loadDownloads", "setLocalDataReady", "console", "cancelled", "backgroundLabels", `return ${expression};`);
+const runStartup = new Function("loadLocalPlaylists", "loadFavorites", "loadHistory", "loadLocalSongs", "loadDownloads", "setLocalDataReady", "logger", "cancelled", "backgroundLabels", `return ${expression};`);
 
 for (const failedIndex of [-1, 0, 1, 2, 3, 4]) {
   test(`启动数据恢复 ${failedIndex < 0 ? "全部成功" : "第 " + failedIndex + " 项失败"} 时准确发布同步就绪状态`, async () => {

@@ -8,7 +8,7 @@ import {
   Alert,
 } from "react-native";
 import type { MusicInfo } from "@lx/core";
-import { groupHasSource, groupSongResults, normalizeSearchKeyword, withSongVariants } from "@lx/core";
+import { buildSongKey, groupHasSource, groupSongResults, normalizeSearchKeyword, withSongVariants } from "@lx/core";
 import { layout, radius, spacing, touch, typography } from "@/theme/tokens";
 
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
@@ -46,12 +46,13 @@ import {
   clearSearchHistory,
   replaceSearchHistory,
 } from "@/services/searchHistoryService";
+import { logger } from "@/services/logger";
 import {
   openAlbumDetailScreen,
   openArtistDetailScreen,
   openPlaylistDetailScreen,
   openSearchFallbackDetailScreen,
-} from "@/navigation";
+} from "@/navigation/navigationRef";
 import {
   openSearchAlbumDetail,
   openSearchArtistDetail,
@@ -160,7 +161,7 @@ export function SearchScreen({
       const h = await getSearchHistory();
       setHistory(h);
     } catch (error) {
-      console.error("[搜索历史] 加载搜索历史失败", error);
+      logger.error("[搜索历史] 加载搜索历史失败", error);
       setHistory([]);
     }
   }, []);
@@ -309,14 +310,14 @@ export function SearchScreen({
     for (const group of songGroups) {
       if (group.variants.length <= 1) continue;
       const sources = [...new Set(group.variants.map((v) => v.source.toUpperCase()))];
-      map.set(`${group.primary.source}:${group.primary.id}`, sources.join(" / "));
+      map.set(buildSongKey(group.primary), sources.join(" / "));
     }
     return map;
   }, [songGroups]);
 
   /** 去重后显示多源标记，如 "wy / tx" */
   const getSongSourceLabel = useCallback(
-    (song: MusicInfo): string | undefined => sourceLabelByKey.get(`${song.source}:${song.id}`),
+    (song: MusicInfo): string | undefined => sourceLabelByKey.get(buildSongKey(song)),
     [sourceLabelByKey],
   );
 

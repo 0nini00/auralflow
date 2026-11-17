@@ -105,6 +105,21 @@ type DownloadStore = DownloadState & DownloadActions;
 const downloadAttempts = new Map<string, object>();
 let downloadsMutationQueue: Promise<void> = Promise.resolve();
 
+/**
+ * 下载记录是否已成功读入内存。读盘失败（含内容损坏）时内存里是空列表，
+ * 此时任何「增删后整体回写」都会覆盖磁盘上读不出来的真实记录，所以未就绪前拒绝写盘。
+ */
+let downloadsHydrated = false;
+
+/** 写下载记录前调用：还没成功读过盘就先读一次，读不出来则抛错中止这次写入。 */
+async function ensureDownloadsLoaded(): Promise<void> {
+  if (downloadsHydrated) return;
+  await useDownloadStore.getState().loadDownloads();
+  if (downloadsHydrated) return;
+  const reason = useDownloadStore.getState().error ?? "未知错误";
+  throw new Error(`下载记录未能读取，已拒绝写入以免覆盖原记录：${reason}`);
+}
+
 function queueDownloadsMutation(mutation: () => Promise<void>): Promise<void> {
   const result = downloadsMutationQueue.then(mutation, mutation);
   downloadsMutationQueue = result.catch(() => undefined);
@@ -149,8 +164,11 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
     try {
       set({ loading: true, error: null });
       const items = await loadDownloads();
+      downloadsHydrated = true;
       set({ downloads: sortByDateDesc(items), loading: false });
     } catch (error) {
+      // 不向上抛是这个 action 的既有约定（调用方读 state.error）；但失败必须落盘留证
+      logger.error("[下载] 加载下载记录失败", error);
       set({ loading: false, error: error instanceof Error ? error.message : "加载下载记录失败" });
     }
   },
@@ -314,10 +332,13 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
     completion?: DownloadCompletion,
   ) => {
     const key = downloadKey(song, quality);
+    // 0 = 大小未知（列表显示「未知大小」）。取不到大小不影响已落盘的音频，但要留痕。
     let fileSize = 0;
     try {
       fileSize = await getDownloadedFileSize(localPath);
-    } catch {}
+    } catch (error) {
+      logger.warn(`[下载] 读取已下载文件大小失败，记录按未知大小保存：${localPath}`, error);
+    }
     const nextItem: DownloadedItem = {
       song: { ...song, quality },
       quality,
@@ -327,6 +348,7 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
       warning: warnings.length > 0 ? warnings.join("；") : undefined,
     };
     await queueDownloadsMutation(async () => {
+      await ensureDownloadsLoaded();
       if (completion && !completion.isActive()) return;
       const previousDownloads = get().downloads;
       const nextDownloads = sortByDateDesc([
@@ -349,6 +371,7 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
     const key = downloadKey(song, targetQuality);
     try {
       await queueDownloadsMutation(async () => {
+        await ensureDownloadsLoaded();
         const nextDownloads = get().downloads.filter((item) => itemDownloadKey(item) !== key);
         await saveDownloads(nextDownloads);
         set((state) => ({
@@ -366,6 +389,7 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
     const key = downloadKey(song, targetQuality);
     try {
       await queueDownloadsMutation(async () => {
+        await ensureDownloadsLoaded();
         const target = get().downloads.find((item) => itemDownloadKey(item) === key);
         const nextDownloads = get().downloads.filter((item) => itemDownloadKey(item) !== key);
         if (target) {
@@ -407,7 +431,9 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
       await cancelAllDownloads();
       downloadAttempts.clear();
       await queueDownloadsMutation(async () => {
+        // 清空是用户明确要求的整体覆盖，不需要先读出旧记录——也是记录损坏后唯一的恢复途径。
         await saveDownloads([]);
+        downloadsHydrated = true;
         await clearDownloadedFiles();
         set({ downloads: [], downloading: [], failedDownloads: [] });
       });

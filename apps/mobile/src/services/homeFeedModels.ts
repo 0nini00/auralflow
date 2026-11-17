@@ -11,7 +11,6 @@ export type HomeSectionId =
   | "recentHistory";
 
 export type HomeFeedSectionId = Exclude<HomeSectionId, "quickActions" | "recentHistory">;
-export type HomeSectionKind = HomeFeedSectionId;
 export type HomeSectionStatus = "idle" | "loading" | "ready" | "refreshing" | "error";
 
 export interface HomeFeedError {
@@ -42,27 +41,12 @@ export type HomeFeedSectionById<K extends HomeFeedSectionId> = {
 
 export type HomeFeedSection = HomeFeedSectionById<HomeFeedSectionId>;
 
-export interface HomeFeedSnapshot {
-  scopeKey: string;
-  fetchedAt: number;
-  sections: HomeFeedSection[];
-}
-
 export interface HomeFeedContext {
   scopeKey: string;
   isLoggedIn: boolean;
 }
 
-export const HOME_FEED_TTL_MS = 10 * 60 * 1000;
 export const HOME_FEED_CACHE_PREFIX = "auralflow.mobile.homeFeed.v1:";
-export const HOME_FEED_SECTION_ORDER: readonly HomeSectionId[] = [
-  "quickActions",
-  "recommendedPlaylists",
-  "dailySongs",
-  "newSongs",
-  "newAlbums",
-  "recentHistory",
-];
 
 // 首页远程区块顺序。新歌/新碟已由「排行榜」区块取代（见 LeaderboardScreen），
 // 不再作为 homeFeed 区块拉取，减少启动请求；类型定义保留以兼容缓存旧数据。
@@ -163,13 +147,4 @@ export function getHomeFeedScope(userId: string | null | undefined): string {
 
 export function getHomeFeedCacheKey(scopeKey: string): string {
   return `${HOME_FEED_CACHE_PREFIX}${scopeKey}`;
-}
-
-export function isHomeFeedSnapshot(value: unknown, scopeKey: string): value is HomeFeedSnapshot {
-  if (!isRecord(value)) return false;
-  return value.scopeKey === scopeKey
-    && typeof value.fetchedAt === "number"
-    && Number.isFinite(value.fetchedAt)
-    && Array.isArray(value.sections)
-    && value.sections.every(isHomeFeedSection);
 }

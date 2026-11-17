@@ -60,30 +60,3 @@ export function getNextChineseConversionMode(mode: ChineseConversionMode): Chine
   if (index < 0) return CHINESE_CONVERSION_MODE_SEQUENCE[0];
   return CHINESE_CONVERSION_MODE_SEQUENCE[(index + 1) % CHINESE_CONVERSION_MODE_SEQUENCE.length];
 }
-
-const CHINESE_CONVERSION_LABELS: Record<ChineseConversionMode, string> = {
-  off: "繁 关",
-  s2t: "简→繁",
-  t2s: "繁→简",
-};
-
-export function getChineseConversionLabel(mode: ChineseConversionMode): string {
-  return CHINESE_CONVERSION_LABELS[mode];
-}
-
-export interface ImmersiveChineseConversionControlModel {
-  label: string;
-  active: boolean;
-  nextMode: ChineseConversionMode;
-}
-
-/** 沉浸式播放页「繁」按钮模型，风格对齐 buildImmersiveTranslationControl。 */
-export function buildImmersiveChineseConversionControl(
-  mode: ChineseConversionMode,
-): ImmersiveChineseConversionControlModel {
-  return {
-    label: getChineseConversionLabel(mode),
-    active: mode !== "off",
-    nextMode: getNextChineseConversionMode(mode),
-  };
-}

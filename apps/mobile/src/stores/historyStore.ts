@@ -1,11 +1,10 @@
 import { create } from "zustand";
-import { isRemovedSource, pruneHistoryEntries, trimHistorySong, type HistoryPlayEntry, type MusicInfo } from "@lx/core";
+import { buildSongKey, isRemovedSource, pruneHistoryEntries, trimHistorySong, type HistoryPlayEntry, type MusicInfo } from "@lx/core";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { logger } from "@/services/logger";
 import {
   dayStartOf,
   hasRealPlayedAt,
-  historySongKey,
   isSameDay,
   type HistoryEntry,
 } from "../services/historyGroupModel";
@@ -23,7 +22,7 @@ function withoutRemovedSources(entries: HistoryEntry[]): HistoryEntry[] {
   const kept = (entries ?? []).filter((entry) => !isRemovedSource(entry?.song?.source));
   const removed = (entries?.length ?? 0) - kept.length;
   if (removed > 0) {
-    console.warn(`[历史] 已清理 ${removed} 条来源已下线的历史条目`);
+    logger.warn(`[历史] 已清理 ${removed} 条来源已下线的历史条目`);
   }
   return kept;
 }
@@ -132,23 +131,23 @@ function derive(entries: HistoryEntry[]): {
   return { history, historyTimestamps, statsEntries };
 }
 
+/**
+ * 解析时间戳 sidecar。键不存在（null）是正常情况；键存在但不是 JSON 对象就是数据损坏，抛错。
+ * 不能退化成空映射：那样旧格式迁移会把所有真实播放时间当成「未知」，下次写盘再把 sidecar 覆盖掉。
+ */
 function parseTimestamps(raw: string | null): Record<string, number> {
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      const result: Record<string, number> = {};
-      for (const [key, value] of Object.entries(parsed)) {
-        // 这张表只存真实播放时间：0 / 负数 / 损坏值都按「时间未知」丢弃，
-        // 避免未知哨兵或异常值被当成真实时间泄漏进同步文件。
-        if (isUsableTimestamp(value)) result[key] = value;
-      }
-      return result;
-    }
-  } catch {
-    // 损坏的存储忽略，退化为空映射
+  if (raw === null) return {};
+  const parsed = JSON.parse(raw) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("播放时间数据格式错误");
   }
-  return {};
+  const result: Record<string, number> = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    // 这张表只存真实播放时间：0 / 负数 / 非数字的单个值按「时间未知」丢弃，
+    // 避免未知哨兵或异常值被当成真实时间泄漏进同步文件。
+    if (isUsableTimestamp(value)) result[key] = value;
+  }
+  return result;
 }
 
 export const useHistoryStore = create<HistoryStore>((set, get) => ({
@@ -169,7 +168,6 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
           HISTORY_KEY,
           HISTORY_TIMESTAMPS_KEY,
         ]);
-        const timestamps = parseTimestamps(rawTs);
         const parsed = raw ? JSON.parse(raw) : [];
         if (!Array.isArray(parsed)) throw new Error("播放历史数据格式错误");
         let entries: HistoryEntry[] = [];
@@ -178,11 +176,14 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
             entries = parsed as HistoryEntry[];
           } else {
             // 旧格式（去重 MusicInfo[]）：用时间戳 sidecar 重建条目，保证分时间记录可用。
+            // sidecar 只在这里解析：新格式的播放时间在条目里，sidecar 只是每次写盘重新派生的副本，
+            // 它坏了不丢任何东西，不该拦住整份历史；迁移时坏了则必须中止（见 parseTimestamps）。
+            const timestamps = parseTimestamps(rawTs);
             const now = Date.now();
             entries = (parsed as MusicInfo[])
               .filter((music) => music?.id)
               .map((song, index): HistoryEntry => {
-                const key = historySongKey(song);
+                const key = buildSongKey(song);
                 const recorded = timestamps[key];
                 // sidecar 里有真实播放时间就用；没有（旧数据从没记过时间）才补占位时间并标为合成。
                 return isUsableTimestamp(recorded)
@@ -225,7 +226,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
       await ensureHistoryLoaded(get);
       const { entries } = get();
       const now = Date.now();
-      const key = historySongKey(song);
+      const key = buildSongKey(song);
       // 同一天同一首歌只保留一条（刷新播放时间）；跨天保留多次播放记录。
       const filtered = entries.filter(
         (entry) => !(entry.key === key && isSameDay(entry.playedAt, now)),
@@ -282,7 +283,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
       const entries: HistoryEntry[] = remoteEntries
         .filter((entry) => entry?.song?.id)
         .map((entry, index) => {
-          const key = entry.key || historySongKey(entry.song);
+          const key = entry.key || buildSongKey(entry.song);
           // 云端带了真实播放时间就用；没有（0 / 缺失 / 非法）时只补一个本地占位时间供分组，
           // 并标为合成——统计按时间未知、回传云端写 0，绝不冒充真实时间。
           return isUsableTimestamp(entry.playedAt)
@@ -322,7 +323,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
       }
       for (const entry of remoteEntries) {
         if (!entry?.song?.id) continue;
-        const key = entry.key || historySongKey(entry.song);
+        const key = entry.key || buildSongKey(entry.song);
         if (isUsableTimestamp(entry.playedAt)) {
           addReal({ key, song: entry.song, playedAt: entry.playedAt });
         } else if (!unknownByKey.has(key)) {

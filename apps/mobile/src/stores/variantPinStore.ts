@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { logger } from "@/services/logger";
 
 /**
  * 本端「首选版本」偏好（pin）——对齐桌面端 variantPinStore：
@@ -14,22 +15,19 @@ type VariantPins = Record<string, string>;
 let loadPromise: Promise<void> | null = null;
 let hydrated = false;
 
-function parsePins(raw: string | null): VariantPins {
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    return parsed as VariantPins;
-  } catch {
-    return {};
+function parsePins(raw: string): VariantPins {
+  const parsed = JSON.parse(raw) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("首选版本数据格式错误");
   }
+  return parsed as VariantPins;
 }
 
 async function persistPins(pins: VariantPins): Promise<void> {
   try {
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(pins));
   } catch (error) {
-    console.error("[variantPins] 首选版本写盘失败", error);
+    logger.error("[variantPins] 首选版本写盘失败", error);
   }
 }
 
@@ -50,10 +48,15 @@ export const useVariantPinStore = create<VariantPinState>((set, get) => ({
     if (loadPromise) return loadPromise;
     loadPromise = AsyncStorage.getItem(STORAGE_KEY)
       .then((raw) => {
+        // 键不存在是正常的空状态；键存在但读不懂就抛错，hydrated 保持 false，
+        // 之后的写入一律被拒——在空表上写盘会把读不出来的原数据覆盖掉。
+        if (raw !== null) set({ pins: parsePins(raw) });
         hydrated = true;
-        if (raw) set({ pins: parsePins(raw) });
       })
-      .catch(() => undefined)
+      .catch((error) => {
+        logger.error("[variantPins] 首选版本读盘失败，已停止写入以免覆盖原数据", error);
+        throw error;
+      })
       .finally(() => {
         loadPromise = null;
       });
@@ -63,8 +66,9 @@ export const useVariantPinStore = create<VariantPinState>((set, get) => ({
   getPinnedVariantKey: (songKey) => get().pins[songKey] ?? null,
 
   togglePinnedVariant: async (songKey, variantKey) => {
-    // 解析链与菜单都可能早于首次读取：写前确保已完成水合，避免覆盖已存偏好
-    if (!hydrated) await get().loadFromStorage().catch(() => undefined);
+    // 解析链与菜单都可能早于首次读取：写前确保已完成水合，避免覆盖已存偏好。
+    // 读盘失败时这里直接抛给调用方，不继续写。
+    if (!hydrated) await get().loadFromStorage();
     const next = { ...get().pins };
     if (next[songKey] === variantKey) delete next[songKey];
     else next[songKey] = variantKey;
@@ -73,5 +77,6 @@ export const useVariantPinStore = create<VariantPinState>((set, get) => ({
   },
 }));
 
-// 启动即水合：service 层同步读 getState()，等到首个 pin 使用时再加载会错过播放排序
+// 启动即水合：service 层同步读 getState()，等到首个 pin 使用时再加载会错过播放排序。
+// 失败已在 loadFromStorage 里落盘日志；这里的 catch 只是不让它再变成一条未处理拒绝。
 void useVariantPinStore.getState().loadFromStorage().catch(() => undefined);

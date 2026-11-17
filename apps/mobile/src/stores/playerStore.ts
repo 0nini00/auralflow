@@ -12,7 +12,7 @@ import TrackPlayer, {
   Capability
 } from "react-native-track-player";
 import type { MusicInfo } from "@lx/core";
-import { isPreviewDuration } from "@lx/core";
+import { buildSongKey, isPreviewDuration } from "@lx/core";
 import { getNextSongSleepTimerState, getSongSleepTimerTrackKey, normalizeSongSleepTimerCount } from "@/services/songSleepTimerModel";
 import { getNextMobilePlayMode, type MobilePlayMode } from "@/services/mobilePlayModeModel";
 import { clampPlaybackRate, DEFAULT_PLAYBACK_RATE } from "@/services/playerRateModel";
@@ -65,7 +65,7 @@ let lastQueuedTrackOwnerKey: string | null = null;
 export function shouldAttributePlaybackErrorToCurrentSong(): boolean {
   const { currentSong } = usePlayerStore.getState();
   if (!currentSong) return false;
-  const key = `${currentSong.source}:${currentSong.id}`;
+  const key = buildSongKey(currentSong);
   return lastQueuedTrackOwnerKey === null || lastQueuedTrackOwnerKey === key;
 }
 
@@ -520,7 +520,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     const requestKey = buildMobilePlayRequestKey(song);
     // 登记本次 play 接管的歌曲：此后到 currentSong 落库前到达的 PlaybackError
     // 一律不归因旧 currentSong（见 shouldAttributePlaybackErrorToCurrentSong）。
-    lastQueuedTrackOwnerKey = `${song.source}:${song.id}`;
+    lastQueuedTrackOwnerKey = buildSongKey(song);
     const inflight = Array.from(nativePlayRequests).find(entry =>
       entry.requestKey === requestKey && isCurrentPlaybackRequest(entry.requestId)
     );
@@ -1309,7 +1309,7 @@ export function setupPlayerListeners() {
     // 明显短于期望时长（song.interval）即视为试听：停播 + 清缓存，下次重播强制重新解析（对齐失败即停）。
     const song = usePlayerStore.getState().currentSong;
     if (!song) return;
-    const key = `${song.source}:${song.id}`;
+    const key = buildSongKey(song);
     // 位置推进过阈值即证明该曲可播（音频真的在解码）：归还其重试额度，
     // 使下次遇到坏链时仍能重新走「重试一次 → 再失败才跳」，而非一失败就直接跳。
     if (position >= PLAYBACK_HEALTHY_POSITION_SECONDS) notePlaybackHealthy(key);

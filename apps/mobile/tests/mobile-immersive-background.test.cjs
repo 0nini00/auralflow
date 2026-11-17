@@ -217,6 +217,7 @@ function componentHarness(options = {}) {
     },
     'react-native-webview': { __esModule: true, default: 'WebView' },
     '@/services/immersiveBackgroundDocument': documentApi(),
+    '@/services/logger': { logger: { error() {} } },
   };
   const filename = path.join(mobileRoot, 'src/components/ImmersiveBackground.tsx');
   const ts = mobileRequire('typescript');

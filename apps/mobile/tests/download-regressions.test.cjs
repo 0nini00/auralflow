@@ -125,7 +125,10 @@ function setup(options = {}) {
     zustand: mobileRequire("zustand"),
     "@/stores/playbackSettingsStore": { usePlaybackSettingsStore: { getState: () => ({ defaultQuality: "flac" }) } },
     "@/services/hapticService": { hapticSuccess: () => { haptics++; } },
-    "@/services/logger": { logger: { warn: (...args) => events.push(["warn", ...args]) } },
+    "@/services/logger": { logger: {
+      warn: (...args) => events.push(["warn", ...args]),
+      error: (...args) => events.push(["error", ...args]),
+    } },
   });
   const service = load("src/services/downloadService.ts");
   const store = load("src/stores/downloadStore.ts").useDownloadStore;
@@ -463,4 +466,67 @@ test("清空下载同时取消已暂停任务，不留下无法继续的残留",
   assert.equal(h.store.getState().downloading.length, 0);
   assert.deepEqual(h.saved(), []);
   assert.equal(h.files.size, 0);
+});
+
+const CORRUPT_RECORDS = [["JSON 解析失败", "{not json"], ["不是数组", JSON.stringify({ song })], ["null", "null"]];
+
+test("下载记录：键不存在是空列表；读不懂必须抛错，不能当成没有下载", settings, async () => {
+  const h = setup();
+  assert.deepEqual(await h.service.loadDownloads(), []);
+  for (const [label, raw] of CORRUPT_RECORDS) {
+    h.storage.set(STORE_KEY, raw);
+    await assert.rejects(h.service.loadDownloads(), undefined, label);
+  }
+});
+
+for (const [label, raw] of CORRUPT_RECORDS) {
+  test(`下载记录损坏（${label}）：读盘报错并留痕，新下载与删除都不得覆盖原记录`, settings, async () => {
+    const h = setup();
+    h.storage.set(STORE_KEY, raw);
+    await h.store.getState().loadDownloads();
+    assert.ok(h.store.getState().error, "读盘失败必须进入 state.error");
+    assert.equal(h.events.filter(event => event[0] === "error" && event[1] === "[下载] 加载下载记录失败").length, 1);
+
+    const result = await h.store.getState().downloadSong(song, "flac");
+    assert.equal(result.status, "failed");
+    assert.match(result.error, /已拒绝写入以免覆盖原记录/);
+    assert.equal(h.store.getState().failedDownloads.length, 1);
+    assert.deepEqual(h.store.getState().downloads, []);
+
+    await h.store.getState().removeDownloadRecord(song, "flac");
+    await h.store.getState().removeDownload(song, "flac");
+    assert.match(h.store.getState().error, /已拒绝写入以免覆盖原记录/);
+
+    assert.equal(h.storage.get(STORE_KEY), raw);
+    assert.deepEqual(h.saves, []);
+  });
+}
+
+test("下载记录损坏后，清空下载是明确的恢复途径，之后可正常记录", settings, async () => {
+  const h = setup();
+  h.storage.set(STORE_KEY, "{not json");
+  await h.store.getState().loadDownloads();
+  await h.store.getState().clearDownloads();
+  assert.deepEqual(h.saved(), []);
+  assert.equal((await h.store.getState().downloadSong(song, "flac")).status, "completed");
+  assert.equal(h.saved().length, 1);
+});
+
+test("未先读盘就完成下载：先读入已有记录再追加，不覆盖旧记录", settings, async () => {
+  const h = setup();
+  const existing = { song: secondSong, quality: "flac", localPath: "file:///mock/second.flac", fileSize: 1, downloadDate: 1 };
+  h.storage.set(STORE_KEY, JSON.stringify([existing]));
+  assert.equal((await h.store.getState().downloadSong(song, "flac")).status, "completed");
+  assert.deepEqual(h.saved().map(item => item.song.id).sort(), ["audit", "second"]);
+});
+
+test("读取已下载文件大小失败：记录照常保存为未知大小，并留下告警", settings, async () => {
+  const h = setup();
+  await h.store.getState().addDownload(song, "/mock/missing.flac", "flac");
+  assert.equal(h.saved().length, 1);
+  assert.equal(h.saved()[0].fileSize, 0);
+  const warnings = h.events.filter(event => event[0] === "warn");
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0][1], /读取已下载文件大小失败/);
+  assert.match(String(warnings[0][2]), /ENOENT/);
 });

@@ -1,4 +1,4 @@
-import type { MusicInfo } from "@lx/core";
+import { buildSongKey, type MusicInfo } from "@lx/core";
 
 export interface QueueInsertInput {
   queue: MusicInfo[];
@@ -54,14 +54,10 @@ export interface TempPlayListInput {
   song: MusicInfo;
 }
 
-function songQueueKey(song: MusicInfo): string {
-  return `${song.source}:${song.id}`;
-}
-
 /** 加入稍后播放；已在暂存区则保持原位不重复加入（去重，最少惊讶）。 */
 export function enqueueTempPlayList({ tempPlayList, song }: TempPlayListInput): MusicInfo[] {
-  const key = songQueueKey(song);
-  if (tempPlayList.some((item) => songQueueKey(item) === key)) return tempPlayList;
+  const key = buildSongKey(song);
+  if (tempPlayList.some((item) => buildSongKey(item) === key)) return tempPlayList;
   return [...tempPlayList, song];
 }
 

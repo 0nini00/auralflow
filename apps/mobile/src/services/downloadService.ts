@@ -66,11 +66,6 @@ function normalizeQualityKeyForDownload(value: string): DownloadQuality | null {
 
 
 
-/** 当前设备下载目录（绝对路径，供 UI 展示；系统限制下不可改）。 */
-export function getDownloadDirectoryPath(): string {
-  return DOWNLOAD_DIR;
-}
-
 /** 已下载条目：包含原始歌曲信息、本地路径与下载时间 */
 export interface DownloadedItem {
   song: MusicInfo;
@@ -210,11 +205,6 @@ export function enqueueDownloadTask(
     taskQueue.push(task);
     void processDownloadQueue();
   });
-}
-
-export function dequeueDownloadTask(key: string): boolean {
-  const task = taskQueue.find((item) => item.key === key);
-  return task ? interruptTask(task, "cancelled") : false;
 }
 
 async function processDownloadQueue(): Promise<void> {
@@ -391,20 +381,6 @@ export async function ensureDownloadDirectory(): Promise<string> {
   }
   await partialRecovery;
   return DOWNLOAD_DIR;
-}
-
-/**
- * 判断歌曲是否已下载（本地文件存在）
- */
-export async function isSongDownloaded(
-  song: MusicInfo,
-  quality: DownloadQuality = "320k",
-): Promise<boolean> {
-  try {
-    return (await findExistingDownloadFile(song, quality)) != null;
-  } catch (error) {
-    return false;
-  }
 }
 
 /**
@@ -786,17 +762,17 @@ export async function clearDownloadedFiles(): Promise<void> {
 }
 
 /**
- * 从持久化存储加载已下载列表
+ * 从持久化存储加载已下载列表。
+ *
+ * 键不存在返回空列表；读盘失败、解析失败或不是数组一律抛错。不能把这些情况当成「没有下载」：
+ * store 的写入都是「在内存列表上增删再整体回写」，空列表一回写就把读不出来的真实记录覆盖了。
  */
 export async function loadDownloads(): Promise<DownloadedItem[]> {
-  try {
-    const raw = await AsyncStorage.getItem(DOWNLOAD_STORE_KEY);
-    if (!raw) return [];
-    const items = JSON.parse(raw) as DownloadedItem[];
-    return Array.isArray(items) ? items : [];
-  } catch (error) {
-    return [];
-  }
+  const raw = await AsyncStorage.getItem(DOWNLOAD_STORE_KEY);
+  if (raw === null) return [];
+  const items = JSON.parse(raw) as unknown;
+  if (!Array.isArray(items)) throw new Error("下载记录数据格式错误");
+  return items as DownloadedItem[];
 }
 
 /**

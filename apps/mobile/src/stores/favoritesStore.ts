@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { dropRemovedSourceEntries, mergeWebdavSongs, type MusicInfo } from "@lx/core";
+import { buildSongKey, dropRemovedSourceEntries, mergeWebdavSongs, type MusicInfo } from "@lx/core";
+import { logger } from "@/services/logger";
 
 import { createSerialTaskQueue } from "@/utils/serialTaskQueue";
 
@@ -21,7 +22,7 @@ const LEGACY_LIKED_SONGS_KEY = "auralflow.mobile.likedSongs";
 function withoutRemovedSources(songs: MusicInfo[]): MusicInfo[] {
   const { kept, dropped } = dropRemovedSourceEntries(songs ?? []);
   if (dropped.length > 0) {
-    console.warn(`[收藏] 已清理 ${dropped.length} 条来源已下线的历史条目`);
+    logger.warn(`[收藏] 已清理 ${dropped.length} 条来源已下线的历史条目`);
   }
   return kept;
 }
@@ -37,10 +38,6 @@ interface FavoritesState {
   replaceAll: (songs: MusicInfo[]) => Promise<void>;
   /** WebDAV 下载合并：与远端 loveList 取并集（对齐桌面端 mergeAll） */
   mergeAll: (songs: MusicInfo[]) => Promise<void>;
-}
-
-function songKey(song: Pick<MusicInfo, "source" | "id">): string {
-  return `${song.source}:${song.id}`;
 }
 
 async function persistFavorites(favorites: MusicInfo[]): Promise<void> {
@@ -92,25 +89,25 @@ export const useFavoritesStore = create<FavoritesState>((set, get) => {
 
   isFavorite: (song) => {
     if (!song) return false;
-    const key = songKey(song);
-    return get().favorites.some((item) => songKey(item) === key);
+    const key = buildSongKey(song);
+    return get().favorites.some((item) => buildSongKey(item) === key);
   },
 
   toggleFavorite: (song) => commitFavorites((favorites) => {
-    const key = songKey(song);
-    return favorites.some((item) => songKey(item) === key)
-      ? favorites.filter((item) => songKey(item) !== key)
+    const key = buildSongKey(song);
+    return favorites.some((item) => buildSongKey(item) === key)
+      ? favorites.filter((item) => buildSongKey(item) !== key)
       : [song, ...favorites];
   }),
 
   addFavorite: (song) => commitFavorites((favorites) => {
-    const key = songKey(song);
-    return favorites.some((item) => songKey(item) === key) ? favorites : [song, ...favorites];
+    const key = buildSongKey(song);
+    return favorites.some((item) => buildSongKey(item) === key) ? favorites : [song, ...favorites];
   }),
 
   removeFavorite: (song) => commitFavorites((favorites) => {
-    const key = songKey(song);
-    const next = favorites.filter((item) => songKey(item) !== key);
+    const key = buildSongKey(song);
+    const next = favorites.filter((item) => buildSongKey(item) !== key);
     return next.length === favorites.length ? favorites : next;
   }),
 

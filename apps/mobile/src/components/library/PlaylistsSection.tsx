@@ -39,6 +39,7 @@ import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/theme
 import { sheet } from "@/theme/sheetTokens";
 import { radius, spacing, typography } from "@/theme/tokens";
 import { showToast } from "@/components/ui/Toast";
+import { logger } from "@/services/logger";
 
 type Palette = ReturnType<typeof getThemePalette>;
 
@@ -88,7 +89,7 @@ export function PlaylistsSection() {
   const [wyRefreshing, setWyRefreshing] = useState(false);
 
   useEffect(() => {
-    void loadLocalPlaylists().catch((error) => console.error("[歌单] 加载本地歌单失败", error));
+    void loadLocalPlaylists().catch((error) => logger.error("[歌单] 加载本地歌单失败", error));
   }, [loadLocalPlaylists]);
 
   useEffect(() => {

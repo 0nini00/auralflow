@@ -9,8 +9,6 @@ export interface HsvColor {
   v: number;
 }
 
-const FALLBACK_HSV: HsvColor = { h: 152, s: 0.9, v: 0.48 };
-
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
@@ -66,6 +64,3 @@ export function hsvToHex(hue: number, saturation: number, value: number): string
 
   return `#${toHex(red + m)}${toHex(green + m)}${toHex(blue + m)}`;
 }
-
-/** 调色盘初始色：默认绿。 */
-export const COLOR_PICKER_FALLBACK = FALLBACK_HSV;

@@ -1,4 +1,4 @@
-import type { MusicInfo } from "@lx/core";
+import { buildSongKey, type MusicInfo } from "@lx/core";
 
 const MIN_SONG_SLEEP_TIMER_COUNT = 1;
 const MAX_SONG_SLEEP_TIMER_COUNT = 50;
@@ -28,7 +28,7 @@ export interface MobileSleepTimerControl {
 }
 
 export function getSongSleepTimerTrackKey(song: MusicInfo | null | undefined): string | null {
-  return song ? `${song.source}:${song.id}` : null;
+  return song ? buildSongKey(song) : null;
 }
 
 export function normalizeSongSleepTimerCount(count: number): number {

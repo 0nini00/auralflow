@@ -18,7 +18,7 @@ function setup({ queue = [], currentIndex = -1, shuffleHistory = [], playedIndic
       default: new Proxy({}, { get: () => () => {} }),
       State: {}, RepeatMode: {}, Event: {}, AppKilledPlaybackBehavior: {}, Capability: {},
     },
-    "@lx/core": { isPreviewDuration: () => false },
+    "@lx/core": { buildSongKey: createLoader({})("../../packages/core/src/song-variant.ts").buildSongKey, isPreviewDuration: () => false },
     "@/services/androidPitchService": {},
     "@/services/playbackUrlCache": {},
     "@/services/playbackFailurePolicy": {},

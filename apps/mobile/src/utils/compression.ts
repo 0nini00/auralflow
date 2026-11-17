@@ -1,4 +1,4 @@
-import { inflate, deflate, inflateRaw, deflateRaw, gzip } from "pako";
+import { inflate, inflateRaw } from "pako";
 
 /**
  * RN 环境下的 zlib 压缩/解压工具。
@@ -32,23 +32,4 @@ export async function inflateBytes(
   // pako 的 inflate 会自动识别 gzip / zlib 头，因此 deflate 与 gzip 复用同一入口
   if (resolved === "deflate-raw") return inflateRaw(bytes);
   return inflate(bytes);
-}
-
-export async function deflateBytes(
-  value: string | ArrayBuffer | ArrayBufferView,
-  format?: unknown,
-): Promise<Uint8Array> {
-  const bytes = toBytes(value);
-  const resolved = normalizeFormat(format);
-  if (resolved === "deflate-raw") return deflateRaw(bytes);
-  if (resolved === "gzip") return gzip(bytes);
-  return deflate(bytes);
-}
-
-export function zlibFormatFromOptions(options?: unknown): ZlibFormat {
-  if (typeof options === "string") return normalizeFormat(options);
-  if (options && typeof options === "object" && "format" in options) {
-    return normalizeFormat((options as { format?: unknown }).format);
-  }
-  return "deflate";
 }
