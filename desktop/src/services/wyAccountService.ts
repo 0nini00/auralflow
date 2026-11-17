@@ -1,12 +1,20 @@
 import { fetch } from "@tauri-apps/plugin-http";
 import { loadSettings } from "@lx/tauri-bridge";
-import { eapi, weapi } from "@/lib/crypto/weapi";
+import { eapi } from "@/lib/crypto/weapi";
 import { createQrSvgDataUri } from "@/services/qrCode";
 export { normalizeWyCookie } from "@lx/core";
-import { normalizeWyCookie, toCloudMusicInfos, type MusicInfo, type WyCloudItem } from "@lx/core";
-import { WyAuthExpiredError } from "@/services/wyAuthError";
 import {
+  WyAuthExpiredError,
   buildNeteasePcCookie,
+  isWyAuthExpiredCode,
+  normalizeWyCookie,
+  parseWyResponseText,
+  toCloudMusicInfos,
+  type MusicInfo,
+  type WyCloudItem,
+} from "@lx/core";
+import { assertWyOk, fetchWySongDetails, sendWyWeapi } from "@/services/wyRequest";
+import {
   buildPlaylistSubscribeRequests,
   mapWySong,
   resolveWyPlaylistTracks,
@@ -59,7 +67,6 @@ export interface WyQrLoginStatus {
   cookie?: string;
 }
 
-const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36 Edg/108.0.1462.54";
 const DESKTOP_API_UA = "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Safari/537.36 Chrome/91.0.4472.164 NeteaseMusicDesktop/3.0.18.203152";
 const EAPI_HOST = "https://interface.music.163.com/eapi";
 /** 网易云客户端扫码登录 type。
@@ -163,11 +170,6 @@ export async function getWyCookie(): Promise<string> {
   return cookie;
 }
 
-function csrfToken(): string {
-  const match = cookie.match(/(?:^|;\s*)__?csrf=([^;]+)/);
-  return match?.[1] ?? "";
-}
-
 /**
  * 把接口响应里的嵌套值收窄成按键可安全访问的字典。
  *
@@ -179,57 +181,6 @@ function asDict(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
 }
 
-function parseWyJson(
-  text: string,
-  path: string,
-  status?: number,
-  statusText?: string,
-): Record<string, unknown> {
-  try {
-    return JSON.parse(text) as Record<string, unknown>;
-  } catch {
-    const statusPart = status != null ? `; status=${status} ${statusText ?? ""}` : "";
-    throw new Error(
-      `网易云接口返回了非 JSON 响应（${path}${statusPart}）: ${text.slice(0, 120)}`,
-    );
-  }
-}
-
-async function postWeapi(
-  path: string,
-  data: Record<string, unknown>,
-  requestCookie: string,
-  csrf = "",
-): Promise<Record<string, unknown>> {
-  const { params, encSecKey } = weapi({
-    ...data,
-    csrf_token: csrf,
-  });
-
-  const body = new URLSearchParams({ params, encSecKey }).toString();
-  const headers: Record<string, string> = {
-    "User-Agent": UA,
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-    "Origin": "https://music.163.com",
-    "Referer": "https://music.163.com",
-    "Content-Type": "application/x-www-form-urlencoded",
-  };
-  if (requestCookie) headers.Cookie = requestCookie;
-
-  const resp = await fetch(`https://music.163.com/weapi${path}`, {
-    method: "POST",
-    headers,
-    body,
-  });
-
-  const text = await resp.text();
-  if (!text.trim()) {
-    throw new Error(`网易云返回空响应: ${path}; status=${resp.status} ${resp.statusText}`);
-  }
-  return parseWyJson(text, path, resp.status, resp.statusText);
-}
-
 async function weapiCall(
   path: string,
   data: Record<string, unknown>,
@@ -238,7 +189,7 @@ async function weapiCall(
   if (!cookie) throw new WyAuthExpiredError("未设置网易云 Cookie");
   if (!/MUSIC_U=/.test(cookie)) throw new WyAuthExpiredError("Cookie 中缺少 MUSIC_U，请复制已登录请求的 Cookie");
   const requestCookie = options.pcCookie ? buildNeteasePcCookie(cookie) : cookie;
-  return postWeapi(path, data, requestCookie, csrfToken());
+  return sendWyWeapi(path, data, requestCookie);
 }
 
 async function anonymousEapiPost(path: string, data: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -247,10 +198,7 @@ async function anonymousEapiPost(path: string, data: Record<string, unknown>): P
   }
 
   const header = buildAnonymousEapiHeader();
-  const { params } = eapi(path, {
-    ...data,
-    header,
-  });
+  const params = eapi(path, { ...data, header });
   const resp = await fetch(`${EAPI_HOST}${path.slice("/api".length)}`, {
     method: "POST",
     headers: {
@@ -263,21 +211,12 @@ async function anonymousEapiPost(path: string, data: Record<string, unknown>): P
     body: new URLSearchParams({ params }).toString(),
   });
 
-  const text = await resp.text();
-  if (!text.trim()) {
-    throw new Error(`网易云返回空响应: ${path}; status=${resp.status} ${resp.statusText}`);
-  }
-
-  const body = parseWyJson(text, path, resp.status, resp.statusText);
+  const body = parseWyResponseText(await resp.text(), { path, status: resp.status });
   const responseCookie = extractSetCookie(resp.headers);
   if (responseCookie && typeof body.cookie !== "string") {
     body.cookie = responseCookie;
   }
   return body;
-}
-
-function isAuthExpiredCode(code: unknown): boolean {
-  return code === 301 || code === 401 || code === 403;
 }
 
 async function weapiPost(
@@ -286,13 +225,7 @@ async function weapiPost(
   options?: WeapiRequestOptions,
 ): Promise<Record<string, unknown>> {
   const json = await weapiCall(path, data, options);
-  if (json.code !== 200) {
-    // 登录态失效时抛统一文案，便于上层清会话而不是当成普通业务错误
-    if (isAuthExpiredCode(json.code)) {
-      throw new WyAuthExpiredError("网易云登录已过期，请重新登录");
-    }
-    throw new Error(String(json.message || `API error code=${json.code}`));
-  }
+  assertWyOk(json);
   return json;
 }
 
@@ -357,7 +290,7 @@ export function assertMatchingWyLoginSession(
   loginStatus: WyLoginSession,
   accountSession: WyLoginSession,
 ): void {
-  if (isAuthExpiredCode(loginStatus.code) || isAuthExpiredCode(accountSession.code)) {
+  if (isWyAuthExpiredCode(loginStatus.code) || isWyAuthExpiredCode(accountSession.code)) {
     throw new WyAuthExpiredError("网易云登录已过期，请重新填写 Cookie");
   }
 
@@ -451,29 +384,8 @@ export async function getPlaylistDetail(id: string) {
   return tracks.map(mapWySong);
 }
 
-async function getSongDetails(ids: number[]) {
-  const chunks: number[][] = [];
-  for (let i = 0; i < ids.length; i += 500) {
-    chunks.push(ids.slice(i, i + 500));
-  }
-
-  const songs = await Promise.all(chunks.map(async (chunk) => {
-    const body = await weapiPost("/v3/song/detail", {
-      c: JSON.stringify(chunk.map((id) => ({ id }))),
-      ids: JSON.stringify(chunk),
-    });
-    const rawSongs = (body.songs as any[]) ?? [];
-    const privileges = new Map(
-      ((body.privileges as any[]) ?? []).map((item) => [Number(item.id), item])
-    );
-
-    return rawSongs.map((song) => ({
-      ...song,
-      privilege: privileges.get(Number(song.id)) ?? song.privilege,
-    }));
-  }));
-
-  return songs.flat();
+function getSongDetails(ids: number[]) {
+  return fetchWySongDetails(ids, (data) => weapiPost("/v3/song/detail", data));
 }
 
 // ─── 歌单写操作 ────────────────────────────────────────────────

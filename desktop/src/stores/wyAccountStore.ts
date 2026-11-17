@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { patchSettings } from "@lx/tauri-bridge";
 import type { MusicInfo } from "@lx/core";
 import { setVipOfficialFirst } from "@/services/playback/officialPriority";
-import { WyAuthExpiredError } from "@/services/wyAuthError";
+import { WyAuthExpiredError } from "@lx/core";
 import {
   setWyCookie,
   getWyCookie,

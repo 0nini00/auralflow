@@ -27,16 +27,6 @@ export function buildPlaylistSubscribeRequests(playlistId: string, subscribe: bo
   ];
 }
 
-export function buildNeteasePcCookie(cookie: string): string {
-  const parts = cookie
-    .split(";")
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .filter((part) => !/^os=/i.test(part));
-
-  return [...parts, "os=pc"].join("; ");
-}
-
 function asFiniteNumber(value: unknown): number | undefined {
   if (value == null || value === "") return undefined;
   const numberValue = Number(value);

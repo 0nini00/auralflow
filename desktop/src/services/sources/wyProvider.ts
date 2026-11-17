@@ -13,12 +13,14 @@ import type {
 } from "@lx/core";
 import { fetch } from "@tauri-apps/plugin-http";
 import {
+  WY_WEB_USER_AGENT,
   getPlaybackQualityRank,
   normalizePlaybackQuality,
   pickSameSongCandidate,
   type PlaybackQuality,
 } from "@lx/core";
-import { weapi } from "@/lib/crypto/weapi";
+import { eapi, linuxapi } from "@/lib/crypto/weapi";
+import { assertWyOk, fetchWySongDetails, sendWyWeapi } from "@/services/wyRequest";
 import { getWyCookie } from "@/services/wyAccountService";
 import { debugLog } from "@lx/tauri-bridge";
 import {
@@ -28,40 +30,23 @@ import {
 } from "@/services/neteasePlaylistUtils";
 import { searchBuiltinMusicApiSongs } from "@/services/builtinMusicApiClient";
 import { searchSongsPage } from "@/services/search/searchSongsPage";
-import CryptoJS from "crypto-js";
 
 // ─── 常量 ─────────────────────────────────────────────
 
-const UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36 Edg/108.0.1462.54";
-const EAPI_KEY = "e82ckenh8dichen8";
 // eapi 批量入口。必须走 https：eapi 请求体虽然加密，但**响应是明文 JSON**，
 // 走 http 时链路上的任意节点都能篡改搜索/歌词/歌曲详情（应用会照单全收）。
 // 同一 host 同一路径，eapi 签名只包含 path 与 body，不受 scheme 影响。
 const NETEASE_EAPI_BATCH = "https://interface.music.163.com/eapi/batch";
 
-// ─── eapi 加密（前端直连网易云接口）───
-
-function eapiEncrypt(url: string, object: Record<string, unknown>): string {
-  const text = JSON.stringify(object);
-  const message = `nobody${url}use${text}md5forencrypt`;
-  const digest = CryptoJS.MD5(message).toString();
-  const data = `${url}-36cd479b6b5-${text}-36cd479b6b5-${digest}`;
-  return CryptoJS.AES.encrypt(CryptoJS.enc.Utf8.parse(data), CryptoJS.enc.Utf8.parse(EAPI_KEY), {
-    mode: CryptoJS.mode.ECB,
-    padding: CryptoJS.pad.Pkcs7,
-  }).ciphertext.toString(CryptoJS.enc.Hex).toUpperCase();
-}
-
 // ─── HTTP 封装 ─────────────────────────────────────────
 
 async function eapiRequest(url: string, data: Record<string, unknown>): Promise<any> {
   const cookie = await getWyCookie();
-  const params = eapiEncrypt(url, data);
+  const params = eapi(url, data);
   const body = `params=${encodeURIComponent(params)}`;
 
   const headers: Record<string, string> = {
-    "User-Agent": UA,
+    "User-Agent": WY_WEB_USER_AGENT,
     Origin: "https://music.163.com",
     Referer: "https://music.163.com",
     "Content-Type": "application/x-www-form-urlencoded",
@@ -77,76 +62,27 @@ async function weapiRequest(path: string, data: Record<string, unknown>): Promis
   const cookie = await getWyCookie();
   if (!cookie) throw new Error("未登录网易云");
 
-  const csrfMatch = cookie.match(/__?csrf=([^;]+)/);
-  const csrf = csrfMatch?.[1] ?? "";
-  const { params, encSecKey } = weapi({ ...data, csrf_token: csrf });
+  const body = await sendWyWeapi(path, data, cookie);
+  assertWyOk(body);
+  return body;
+}
 
-  const url = `https://music.163.com/weapi${path}`;
-  const body = new URLSearchParams({ params, encSecKey }).toString();
-
-  const resp = await fetch(url, {
-    method: "POST",
-    headers: {
-      "User-Agent": UA,
-      Origin: "https://music.163.com",
-      Referer: "https://music.163.com",
-      Cookie: cookie,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body,
-  });
-
-  const text = await resp.text();
-  if (!text?.trim()) throw new Error("服务器返回空响应");
-  let json: any;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    // 典型场景：被风控/登录失效时返回 HTML 错误页，直接 JSON.parse 只会抛 SyntaxError，
-    // 上层拿不到任何可用信息
-    throw new Error(`网易云 weapi 返回了非 JSON 响应（HTTP ${resp.status}）: ${text.slice(0, 120)}`);
-  }
-  if (json.code !== 200) throw new Error(json.message ?? `code=${json.code}`);
-  return json;
+/**
+ * 取链落空时的收口：通道报过错就带着原因抛出，都正常应答但没有地址才返回 null。
+ */
+function failWithReasons(failures: string[]): null {
+  if (failures.length > 0) throw new Error(failures.join("；"));
+  return null;
 }
 
 // ─── 数据映射 ──────────────────────────────────────────
 
-async function fetchSongDetailsInChunks(
-  ids: number[],
-  request: (path: string, data: Record<string, unknown>) => Promise<any>,
-  path: string,
-): Promise<any[]> {
-  const chunks: number[][] = [];
-  for (let i = 0; i < ids.length; i += 500) {
-    chunks.push(ids.slice(i, i + 500));
-  }
-
-  const songs = await Promise.all(chunks.map(async (chunk) => {
-    const body = await request(path, {
-      c: JSON.stringify(chunk.map((id) => ({ id }))),
-      ids: JSON.stringify(chunk),
-    });
-    const rawSongs = (body.songs as any[]) ?? [];
-    const privileges = new Map(
-      ((body.privileges as any[]) ?? []).map((item) => [Number(item.id), item]),
-    );
-
-    return rawSongs.map((song) => ({
-      ...song,
-      privilege: privileges.get(Number(song.id)) ?? song.privilege,
-    }));
-  }));
-
-  return songs.flat();
-}
-
 function getSongDetailsViaWeapi(ids: number[]) {
-  return fetchSongDetailsInChunks(ids, weapiRequest, "/v3/song/detail");
+  return fetchWySongDetails(ids, (data) => weapiRequest("/v3/song/detail", data));
 }
 
 function getSongDetailsViaEapi(ids: number[]) {
-  return fetchSongDetailsInChunks(ids, eapiRequest, "/api/v3/song/detail");
+  return fetchWySongDetails(ids, (data) => eapiRequest("/api/v3/song/detail", data));
 }
 
 async function searchWyViaCloudSearch(keyword: string, type: SearchType, page = 1): Promise<SearchResult> {
@@ -360,10 +296,13 @@ export const wyProvider: MusicSource = {
     const requestedQuality = normalizePlaybackQuality(quality);
     const level = WY_LEVEL_BY_QUALITY[requestedQuality];
     const requestedRank = getPlaybackQualityRank(requestedQuality);
+    // 两个通道各自的失败原因。全部落空时带着原因抛出去：未登录、登录失效、被风控
+    // 与「这首歌确实没有地址」的处置完全不同，一律返回 null 会把它们抹成同一句
+    // 「未返回播放地址」。
+    const failures: string[] = [];
 
     // 1. 优先 weapi + Cookie（最可靠）
     try {
-      await getWyCookie();
       const body = await weapiRequest("/song/enhance/player/url/v1", {
         ids: `[${idNum}]`,
         level,
@@ -378,15 +317,15 @@ export const wyProvider: MusicSource = {
       if (url && url.length > 0 && (isCloudSong || !isWyLevelBelowRequested(entry?.level, requestedRank))) {
         return url;
       }
-    } catch {
-      // weapi 失败，回退 eapi
+    } catch (error) {
+      failures.push(`weapi: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     // 2. 回退 eapi（免登录，部分免费歌曲可用）
     // 云盘曲不走这一步：eapi 不带 Cookie，拿不到账号的私有文件；而 matched 上传（占 25%）
     // 的同一个数字 id 在线上也有一份录音，eapi 可能返回线上版本而不是用户上传的那份——
     // 听起来「能播」，实际播的是另一份音频。宁可如实失败。
-    if (isCloudSong) return null;
+    if (isCloudSong) return failWithReasons(failures);
     try {
       // 旧 eapi 只有 br 一个维度，按 5 档阶梯一一映射；原实现用 else 兜底 128000，
       // 导致请求 192k / flac24bit 时实际拿到 128k（选了最高档，听到的是最低档）。
@@ -405,11 +344,11 @@ export const wyProvider: MusicSource = {
         {
           method: "POST",
           headers: {
-            "User-Agent": UA,
+            "User-Agent": WY_WEB_USER_AGENT,
             Origin: "https://music.163.com",
             "Content-Type": "application/x-www-form-urlencoded",
           },
-          body: `params=${encodeURIComponent(eapiEncrypt("/api/song/enhance/player/url", { ids: [idNum], br }))}`,
+          body: `params=${encodeURIComponent(eapi("/api/song/enhance/player/url", { ids: [idNum], br }))}`,
         }
       );
       const json: any = await resp.json();
@@ -419,10 +358,10 @@ export const wyProvider: MusicSource = {
       if (url && url.length > 0 && (isCloudSong || !isWyLevelBelowRequested(entry?.level, requestedRank))) {
         return url;
       }
-    } catch {
-      // eapi 也失败
+    } catch (error) {
+      failures.push(`eapi: ${error instanceof Error ? error.message : String(error)}`);
     }
-    return null;
+    return failWithReasons(failures);
   },
 
   async getMusicDetail(music: MusicInfo): Promise<MusicInfo> {
@@ -480,17 +419,11 @@ export const wyProvider: MusicSource = {
 
     // 回退 linuxapi（不需要 Cookie）
     try {
-      const linuxApiKey = CryptoJS.enc.Utf8.parse("rFgB&h#%2?^eDg:Q");
-      const linuxData = JSON.stringify({
+      const eparams = linuxapi({
         method: "POST",
         url: "https://music.163.com/api/v3/playlist/detail",
         params: { id: idNum, n: 100000, s: 8 },
       });
-      const eparams = CryptoJS.AES.encrypt(
-        CryptoJS.enc.Utf8.parse(linuxData),
-        linuxApiKey,
-        { mode: CryptoJS.mode.ECB, padding: CryptoJS.pad.Pkcs7 }
-      ).ciphertext.toString(CryptoJS.enc.Hex).toUpperCase();
 
       const resp = await fetch("https://music.163.com/api/linux/forward", {
         method: "POST",

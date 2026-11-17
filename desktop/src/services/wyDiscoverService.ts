@@ -13,6 +13,7 @@
  */
 import { fetch } from "@tauri-apps/plugin-http";
 import {
+  WY_WEB_USER_AGENT,
   mapLeaderboardBoards,
   type PlaylistInfo,
   type WyLeaderboardBoard,
@@ -21,9 +22,6 @@ import {
 import { mapWyPlaylist } from "./neteasePlaylistUtils";
 
 const WY_API_BASE = "https://music.163.com";
-/** 与 wyProvider 保持一致的桌面 UA：音乐-related 端点对移动 UA 会返回不同的字段集。 */
-const WY_UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36 Edg/108.0.1462.54";
 /** 公开列表接口是发现页首屏的一部分，超时必须短：卡住比失败更糟。 */
 const REQUEST_TIMEOUT_MS = 12_000;
 /** 单页上限按接口实测；超过 50 以后服务端会自行截断，传大没有意义。 */
@@ -54,7 +52,7 @@ async function getJson(path: string): Promise<Record<string, unknown>> {
       method: "GET",
       headers: {
         Accept: "application/json, text/plain, */*",
-        "User-Agent": WY_UA,
+        "User-Agent": WY_WEB_USER_AGENT,
       },
       signal: controller.signal,
     });

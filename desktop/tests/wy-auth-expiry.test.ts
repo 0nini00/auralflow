@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { WyAuthExpiredError } from '../src/services/wyAuthError';
+import { WyAuthExpiredError } from '@lx/core';
 import { useWyAccountStore } from '../src/stores/wyAccountStore';
 
 /**
