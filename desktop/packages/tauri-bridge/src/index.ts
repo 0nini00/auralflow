@@ -1,11 +1,12 @@
 /**
  * @lx/tauri-bridge
  *
- * 所有 Tauri invoke 调用的类型化封装。
+ * 所有 Tauri invoke 调用的类型化封装，以及 Rust 侧事件的名字与载荷类型（见文件末尾）。
  * 类型定义与 src-tauri/src/models.rs 严格对齐（#[serde(rename_all = "camelCase")]）。
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 // ─── Rust 模型类型（camelCase 序列化） ─────────────────────
 
@@ -412,9 +413,6 @@ export async function setLyricWindowLocked(
 
 // ─── 系统媒体控制（SMTC） ────────────────────
 
-/** 系统媒体控制反向控制事件名（Rust 侧 src/smtc.rs 的同名常量必须一致） */
-export const SMTC_ACTION_EVENT = "smtc-action";
-
 /** 系统媒体控制能回传的动作 */
 export type SmtcActionName = "play" | "pause" | "stop" | "next" | "previous" | "seek";
 
@@ -457,9 +455,6 @@ export async function smtcUpdateProgress(position: number, duration: number): Pr
 
 // ─── 任务栏缩略图按钮 ──────────────────────────────────
 
-/** 任务栏缩略图按钮点击事件名（Rust 侧 src/taskbar.rs 的同名常量必须一致） */
-export const TASKBAR_ACTION_EVENT = "taskbar-action";
-
 /** 任务栏缩略图按钮能回传的动作 */
 export type TaskbarActionName = "previous" | "playPause" | "next";
 
@@ -482,4 +477,77 @@ export async function taskbarSetEnabled(enabled: boolean): Promise<void> {
 /** 推送当前播放状态（切歌、暂停恢复等） */
 export async function taskbarUpdateTrack(track: TaskbarTrackPayload): Promise<void> {
   await invoke<void>("taskbar_update_track", { track });
+}
+
+// ─── Rust → WebView 事件 ──────────────────────────────
+
+/**
+ * Rust 侧 emit 的全部事件名，唯一出处。
+ *
+ * 命令名靠上面的包装函数集中，事件名此前却是散在各文件里的字符串字面量：同一个名字
+ * 写两遍，拼错只表现为「事件永远不来」。新增事件时在这里登记名字，并在
+ * `TauriEventPayloads` 写明载荷；两者都要对着 Rust 源码核对（当前出处：main.rs、
+ * tray.rs、smtc.rs、taskbar.rs、commands/downloads.rs、lyric_window.rs）。
+ *
+ * 不在此列：`auralflow-player-sync` 是窗口之间互发的应用层通道，Rust 不参与，载荷是
+ * 业务模型（PlaybackSnapshot）而桥不依赖业务代码，名字与类型都留在 stores/playerSync.ts。
+ */
+export const TAURI_EVENTS = {
+  /** 首次点关闭：Rust 拦下 close，请前端弹确认框 */
+  appCloseRequested: "app-close-requested",
+  /** 退出前请主窗口落盘，前端用 completeAppQuit(requestId) 应答 */
+  appBeforeQuit: "app-before-quit",
+  /** 等待落盘应答超时，退出已取消 */
+  appQuitFailed: "app-quit-failed",
+  /** 托盘菜单的播放控制 */
+  nativeAction: "native-action",
+  /** 系统媒体控制反向控制（Rust 侧 smtc.rs 的 ACTION_EVENT 必须一致） */
+  smtcAction: "smtc-action",
+  /** 任务栏缩略图按钮点击（Rust 侧 taskbar.rs 的 ACTION_EVENT 必须一致） */
+  taskbarAction: "taskbar-action",
+  downloadProgress: "download-progress",
+  downloadCompleted: "download-completed",
+  lyricWindowOpenChanged: "lyric-window-open-changed",
+  /** Rust 只在锁定状态变化时发，载荷只有 lyricLocked */
+  lyricSettingsChanged: "lyric-settings-changed",
+  /** 锁定/解锁落到窗口上失败。注意：目前前端没有任何监听者 */
+  lyricWindowLockFailed: "lyric-window-lock-failed",
+  /** 锁定态下光标进出歌词窗口 */
+  lyricCursorEnter: "lyric-cursor-enter",
+  lyricCursorLeave: "lyric-cursor-leave",
+} as const;
+
+/** 托盘菜单能派给前端的动作（tray.rs 里未被 Rust 自己消化的菜单项 id） */
+export type NativeActionName = "play-pause" | "prev" | "next";
+
+/** 事件名 → Rust 实际发送的载荷（serde 序列化后的形状）。 */
+export interface TauriEventPayloads {
+  /** Rust 发的是 `()`，序列化为 null */
+  [TAURI_EVENTS.appCloseRequested]: null;
+  [TAURI_EVENTS.appBeforeQuit]: { requestId: string };
+  /** 给用户看的失败说明 */
+  [TAURI_EVENTS.appQuitFailed]: string;
+  [TAURI_EVENTS.nativeAction]: NativeActionName;
+  [TAURI_EVENTS.smtcAction]: SmtcActionEvent;
+  [TAURI_EVENTS.taskbarAction]: TaskbarActionEvent;
+  [TAURI_EVENTS.downloadProgress]: RustDownloadProgressEvent;
+  [TAURI_EVENTS.downloadCompleted]: RustDownloadCompletedEvent;
+  [TAURI_EVENTS.lyricWindowOpenChanged]: { open: boolean };
+  [TAURI_EVENTS.lyricSettingsChanged]: { lyricLocked: boolean };
+  [TAURI_EVENTS.lyricWindowLockFailed]: { locked: boolean; message: string };
+  [TAURI_EVENTS.lyricCursorEnter]: Record<string, never>;
+  [TAURI_EVENTS.lyricCursorLeave]: Record<string, never>;
+}
+
+export type TauriEventName = keyof TauriEventPayloads;
+
+/**
+ * 订阅 Rust 事件：载荷类型由事件名推导，调用方不再手写 `listen<T>("...")` 里那个
+ * 没人核对的泛型。只做转发，不吞错——订阅失败由调用方决定怎么暴露。
+ */
+export function listenTauriEvent<K extends TauriEventName>(
+  name: K,
+  handler: (payload: TauriEventPayloads[K]) => void,
+): Promise<UnlistenFn> {
+  return listen<TauriEventPayloads[K]>(name, (event) => handler(event.payload));
 }

@@ -16,8 +16,7 @@ function viewModule(name: string) {
 }
 
 vi.mock('@/utils/appWindow', () => ({ tryGetCurrentWindow: () => ({ label: 'main' }) }));
-vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(async () => () => {}) }));
-vi.mock('@lx/tauri-bridge', () => ({ debugLog: vi.fn(), loadSettings: vi.fn(async () => ({})), completeAppQuit: vi.fn() }));
+vi.mock('@lx/tauri-bridge', async (importOriginal) => ({ TAURI_EVENTS: (await importOriginal<typeof import('@lx/tauri-bridge')>()).TAURI_EVENTS, listenTauriEvent: vi.fn(async () => () => {}), debugLog: vi.fn(), loadSettings: vi.fn(async () => ({})), completeAppQuit: vi.fn() }));
 vi.mock('@/components/Layout/Sidebar', () => ({ Sidebar: () => <div data-testid="sidebar" /> }));
 vi.mock('@/components/Layout/Topbar', () => ({ Topbar: () => <div data-testid="topbar" /> }));
 vi.mock('@/components/PlayerBar', () => ({ PlayerBar: () => <div data-testid="player-bar" /> }));

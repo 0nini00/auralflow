@@ -1,4 +1,5 @@
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import { TAURI_EVENTS, listenTauriEvent } from "@lx/tauri-bridge";
 
 export interface LyricSettingsPatch {
   lyricPinned?: boolean;
@@ -56,8 +57,8 @@ export function subscribeLyricSettings(handler: (patch: LyricSettingsPatch) => v
     channel.addEventListener("message", listener);
   }
 
-  void listen<LyricSettingsPatch>("lyric-settings-changed", (event) => {
-    if (!disposed) handler(event.payload);
+  void listenTauriEvent(TAURI_EVENTS.lyricSettingsChanged, (patch) => {
+    if (!disposed) handler(patch);
   }).then((unlisten) => {
     if (disposed) {
       unlisten();

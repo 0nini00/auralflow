@@ -5,12 +5,15 @@ import { MemoryRouter } from 'react-router-dom';
 import type { MusicInfo } from '@lx/core';
 
 const native = vi.hoisted(() => ({
-  events: new Map<string, (event: { payload: unknown }) => void>(),
+  events: new Map<string, (payload: unknown) => void>(),
   prepare: vi.fn(), download: vi.fn(), enhance: vi.fn(), cancel: vi.fn(),
   nextId: 0,
 }));
 vi.mock('@tauri-apps/api/core', () => ({ convertFileSrc: (path: string) => `asset:${path}` }));
-vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(async (name, callback) => { native.events.set(name, callback); return () => {}; }) }));
+vi.mock('@lx/tauri-bridge', async (importOriginal) => ({
+  TAURI_EVENTS: (await importOriginal<typeof import('@lx/tauri-bridge')>()).TAURI_EVENTS,
+  listenTauriEvent: vi.fn(async (name, callback) => { native.events.set(name, callback); return () => {}; }),
+}));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
 vi.mock('@/services/downloadService', () => ({
   buildDownloadBaseName: (music: MusicInfo) => music.name,
@@ -35,7 +38,7 @@ let renderer: ReactTestRenderer | undefined;
 let storage: Map<string, string>;
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 const task = () => store.getState().tasks[0];
-const emit = (name: string, payload: unknown) => native.events.get(name)!({ payload });
+const emit = (name: string, payload: unknown) => native.events.get(name)!(payload);
 async function start() {
   await store.getState().addDownload(music, '320k');
   await flush();

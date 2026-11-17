@@ -43,13 +43,14 @@ const deps = vi.hoisted(() => {
 });
 
 vi.mock('@/stores/playerStore', () => ({ usePlayerStore: Object.assign(() => deps.player, { getState: () => deps.player }) }));
-vi.mock('@lx/tauri-bridge', () => ({
+vi.mock('@lx/tauri-bridge', async (importOriginal) => ({
+  TAURI_EVENTS: (await importOriginal<typeof import('@lx/tauri-bridge')>()).TAURI_EVENTS,
+  listenTauriEvent: async () => () => {},
   loadSettings: deps.loadSettings,
   patchSettings: deps.patchSettings,
   isLyricWindowOpen: async () => false,
   getLyricWindowState: async () => ({ locked: false }),
 }));
-vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
 vi.mock('@/stores/lyricSettingsSync', () => ({ broadcastLyricSettings: deps.broadcast, subscribeLyricSettings: deps.subscribe }));
 vi.mock('@/hooks/useLyrics', () => ({ useLyrics: () => ({ lyrics: [], currentLine: 0 }) }));
 vi.mock('@/hooks/useInterpolatedPlaybackProgress', () => ({ useInterpolatedPlaybackProgress: () => 25 }));

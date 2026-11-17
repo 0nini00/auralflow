@@ -16,9 +16,13 @@ vi.mock("@/stores/customSourceStore", async () => {
     customSourcePersistence: { ready: Promise.resolve() },
   };
 });
-vi.mock("@lx/tauri-bridge", () => ({ loadSettings: dependencies.loadSettings, completeAppQuit: dependencies.completeAppQuit }));
+vi.mock("@lx/tauri-bridge", async (importOriginal) => ({
+  TAURI_EVENTS: (await importOriginal<typeof import("@lx/tauri-bridge")>()).TAURI_EVENTS,
+  listenTauriEvent: dependencies.listen,
+  loadSettings: dependencies.loadSettings,
+  completeAppQuit: dependencies.completeAppQuit,
+}));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ label: "main" }) }));
-vi.mock("@tauri-apps/api/event", () => ({ listen: dependencies.listen }));
 vi.mock("react-router-dom", () => ({
   BrowserRouter: ({ children }: { children: React.ReactNode }) => children,
   Routes: () => null, Route: () => null, Navigate: () => null,
@@ -106,7 +110,7 @@ it('退出应答等待落盘完成，慢盘不会提前放行退出', async () =
   dependencies.flush.mockReturnValue(new Promise<void>((resolve) => { finish = resolve; }));
   await mount();
   const callback = (dependencies.listen.mock.calls as unknown as Array<[string, (event: unknown) => void]>).find(([name]) => name === 'app-before-quit')![1];
-  await act(async () => { callback({ payload: { requestId: 'quit-1' } }); });
+  await act(async () => { callback({ requestId: 'quit-1' }); });
   expect(dependencies.completeAppQuit).not.toHaveBeenCalled();
   await act(async () => { finish(); });
   expect(dependencies.completeAppQuit).toHaveBeenCalledWith('quit-1', null);
@@ -116,7 +120,7 @@ it('退出保存失败向原生应答错误，不能报告保存成功', async (
   dependencies.flush.mockRejectedValue(new Error('磁盘写入失败'));
   await mount();
   const callback = (dependencies.listen.mock.calls as unknown as Array<[string, (event: unknown) => void]>).find(([name]) => name === 'app-before-quit')![1];
-  await act(async () => { callback({ payload: { requestId: 'quit-2' } }); });
+  await act(async () => { callback({ requestId: 'quit-2' }); });
   expect(dependencies.completeAppQuit).toHaveBeenCalledWith('quit-2', '磁盘写入失败');
 });
 
@@ -124,7 +128,7 @@ it('原生退出应答超时向用户显示失败原因', async () => {
   await mount();
   const callback = (dependencies.listen.mock.calls as unknown as Array<[string, (event: unknown) => void]>).find(([name]) => name === 'app-quit-failed')?.[1];
   expect(callback).toBeDefined();
-  await act(async () => { callback!({ payload: '等待保存完成超时，已取消退出' }); });
+  await act(async () => { callback!('等待保存完成超时，已取消退出'); });
   expect(dependencies.toast).toHaveBeenCalledWith('等待保存完成超时，已取消退出', { kind: 'error' });
 });
 

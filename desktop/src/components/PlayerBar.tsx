@@ -5,7 +5,6 @@ import { useSleepTimerStore } from '@/stores/sleepTimerStore';
 import { useUiStore } from '@/stores/uiStore';
 import { ImmersiveLyricsOverlay } from '@/components/ImmersiveLyricsOverlay';
 import { SongAddMenuButton } from '@/components/SongAddMenuButton';
-import { listen } from '@tauri-apps/api/event';
 import { subscribeLyricSettings } from '@/stores/lyricSettingsSync';
 import { toggleDesktopLyricFromPlayer } from '@/utils/desktopLyricToggle';
 import { getNextPlayMode, getPlayModeControl } from '@/services/playback/playModeControl';
@@ -26,7 +25,7 @@ import {
   Timer,
   Mic2,
 } from 'lucide-react';
-import { getLyricWindowState, isLyricWindowOpen } from '@lx/tauri-bridge';
+import { TAURI_EVENTS, getLyricWindowState, isLyricWindowOpen, listenTauriEvent } from '@lx/tauri-bridge';
 import { useArtworkAmbience } from '@/hooks/useArtworkAmbience';
 
 export const PlayerBar: React.FC = () => {
@@ -90,8 +89,8 @@ export const PlayerBar: React.FC = () => {
     void getLyricWindowState()
       .then((state) => setLyricLocked(state.locked))
       .catch(() => undefined);
-    const unlistenPromise = listen<{ open: boolean }>('lyric-window-open-changed', (event) => {
-      setLyricOpen(event.payload.open);
+    const unlistenPromise = listenTauriEvent(TAURI_EVENTS.lyricWindowOpenChanged, (payload) => {
+      setLyricOpen(payload.open);
     });
     const unsubscribeLyricSettings = subscribeLyricSettings((patch) => {
       if (typeof patch.lyricLocked === 'boolean') {

@@ -1,10 +1,9 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { MusicInfo } from '@lx/core';
-import type { RustDownloadCompletedEvent, RustDownloadProgressEvent } from '@lx/tauri-bridge';
+import { TAURI_EVENTS, listenTauriEvent } from '@lx/tauri-bridge';
 import {
   buildDownloadBaseName,
   buildDownloadTaskId,
@@ -247,8 +246,7 @@ export const useDownloadStore = create<DownloadStore>()(
       initDownloadListeners: async () => {
         if (get().listenersReady) return;
 
-        await listen<RustDownloadProgressEvent>('download-progress', (event) => {
-          const payload = event.payload;
+        await listenTauriEvent(TAURI_EVENTS.downloadProgress, (payload) => {
           set((state) => {
             const current = state.tasks.find((t) => t.id === payload.taskId);
             if (!current || current.status !== 'downloading') {
@@ -266,8 +264,7 @@ export const useDownloadStore = create<DownloadStore>()(
           });
         });
 
-        await listen<RustDownloadCompletedEvent>('download-completed', (event) => {
-          const payload = event.payload;
+        await listenTauriEvent(TAURI_EVENTS.downloadCompleted, (payload) => {
           set((state) => ({
             tasks: markTransferCompleted(state.tasks, payload.taskId, payload.savedPath, payload.total),
           }));

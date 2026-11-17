@@ -21,8 +21,7 @@ import { toggleDesktopLyricFromPlayer } from '@/utils/desktopLyricToggle';
 import { IMMERSIVE_COVER_CSS_SIZE, coverSrc } from '@/utils/imageReferrerPolicy';
 import { useWindowDrag } from '@/hooks/useWindowDrag';
 import { Waves, X } from 'lucide-react';
-import { getLyricWindowState, isLyricWindowOpen, loadSettings, patchSettings } from '@lx/tauri-bridge';
-import { listen } from '@tauri-apps/api/event';
+import { TAURI_EVENTS, getLyricWindowState, isLyricWindowOpen, listenTauriEvent, loadSettings, patchSettings } from '@lx/tauri-bridge';
 
 interface ImmersiveLyricsOverlayProps {
   open: boolean;
@@ -193,8 +192,8 @@ function ImmersiveLyricsContent({ open, onClose }: ImmersiveLyricsOverlayProps) 
     void getLyricWindowState()
       .then((state) => setDesktopLyricLocked(state.locked))
       .catch(() => undefined);
-    const unlistenPromise = listen<{ open: boolean }>('lyric-window-open-changed', (event) => {
-      setDesktopLyricOpen(event.payload.open);
+    const unlistenPromise = listenTauriEvent(TAURI_EVENTS.lyricWindowOpenChanged, (payload) => {
+      setDesktopLyricOpen(payload.open);
     });
 
     const unsubscribe = subscribeLyricSettings((patch) => {
