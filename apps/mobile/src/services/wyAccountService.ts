@@ -3,17 +3,17 @@ import { fetchWithTimeout, isTimeoutError } from "@/utils/fetchWithTimeout";
 import { weapi } from "@/services/weapi";
 import { getSecureItem, removeSecureItem, setSecureItem } from "@/services/secureStorageService";
 import { migrateLegacySecret } from "@/services/secureStorageMigrationModel";
-import { extractWyCsrfToken, normalizeWyCookie } from "@/services/wyCookieModel";
-import { WyAuthExpiredError } from "@/services/wyAuthError";
+import {
+  WyAuthExpiredError,
+  buildWyWeapiRequest,
+  extractWyCsrfToken,
+  isWyAuthExpiredCode,
+  normalizeWyCookie,
+} from "@lx/core";
 
 const WY_COOKIE_KEY = "auralflow.mobile.wy.cookie";
 const WY_SECURE_COOKIE_KEY = "auralflow.mobile.wy.cookie.v1";
 const WY_USER_KEY = "auralflow.mobile.wy.user";
-const NETEASE_API_BASE = "https://music.163.com";
-// 与桌面端 UA 完全一致（desktop/src/services/wyAccountService.ts:59）：
-// 残缺 UA（仅 AppleWebKit/537.36）曾被网易风控拒绝，返回 301。
-const DEFAULT_USER_AGENT =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36 Edg/108.0.1462.54";
 
 type JsonRecord = Record<string, any>;
 
@@ -191,24 +191,19 @@ export async function validateWyCookie(rawCookie: string): Promise<WyUserInfo> {
     csrf_token: extractWyCsrfToken(trimmedCookie),
   });
 
+  const request = buildWyWeapiRequest({
+    path: "/w/nuser/account/get",
+    params,
+    encSecKey,
+    cookie: trimmedCookie,
+  });
   let response: Response;
   try {
-    response = await fetchWithTimeout(
-      `${NETEASE_API_BASE}/weapi/w/nuser/account/get`,
-      {
-        method: "POST",
-        headers: {
-          "User-Agent": DEFAULT_USER_AGENT,
-          Accept: "application/json, text/plain, */*",
-          "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-          Origin: NETEASE_API_BASE,
-          Referer: NETEASE_API_BASE,
-          "Content-Type": "application/x-www-form-urlencoded",
-          Cookie: trimmedCookie,
-        },
-        body: `params=${encodeURIComponent(params)}&encSecKey=${encodeURIComponent(encSecKey)}`,
-      }
-    );
+    response = await fetchWithTimeout(request.url, {
+      method: request.method,
+      headers: request.headers,
+      body: request.body,
+    });
   } catch (error) {
     if (isTimeoutError(error)) {
       throw new Error("网络请求超时，请检查网络后重试");
@@ -228,7 +223,7 @@ export async function validateWyCookie(rawCookie: string): Promise<WyUserInfo> {
     throw new Error(`网易服务器返回异常响应，请稍后重试`);
   }
 
-  if (data.code === 301 || data.code === 401 || data.code === 403) {
+  if (isWyAuthExpiredCode(data.code)) {
     throw new WyAuthExpiredError("Cookie 无效或已过期");
   }
   if (data.code !== 200) {

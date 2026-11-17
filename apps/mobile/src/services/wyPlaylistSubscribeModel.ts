@@ -19,13 +19,3 @@ export function buildWyPlaylistSubscribeRequest(
     pcCookie: true,
   };
 }
-
-export function buildNeteasePcCookie(cookie: string): string {
-  const parts = cookie
-    .split(";")
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .filter((part) => !/^os=/i.test(part));
-
-  return [...parts, "os=pc"].join("; ");
-}

@@ -1,5 +1,5 @@
 import CryptoJS from "crypto-js";
-import type { MusicInfo } from "@lx/core";
+import { encryptWyEapi, type MusicInfo, type WyEapiPrimitives } from "@lx/core";
 import { getWyCookie } from "./wyAccountService";
 import { postWyWeapi } from "./wyPlaylistService";
 import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
@@ -21,26 +21,25 @@ import { getPlaybackQualityRank } from "./playbackQualityModel";
  * 使用；postWyEapi 为通用 eapi POST，供本模块播放 URL 与 musicApi 歌词直连共用。
  */
 
-const WY_EAPI_KEY = "e82ckenh8dichen8";
 const WY_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
+
+/** eapi 的 crypto-js 原语；算法与密钥在 `@lx/core/wy-crypto`。 */
+const eapiPrimitives: WyEapiPrimitives = {
+  md5Hex: (text) => CryptoJS.MD5(text).toString(),
+  aesEcbEncryptHex(plainText, keyText) {
+    return CryptoJS.AES.encrypt(CryptoJS.enc.Utf8.parse(plainText), CryptoJS.enc.Utf8.parse(keyText), {
+      mode: CryptoJS.mode.ECB,
+      padding: CryptoJS.pad.Pkcs7,
+    }).ciphertext.toString(CryptoJS.enc.Hex);
+  },
+};
 
 /**
  * eapi 请求加密（网易云接口通用，播放 URL 与 cloudsearch 搜索共用）。
  * @param url 接口路径（如 /api/song/enhance/player/url）
  */
 export function eapiEncrypt(url: string, object: Record<string, unknown>): string {
-  const text = JSON.stringify(object);
-  const message = `nobody${url}use${text}md5forencrypt`;
-  const digest = CryptoJS.MD5(message).toString();
-  const data = `${url}-36cd479b6b5-${text}-36cd479b6b5-${digest}`;
-  return CryptoJS.AES.encrypt(
-    CryptoJS.enc.Utf8.parse(data),
-    CryptoJS.enc.Utf8.parse(WY_EAPI_KEY),
-    {
-      mode: CryptoJS.mode.ECB,
-      padding: CryptoJS.pad.Pkcs7,
-    }
-  ).ciphertext.toString(CryptoJS.enc.Hex).toUpperCase();
+  return encryptWyEapi(eapiPrimitives, url, object);
 }
 
 function wyLevelForQuality(quality: PlaybackQuality): string {

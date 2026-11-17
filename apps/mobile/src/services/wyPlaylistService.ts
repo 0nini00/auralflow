@@ -1,14 +1,17 @@
 import { getWyCookie } from "./wyAccountService";
-import type { PlaylistInfo, MusicInfo } from "@lx/core";
+import {
+  WY_WEB_USER_AGENT,
+  WyAuthExpiredError,
+  buildNeteasePcCookie,
+  buildWyWeapiRequest,
+  extractWyCsrfToken,
+  type MusicInfo,
+  type PlaylistInfo,
+} from "@lx/core";
 import { mapWyTrackToMusicInfo } from "./wyMusicMapper";
 import { weapi } from "@/services/weapi";
-import { extractWyCsrfToken } from "@/services/wyCookieModel";
 import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
-import { WyAuthExpiredError } from "./wyAuthError";
-import {
-  buildNeteasePcCookie,
-  buildWyPlaylistSubscribeRequest,
-} from "./wyPlaylistSubscribeModel";
+import { buildWyPlaylistSubscribeRequest } from "./wyPlaylistSubscribeModel";
 
 /**
  * 网易云歌单信息（扩展）
@@ -37,10 +40,7 @@ export interface PersonalFmResult {
   hasMore: boolean;
 }
 
-const WY_REQUEST_HEADERS = {
-  "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36 Edg/108.0.1462.54",
-};
+const WY_REQUEST_HEADERS = { "User-Agent": WY_WEB_USER_AGENT };
 
 type JsonRecord = Record<string, unknown>;
 
@@ -65,18 +65,16 @@ export async function postWyWeapi<TResponse = JsonRecord>(
     ...payload,
     csrf_token: extractWyCsrfToken(cookie),
   });
-  const response = await fetchWithTimeout(`https://music.163.com/weapi${path}`, {
-    method: "POST",
-    headers: {
-      Accept: "application/json, text/plain, */*",
-      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-      "Content-Type": "application/x-www-form-urlencoded",
-      Origin: "https://music.163.com",
-      Referer: "https://music.163.com",
-      Cookie: options.pcCookie === false ? cookie : buildNeteasePcCookie(cookie),
-      ...WY_REQUEST_HEADERS,
-    },
-    body: new URLSearchParams({ params, encSecKey }).toString(),
+  const request = buildWyWeapiRequest({
+    path,
+    params,
+    encSecKey,
+    cookie: options.pcCookie === false ? cookie : buildNeteasePcCookie(cookie),
+  });
+  const response = await fetchWithTimeout(request.url, {
+    method: request.method,
+    headers: request.headers,
+    body: request.body,
   });
 
   return parseWyJsonResponse<TResponse>(response);

@@ -120,3 +120,29 @@ describe('wyProvider.getMusicUrl 的失败原因', () => {
     expect(api.fetch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('桌面加密原语（crypto-js + node-forge）', () => {
+  // 与 core、移动端原生模块共用的固定向量：算法在 core，这里验证的是桌面注入的原语。
+  const BASE62 = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+
+  async function weapiWithSecretKey(secretKey: string, data: Record<string, unknown>) {
+    const { weapi } = await import('../src/lib/crypto/weapi');
+    const queue = [...secretKey].map((char) => (BASE62.indexOf(char) + 0.5) / BASE62.length);
+    const random = vi.spyOn(Math, 'random').mockImplementation(() => queue.shift()!);
+    try {
+      return await weapi(data);
+    } finally {
+      random.mockRestore();
+    }
+  }
+
+  it('weapi 的 params 与 encSecKey 等于已知密文', async () => {
+    const first = await weapiWithSecretKey('JmX8r2LpQ4vZ9wKs', { csrf_token: 'abc123' });
+    expect(first.params).toBe('yCi0k0x3OAKsbWpu8W53QG98Tmt7iyRYqX3tmDRizbiFLKQXKBr4cLI7vimiBwD5');
+
+    const second = await weapiWithSecretKey('sKw9ZvQ4pL2rXm8J', {});
+    expect(second.encSecKey).toBe(
+      'd1b862365229f275df0f5df0a4a9a3fc946687cf72862e656960df1363b1cd691128b762c58e26000a6f24cdc1de9848015f41d1f47f8478d93a6629b3b1958288cf37272a2a5af06d5b863eba0441a3debd5be7b0e70991fa10f7f21c93b85d91e60b44d7ba7844671a8da7b58b366e4d7570403c658d6b0b3d20c13e6cd9c0',
+    );
+  });
+});
