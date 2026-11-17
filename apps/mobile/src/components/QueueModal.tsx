@@ -11,7 +11,7 @@ import { usePlayerStore } from "@/stores/playerStore";
 import { useDownloadStore, type DownloadQuality } from "@/stores/downloadStore";
 import { getLastSelectQuality, saveLastSelectQuality } from "@/services/downloadService";
 import { shareMusic } from "@/services/shareMusicService";
-import { openMvPlayerScreen } from "@/navigation";
+import { openMvPlayerScreen } from "@/navigation/navigationRef";
 import { DraggableQueueList, type QueueListHandle } from "@/components/queue/DraggableQueueList";
 import { QUEUE_ROW_HEIGHT } from "@/services/queueReorderModel";
 import { ActionMenuSheet, type ActionMenuAnchor, type ActionMenuItem } from "@/components/ActionMenuSheet";

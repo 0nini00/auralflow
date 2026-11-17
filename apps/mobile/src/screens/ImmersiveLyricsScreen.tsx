@@ -54,7 +54,7 @@ import { fetchCoverColors, type CoverColors } from "@/services/coverColorService
 import { resolveImmersiveCoverLayout, resolveImmersiveLayout } from "@/services/immersiveLayoutModel";
 import { withAlpha } from "@/services/themePaletteModel";
 import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
-import { openMvPlayerScreen, openSimilarSongsScreen } from "@/navigation";
+import { openMvPlayerScreen, openSimilarSongsScreen } from "@/navigation/navigationRef";
 import { sheet } from "@/theme/sheetTokens";
 import { radius, spacing, typography } from "@/theme/tokens";
 

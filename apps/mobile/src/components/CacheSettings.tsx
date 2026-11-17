@@ -5,7 +5,7 @@ import { ChevronRight } from 'lucide-react-native';
 import { SectionHeader } from "@/components/SectionHeader";
 import { ListItemButton } from "@/components/ui/ListItemButton";
 import { SettingsCard } from "@/components/settings/SettingsCard";
-import { openDownloadsScreen, openHistoryScreen } from "@/navigation";
+import { openDownloadsScreen, openHistoryScreen } from "@/navigation/navigationRef";
 import {
   cleanExpiredCache,
   formatCacheSize,

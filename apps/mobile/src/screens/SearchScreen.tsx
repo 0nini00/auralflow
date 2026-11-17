@@ -51,7 +51,7 @@ import {
   openArtistDetailScreen,
   openPlaylistDetailScreen,
   openSearchFallbackDetailScreen,
-} from "@/navigation";
+} from "@/navigation/navigationRef";
 import {
   openSearchAlbumDetail,
   openSearchArtistDetail,

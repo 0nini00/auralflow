@@ -29,7 +29,7 @@ import {
 } from "@/services/songListMetadataModel";
 import { buildSongQueueActionLabels } from "@/services/songQueueActions";
 import { spacing, radius, typography, layout } from "@/theme/tokens";
-import { openMvPlayerScreen } from "@/navigation";
+import { openMvPlayerScreen } from "@/navigation/navigationRef";
 
 export interface SongListProps {
   songs: MusicInfo[];

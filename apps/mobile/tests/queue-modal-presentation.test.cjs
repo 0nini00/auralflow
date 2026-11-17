@@ -49,7 +49,7 @@ function renderQueueModal(t) {
     "@/stores/downloadStore": { useDownloadStore: selector => selector({ downloadSong: async () => ({ status: "completed" }) }) },
     "@/services/downloadService": { getLastSelectQuality: async () => null, saveLastSelectQuality: async () => undefined },
     "@/services/shareMusicService": { shareMusic: async () => undefined },
-    "@/navigation": { openMvPlayerScreen: () => undefined },
+    "@/navigation/navigationRef": { openMvPlayerScreen: () => undefined },
     "@/components/queue/DraggableQueueList": { DraggableQueueList },
     "@/components/ActionMenuSheet": { ActionMenuSheet: "ActionMenuSheet" },
     "@/components/AddToLocalPlaylistModal": { AddToLocalPlaylistModal: "AddToLocalPlaylistModal" },
