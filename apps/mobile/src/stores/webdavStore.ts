@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { showToast } from "@/components/ui/Toast";
+import { logger } from "@/services/logger";
 import {
   loadWebdavConfig,
   saveWebdavConfig,
@@ -81,6 +82,9 @@ export const useWebdavStore = create<WebdavStore>((set, get) => ({
           await saveWebdavConfig({ ...cfg, autoSyncPlaylists });
         }
       } catch (error) {
+        // 读配置失败不拦启动（WebDAV 是可选功能），但必须留痕：
+        // 以前这里什么都不记，表现只是「配置莫名其妙空了」。
+        logger.error("[WebDAV] 读取配置失败，本次按未配置处理", error);
         set({ loaded: true });
       } finally {
         loadConfigPromise = null;

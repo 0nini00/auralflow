@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Appearance } from "react-native";
 import { create } from "zustand";
 
+import { backupCorruptStorageValue } from "@/services/corruptStorageBackup";
 import {
   DEFAULT_ACCENT_COLOR,
   buildThemePalette,
@@ -50,18 +51,31 @@ async function persistTheme(state: {
   );
 }
 
-function parseThemeState(raw: string | null): PersistedThemeState {
-  if (!raw) return {};
+function parseThemeState(raw: string): PersistedThemeState {
+  const parsed = JSON.parse(raw) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("主题配置数据格式错误");
+  }
+  const { mode, accentColor } = parsed as PersistedThemeState;
+  return {
+    mode: mode === "light" || mode === "dark" || mode === "system" ? mode : undefined,
+    accentColor: migrateAccentColor(accentColor),
+  };
+}
+
+/**
+ * 读主题配置。键不存在是正常的首次启动，用默认值；键存在但读不懂是数据损坏。
+ *
+ * 主题在 App 启动的阻塞加载里：这里抛错应用就永远停在启动失败页（重试也还是同一份坏数据）。
+ * 所以损坏时先备份原始值、落盘日志，再用默认主题启动——之后改主题会覆盖原键，原始值仍在备份键里。
+ */
+async function readPersistedTheme(): Promise<PersistedThemeState> {
+  const raw = await AsyncStorage.getItem(THEME_STORAGE_KEY);
+  if (raw === null) return {};
   try {
-    const parsed = JSON.parse(raw) as PersistedThemeState;
-    const mode = parsed.mode === "light" || parsed.mode === "dark" || parsed.mode === "system"
-      ? parsed.mode
-      : undefined;
-    return {
-      mode,
-      accentColor: migrateAccentColor(parsed.accentColor),
-    };
-  } catch {
+    return parseThemeState(raw);
+  } catch (error) {
+    await backupCorruptStorageValue(THEME_STORAGE_KEY, raw, error);
     return {};
   }
 }
@@ -74,7 +88,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
 
   loadTheme: async () => {
     if (get().loaded) return;
-    const persisted = parseThemeState(await AsyncStorage.getItem(THEME_STORAGE_KEY));
+    const persisted = await readPersistedTheme();
     set({
       mode: persisted.mode ?? "system",
       accentColor: persisted.accentColor ?? DEFAULT_ACCENT_COLOR,

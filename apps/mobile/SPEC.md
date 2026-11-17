@@ -40,6 +40,8 @@ tags: [auralflow, mobile]
 
 **Zustand 选择器必须返回稳定引用（本层的硬规则）**：Zustand 5 的 `useStore` 内部就是 `useSyncExternalStore`，**没有 equalityFn**——选择器每次新建对象或数组，React 会认为快照一直在变，直接把整屏崩在错误边界上，报 `Maximum update depth exceeded`。传给 `useXxxStore(selector)` 的选择器只能返回：原始值（字符串 / 数字 / 布尔）、store 里已有的引用（对象字段、数组元素、已存在的函数），或按身份记忆化的值（`WeakMap` / `useMemo`）。已踩过：一个按对象返回值的选择器每次 `setState` 都新建 `{ text, holdMs }`，播放时整屏崩在错误边界上；修法是按来源对象身份用 `WeakMap` 缓存，让选择器在同一份来源存在期间始终返回同一个对象。
 
+**读不懂的存储不等于没有数据（本层的硬规则）**：读盘时「键不存在」与「键存在但解析不了 / 形状不对」必须分开。前者用默认值；后者绝不能当成空状态——store 的写入都是「在内存值上改完整体回写」，空状态一回写就把读不出来的真实数据覆盖了。两种处置，按数据性质二选一：**用户数据直接抛错并拒绝写盘**（收藏 `favoritesStore`、本地歌单、播放历史、下载记录、首选版本 `variantPinStore`——未成功读盘前所有写入都被拒，历史与下载的「清空」是用户明确选择的恢复途径）；**抛错就没有出路的配置先备份再退回默认值**（主题在启动的阻塞加载里；WebDAV 配置只能靠重填修复——走 `services/corruptStorageBackup.ts`，原始值存到 `<key>.corrupt-backup`，备份写不进去则继续抛）。两种都必须经 `logger` 落盘。播放历史的时间戳副本（`playHistoryTimestamps`）只在旧格式迁移时解析：新格式下它是每次写盘重新派生的副本，坏了不丢东西。用例在 `tests/corrupt-storage.test.cjs` 与 `tests/download-regressions.test.cjs`。
+
 **本地歌单里的同步残留必须主动清理（本层的硬规则 + 一次性数据修复）**：`stores/playlistStore.ts` 在**读盘后**（`loadLocalPlaylists`）与**同步合并后**（`mergeFromSync`）各跑一次 `scrubSyncedCloudPlaylistRefs`（规则在 `core`，与桌面端共用，有单测）。
 
 成因：旧版移动端按 `source === "local"` 归类而**不看 id**，把旧版桌面端上传的云端歌单引用（`source:"local"` + 纯数字 id）物化成了本地歌单；归类守卫修好后**已落盘的那批不会自己消失**，而合并规则「不丢本地独有项」会让它们永久留存、每次同步再传回云端，与桌面端的清洗形成乒乓。移动端自建的本地歌单 id 恒为 `local-<ts>-<8位>`，所以**纯数字 id 的本地歌单只可能来自这条污染路径**。

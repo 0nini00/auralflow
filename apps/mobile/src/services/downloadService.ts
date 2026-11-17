@@ -786,17 +786,17 @@ export async function clearDownloadedFiles(): Promise<void> {
 }
 
 /**
- * 从持久化存储加载已下载列表
+ * 从持久化存储加载已下载列表。
+ *
+ * 键不存在返回空列表；读盘失败、解析失败或不是数组一律抛错。不能把这些情况当成「没有下载」：
+ * store 的写入都是「在内存列表上增删再整体回写」，空列表一回写就把读不出来的真实记录覆盖了。
  */
 export async function loadDownloads(): Promise<DownloadedItem[]> {
-  try {
-    const raw = await AsyncStorage.getItem(DOWNLOAD_STORE_KEY);
-    if (!raw) return [];
-    const items = JSON.parse(raw) as DownloadedItem[];
-    return Array.isArray(items) ? items : [];
-  } catch (error) {
-    return [];
-  }
+  const raw = await AsyncStorage.getItem(DOWNLOAD_STORE_KEY);
+  if (raw === null) return [];
+  const items = JSON.parse(raw) as unknown;
+  if (!Array.isArray(items)) throw new Error("下载记录数据格式错误");
+  return items as DownloadedItem[];
 }
 
 /**

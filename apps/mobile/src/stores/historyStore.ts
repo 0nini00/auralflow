@@ -131,23 +131,23 @@ function derive(entries: HistoryEntry[]): {
   return { history, historyTimestamps, statsEntries };
 }
 
+/**
+ * 解析时间戳 sidecar。键不存在（null）是正常情况；键存在但不是 JSON 对象就是数据损坏，抛错。
+ * 不能退化成空映射：那样旧格式迁移会把所有真实播放时间当成「未知」，下次写盘再把 sidecar 覆盖掉。
+ */
 function parseTimestamps(raw: string | null): Record<string, number> {
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      const result: Record<string, number> = {};
-      for (const [key, value] of Object.entries(parsed)) {
-        // 这张表只存真实播放时间：0 / 负数 / 损坏值都按「时间未知」丢弃，
-        // 避免未知哨兵或异常值被当成真实时间泄漏进同步文件。
-        if (isUsableTimestamp(value)) result[key] = value;
-      }
-      return result;
-    }
-  } catch {
-    // 损坏的存储忽略，退化为空映射
+  if (raw === null) return {};
+  const parsed = JSON.parse(raw) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("播放时间数据格式错误");
   }
-  return {};
+  const result: Record<string, number> = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    // 这张表只存真实播放时间：0 / 负数 / 非数字的单个值按「时间未知」丢弃，
+    // 避免未知哨兵或异常值被当成真实时间泄漏进同步文件。
+    if (isUsableTimestamp(value)) result[key] = value;
+  }
+  return result;
 }
 
 export const useHistoryStore = create<HistoryStore>((set, get) => ({
@@ -168,7 +168,6 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
           HISTORY_KEY,
           HISTORY_TIMESTAMPS_KEY,
         ]);
-        const timestamps = parseTimestamps(rawTs);
         const parsed = raw ? JSON.parse(raw) : [];
         if (!Array.isArray(parsed)) throw new Error("播放历史数据格式错误");
         let entries: HistoryEntry[] = [];
@@ -177,6 +176,9 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
             entries = parsed as HistoryEntry[];
           } else {
             // 旧格式（去重 MusicInfo[]）：用时间戳 sidecar 重建条目，保证分时间记录可用。
+            // sidecar 只在这里解析：新格式的播放时间在条目里，sidecar 只是每次写盘重新派生的副本，
+            // 它坏了不丢任何东西，不该拦住整份历史；迁移时坏了则必须中止（见 parseTimestamps）。
+            const timestamps = parseTimestamps(rawTs);
             const now = Date.now();
             entries = (parsed as MusicInfo[])
               .filter((music) => music?.id)

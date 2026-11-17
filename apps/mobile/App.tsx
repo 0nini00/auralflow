@@ -234,6 +234,8 @@ export default function App() {
           }
         });
       } catch (error) {
+        // 阻塞加载里任何一项抛错都会走到这里：界面停在启动失败页（带重试），同时必须落盘留证
+        logger.error("[启动] 启动失败", error);
         if (!cancelled) {
           setBootError(error instanceof Error ? error.message : String(error));
         }

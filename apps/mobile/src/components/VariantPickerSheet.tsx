@@ -73,7 +73,9 @@ export function VariantPickerSheet({ song, visible, onClose }: VariantPickerShee
 
   const handleTogglePin = (candidate: MusicInfo) => {
     hapticLight();
-    void togglePinnedVariant(groupKey, buildSongKey(candidate)).catch(() => undefined);
+    togglePinnedVariant(groupKey, buildSongKey(candidate)).catch((error) => {
+      Alert.alert("设置首选版本失败", error instanceof Error ? error.message : String(error));
+    });
   };
 
   return (
