@@ -24,10 +24,8 @@ pub async fn library_save(app: AppHandle, namespace: String, value: Value) -> Re
         .map_err(|err| format!("写入任务失败: {}", err))?
 }
 
-
 /// 重置单个 namespace（删文件）
 #[tauri::command]
 pub fn library_reset(app: AppHandle, namespace: String) -> Result<(), String> {
     crate::library::reset(&app, &namespace)
 }
-

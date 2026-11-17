@@ -17,7 +17,8 @@ pub fn smtc_set_enabled(app: AppHandle, enabled: bool) {
 /// 不让它落在切歌瞬间的主线程上。
 #[tauri::command]
 pub async fn smtc_update_track(app: AppHandle, track: crate::smtc::SmtcTrack) {
-    let _ = tauri::async_runtime::spawn_blocking(move || crate::smtc::update_track(&app, track)).await;
+    let _ =
+        tauri::async_runtime::spawn_blocking(move || crate::smtc::update_track(&app, track)).await;
 }
 
 /// 推送播放进度（Rust 侧按 ≥500ms 节流，前端照常全量推）。

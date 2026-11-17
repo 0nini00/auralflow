@@ -621,7 +621,10 @@ mod lifecycle_tests {
             "x".to_string(),
         )
         .unwrap();
-        assert!(Path::new(&escaped).parent().unwrap().ends_with(dir.file_name().unwrap()));
+        assert!(Path::new(&escaped)
+            .parent()
+            .unwrap()
+            .ends_with(dir.file_name().unwrap()));
 
         std::fs::remove_dir_all(&dir).unwrap();
     }

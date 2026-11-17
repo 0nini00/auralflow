@@ -84,24 +84,50 @@ pub struct CachedAudioFile {
 }
 
 fn list_audio_files(dir: &Path) -> Result<Vec<CachedAudioFile>, String> {
-    if !dir.exists() { return Ok(Vec::new()); }
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
     let mut files = Vec::new();
-    for entry in std::fs::read_dir(dir).map_err(|err| format!("读取音频缓存目录失败: {}", err))? {
+    for entry in std::fs::read_dir(dir).map_err(|err| format!("读取音频缓存目录失败: {}", err))?
+    {
         // 单个条目的元数据异常只跳过它自己：整页离线库不该因为一个坏文件变成错误提示。
         let Ok(entry) = entry else { continue };
         let path = entry.path();
-        let Ok(file_type) = entry.file_type() else { continue };
-        if !file_type.is_file() { continue; }
-        let ext = path.extension().and_then(|value| value.to_str()).unwrap_or("");
-        if !AUDIO_CACHE_EXTS.contains(&ext) { continue; }
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !file_type.is_file() {
+            continue;
+        }
+        let ext = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("");
+        if !AUDIO_CACHE_EXTS.contains(&ext) {
+            continue;
+        }
         let Ok(meta) = entry.metadata() else { continue };
-        if meta.len() < MIN_AUDIO_CACHE_BYTES { continue; }
-        let Some(key) = path.file_stem().and_then(|value| value.to_str()) else { continue };
-        if sanitize_cache_key(key) != key { continue; }
-        let Ok(modified) = meta.modified() else { continue };
-        let Ok(modified) = modified.duration_since(SystemTime::UNIX_EPOCH) else { continue };
-        files.push(CachedAudioFile { key: key.to_string(), path: path.to_string_lossy().to_string(), bytes: meta.len(),
-            modified_at: modified.as_millis() as u64 });
+        if meta.len() < MIN_AUDIO_CACHE_BYTES {
+            continue;
+        }
+        let Some(key) = path.file_stem().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if sanitize_cache_key(key) != key {
+            continue;
+        }
+        let Ok(modified) = meta.modified() else {
+            continue;
+        };
+        let Ok(modified) = modified.duration_since(SystemTime::UNIX_EPOCH) else {
+            continue;
+        };
+        files.push(CachedAudioFile {
+            key: key.to_string(),
+            path: path.to_string_lossy().to_string(),
+            bytes: meta.len(),
+            modified_at: modified.as_millis() as u64,
+        });
     }
     files.sort_by(|a, b| b.modified_at.cmp(&a.modified_at).then(a.key.cmp(&b.key)));
     Ok(files)
@@ -110,7 +136,9 @@ fn list_audio_files(dir: &Path) -> Result<Vec<CachedAudioFile>, String> {
 #[tauri::command]
 pub async fn list_cached_audio(app: AppHandle) -> Result<Vec<CachedAudioFile>, String> {
     let directory = song_audio_cache_dir(&app)?;
-    tauri::async_runtime::spawn_blocking(move || list_audio_files(&directory)).await.map_err(|err| err.to_string())?
+    tauri::async_runtime::spawn_blocking(move || list_audio_files(&directory))
+        .await
+        .map_err(|err| err.to_string())?
 }
 
 #[cfg(test)]
@@ -122,7 +150,11 @@ mod offline_listing_tests {
         std::fs::create_dir_all(&dir).unwrap();
         let good = dir.join("wy-1-audio-builtinNetease-320k.mp3");
         std::fs::write(&good, vec![1; MIN_AUDIO_CACHE_BYTES as usize]).unwrap();
-        std::fs::write(dir.join("pending.mp3.download"), vec![1; MIN_AUDIO_CACHE_BYTES as usize]).unwrap();
+        std::fs::write(
+            dir.join("pending.mp3.download"),
+            vec![1; MIN_AUDIO_CACHE_BYTES as usize],
+        )
+        .unwrap();
         std::fs::write(dir.join("empty.flac"), []).unwrap();
         std::fs::create_dir(dir.join("directory.mp3")).unwrap();
         let files = list_audio_files(&dir).unwrap();
@@ -216,8 +248,16 @@ fn media_kind_config(
     kind: &str,
 ) -> Result<(PathBuf, &'static [&'static str], u64), String> {
     match kind {
-        "audio" => Ok((song_audio_cache_dir(app)?, AUDIO_CACHE_EXTS, MIN_AUDIO_CACHE_BYTES)),
-        "cover" => Ok((song_cover_cache_dir(app)?, COVER_CACHE_EXTS, MIN_COVER_CACHE_BYTES)),
+        "audio" => Ok((
+            song_audio_cache_dir(app)?,
+            AUDIO_CACHE_EXTS,
+            MIN_AUDIO_CACHE_BYTES,
+        )),
+        "cover" => Ok((
+            song_cover_cache_dir(app)?,
+            COVER_CACHE_EXTS,
+            MIN_COVER_CACHE_BYTES,
+        )),
         other => Err(format!("未知的媒体缓存类型: {}", other)),
     }
 }
@@ -274,7 +314,10 @@ pub(super) fn persist_local_cover(
         return None;
     }
     let dir = song_cover_cache_dir(app).ok()?;
-    let path_hash = format!("{:x}", md5::compute(source_path.to_string_lossy().as_bytes()));
+    let path_hash = format!(
+        "{:x}",
+        md5::compute(source_path.to_string_lossy().as_bytes())
+    );
     let data_hash = format!("{:x}", md5::compute(data));
     let file_name = format!("{}-{}.{}", path_hash, &data_hash[..8], ext);
     let cover_path = dir.join(&file_name);
@@ -428,10 +471,9 @@ pub async fn get_media_cache_stats(app: AppHandle) -> Result<MediaCacheStats, St
 /// 容量清理是整目录遍历 + 逐个删除：放进阻塞池，别占住 tokio worker。
 /// 清理失败不能影响已经成功的缓存写入，只记日志。
 async fn sweep_cache_async(cache_dir: PathBuf, max_bytes: u64) {
-    if let Err(err) = tauri::async_runtime::spawn_blocking(move || {
-        enforce_cache_limit(&cache_dir, max_bytes)
-    })
-    .await
+    if let Err(err) =
+        tauri::async_runtime::spawn_blocking(move || enforce_cache_limit(&cache_dir, max_bytes))
+            .await
     {
         log::warn!("缓存容量清理任务失败（不影响本次写入）: {}", err);
     }
@@ -563,7 +605,15 @@ pub async fn cache_remote_audio(
     cache_key: String,
 ) -> Result<String, String> {
     let dir = song_audio_cache_dir(&app)?;
-    let (path, written) = cache_remote_file(url, cache_key, dir.clone(), AUDIO_CACHE_EXTS, "mp3", "歌曲音频").await?;
+    let (path, written) = cache_remote_file(
+        url,
+        cache_key,
+        dir.clone(),
+        AUDIO_CACHE_EXTS,
+        "mp3",
+        "歌曲音频",
+    )
+    .await?;
     // 容量清理是一次全目录遍历：只有真的写了新文件才值得跑，命中缓存的播放请求不走这里。
     if written {
         sweep_cache_async(dir, SONG_AUDIO_CACHE_MAX_BYTES).await;
@@ -614,7 +664,15 @@ pub async fn cache_remote_image(
     cache_key: String,
 ) -> Result<String, String> {
     let dir = song_cover_cache_dir(&app)?;
-    let (path, written) = cache_remote_file(url, cache_key, dir.clone(), COVER_CACHE_EXTS, "jpg", "封面图片").await?;
+    let (path, written) = cache_remote_file(
+        url,
+        cache_key,
+        dir.clone(),
+        COVER_CACHE_EXTS,
+        "jpg",
+        "封面图片",
+    )
+    .await?;
     // 封面缓存此前无上限，长期使用会无限增长（本地音乐的内嵌封面也落在这里）
     if written {
         sweep_cache_async(dir, SONG_COVER_CACHE_MAX_BYTES).await;
@@ -712,10 +770,7 @@ pub fn remove_cached_media(
 pub async fn clear_media_cache(app: AppHandle) -> Result<MediaCacheStats, String> {
     // remove_dir_all 与随后的统计都是重 IO，理由同 get_media_cache_stats
     tauri::async_runtime::spawn_blocking(move || {
-        for cache_dir in [
-            song_audio_cache_dir(&app)?,
-            song_cover_cache_dir(&app)?,
-        ] {
+        for cache_dir in [song_audio_cache_dir(&app)?, song_cover_cache_dir(&app)?] {
             clear_cache_dir_best_effort(&cache_dir);
         }
         media_cache_stats(&app)
@@ -732,20 +787,27 @@ mod cache_lookup_tests {
     /// 正常体积的文件要带出字节数，前端据此判定「落盘的试听片段」。
     #[test]
     fn rejects_stub_files_and_reports_bytes() {
-        let dir = std::env::temp_dir().join(format!("auralflow-cache-lookup-{}", unique_temp_suffix()));
+        let dir =
+            std::env::temp_dir().join(format!("auralflow-cache-lookup-{}", unique_temp_suffix()));
         std::fs::create_dir_all(&dir).unwrap();
 
         let stub = dir.join("wy-1-audio-flac.mp3");
         std::fs::write(&stub, vec![0u8; 74]).unwrap();
-        let hit = inspect_cached_file(&dir, "wy-1-audio-flac", &["mp3"], MIN_AUDIO_CACHE_BYTES).unwrap();
+        let hit =
+            inspect_cached_file(&dir, "wy-1-audio-flac", &["mp3"], MIN_AUDIO_CACHE_BYTES).unwrap();
         assert!(hit.is_none(), "74 字节的残包不能算命中");
         assert!(!stub.exists(), "残包应当被清掉，否则每次查询都会再命中一次");
 
         let good = dir.join("wy-2-audio-builtinNetease-320k.mp3");
         std::fs::write(&good, vec![0u8; (MIN_AUDIO_CACHE_BYTES + 10) as usize]).unwrap();
-        let hit = inspect_cached_file(&dir, "wy-2-audio-builtinNetease-320k", &["mp3"], MIN_AUDIO_CACHE_BYTES)
-            .unwrap()
-            .expect("正常体积的文件应当命中");
+        let hit = inspect_cached_file(
+            &dir,
+            "wy-2-audio-builtinNetease-320k",
+            &["mp3"],
+            MIN_AUDIO_CACHE_BYTES,
+        )
+        .unwrap()
+        .expect("正常体积的文件应当命中");
         assert_eq!(hit.bytes, MIN_AUDIO_CACHE_BYTES + 10);
         assert!(hit.path.ends_with("wy-2-audio-builtinNetease-320k.mp3"));
 
@@ -756,7 +818,8 @@ mod cache_lookup_tests {
     /// 都不能被误删。断点续传/并发下载不会跨进程存活，24 小时前的残片必然是死的。
     #[test]
     fn sweeps_only_stale_temp_files() {
-        let dir = std::env::temp_dir().join(format!("auralflow-cache-sweep-{}", unique_temp_suffix()));
+        let dir =
+            std::env::temp_dir().join(format!("auralflow-cache-sweep-{}", unique_temp_suffix()));
         std::fs::create_dir_all(&dir).unwrap();
         let long_ago = SystemTime::now()
             .checked_sub(std::time::Duration::from_secs(48 * 60 * 60))

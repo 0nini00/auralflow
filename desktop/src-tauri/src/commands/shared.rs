@@ -85,7 +85,10 @@ mod image_magic_tests {
     /// 认不出来的字节一律 `None` —— `set_audio_cover` 靠这个挡掉 SVG 这类活动内容。
     #[test]
     fn sniff_recognizes_supported_images_and_rejects_anything_else() {
-        assert_eq!(sniff_image_extension(b"\x89PNG\r\n\x1a\n\x00\x00"), Some("png"));
+        assert_eq!(
+            sniff_image_extension(b"\x89PNG\r\n\x1a\n\x00\x00"),
+            Some("png")
+        );
         assert_eq!(sniff_image_extension(b"\xff\xd8\xff\xe0"), Some("jpg"));
         assert_eq!(sniff_image_extension(b"GIF89a"), Some("gif"));
         assert_eq!(sniff_image_extension(b"BM\x00\x00"), Some("bmp"));
@@ -97,7 +100,10 @@ mod image_magic_tests {
         // RIFF 容器但不是 WEBP（WAV / AVI）不算图片。
         assert_eq!(sniff_image_extension(b"RIFF\x00\x00\x00\x00WAVEfmt "), None);
         // SVG 是活动内容：此前 `set_audio_cover` 会把这类字节当 JPEG 写进音频文件。
-        assert_eq!(sniff_image_extension(b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>"), None);
+        assert_eq!(
+            sniff_image_extension(b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>"),
+            None
+        );
         assert_eq!(sniff_image_extension(b""), None);
         assert_eq!(sniff_image_extension(b"not an image at all"), None);
     }
