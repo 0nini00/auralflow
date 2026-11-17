@@ -8,10 +8,11 @@
 | --- | --- | --- |
 | `utils.ts` | `formatDuration(seconds → m:ss)` | 时间格式化 |
 | `utils.ts` | `clamp(value, min, max)` | 数值区间约束 |
-| `crypto/weapi.ts` | `weapi(data) → { params, encSecKey }` | 网易云 weapi 加密：双 AES-CBC + RSA-no-padding 反转密钥 |
-| `crypto/weapi.ts` | `eapi(path, data) → { params }` | 网易云 eapi 加密：MD5 摘要 + AES-ECB |
-| `crypto/weapi.ts` | `WY_IV` / `WY_PRESET_KEY` / `WY_EAPI_KEY` | 硬编码 AES 密钥与 IV |
-| `crypto/weapi.ts` | 网易 RSA 公钥 | weapi `encSecKey` 所用 |
+| `crypto/weapi.ts` | `weapi(data) → Promise<{ params, encSecKey }>` | 网易云 weapi 加密 |
+| `crypto/weapi.ts` | `eapi(path, data) → string` | 网易云 eapi 加密，返回大写十六进制的 `params` |
+| `crypto/weapi.ts` | `linuxapi(data) → string` | 网易云 linuxapi 加密，返回 `eparams` |
+
+算法、密钥与 RSA 公钥定义在 `@lx/core` 的 `wy-crypto`（两端共用），本文件只提供 AES / RSA / MD5 原语。
 
 ## 依赖
 
@@ -20,5 +21,5 @@
 
 ## 使用场景
 
-- `weapi` / `eapi`：被 `services/wyAccountService.ts` 及网易相关请求链调用，构造请求体密文。
+- `weapi`：只被 `services/wyRequest.ts`（桌面唯一的 weapi 通道）调用；`eapi` / `linuxapi`：被 `services/wyAccountService.ts` 与 `services/sources/wyProvider.ts` 调用。
 - `formatDuration` / `clamp`：被 `components/PlayerBar`、`services/playerEngine.ts` 等用于播放进度与时间显示。

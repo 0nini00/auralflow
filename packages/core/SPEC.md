@@ -20,6 +20,7 @@ tags: [auralflow, shared]
 - **算了什么**：听歌统计聚合（`stats/listening-session`：`createListeningSession` / `sampleListeningSession` 采集独立收听会话，`aggregateListeningEvents` 归一成实测总时长 / 会话数、Top 歌曲与歌手、按天趋势）。只累计前台连续推进的时间，跳转 / 暂停 / 缓冲不计入；同一 `sessionId` 的 checkpoint 幂等合并，暂停恢复沿用原会话。两端各自负责会话生命周期与落盘（落盘边界严格解析，坏条目不允许静默解释为空库）；`stats/aggregate` 现在只保留结果类型。
 - **更新与发布相关**：发布说明清洗（`release-notes`：`summarizeReleaseNotes` 把 GitHub 发布正文降成纯文本摘要，丢表格/分隔线/代码块）与 GitHub 加速镜像地址改写（`github-mirror`：`GITHUB_MIRROR_PREFIX` / `isMirrorableGithubUrl` / `toMirroredGithubUrl`，刻意手写解析而不用 `new URL`——RN 的 polyfill 不完整）。两端各自接线：移动端镜像失败回退直连，桌面端的镜像/直连双清单由 `desktop/build-release.ps1` 产出。
 - **能不能连**：出站主机判定（`outbound-host`）、免 key 网关的客户端与响应映射（`mobile-api`）。
+- **网易云怎么请求**：weapi / eapi / linuxapi 的算法与密钥（`wy-crypto`，AES / RSA / MD5 原语由两端注入，core 不带加密库）、Cookie 归一化与 csrf 提取（`wy-cookie`）、weapi 请求拼装 / 响应文本解析 / 登录失效判定（`wy-request`，只描述形状，不发请求）。
 
 音源与领域模型的契约（`sources/`）也在这里——`MusicSource` / `MusicInfo` / `Lyric` 的形状是两端共同的词汇表。
 
