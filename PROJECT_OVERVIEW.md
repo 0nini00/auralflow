@@ -56,7 +56,7 @@ flowchart TB
 | `sources/tx-meta.ts` | 33 | 腾讯取链元数据（strMediaMid，脚本据此拼 M500/F000 文件名） |
 | `sources/cloud.ts` | 193 | 云盘曲目模型与判定（`wyCloud` 曲跳过试听判定：云盘不转码，标称码率估算必然误判） |
 | `sources/leaderboard.ts` | 220 | 排行榜模型与榜单曲目归一化 |
-| `custom-source.ts` | 61 | 自定义音源脚本契约：脚本正文归一化、版本号归一化与比较、远端地址归一化（`sources/` 下没有同名文件，此前文档写的「两份并存」不存在） |
+| `custom-source/` | — | 自定义音源里与宿主无关的部分：脚本正文 / 版本号 / 远端地址归一化（`remote-script`）、头部解析（`script-header`）、条目模型（`model`）、运行时协议（`runtime-protocol`）、远端更新检查（`remote-update`）、深度测试编排（`deep-test`）；脚本执行宿主仍在两端（`sources/` 下没有同名文件，此前文档写的「两份并存」不存在） |
 | `lyrics/parser.ts` | 500 | lrc / enhanced-lrc / yrc / qrc / krc / vtt 6 格式归一化解析 |
 | `lyrics/playbackSync.ts` | 276 | `findCurrentLyricLineIndex` 行定位唯一实现（lead 提前量 + 前进滞后带可配，首行前返回 -1）。**桌面 `useLyrics.ts` 与移动端 `playerService.getCurrentLyricIndex` 都已直接 import 本模块**；此前的桌面本地副本已删除，不要再按「超集副本」理解 |
 | `lyrics/overlay-clock.ts` | 81 | 悬浮歌词时钟调度：由位置算出当前行与到下一行的毫秒延迟（原生浮窗自走，不依赖 JS 每行推词），并判定前台校准时机 |

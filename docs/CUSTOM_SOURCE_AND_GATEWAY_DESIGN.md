@@ -281,7 +281,7 @@ key = `id::SHA256(normalizeCustomSourceScript(script))`（移动端用 SHA256，
 
 ### 8.1 脚本归一化与版本比较
 
-`@lx/core` 的 `custom-source.ts` 提供双端共享的版本工具：
+`@lx/core` 的 `custom-source/remote-script.ts` 提供双端共享的版本工具：
 
 - **`normalizeCustomSourceScript`**：`CRLF→LF` + `trim`，用于比较脚本内容是否实质变化（更新检测时忽略行尾差异）。
 - **`normalizeCustomSourceVersion`**：去掉前导 `v`，trim。
@@ -324,7 +324,7 @@ key = `id::SHA256(normalizeCustomSourceScript(script))`（移动端用 SHA256，
 | 试听判定 | `desktop/src/services/playback/playbackResolver.ts`、`playerEngine.ts` | `apps/mobile/src/services/playerService.ts`、`playerStore.ts` | `packages/core/src/stream-integrity.ts` |
 | 源注册 | `desktop/src/services/sources/sourceService.ts` | — | `packages/core/src/sources/registry.ts` |
 | CustomSourceContext 契约（未接线） | — | — | `packages/core/src/sources/custom-source.ts` |
-| 版本管理 | — | — | `packages/core/src/custom-source.ts` |
+| 版本管理 | — | — | `packages/core/src/custom-source/remote-script.ts` |
 | 出站主机判定（书面定义） | — | — | `packages/core/src/outbound-host.ts` |
 | 自定义源运行时 | `desktop/src/services/customSourceRuntime.ts` | `apps/mobile/src/services/customSourceRuntime.ts` | — |
 | 出站 SSRF（执行） | `desktop/src-tauri/src/outbound.rs` | `@lx/core outbound-host.ts`（调用点：`customSourceRuntime.ts`、`webdavUrlModel.ts`） | — |
