@@ -56,19 +56,3 @@ export const SETTINGS_CATEGORY_ICONS: Record<SettingsCategory["icon"], LucideIco
   data: Database,
   about: Info,
 };
-
-// 设置分类点击计数器：抽屉与设置首页共用，每次点击递增，
-// SettingsStack 以 (target, navId) 作为 key 重建内部栈（见 SettingsNavigator）。
-let settingsCategorySeq = 0;
-
-export function nextSettingsCategoryNavId(): number {
-  return ++settingsCategorySeq;
-}
-
-export const DEFAULT_SETTINGS_CATEGORY: SettingsCategoryName = "Account";
-
-export function getSettingsCategory(name: SettingsCategoryName): SettingsCategory {
-  const category = SETTINGS_CATEGORIES.find((item) => item.name === name);
-  if (!category) throw new Error(`Unknown settings category: ${name}`);
-  return category;
-}

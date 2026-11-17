@@ -151,10 +151,6 @@ export async function loadPlaybackSnapshot(): Promise<PlaybackSnapshot | null> {
   }
 }
 
-export async function clearPlaybackSnapshot(): Promise<void> {
-  await enqueueSnapshotWrite(() => AsyncStorage.removeItem(SNAPSHOT_KEY));
-}
-
 // ─────────────────────────────────────────────────────────────
 // 订阅 store 变化，debounce 保存
 // ─────────────────────────────────────────────────────────────

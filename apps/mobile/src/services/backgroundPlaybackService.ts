@@ -79,15 +79,6 @@ export async function dismissBackgroundPlaybackPrompt(): Promise<void> {
   }
 }
 
-/** 清除「不再提示」标记，使提示重新出现（设置页「重新检查」用）。 */
-export async function resetBackgroundPlaybackPrompt(): Promise<void> {
-  try {
-    await AsyncStorage.removeItem(PROMPT_DISMISSED_KEY);
-  } catch {
-    // 同上：失败仅导致提示不出现，静默忽略
-  }
-}
-
 /**
  * 主动申请通知权限。
  *

@@ -4,10 +4,8 @@ import { usePlaylistStore } from "../stores/playlistStore";
 import {
   buildImportedLocalPlaylists,
   buildPlaylistExportEnvelope,
-  isValidPlaylistTransferJson,
   type PlaylistTransferEnvelope,
 } from "./playlistTransferModel";
-import type { LocalPlaylist } from "./localPlaylistModel";
 
 export interface PlaylistImportResult {
   addedSongCount: number;
@@ -33,35 +31,12 @@ export async function exportPlaylists(): Promise<string> {
   return JSON.stringify(envelope, null, 2);
 }
 
-export async function exportLocalPlaylists(localPlaylists: LocalPlaylist[]): Promise<string> {
-  const envelope = buildPlaylistExportEnvelope({
-    likedSongs: [],
-    localPlaylists,
-    currentPlaylist: null,
-    currentPlaylistSongs: [],
-  });
-
-  return JSON.stringify(envelope, null, 2);
-}
-
 export async function shareExportedPlaylists(): Promise<void> {
   const { Share } = await import("react-native");
   try {
     await Share.share({
       title: "导出 AuralFlow 歌单",
       message: await exportPlaylists(),
-    });
-  } catch (err) {
-    Alert.alert("分享失败", err instanceof Error ? err.message : String(err));
-  }
-}
-
-export async function shareExportedLocalPlaylists(localPlaylists: LocalPlaylist[]): Promise<void> {
-  const { Share } = await import("react-native");
-  try {
-    await Share.share({
-      title: "导出 AuralFlow 歌单",
-      message: await exportLocalPlaylists(localPlaylists),
     });
   } catch (err) {
     Alert.alert("分享失败", err instanceof Error ? err.message : String(err));
@@ -94,9 +69,4 @@ export async function importPlaylistsFromJsonInput(json: string): Promise<Playli
     addedSongCount,
     imported: addedSongCount > 0,
   };
-}
-
-/** 校验 JSON 是否为合法的歌单导出格式。 */
-export function validatePlaylistsJson(json: string): boolean {
-  return isValidPlaylistTransferJson(json);
 }

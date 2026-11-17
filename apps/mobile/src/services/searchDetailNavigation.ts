@@ -83,15 +83,3 @@ export function openSearchPlaylistDetail(playlist: SearchPlaylistResult): Search
   const detailPlaylist = playlist.source === "tx" ? mapTxPlaylistInfo(playlist) : toWyPlaylistInfo(playlist);
   return { type: "playlist", playlist: detailPlaylist };
 }
-
-export function backFromSearchDetail(route: SearchDetailRoute | null): SearchDetailRoute | null {
-  if (route?.type === "artist" && route.parentAlbum) {
-    return route.parentAlbum;
-  }
-
-  if (route?.type === "album" && route.parentArtist) {
-    return { type: "artist", artist: route.parentArtist, parentAlbum: null };
-  }
-
-  return null;
-}

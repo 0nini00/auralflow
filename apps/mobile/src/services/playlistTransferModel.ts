@@ -85,20 +85,6 @@ export function buildPlaylistExportEnvelope({
   };
 }
 
-export function collectSongsFromTransferEnvelope(data: Partial<PlaylistTransferEnvelope>): MusicInfo[] {
-  if (!data || !Array.isArray(data.playlists)) {
-    throw new Error("歌单数据格式错误");
-  }
-
-  const songs: MusicInfo[] = [];
-  for (const playlist of data.playlists) {
-    if (playlist && Array.isArray(playlist.songs)) {
-      songs.push(...playlist.songs);
-    }
-  }
-  return songs;
-}
-
 export function mergeImportedSongs(existing: MusicInfo[], imported: MusicInfo[]): MergeImportedSongsResult {
   const merged = [...existing];
   const mergedIds = new Set(existing.map(buildSongKey));
@@ -166,13 +152,4 @@ export function buildImportedLocalPlaylists(
   });
 
   return { localPlaylists, addedSongCount };
-}
-
-export function isValidPlaylistTransferJson(json: string): boolean {
-  try {
-    const data = JSON.parse(json) as Partial<PlaylistTransferEnvelope>;
-    return !!data && Array.isArray(data.playlists);
-  } catch {
-    return false;
-  }
 }

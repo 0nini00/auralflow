@@ -87,13 +87,6 @@ export async function hideLyricOverlay(): Promise<boolean> {
   return getNativeModule().hide();
 }
 
-export async function updateLyricOverlay(
-  current: string,
-  next: string,
-): Promise<boolean> {
-  return getNativeModule().update({ current, next });
-}
-
 export async function setLyricOverlayStyle(style: LyricOverlayStyle): Promise<void> {
   return getNativeModule().setStyle(style);
 }

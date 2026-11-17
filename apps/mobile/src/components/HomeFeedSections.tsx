@@ -31,15 +31,6 @@ export interface AlbumRailProps {
   onPress: (id: string) => void;
 }
 
-export interface LeaderboardRailProps {
-  items: {
-    id: string;
-    name: string;
-    coverImgUrl?: string;
-  }[];
-  onPress: (id: string) => void;
-}
-
 export interface HomeSectionErrorProps {
   message: string;
   onRetry: () => void;
@@ -121,26 +112,6 @@ export function AlbumRail({ items, onPress }: AlbumRailProps) {
               {item.artistName}
             </Text>
           ) : null}
-        </Pressable>
-      ))}
-    </ScrollView>
-  );
-}
-
-export function LeaderboardRail({ items, onPress }: LeaderboardRailProps) {
-  const palette = usePalette();
-  return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rail}>
-      {items.map((item) => (
-        <Pressable
-          key={item.id}
-          accessibilityRole="button"
-          accessibilityLabel={item.name}
-          onPress={() => onPress(item.id)}
-          style={({ pressed }) => [styles.card, { opacity: pressed ? 0.75 : 1 }]}
-        >
-          <RailImage uri={item.coverImgUrl} palette={palette} />
-          <Text numberOfLines={1} style={[styles.name, { color: palette.text }]}>{item.name}</Text>
         </Pressable>
       ))}
     </ScrollView>

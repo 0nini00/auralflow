@@ -13,8 +13,6 @@ import {
   type WebdavConfig,
 } from "../services/webdavSyncService";
 
-const CONFIG_KEY = "auralflow.mobile.webdavConfig";
-
 interface WebdavState {
   url: string;
   username: string;
@@ -239,6 +237,3 @@ export const useWebdavStore = create<WebdavStore>((set, get) => ({
     }
   },
 }));
-
-/** 供 webdavSyncService 使用的配置存储键（保持与 service 一致）。 */
-export const WEBDAV_CONFIG_KEY = CONFIG_KEY;

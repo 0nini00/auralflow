@@ -19,13 +19,6 @@ export function buildCurrentSongActions(
   };
 }
 
-export function buildPersonalFmSongActions(
-  currentSong: MusicInfo | null,
-  isLiked: boolean,
-): CurrentSongActionsModel {
-  return buildCurrentSongActions(currentSong, isLiked);
-}
-
 export function buildImmersiveCurrentSongActions(
   currentSong: MusicInfo | null,
   isLiked: boolean,

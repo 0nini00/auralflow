@@ -32,8 +32,3 @@ export function hapticSuccess(): void {
 export function hapticWarning(): void {
   vibrateSafe(18);
 }
-
-/** 重操作反馈：删除文件等不可逆操作 */
-export function hapticHeavy(): void {
-  vibrateSafe(24);
-}

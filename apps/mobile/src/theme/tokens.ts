@@ -1,4 +1,3 @@
-import { Platform } from "react-native";
 import { RADIUS, TYPE_SCALE } from "@lx/core";
 
 /**
@@ -91,8 +90,6 @@ export const layout = {
  * 但全仓引用数为 0——平板适配从未实现，读代码的人却会以为已经支持。
  * 需要的内容宽度阈值请写在消费处，用「控件可用宽度」判断，不要用整屏宽度。
  */
-
-export const isAndroid = Platform.OS === "android";
 
 /**
  * 按压/禁用反馈的统一取值。

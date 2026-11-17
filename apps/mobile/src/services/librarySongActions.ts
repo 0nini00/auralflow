@@ -62,5 +62,3 @@ export function buildLibrarySongActions(section: LibrarySection, songCount: numb
     deleteTarget,
   };
 }
-
-export { shuffleItems as shuffleLibrarySongs } from "@lx/core";

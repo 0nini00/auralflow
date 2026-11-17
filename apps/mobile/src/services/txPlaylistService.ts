@@ -326,38 +326,6 @@ async function fetchPlaylistDetailViaMusicu(id: string, options: TxPlaylistReque
 }
 
 
-export async function resolveTxSongUrl(
-  song: Pick<MusicInfo, "id" | "source" | "quality">,
-  options: TxPlaylistRequestOptions = {}
-): Promise<string> {
-  if (song.source !== "tx") throw new Error("仅支持 QQ 音乐歌曲");
-  const songmid = song.id.trim();
-  if (!songmid) throw new Error("QQ 音乐歌曲缺少 songmid");
-
-  const guid = String(Math.random() * 10000000).replace(".", "");
-  const data = await musicuRequest({
-    req_0: {
-      module: "vkey.GetVkeyServer",
-      method: "CgiGetVkey",
-      param: {
-        guid,
-        songmid: [songmid],
-        songtype: [0],
-        uin: "0",
-        loginflag: 0,
-        platform: "20",
-      },
-    },
-  }, options);
-
-  const midurlinfo = data?.req_0?.data?.midurlinfo ?? [];
-  const sip = data?.req_0?.data?.sip ?? [];
-  const purl = midurlinfo[0]?.purl;
-  const server = sip[0];
-  if (!purl || !server) throw new Error("QQ 音乐未返回可播放地址");
-  return `${server}${purl}`;
-}
-
 export async function getTxPlaylistDetail(
   playlist: Pick<WyPlaylistInfo, "id" | "source" | "name">,
   options: TxPlaylistRequestOptions = {}

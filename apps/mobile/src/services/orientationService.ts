@@ -36,10 +36,3 @@ export async function restoreOrientationPreference(): Promise<boolean> {
   await orientationModule.restoreOrientation();
   return true;
 }
-
-/** 查询当前是否处于「已进入全屏」状态。 */
-export async function isFullscreenActive(): Promise<boolean> {
-  if (Platform.OS !== "android" || !orientationModule?.isFullscreen) return false;
-  const result = await orientationModule.isFullscreen();
-  return result?.fullscreen ?? false;
-}

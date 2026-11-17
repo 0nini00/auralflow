@@ -137,8 +137,6 @@ export async function fetchHomeFeedSection<K extends HomeFeedSectionId>(
   }
 }
 
-export const fetchHomeSection = fetchHomeFeedSection;
-
 export async function fetchHomeFeed(context: HomeFeedContext): Promise<HomeFeedSection[]> {
   return Promise.all(HOME_FEED_REMOTE_SECTION_ORDER.map(
     (id): Promise<HomeFeedSection> => fetchHomeFeedSection(id, context),

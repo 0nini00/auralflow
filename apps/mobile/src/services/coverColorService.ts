@@ -1,4 +1,4 @@
-import { NativeModules, Platform } from "react-native";
+import { NativeModules } from "react-native";
 
 import { getCachedCover } from "./cacheService";
 
@@ -25,10 +25,6 @@ interface NativeCoverColorModule {
 const nativeModule = (NativeModules as Record<string, unknown>).CoverColorModule as
   | NativeCoverColorModule
   | undefined;
-
-export function isCoverColorSupported(): boolean {
-  return Platform.OS === "android" && nativeModule != null;
-}
 
 const EMPTY_COLORS: CoverColors = { base: "", accent: "" };
 const MAX_CACHE_ENTRIES = 240;

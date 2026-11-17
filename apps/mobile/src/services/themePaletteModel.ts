@@ -49,14 +49,6 @@ const ACTION_FILL_TEXT = "#ffffff";
 /** 强调色填充上的深色候选（与桌面端同一个思路，色值沿移动端的墨绿） */
 const ACCENT_TEXT_DARK = "#062a19";
 
-/** 来源色只用于 6px 圆点，不做整块标签 */
-export const SOURCE_COLORS = {
-  wy: "#ff5a5f",
-  tx: "#2ecc8f",
-  local: "#8b918a",
-  custom: "#a78bfa",
-} as const;
-
 const lightBasePalette: Omit<ThemePalette, "primary" | "primaryInk" | "primaryText" | "actionFill" | "onActionFill" | "isDark"> = {
   // 与桌面端重设计 A 方向共用同一张暖中性画布
   background: "#f3f3ef",
