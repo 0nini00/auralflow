@@ -5,6 +5,7 @@ import {
   createImmersiveBackgroundDocument,
   createImmersiveBackgroundUpdate,
 } from '@/services/immersiveBackgroundDocument';
+import { logger } from '@/services/logger';
 
 export interface ImmersiveBackgroundProps {
   color: string;
@@ -101,7 +102,7 @@ export const ImmersiveBackground = memo(function ImmersiveBackground(props: Imme
       try {
         instance?.injectJavaScript(DISPOSE_SCRIPT);
       } catch (error) {
-        console.error('[ImmersiveBackground] 背景清理失败', error);
+        logger.error('[ImmersiveBackground] 背景清理失败', error);
       }
     };
   }, [clearReadyTimer, report, sendConfiguration]);

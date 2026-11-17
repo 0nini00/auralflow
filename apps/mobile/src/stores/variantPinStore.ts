@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { logger } from "@/services/logger";
 
 /**
  * 本端「首选版本」偏好（pin）——对齐桌面端 variantPinStore：
@@ -29,7 +30,7 @@ async function persistPins(pins: VariantPins): Promise<void> {
   try {
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(pins));
   } catch (error) {
-    console.error("[variantPins] 首选版本写盘失败", error);
+    logger.error("[variantPins] 首选版本写盘失败", error);
   }
 }
 

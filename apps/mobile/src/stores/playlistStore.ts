@@ -11,6 +11,7 @@ import {
   type MusicInfo,
 } from "@lx/core";
 import { useAccountStore } from "./accountStore";
+import { logger } from "@/services/logger";
 import { LatestRequestGate } from "@/services/latestRequestGate";
 import { isOwnedWyPlaylist } from "@/services/wyPlaylistOwnership";
 import { createSerialTaskQueue } from "@/utils/serialTaskQueue";
@@ -112,7 +113,7 @@ async function backupScrubbedLocalPlaylists(dropped: LocalPlaylist[]): Promise<v
     );
   } catch (error) {
     // 备份失败不阻断清理：被剔除的条目本地均为 0 首（纯引用），没有用户数据可丢
-    console.warn("[歌单] 备份被清理的本地歌单失败（清理仍会继续）", error);
+    logger.warn("[歌单] 备份被清理的本地歌单失败（清理仍会继续）", error);
   }
 }
 
@@ -130,7 +131,7 @@ async function scrubLocalPlaylists(localPlaylists: LocalPlaylist[]): Promise<Loc
   const { kept, dropped, suspicious } = scrubSyncedCloudPlaylistRefs(localPlaylists);
 
   if (suspicious.length > 0) {
-    console.warn(
+    logger.warn(
       "[歌单] 检测到疑似同步污染的本地歌单（纯数字 id 但含歌曲），已保留未删除：",
       suspicious.map((playlist) => playlist.name),
     );
@@ -145,7 +146,7 @@ async function scrubLocalPlaylists(localPlaylists: LocalPlaylist[]): Promise<Loc
     return { ...playlist, songs: result.kept };
   });
   if (removedSongs > 0) {
-    console.warn(`[歌单] 已清理 ${removedSongs} 首来源已下线的歌曲`);
+    logger.warn(`[歌单] 已清理 ${removedSongs} 首来源已下线的歌曲`);
   }
 
   if (dropped.length === 0) {
@@ -154,7 +155,7 @@ async function scrubLocalPlaylists(localPlaylists: LocalPlaylist[]): Promise<Loc
   }
 
   await backupScrubbedLocalPlaylists(dropped);
-  console.warn(
+  logger.warn(
     `[歌单] 已清理 ${dropped.length} 个被 WebDAV 同步误导入的云端歌单（本地为 0 首）：` +
       `${dropped.map((playlist) => playlist.name).join("、")}。` +
       `原始数据已备份到 AsyncStorage:${LOCAL_PLAYLISTS_SCRUB_BACKUP_KEY}`,

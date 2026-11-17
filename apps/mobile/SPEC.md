@@ -46,6 +46,6 @@ tags: [auralflow, mobile]
 
 两条约束：**只剔除本地 0 首的纯数字 id 条目**——有歌曲的保守保留并告警，那可能是用户真在用的歌单，删掉就是静默销毁用户数据；**先备份再丢弃**（AsyncStorage `auralflow.mobile.localPlaylists.scrub-backup`），清理是数据修复，但不能表现为静默销毁。
 
-来源已下线的历史条目则相反：收藏（`favoritesStore`）与本地歌单歌曲（`playlistStore`）在读盘后与同步合并后各跑一次 `core` 的 `dropRemovedSourceEntries`；播放历史（`historyStore`）走的是同属 `core` 的 `isRemovedSource` 谓词（本地 `withoutRemovedSources` 过滤，丢弃条数走 `console.warn`），同样读盘后（`loadHistory`）与同步合并后（`mergeHistory` / `replaceAllHistory`）各一次。三者都直接丢弃、不备份（用户明确选择）。
+来源已下线的历史条目则相反：收藏（`favoritesStore`）与本地歌单歌曲（`playlistStore`）在读盘后与同步合并后各跑一次 `core` 的 `dropRemovedSourceEntries`；播放历史（`historyStore`）走的是同属 `core` 的 `isRemovedSource` 谓词（本地 `withoutRemovedSources` 过滤，丢弃条数走 `logger.warn`，落盘），同样读盘后（`loadHistory`）与同步合并后（`mergeHistory` / `replaceAllHistory`）各一次。三者都直接丢弃、不备份（用户明确选择）。
 
 **本地曲的封面与歌词来源（2026-11 起）**：封面与歌词**都只取音频文件自己**。封面：内嵌 albumart → 同目录旁挂图（`folder.jpg` / `cover.jpg` 与同名图），都没有就显示占位图；**不联网匹配，也没有换封面入口**（平台封面匹配、相册选图、封面 URL 输入连同原生 `ImagePickerModule` 已删除）。歌词：只来自原生 `readAudioAssets` 读出的内嵌标签或同目录旁挂 `.lrc`，链路是 `localMediaRuntime.resolveLocalMediaAssets` → `localMediaAssetsService.createLocalMediaResolver`（`local` / `not-found` / `error` 三种结果，没有缓存、没有联网、没有候选、没有来源标注）；文件里没有歌词就如实显示「无歌词」，改歌名不会触发任何查询。联网找词、候选挑选、三态选择（`auto` / `picked` / `local-only`）、歌词选择孤儿表与「选择歌词」面板已整层删除；旧记录上的 `lyricsMode` / `lyricsFingerprint` / `lyricsSourceLabel` 在读盘时按未知字段丢弃。

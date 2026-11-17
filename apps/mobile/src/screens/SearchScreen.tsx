@@ -46,6 +46,7 @@ import {
   clearSearchHistory,
   replaceSearchHistory,
 } from "@/services/searchHistoryService";
+import { logger } from "@/services/logger";
 import {
   openAlbumDetailScreen,
   openArtistDetailScreen,
@@ -160,7 +161,7 @@ export function SearchScreen({
       const h = await getSearchHistory();
       setHistory(h);
     } catch (error) {
-      console.error("[搜索历史] 加载搜索历史失败", error);
+      logger.error("[搜索历史] 加载搜索历史失败", error);
       setHistory([]);
     }
   }, []);

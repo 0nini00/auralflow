@@ -1652,7 +1652,7 @@ export async function playNextHeartbeatSong(requestId?: number): Promise<void> {
           usePlayerStore.getState().appendHeartbeatBuffer(appended.slice(latest.buffer.length), true);
         }
       } catch (err) {
-        console.warn("[Heartbeat] 续批推荐失败 (静默忽略):", err);
+        logger.warn("[Heartbeat] 续批推荐失败 (静默忽略):", err);
       }
     })();
   }

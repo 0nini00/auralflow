@@ -22,7 +22,7 @@ function withoutRemovedSources(entries: HistoryEntry[]): HistoryEntry[] {
   const kept = (entries ?? []).filter((entry) => !isRemovedSource(entry?.song?.source));
   const removed = (entries?.length ?? 0) - kept.length;
   if (removed > 0) {
-    console.warn(`[历史] 已清理 ${removed} 条来源已下线的历史条目`);
+    logger.warn(`[历史] 已清理 ${removed} 条来源已下线的历史条目`);
   }
   return kept;
 }

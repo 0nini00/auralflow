@@ -206,7 +206,7 @@ export default function App() {
         // 各页面（首页/云盘/每日推荐）在需要时会自行 checkStatus，
         // 这里只负责把「已登录」尽快标出来；失败不阻塞启动。
         void checkAccountStatus().catch((error) => {
-          console.error("[启动] 账号状态校验失败", error);
+          logger.error("[启动] 账号状态校验失败", error);
         });
 
         setLocalDataReady(false);
@@ -226,7 +226,7 @@ export default function App() {
         ]).then((backgroundTasks) => {
           backgroundTasks.forEach((result, index) => {
             if (result.status === "rejected") {
-              console.error(`[启动恢复] ${backgroundLabels[index]}加载失败`, result.reason);
+              logger.error(`[启动恢复] ${backgroundLabels[index]}加载失败`, result.reason);
             }
           });
           if (!cancelled) {
@@ -291,7 +291,7 @@ export default function App() {
     const subscription = AppState.addEventListener("change", (state) => {
       if (state !== "active") return;
       void syncLyricOverlayVisible().catch((error: unknown) => {
-        console.error("[歌词悬浮窗] 同步可见状态失败", error);
+        logger.error("[歌词悬浮窗] 同步可见状态失败", error);
       });
     });
     return () => subscription.remove();

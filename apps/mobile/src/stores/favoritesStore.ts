@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { buildSongKey, dropRemovedSourceEntries, mergeWebdavSongs, type MusicInfo } from "@lx/core";
+import { logger } from "@/services/logger";
 
 import { createSerialTaskQueue } from "@/utils/serialTaskQueue";
 
@@ -21,7 +22,7 @@ const LEGACY_LIKED_SONGS_KEY = "auralflow.mobile.likedSongs";
 function withoutRemovedSources(songs: MusicInfo[]): MusicInfo[] {
   const { kept, dropped } = dropRemovedSourceEntries(songs ?? []);
   if (dropped.length > 0) {
-    console.warn(`[收藏] 已清理 ${dropped.length} 条来源已下线的历史条目`);
+    logger.warn(`[收藏] 已清理 ${dropped.length} 条来源已下线的历史条目`);
   }
   return kept;
 }
