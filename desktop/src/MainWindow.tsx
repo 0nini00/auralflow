@@ -132,7 +132,13 @@ export default function MainWindow() {
           playerEngine.setPauseOnExternalPlayback(normalizePauseOnExternalPlayback(s.pauseOnExternalPlayback));
           setPlaybackFailedAutoNext(s.playbackFailedAutoNext);
         })
-        .catch(() => undefined);
+        .catch((error) => {
+          // 读不到设置时，音量、外部播放暂停策略、失败自动切歌都停在默认值。
+          // 用户看到的是「音量又变了 / 设置没生效」，必须说明原因，而不是悄悄用默认值顶上。
+          logger.warn("读取设置失败，音量与播放策略未应用", error);
+          const detail = error instanceof Error ? error.message : String(error);
+          showToast(`读取设置失败，音量与播放策略未应用：${detail}`, { kind: "error" });
+        });
     };
     loadCursor();
     window.addEventListener("af-cursor-change", loadCursor);

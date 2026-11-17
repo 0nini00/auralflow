@@ -1,7 +1,8 @@
 import { AlertTriangle, Download, FolderOpen, Play, RefreshCw, Trash2, XCircle } from 'lucide-react';
-import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDownloadStore, type DownloadTask } from '@/stores/downloadStore';
+import { showToast } from '@/components/ui/Toast';
+import { logger } from '@/services/logger';
 import { usePlayerStore } from '@/stores/playerStore';
 import { PLAYER_COVER_CSS_SIZE, coverSrc } from '@/utils/imageReferrerPolicy';
 import { formatBytes } from '@/utils/formatBytes';
@@ -34,8 +35,6 @@ export function DownloadsView() {
 
     chooseDownloadDir,
 
-    initDownloadListeners,
-
     retryTask,
 
     removeTask,
@@ -49,9 +48,16 @@ export function DownloadsView() {
   } = useDownloadStore();
   const playQueue = usePlayerStore((s) => s.playQueue);
 
-  useEffect(() => {
-    initDownloadListeners().catch(() => undefined);
-  }, [initDownloadListeners]);
+  // 下载事件的监听由 store 在每次开始下载前注册（addDownload），与本页面是否挂载无关。
+  // 这里曾再注册一遍并吞掉失败；那次注册既不必要，也让失败无处可见。
+
+  const handleRetry = (task: DownloadTask) => {
+    retryTask(task.id).catch((error) => {
+      logger.warn('[下载] 重试失败', error);
+      const detail = error instanceof Error ? error.message : String(error);
+      showToast(`重试下载失败：${detail}`, { kind: 'error' });
+    });
+  };
 
   const handlePlay = (task: DownloadTask) => {
     const localMusic = toLocalMusic(task);
@@ -159,7 +165,7 @@ export function DownloadsView() {
 
                 {(task.status === 'failed' || task.status === 'cancelled') && (
 
-                  <button className="af-action-btn" onClick={() => retryTask(task.id)} title="重试">
+                  <button className="af-action-btn" onClick={() => handleRetry(task)} title="重试">
 
                     <RefreshCw size={15} />
 

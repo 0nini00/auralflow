@@ -7,13 +7,20 @@ import type { MusicInfo } from '@lx/core';
 const native = vi.hoisted(() => ({
   events: new Map<string, (payload: unknown) => void>(),
   prepare: vi.fn(), download: vi.fn(), enhance: vi.fn(), cancel: vi.fn(),
+  toast: vi.fn(), listenError: null as Error | null,
   nextId: 0,
 }));
 vi.mock('@tauri-apps/api/core', () => ({ convertFileSrc: (path: string) => `asset:${path}` }));
 vi.mock('@lx/tauri-bridge', async (importOriginal) => ({
   TAURI_EVENTS: (await importOriginal<typeof import('@lx/tauri-bridge')>()).TAURI_EVENTS,
-  listenTauriEvent: vi.fn(async (name, callback) => { native.events.set(name, callback); return () => {}; }),
+  listenTauriEvent: vi.fn(async (name, callback) => {
+    if (native.listenError) throw native.listenError;
+    native.events.set(name, callback);
+    return () => {};
+  }),
 }));
+vi.mock('@/components/ui/Toast', () => ({ showToast: native.toast }));
+vi.mock('@/services/logger', () => ({ logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
 vi.mock('@/services/downloadService', () => ({
   buildDownloadBaseName: (music: MusicInfo) => music.name,
@@ -51,7 +58,7 @@ async function mount() {
 
 beforeEach(async () => {
   vi.resetModules();
-  native.events.clear(); native.nextId = 0;
+  native.events.clear(); native.nextId = 0; native.listenError = null; native.toast.mockReset();
   native.prepare.mockReset().mockResolvedValue(prepared);
   native.download.mockReset(); native.enhance.mockReset().mockResolvedValue([]);
   native.cancel.mockReset().mockResolvedValue(true);
@@ -66,6 +73,42 @@ beforeEach(async () => {
   store.getState().setDownloadDir('memory-only');
 });
 afterEach(() => { act(() => renderer?.unmount()); renderer = undefined; vi.unstubAllGlobals(); });
+
+describe('下载事件监听由 store 负责', () => {
+  it('打开下载页不注册监听；开始下载时注册，与页面是否挂载无关', async () => {
+    await mount();
+    expect(native.events.size).toBe(0);
+    act(() => renderer?.unmount()); renderer = undefined;
+
+    native.download.mockReturnValue(deferred<string>().promise);
+    const id = await start();
+    expect([...native.events.keys()].sort()).toEqual(['download-completed', 'download-progress']);
+    emit('download-progress', { taskId: id, downloaded: 50, total: 100, progress: 50, speed: 10 });
+    expect(task().progress).toBe(50);
+  });
+
+  it('监听注册失败时新下载被拒绝并带上原因，不留下收不到进度的任务', async () => {
+    native.listenError = new Error('event bridge down');
+    await expect(store.getState().addDownload(music, '320k')).rejects.toThrow('event bridge down');
+    expect(store.getState().tasks).toHaveLength(0);
+    expect(native.download).not.toHaveBeenCalled();
+  });
+
+  it('重试时监听注册失败：提示原因，失败任务原样保留可再次重试', async () => {
+    native.download.mockRejectedValue('读取下载数据失败: connection reset');
+    const id = await start();
+    expect(task().status).toBe('failed');
+    store.setState({ listenersReady: false });
+    native.listenError = new Error('event bridge down');
+    await mount();
+
+    await act(async () => { renderer!.root.findByProps({ title: '重试' }).props.onClick(); await flush(); });
+
+    expect(native.toast).toHaveBeenCalledWith('重试下载失败：event bridge down', { kind: 'error' });
+    expect(task()).toMatchObject({ id, status: 'failed' });
+    expect(native.download).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('下载真实 store 与页面的异步生命周期', () => {
   it('取消调用失败保留下载状态、准确错误和可再次点击的取消入口', async () => {

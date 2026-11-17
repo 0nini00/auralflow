@@ -312,8 +312,16 @@ export const useDownloadStore = create<DownloadStore>()(
       },
 
       retryTask: async (taskId) => {
-        const task = get().tasks.find((item) => item.id === taskId);
-        if (!task || (task.status !== 'failed' && task.status !== 'cancelled')) return;
+        const findRetryable = () => {
+          const item = get().tasks.find((candidate) => candidate.id === taskId);
+          return item && (item.status === 'failed' || item.status === 'cancelled') ? item : undefined;
+        };
+        if (!findRetryable()) return;
+        // 先确认事件监听就绪再动任务：注册失败时任务原样留在列表里，可以再点重试，
+        // 而不是先删掉、再报错。等待期间任务可能已被移除，所以之后重新取一次。
+        await get().initDownloadListeners();
+        const task = findRetryable();
+        if (!task) return;
         cancelledTaskIds.delete(taskId);
         set((state) => ({ tasks: state.tasks.filter((item) => item.id !== taskId) }));
         await get().addDownload(task.music, normalizeDownloadQuality(task.quality));

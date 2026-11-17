@@ -626,7 +626,12 @@ export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
               failPlayback(`${e instanceof Error ? e.message : String(e)}（${reason}）`);
               return;
             } catch (fallbackErr) {
-              debugLog(`[fallback] 跨源降级过程异常: ${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`);
+              // 降级自身出错（典型：QQ 搜索请求失败）要和原始错误一起给用户，
+              // 否则只剩一句网易云的报错，看不出自动换源其实没跑成。
+              const fallbackMessage = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+              debugLog(`[fallback] 跨源降级过程异常: ${fallbackMessage}`);
+              failPlayback(`${e instanceof Error ? e.message : String(e)}（自动切换 QQ 音乐失败：${fallbackMessage}）`);
+              return;
             }
           }
 

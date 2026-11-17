@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const native = vi.hoisted(() => ({ getAudioInfo: vi.fn() }));
+const native = vi.hoisted(() => ({ getAudioInfo: vi.fn(), open: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ convertFileSrc: (path: string) => `asset:${path}` }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open: native.open }));
 vi.mock("@lx/tauri-bridge", () => ({ scanDirectory: vi.fn(), getAudioInfo: native.getAudioInfo }));
 import * as local from "../src/services/localMusicService";
 const song = { id: "file-1", path: "F:\\music\\song.flac", title: "本地曲目", artist: "歌手", album: "专辑", duration: 180, format: "flac", size: 1000, cover: "asset:embedded.jpg", isLocal: true };
-beforeEach(() => native.getAudioInfo.mockReset());
+beforeEach(() => { native.getAudioInfo.mockReset(); native.open.mockReset(); });
 describe("本地歌曲播放模型", () => {
   it("兼容旧原生字段但不再传入播放模型，保留内嵌歌词", async () => {
     native.getAudioInfo.mockResolvedValue({ ...song, replayGain: { gainDb: -6, peak: 0.9 }, lyrics: "[00:00]内嵌歌词" });
@@ -30,5 +30,21 @@ describe("本地歌曲播放模型", () => {
     expect(local.localSongToMusicInfo({ ...song, lyricsOverride: "[00:00]手写" }).localLyrics).toBe("[00:00]手写");
     // 既没有覆盖也没有内嵌词：就是没有歌词，不会有任何联网兜底。
     expect(local.localSongToMusicInfo({ ...song }).localLyrics).toBeUndefined();
+  });
+});
+
+describe("本地音乐服务的失败路径", () => {
+  it("读取单个文件失败时抛出原生侧的原因，不再返回 null", async () => {
+    native.getAudioInfo.mockRejectedValue(new Error("不支持的音频格式"));
+    await expect(local.LocalMusicService.getAudioInfo(song.path)).rejects.toThrow("不支持的音频格式");
+  });
+  it("选择对话框打不开时抛错；用户取消仍是 null / 空数组", async () => {
+    native.open.mockRejectedValue(new Error("dialog.open not allowed"));
+    await expect(local.LocalMusicService.selectDirectory()).rejects.toThrow("dialog.open not allowed");
+    await expect(local.LocalMusicService.selectFiles()).rejects.toThrow("dialog.open not allowed");
+
+    native.open.mockResolvedValue(null);
+    await expect(local.LocalMusicService.selectDirectory()).resolves.toBeNull();
+    await expect(local.LocalMusicService.selectFiles()).resolves.toEqual([]);
   });
 });

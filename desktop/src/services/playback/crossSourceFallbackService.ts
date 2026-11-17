@@ -33,13 +33,10 @@ export async function findTxVariants(song: MusicInfo): Promise<MusicInfo[]> {
   const tx = getSource("tx");
   if (!tx) return [];
 
-  let results: MusicInfo[] = [];
-  try {
-    const searchRes = await tx.search(keyword, "song", 1);
-    results = searchRes.songs || [];
-  } catch {
-    return [];
-  }
+  // 搜索失败直接上抛，且不落缓存：「QQ 搜索出错」和「QQ 没有这首歌」是两回事，
+  // 吞成空数组会让播放报错写成「未找到匹配的同名曲目」，还会让调用方以为没必要重试。
+  const searchRes = await tx.search(keyword, "song", 1);
+  const results = searchRes.songs || [];
 
   const matched = matchVariantCandidates(song, results, "tx");
 

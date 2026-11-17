@@ -132,6 +132,15 @@ it('原生退出应答超时向用户显示失败原因', async () => {
   expect(dependencies.toast).toHaveBeenCalledWith('等待保存完成超时，已取消退出', { kind: 'error' });
 });
 
+it('设置读取失败时提示用户，不静默套用默认音量与播放策略', async () => {
+  dependencies.loadSettings.mockRejectedValue(new Error('settings.json 无法读取'));
+  await mount();
+  await advance(0);
+  expect(dependencies.toast).toHaveBeenCalledWith('读取设置失败，音量与播放策略未应用：settings.json 无法读取', { kind: 'error' });
+  expect(dependencies.setVolume).not.toHaveBeenCalled();
+  expect(dependencies.setPauseOnExternalPlayback).not.toHaveBeenCalled();
+});
+
 describe("App 音源自动检查生命周期", () => {
   it("关闭时不检查 LX，但应用更新和启动同步照常运行", async () => {
     await mount();
