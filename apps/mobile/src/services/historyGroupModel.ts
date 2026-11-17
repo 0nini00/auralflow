@@ -55,10 +55,6 @@ export interface HistoryGroup {
   entries: HistoryEntry[];
 }
 
-export function historySongKey(song: Pick<MusicInfo, "source" | "id">): string {
-  return `${song.source}:${song.id}`;
-}
-
 export { DAY_MS, addDays, addMonths, dayStartOf, formatHistoryDayTitle, isSameDay, type HistoryCalendarDay };
 
 /** 按「今天 / 昨天 / 具体日期」对条目分组，保持每组内时间倒序。 */

@@ -1,4 +1,4 @@
-import type { MusicInfo } from "@lx/core";
+import { buildSongKey, type MusicInfo } from "@lx/core";
 import type { LocalPlaylist } from "./localPlaylistModel";
 import { getLocalPlaylistTrackCount, resolveLocalPlaylistCover } from "./localPlaylistModel";
 import type { WyPlaylistInfo } from "./wyPlaylistService";
@@ -19,21 +19,17 @@ export interface WyPlaylistSongOption {
   trackCount: number;
 }
 
-function getSongKey(song: Pick<MusicInfo, "source" | "id">): string {
-  return `${song.source}:${song.id}`;
-}
-
 export function buildLocalPlaylistSongOptions(
   playlists: LocalPlaylist[],
   song: Pick<MusicInfo, "source" | "id">,
 ): LocalPlaylistSongOption[] {
-  const songKey = getSongKey(song);
+  const songKey = buildSongKey(song);
   return playlists.map((playlist) => ({
     id: playlist.id,
     name: playlist.name,
     cover: resolveLocalPlaylistCover(playlist),
     trackCount: getLocalPlaylistTrackCount(playlist),
-    containsSong: playlist.songs.some((item) => getSongKey(item) === songKey),
+    containsSong: playlist.songs.some((item) => buildSongKey(item) === songKey),
   }));
 }
 

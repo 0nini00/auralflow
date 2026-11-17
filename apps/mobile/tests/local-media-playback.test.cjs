@@ -16,7 +16,7 @@ function setup() {
     zustand: mobileRequire('zustand'), 'react-native': { AppState: { addEventListener: () => ({ remove() {} }) } },
     '@react-native-async-storage/async-storage': { getItem: async () => null, setItem: async () => {} },
     'react-native-track-player': { __esModule: true, default: native, State: { Paused: 'paused', Playing: 'playing', Buffering: 'buffering', Stopped: 'stopped' }, RepeatMode: {}, Event: {}, AppKilledPlaybackBehavior: {}, Capability: {} },
-    '@lx/core': { ...coreLoader('../../packages/core/src/switch-step-queue.ts'), ...coreLoader('../../packages/core/src/request-limiter.ts'), ...coreLoader('../../packages/core/src/playback-quality.ts'), isPreviewDuration: () => false },
+    '@lx/core': { ...coreLoader('../../packages/core/src/switch-step-queue.ts'), ...coreLoader('../../packages/core/src/request-limiter.ts'), ...coreLoader('../../packages/core/src/playback-quality.ts'), buildSongKey: coreLoader('../../packages/core/src/song-variant.ts').buildSongKey, isPreviewDuration: () => false },
     '@/services/logger': { logger: { info() {}, warn() {}, error() {} } }, '@/services/androidPitchService': {},
     '@/services/playbackUrlCache': cache, './playbackUrlCache': cache, '@/services/playbackFailurePolicy': {},
     '@/services/lyricOverlayService': { isLyricOverlaySupported: () => false },

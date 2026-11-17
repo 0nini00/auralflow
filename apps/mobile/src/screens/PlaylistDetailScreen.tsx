@@ -10,7 +10,7 @@ import {
   Pressable,
 } from "react-native";
 import { useHeaderReveal } from "@/hooks/useHeaderReveal";
-import type { MusicInfo } from "@lx/core";
+import { buildSongKey, type MusicInfo } from "@lx/core";
 import { Download, FolderPlus, ListEnd, ListStart, Music2, SquareCheckBig } from "lucide-react-native";
 import type { WyPlaylistInfo } from "@/services/wyPlaylistService";
 
@@ -95,7 +95,7 @@ export function PlaylistDetailScreen({
   const songs = currentPlaylistSongs;
   const displayPlaylist = playlist;
   const selectedSongs = useMemo(
-    () => songs.filter((song) => selectedKeys.has(getSongKey(song))),
+    () => songs.filter((song) => selectedKeys.has(buildSongKey(song))),
     [selectedKeys, songs],
   );
   const allSelected = songs.length > 0 && selectedSongs.length === songs.length;
@@ -117,7 +117,7 @@ export function PlaylistDetailScreen({
   }, [playlist, fetchPlaylistDetail]);
 
   useEffect(() => {
-    const availableKeys = new Set(songs.map(getSongKey));
+    const availableKeys = new Set(songs.map(buildSongKey));
     setSelectedKeys((current) => {
       const next = new Set([...current].filter((key) => availableKeys.has(key)));
       if (next.size !== current.size) return next;
@@ -171,7 +171,7 @@ export function PlaylistDetailScreen({
   const canRemoveSongs = isLoggedIn && canRemoveSongsFromPlaylistDetail(displayPlaylist, wyUser?.userId);
 
   const toggleSelection = (song: MusicInfo) => {
-    const key = getSongKey(song);
+    const key = buildSongKey(song);
     setSelectedKeys((current) => {
       const next = new Set(current);
       if (next.has(key)) next.delete(key);
@@ -182,7 +182,7 @@ export function PlaylistDetailScreen({
 
   const enterSelectionMode = (song: MusicInfo) => {
     setSelectionMode(true);
-    setSelectedKeys(new Set([getSongKey(song)]));
+    setSelectedKeys(new Set([buildSongKey(song)]));
   };
 
   const exitSelectionMode = () => {
@@ -194,7 +194,7 @@ export function PlaylistDetailScreen({
   };
 
   const toggleSelectAll = () => {
-    setSelectedKeys(allSelected ? new Set() : new Set(songs.map(getSongKey)));
+    setSelectedKeys(allSelected ? new Set() : new Set(songs.map(buildSongKey)));
   };
 
   const handleBatchPlayNext = () => {
@@ -265,7 +265,7 @@ export function PlaylistDetailScreen({
         text: "移除",
         style: "destructive",
         onPress: () => {
-          const key = `${song.source}:${song.id}`;
+          const key = buildSongKey(song);
           setRemovingSongKey(key);
           removeSongFromWyPlaylist(displayPlaylist.id, song)
             .catch((err) => {
@@ -521,10 +521,6 @@ export function PlaylistDetailScreen({
       />
     </ScreenScaffold>
   );
-}
-
-function getSongKey(song: Pick<MusicInfo, "source" | "id">): string {
-  return `${song.source}:${song.id}`;
 }
 
 function formatPlayCount(count: number): string {

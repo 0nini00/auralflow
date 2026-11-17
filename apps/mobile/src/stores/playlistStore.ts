@@ -3,6 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { WyPlaylistInfo } from "../services/wyPlaylistService";
 import { getTxPlaylistDetail } from "../services/txPlaylistService";
 import {
+  buildSongKey,
   dropRemovedSourceEntries,
   mergeWebdavCloudPlaylists,
   mergeWebdavLocalPlaylists,
@@ -170,10 +171,6 @@ function parseLocalPlaylists(raw: string | null): LocalPlaylist[] {
   } catch (error) {
     throw error instanceof Error ? error : new Error("本地歌单数据格式错误");
   }
-}
-
-function songKey(song: Pick<MusicInfo, "source" | "id">): string {
-  return `${song.source}:${song.id}`;
 }
 
 type PlaylistStore = PlaylistState & PlaylistActions;
@@ -431,10 +428,10 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => {
       }
 
       await addPlaylistTracks(playlistId, [String(song.id)]);
-      const key = songKey(song);
+      const key = buildSongKey(song);
       const { currentPlaylist, currentPlaylistSongs } = get();
       const shouldUpdateCurrentSongs = currentPlaylist?.source === "wy" && currentPlaylist.id === playlistId;
-      const hasSongInCurrent = currentPlaylistSongs.some((item) => songKey(item) === key);
+      const hasSongInCurrent = currentPlaylistSongs.some((item) => buildSongKey(item) === key);
 
       set({
         playlists: get().playlists.map((playlist) =>
@@ -473,7 +470,7 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => {
       }
 
       await removePlaylistTracks(playlistId, [String(song.id)]);
-      const key = songKey(song);
+      const key = buildSongKey(song);
       const { currentPlaylist, currentPlaylistSongs } = get();
       const shouldUpdateCurrentSongs = currentPlaylist?.source === "wy" && currentPlaylist.id === playlistId;
 
@@ -487,7 +484,7 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => {
           ? { ...currentPlaylist, trackCount: Math.max(0, (currentPlaylist.trackCount ?? 0) - 1) }
           : currentPlaylist,
         currentPlaylistSongs: shouldUpdateCurrentSongs
-          ? currentPlaylistSongs.filter((item) => songKey(item) !== key)
+          ? currentPlaylistSongs.filter((item) => buildSongKey(item) !== key)
           : currentPlaylistSongs,
         error: null,
       });

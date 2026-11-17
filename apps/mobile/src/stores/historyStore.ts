@@ -1,11 +1,10 @@
 import { create } from "zustand";
-import { isRemovedSource, pruneHistoryEntries, trimHistorySong, type HistoryPlayEntry, type MusicInfo } from "@lx/core";
+import { buildSongKey, isRemovedSource, pruneHistoryEntries, trimHistorySong, type HistoryPlayEntry, type MusicInfo } from "@lx/core";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { logger } from "@/services/logger";
 import {
   dayStartOf,
   hasRealPlayedAt,
-  historySongKey,
   isSameDay,
   type HistoryEntry,
 } from "../services/historyGroupModel";
@@ -182,7 +181,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
             entries = (parsed as MusicInfo[])
               .filter((music) => music?.id)
               .map((song, index): HistoryEntry => {
-                const key = historySongKey(song);
+                const key = buildSongKey(song);
                 const recorded = timestamps[key];
                 // sidecar 里有真实播放时间就用；没有（旧数据从没记过时间）才补占位时间并标为合成。
                 return isUsableTimestamp(recorded)
@@ -225,7 +224,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
       await ensureHistoryLoaded(get);
       const { entries } = get();
       const now = Date.now();
-      const key = historySongKey(song);
+      const key = buildSongKey(song);
       // 同一天同一首歌只保留一条（刷新播放时间）；跨天保留多次播放记录。
       const filtered = entries.filter(
         (entry) => !(entry.key === key && isSameDay(entry.playedAt, now)),
@@ -282,7 +281,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
       const entries: HistoryEntry[] = remoteEntries
         .filter((entry) => entry?.song?.id)
         .map((entry, index) => {
-          const key = entry.key || historySongKey(entry.song);
+          const key = entry.key || buildSongKey(entry.song);
           // 云端带了真实播放时间就用；没有（0 / 缺失 / 非法）时只补一个本地占位时间供分组，
           // 并标为合成——统计按时间未知、回传云端写 0，绝不冒充真实时间。
           return isUsableTimestamp(entry.playedAt)
@@ -322,7 +321,7 @@ export const useHistoryStore = create<HistoryStore>((set, get) => ({
       }
       for (const entry of remoteEntries) {
         if (!entry?.song?.id) continue;
-        const key = entry.key || historySongKey(entry.song);
+        const key = entry.key || buildSongKey(entry.song);
         if (isUsableTimestamp(entry.playedAt)) {
           addReal({ key, song: entry.song, playedAt: entry.playedAt });
         } else if (!unknownByKey.has(key)) {

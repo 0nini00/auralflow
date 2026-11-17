@@ -8,7 +8,7 @@ import {
   Alert,
 } from "react-native";
 import type { MusicInfo } from "@lx/core";
-import { groupHasSource, groupSongResults, normalizeSearchKeyword, withSongVariants } from "@lx/core";
+import { buildSongKey, groupHasSource, groupSongResults, normalizeSearchKeyword, withSongVariants } from "@lx/core";
 import { layout, radius, spacing, touch, typography } from "@/theme/tokens";
 
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
@@ -309,14 +309,14 @@ export function SearchScreen({
     for (const group of songGroups) {
       if (group.variants.length <= 1) continue;
       const sources = [...new Set(group.variants.map((v) => v.source.toUpperCase()))];
-      map.set(`${group.primary.source}:${group.primary.id}`, sources.join(" / "));
+      map.set(buildSongKey(group.primary), sources.join(" / "));
     }
     return map;
   }, [songGroups]);
 
   /** 去重后显示多源标记，如 "wy / tx" */
   const getSongSourceLabel = useCallback(
-    (song: MusicInfo): string | undefined => sourceLabelByKey.get(`${song.source}:${song.id}`),
+    (song: MusicInfo): string | undefined => sourceLabelByKey.get(buildSongKey(song)),
     [sourceLabelByKey],
   );
 

@@ -30,6 +30,7 @@ function setup(initial = {}, options = {}) {
     "@lx/core": {
       ...coreLoader("../../packages/core/src/webdav-merge.ts"),
       ...coreLoader("../../packages/core/src/removed-source.ts"),
+      buildSongKey: coreLoader("../../packages/core/src/song-variant.ts").buildSongKey,
     },
     "../services/wyPlaylistService": {}, "../services/txPlaylistService": {}, "./accountStore": {},
     "@/services/logger": { logger: { warn() {} } },

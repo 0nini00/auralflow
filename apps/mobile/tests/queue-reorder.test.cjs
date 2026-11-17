@@ -12,7 +12,7 @@ function setup() {
     "react-native": { AppState: { addEventListener: () => ({ remove() {} }) } },
     "@react-native-async-storage/async-storage": { getItem: async () => null, setItem: async () => {} },
     "react-native-track-player": { __esModule: true, default: native, State: {}, RepeatMode: {}, Event: {}, AppKilledPlaybackBehavior: {}, Capability: {} },
-    "@lx/core": { isPreviewDuration: () => false },
+    "@lx/core": { buildSongKey: createLoader({})("../../packages/core/src/song-variant.ts").buildSongKey, isPreviewDuration: () => false },
     "@/services/androidPitchService": {},
     "@/services/playbackUrlCache": {},
     "@/services/playbackFailurePolicy": {},

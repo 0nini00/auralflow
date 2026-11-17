@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { MusicInfo } from "@lx/core";
+import { buildSongKey, type MusicInfo } from "@lx/core";
 import { getCloudSongs } from "@/services/wyCloudService";
 import { clearCloudDriveSnapshot, loadCloudDriveSnapshot, saveCloudDriveSnapshot } from "@/services/cloudDriveCache";
 
@@ -46,10 +46,10 @@ interface CloudDriveState {
 
 /** 追加一页并按 `source:id` 去重：翻页期间账号增删条目会让 offset 错位。 */
 function mergePage(current: MusicInfo[], incoming: MusicInfo[]): MusicInfo[] {
-  const seen = new Set(current.map((song) => `${song.source}:${song.id}`));
+  const seen = new Set(current.map(buildSongKey));
   const merged = [...current];
   for (const song of incoming) {
-    const key = `${song.source}:${song.id}`;
+    const key = buildSongKey(song);
     if (seen.has(key)) continue;
     seen.add(key);
     merged.push(song);

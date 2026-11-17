@@ -1,4 +1,4 @@
-import type { MusicInfo } from "@lx/core";
+import { buildSongKey, type MusicInfo } from "@lx/core";
 
 export interface LocalPlaylist {
   id: string;
@@ -75,15 +75,11 @@ function normalizeCover(cover?: string): string | undefined {
   return normalized || undefined;
 }
 
-function getSongKey(song: Pick<MusicInfo, "source" | "id">): string {
-  return `${song.source}:${song.id}`;
-}
-
 function dedupeSongs(songs: MusicInfo[]): MusicInfo[] {
   const seen = new Set<string>();
   const result: MusicInfo[] = [];
   for (const song of songs) {
-    const key = getSongKey(song);
+    const key = buildSongKey(song);
     if (seen.has(key)) continue;
     seen.add(key);
     result.push(song);
@@ -213,11 +209,11 @@ export function addSongsToLocalPlaylist(
   let addedCount = 0;
   let skippedCount = 0;
   const updatedPlaylists = updateLocalPlaylist(playlists, playlistId, (playlist) => {
-    const existingKeys = new Set(playlist.songs.map(getSongKey));
+    const existingKeys = new Set(playlist.songs.map(buildSongKey));
     const songsToAdd: MusicInfo[] = [];
 
     for (const song of songs) {
-      const key = getSongKey(song);
+      const key = buildSongKey(song);
       if (existingKeys.has(key)) {
         skippedCount += 1;
         continue;
@@ -246,8 +242,8 @@ export function addSongToLocalPlaylist(
 ): LocalPlaylist[] {
   const updatedAt = getNow(now);
   return updateLocalPlaylist(playlists, playlistId, (playlist) => {
-    const songKey = getSongKey(song);
-    if (playlist.songs.some((item) => getSongKey(item) === songKey)) return playlist;
+    const songKey = buildSongKey(song);
+    if (playlist.songs.some((item) => buildSongKey(item) === songKey)) return playlist;
     return {
       ...playlist,
       songs: [...playlist.songs, song],
@@ -264,8 +260,8 @@ export function removeSongFromLocalPlaylist(
 ): LocalPlaylist[] {
   const updatedAt = getNow(now);
   return updateLocalPlaylist(playlists, playlistId, (playlist) => {
-    const songKey = getSongKey(song);
-    const songs = playlist.songs.filter((item) => getSongKey(item) !== songKey);
+    const songKey = buildSongKey(song);
+    const songs = playlist.songs.filter((item) => buildSongKey(item) !== songKey);
     if (songs.length === playlist.songs.length) return playlist;
     return {
       ...playlist,
@@ -282,9 +278,9 @@ export function removeSongsFromLocalPlaylist(
   now?: number,
 ): LocalPlaylist[] {
   const updatedAt = getNow(now);
-  const keysToRemove = new Set(songsToRemove.map(getSongKey));
+  const keysToRemove = new Set(songsToRemove.map(buildSongKey));
   return updateLocalPlaylist(playlists, playlistId, (playlist) => {
-    const songs = playlist.songs.filter((item) => !keysToRemove.has(getSongKey(item)));
+    const songs = playlist.songs.filter((item) => !keysToRemove.has(buildSongKey(item)));
     if (songs.length === playlist.songs.length) return playlist;
     return {
       ...playlist,

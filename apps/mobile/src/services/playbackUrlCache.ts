@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { orderPlaybackCandidates, type MusicInfo } from "@lx/core";
+import { buildSongKey, orderPlaybackCandidates, type MusicInfo } from "@lx/core";
 
 /**
  * 移动端持久化播放 URL 缓存。
@@ -71,12 +71,8 @@ async function loadCache(): Promise<PlaybackUrlCacheState> {
   return cachePromise;
 }
 
-function getTrackKey(music: Pick<MusicInfo, "source" | "id">): string {
-  return `${music.source}:${music.id}`;
-}
-
 function getCacheKey(music: Pick<MusicInfo, "source" | "id">, quality: string): string {
-  return `${getTrackKey(music)}:${quality}`;
+  return `${buildSongKey(music)}:${quality}`;
 }
 
 function ttlFor(music: MusicInfo, url: string): number {
@@ -179,7 +175,7 @@ export async function invalidateCachedPlaybackUrl(
   quality?: string,
 ): Promise<void> {
   const cache = await loadCache();
-  const prefix = `${getTrackKey(music)}:`;
+  const prefix = `${buildSongKey(music)}:`;
   let changed = false;
 
   if (quality) {

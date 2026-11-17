@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import { Alert, FlatList, StyleSheet, Text, View } from "react-native";
 import { useHeaderReveal } from "@/hooks/useHeaderReveal";
-import type { MusicInfo } from "@lx/core";
+import { buildSongKey, type MusicInfo } from "@lx/core";
 import {
   Download,
   FolderPlus,
@@ -88,17 +88,16 @@ export function LocalPlaylistDetailScreen({
   }, []);
 
   const songs = useMemo(() => playlist?.songs ?? [], [playlist]);
-  const songKey = useCallback((song: MusicInfo) => `${song.source}:${song.id}`, []);
 
   const selectedSongs = useMemo(() => {
     if (selectedKeys.size === 0) return [];
-    return songs.filter((song) => selectedKeys.has(songKey(song)));
-  }, [songs, selectedKeys, songKey]);
+    return songs.filter((song) => selectedKeys.has(buildSongKey(song)));
+  }, [songs, selectedKeys]);
 
   const allSelected = songs.length > 0 && selectedKeys.size === songs.length;
 
   const toggleSelectSong = useCallback((song: MusicInfo) => {
-    const key = songKey(song);
+    const key = buildSongKey(song);
     setSelectedKeys((prev) => {
       const next = new Set(prev);
       if (next.has(key)) {
@@ -108,15 +107,15 @@ export function LocalPlaylistDetailScreen({
       }
       return next;
     });
-  }, [songKey]);
+  }, []);
 
   const toggleSelectAll = useCallback(() => {
     if (allSelected) {
       setSelectedKeys(new Set());
     } else {
-      setSelectedKeys(new Set(songs.map(songKey)));
+      setSelectedKeys(new Set(songs.map(buildSongKey)));
     }
-  }, [allSelected, songs, songKey]);
+  }, [allSelected, songs]);
 
   const exitSelectionMode = useCallback(() => {
     setSelectionMode(false);

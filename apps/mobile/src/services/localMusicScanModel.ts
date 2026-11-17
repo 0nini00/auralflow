@@ -1,4 +1,4 @@
-import type { MusicInfo } from "@lx/core";
+import { buildSongKey, type MusicInfo } from "@lx/core";
 
 export const MEDIA_STORE_SCOPE = "mediaStore:external:music";
 /** 仅覆盖下载记录与已入库下载曲指向的已知文件，不枚举整个下载目录。 */
@@ -37,10 +37,6 @@ export interface LocalMusicScanResult {
   songs: LocalMusicInfo[];
 }
 
-export function localSongKey(song: Pick<MusicInfo, "id" | "source">): string {
-  return song.source + ":" + song.id;
-}
-
 export function parseLocalSongs(raw: string | null): LocalMusicInfo[] {
   if (raw === null) return [];
   const parsed: unknown = JSON.parse(raw);
@@ -77,9 +73,9 @@ export function parseLocalSongs(raw: string | null): LocalMusicInfo[] {
 }
 
 export function mergeManualLocalSongs(existing: LocalMusicInfo[], incoming: LocalMusicInfo[]): LocalMusicInfo[] {
-  const merged = new Map(existing.map((song) => [localSongKey(song), song]));
+  const merged = new Map(existing.map((song) => [buildSongKey(song), song]));
   for (const song of incoming) {
-    const key = localSongKey(song);
+    const key = buildSongKey(song);
     merged.set(key, { ...merged.get(key), ...song, localOrigin: "manual", localScan: undefined });
   }
   return [...merged.values()];
@@ -115,12 +111,12 @@ export function reconcileLocalMusic(
       if (song.localOrigin !== scan.source || song.localScan?.scope !== scan.scope) {
         throw new Error("本地音乐扫描结果范围不一致");
       }
-      incoming.set(localSongKey(song), song);
+      incoming.set(buildSongKey(song), song);
     }
   }
   const merged: LocalMusicInfo[] = [];
   for (const old of existing) {
-    const key = localSongKey(old);
+    const key = buildSongKey(old);
     const next = incoming.get(key);
     const origin = old.localOrigin ?? "legacy";
     if (next) {

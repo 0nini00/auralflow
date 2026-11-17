@@ -8,7 +8,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { ChevronRight, Music2 } from "lucide-react-native";
-import type { MusicInfo } from "@lx/core";
+import { buildSongKey, type MusicInfo } from "@lx/core";
 
 import { CachedImage } from "@/components/CachedImage";
 import { SectionHeader } from "@/components/SectionHeader";
@@ -94,7 +94,7 @@ export function RecentlyPlayedSection({
             const singer = song.singer?.trim() || "未知歌手";
             return (
               <Touchable
-                key={`${song.source}:${song.id}`}
+                key={buildSongKey(song)}
                 onPress={() => onPlay(index)}
                 activeScale={0.97}
                 accessibilityRole="button"

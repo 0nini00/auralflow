@@ -1,5 +1,6 @@
 import { DeviceEventEmitter } from "react-native";
 import TrackPlayer, { Event, State, type EventPayloadByEvent } from "react-native-track-player";
+import { buildSongKey } from "@lx/core";
 import {
   cancelPendingPlayback, invalidatePrefetchForSong, playFromQueue, playNext,
   playPrevious, playSong, prefetchUpcomingSongNearEnd,
@@ -38,7 +39,7 @@ function failureMessage(error: unknown): string {
 
 function currentSongKey(): string | null {
   const song = usePlayerStore.getState().currentSong;
-  return song ? `${song.source}:${song.id}` : null;
+  return song ? buildSongKey(song) : null;
 }
 
 export default async function playbackService(data: { serviceId: string }): Promise<void> {
@@ -170,7 +171,7 @@ export default async function playbackService(data: { serviceId: string }): Prom
       if (!await hasNativePlaybackIntent(operation.requestId) || !owns(operation)) return;
       const song = usePlayerStore.getState().currentSong;
       if (!song) return;
-      if (shouldRetry && decidePlaybackFailureAction(`${song.source}:${song.id}`) === "retry") {
+      if (shouldRetry && decidePlaybackFailureAction(buildSongKey(song)) === "retry") {
         logger.warn("原生播放失败，重解析一次", failureMessage(error));
         try {
           await invalidateCachedPlaybackUrl(song);

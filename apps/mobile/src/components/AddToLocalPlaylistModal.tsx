@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Check, Cloud, FolderHeart, ListMusic, Plus, X } from "lucide-react-native";
-import type { MusicInfo } from "@lx/core";
+import { buildSongKey, type MusicInfo } from "@lx/core";
 
 import { CachedImage } from "@/components/CachedImage";
 import { useWyPlaylistSongOptions } from "@/hooks/useWyPlaylistSongOptions";
@@ -68,13 +68,13 @@ export function AddToLocalPlaylistModal({
   const options = useMemo(() => {
     if (!primarySong) return [];
     if (targetSongs.length === 1) return buildLocalPlaylistSongOptions(localPlaylists, primarySong);
-    const targetKeys = new Set(targetSongs.map(getSongKey));
+    const targetKeys = new Set(targetSongs.map(buildSongKey));
     return localPlaylists.map((playlist) => ({
       id: playlist.id,
       name: playlist.name,
       cover: resolveLocalPlaylistCover(playlist),
       trackCount: playlist.songs.length,
-      containsSong: playlist.songs.filter((item) => targetKeys.has(getSongKey(item))).length === targetKeys.size,
+      containsSong: playlist.songs.filter((item) => targetKeys.has(buildSongKey(item))).length === targetKeys.size,
     }));
   }, [localPlaylists, primarySong, targetSongs]);
 
@@ -454,10 +454,6 @@ export function AddToLocalPlaylistModal({
       </View>
     </Modal>
   );
-}
-
-function getSongKey(song: Pick<MusicInfo, "source" | "id">): string {
-  return `${song.source}:${song.id}`;
 }
 
 const styles = StyleSheet.create({

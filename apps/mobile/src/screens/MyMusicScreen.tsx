@@ -5,7 +5,7 @@ import { ChevronRight, Cloud, Code2, RefreshCw, Settings } from "lucide-react-na
 import { SettingsRow } from "@/components/settings/SettingsRow";
 import { Touchable } from "@/components/Touchable";
 
-import { addDays, aggregateListeningEvents, dayStartOf, type MusicInfo } from "@lx/core";
+import { addDays, aggregateListeningEvents, buildSongKey, dayStartOf, type MusicInfo } from "@lx/core";
 
 import { AccountInfo } from "@/components/AccountInfo";
 import { IconButton } from "@/components/IconButton";
@@ -95,7 +95,7 @@ export function MyMusicScreen({ onNavigateToPlayer: _onNavigateToPlayer }: MyMus
     const seen = new Set<string>();
     const list: MusicInfo[] = [];
     for (const song of history) {
-      const key = `${song.source}:${song.id}`;
+      const key = buildSongKey(song);
       if (seen.has(key)) continue;
       seen.add(key);
       list.push(song);

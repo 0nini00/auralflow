@@ -585,7 +585,7 @@ function parsePlayHistory(value: unknown): HistoryEntry[] {
     // 这里不合成任何时间——本地要不要补内部占位时间由 historyStore 决定并打标记。
     const playedAt = isObject(item) ? getNumber(item.playedAt, 0) : 0;
     entries.push({
-      key: `${music.source}:${music.id}`,
+      key: buildSongKey(music),
       song: music,
       playedAt: isUsablePlayedAt(playedAt) ? playedAt : 0,
     });
@@ -715,7 +715,7 @@ function syncOpenCloudPlaylistSongs(state: {
 function sameSongKeyOrder(a: MusicInfo[], b: MusicInfo[]): boolean {
   if (a.length !== b.length) return false;
   for (let index = 0; index < a.length; index += 1) {
-    if (`${a[index].source}:${a[index].id}` !== `${b[index].source}:${b[index].id}`) return false;
+    if (buildSongKey(a[index]) !== buildSongKey(b[index])) return false;
   }
   return true;
 }

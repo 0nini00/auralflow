@@ -800,7 +800,7 @@ function getNearbySongs(): MusicInfo[] {
     const result: MusicInfo[] = [];
     const push = (song: MusicInfo | undefined) => {
       if (!song) return;
-      const key = `${song.source}:${song.id}`;
+      const key = buildSongKey(song);
       if (seen.has(key)) return;
       seen.add(key);
       result.push(song);
@@ -954,7 +954,7 @@ export function prefetchUpcomingSongNearEnd(position: number, duration: number):
   const nextSong = getNextSongForPrefetch();
   if (!nextSong) return;
   const currentSong = usePlayerStore.getState().currentSong;
-  const key = `${currentSong ? `${currentSong.source}:${currentSong.id}` : "-"}->${nextSong.source}:${nextSong.id}`;
+  const key = `${currentSong ? buildSongKey(currentSong) : "-"}->${buildSongKey(nextSong)}`;
   if (key === lastUpcomingPrefetchKey) return;
   lastUpcomingPrefetchKey = key;
   prefetchSong(nextSong);
@@ -1029,7 +1029,7 @@ async function resolveCrossSourceSubstitute(
       // 全部失败才判终局，避免只因排序第一的候选恰是付费曲就放弃整首歌。
       // 失败原因逐个留档：线上要能区分「网络抖动」与「没有可用脚本」。
       logger.warn("跨源替代候选解析失败", {
-        song: `${candidate.source}:${candidate.id}`,
+        song: buildSongKey(candidate),
         reason: error instanceof Error ? error.message : String(error),
       });
       continue;
@@ -1058,7 +1058,7 @@ async function playSongCore(song: MusicInfo, startPosition?: number, requestId?:
       duration: song.interval || 0,
       lyrics: [],
     });
-    logger.info("开始解析播放", { requestId: intent, song: `${song.source}:${song.id}` });
+    logger.info("开始解析播放", { requestId: intent, song: buildSongKey(song) });
     // 点了就立刻有反馈：解析 + 装车这几百毫秒里先把上一首的声音压掉，
     // 否则「耳朵里还在放上一首」会让人以为没点上而重复点击（随后多跳一首）。
     // 只压原生音量、保留管线和前台服务；UI 播放态等待新曲提交。
@@ -1333,8 +1333,8 @@ export async function playNext(auto = false): Promise<void> {
   // 随机模式会现场抽号、FM 会去拉推荐，两条路径都会绕过插入位置。
   if (store.pinnedNextSong) {
     const pinned = store.pinnedNextSong;
-    const pinnedKey = `${pinned.source}:${pinned.id}`;
-    const pinnedIndex = queue.findIndex((item) => `${item.source}:${item.id}` === pinnedKey);
+    const pinnedKey = buildSongKey(pinned);
+    const pinnedIndex = queue.findIndex((item) => buildSongKey(item) === pinnedKey);
     if (pinnedIndex >= 0) {
       // 插播即离开推荐流：playFromQueue 在 FM 上下文里只会改批次下标，不会切歌。
       usePlayerStore.setState({ pinnedNextSong: null, playbackContext: { type: "queue" } });
@@ -1647,7 +1647,7 @@ export async function playNextHeartbeatSong(requestId?: number): Promise<void> {
         const refill = await runPlaybackResolution(() => getHeartbeatModeList(nextSong.id, context.playlistId));
         const latest = usePlayerStore.getState().playbackContext;
         if (latest === owner && latest.type === "heartbeat") {
-          const existingKeys = new Set(latest.currentBatch.map((s) => `${s.source}:${s.id}`));
+          const existingKeys = new Set(latest.currentBatch.map(buildSongKey));
           const { nextBuffer: appended } = appendHeartbeatRefill(latest.buffer, refill, existingKeys);
           usePlayerStore.getState().appendHeartbeatBuffer(appended.slice(latest.buffer.length), true);
         }
@@ -1691,7 +1691,7 @@ async function loadLocalMedia(song: MusicInfo): Promise<void> {
         if (!isCurrent()) return;
         const { lyrics, ...media } = result;
         usePlayerStore.setState({ lyrics, localMedia: { ...media, songKey, requestId } });
-        if (result.status !== "loading" && result.issues.length) logger.warn("本地资料补全", { song: `${song.source}:${song.id}`, issues: result.issues });
+        if (result.status !== "loading" && result.issues.length) logger.warn("本地资料补全", { song: buildSongKey(song), issues: result.issues });
       }, isCurrent);
     } catch (error) {
       if (!isCurrent()) return;

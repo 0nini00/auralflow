@@ -1,7 +1,7 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, ActivityIndicator, Alert, InteractionManager, useWindowDimensions, FlatList, type StyleProp, type ViewStyle, type RefreshControlProps, type NativeSyntheticEvent, type NativeScrollEvent } from "react-native";
 import type { MusicInfo } from "@lx/core";
-import { getSongVariants } from "@lx/core";
+import { buildSongKey, getSongVariants } from "@lx/core";
 import { AudioLines, CheckCircle2, Circle, Ellipsis, Heart, Music2 } from "lucide-react-native";
 import { CachedImage } from "./CachedImage";
 import { DownloadQualityModal } from "./DownloadQualityModal";
@@ -229,7 +229,7 @@ export function SongList({
   const scrollRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const renderSongRow = useCallback(
     ({ item: song, index }: { item: MusicInfo; index: number }) => {
-      const key = `${song.source}:${song.id}`;
+      const key = buildSongKey(song);
       return (
         <SongItem
           index={index}
@@ -484,7 +484,7 @@ export function SongList({
   return (
     <View style={styles.listContent}>
       {visibleSongs.map((song, index) => {
-        const key = `${song.source}:${song.id}`;
+        const key = buildSongKey(song);
         return (
           <SongItem
             key={`${song.source}-${song.id}-${index}`}
@@ -646,7 +646,7 @@ export const SongItem = memo(function SongItem({  song,
       }
       return;
     }
-    const pressKey = `${song.source}:${song.id}`;
+    const pressKey = buildSongKey(song);
     const now = Date.now();
     if (lastPressRef.current && lastPressRef.current.key === pressKey && now - lastPressRef.current.at < SONG_ROW_REPRESS_GUARD_MS) {
       return;
