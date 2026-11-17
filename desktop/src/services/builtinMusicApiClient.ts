@@ -1,15 +1,6 @@
 import type { MusicInfo, SourceTag } from "@lx/core";
-import {
-  pickBuiltinMusicApiAudioUrl,
-  resolveBuiltinMusicApiQuality,
-} from "@lx/core";
+import { createBuiltinMusicApiClient } from "@lx/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import {
-  buildBuiltinMusicApiUrl,
-  getBuiltinMusicApiGateway,
-  mapBuiltinMusicApiSong,
-  toBuiltinMusicApiBr,
-} from "@/services/builtinMusicApiModel";
 
 // 网关冷请求实测 1.8-2.6s；上限不能太短（会把可用结果掐掉），也不能太长
 // （解析链总预算只有 14s）。两条通道共享这一个预算，不再各自计时。
@@ -93,73 +84,19 @@ export async function fetchBuiltinMusicApiText(
   }
 }
 
-async function searchBuiltinMusicApiSongsGdstudio(
-  source: string,
-  keyword: string,
-  page: number,
-  limit: number,
-  displaySource: Extract<SourceTag, "wy" | "tx">,
-): Promise<MusicInfo[]> {
-  const text = await fetchBuiltinMusicApiText(buildBuiltinMusicApiUrl({
-    type: "search",
-    source,
-    name: keyword,
-    count: limit,
-    pages: page,
-  }));
-  const json = JSON.parse(text);
-  if (!Array.isArray(json)) return [];
-
-  return json
-    .map((item) => mapBuiltinMusicApiSong(item, displaySource))
-    .filter((item): item is MusicInfo => item != null);
-}
-
-async function resolveBuiltinMusicApiUrlGdstudio(music: MusicInfo, quality?: string): Promise<{
-  url: string;
-  quality: string;
-}> {
-  const gateway = getBuiltinMusicApiGateway(music);
-  if (!gateway) throw new Error("该歌曲没有内置音乐 API 解析信息");
-
-  const br = toBuiltinMusicApiBr(quality);
-  const text = await fetchBuiltinMusicApiText(buildBuiltinMusicApiUrl({
-    type: "url",
-    source: gateway.source,
-    id: gateway.trackId,
-    br,
-  }));
-  const json = JSON.parse(text);
-  const audioUrl = pickBuiltinMusicApiAudioUrl(json);
-  if (!audioUrl) throw new Error(`接口未返回可播放 URL: ${text.slice(0, 180)}`);
-
-  return {
-    url: audioUrl,
-    // 网关回的是实际码率（flac 常见 3229、无版权为 -1），换算成标签再交给竞速与缓存。
-    quality: resolveBuiltinMusicApiQuality((json as any)?.br, br),
-  };
-}
-
-async function getBuiltinMusicApiLyricGdstudio(music: MusicInfo): Promise<{ lyric?: string; tlyric?: string }> {
-  const gateway = getBuiltinMusicApiGateway(music);
-  if (!gateway?.lyricId) return {};
-
-  const text = await fetchBuiltinMusicApiText(buildBuiltinMusicApiUrl({
-    type: "lyric",
-    source: gateway.source,
-    id: gateway.lyricId,
-  }));
-  const json = JSON.parse(text);
-
-  return {
-    lyric: typeof json?.lyric === "string" ? json.lyric : undefined,
-    tlyric: typeof json?.tlyric === "string" ? json.tlyric : undefined,
-  };
-}
+/**
+ * 网关协议（URL 构造、响应校验、档位换算）的唯一实现在 `@lx/core` 的
+ * `createBuiltinMusicApiClient`，移动端用的是同一份。桌面只注入自己的传输层
+ * （Tauri 优先 + 共享 deadline 的 `fetchBuiltinMusicApiText`）。
+ *
+ * 此前这里手抄了一份并已漂移：搜索响应不是数组时桌面返回 `[]`、core 抛错。
+ * 现在跟随 core——非数组是网关异常（限流/错误对象），按失败上抛，不伪装成「没有结果」。
+ */
+const gatewayClient = createBuiltinMusicApiClient((url) => fetchBuiltinMusicApiText(url));
 
 /**
  * 内置音乐 API 搜索（gdstudio 网关直通）。
- * 空数组/异常响应按失败处理，由上层（searchBuiltinMusicApiWithMetadata）回退官方直连。
+ * 异常响应会抛错，由上层（searchBuiltinMusicApiWithMetadata）决定是报错还是只丢元数据。
  */
 export function searchBuiltinMusicApiSongs(
   source: string,
@@ -168,7 +105,7 @@ export function searchBuiltinMusicApiSongs(
   limit: number,
   displaySource: Extract<SourceTag, "wy" | "tx">,
 ): Promise<MusicInfo[]> {
-  return searchBuiltinMusicApiSongsGdstudio(source, keyword, page, limit, displaySource);
+  return gatewayClient.searchSongs(source, keyword, page, limit, displaySource);
 }
 
 /**
@@ -179,10 +116,10 @@ export function resolveBuiltinMusicApiUrl(music: MusicInfo, quality?: string): P
   url: string;
   quality: string;
 }> {
-  return resolveBuiltinMusicApiUrlGdstudio(music, quality);
+  return gatewayClient.resolveUrl(music, quality);
 }
 
 /** 内置音乐 API 拉取歌词（gdstudio 网关直通）。 */
 export function getBuiltinMusicApiLyric(music: MusicInfo): Promise<{ lyric?: string; tlyric?: string }> {
-  return getBuiltinMusicApiLyricGdstudio(music);
+  return gatewayClient.getLyric(music);
 }
