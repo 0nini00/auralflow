@@ -13,15 +13,6 @@ const fixture = vi.hoisted(() => ({
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
 vi.mock('@tauri-apps/plugin-fs', () => ({ readTextFile: vi.fn() }));
 vi.mock('../src/services/customSourceRuntime', () => ({
-  // 真实实现里 name 来自脚本头部注释,加载时也会按脚本重算;
-  // mock 必须同样由脚本推导,否则「同名/不同名」两种情况区分不出来。
-  parseDesktopUserApiInfo: (script: string) => ({
-    name: script.includes('another') ? '另一个源' : '测试源',
-    description: `来自 ${script}`,
-    author: '作者',
-    homepage: 'https://example.com',
-    version: script.includes('v2') ? '2.0.0' : '1.0.0',
-  }),
   invalidateRuntimeCache: fixture.invalidate,
   invalidateAllRuntimeCaches: vi.fn(),
 }));
@@ -36,11 +27,26 @@ vi.mock('../src/stores/libraryPersistence', async () => ({
   },
 }));
 
+// name 等字段来自脚本头部注释,加载时也会按脚本重算;这里用真实头部解析,
+// 「同名/不同名」由头部的 @name 决定。
+function script(body: string, header: { name?: string; version?: string } = {}): string {
+  return [
+    '/*',
+    ` * @name ${header.name ?? '测试源'}`,
+    ` * @description 来自 ${body}`,
+    ' * @author 作者',
+    ' * @homepage https://example.com',
+    ` * @version ${header.version ?? '1.0.0'}`,
+    ' */',
+    `// ${body}`,
+  ].join('\n');
+}
+
 const oldSource = {
   id: 'existing-id',
   name: '测试源',
   description: '旧描述',
-  script: '// old script v1',
+  script: script('old script v1'),
   enabled: false,
   allowShowUpdateAlert: false,
   author: '旧作者',
@@ -76,12 +82,13 @@ describe('导入同名音源时原位覆盖', () => {
     fixture.saved = { featureEnabled: true, sources: [oldSource] };
     const { useCustomSourceStore } = await load();
 
-    await useCustomSourceStore.getState().importScript('// new script v2 longer');
+    const updated = script('new script v2 longer', { version: '2.0.0' });
+    await useCustomSourceStore.getState().importScript(updated);
 
     const sources = useCustomSourceStore.getState().sources;
     expect(sources).toHaveLength(1);
     expect(sources[0].id).toBe('existing-id');
-    expect(sources[0].script).toBe('// new script v2 longer');
+    expect(sources[0].script).toBe(updated);
     expect(sources[0].version).toBe('2.0.0');
     expect(sources[0].description).toContain('new script v2 longer');
   });
@@ -90,7 +97,7 @@ describe('导入同名音源时原位覆盖', () => {
     fixture.saved = { featureEnabled: true, sources: [oldSource] };
     const { useCustomSourceStore } = await load();
 
-    const result = await useCustomSourceStore.getState().importScript('// new script');
+    const result = await useCustomSourceStore.getState().importScript(script('new script'));
 
     expect(result.enabled).toBe(false);
     expect(result.allowShowUpdateAlert).toBe(false);
@@ -101,7 +108,7 @@ describe('导入同名音源时原位覆盖', () => {
     fixture.saved = { featureEnabled: true, sources: [oldSource] };
     const { useCustomSourceStore } = await load();
 
-    const result = await useCustomSourceStore.getState().importScript('// new script');
+    const result = await useCustomSourceStore.getState().importScript(script('new script'));
 
     expect(result.sources).toBeUndefined();
     expect(result.testStatus).toBe('idle');
@@ -117,7 +124,7 @@ describe('导入同名音源时原位覆盖', () => {
     fixture.saved = { featureEnabled: true, sources: [oldSource] };
     const { useCustomSourceStore } = await load();
 
-    await useCustomSourceStore.getState().importScript('// new script');
+    await useCustomSourceStore.getState().importScript(script('new script'));
 
     expect(fixture.invalidate).toHaveBeenCalledWith('existing-id');
   });
@@ -126,7 +133,7 @@ describe('导入同名音源时原位覆盖', () => {
     fixture.saved = { featureEnabled: true, sources: [oldSource] };
     const { useCustomSourceStore } = await load();
 
-    await expect(useCustomSourceStore.getState().importScript('// old script v1')).rejects.toThrow('相同');
+    await expect(useCustomSourceStore.getState().importScript(oldSource.script)).rejects.toThrow('相同');
     expect(useCustomSourceStore.getState().sources).toHaveLength(1);
   });
 
@@ -135,7 +142,7 @@ describe('导入同名音源时原位覆盖', () => {
     fixture.name = '另一个源';
     const { useCustomSourceStore } = await load();
 
-    await useCustomSourceStore.getState().importScript('// another script');
+    await useCustomSourceStore.getState().importScript(script('another script', { name: '另一个源' }));
 
     const sources = useCustomSourceStore.getState().sources;
     expect(sources).toHaveLength(2);

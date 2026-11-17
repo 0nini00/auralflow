@@ -11,7 +11,6 @@ const fixture = vi.hoisted(() => ({
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("@tauri-apps/plugin-fs", () => ({ readTextFile: vi.fn() }));
 vi.mock("../src/services/customSourceRuntime", () => ({
-  parseDesktopUserApiInfo: () => ({ name: "测试源", description: "" }),
   testCustomSourceDeep: fixture.deepTest,
   checkCustomSourceUpdate: fixture.checkUpdate,
   invalidateRuntimeCache: vi.fn(),

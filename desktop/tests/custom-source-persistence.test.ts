@@ -4,7 +4,6 @@ vi.mock("@lx/tauri-bridge", () => ({ libraryLoad: storage.load, librarySave: sto
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("@tauri-apps/plugin-fs", () => ({ readTextFile: vi.fn() }));
 vi.mock("../src/services/customSourceRuntime", () => ({
-  parseDesktopUserApiInfo: () => ({ name: "测试源", description: "" }),
   testCustomSourceDeep: vi.fn(), checkCustomSourceUpdate: vi.fn(),
   invalidateRuntimeCache: vi.fn(), invalidateAllRuntimeCaches: vi.fn(),
 }));
