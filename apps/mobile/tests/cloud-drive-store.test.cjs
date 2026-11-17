@@ -39,7 +39,8 @@ function setup() {
   const calls = [];
   const pending = [];
   const cacheCalls = { load: [], save: [], clear: [] };
-  const cacheState = { value: null };
+  const cacheState = { value: null, saveError: null };
+  const warnings = [];
   const api = {
     getCloudSongs: (params) => {
       calls.push(params);
@@ -50,16 +51,20 @@ function setup() {
   };
   const cache = {
     loadCloudDriveSnapshot: async (uid) => { cacheCalls.load.push(uid); return cacheState.value; },
-    saveCloudDriveSnapshot: async (uid, snapshot) => { cacheCalls.save.push({ uid, snapshot }); },
+    saveCloudDriveSnapshot: async (uid, snapshot) => {
+      cacheCalls.save.push({ uid, snapshot });
+      if (cacheState.saveError) throw cacheState.saveError;
+    },
     clearCloudDriveSnapshot: async (uid) => { cacheCalls.clear.push(uid); },
   };
   const load = createLoader({
     zustand: mobileRequire('zustand'),
     '@/services/wyCloudService': api,
     '@/services/cloudDriveCache': cache,
+    '@/services/logger': { logger: { warn: (...args) => warnings.push(args) } },
   });
   const { useCloudDriveStore } = load('src/stores/cloudDriveStore.ts');
-  return { store: useCloudDriveStore, calls, pending, cacheCalls, cacheState };
+  return { store: useCloudDriveStore, calls, pending, cacheCalls, cacheState, warnings };
 }
 
 test('同一账号再次进页面复用已加载的列表，不再请求', async () => {
@@ -219,4 +224,20 @@ test('拉取成功后写入缓存；点刷新时不读缓存', async () => {
   await refreshed;
   assert.deepEqual(h.cacheCalls.load, [], '强制刷新不该回头读缓存');
   assert.equal(h.calls.length, 2);
+});
+
+test('缓存写入失败不影响列表，但必须留痕', async () => {
+  const h = setup();
+  h.cacheState.saveError = new Error('disk full');
+  const first = h.store.getState().initialize('uid-A');
+  await tick();
+  h.pending[0].resolve(page([song('1')]));
+  await first;
+  await tick();
+
+  assert.deepEqual(h.store.getState().songs.map((item) => item.id), ['1']);
+  assert.equal(h.store.getState().error, '');
+  assert.equal(h.warnings.length, 1);
+  assert.match(String(h.warnings[0][0]), /缓存写入失败/);
+  assert.equal(h.warnings[0][1].message, 'disk full');
 });

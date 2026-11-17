@@ -57,19 +57,12 @@ export async function saveCloudDriveSnapshot(
   const songs = normalizeCloudDriveSongs(snapshot.songs);
   // 空列表不值得落盘：省不下什么，还会把「当时确实为空」固化成缓存。
   if (songs.length === 0) return;
-  try {
-    await AsyncStorage.setItem(cacheKey(uid), JSON.stringify({ ...snapshot, songs, cachedAt: Date.now() }));
-  } catch {
-    // 写盘失败只是下次要重新拉，不能让它冒泡到 UI。
-  }
+  // 写盘失败由调用方（cloudDriveStore）记录：不影响本次列表，但不能无声无息。
+  await AsyncStorage.setItem(cacheKey(uid), JSON.stringify({ ...snapshot, songs, cachedAt: Date.now() }));
 }
 
 /** 退出登录时清掉这个账号的缓存。 */
 export async function clearCloudDriveSnapshot(uid: string): Promise<void> {
   if (!uid) return;
-  try {
-    await AsyncStorage.removeItem(cacheKey(uid));
-  } catch {
-    // 删不掉也只能算了：下次登录会覆盖同键。
-  }
+  await AsyncStorage.removeItem(cacheKey(uid));
 }

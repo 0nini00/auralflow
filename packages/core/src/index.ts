@@ -27,6 +27,7 @@ export * from "./wy-cookie";
 export * from "./wy-crypto";
 export * from "./wy-request";
 export * from "./cloud-drive-snapshot";
+export * from "./cloud-drive-store";
 export * from "./share-link";
 export * from "./shuffle";
 export * from "./user-apis-sync";
