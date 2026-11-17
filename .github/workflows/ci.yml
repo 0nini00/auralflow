@@ -83,8 +83,11 @@ jobs:
 
       # 与 package.json 的 `test:rust` 是同一条命令。这里直接调 cargo 而不经 pnpm：
       # 本任务不安装 Node/pnpm（Rust 测试不需要 JS 工具链，装了也只是多一步）。
+      # CI 比本地多一个 `--locked`：Cargo.lock 与 Cargo.toml 不同步时必须红，
+      # 而不是静默重新解析依赖。曾有一次发布提交整份重生成了 Cargo.lock
+      # （tauri-plugin-http 2.5.9 -> 2.9.0）而 JS 包没跟上，所有 HTTP 请求全部失败。
       - name: cargo test
-        run: cargo test --manifest-path desktop/src-tauri/Cargo.toml
+        run: cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml
 
       - name: 发布源码绑定回归（隔离 Git 仓库与模拟上传）
         shell: pwsh

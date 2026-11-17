@@ -172,7 +172,10 @@ Write-Host "签名密钥预检通过（路径与口令不回显）"
 if ($Publish) { Assert-BuildSourceUnchanged }
 Push-Location $repoRoot
 try {
-    & pnpm desktop:tauri:build
+    # `-- --locked` 经两层 pnpm 脚本原样透传给 `tauri build`，再由它交给 cargo：
+    # Cargo.lock 与 Cargo.toml 不同步时构建直接失败，而不是静默重新解析出另一套依赖。
+    # `--` 必须加引号：裸写的 `--` 会被 PowerShell 当作参数结束符吞掉，到不了 pnpm。
+    & pnpm desktop:tauri:build '--' '--locked'
     if ($LASTEXITCODE -ne 0) { throw "Tauri 构建失败，退出码 $LASTEXITCODE" }
 } finally {
     Pop-Location

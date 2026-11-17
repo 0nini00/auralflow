@@ -16,5 +16,6 @@ if not exist dist\index.html (
   echo frontend dist missing
   exit /b 1
 )
-node_modules\.bin\tauri.cmd build
+rem Args after "--" go to cargo: fail when Cargo.lock is out of sync instead of silently re-resolving.
+node_modules\.bin\tauri.cmd build -- --locked
 exit /b %ERRORLEVEL%
