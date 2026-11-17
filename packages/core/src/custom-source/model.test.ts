@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildCustomSourceUpdatePatch,
+  createCustomSourceId,
   normalizeCustomSourceForStore,
   patchCustomSource,
   stripCustomSourceTransientState,
@@ -31,6 +32,19 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe("createCustomSourceId", () => {
+  it("由 user_api_ 前缀、8 位以内的 base36 随机段与当前时间戳组成", () => {
+    expect(createCustomSourceId(() => 0.123456789)).toBe(`user_api_${(0.123456789).toString(36).slice(2, 10)}_${NOW}`);
+    expect(createCustomSourceId()).toMatch(/^user_api_[0-9a-z]{1,8}_\d+$/);
+  });
+
+  it("同一毫秒内的两次导入靠随机段区分", () => {
+    const values = [0.25, 0.75];
+    const ids = [createCustomSourceId(() => values[0]), createCustomSourceId(() => values[1])];
+    expect(new Set(ids).size).toBe(2);
+  });
 });
 
 describe("patchCustomSource", () => {

@@ -3,6 +3,7 @@ import { readTextFile } from '@tauri-apps/plugin-fs';
 import {
   CUSTOM_SOURCE_REMOTE_CHECK_MIN_INTERVAL_MS,
   buildCustomSourceUpdatePatch,
+  createCustomSourceId,
   normalizeCustomSourceForStore,
   parseDesktopUserApiInfo,
   patchCustomSource,
@@ -50,10 +51,6 @@ interface CustomSourceStore {
 const FAILED_CHECK_RETRY_MS = 30 * 60 * 1000;
 // 同一音源的检查进行中时复用同一个 Promise，避免启动检查与手动检查并发跑两遍脚本。
 const updateChecksInFlight = new Map<string, Promise<void>>();
-
-function makeId(): string {
-  return `user_api_${Math.random().toString(36).slice(2, 10)}_${Date.now()}`;
-}
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -131,7 +128,7 @@ export const useCustomSourceStore = createLibraryStore<CustomSourceStore>()((set
         }
 
         const item: CustomSourceItem = {
-          id: makeId(),
+          id: createCustomSourceId(),
           name: info.name,
           description: info.description,
           script,

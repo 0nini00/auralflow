@@ -5,6 +5,7 @@ import { createSerialTaskQueue } from "@/utils/serialTaskQueue";
 import {
   CUSTOM_SOURCE_REMOTE_CHECK_MIN_INTERVAL_MS,
   buildCustomSourceUpdatePatch,
+  createCustomSourceId,
   normalizeCustomSourceForStore,
   parseDesktopUserApiInfo,
   patchCustomSource,
@@ -51,10 +52,6 @@ interface CustomSourceStore {
 interface PersistedCustomSourceState {
   sources?: CustomSourceItem[];
   customSourceAutoCheck?: boolean;
-}
-
-function makeId(): string {
-  return `user_api_${Math.random().toString().slice(2, 5)}_${Date.now()}`;
 }
 
 function formatError(error: unknown): string {
@@ -175,7 +172,7 @@ export const useCustomSourceStore = create<CustomSourceStore>()((set, get) => {
 
     const now = Date.now();
     const item: CustomSourceItem = {
-      id: makeId(),
+      id: createCustomSourceId(),
       name: info.name,
       description: info.description,
       script,

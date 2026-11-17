@@ -47,6 +47,14 @@ export interface CustomSourceUpdateAlert {
 /** 远端更新检查节流间隔：同一源距上次远端检查不足 24 小时不再重复拉取。 */
 export const CUSTOM_SOURCE_REMOTE_CHECK_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * 新导入条目的 id：`user_api_<随机段>_<毫秒时间戳>`。
+ * id 同时是运行时缓存与更新检查去重的键，随机段取 8 位 base36，足以区分同一毫秒内的多次导入。
+ */
+export function createCustomSourceId(random: () => number = Math.random): string {
+  return `user_api_${random().toString(36).slice(2, 10)}_${Date.now()}`;
+}
+
 /** 按 id 打补丁并刷新 `updatedAt`；返回新数组，不修改入参。 */
 export function patchCustomSource(
   sources: CustomSourceItem[],
