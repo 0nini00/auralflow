@@ -14,8 +14,8 @@ import { getSource } from '@/services/sources/sourceService';
 import { canConfirmBuiltinProviderQuality, canResolveWithBuiltinMusicApi } from '@/services/builtinMusicApiModel';
 import { getCachedPlaybackUrl, invalidateCachedPlaybackUrl, isLocalCachedPlaybackUrl, saveCachedPlaybackUrl } from '@/services/persistentCache';
 import { cacheResolvedPlaybackMedia, findCachedPlaybackMedia, StalePlaybackCacheError } from '@/services/mediaCache';
-import { customSourceAccess, customSourcePersistence, useCustomSourceStore } from '@/stores/customSourceStore';
-import { CustomSourceDisabledError, type CustomSourceOperation } from '@/services/customSourceAccess';
+import { requireCustomSourceOperation, type CustomSourceOperation } from '@/services/customSourceAccess';
+import { openCustomSourceAccess } from '@/services/customSourceGate';
 
 export async function resolvePlaybackUrl(
   music: MusicInfo,
@@ -25,13 +25,12 @@ export async function resolvePlaybackUrl(
 ): Promise<PlaybackResolvedUrl> {
   // 解析链总预算:竞速 + 慢源回退(实测第三方源 2-10s)后仍需在预算内留出
   // 探活与媒体缓存的时间;14s 内未出结果直接抛错走错误分支,不再无限等。
-  if (!useCustomSourceStore.getState().featureReady) await customSourcePersistence.ready;
-  const operation = useCustomSourceStore.getState().featureEnabled ? customSourceAccess.capture() : undefined;
+  const operation = await openCustomSourceAccess();
   const deadlineAt = Date.now() + PLAYBACK_RESOLVE_TOTAL_BUDGET_MS;
   const resolved = await withResolveDeadline(
     resolvePlaybackUrlUncapped(music, variants, preferredQuality, options, operation, deadlineAt),
   );
-  getCustomSourceOperation(resolved, operation);
+  requireCustomSourceOperation(resolved.backend, operation);
   return resolved;
 }
 
@@ -445,7 +444,7 @@ async function resolvePlaybackUrlUncapped(
     };
     try {
       let resolved = await raceQualityTierLazy(builtinPrimary, getCustomAttempt, request, operation);
-      getCustomSourceOperation(resolved, operation);
+      requireCustomSourceOperation(resolved.backend, operation);
       // 本轮可接受的最低档是 tier 的最后一个元素（首轮是「不低于选定音质」的
       // 全部档位，最后一个是用户门槛；后续轮次只有一个档）。
       // 低于它说明是自定义源提前拿到的降档结果：不能在这里定稿，
@@ -593,24 +592,13 @@ async function resolvePlaybackUrlUncapped(
   throw new Error(message);
 }
 
-function getCustomSourceOperation(
-  resolved: PlaybackResolvedUrl,
-  operation?: CustomSourceOperation,
-): CustomSourceOperation | undefined {
-  // 隐藏兜底同样经 LX 脚本取链，生命周期判定与自定义音源一致。
-  if (resolved.backend !== 'customSource' && resolved.backend !== 'hiddenSource') return undefined;
-  if (!operation) throw new CustomSourceDisabledError();
-  operation.assertActive();
-  return operation;
-}
-
 async function prepareResolvedPlaybackMedia(
   primary: MusicInfo,
   resolved: PlaybackResolvedUrl,
   cacheMedia: boolean,
   operation?: CustomSourceOperation,
 ): Promise<PlaybackResolvedUrl> {
-  const access = getCustomSourceOperation(resolved, operation);
+  const access = requireCustomSourceOperation(resolved.backend, operation);
   if (!cacheMedia) return resolved;
   try {
     const cached = await cacheResolvedPlaybackMedia(primary, resolved, access);

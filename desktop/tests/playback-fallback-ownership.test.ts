@@ -6,7 +6,7 @@ vi.mock("@/stores/libraryStore", () => ({ useLibraryStore: { getState: () => ({ 
 vi.mock("@/stores/customSourceStore", () => ({
   useCustomSourceStore: { getState: () => ({ featureEnabled: false, featureReady: true }) },
   customSourcePersistence: { ready: Promise.resolve() },
-  customSourceAccess: { version: 0 },
+  customSourceAccess: { version: 0, isEnabled: () => false },
 }));
 vi.mock("@/services/playerEngine", () => ({ playerEngine: {
   play: f.play, stop: f.stop, pause: f.pause, subscribe: vi.fn(cb => { f.subscription = cb; }),

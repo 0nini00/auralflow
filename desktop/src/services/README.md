@@ -30,6 +30,7 @@ services/
 | 二维码 | `qrCode.ts` | 237 | SVG 二维码生成 |
 | 私人 FM 队列 | `personalFmQueue.ts` | 223 | 私人 FM 队列 + dislike → trash |
 | 下载 | `downloadService.ts` | 209 | 下载 + ID3 嵌入 + sidecar `.lrc` |
+| LX 访问门禁 | `customSourceGate.ts` | 58 | 「等持久化恢复 → 判开关 → 取令牌」的唯一实现：`openCustomSourceAccess`（功能关着也继续，未启用给 undefined）/ `requireCustomSourceAccess`（未启用即拒绝）/ `snapshotCustomSourceAccess`（代际 + 令牌）。拿到结果后的检查在 `customSourceAccess.ts`：`requireCustomSourceOperation`、`canReuseCustomSourceResult`、`usesCustomSourceRuntime` |
 | 预取 | `playback/prefetchService.ts` | 228 | 预取 `[-1,+1,+2]` 随机 `[+1,+2,-1]` → `playerEngine.preload`，10min TTL |
 | 源解析 | `playback/playbackResolver.ts` | 413 | 源解析链 + 竞速 + `streamProbe` + `isPreviewStream` |
 | 持久化缓存 | `persistentCache.ts` | 319 | 持久化缓存 |

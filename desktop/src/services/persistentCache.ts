@@ -1,7 +1,7 @@
 import type { LyricResponse, MusicInfo } from '@lx/core';
 import { libraryLoad, librarySave } from '@lx/tauri-bridge';
-import { customSourceAccess, customSourcePersistence, useCustomSourceStore } from '@/stores/customSourceStore';
-import type { CustomSourceOperation } from '@/services/customSourceAccess';
+import { canReuseCustomSourceResult, requireCustomSourceOperation, type CustomSourceOperation } from '@/services/customSourceAccess';
+import { openCustomSourceAccess } from '@/services/customSourceGate';
 import type { PlaybackBackendId, PlaybackResolvedUrl } from '@/services/playback/types';
 
 const CACHE_NAMESPACE = 'cache';
@@ -245,8 +245,7 @@ export async function getCachedPlaybackUrl(
   variants: MusicInfo[] = [primary],
   now = Date.now(),
 ): Promise<PlaybackResolvedUrl | null> {
-  if (!useCustomSourceStore.getState().featureReady) await customSourcePersistence.ready;
-  const accessVersion = customSourceAccess.version;
+  const operation = await openCustomSourceAccess();
   const cache = await loadCache();
   const candidates = variants.length ? variants : [primary];
 
@@ -256,9 +255,7 @@ export async function getCachedPlaybackUrl(
       const entry = cache.playbackUrls[key];
       if (!entry) continue;
       // 隐藏兜底同样经 LX 脚本取链：脚本被停用或版本变化后不再复用其缓存地址。
-      if ((entry.backend === 'customSource' || entry.backend === 'hiddenSource') && (
-        !useCustomSourceStore.getState().featureEnabled || customSourceAccess.version !== accessVersion
-      )) continue;
+      if (!canReuseCustomSourceResult(entry.backend, operation)) continue;
       if (!isLocalCachedPlaybackUrl(entry.url) && entry.expiresAt <= now) {
         delete cache.playbackUrls[key];
         void saveCache(cache, now);
@@ -293,11 +290,7 @@ export async function saveCachedPlaybackUrl(
   now = Date.now(),
   operation?: CustomSourceOperation,
 ): Promise<void> {
-  if ((resolved.backend === 'customSource' || resolved.backend === 'hiddenSource') && !operation) {
-    throw new Error('LX 播放地址缓存缺少操作令牌');
-  }
-  const access = resolved.backend === 'customSource' || resolved.backend === 'hiddenSource' ? operation : undefined;
-  access?.assertActive();
+  const access = requireCustomSourceOperation(resolved.backend, operation);
   const cache = await loadCache();
   access?.assertActive();
   const entry: CachedPlaybackUrlEntry = {

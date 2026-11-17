@@ -13,11 +13,12 @@ import {
 } from "@/services/customSourceRuntime";
 import { hiddenSourceSearchers } from "@/services/sources/hidden/hiddenSearchers";
 import {
-  customSourcePersistence,
+  customSourceAccess,
   useCustomSourceStore,
   type CustomSourceItem,
 } from "@/stores/customSourceStore";
 import type { CustomSourceOperation } from "@/services/customSourceAccess";
+import { openCustomSourceAccess } from "@/services/customSourceGate";
 import { probeStreamUrl } from "./streamProbe";
 import { withTimeout } from "@/utils/withTimeout";
 import type { PlaybackAttempt, PlaybackResolvedUrl } from "./types";
@@ -99,9 +100,8 @@ function errorMessage(error: unknown): string {
  * 运行时仍会按脚本声明的 sources 做最终校验，脚本不支持时直接失败并换下一个。
  */
 function enabledResolvers(platform: HiddenSourceId): CustomSourceItem[] {
-  const state = useCustomSourceStore.getState();
-  if (!state.featureEnabled) return [];
-  return state.sources.filter((source) => {
+  if (!customSourceAccess.isEnabled()) return [];
+  return useCustomSourceStore.getState().sources.filter((source) => {
     if (!source.enabled) return false;
     const infos = source.sources;
     if (!infos) return true;
@@ -121,8 +121,9 @@ export async function startHiddenSearch(
 ): Promise<HiddenCandidateGroup[]> {
   if (song.isLocal || song.source === "local") return [];
 
-  if (!useCustomSourceStore.getState().featureReady) await customSourcePersistence.ready;
-  if (!useCustomSourceStore.getState().featureEnabled) return [];
+  // 搜索不碰 LX 运行时，所以只用门禁的「开没开」、不留令牌：取链时由调用方传入
+  // 自己的令牌（resolveHiddenFromGroups），那才是结果归属的依据。
+  if (!(await openCustomSourceAccess())) return [];
 
   const keyword = buildVariantSearchKeyword(song);
   if (!keyword) return [];

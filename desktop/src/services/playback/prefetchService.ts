@@ -1,7 +1,9 @@
 import { buildSongKey, orderPlaybackCandidates, type MusicInfo } from '@lx/core';
 import { getLyrics, type LyricResponse } from '@/services/lyricsService';
 import { playerEngine } from '@/services/playerEngine';
-import { customSourceAccess, customSourcePersistence, useCustomSourceStore } from '@/stores/customSourceStore';
+import { customSourceAccess } from '@/stores/customSourceStore';
+import { canReuseCustomSourceResult, usesCustomSourceRuntime } from '@/services/customSourceAccess';
+import { snapshotCustomSourceAccess } from '@/services/customSourceGate';
 import { useVariantPinStore } from '@/stores/variantPinStore';
 import { resolvePlaybackUrl } from './playbackResolver';
 import {
@@ -111,11 +113,13 @@ async function prefetchTrack(
   music: MusicInfo,
   options: Required<Pick<PrefetchNearbyTracksOptions, 'resolvePlaybackUrl' | 'getLyrics' | 'preloadUrl' | 'preloadCoverUrl' | 'now'>>,
 ): Promise<void> {
-  if (!useCustomSourceStore.getState().featureReady) await customSourcePersistence.ready;
-  const accessVersion = customSourceAccess.version;
+  // 身份快照必须在第一个 await 之前取：调用之后才发生的清缓存/换选择，都要让本次结果作废。
   const generation = cacheGeneration;
   const selectionKey = getSelectionKey(music);
   const isCurrentSelection = () => generation === cacheGeneration && selectionKey === getSelectionKey(music);
+  // 预取除了令牌还要代际：条目带着它供消费方比对；功能关着（没有令牌）时，
+  // 也得靠它发现「预取期间被打开/换代」，见函数末尾。
+  const access = await snapshotCustomSourceAccess();
   const fetchedAt = options.now();
   const key = getTrackKey(music);
   if (getPrefetchedTrack(music, fetchedAt)) return;
@@ -141,13 +145,11 @@ async function prefetchTrack(
       const resolved = await options.resolvePlaybackUrl(music, variants, undefined, { cacheMedia: false });
       if (resolved?.url) {
         // 同一 source 的链接也可能来自 LX（普通自定义源或隐藏兜底），不能用 source 推断权限。
-        if ((resolved.backend === 'customSource' || resolved.backend === 'hiddenSource') && (
-          !useCustomSourceStore.getState().featureEnabled || customSourceAccess.version !== accessVersion
-        )) return;
+        if (!canReuseCustomSourceResult(resolved.backend, access.operation)) return;
         entry = {
           ...entry,
           ...buildPlaybackPrefetchEntry(music, resolved, fetchedAt),
-          customSourceVersion: resolved.backend === 'customSource' || resolved.backend === 'hiddenSource' ? accessVersion : undefined,
+          customSourceVersion: usesCustomSourceRuntime(resolved.backend) ? access.version : undefined,
           coverUrl: entry.coverUrl,
         };
       }
@@ -166,7 +168,7 @@ async function prefetchTrack(
   }
 
   // 失效操作的空结果也不能占住 TTL，阻止重新开启后的新预取。
-  if (!entry.url && customSourceAccess.version !== accessVersion) return;
+  if (!entry.url && customSourceAccess.version !== access.version) return;
   if (!isEntryAccessible(entry) || !isCurrentSelection()) return;
   prefetchCache.set(key, entry);
 }
@@ -218,9 +220,9 @@ export async function prefetchTracks(musicList: MusicInfo[]): Promise<void> {
 
 function isEntryAccessible(entry: PlaybackPrefetchEntry): boolean {
   // 隐藏兜底与普通自定义源共用 LX 脚本生命周期：脚本停用/升级后预取条目必须失效。
-  if (entry.backend !== 'customSource' && entry.backend !== 'hiddenSource') return true;
-  const state = useCustomSourceStore.getState();
-  return state.featureReady && state.featureEnabled && entry.customSourceVersion === customSourceAccess.version;
+  if (!usesCustomSourceRuntime(entry.backend)) return true;
+  // 读缓存是同步的、手里没有令牌：直接问当前是否启用，并核对条目是不是这一代取到的。
+  return customSourceAccess.isEnabled() && entry.customSourceVersion === customSourceAccess.version;
 }
 
 export function getPrefetchedTrack(music: MusicInfo, now = Date.now()): PlaybackPrefetchEntry | undefined {

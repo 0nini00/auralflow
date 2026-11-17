@@ -24,10 +24,15 @@ vi.mock("../src/services/customSourceRuntime", () => ({
 vi.mock("../src/services/playback/streamProbe", () => ({
   probeStreamUrl: (...args: unknown[]) => fixture.probe(...args),
 }));
-vi.mock("../src/stores/customSourceStore", () => ({
-  useCustomSourceStore: { getState: () => fixture.store },
-  customSourcePersistence: { ready: fixture.ready },
-}));
+vi.mock("../src/stores/customSourceStore", async () => {
+  // 门禁读的是 customSourceAccess.isEnabled()：用真实实现接到夹具状态上，不另写一份判定。
+  const { createCustomSourceAccess: createAccess } = await import("../src/services/customSourceAccess");
+  return {
+    useCustomSourceStore: { getState: () => fixture.store },
+    customSourcePersistence: { ready: fixture.ready },
+    customSourceAccess: createAccess(() => fixture.store.featureReady && fixture.store.featureEnabled),
+  };
+});
 vi.mock("@lx/tauri-bridge", () => ({
   debugLog: (message: string) => {
     fixture.logs.push(message);

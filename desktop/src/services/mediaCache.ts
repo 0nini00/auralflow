@@ -4,7 +4,7 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 import { cacheRemoteAudio, cacheRemoteImage, lookupCachedMedia, removeCachedMedia, type CachedMedia } from '@lx/tauri-bridge';
 import { logger } from '@/services/logger';
 import { isLocalCachedPlaybackUrl } from '@/services/persistentCache';
-import type { CustomSourceOperation } from '@/services/customSourceAccess';
+import { canReuseCustomSourceResult, requireCustomSourceOperation, type CustomSourceOperation } from '@/services/customSourceAccess';
 import type { PlaybackBackendId, PlaybackResolvedUrl } from '@/services/playback/types';
 
 export const CACHEABLE_AUDIO_SOURCES = new Set<MusicInfo['source']>(['wy', 'tx']);
@@ -288,14 +288,7 @@ export async function cacheResolvedPlaybackMedia(
   operation?: CustomSourceOperation,
   options?: CacheResolvedMediaOptions,
 ): Promise<PlaybackResolvedUrl> {
-  if (resolved.backend === 'customSource' && !operation) {
-    throw new Error('LX 媒体缓存缺少操作令牌');
-  }
-  if (resolved.backend === 'hiddenSource' && !operation) {
-    throw new Error('隐藏音源媒体缓存缺少操作令牌');
-  }
-  const access = resolved.backend === 'customSource' || resolved.backend === 'hiddenSource' ? operation : undefined;
-  access?.assertActive();
+  const access = requireCustomSourceOperation(resolved.backend, operation);
   const targetMusic = mergeResolvedMusic(primary, resolved.music ?? primary);
   // 封面与音频互不依赖，并行处理；两者都只查缓存，不阻塞在下载上。
   const [musicWithCachedCover, cachedAudioUrl] = await Promise.all([
@@ -362,7 +355,7 @@ export async function findCachedPlaybackMedia(
   for (const quality of qualityPreference) {
     for (const backend of AUDIO_CACHE_BACKENDS) {
       // 自定义源被关闭/换代后不再复用其脚本落盘的音频，与 URL 缓存策略一致。
-      if ((backend === 'customSource' || backend === 'hiddenSource') && !operation?.isActive()) continue;
+      if (!canReuseCustomSourceResult(backend, operation)) continue;
 
       let cached: CachedMedia | null = null;
       try {

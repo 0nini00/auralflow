@@ -5,7 +5,8 @@ import { favoritesPersistence, useFavoritesStore } from "@/stores/favoritesStore
 import { playlistPersistence, usePlaylistStore, type Playlist } from "@/stores/playlistStore";
 import { historyPersistence, useHistoryStore } from "@/stores/historyStore";
 import { useWyAccountStore } from "@/stores/wyAccountStore";
-import { customSourceAccess, customSourcePersistence, useCustomSourceStore, type CustomSourceItem } from "@/stores/customSourceStore";
+import { useCustomSourceStore, type CustomSourceItem } from "@/stores/customSourceStore";
+import { requireCustomSourceAccess } from "@/services/customSourceGate";
 import { awaitCustomSourceOperation, type CustomSourceOperation } from "@/services/customSourceAccess";
 import { parseDesktopUserApiInfo } from "@/services/customSourceRuntime";
 import { inflateBytes } from "@/utils/compression";
@@ -594,8 +595,7 @@ function parsePlaylistsSyncFile(text: string): ParsedPlaylistsSyncFile {
 
 /** 上传自定义音源到 WebDAV（覆盖远端 user_apis.json）。 */
 export async function uploadSourcesSync(): Promise<void> {
-  await customSourcePersistence.ready;
-  const operation = customSourceAccess.capture();
+  const operation = await requireCustomSourceAccess();
   return withSyncLock("上传音源", async () => {
     const cfg = await getConfig();
     operation.assertActive();
@@ -643,8 +643,7 @@ async function readSyncFileWithLegacyFallback(
 }
 
 export async function downloadSourcesSync(options?: { force?: boolean }): Promise<void> {
-  await customSourcePersistence.ready;
-  const operation = customSourceAccess.capture();
+  const operation = await requireCustomSourceAccess();
   return withSyncLock("下载音源", async () => {
     const cfg = await getConfig();
     operation.assertActive();
