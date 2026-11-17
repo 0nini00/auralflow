@@ -63,6 +63,8 @@ async function fixture({ remote = remoteFile(), read, write } = {}) {
     ...loadCore("../../packages/core/src/webdav-merge.ts"),
     ...loadCore("../../packages/core/src/webdav-sync-error.ts"),
     ...loadCore("../../packages/core/src/user-apis-sync.ts"),
+    // 云端音源按脚本头部注释解析名称等字段
+    ...loadCore("../../packages/core/src/custom-source/script-header.ts"),
     ...loadCore("../../packages/core/src/removed-source.ts"),
     // webdavSyncService 的歌曲键已收敛到 core 的 buildSongKey
     ...loadCore("../../packages/core/src/song-variant.ts"),
@@ -88,7 +90,6 @@ async function fixture({ remote = remoteFile(), read, write } = {}) {
     "../services/wyPlaylistService": {},
     "./accountStore": {},
     "../stores/customSourceStore": { useCustomSourceStore: sourceStore },
-    "./customSourceRuntime": { parseDesktopUserApiInfo: () => ({ name: "fixture", description: "fixture" }) },
     pako: mobileRequire("pako"),
     "@/services/secureStorageService": {
       getSecureItem: async () => "fixture-only-not-a-real-secret",
@@ -276,7 +277,7 @@ test("真实收藏写盘失败阻止自动同步 PUT", async () => {
 });
 
 test("下载音源等待落盘且失败不推进同步元数据", async () => {
-  const f = await fixture({ remote: { lastModified: 300000, data: [{ id: "fixture", name: "fixture", script: "fixture script" }] } });
+  const f = await fixture({ remote: { lastModified: 300000, data: [{ id: "fixture", name: "fixture", script: "/*\n * @name fixture\n */\nfixture script" }] } });
   const before = f.memory.get(META_PREFIX + "sources");
   const gate = deferred();
   const entered = deferred();
