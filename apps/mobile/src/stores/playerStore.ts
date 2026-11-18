@@ -155,11 +155,19 @@ export async function loadPersistedVolume(): Promise<number | null> {
 export type PlayMode = MobilePlayMode;
 export type PlaybackContextType = "queue" | "personalFm";
 
+/**
+ * 私人 FM 播放上下文。
+ *
+ * 已播与在播的那一批就是顶层的 queue / currentIndex——队列面板的移除、撤销、拖拽、
+ * 「下一首播放」改的都是它们，FM 的「下一首」也从它们往后数。这里只放队列表达不了的
+ * 东西：还没进队列的推荐缓冲，以及服务端是否还有更多。
+ *
+ * 对象身份是 FM 会话的版本凭据：store 里每个改动 FM 批次或指针的动作都会换一个新对象，
+ * 在途的后台补拉据此判断自己是否过期（见 playerService.playNextPersonalFmSong）。
+ */
 export interface PersonalFmContext {
   type: "personalFm";
   buffer: MusicInfo[];
-  currentBatch: MusicInfo[];
-  currentBatchIndex: number;
   hasMore: boolean;
 }
 
@@ -1053,17 +1061,15 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     set({ playbackContext: { type: "queue" } });
   },
 
-  setPersonalFmContext: ({ currentBatch: songs, currentBatchIndex, buffer = [], hasMore = true }) => {
-    const currentBatch = [...songs];
+  setPersonalFmContext: ({ currentBatch, currentBatchIndex, buffer = [], hasMore = true }) => {
     set({
       playbackContext: {
         type: "personalFm",
-        currentBatch,
-        currentBatchIndex,
         buffer,
         hasMore,
       },
-      queue: currentBatch,
+      // 每次重建都拥有新数组，复用输入数组也会使旧拖拽基线失效。
+      queue: [...currentBatch],
       currentIndex: currentBatchIndex,
       shuffleHistory: [],
       playedIndices: [],
@@ -1076,13 +1082,11 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
         return state;
       }
 
-      const maxIndex = Math.max(0, state.playbackContext.currentBatch.length - 1);
+      const maxIndex = Math.max(0, state.queue.length - 1);
       const nextIndex = Math.max(0, Math.min(index, maxIndex));
       return {
-        playbackContext: {
-          ...state.playbackContext,
-          currentBatchIndex: nextIndex,
-        },
+        // 指针变了即换新上下文对象：作废在途的后台补拉（版本凭据，见 PersonalFmContext）。
+        playbackContext: { ...state.playbackContext },
         currentIndex: nextIndex,
       };
     });
@@ -1132,15 +1136,11 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       return;
     }
 
-    const nextBatch = context.currentBatch.filter((_, index) => index !== context.currentBatchIndex);
-    const nextIndex = Math.max(0, Math.min(context.currentBatchIndex, nextBatch.length - 1));
+    const nextBatch = state.queue.filter((_, index) => index !== state.currentIndex);
+    const nextIndex = Math.max(0, Math.min(state.currentIndex, nextBatch.length - 1));
 
     set({
-      playbackContext: {
-        ...context,
-        currentBatch: nextBatch,
-        currentBatchIndex: nextIndex,
-      },
+      playbackContext: { ...context },
       queue: nextBatch,
       currentIndex: nextIndex,
     });

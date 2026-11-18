@@ -61,6 +61,8 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
 
   const currentSong = usePlayerStore((state) => state.currentSong);
   const playbackContext = usePlayerStore((state) => state.playbackContext);
+  const queue = usePlayerStore((state) => state.queue);
+  const currentIndex = usePlayerStore((state) => state.currentIndex);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const playerLoading = usePlayerStore((state) => state.loading);
   const pause = usePlayerStore((state) => state.pause);
@@ -81,7 +83,7 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
   const fmSongs =
     playbackContext.type === "personalFm"
       ? [
-          ...playbackContext.currentBatch.slice(playbackContext.currentBatchIndex),
+          ...queue.slice(currentIndex),
           ...playbackContext.buffer,
         ]
       : previewSongs;

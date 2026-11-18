@@ -804,7 +804,7 @@ function getNearbySongs(): MusicInfo[] {
       seen.add(key);
       result.push(song);
     };
-    push(playbackContext.currentBatch[playbackContext.currentBatchIndex + 1]);
+    push(queue[currentIndex + 1]);
     push(playbackContext.buffer[0]);
     push(playbackContext.buffer[1]);
     return result;
@@ -912,9 +912,7 @@ function getNextSongForPrefetch(): MusicInfo | undefined {
     usePlayerStore.getState();
   if (tempPlayList.length > 0) return tempPlayList[0];
   if (playbackContext.type === "personalFm") {
-    return (
-      playbackContext.currentBatch[playbackContext.currentBatchIndex + 1] ?? playbackContext.buffer[0]
-    );
+    return queue[currentIndex + 1] ?? playbackContext.buffer[0];
   }
   if (playMode === "single") return undefined;
   // 随机模式：预抽定下一首（drawPreDrawnShuffleSong），playNext 消费同一首——
@@ -1418,15 +1416,17 @@ export async function playNextPersonalFmSong(requestId?: number): Promise<void> 
   }
   if (requestId !== undefined && !isCurrentPlaybackRequest(requestId)) return;
   const intent = requestId ?? beginPlaybackRequest();
-  const nextInBatchIndex = context.currentBatchIndex + 1;
-  if (nextInBatchIndex < context.currentBatch.length) {
+  // FM 的当前批次就是队列本身（见 PersonalFmContext）；与 context 同一时刻取，后面续批沿用。
+  const { queue: currentBatch, currentIndex: currentBatchIndex } = store;
+  const nextInBatchIndex = currentBatchIndex + 1;
+  if (nextInBatchIndex < currentBatch.length) {
     usePlayerStore.getState().setPersonalFmContext({
-      currentBatch: context.currentBatch,
+      currentBatch,
       currentBatchIndex: nextInBatchIndex,
       buffer: context.buffer,
       hasMore: context.hasMore,
     });
-    await playSongCore(context.currentBatch[nextInBatchIndex], undefined, intent);
+    await playSongCore(currentBatch[nextInBatchIndex], undefined, intent);
     return;
   }
   let nextSong = store.shiftPersonalFmBuffer();
@@ -1448,8 +1448,8 @@ export async function playNextPersonalFmSong(requestId?: number): Promise<void> 
     return;
   }
   // FM 历史上限：追加后超过 50 条时截断保留最新 50 条（对齐桌面端 fmHistory 上限），
-  // 防止 currentBatch 随切歌无限增长（currentBatchIndex 始终指向末尾，截断只丢最旧记录）。
-  const nextBatch = [...context.currentBatch, nextSong].slice(-FM_HISTORY_MAX);
+  // 防止批次随切歌无限增长（指针始终指向末尾，截断只丢最旧记录）。
+  const nextBatch = [...currentBatch, nextSong].slice(-FM_HISTORY_MAX);
   const refreshedContext = usePlayerStore.getState().playbackContext;
   const nextBuffer = refreshedContext.type === "personalFm" ? refreshedContext.buffer : [];
   usePlayerStore.getState().setPersonalFmContext({

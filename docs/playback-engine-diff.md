@@ -128,7 +128,8 @@
 - **`playMode`**：`list` / `single` / `shuffle` / `sequence`（`MobilePlayMode`），`RepeatMode.Off` 固定，JS 驱动切歌。
 - **睡眠定时（按分钟）**：`scheduleSleepTimerTick` 每分钟递减，**仅 `isPlaying` 时递减**（暂停期间不倒数，对齐主流语义：只统计实际播放时长）。
 - **睡眠定时（按歌曲数）**：`getNextSongSleepTimerState` 在 play 入口评估，到期边界不再加载下一首，保持已播完的当前曲展示并停用定时器（旧实现先加载再暂停会闪现下一首标题并漏出淡入声）。
-- **`playbackContext`**：`{ type:"queue" }` 或 `PersonalFmContext`（私人 FM 的 buffer/batch 拉取上下文）。
+- **`playbackContext`**：`{ type:"queue" }` 或 `PersonalFmContext`（私人 FM 尚未入队的推荐缓冲 `buffer` 与 `hasMore`）。FM 已播/在播的批次就是顶层 `queue` / `currentIndex`，上下文里不另存一份。
+- **依赖方向**：`playerStore` 在下，只依赖 `playbackRequest`、`switchStepSession` 等无状态归属的底层模块；`playerService`（取链、切歌、FM 编排）与 `player/playerListeners`、`player/playbackService`（原生事件）在上，单向引用 store。需要重新取链的动作（续播重载 `resumePlayback`、「下一首播放」`queueSongToPlayNext`）入口在 `playerService`，不在 store。
 
 ---
 
