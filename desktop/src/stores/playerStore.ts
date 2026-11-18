@@ -14,7 +14,7 @@ import { cacheResolvedPlaybackMedia, removeCachedAudioForMusic } from "@/service
 import { debugLog } from "@lx/tauri-bridge";
 import { updateSettings, useSettingsStore } from "@/stores/settingsStore";
 import { logger } from "@/services/logger";
-import { applySwitchStepRequest, buildSongKey, createSwitchStepQueueState, finishSwitchStep, orderPlaybackCandidates } from "@lx/core";
+import { buildSongKey, orderPlaybackCandidates } from "@lx/core";
 import { findTxVariants, describeCrossSourceFailure } from "@/services/playback/crossSourceFallbackService";
 import { useHistoryStore } from "./historyStore";
 import { useSleepTimerStore } from "./sleepTimerStore";
@@ -26,36 +26,26 @@ import { openCustomSourceAccess } from "@/services/customSourceGate";
 import { finishListeningStats, pauseListeningStats, registerListeningStatsSampler, seekListeningStats, startListeningStats, sampleListeningStats } from "./listeningStatsStore";
 
 import type { PlayerGet, PlayerSet, PlayerStore } from "./player/types";
+import {
+  beginPlayRequest,
+  buildPlayRequestKey,
+  finishQueuedSwitchStep,
+  getEngineTargetKey,
+  getInflightPlayRequest,
+  invalidatePlayRequest,
+  isActivePlayRequest,
+  registerInflightPlayRequest,
+  releaseInflightPlayRequest,
+  requestSwitchStep,
+  setEngineTargetKey,
+} from "./player/playRequestState";
 
 export type { RepeatMode } from "./player/types";
 
 let volumePersistTimer: ReturnType<typeof setTimeout> | null = null;
-let activePlayRequestId = 0;
 /** 跨源降级注记停留时长：足够被看见，又不至于常驻压住播放条 */
 const PLAYBACK_NOTICE_HOLD_MS = 10_000;
 let playbackNoticeToken = 0;
-/**
- * 引擎当前“应当”播放的曲目 key。
- *
- * play() 解析播放地址期间，引擎还在推上一首的状态与进度；若直接落库会把刚写入的
- * loading / error 逐帧覆盖（解析失败时表现为「点了没反应」，且 didPlayFailForTarget
- * 判不出失败，队列索引不会回滚）。此时只放行目标曲目的推送，其余一律丢弃。
- * null 表示引擎状态可直通（没有待接管的目标）。
- */
-let engineTargetKey: string | null = null;
-
-// 切歌连点合并：切换进行中（解析/播放器加载）时重复点击只补跳一次，不重复解析。
-let switchStepQueue = createSwitchStepQueueState();
-let inflightPlayRequest: { id: number; key: string; promise: Promise<void> } | null = null;
-
-function buildPlayRequestKey(music: MusicInfo): string {
-  const localUrl =
-    'isLocal' in music && music.isLocal && 'url' in music && music.url
-      ? String(music.url)
-      : "";
-  return `${music.source}:${music.id}:${localUrl}`;
-}
-
 function didPlayFailForTarget(state: Pick<PlayerStore, "current" | "status">, music: MusicInfo): boolean {
   return (
     state.status === "error" &&
@@ -74,7 +64,7 @@ async function playAndDidFail(get: PlayerGet, music: MusicInfo): Promise<boolean
  * 登记后引擎推上一首的状态会被丢弃，直到它真的加载了这首曲目。
  */
 async function playThroughEngine(music: MusicInfo, url: string, assertPlaybackAllowed?: () => void): Promise<void> {
-  engineTargetKey = buildPlayRequestKey(music);
+  setEngineTargetKey(buildPlayRequestKey(music));
   // 恢复上次播放位置（跨重启）：在装载音频**之前**把秒数交给引擎，
   // 浏览器会把它记成「默认起播位置」，不会出现「先从头播一下再跳」。
   // takeResumeProgress 取一次即消费，且只对同一首歌生效 ——
@@ -133,13 +123,6 @@ async function invalidatePersistentPlaybackCache(
   }
 }
 
-function invalidatePlayRequest() {
-  activePlayRequestId += 1;
-  inflightPlayRequest = null;
-  engineTargetKey = null;
-  switchStepQueue = createSwitchStepQueueState();
-}
-
 function scheduleVolumePersist(volume: number) {
   if (volumePersistTimer) clearTimeout(volumePersistTimer);
   volumePersistTimer = setTimeout(() => {
@@ -152,8 +135,7 @@ function scheduleVolumePersist(volume: number) {
 
 /** 当前切歌完成后消费连点补跳（只补一次，防止循环）。 */
 function completeQueuedSwitchStep(get: PlayerGet): void {
-  const finished = finishSwitchStep(switchStepQueue);
-  switchStepQueue = finished.nextState;
+  const finished = finishQueuedSwitchStep();
   if (finished.shouldStep) {
     void (finished.direction === 'prev' ? get().prev() : get().next()).catch(() => undefined);
   }
@@ -260,6 +242,7 @@ const syncEngineToStore = (set: PlayerSet, get: PlayerGet) => {
       listeningKey = null;
     }
 
+    const engineTargetKey = getEngineTargetKey();
     if (engineTargetKey != null) {
       const engineKey = engineState.currentMusic
         ? buildPlayRequestKey(engineState.currentMusic)
@@ -267,7 +250,7 @@ const syncEngineToStore = (set: PlayerSet, get: PlayerGet) => {
       // 上一首的状态/进度推送：直接丢弃，不能覆盖本次请求写入的 loading / error
       if (engineKey !== engineTargetKey) return;
       // 引擎已真正接管目标曲目，恢复直通
-      engineTargetKey = null;
+      setEngineTargetKey(null);
     }
 
     // 引擎里没有加载任何音频时（启动后未播放、或 stop/clearQueue 之后），它推送的
@@ -399,8 +382,9 @@ export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
 
     play: async (music) => {
       const requestKey = buildPlayRequestKey(music);
-      if (get().status === "loading" && inflightPlayRequest?.key === requestKey) {
-        return inflightPlayRequest.promise;
+      const inflight = getInflightPlayRequest();
+      if (get().status === "loading" && inflight?.key === requestKey) {
+        return inflight.promise;
       }
 
       /**
@@ -414,16 +398,13 @@ export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
        * 丢弃（否则它会覆盖掉刚写入的 error）；最后由本次 set 落定 error 状态。
        */
       const failPlayback = (message: string) => {
-        if (requestId !== activePlayRequestId) return;
-        engineTargetKey = null;
+        if (!isActivePlayRequest(requestId)) return;
+        setEngineTargetKey(null);
         playerEngine.stop();
         set({ status: "error", error: message });
       };
 
-      const requestId = activePlayRequestId + 1;
-      activePlayRequestId = requestId;
-      // 从这一行到引擎真正加载本曲目之前，引擎推来的状态都属于上一首：全部屏蔽。
-      engineTargetKey = requestKey;
+      const requestId = beginPlayRequest(requestKey);
       set({ current: music, status: "loading", error: null, progress: 0, duration: 0 });
 
       const run = (async () => {
@@ -442,14 +423,14 @@ export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
           if ('isLocal' in music && music.isLocal && 'url' in music && music.url) {
             const localMusic = getLocalPlaybackMusic(music);
             await playThroughEngine(localMusic, music.url as string);
-            if (requestId !== activePlayRequestId) return;
+            if (!isActivePlayRequest(requestId)) return;
             useHistoryStore.getState().add(music);
             void preloadNext(get).catch(() => undefined);
             return;
           }
 
           operation = await openCustomSourceAccess();
-          if (requestId !== activePlayRequestId) return;
+          if (!isActivePlayRequest(requestId)) return;
 
           // 优先使用预加载缓存，命中则跳过网络解析
 
@@ -468,18 +449,18 @@ export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
 
           if (cachedTarget) {
 
-            if (requestId !== activePlayRequestId) return;
+            if (!isActivePlayRequest(requestId)) return;
 
             try {
               playedMusic = cachedTarget.music;
               const prepared = await prepareConsumedPrefetch(cachedTarget, operation);
-              if (requestId !== activePlayRequestId) return;
+              if (!isActivePlayRequest(requestId)) return;
               playedMusic = prepared.music;
               await playResolved(prepared);
             } catch (cachedError) {
               // 引擎以「已被更新的操作取消」失败说明本请求已被取代：不能再作废
               // 缓存或重跑一次全链解析——那些动作只对被取代前的请求有意义。
-              if (requestId !== activePlayRequestId) return;
+              if (!isActivePlayRequest(requestId)) return;
               invalidatePrefetchedTrack(music);
               if (cachedTarget.music.source !== music.source || cachedTarget.music.id !== music.id) {
                 invalidatePrefetchedTrack(cachedTarget.music);
@@ -489,7 +470,7 @@ export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
               }
 
               const resolved = await resolvePlaybackUrl(music, variants, undefined, { bypassCache: true });
-              if (requestId !== activePlayRequestId) return;
+              if (!isActivePlayRequest(requestId)) return;
 
               if (!resolved?.url) {
                 throw cachedError;
@@ -505,7 +486,7 @@ export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
 
             const resolved = await resolvePlaybackUrl(music, variants);
 
-            if (requestId !== activePlayRequestId) return;
+            if (!isActivePlayRequest(requestId)) return;
 
             if (!resolved?.url) {
               throw new Error("当前播放方式没有返回可播放地址");
@@ -519,17 +500,17 @@ export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
 
               await invalidatePersistentPlaybackCache(music, resolved.music, resolved.quality);
               const refreshed = await resolvePlaybackUrl(music, variants, undefined, { bypassCache: true });
-              if (requestId !== activePlayRequestId) return;
+              if (!isActivePlayRequest(requestId)) return;
               playedMusic = refreshed.music;
               await playResolved(refreshed);
             }
 
           }
-          if (requestId !== activePlayRequestId) return;
+          if (!isActivePlayRequest(requestId)) return;
           useHistoryStore.getState().add(playedMusic);
           void preloadNext(get).catch(() => undefined);
         } catch (e) {
-          if (requestId !== activePlayRequestId) return;
+          if (!isActivePlayRequest(requestId)) return;
 
           // 网易云曲目常规解析失败时，自动直连 QQ 音乐检索并严格校验同名曲接管播放
           // 云盘曲（wyCloud）明确排除：那是账号私有的上传文件，QQ 侧的同名曲是另一份录音，
@@ -540,16 +521,16 @@ export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
             try {
               debugLog(`[fallback] 网易云曲目解析失败，尝试自动跨源降级 QQ 音乐: ${music.name}`);
               const candidates = await findTxVariants(music);
-              if (requestId !== activePlayRequestId) return;
+              if (!isActivePlayRequest(requestId)) return;
 
               for (const candidate of candidates) {
-                if (requestId !== activePlayRequestId) return;
+                if (!isActivePlayRequest(requestId)) return;
                 try {
                   const fallbackResolved = await resolvePlaybackUrl(candidate);
-                  if (requestId !== activePlayRequestId) return;
+                  if (!isActivePlayRequest(requestId)) return;
                   if (fallbackResolved?.url) {
                     await playResolved(fallbackResolved);
-                    if (requestId !== activePlayRequestId) return;
+                    if (!isActivePlayRequest(requestId)) return;
                     set({ current: fallbackResolved.music });
                     get().notifyPlaybackNotice("已切换 QQ 音乐源");
                     useHistoryStore.getState().add(fallbackResolved.music);
@@ -577,13 +558,11 @@ export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
 
           failPlayback(e instanceof Error ? e.message : String(e));
         } finally {
-          if (inflightPlayRequest?.id === requestId) {
-            inflightPlayRequest = null;
-          }
+          releaseInflightPlayRequest(requestId);
         }
       })();
 
-      inflightPlayRequest = { id: requestId, key: requestKey, promise: run };
+      registerInflightPlayRequest({ id: requestId, key: requestKey, promise: run });
       return run;
     },
 
@@ -830,9 +809,7 @@ export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
 
 
       // 连点合并：切换进行中（解析/播放器加载）时重复点击只补跳一次，不重复解析。
-      const step = applySwitchStepRequest(switchStepQueue, "next");
-      switchStepQueue = step.nextState;
-      if (!step.startNow) return;
+      if (!requestSwitchStep("next")) return;
       try {
 
       let nextIndex: number;
@@ -967,9 +944,7 @@ export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
 
 
       // 连点合并：切换进行中（解析/播放器加载）时重复点击只补跳一次，不重复解析。
-      const step = applySwitchStepRequest(switchStepQueue, "prev");
-      switchStepQueue = step.nextState;
-      if (!step.startNow) return;
+      if (!requestSwitchStep("prev")) return;
       try {
 
       let prevIndex: number;
