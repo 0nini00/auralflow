@@ -10,7 +10,8 @@ const fixture = vi.hoisted(() => ({
   saved: {} as Record<string, unknown>,
 }));
 
-vi.mock("@lx/tauri-bridge", () => ({ loadSettings: fixture.loadSettings, patchSettings: vi.fn() }));
+vi.mock("@lx/tauri-bridge", () => ({}));
+vi.mock("@/stores/settingsStore", () => ({ ensureSettingsLoaded: fixture.loadSettings }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("@tauri-apps/plugin-fs", () => ({ readTextFile: vi.fn() }));
 vi.mock("../src/services/outboundHttp", () => ({ outboundRequest: fixture.request }));

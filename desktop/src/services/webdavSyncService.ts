@@ -1,4 +1,4 @@
-import { loadSettings } from "@lx/tauri-bridge";
+import { ensureSettingsLoaded } from "@/stores/settingsStore";
 import { buildUserApisSyncFile, parseDesktopUserApiInfo, parseUserApisSyncFile, type UserApiSyncSource, CloudDataStaleError, CloudSyncRefusalError, historyEntryKey, isNumericPlaylistId, isUsablePlayedAt, isWebdavLocalPlaylistRef, selectHistoryForSync, type CustomSourceItem, type HistoryEntry, type MusicInfo } from "@lx/core";
 import { outboundRequest, type OutboundResponse } from "@/services/outboundHttp";
 import { favoritesPersistence, useFavoritesStore } from "@/stores/favoritesStore";
@@ -254,7 +254,7 @@ function assertCloudNotStale(
 }
 
 async function getConfig(): Promise<WebdavConfig | null> {
-  const s = await loadSettings();
+  const s = await ensureSettingsLoaded();
   const url = (s.webdavUrl ?? "").trim().replace(/\/+$/, "");
   if (!url) return null;
   return {

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ExternalLink, LogOut, RefreshCw, X } from "lucide-react";
 import { open as openUrl } from "@tauri-apps/plugin-shell";
-import { patchSettings } from "@lx/tauri-bridge";
+import { updateSettings } from "@/stores/settingsStore";
 import {
   checkWyQrLogin,
   createWyQrLoginImage,
@@ -101,7 +101,7 @@ export function WyCookieLoginModal({ open, onClose }: WyCookieLoginModalProps) {
       try {
         // 从第一次修改 Cookie 起，不可再因视图失效而丢弃事务；卸载也要收敛。
         const normalized = setWyCookie(rawCookie);
-        await patchSettings({ wyCookie: normalized });
+        await updateSettings({ wyCookie: normalized });
         await loadAccount(normalized);
         const latest = useWyAccountStore.getState();
         if (!latest.account) throw new Error(latest.error || "网易云账号验证失败");
@@ -111,7 +111,7 @@ export function WyCookieLoginModal({ open, onClose }: WyCookieLoginModalProps) {
         useWyAccountStore.setState(previousAccountState);
         const message = err instanceof Error ? err.message : String(err);
         try {
-          await patchSettings({ wyCookie: previousCookie || null });
+          await updateSettings({ wyCookie: previousCookie || null });
         } catch (rollbackError) {
           const failure = new Error(message + "；恢复原登录配置失败：" + (rollbackError instanceof Error ? rollbackError.message : String(rollbackError)));
           if (!isCurrentRequest(gen)) console.error("离开登录弹窗后账号回滚失败", failure);

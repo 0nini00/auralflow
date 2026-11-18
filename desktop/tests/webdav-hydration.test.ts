@@ -2,7 +2,9 @@ import { afterEach, it, expect, vi } from "vitest";
 const f = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn(), request: vi.fn() }));
 vi.mock("@lx/tauri-bridge", () => ({
   libraryLoad: f.load, librarySave: f.save,
-  loadSettings: vi.fn(async () => ({ webdavUrl: "https://invalid.test", webdavUsername: "mock", webdavPassword: "mock" })),
+}));
+vi.mock("@/stores/settingsStore", () => ({
+  ensureSettingsLoaded: vi.fn(async () => ({ webdavUrl: "https://invalid.test", webdavUsername: "mock", webdavPassword: "mock" })),
 }));
 vi.mock("@/services/outboundHttp", () => ({ outboundRequest: f.request }));
 vi.mock("@/services/logger", () => ({ logger: { warn: vi.fn(), error: vi.fn() } }));

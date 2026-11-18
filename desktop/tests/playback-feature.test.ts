@@ -41,8 +41,11 @@ vi.mock('../src/services/mediaCache', () => ({
 }));
 vi.mock('../src/services/playerEngine', () => ({ playerEngine: { preload: fixture.preload } }));
 vi.mock('../src/services/lyricsService', () => ({ getLyrics: fixture.lyrics }));
+vi.mock('@/stores/settingsStore', () => ({
+  ensureSettingsLoaded: vi.fn(async () => ({ defaultQuality: '128k' })), updateSettings: vi.fn(async () => ({})),
+}));
 vi.mock('@lx/tauri-bridge', () => ({
-  debugLog: vi.fn(), loadSettings: vi.fn(async () => ({ defaultQuality: '128k' })),
+  debugLog: vi.fn(),
   libraryLoad: fixture.libraryLoad, librarySave: fixture.librarySave, libraryReset: vi.fn(),
 }));
 const music = { id: '1', source: 'wy', name: '歌曲', singer: '歌手', interval: 240 } as MusicInfo;

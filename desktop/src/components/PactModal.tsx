@@ -1,33 +1,26 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
 import { useDialogFocus } from "@/hooks/useDialogFocus";
-import { loadSettings, patchSettings } from "@lx/tauri-bridge";
+import { logger } from "@/services/logger";
+import { updateSettings, useSettingsStore } from "@/stores/settingsStore";
 
 export function PactModal() {
   const dialogRef = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(false);
-  const [checking, setChecking] = useState(true);
+  // 设置还没读到时不能当成「没同意过」：读到之前不弹；读取失败则照常弹出。
+  const needsConsent = useSettingsStore((s) => (s.settings ? !s.settings.pactAccepted : s.loadError !== null));
+  const [dismissed, setDismissed] = useState(false);
+  const visible = needsConsent && !dismissed;
 
-  useEffect(() => {
-    loadSettings()
-      .then((s) => {
-        if (!s.pactAccepted) setVisible(true);
-      })
-      .catch(() => setVisible(true))
-      .finally(() => setChecking(false));
-  }, []);
-
-  const handleAccept = async () => {
-    try {
-      await patchSettings({ pactAccepted: true });
-    } catch {
-      // 持久化失败不阻塞使用
-    }
-    setVisible(false);
+  const handleAccept = () => {
+    // 落盘失败不阻塞使用：本次先关掉，下次启动会再问一次。
+    setDismissed(true);
+    updateSettings({ pactAccepted: true }).catch((error) => {
+      logger.warn("保存「已同意使用须知」失败，下次启动会再次询问", error);
+    });
   };
 
-  useDialogFocus({ open: !checking && visible, containerRef: dialogRef, closeOnEscape: false });
+  useDialogFocus({ open: visible, containerRef: dialogRef, closeOnEscape: false });
 
-  if (checking || !visible) return null;
+  if (!visible) return null;
 
   return (
     <div className="af-dialog-overlay af-pact-overlay">

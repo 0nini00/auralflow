@@ -4,7 +4,8 @@ import { NavLink } from "react-router-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 // 与 DOM 的全局 PointerEvent 同名，这里按别名引入 React 的事件类型。
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
-import { loadSettings, patchSettings } from "@lx/tauri-bridge";
+import { updateSettings, useSettingsStore } from "@/stores/settingsStore";
+import { logger } from "@/services/logger";
 import { useWyAccountStore } from "@/stores/wyAccountStore";
 import { usePlaylistStore } from "@/stores/playlistStore";
 import { useLibraryStore } from "@/stores/libraryStore";
@@ -84,8 +85,12 @@ export function Sidebar() {
   const playlistCount = usePlaylistStore((s) => s.playlists.length);
   const localSongCount = useLibraryStore((s) => s.localSongs.length);
   const [loginOpen, setLoginOpen] = useState(false);
-  const [width, setWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
-  const [collapsed, setCollapsed] = useState(false);
+  // 宽度与收起状态是用户偏好，由设置持有；读不到（例如浏览器里的纯 UI 调试）就用默认值。
+  // 本地只保留拖动过程中尚未落盘的那个宽度。
+  const savedWidth = useSettingsStore((s) => s.settings?.sidebarWidth);
+  const collapsed = useSettingsStore((s) => s.settings?.sidebarCollapsed === true);
+  const [draftWidth, setDraftWidth] = useState<number | null>(null);
+  const width = draftWidth ?? clampSidebarWidth(savedWidth);
   const widthRef = useRef(width);
   widthRef.current = width;
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -100,31 +105,19 @@ export function Sidebar() {
     getWyCookie().then((c) => load(c)).catch(() => {});
   }, []);
 
-  // 宽度是用户偏好，跟着设置落盘；读不到（例如浏览器里的纯 UI 调试）就用默认值。
-  useEffect(() => {
-    let cancelled = false;
-    loadSettings()
-      .then((settings) => {
-        if (!cancelled) {
-          setWidth(clampSidebarWidth(settings.sidebarWidth));
-          setCollapsed(settings.sidebarCollapsed === true);
-        }
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const persistWidth = useCallback((next: number) => {
-    void patchSettings({ sidebarWidth: next }).catch(() => undefined);
+    // 写入会立刻反映到设置里，拖动草稿随即让位。
+    updateSettings({ sidebarWidth: next }).catch((error) => {
+      logger.warn("保存侧边栏宽度失败", error);
+    });
+    setDraftWidth(null);
   }, []);
 
-  // 收起只是视图开关：width 状态原样保留，展开时回到用户上次拖到的宽度。
+  // 收起只是视图开关：宽度原样保留，展开时回到用户上次拖到的宽度。
   const toggleCollapsed = () => {
-    const next = !collapsed;
-    setCollapsed(next);
-    void patchSettings({ sidebarCollapsed: next }).catch(() => undefined);
+    updateSettings({ sidebarCollapsed: !collapsed }).catch((error) => {
+      logger.warn("保存侧边栏收起状态失败", error);
+    });
   };
 
   const stopDrag = useCallback(() => {
@@ -140,7 +133,7 @@ export function Sidebar() {
     const onPointerMove = (event: PointerEvent) => {
       const drag = dragRef.current;
       if (!drag) return;
-      setWidth(clampSidebarWidth(drag.startWidth + (event.clientX - drag.startX)));
+      setDraftWidth(clampSidebarWidth(drag.startWidth + (event.clientX - drag.startX)));
     };
     const onPointerUp = () => stopDrag();
     window.addEventListener("pointermove", onPointerMove);
@@ -167,9 +160,7 @@ export function Sidebar() {
     else if (event.key === "Home") next = SIDEBAR_DEFAULT_WIDTH;
     if (next == null) return;
     event.preventDefault();
-    const clamped = clampSidebarWidth(next);
-    setWidth(clamped);
-    persistWidth(clamped);
+    persistWidth(clampSidebarWidth(next));
   };
 
   return (
@@ -263,10 +254,7 @@ export function Sidebar() {
         aria-valuenow={Math.round(width)}
         tabIndex={0}
         onPointerDown={handlePointerDown}
-        onDoubleClick={() => {
-          setWidth(SIDEBAR_DEFAULT_WIDTH);
-          persistWidth(SIDEBAR_DEFAULT_WIDTH);
-        }}
+        onDoubleClick={() => persistWidth(SIDEBAR_DEFAULT_WIDTH)}
         onKeyDown={handleKeyDown}
       />
 
