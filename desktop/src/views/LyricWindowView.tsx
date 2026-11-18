@@ -8,14 +8,14 @@ import type { LyricLine } from '@lx/core';
 
 import { useMemo } from "react";
 import { calculateLyricLineProgress } from "@lx/core";
-import { usePlayerStore } from "@/stores/playerStore";
+import { usePlaybackMirrorStore } from "@/stores/playbackMirrorStore";
 import { useLyrics } from "@/hooks/useLyrics";
 import { useInterpolatedPlaybackProgress } from "@/hooks/useInterpolatedPlaybackProgress";
 import {
   getLyricAnimationIntensityScale,
   normalizeLyricAnimationIntensity,
 } from "@/services/lyrics/animationIntensity";
-import { dispatchLyricAction } from "@/stores/playerSync";
+import { dispatchLyricAction, setupSecondaryPlayerSync } from "@/stores/playerSync";
 import { updateSettings, useLoadedSettings, useSettingsStore } from "@/stores/settingsStore";
 import { logger } from "@/services/logger";
 import {
@@ -38,6 +38,8 @@ const STAGE_VERTICAL_PADDING = 4;
  * 读取失败时把原因显示在窗口里，而不是用一套默认样式假装正常。
  */
 export function LyricWindowView() {
+  useEffect(() => setupSecondaryPlayerSync(), []);
+
   const loaded = useSettingsStore((s) => s.settings !== null);
   const loadError = useSettingsStore((s) => s.loadError);
   if (loaded) return <LoadedLyricWindowView />;
@@ -45,12 +47,12 @@ export function LyricWindowView() {
 }
 
 function LoadedLyricWindowView() {
-  const current = usePlayerStore((s) => s.current);
-  const status = usePlayerStore((s) => s.status);
-  const progress = usePlayerStore((s) => s.progress);
-  const progressSampledAt = usePlayerStore((s) => s.progressSampledAt);
-  const duration = usePlayerStore((s) => s.duration);
-  const playbackRate = usePlayerStore((s) => s.playbackRate);
+  const current = usePlaybackMirrorStore((s) => s.current);
+  const status = usePlaybackMirrorStore((s) => s.status);
+  const progress = usePlaybackMirrorStore((s) => s.progress);
+  const progressSampledAt = usePlaybackMirrorStore((s) => s.progressSampledAt);
+  const duration = usePlaybackMirrorStore((s) => s.duration);
+  const playbackRate = usePlaybackMirrorStore((s) => s.playbackRate);
 
   const lyricProgress = useInterpolatedPlaybackProgress({ status, progress, progressSampledAt, duration, playbackRate });
   const manualOffsetMs = useLoadedSettings((s) => s.lyricManualOffsetMs);

@@ -1,32 +1,37 @@
-import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { usePlayerStore } from "./playerStore";
-import { dispatchPlaybackAction } from "@/services/playback/playbackActions";
-import {
-  applyPlaybackSnapshotToStorePatch,
-  getPlaybackSnapshotFromStore,
-  type PlaybackSnapshot,
-} from "@/services/playback/playbackSnapshot";
-import type { AppWindowRole } from "@/utils/windowRole";
+import { emit, listen } from "@tauri-apps/api/event";
+import type { PlaybackSnapshot } from "@/services/playback/playbackSnapshotModel";
+import { applyPlaybackSnapshotToMirror } from "./playbackMirrorStore";
+
+/**
+ * 主窗口与副窗口（桌面歌词 / 迷你播放器）之间的播放同步通道，以及副窗口这一端。
+ *
+ * 主窗口那一端在 playerSyncMain.ts：它要读 playerStore、执行播放动作，只由主窗口加载。
+ * 本模块会被副窗口加载，所以**不能依赖 playerStore**（tests/window-dependency.test.ts 锁着）。
+ */
 
 const CHANNEL_NAME = "auralflow-player-sync";
 /** 状态快照使用双通道；控制动作只走 Tauri，避免一次点击被执行两次。 */
-const TAURI_EVENT = "auralflow-player-sync";
+export const PLAYER_SYNC_TAURI_EVENT = "auralflow-player-sync";
 
-type SyncMessage =
+export type PlayerSyncAction = "play-pause" | "next" | "prev";
+
+export type SyncMessage =
   | { type: "state"; snapshot: PlaybackSnapshot }
-  | { type: "action"; action: "play-pause" | "next" | "prev" }
+  | { type: "action"; action: PlayerSyncAction }
   | { type: "request-state" };
 
-// ─── Main window ─────────────────────────────────────────────
-
-function handleAction(action: "play-pause" | "next" | "prev") {
-  // 统一分发（与托盘 / SMTC 同语义），见 playbackActions
-  dispatchPlaybackAction(action);
+let channelInstance: BroadcastChannel | null = null;
+export function getPlayerSyncChannel(): BroadcastChannel | null {
+  if (typeof BroadcastChannel === "undefined") return null;
+  if (!channelInstance) {
+    channelInstance = new BroadcastChannel(CHANNEL_NAME);
+  }
+  return channelInstance;
 }
 
-function postSyncMessage(channel: BroadcastChannel | null, message: SyncMessage) {
+export function postSyncMessage(channel: BroadcastChannel | null, message: SyncMessage) {
   if (message.type === "action") {
-    void emit(TAURI_EVENT, message).catch((error) => {
+    void emit(PLAYER_SYNC_TAURI_EVENT, message).catch((error) => {
       console.error('[player-sync] 歌词控制动作发送失败', error);
     });
     return;
@@ -40,94 +45,10 @@ function postSyncMessage(channel: BroadcastChannel | null, message: SyncMessage)
     console.error('[player-sync] BroadcastChannel 发送播放状态失败，改由 Tauri 事件兜底', error);
   }
   // 状态消息保留双通道，提高跨 WebView 到达可靠性；动作不在此发送。
-  void emit(TAURI_EVENT, message).catch(() => undefined);
+  void emit(PLAYER_SYNC_TAURI_EVENT, message).catch(() => undefined);
 }
 
-function setupMainWindow(channel: BroadcastChannel | null) {
-  // 收到歌词窗口的 action / request-state
-  const onMessage = (msg: SyncMessage) => {
-    if (msg.type === "action") {
-      handleAction(msg.action);
-      return;
-    }
-    if (msg.type === "request-state") {
-      const snapshot = getPlaybackSnapshotFromStore();
-      postSyncMessage(channel, { type: "state", snapshot });
-    }
-  };
-
-  channel?.addEventListener("message", (event) => {
-    const message = event.data as SyncMessage;
-    // request-state 不在这里处理：postSyncMessage 双通道发送，启动握手统一走
-    // 更可靠的 Tauri 事件通道，否则同一次请求会被应答两遍、状态快照推两遍。
-    if (!message || message.type === "state" || message.type === "request-state") return;
-    onMessage(message);
-  });
-
-  let unlistenTauri: UnlistenFn | null = null;
-  void listen<SyncMessage>(TAURI_EVENT, (event) => {
-    // Ignore our own state broadcasts; only handle inbound action/request.
-    // request-state（启动握手）统一由这条 Tauri 事件通道处理：postSyncMessage
-    // 双通道发送，BroadcastChannel 侧已跳过，避免状态快照被推两遍。
-    const msg = event.payload;
-    if (!msg || msg.type === "state") return;
-    onMessage(msg);
-  })
-    .then((unlisten) => {
-      unlistenTauri = unlisten;
-    })
-    .catch(() => undefined);
-
-  // 订阅 store 变化，推送给歌词窗口
-  // 进度类高频字段做轻量节流，降低歌词窗 setState 压力
-  let lastProgressSent = -1;
-  let lastStatus = "";
-  let lastTrackKey = "";
-  let progressTimer: ReturnType<typeof setTimeout> | null = null;
-
-  const flushState = () => {
-    progressTimer = null;
-    const snapshot = getPlaybackSnapshotFromStore();
-    postSyncMessage(channel, { type: "state", snapshot });
-    lastProgressSent = snapshot.progress;
-    lastStatus = snapshot.status;
-    lastTrackKey = snapshot.current
-      ? `${snapshot.current.source}:${snapshot.current.id}`
-      : "";
-  };
-
-  const unsub = usePlayerStore.subscribe(() => {
-    const snapshot = getPlaybackSnapshotFromStore();
-    const trackKey = snapshot.current
-      ? `${snapshot.current.source}:${snapshot.current.id}`
-      : "";
-    const statusChanged = snapshot.status !== lastStatus;
-    const trackChanged = trackKey !== lastTrackKey;
-    const progressDelta = Math.abs(snapshot.progress - lastProgressSent);
-
-    // 切歌 / 状态变化立刻推；纯进度变化节流到 ~200ms 或进度差 >= 0.4s
-    if (statusChanged || trackChanged || progressDelta >= 0.4) {
-      if (progressTimer) {
-        clearTimeout(progressTimer);
-        progressTimer = null;
-      }
-      flushState();
-      return;
-    }
-    if (progressTimer == null) {
-      progressTimer = setTimeout(flushState, 200);
-    }
-  });
-
-  // 启动时先推一次
-  flushState();
-
-  // unsub kept for potential future teardown; windows live for app lifetime
-  void unsub;
-  void unlistenTauri;
-}
-
-// ─── 从窗口（桌面歌词 / 迷你播放器）──────────────────────────
+// ─── 副窗口（桌面歌词 / 迷你播放器）──────────────────────────
 
 /** 已应用的最新快照时刻：两条通道（BroadcastChannel + Tauri 事件）到达顺序不保证，
  *  旧快照晚到会把新状态写回去（歌词窗闪回上一首）。 */
@@ -136,54 +57,33 @@ let lastAppliedUpdatedAt = 0;
 function applyState(snapshot: PlaybackSnapshot) {
   if (Number.isFinite(snapshot.updatedAt) && snapshot.updatedAt < lastAppliedUpdatedAt) return;
   if (Number.isFinite(snapshot.updatedAt)) lastAppliedUpdatedAt = snapshot.updatedAt;
-  usePlayerStore.setState(applyPlaybackSnapshotToStorePatch(snapshot));
+  applyPlaybackSnapshotToMirror(snapshot);
 }
 
-function setupSecondaryWindow(channel: BroadcastChannel | null) {
+let secondaryInitialized = false;
+/** 副窗口的界面挂载时调用：开始接收主窗口的播放状态，并主动要一次当前状态。幂等。 */
+export function setupSecondaryPlayerSync() {
+  if (secondaryInitialized) return;
+  secondaryInitialized = true;
+  const channel = getPlayerSyncChannel();
+
   channel?.addEventListener("message", (event) => {
     const msg = event.data as SyncMessage;
     if (msg.type !== "state") return;
     applyState(msg.snapshot);
   });
 
-  void listen<SyncMessage>(TAURI_EVENT, (event) => {
+  void listen<SyncMessage>(PLAYER_SYNC_TAURI_EVENT, (event) => {
     const msg = event.payload;
     if (!msg || msg.type !== "state") return;
     applyState(msg.snapshot);
   }).catch(() => undefined);
 
   // 启动时主动请求一次状态（双通道）
-  const askInit: SyncMessage = { type: "request-state" };
-  postSyncMessage(channel, askInit);
+  postSyncMessage(channel, { type: "request-state" });
 }
 
-/** 在从窗口（桌面歌词 / 迷你播放器）里调用，把 action 发给主窗口执行 */
-export function dispatchLyricAction(action: "play-pause" | "next" | "prev") {
-  const message: SyncMessage = { type: "action", action };
-  postSyncMessage(getChannel(), message);
-}
-
-// ─── 单例 channel ────────────────────────────────
-
-let channelInstance: BroadcastChannel | null = null;
-function getChannel(): BroadcastChannel | null {
-  if (typeof BroadcastChannel === "undefined") return null;
-  if (!channelInstance) {
-    channelInstance = new BroadcastChannel(CHANNEL_NAME);
-  }
-  return channelInstance;
-}
-
-let initialized = false;
-/** 在 App.tsx 确认窗口角色后调用一次 */
-export function setupPlayerSync(role: AppWindowRole = "main") {
-  if (initialized) return;
-  initialized = true;
-  const channel = getChannel();
-  if (role !== "main" && role !== "lyric-unlock") {
-    setupSecondaryWindow(channel);
-  } else {
-    // main / lyric-unlock 都不作为歌词同步接收端
-    setupMainWindow(channel);
-  }
+/** 在副窗口里调用，把 action 发给主窗口执行 */
+export function dispatchLyricAction(action: PlayerSyncAction) {
+  postSyncMessage(getPlayerSyncChannel(), { type: "action", action });
 }

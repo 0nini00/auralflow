@@ -10,7 +10,6 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const loaded = vi.hoisted(() => ({ modules: [] as string[], label: 'main' }));
 
 vi.mock('@/utils/appWindow', () => ({ tryGetCurrentWindow: () => ({ label: loaded.label }) }));
-vi.mock('@/stores/playerSync', () => ({ setupPlayerSync: vi.fn() }));
 vi.mock('@lx/tauri-bridge', () => ({ debugLog: vi.fn(), loadSettings: async () => ({}), completeAppQuit: vi.fn() }));
 vi.mock('@/components/Layout/Layout', () => { loaded.modules.push('Layout'); return { Layout: () => null }; });
 vi.mock('@/components/PactModal', () => { loaded.modules.push('PactModal'); return { PactModal: () => null }; });

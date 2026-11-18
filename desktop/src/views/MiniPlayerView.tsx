@@ -4,8 +4,8 @@ import { showMainWindow, showMiniPlayerMenu } from "@lx/tauri-bridge";
 import { Pause, Play, SkipBack, SkipForward } from "lucide-react";
 
 import { useInterpolatedPlaybackProgress } from "@/hooks/useInterpolatedPlaybackProgress";
-import { usePlayerStore } from "@/stores/playerStore";
-import { dispatchLyricAction } from "@/stores/playerSync";
+import { usePlaybackMirrorStore } from "@/stores/playbackMirrorStore";
+import { dispatchLyricAction, setupSecondaryPlayerSync } from "@/stores/playerSync";
 import { applyInitialAppearance, useThemeStore } from "@/stores/themeStore";
 import { coverSrc } from "@/utils/imageReferrerPolicy";
 import { formatTime } from "@/utils/formatTime";
@@ -25,12 +25,14 @@ const DRAG_THRESHOLD_PX = 3;
  * 配色全部走主题变量，跟随主窗口的明暗与强调色。
  */
 export function MiniPlayerView() {
-  const current = usePlayerStore((s) => s.current);
-  const status = usePlayerStore((s) => s.status);
-  const progress = usePlayerStore((s) => s.progress);
-  const progressSampledAt = usePlayerStore((s) => s.progressSampledAt);
-  const duration = usePlayerStore((s) => s.duration);
-  const playbackRate = usePlayerStore((s) => s.playbackRate);
+  useEffect(() => setupSecondaryPlayerSync(), []);
+
+  const current = usePlaybackMirrorStore((s) => s.current);
+  const status = usePlaybackMirrorStore((s) => s.status);
+  const progress = usePlaybackMirrorStore((s) => s.progress);
+  const progressSampledAt = usePlaybackMirrorStore((s) => s.progressSampledAt);
+  const duration = usePlaybackMirrorStore((s) => s.duration);
+  const playbackRate = usePlaybackMirrorStore((s) => s.playbackRate);
 
   const time = useInterpolatedPlaybackProgress({
     status,

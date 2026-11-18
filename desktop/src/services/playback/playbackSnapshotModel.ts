@@ -53,22 +53,6 @@ export interface PlaybackSnapshot {
   updatedAt: number;
 }
 
-export type PlaybackSnapshotStorePatch = Pick<
-  PlaybackSnapshotSource,
-  | "current"
-  | "status"
-  | "progress"
-  | "progressSampledAt"
-  | "duration"
-  | "volume"
-  | "isMuted"
-  | "playbackRate"
-  | "repeatMode"
-  | "isShuffle"
-  | "fmMode"
-  | "error"
->;
-
 function finiteOrZero(value: number): number {
   return Number.isFinite(value) ? Math.max(0, value) : 0;
 }
@@ -147,22 +131,5 @@ export function buildPlaybackSnapshot(source: PlaybackSnapshotSource, updatedAt 
     canGoNext,
     error: source.error,
     updatedAt,
-  };
-}
-
-export function applyPlaybackSnapshotToStorePatch(snapshot: PlaybackSnapshot): PlaybackSnapshotStorePatch {
-  return {
-    current: snapshot.current,
-    status: snapshot.status,
-    progress: snapshot.progress,
-    progressSampledAt: snapshot.progressSampledAt,
-    duration: snapshot.duration,
-    volume: snapshot.volume,
-    isMuted: snapshot.isMuted,
-    playbackRate: snapshot.playbackRate,
-    repeatMode: snapshot.repeatMode,
-    isShuffle: snapshot.isShuffle,
-    fmMode: snapshot.fmMode,
-    error: snapshot.error,
   };
 }

@@ -15,6 +15,7 @@ import { CloseConfirmModal } from "./components/CloseConfirmModal";
 import { checkForUpdate } from "./services/updateService";
 import { useUpdateStore } from "./stores/updateStore";
 import { attachPlaybackPersistence } from "./stores/playerPersistence";
+import { setupMainPlayerSync } from "./stores/playerSyncMain";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useNativeControls } from "./hooks/useNativeControls";
 import { setupSystemMediaControls } from "./services/smtcService";
@@ -60,6 +61,9 @@ export default function MainWindow() {
 
   // 系统媒体控制（SMTC）：媒体键 / 系统媒体浮层 / 锁屏控制。只在主窗口挂载。
   useEffect(() => setupSystemMediaControls(), []);
+
+  // 把播放状态广播给桌面歌词 / 迷你播放器，并执行它们发回的控件动作。只在主窗口挂载。
+  useEffect(() => setupMainPlayerSync(), []);
 
   // 任务栏缩略图按钮与悬浮预览封面。只在主窗口挂载。
   useEffect(() => setupTaskbarThumbnails(), []);
