@@ -50,7 +50,7 @@
 - `PREFETCH_TTL_MS = 10 * 60 * 1000`（10min）：内存预取条目 10 分钟内有效。
 - `prefetchSong(song)` 预解析单首歌曲的播放 URL + 歌词 + 封面（各自幂等，已命中则跳过），只解析并缓存 URL，**不写入 TrackPlayer 原生队列**——原生队列始终保持单曲，切歌由 JS 调度。
 - 与 `playerStore.playNextInQueue` 集成：「下一首播放 / 稍后播放」插入队列时立即调用 `prefetchSong` 预热，播到该曲时命中缓存秒开。
-- `invalidatePrefetchForSong(song)` 清除指定歌曲的预取条目（试听片段、切歌抢占、URL 失效时调用）。
+- `invalidateResolvedPlayback(song, { includeDiskAudio })` 是「播放结果证明解析结果不可用」时的唯一作废入口：先清持久化 URL（与点名时的磁盘音频文件），最后清该曲的预取条目。试听兜底传 `true`；原生报错重试只在正在播的是本地文件时传 `true`。
 
 ## 封面缓存（CachedImage）
 
@@ -83,7 +83,7 @@
 
 `stores/playerStore.ts`：TrackPlayer 报告 `duration` 后，调 `isPreviewDuration({ actualDurationSeconds: duration, expectedDurationSeconds: song.interval })`（`@lx/core`）比对实际与预期时长：
 
-- 判定为试听片段 → **暂停播放** + `invalidateCachedPlaybackUrl(song)` + `invalidatePrefetchForSong(song)`，清掉无效 URL 与预取，触发重新解析 / 降级到下一可用音源。
+- 判定为试听片段 → **暂停播放** + `invalidateResolvedPlayback(song, { includeDiskAudio: true })`，清掉无效 URL、已落盘的试听文件与预取，触发重新解析 / 降级到下一可用音源。
 - 同样在播放失败 / 切歌抢占路径里做失效清理。
 
 ## 播放快照（initPlaybackSnapshotPersistence）
@@ -107,7 +107,7 @@ apps/mobile/src/
 │   ├── playbackPrefetchModel.ts  # 预取 key 构造 / 命中判定
 │   ├── streamProbe.ts            # 1 字节 Range 死链 / 试听探测（5s 超时）
 │   ├── playbackSnapshot.ts       # 播放快照持久化与启动恢复（initPlaybackSnapshotPersistence）
-│   ├── playerService.ts          # prefetchSong / invalidatePrefetchForSong / 播放解析
+│   ├── playerService.ts          # prefetchSong / invalidateResolvedPlayback / 播放解析
 │   └── downloadService.ts        # 下载 + sidecar .lrc + ID3 嵌标签
 ├── stores/
 │   └── playerStore.ts            # isPreviewDuration 试听判定 + 失效清理（1252 行）

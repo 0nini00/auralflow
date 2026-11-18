@@ -120,7 +120,7 @@
 `PlaybackProgressUpdated` 事件（0.25s 触发一次）：
 
 - `isPreviewDuration` 判定实际时长明显短于期望时长 → 试听片段。
-- 命中后：`pause()` + `invalidateCachedPlaybackUrl`（清持久化 URL 缓存）+ `invalidatePrefetchForSong`（清预取）+ `previewRejectedKeys.add(key)` 防同一首歌重复告警。
+- 命中后：`pause()` + `invalidateResolvedPlayback(song, { includeDiskAudio: true })`（持久化 URL、磁盘音频文件、预读三级一起作废）+ `claimPreviewRejection(key)` 防同一首歌重复告警。
 - 新播放会话 `previewRejectedKeys.clear()`，允许用户手动重试时再次拦截。
 
 ### 3.8 播放模式与睡眠定时
