@@ -5,7 +5,6 @@ import { useSleepTimerStore } from '@/stores/sleepTimerStore';
 import { useUiStore } from '@/stores/uiStore';
 import { ImmersiveLyricsOverlay } from '@/components/ImmersiveLyricsOverlay';
 import { SongAddMenuButton } from '@/components/SongAddMenuButton';
-import { subscribeLyricSettings } from '@/stores/lyricSettingsSync';
 import { toggleDesktopLyricFromPlayer } from '@/utils/desktopLyricToggle';
 import { getNextPlayMode, getPlayModeControl } from '@/services/playback/playModeControl';
 import { PLAYER_COVER_CSS_SIZE, coverSrc } from '@/utils/imageReferrerPolicy';
@@ -89,17 +88,16 @@ export const PlayerBar: React.FC = () => {
     void getLyricWindowState()
       .then((state) => setLyricLocked(state.locked))
       .catch(() => undefined);
-    const unlistenPromise = listenTauriEvent(TAURI_EVENTS.lyricWindowOpenChanged, (payload) => {
+    const unlistenOpenPromise = listenTauriEvent(TAURI_EVENTS.lyricWindowOpenChanged, (payload) => {
       setLyricOpen(payload.open);
     });
-    const unsubscribeLyricSettings = subscribeLyricSettings((patch) => {
-      if (typeof patch.lyricLocked === 'boolean') {
-        setLyricLocked(patch.lyricLocked);
-      }
+    // 锁定是歌词窗的运行时状态，由 Rust 在变化时通知。
+    const unlistenLockPromise = listenTauriEvent(TAURI_EVENTS.lyricSettingsChanged, (payload) => {
+      setLyricLocked(payload.lyricLocked);
     });
     return () => {
-      void unlistenPromise.then((unlisten) => unlisten()).catch(() => undefined);
-      unsubscribeLyricSettings();
+      void unlistenOpenPromise.then((unlisten) => unlisten()).catch(() => undefined);
+      void unlistenLockPromise.then((unlisten) => unlisten()).catch(() => undefined);
     };
   }, []);
 

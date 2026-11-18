@@ -206,6 +206,25 @@ describe("settingsStore：写入", () => {
     expect(useSettingsStore.getState().settings).toMatchObject({ volume: 10, cursorEffect: "trail" });
   });
 
+  it("连续写入：较早一次的返回值不会把界面拉回旧值，全部确认后以 Rust 为准", async () => {
+    await ensureSettingsLoaded();
+    const first = deferred<RustAppSettings>();
+    const second = deferred<RustAppSettings>();
+    bridge.patchSettings.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+
+    const savingFirst = updateSettings({ lyricFontSize: 30 });
+    const savingSecond = updateSettings({ lyricFontSize: 31 });
+    expect(useSettingsStore.getState().settings?.lyricFontSize).toBe(31);
+
+    first.resolve(settingsOf({ lyricFontSize: 30 }));
+    await savingFirst;
+    expect(useSettingsStore.getState().settings?.lyricFontSize).toBe(31);
+
+    second.resolve(settingsOf({ lyricFontSize: 31, volume: 12 }));
+    await savingSecond;
+    expect(useSettingsStore.getState().settings).toMatchObject({ lyricFontSize: 31, volume: 12 });
+  });
+
   it("未加载完时写入：不凭空造出一份设置，写完后用返回值", async () => {
     bridge.patchSettings.mockResolvedValue(settingsOf({ pactAccepted: true }));
 

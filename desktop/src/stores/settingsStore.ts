@@ -24,6 +24,8 @@ import { logger } from "@/services/logger";
  *    调用方必须自己处理 null（组件不渲染或禁用，服务 `await ensureSettingsLoaded()`）。
  * 2. 对 Rust 的读和写串行执行（见 `enqueue`），所以后写进 store 的一定是更新的值，
  *    不会出现「较早发出的写入返回值盖掉较晚读到的结果」。
+ * 3. 界面上的值 = Rust 最近确认的值 + 已发出但尚未确认的写入（见 `publish`）。
+ *    没有待确认的写入时，它就是 Rust 的返回值。
  */
 
 /**
@@ -82,6 +84,8 @@ let queueTail: Promise<void> = Promise.resolve();
 /** 已排队但尚未开始的重读：其间再来的刷新请求并入它，不重复读盘。 */
 let pendingReload: Promise<AppSettings> | null = null;
 let initialLoad: Promise<AppSettings> | null = null;
+/** 已经显示在界面上、Rust 还没确认的写入，按发出顺序排列。 */
+let unconfirmedPatches: SettingsPatch[] = [];
 let unlistenSettingsChanged: UnlistenFn | null = null;
 
 function enqueue<T>(operation: () => Promise<T>): Promise<T> {
@@ -97,11 +101,19 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * 把 Rust 确认的值放进 store，并在上面重放还没确认的写入。
+ * 不重放的话，连续写入（拖滑块）时较早一次写入的返回值会把界面拉回旧位置再跳回来。
+ */
+function publish(confirmed: RustAppSettings): AppSettings {
+  const settings: AppSettings = Object.assign({}, confirmed, ...unconfirmedPatches);
+  useSettingsStore.setState({ settings, loadError: null });
+  return settings;
+}
+
 async function readIntoStore(): Promise<AppSettings> {
   try {
-    const settings = await loadSettings();
-    useSettingsStore.setState({ settings, loadError: null });
-    return settings;
+    return publish(await loadSettings());
   } catch (error) {
     useSettingsStore.setState({ loadError: errorMessage(error) });
     throw error;
@@ -151,14 +163,6 @@ export function ensureSettingsLoaded(): Promise<AppSettings> {
   return attempt;
 }
 
-function commit(write: () => Promise<RustAppSettings>): Promise<AppSettings> {
-  return enqueue(async () => {
-    const settings = await write();
-    useSettingsStore.setState({ settings, loadError: null });
-    return settings;
-  });
-}
-
 /**
  * 修改设置的唯一入口。
  *
@@ -166,22 +170,28 @@ function commit(write: () => Promise<RustAppSettings>): Promise<AppSettings> {
  * 写入失败时乐观值作废：重读一次真实值，并把写入错误抛给调用方去提示用户。
  */
 export function updateSettings(patch: SettingsPatch): Promise<AppSettings> {
+  unconfirmedPatches.push(patch);
   useSettingsStore.setState(({ settings }) => (settings ? { settings: { ...settings, ...patch } } : {}));
-  return commit(async () => {
+
+  return enqueue(async () => {
+    let confirmed: RustAppSettings;
     try {
-      return await patchSettings(patch);
+      confirmed = await patchSettings(patch);
     } catch (error) {
+      unconfirmedPatches = unconfirmedPatches.filter((pending) => pending !== patch);
       await readIntoStore().catch((reloadError) => {
         logger.warn("[设置] 写入失败后重新读取设置也失败，界面可能停在未保存的值上", reloadError);
       });
       throw error;
     }
+    unconfirmedPatches = unconfirmedPatches.filter((pending) => pending !== patch);
+    return publish(confirmed);
   });
 }
 
 /** 把指定字段恢复成默认值。默认值只在 Rust 的 `AppSettings::default()` 定义，前端不存默认值表。 */
 export function resetSettingsToDefault(keys: ReadonlyArray<keyof RustAppSettings>): Promise<AppSettings> {
-  return commit(() => resetSettings(keys));
+  return enqueue(async () => publish(await resetSettings(keys)));
 }
 
 /** 仅供测试：回到「本窗口尚未加载」的初始状态。 */
@@ -191,5 +201,6 @@ export function __resetSettingsStoreForTests(): void {
   queueTail = Promise.resolve();
   pendingReload = null;
   initialLoad = null;
+  unconfirmedPatches = [];
   useSettingsStore.setState(INITIAL_STATE);
 }

@@ -11,9 +11,8 @@ import { resolveImmersiveKeyboardAction } from '@/services/playback/immersiveKey
 import {
   getLyricAnimationIntensityScale,
   normalizeLyricAnimationIntensity,
-  type LyricAnimationIntensity,
 } from '@/services/lyrics/animationIntensity';
-import { broadcastLyricSettings, subscribeLyricSettings } from '@/stores/lyricSettingsSync';
+import { updateSettings, useSettingsStore } from '@/stores/settingsStore';
 import { usePlayerStore } from '@/stores/playerStore';
 import { IMMERSIVE_BACKGROUND_OPTIONS, useThemeStore, type ImmersiveBackgroundMode } from '@/stores/themeStore';
 import { buildMusicShareText } from '@/utils/shareLink';
@@ -21,15 +20,12 @@ import { toggleDesktopLyricFromPlayer } from '@/utils/desktopLyricToggle';
 import { IMMERSIVE_COVER_CSS_SIZE, coverSrc } from '@/utils/imageReferrerPolicy';
 import { useWindowDrag } from '@/hooks/useWindowDrag';
 import { Waves, X } from 'lucide-react';
-import { TAURI_EVENTS, getLyricWindowState, isLyricWindowOpen, listenTauriEvent, loadSettings, patchSettings } from '@lx/tauri-bridge';
+import { TAURI_EVENTS, getLyricWindowState, isLyricWindowOpen, listenTauriEvent } from '@lx/tauri-bridge';
 
 interface ImmersiveLyricsOverlayProps {
   open: boolean;
   onClose: () => void;
 }
-
-const DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY =
-  '"Inter", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif';
 
 
 function buildCssUrl(url: string): string {
@@ -86,12 +82,15 @@ function ImmersiveLyricsContent({ open, onClose }: ImmersiveLyricsOverlayProps) 
   const next = usePlayerStore((s) => s.next);
   const removeFromQueue = usePlayerStore((s) => s.removeFromQueue);
 
-  const [showTranslation, setShowTranslation] = useState(true);
-  const [showRomanization, setShowRomanization] = useState(false);
-  const [showRuby, setShowRuby] = useState(false);
-  const [immersiveLyricFontFamily, setImmersiveLyricFontFamily] = useState(DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
-  const [animationIntensity, setAnimationIntensity] = useState<LyricAnimationIntensity>('normal');
-  const [manualOffsetMs, setManualOffsetMs] = useState(0);
+  // 设置读不到时沉浸页仍然可用：歌词按最朴素的样子显示（不带译文/读音、字体用样式表自带的、
+  // 不偏移），显示开关禁用——此时没有真实值可切换，更不能把这些占位写回设置。
+  const settingsLoaded = useSettingsStore((s) => s.settings !== null);
+  const showTranslation = useSettingsStore((s) => s.settings?.lyricShowTranslation === true);
+  const showRomanization = useSettingsStore((s) => s.settings?.lyricShowRomanization === true);
+  const showRuby = useSettingsStore((s) => s.settings?.lyricShowRuby === true);
+  const immersiveLyricFontFamily = useSettingsStore((s) => s.settings?.immersiveLyricFontFamily);
+  const animationIntensity = useSettingsStore((s) => normalizeLyricAnimationIntensity(s.settings?.lyricAnimationIntensity));
+  const manualOffsetMs = useSettingsStore((s) => s.settings?.lyricManualOffsetMs ?? 0);
   const [lyricError, setLyricError] = useState('');
   const [shareStatus, setShareStatus] = useState('');
   const [panelOpen, setPanelOpen] = useState(false);
@@ -178,46 +177,20 @@ function ImmersiveLyricsContent({ open, onClose }: ImmersiveLyricsOverlayProps) 
   useEffect(() => {
     if (!open) return;
 
-    void loadSettings()
-      .then((settings) => {
-        setShowTranslation(settings.lyricShowTranslation !== false);
-        setShowRomanization(settings.lyricShowRomanization === true);
-        setShowRuby(settings.lyricShowRuby === true);
-        setImmersiveLyricFontFamily(settings.immersiveLyricFontFamily || DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
-        setAnimationIntensity(normalizeLyricAnimationIntensity(settings.lyricAnimationIntensity));
-        setManualOffsetMs(typeof settings.lyricManualOffsetMs === "number" ? settings.lyricManualOffsetMs : 0);
-      })
-      .catch(() => undefined);
     void isLyricWindowOpen().then(setDesktopLyricOpen).catch(() => undefined);
     void getLyricWindowState()
       .then((state) => setDesktopLyricLocked(state.locked))
       .catch(() => undefined);
-    const unlistenPromise = listenTauriEvent(TAURI_EVENTS.lyricWindowOpenChanged, (payload) => {
+    const unlistenOpenPromise = listenTauriEvent(TAURI_EVENTS.lyricWindowOpenChanged, (payload) => {
       setDesktopLyricOpen(payload.open);
     });
-
-    const unsubscribe = subscribeLyricSettings((patch) => {
-      if (typeof patch.lyricShowRomanization === "boolean") setShowRomanization(patch.lyricShowRomanization);
-      if (typeof patch.lyricShowRuby === "boolean") setShowRuby(patch.lyricShowRuby);
-      if (typeof patch.lyricLocked === 'boolean') {
-        setDesktopLyricLocked(patch.lyricLocked);
-      }
-      if (typeof patch.lyricShowTranslation === 'boolean') {
-        setShowTranslation(patch.lyricShowTranslation);
-      }
-      if (typeof patch.immersiveLyricFontFamily === 'string') {
-        setImmersiveLyricFontFamily(patch.immersiveLyricFontFamily);
-      }
-      if (typeof patch.lyricAnimationIntensity === 'string') {
-        setAnimationIntensity(normalizeLyricAnimationIntensity(patch.lyricAnimationIntensity));
-      }
-      if (typeof patch.lyricManualOffsetMs === 'number') {
-        setManualOffsetMs(patch.lyricManualOffsetMs);
-      }
+    // 锁定是歌词窗的运行时状态，由 Rust 在变化时通知。
+    const unlistenLockPromise = listenTauriEvent(TAURI_EVENTS.lyricSettingsChanged, (payload) => {
+      setDesktopLyricLocked(payload.lyricLocked);
     });
     return () => {
-      void unlistenPromise.then((unlisten) => unlisten()).catch(() => undefined);
-      unsubscribe();
+      void unlistenOpenPromise.then((unlisten) => unlisten()).catch(() => undefined);
+      void unlistenLockPromise.then((unlisten) => unlisten()).catch(() => undefined);
     };
   }, [open]);
 
@@ -236,18 +209,15 @@ function ImmersiveLyricsContent({ open, onClose }: ImmersiveLyricsOverlayProps) 
 
   const handleLyricDisplayToggle = async (option: LyricDisplayOption) => {
     const options = {
-      translation: { key: 'lyricShowTranslation', value: showTranslation, set: setShowTranslation, label: '译文' },
-      romanization: { key: 'lyricShowRomanization', value: showRomanization, set: setShowRomanization, label: '罗马音' },
-      ruby: { key: 'lyricShowRuby', value: showRuby, set: setShowRuby, label: '注音' },
+      translation: { key: 'lyricShowTranslation', value: showTranslation, label: '译文' },
+      romanization: { key: 'lyricShowRomanization', value: showRomanization, label: '罗马音' },
+      ruby: { key: 'lyricShowRuby', value: showRuby, label: '注音' },
     } as const;
     const setting = options[option];
-    const patch = { [setting.key]: !setting.value };
     setLyricSettingsPending(true);
     setLyricError('');
     try {
-      await patchSettings(patch);
-      setting.set(!setting.value);
-      broadcastLyricSettings(patch);
+      await updateSettings({ [setting.key]: !setting.value });
     } catch (error) {
       setLyricError(`${setting.label}设置失败：${error instanceof Error ? error.message : String(error)}`);
     } finally {
@@ -422,7 +392,7 @@ function ImmersiveLyricsContent({ open, onClose }: ImmersiveLyricsOverlayProps) 
           onSeekStart: () => { setIsScrubbing(true); setScrubProgress(liveProgress); },
           onSeekEnd: handleSeekEnd,
         }}
-        lyrics={{ showTranslation, showRomanization, showRuby, pending: lyricSettingsPending, onToggle: handleLyricDisplayToggle }}
+        lyrics={{ showTranslation, showRomanization, showRuby, pending: lyricSettingsPending || !settingsLoaded, onToggle: handleLyricDisplayToggle }}
         queue={{ tracks: queue, currentIndex, play: playByIndex, remove: removeFromQueue }}
         desktopLyrics={{ open: desktopLyricOpen, label: desktopLyricButtonLabel, toggle: handleDesktopLyricToggle }}
         onPanelOpenChange={setPanelOpen}

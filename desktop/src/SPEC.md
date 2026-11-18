@@ -21,7 +21,7 @@ tags: [auralflow, desktop]
 
 另有 `hooks/`（复用逻辑）、`utils/`、`styles/`（`index.css` + 分层 CSS）、`assets/`。
 
-**跨窗口**：`App.tsx` 按 `getCurrentWindow().label` 与 `location.hash` 区分 main / lyric / lyric-unlock 三个窗口。三者订阅同一套 store，靠 `stores/playerSync.ts`（BroadcastChannel + Tauri 事件）与 `stores/lyricSettingsSync.ts` 保持一致。
+**跨窗口**：`App.tsx` 按 `getCurrentWindow().label` 与 `location.hash` 区分 main / lyric / lyric-unlock 三个窗口。各窗口是独立的 WebView，各有一份 store 实例：播放状态靠 `stores/playerSync.ts`（BroadcastChannel + Tauri 事件）保持一致；设置靠 `stores/settingsStore.ts`——每个窗口启动时读一次，之后只在 Rust 发 `settings-changed` 时重读，窗口之间不互相转发设置值。
 
 **应用自更新**：`services/updateService.ts`（三态检查 + 下载安装）↔ `stores/updateStore.ts`（待装版本）↔ `components/UpdateModal.tsx`（弹窗状态机：`idle → downloading → installing / failed`）。触发点是启动 3s 后的静默检查（`App.tsx`）与设置页「其他 → 软件更新」的手动检查。
 

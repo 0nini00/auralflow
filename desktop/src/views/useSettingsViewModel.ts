@@ -10,8 +10,7 @@ import { useThemeStore } from "@/stores/themeStore";
 import { useHistoryStore } from "@/stores/historyStore";
 import { confirmAction } from "@/components/ui/ConfirmDialog";
 import { useCustomSourceStore } from "@/stores/customSourceStore";
-import { broadcastLyricSettings } from "@/stores/lyricSettingsSync";
-import { updateSettings, useLoadedSettings, type SettingsPatch } from "@/stores/settingsStore";
+import { resetSettingsToDefault, updateSettings, useLoadedSettings, type SettingsPatch } from "@/stores/settingsStore";
 import {
   clearCachedLyrics,
   clearCachedPlaybackUrls,
@@ -23,13 +22,13 @@ import { clearLyricsMemoryCache } from "@/services/lyricsService";
 import { formatBytes } from "@/utils/formatBytes";
 import { clearPlaybackPrefetchCache } from "@/services/playback/prefetchService";
 import { toAppBackgroundImageUrl } from "@/services/appBackground";
+import { SYSTEM_DEFAULT_LYRIC_FONT_FAMILY } from "@/services/lyrics/immersiveLyricFont";
 
-const DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY = "\"Inter\", \"Noto Sans CJK SC\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif";
 const HEX_COLOR_PATTERN = /^#?[0-9a-fA-F]{6}$/;
 export const IMMERSIVE_LYRIC_FONT_OPTIONS = [
   {
     label: "系统默认",
-    value: DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY,
+    value: SYSTEM_DEFAULT_LYRIC_FONT_FAMILY,
   },
   {
     label: "霞鹜文楷",
@@ -238,17 +237,20 @@ const handleCustomSourceAutoCheckToggle = () => {
   });
 };
 
-const handleImmersiveLyricFontFamilyChange = async (next: string) => {
-  const previous = immersiveLyricFontFamily;
+const saveImmersiveLyricFontFamily = async (save: () => Promise<unknown>) => {
   setAppearanceStatus("");
   try {
-    broadcastLyricSettings({ immersiveLyricFontFamily: next });
-    await updateSettings({ immersiveLyricFontFamily: next });
+    await save();
   } catch (error) {
-    broadcastLyricSettings({ immersiveLyricFontFamily: previous });
     setAppearanceStatus(`保存歌词字体失败：${error instanceof Error ? error.message : String(error)}`);
   }
 };
+
+const handleImmersiveLyricFontFamilyChange = (next: string) =>
+  saveImmersiveLyricFontFamily(() => updateSettings({ immersiveLyricFontFamily: next }));
+
+const handleImmersiveLyricFontFamilyReset = () =>
+  saveImmersiveLyricFontFamily(() => resetSettingsToDefault(["immersiveLyricFontFamily"]));
 
 const handleImportCustomSourceFile = async () => {
   setCustomSourceStatus("导入中...");
@@ -448,6 +450,7 @@ const getCapabilityTitle = (source: typeof customSources[number]) => {
     handlePauseOnExternalPlaybackChange,
     handleCustomSourceAutoCheckToggle,
     handleImmersiveLyricFontFamilyChange,
+    handleImmersiveLyricFontFamilyReset,
     handleImportCustomSourceFile,
     handleImportCustomSourceText,
     handleClearPlaybackHistory,
@@ -494,6 +497,7 @@ export type AppearanceSettingsModel = Pick<SettingsViewModel,
   | "handleClearAppBackground"
   | "immersiveLyricFontFamily"
   | "handleImmersiveLyricFontFamilyChange"
+  | "handleImmersiveLyricFontFamilyReset"
 >;
 
 export type PlaybackSettingsModel = Pick<SettingsViewModel,

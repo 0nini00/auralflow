@@ -1,15 +1,13 @@
-import { broadcastLyricSettings } from "@/stores/lyricSettingsSync";
 import { setLyricWindowLocked } from "@lx/tauri-bridge";
+import { logger } from "@/services/logger";
 import { Unlock } from "lucide-react";
 
 export function LyricUnlockView() {
-  const handleUnlock = async () => {
-    broadcastLyricSettings({ lyricLocked: false });
-    try {
-      await setLyricWindowLocked(false, undefined, "lyric-unlock");
-    } catch {
-      broadcastLyricSettings({ lyricLocked: true });
-    }
+  // 解锁成功后由 Rust 通知各窗口（lyric-settings-changed），这里不替它转发状态。
+  const handleUnlock = () => {
+    setLyricWindowLocked(false, undefined, "lyric-unlock").catch((error) => {
+      logger.warn("[桌面歌词] 解锁失败", error);
+    });
   };
 
   return (

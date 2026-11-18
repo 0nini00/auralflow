@@ -34,10 +34,6 @@ const deps = vi.hoisted(() => {
       next: vi.fn(),
       removeFromQueue: vi.fn(),
     },
-    loadSettings: vi.fn(),
-    patchSettings: vi.fn(),
-    broadcast: vi.fn(),
-    subscribe: vi.fn(),
     toggleDesktop: vi.fn(),
   };
 });
@@ -46,12 +42,9 @@ vi.mock('@/stores/playerStore', () => ({ usePlayerStore: Object.assign(() => dep
 vi.mock('@lx/tauri-bridge', async (importOriginal) => ({
   TAURI_EVENTS: (await importOriginal<typeof import('@lx/tauri-bridge')>()).TAURI_EVENTS,
   listenTauriEvent: async () => () => {},
-  loadSettings: deps.loadSettings,
-  patchSettings: deps.patchSettings,
   isLyricWindowOpen: async () => false,
   getLyricWindowState: async () => ({ locked: false }),
 }));
-vi.mock('@/stores/lyricSettingsSync', () => ({ broadcastLyricSettings: deps.broadcast, subscribeLyricSettings: deps.subscribe }));
 vi.mock('@/hooks/useLyrics', () => ({ useLyrics: () => ({ lyrics: [], currentLine: 0 }) }));
 vi.mock('@/hooks/useInterpolatedPlaybackProgress', () => ({ useInterpolatedPlaybackProgress: () => 25 }));
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: deps.getCurrentWindow }));
@@ -67,9 +60,6 @@ let renderer: ReactTestRenderer;
 beforeEach(() => {
   deps.startDragging.mockClear();
   deps.toggleMaximize.mockClear();
-  deps.loadSettings.mockResolvedValue({ lyricShowTranslation: true });
-  deps.patchSettings.mockResolvedValue({});
-  deps.subscribe.mockReturnValue(() => {});
   deps.toggleDesktop.mockResolvedValue({ open: false, locked: false });
   // node 环境没有 DOM：组件会读 document.body.style.overflow 并挂 window 监听，这里给最小桩
   vi.stubGlobal('document', { body: { style: { overflow: '' } }, querySelector: () => null });

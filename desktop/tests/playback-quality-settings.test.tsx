@@ -5,7 +5,6 @@ vi.mock('@lx/tauri-bridge', () => ({ patchSettings: deps.patch }));
 vi.mock('@/stores/themeStore', () => ({ useThemeStore: Object.assign(() => ({ accentColor: '#ffffff', previewAccentColor: vi.fn() }), { getState: () => ({ accentColor: '#ffffff' }) }) }));
 vi.mock('@/stores/historyStore', () => ({ useHistoryStore: { getState: vi.fn() } }));
 vi.mock('@/stores/customSourceStore', () => ({ useCustomSourceStore: () => [] }));
-vi.mock('@/stores/lyricSettingsSync', () => ({ broadcastLyricSettings: vi.fn() }));
 vi.mock('@/services/persistentCache', () => ({}));
 vi.mock('@/services/lyricsService', () => ({}));
 vi.mock('@/services/playback/prefetchService', () => ({ clearPlaybackPrefetchCache: deps.clear }));

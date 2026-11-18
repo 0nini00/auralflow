@@ -23,7 +23,6 @@ vi.mock("@lx/tauri-bridge", () => ({
 vi.mock("@/stores/historyStore", () => ({ useHistoryStore: { getState: vi.fn() } }));
 vi.mock("@/components/ui/ConfirmDialog", () => ({ confirmAction: vi.fn() }));
 vi.mock("@/stores/customSourceStore", () => ({ useCustomSourceStore: () => ({ sources: [] }) }));
-vi.mock("@/stores/lyricSettingsSync", () => ({ broadcastLyricSettings: vi.fn() }));
 vi.mock("@/services/persistentCache", () => ({
   getPersistentCacheSummary: vi.fn(async () => ({})),
   clearCachedLyrics: vi.fn(),

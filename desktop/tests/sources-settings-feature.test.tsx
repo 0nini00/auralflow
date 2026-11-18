@@ -31,7 +31,6 @@ vi.mock("@/stores/themeStore", () => ({ useThemeStore: Object.assign(
   { getState: () => ({ accentColor: "#123456" }) },
 ) }));
 vi.mock("@/stores/historyStore", () => ({ useHistoryStore: { getState: vi.fn() } }));
-vi.mock("@/stores/lyricSettingsSync", () => ({ broadcastLyricSettings: vi.fn() }));
 vi.mock("@/services/persistentCache", () => ({
   getPersistentCacheSummary: vi.fn(async () => ({ playbackUrlCount: 0, lyricCount: 0 })),
   clearCachedPlaybackUrls: vi.fn(),

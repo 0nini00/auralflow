@@ -8,8 +8,7 @@ const deps = vi.hoisted(() => {
   return { player: {} as any, reportBackgroundError: undefined as undefined | ((message: string) => void) };
 });
 vi.mock('@/stores/playerStore', () => ({ usePlayerStore: Object.assign((selector?: unknown) => (typeof selector === 'function' ? (selector as (state: typeof deps.player) => unknown)(deps.player) : deps.player), { getState: () => deps.player }) }));
-vi.mock('@lx/tauri-bridge', async (importOriginal) => ({ TAURI_EVENTS: (await importOriginal<typeof import('@lx/tauri-bridge')>()).TAURI_EVENTS, listenTauriEvent: async () => () => {}, loadSettings: async () => ({}), patchSettings: async () => ({}), isLyricWindowOpen: async () => false, getLyricWindowState: async () => ({ locked: false }) }));
-vi.mock('@/stores/lyricSettingsSync', () => ({ subscribeLyricSettings: () => () => {}, broadcastLyricSettings: vi.fn() }));
+vi.mock('@lx/tauri-bridge', async (importOriginal) => ({ TAURI_EVENTS: (await importOriginal<typeof import('@lx/tauri-bridge')>()).TAURI_EVENTS, listenTauriEvent: async () => () => {}, isLyricWindowOpen: async () => false, getLyricWindowState: async () => ({ locked: false }) }));
 vi.mock('@/hooks/useLyrics', () => ({ useLyrics: () => ({ lyrics: [], currentLine: 0 }) }));
 vi.mock('@/hooks/useInterpolatedPlaybackProgress', () => ({ useInterpolatedPlaybackProgress: () => 25 }));
 vi.mock('@/utils/desktopLyricToggle', () => ({ toggleDesktopLyricFromPlayer: async () => ({ open: true, locked: false }) }));
