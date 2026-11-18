@@ -3,7 +3,6 @@ import type { MusicInfo } from "@lx/core";
 import {
   TAURI_EVENTS,
   listenTauriEvent,
-  loadSettings,
   smtcSetEnabled,
   smtcUpdateProgress,
   smtcUpdateTrack,
@@ -11,6 +10,7 @@ import {
   type SmtcTrackPayload,
 } from "@lx/tauri-bridge";
 import { usePlayerStore } from "@/stores/playerStore";
+import { useSettingsStore } from "@/stores/settingsStore";
 import { getPlaybackSnapshotFromStore } from "@/services/playback/playbackSnapshot";
 import { dispatchPlaybackAction } from "@/services/playback/playbackActions";
 import { lookupCachedCoverPath } from "@/services/mediaCache";
@@ -34,9 +34,6 @@ const PROGRESS_PUSH_STEP_SECONDS = 0.5;
  * 落盘后延时补推一次，把封面补上；只补一次。
  */
 const COVER_RETRY_DELAY_MS = 2000;
-
-/** 设置页改开关时派发的窗口事件（沿用 af-cursor-change 的写法） */
-const SETTINGS_CHANGED_EVENT = "af-smtc-change";
 
 function trackKeyOf(music: MusicInfo | null): string {
   return music ? `${music.source}:${music.id}` : "";
@@ -129,17 +126,10 @@ export function setupSystemMediaControls(): () => void {
     }
   };
 
-  /** 读取设置并应用开关；打开时立刻推一次当前曲目 */
-  const applySettings = async () => {
-    const settings = await loadSettings().catch((error) => {
-      logger.warn("[系统媒体控制] 读取设置失败", error);
-      return null;
-    });
-    if (disposed || !settings) return;
-
-    // 字段缺失按默认「开」处理，与 Rust 侧 AppSettings 默认值一致
-    enabled = settings.followSystemMediaControl !== false;
-    await smtcSetEnabled(enabled).catch((error) => {
+  /** 应用开关；打开时立刻推一次当前曲目 */
+  const applyEnabled = async (next: boolean) => {
+    enabled = next;
+    await smtcSetEnabled(next).catch((error) => {
       logger.warn("[系统媒体控制] 切换开关失败", error);
     });
     if (enabled) {
@@ -179,18 +169,20 @@ export function setupSystemMediaControls(): () => void {
       logger.warn("[系统媒体控制] 订阅系统动作失败", error);
     });
 
-  const onSettingsChanged = () => {
-    void applySettings();
-  };
-  window.addEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged);
-  void applySettings();
+  // 开关跟着设置走。设置还没读到（undefined）时什么都不做：读到后订阅会带着真实值触发。
+  const unsubscribeSettings = useSettingsStore.subscribe((state, previous) => {
+    const next = state.settings?.followSystemMediaControl;
+    if (next !== undefined && next !== previous.settings?.followSystemMediaControl) void applyEnabled(next);
+  });
+  const initial = useSettingsStore.getState().settings?.followSystemMediaControl;
+  if (initial !== undefined) void applyEnabled(initial);
 
   return () => {
     disposed = true;
     disposedBeforeListen = true;
     clearCoverRetry();
     unsubscribe();
-    window.removeEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged);
+    unsubscribeSettings();
     unlisten?.();
     unlisten = null;
   };

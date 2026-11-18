@@ -19,6 +19,7 @@ import { PlaybackSettingsSection } from "@/views/settings/PlaybackSettingsSectio
 import { SourcesSettingsSection } from "@/views/settings/SourcesSettingsSection";
 import { SyncSettingsSection } from "@/views/settings/SyncSettingsSection";
 import { useSettingsViewModel } from "@/views/useSettingsViewModel";
+import { reloadSettings, useSettingsStore } from "@/stores/settingsStore";
 
 type SettingsSectionId =
   | "appearance"
@@ -48,7 +49,42 @@ const SETTINGS_TABS: SettingsTab[] = [
   { id: "about", label: "关于", icon: Info },
 ];
 
+/**
+ * 设置页只在设置读到之后渲染：没读到时这里没有任何「当前值」可以显示，
+ * 显示占位值会被当成用户的真实选择，一改就把它写回去。
+ */
 export function SettingsView() {
+  const loaded = useSettingsStore((s) => s.settings !== null);
+  const loadError = useSettingsStore((s) => s.loadError);
+  if (loaded) return <LoadedSettingsView />;
+
+  return (
+    <div className="af-settings-view af-animate-slide-in">
+      <div className="af-settings-page-head">
+        <div>
+          <h1 className="af-settings-title">设置</h1>
+          {loadError ? (
+            <p className="af-settings-hint" role="alert">读取设置失败：{loadError}</p>
+          ) : (
+            <p className="af-settings-subtitle">正在读取设置…</p>
+          )}
+        </div>
+        {loadError && (
+          <button
+            type="button"
+            className="af-btn-secondary"
+            // 再次失败的原因会写进 loadError 并显示在上面，这里不需要另外处理。
+            onClick={() => { reloadSettings().catch(() => undefined); }}
+          >
+            重试
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LoadedSettingsView() {
   const [activeSection, setActiveSection] = useState<SettingsSectionId>("appearance");
   /** Tab 按钮引用：方向键切换后把焦点落到新选中的 Tab 上 */
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);

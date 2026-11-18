@@ -4,7 +4,7 @@ import { tryGetCurrentWindow } from "@/utils/appWindow";
 
 import App from "./App";
 import { preloadWindowModule } from "./windowModules";
-import { prepareInitialAppBackground } from "./services/appBackground";
+import { normalizeAppBackgroundPath, preloadAppBackground } from "./services/appBackground";
 import { installGlobalErrorHandlers, logger } from "./services/logger";
 import { ensureSettingsLoaded, type AppSettings } from "./stores/settingsStore";
 import { detectWindowRoleFromParts } from "./utils/windowRole";
@@ -67,11 +67,12 @@ async function loadWindowSettings(): Promise<AppSettings | null> {
   }
 }
 
+/** 背景图先解码好再渲染，首帧不闪一下纯色背景。 */
 async function prepareMainWindowBackground(settings: AppSettings): Promise<void> {
+  const path = normalizeAppBackgroundPath(settings.appBackgroundImagePath);
+  if (!path) return;
   try {
-    await prepareInitialAppBackground({
-      loadPersistedPath: async () => settings.appBackgroundImagePath,
-    });
+    await preloadAppBackground(path);
   } catch (error) {
     console.error("启动背景预加载失败", error);
   }

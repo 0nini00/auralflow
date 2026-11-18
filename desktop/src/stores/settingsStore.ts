@@ -63,6 +63,18 @@ const INITIAL_STATE: SettingsStoreState = { settings: null, loadError: null };
 
 export const useSettingsStore = create<SettingsStoreState>(() => INITIAL_STATE);
 
+/**
+ * 组件读已加载的设置。只能用在「上层已按 settings !== null 把关」的界面里（设置页、歌词窗）；
+ * 未加载时调用即抛错，而不是悄悄给一个占位值。可能在加载前渲染的组件直接用
+ * `useSettingsStore` 并自己处理 null。
+ */
+export function useLoadedSettings<T>(selector: (settings: AppSettings) => T): T {
+  return useSettingsStore((state) => {
+    if (!state.settings) throw new Error("设置尚未加载：useLoadedSettings 只能用在已确认加载完成的界面里");
+    return selector(state.settings);
+  });
+}
+
 const geometryKeys: ReadonlySet<string> = new Set(RUST_OWNED_GEOMETRY_KEYS);
 
 /** 串行队列的尾巴。只用来排队，永不拒绝：每个操作自己的失败由它返回的 promise 交给调用方。 */

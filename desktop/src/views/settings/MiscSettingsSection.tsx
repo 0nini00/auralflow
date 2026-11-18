@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { loadSettings, patchSettings } from "@lx/tauri-bridge";
+import { updateSettings, useLoadedSettings, type SettingsPatch } from "@/stores/settingsStore";
 import {
   disableAutostart,
   enableAutostart,
@@ -8,39 +8,28 @@ import {
 import { SettingRow } from "./SettingRow";
 
 export function MiscSettingsSection() {
-  const [cursorEffect, setCursorEffect] = useState<"off" | "trail">("off");
-  const [followSystemMediaControl, setFollowSystemMediaControl] = useState(true);
-  const [taskbarThumbnails, setTaskbarThumbnails] = useState(true);
-  const [closeToTray, setCloseToTray] = useState(true);
-  const [startMinimized, setStartMinimized] = useState(false);
-  const [miniPlayerEnabled, setMiniPlayerEnabled] = useState(true);
+  const cursorEffect = useLoadedSettings((s) => s.cursorEffect);
+  const followSystemMediaControl = useLoadedSettings((s) => s.followSystemMediaControl);
+  const taskbarThumbnails = useLoadedSettings((s) => s.taskbarThumbnails);
+  const closeToTray = useLoadedSettings((s) => s.closeToTray);
+  const startMinimized = useLoadedSettings((s) => s.startMinimized);
+  const miniPlayerEnabled = useLoadedSettings((s) => s.miniPlayerEnabled);
   const [autostart, setAutostart] = useState(false);
   const [status, setStatus] = useState("");
   // 开发模式注册的是 target/debug 下的调试程序，不能把开发构建写进开机启动项。
   const autostartAvailable = !import.meta.env.DEV;
 
   useEffect(() => {
-    loadSettings()
-      .then((settings) => {
-        setCursorEffect(settings.cursorEffect === "trail" ? "trail" : "off");
-        setFollowSystemMediaControl(settings.followSystemMediaControl !== false);
-        setTaskbarThumbnails(settings.taskbarThumbnails !== false);
-        setCloseToTray(settings.closeToTray !== false);
-        setStartMinimized(settings.startMinimized === true);
-        setMiniPlayerEnabled(settings.miniPlayerEnabled !== false);
-      })
-      .catch((error) => {
-        setStatus(`读取设置失败：${error instanceof Error ? error.message : String(error)}`);
-      });
     if (autostartAvailable) {
       isAutostartEnabled().then(setAutostart).catch(() => undefined);
     }
   }, [autostartAvailable]);
 
-  const saveBoolean = async (key: string, value: boolean, errorText: string): Promise<boolean> => {
+  /** 写入设置；失败时界面由 store 回到真实值，这里只负责把原因告诉用户。 */
+  const save = async (patch: SettingsPatch, errorText: string): Promise<boolean> => {
     setStatus("");
     try {
-      await patchSettings({ [key]: value });
+      await updateSettings(patch);
       return true;
     } catch (error) {
       setStatus(`${errorText}：${error instanceof Error ? error.message : String(error)}`);
@@ -48,78 +37,27 @@ export function MiscSettingsSection() {
     }
   };
 
-  const handleCursorChange = async (mode: "off" | "trail") => {
-    const previous = cursorEffect;
-    setCursorEffect(mode);
-    setStatus("");
-    try {
-      await patchSettings({ cursorEffect: mode });
-      window.dispatchEvent(new Event("af-cursor-change"));
-    } catch (error) {
-      setCursorEffect(previous);
-      setStatus(`保存鼠标特效失败：${error instanceof Error ? error.message : String(error)}`);
-    }
-  };
+  const handleCursorChange = (mode: "off" | "trail") => save({ cursorEffect: mode }, "保存鼠标特效失败");
 
-  const handleFollowSystemMediaControlChange = async (enabled: boolean) => {
-    const previous = followSystemMediaControl;
-    setFollowSystemMediaControl(enabled);
-    if (!(await saveBoolean("followSystemMediaControl", enabled, "保存系统媒体控制设置失败"))) {
-      setFollowSystemMediaControl(previous);
-      return;
-    }
-    window.dispatchEvent(new Event("af-smtc-change"));
-  };
+  const handleFollowSystemMediaControlChange = (enabled: boolean) =>
+    save({ followSystemMediaControl: enabled }, "保存系统媒体控制设置失败");
 
-  const handleTaskbarThumbnailsChange = async (enabled: boolean) => {
-    const previous = taskbarThumbnails;
-    setTaskbarThumbnails(enabled);
-    if (!(await saveBoolean("taskbarThumbnails", enabled, "保存任务栏缩略图设置失败"))) {
-      setTaskbarThumbnails(previous);
-      return;
-    }
-    window.dispatchEvent(new Event("af-taskbar-change"));
-  };
+  const handleTaskbarThumbnailsChange = (enabled: boolean) =>
+    save({ taskbarThumbnails: enabled }, "保存任务栏缩略图设置失败");
 
-  const handleCloseToTrayChange = async (enabled: boolean) => {
-    const previous = closeToTray;
-    setCloseToTray(enabled);
-    setStatus("");
-    try {
-      // 用户在这里主动选过，就不再弹关闭确认框：否则下次关窗会拿弹窗里的选择覆盖这里。
-      await patchSettings({ closeToTray: enabled, closePromptSeen: true });
-    } catch (error) {
-      setCloseToTray(previous);
-      setStatus(`保存关闭行为失败：${error instanceof Error ? error.message : String(error)}`);
-    }
-  };
+  // 用户在这里主动选过，就不再弹关闭确认框：否则下次关窗会拿弹窗里的选择覆盖这里。
+  const handleCloseToTrayChange = (enabled: boolean) =>
+    save({ closeToTray: enabled, closePromptSeen: true }, "保存关闭行为失败");
 
   /** 忘掉「已经回答过关闭提示」，让下次关窗重新弹一次确认框。 */
   const handleAskCloseAgain = async () => {
-    setStatus("");
-    try {
-      await patchSettings({ closePromptSeen: false });
-      setStatus("下次关闭窗口时会再问一次");
-    } catch (error) {
-      setStatus(`保存关闭提示设置失败：${error instanceof Error ? error.message : String(error)}`);
-    }
+    if (await save({ closePromptSeen: false }, "保存关闭提示设置失败")) setStatus("下次关闭窗口时会再问一次");
   };
 
-  const handleStartMinimizedChange = async (enabled: boolean) => {
-    const previous = startMinimized;
-    setStartMinimized(enabled);
-    if (!(await saveBoolean("startMinimized", enabled, "保存启动行为失败"))) {
-      setStartMinimized(previous);
-    }
-  };
+  const handleStartMinimizedChange = (enabled: boolean) => save({ startMinimized: enabled }, "保存启动行为失败");
 
-  const handleMiniPlayerEnabledChange = async (enabled: boolean) => {
-    const previous = miniPlayerEnabled;
-    setMiniPlayerEnabled(enabled);
-    if (!(await saveBoolean("miniPlayerEnabled", enabled, "保存迷你播放器设置失败"))) {
-      setMiniPlayerEnabled(previous);
-    }
-  };
+  const handleMiniPlayerEnabledChange = (enabled: boolean) =>
+    save({ miniPlayerEnabled: enabled }, "保存迷你播放器设置失败");
 
   const handleAutostartChange = async (enabled: boolean) => {
     if (!autostartAvailable) return;

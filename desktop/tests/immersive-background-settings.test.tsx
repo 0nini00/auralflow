@@ -15,7 +15,6 @@ vi.mock("react-dom", async (importOriginal) => ({
 }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("@lx/tauri-bridge", () => ({
-  loadSettings: vi.fn(async () => ({})),
   patchSettings: vi.fn(async () => ({})),
   getMediaCacheStats: vi.fn(async () => ({})),
   clearMediaCache: vi.fn(),
@@ -25,7 +24,6 @@ vi.mock("@/stores/historyStore", () => ({ useHistoryStore: { getState: vi.fn() }
 vi.mock("@/components/ui/ConfirmDialog", () => ({ confirmAction: vi.fn() }));
 vi.mock("@/stores/customSourceStore", () => ({ useCustomSourceStore: () => ({ sources: [] }) }));
 vi.mock("@/stores/lyricSettingsSync", () => ({ broadcastLyricSettings: vi.fn() }));
-vi.mock("@/services/playerEngine", () => ({ playerEngine: { setPauseOnExternalPlayback: vi.fn() } }));
 vi.mock("@/services/persistentCache", () => ({
   getPersistentCacheSummary: vi.fn(async () => ({})),
   clearCachedLyrics: vi.fn(),
@@ -33,17 +31,18 @@ vi.mock("@/services/persistentCache", () => ({
   invalidateCachedLocalMedia: vi.fn(),
 }));
 vi.mock("@/services/lyricsService", () => ({ clearLyricsMemoryCache: vi.fn() }));
-vi.mock("@/stores/playerStore", () => ({ setPlaybackFailedAutoNext: vi.fn() }));
 vi.mock("@/services/playback/prefetchService", () => ({ clearPlaybackPrefetchCache: vi.fn() }));
-vi.mock("@/services/appBackground", () => ({ notifyAppBackgroundChanged: vi.fn(), toAppBackgroundImageUrl: () => "" }));
+vi.mock("@/services/appBackground", () => ({ toAppBackgroundImageUrl: () => "" }));
 
 import { APPEARANCE_DEFAULTS, IMMERSIVE_BACKGROUND_OPTIONS, useThemeStore } from "../src/stores/themeStore";
-import { useSettingsViewModel } from "../src/views/useSettingsViewModel";
+import { IMMERSIVE_LYRIC_FONT_OPTIONS, useSettingsViewModel } from "../src/views/useSettingsViewModel";
 import { AppearanceSettingsSection } from "../src/views/settings/AppearanceSettingsSection";
+import { seedSettings } from "./helpers/settingsFixture";
 
 let renderer: ReactTestRenderer | undefined;
 beforeEach(() => {
   localStorage.clear();
+  seedSettings({ defaultQuality: "320k", immersiveLyricFontFamily: IMMERSIVE_LYRIC_FONT_OPTIONS[0].value });
   useThemeStore.getState().resetAppearance();
 });
 afterEach(() => {

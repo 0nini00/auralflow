@@ -1,4 +1,4 @@
-import { lazy, useEffect, useState } from "react";
+import { lazy, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { showToast, ToastHost } from "@/components/ui/Toast";
 import { Layout } from "./components/Layout/Layout";
@@ -23,12 +23,12 @@ import { customSourcePersistence, useCustomSourceStore } from "./stores/customSo
 import { favoritesPersistence } from "./stores/favoritesStore";
 import { playlistPersistence } from "./stores/playlistStore";
 import { historyPersistence } from "./stores/historyStore";
-import { usePlayerStore, setPlaybackFailedAutoNext } from "./stores/playerStore";
+import { usePlayerStore } from "./stores/playerStore";
+import { ensureSettingsLoaded, useSettingsStore } from "./stores/settingsStore";
 import { playerEngine } from "./services/playerEngine";
 import { logger } from "./services/logger";
-import { normalizePauseOnExternalPlayback } from "./services/mediaInterruptionPolicy";
 import { flushLibraryPersistence } from "./stores/libraryPersistence";
-import { TAURI_EVENTS, completeAppQuit, listenTauriEvent, loadSettings } from "@lx/tauri-bridge";
+import { TAURI_EVENTS, completeAppQuit, listenTauriEvent } from "@lx/tauri-bridge";
 
 /**
  * 路由页面按需加载：进入哪个页面才拉取那一份 chunk。
@@ -64,7 +64,10 @@ export default function MainWindow() {
   // 任务栏缩略图按钮与悬浮预览封面。只在主窗口挂载。
   useEffect(() => setupTaskbarThumbnails(), []);
 
-  const [cursorEffect, setCursorEffect] = useState<"off" | "trail">("off");
+  const cursorEffect = useSettingsStore((s) => (s.settings?.cursorEffect === "trail" ? "trail" : "off"));
+  const settingsLoaded = useSettingsStore((s) => s.settings !== null);
+  const settingsLoadError = useSettingsStore((s) => s.loadError);
+  const pauseOnExternalPlayback = useSettingsStore((s) => s.settings?.pauseOnExternalPlayback);
   const setUpdateAvailable = useUpdateStore((s) => s.setAvailable);
   const featureEnabled = useCustomSourceStore((state) => state.featureEnabled);
   const featureReady = useCustomSourceStore((state) => state.featureReady);
@@ -121,27 +124,28 @@ export default function MainWindow() {
     attachPlaybackPersistence();
   }, []);
 
+  // 启动音量取自设置，只在设置读到时应用一次。之后音量由播放器持有并去抖写回设置，
+  // 不随设置变化反向覆盖：否则拖动音量时会被自己刚写下的取整值拉回去。
   useEffect(() => {
-    const loadCursor = () => {
-      loadSettings()
-        .then((s) => {
-          setCursorEffect(s.cursorEffect === "trail" ? "trail" : "off");
-          if (typeof s.volume === "number") {
-            usePlayerStore.getState().setVolume(s.volume / 100);
-          }
-          playerEngine.setPauseOnExternalPlayback(normalizePauseOnExternalPlayback(s.pauseOnExternalPlayback));
-          setPlaybackFailedAutoNext(s.playbackFailedAutoNext);
-        })
-        .catch((error) => {
-          // 读不到设置时，音量、外部播放暂停策略、失败自动切歌都停在默认值。
-          // 用户看到的是「音量又变了 / 设置没生效」，必须说明原因，而不是悄悄用默认值顶上。
-          logger.warn("读取设置失败，音量与播放策略未应用", error);
-          const detail = error instanceof Error ? error.message : String(error);
-          showToast(`读取设置失败，音量与播放策略未应用：${detail}`, { kind: "error" });
-        });
-    };
-    loadCursor();
-    window.addEventListener("af-cursor-change", loadCursor);
+    const settings = useSettingsStore.getState().settings;
+    if (settings) usePlayerStore.getState().setVolume(settings.volume / 100);
+  }, [settingsLoaded]);
+
+  useEffect(() => {
+    if (pauseOnExternalPlayback !== undefined) playerEngine.setPauseOnExternalPlayback(pauseOnExternalPlayback);
+  }, [pauseOnExternalPlayback]);
+
+  // 读不到设置时，音量、外部播放暂停策略、失败自动切歌都没有应用。用户看到的是
+  // 「音量又变了 / 设置没生效」，必须说明原因，而不是悄悄用默认值顶上。
+  useEffect(() => {
+    if (!settingsLoadError) return;
+    const summary = useSettingsStore.getState().settings
+      ? "重新读取设置失败，界面可能仍是旧值"
+      : "读取设置失败，音量与播放策略未应用";
+    showToast(`${summary}：${settingsLoadError}`, { kind: "error" });
+  }, [settingsLoadError]);
+
+  useEffect(() => {
     // 启动后延迟检查更新，避免阻塞首屏。
     // 只有确实发现新版本才弹窗：静默检查失败不该打扰用户（网络抖动很常见），
     // 失败原因留给设置页的手动检查显示。
@@ -159,7 +163,7 @@ export default function MainWindow() {
     // 必须等本地曲库（收藏/歌单/历史）hydrate 完成后才能开始，否则会把空数据当成本地全集
     // 上传回云端，造成云端数据被清空。延迟 4s 开始，避开首屏渲染与其它启动任务。
     Promise.all([
-      loadSettings(),
+      ensureSettingsLoaded(),
       favoritesPersistence.ready,
       playlistPersistence.ready,
       historyPersistence.ready,
@@ -182,7 +186,6 @@ export default function MainWindow() {
       .catch(() => undefined);
     return () => {
       disposed = true;
-      window.removeEventListener("af-cursor-change", loadCursor);
       clearTimeout(updateTimer);
       if (autoSyncTimer != null) {
         window.clearTimeout(autoSyncTimer);
@@ -195,7 +198,7 @@ export default function MainWindow() {
     if (!featureEnabled || !featureReady) return;
     let disposed = false;
     let timer: number | undefined;
-    Promise.all([loadSettings(), customSourcePersistence.ready])
+    Promise.all([ensureSettingsLoaded(), customSourcePersistence.ready])
       .then(([settings]) => {
         if (disposed || !settings.customSourceAutoCheck) return;
         timer = window.setTimeout(() => {

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SourcesSettingsSection } from "../src/views/settings/SourcesSettingsSection";
 import { useSettingsViewModel, type SourcesSettingsModel } from "../src/views/useSettingsViewModel";
 import { useCustomSourceStore } from "../src/stores/customSourceStore";
+import { seedSettings } from "./helpers/settingsFixture";
 
 vi.mock("@/stores/customSourceStore", async () => {
   const { create } = await import("zustand");
@@ -22,7 +23,7 @@ vi.mock("@/stores/customSourceStore", async () => {
 vi.mock("@/components/CustomSourceUpdateModal", () => ({ openCustomSourceUpdateModal: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("@lx/tauri-bridge", () => ({
-  loadSettings: vi.fn(async () => ({})), getMediaCacheStats: vi.fn(async () => null),
+  getMediaCacheStats: vi.fn(async () => null),
   clearMediaCache: vi.fn(), patchSettings: vi.fn(), libraryReset: vi.fn(),
 }));
 vi.mock("@/stores/themeStore", () => ({ useThemeStore: Object.assign(
@@ -30,9 +31,7 @@ vi.mock("@/stores/themeStore", () => ({ useThemeStore: Object.assign(
   { getState: () => ({ accentColor: "#123456" }) },
 ) }));
 vi.mock("@/stores/historyStore", () => ({ useHistoryStore: { getState: vi.fn() } }));
-vi.mock("@/stores/playerStore", () => ({ setPlaybackFailedAutoNext: vi.fn() }));
 vi.mock("@/stores/lyricSettingsSync", () => ({ broadcastLyricSettings: vi.fn() }));
-vi.mock("@/services/playerEngine", () => ({ playerEngine: { setPauseOnExternalPlayback: vi.fn() } }));
 vi.mock("@/services/persistentCache", () => ({
   getPersistentCacheSummary: vi.fn(async () => ({ playbackUrlCount: 0, lyricCount: 0 })),
   clearCachedPlaybackUrls: vi.fn(),
@@ -41,9 +40,7 @@ vi.mock("@/services/persistentCache", () => ({
 }));
 vi.mock("@/services/lyricsService", () => ({ clearLyricsMemoryCache: vi.fn() }));
 vi.mock("@/services/playback/prefetchService", () => ({ clearPlaybackPrefetchCache: vi.fn() }));
-vi.mock("@/services/appBackground", () => ({
-  notifyAppBackgroundChanged: vi.fn(), toAppBackgroundImageUrl: () => "",
-}));
+vi.mock("@/services/appBackground", () => ({ toAppBackgroundImageUrl: () => "" }));
 
 const source = {
   id: "saved-lx", name: "已保存音源", description: "测试脚本", script: "saved-script",
@@ -67,6 +64,7 @@ const model = (patch: Partial<SourcesSettingsModel> = {}): SourcesSettingsModel 
 let renderer: ReactTestRenderer | undefined;
 afterEach(() => { act(() => renderer?.unmount()); renderer = undefined; });
 beforeEach(() => {
+  seedSettings({ defaultQuality: "320k", customSourceAutoCheck: true });
   useCustomSourceStore.setState({
     featureEnabled: false, featureReady: true, sources: [source], setFeatureEnabled: vi.fn(),
   });

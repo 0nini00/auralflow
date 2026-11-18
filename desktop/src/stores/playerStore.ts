@@ -12,7 +12,7 @@ import { takeResumeProgress } from "./playerResumeTarget";
 import { cacheResolvedPlaybackMedia, removeCachedAudioForMusic } from "@/services/mediaCache";
 
 import { debugLog } from "@lx/tauri-bridge";
-import { updateSettings } from "@/stores/settingsStore";
+import { updateSettings, useSettingsStore } from "@/stores/settingsStore";
 import { logger } from "@/services/logger";
 import { applySwitchStepRequest, buildSongKey, createSwitchStepQueueState, finishSwitchStep, orderPlaybackCandidates } from "@lx/core";
 import { findTxVariants, describeCrossSourceFailure } from "@/services/playback/crossSourceFallbackService";
@@ -260,11 +260,12 @@ async function preloadNext(get: any): Promise<void> {
   await prefetchNearbyTracks({ queue, currentIndex, repeatMode, isShuffle, fmMode });
 }
 
-/** 播放失败自动下一首（设置项，默认关闭）；FM 模式连播不受此开关影响 */
-let playbackFailedAutoNext = false;
-
-export function setPlaybackFailedAutoNext(value: unknown) {
-  playbackFailedAutoNext = value === true;
+/**
+ * 播放失败自动下一首（设置项）；FM 模式连播不受此开关影响。
+ * 设置还没读到时按「不自动切」处理：没有用户的明确选择，就不替用户切歌。
+ */
+function isPlaybackFailedAutoNextEnabled(): boolean {
+  return useSettingsStore.getState().settings?.playbackFailedAutoNext === true;
 }
 
 const getLocalPlaybackMusic = createLocalPlaybackLookup(() => useLibraryStore.getState().localSongs);
@@ -371,7 +372,7 @@ const syncEngineToStore = (set: any, get: any) => {
     const fmMode = (get() as PlayerStore).fmMode;
     const shouldAutoSkip =
       engineState.status === "error" &&
-      ((prevStatus === "playing" && (fmMode || playbackFailedAutoNext)) ||
+      ((prevStatus === "playing" && (fmMode || isPlaybackFailedAutoNextEnabled())) ||
         (prevStatus === "loading" && fmMode));
     if (shouldAutoSkip) {
       if (autoSkipTimer) clearTimeout(autoSkipTimer);

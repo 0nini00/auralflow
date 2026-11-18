@@ -2,13 +2,13 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import {
   TAURI_EVENTS,
   listenTauriEvent,
-  loadSettings,
   taskbarSetEnabled,
   taskbarUpdateTrack,
   type TaskbarActionEvent,
   type TaskbarTrackPayload,
 } from "@lx/tauri-bridge";
 import { usePlayerStore } from "@/stores/playerStore";
+import { useSettingsStore } from "@/stores/settingsStore";
 import { getPlaybackSnapshotFromStore } from "@/services/playback/playbackSnapshot";
 import { logger } from "@/services/logger";
 
@@ -22,17 +22,14 @@ import { logger } from "@/services/logger";
  * 只在主窗口挂载：音频与播放状态都在主窗口（歌词窗通过 playerSync 同步）。
  */
 
-/** 设置页改开关时派发的窗口事件（沿用 af-smtc-change 的写法） */
-const SETTINGS_CHANGED_EVENT = "af-taskbar-change";
-
 /** 挂载任务栏缩略图同步；返回清理函数（组件卸载 / 热更新时调用） */
 export function setupTaskbarThumbnails(): () => void {
   let enabled = false;
   let disposed = false;
   /** 最近一次推给 Rust 的状态：按钮图标只看状态，没变就不必打扰原生侧 */
   let lastStatus = "";
-  /** 设置读取代次：旧响应晚返回时不能覆盖更新的设置 */
-  let settingsRequestVersion = 0;
+  /** 开关应用代次：较早一次切换的原生调用晚返回时，不能再按它重推状态 */
+  let applyVersion = 0;
 
   const pushStatus = async () => {
     if (!enabled || disposed) return;
@@ -66,21 +63,14 @@ export function setupTaskbarThumbnails(): () => void {
     }
   };
 
-  /** 读取设置并应用开关；打开时立刻推一次当前状态 */
-  const applySettings = async () => {
-    const settingsVersion = ++settingsRequestVersion;
-    const settings = await loadSettings().catch((error) => {
-      logger.warn("[任务栏缩略图] 读取设置失败", error);
-      return null;
-    });
-    if (disposed || settingsVersion !== settingsRequestVersion || !settings) return;
-
-    // 字段缺失按默认「开」处理，与 Rust 侧 AppSettings 默认值一致
-    enabled = settings.taskbarThumbnails !== false;
-    await taskbarSetEnabled(enabled).catch((error) => {
+  /** 应用开关；打开时立刻推一次当前状态 */
+  const applyEnabled = async (next: boolean) => {
+    const version = ++applyVersion;
+    enabled = next;
+    await taskbarSetEnabled(next).catch((error) => {
       logger.warn("[任务栏缩略图] 切换开关失败", error);
     });
-    if (disposed || settingsVersion !== settingsRequestVersion) return;
+    if (disposed || version !== applyVersion) return;
     // 关闭再打开时状态字符串可能没变，但按钮需要按当前状态重画，所以这里无条件推一次
     lastStatus = "";
     await pushStatus();
@@ -105,17 +95,19 @@ export function setupTaskbarThumbnails(): () => void {
       logger.warn("[任务栏缩略图] 订阅按钮动作失败", error);
     });
 
-  const onSettingsChanged = () => {
-    void applySettings();
-  };
-  window.addEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged);
-  void applySettings();
+  // 开关跟着设置走。设置还没读到（undefined）时什么都不做：读到后订阅会带着真实值触发。
+  const unsubscribeSettings = useSettingsStore.subscribe((state, previous) => {
+    const next = state.settings?.taskbarThumbnails;
+    if (next !== undefined && next !== previous.settings?.taskbarThumbnails) void applyEnabled(next);
+  });
+  const initial = useSettingsStore.getState().settings?.taskbarThumbnails;
+  if (initial !== undefined) void applyEnabled(initial);
 
   return () => {
     disposed = true;
     disposedBeforeListen = true;
     unsubscribe();
-    window.removeEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged);
+    unsubscribeSettings();
     unlisten?.();
     unlisten = null;
   };
