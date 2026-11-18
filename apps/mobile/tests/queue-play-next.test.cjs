@@ -5,7 +5,7 @@ const { createLoader, mobileRequire } = require("./helpers/loadTs.cjs");
 const song = (id) => ({ id, source: "tx", name: id, singer: "Test", interval: 100 });
 const ids = (list) => list.map((item) => item.id).join(",");
 
-// 「下一首播放」必须在主队列里当场生效：此前只写 tempPlayList 暂存区，队列面板
+// 「下一首播放」必须在主队列里当场生效：此前只写一个独立的暂存区（已删除），队列面板
 // 看不到任何东西，直到播到它才突然出现（用户可见的症状即由此而来）。
 function setup({ queue = [], currentIndex = -1, shuffleHistory = [], playedIndices = [] } = {}) {
   const load = createLoader({
@@ -27,11 +27,11 @@ function setup({ queue = [], currentIndex = -1, shuffleHistory = [], playedIndic
     "@/services/listenTrackerService": {},
   });
   const store = load("src/stores/playerStore.ts").usePlayerStore;
-  store.setState({ queue: [...queue], currentIndex, shuffleHistory, playedIndices, tempPlayList: [] });
+  store.setState({ queue: [...queue], currentIndex, shuffleHistory, playedIndices });
   return { store };
 }
 
-test("插入到当前曲之后，并且不写暂存区", () => {
+test("插入到当前曲之后，立刻出现在主队列里", () => {
   const { store } = setup({ queue: [song("A"), song("B"), song("C")], currentIndex: 0 });
 
   const shouldStartNow = store.getState().playNextInQueue(song("X"));
@@ -40,7 +40,6 @@ test("插入到当前曲之后，并且不写暂存区", () => {
   assert.equal(shouldStartNow, false, "已有当前曲时只插队，不要求调用方起播");
   assert.equal(ids(state.queue), "A,X,B,C", "X 必须立刻出现在主队列当前曲之后");
   assert.equal(state.currentIndex, 0, "插入不应改变当前播放位置");
-  assert.deepEqual(state.tempPlayList, [], "不应再写独立暂存区（那正是队列里看不到的原因）");
   assert.equal(state.pinnedNextSong?.id, "X", "随机 / FM 下要靠锚点保证下一个播它");
 });
 

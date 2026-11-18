@@ -325,10 +325,9 @@ export default async function playbackService(data: { serviceId: string }): Prom
 }
 
 function resolveAutoSkipBlockReason(): string | null {
-  const { playbackContext, playMode, queue, currentIndex, tempPlayList, shuffleHistory, playedIndices } = usePlayerStore.getState();
+  const { playbackContext, playMode, queue, currentIndex, shuffleHistory, playedIndices } = usePlayerStore.getState();
   if (playbackContext.type === "personalFm") return null;
   if (playMode === "single") return "单曲循环";
-  if (tempPlayList.length > 0) return null;
   if (queue.length <= 1) return "队列里没有其它歌曲";
   const next = getNextQueueNavigationState({ queueLength: queue.length, currentIndex, playMode, shuffleHistory, playedIndices });
   if (next.nextIndex == null) return "已到队列末尾";

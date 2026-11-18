@@ -26,7 +26,7 @@ function setup() {
   store.getState().setQueue(tracks, 2);
   const queue = store.getState().queue;
   store.setState({ currentSong: queue[2], position: 37.5, duration: 100, currentUrl: "file://current", isPlaying: true,
-    shuffleHistory: [0, 2, 1, 2], playedIndices: [0, 2], tempPlayList: [song("next")] });
+    shuffleHistory: [0, 2, 1, 2], playedIndices: [0, 2] });
   return { store, queue, nativeCalls };
 }
 

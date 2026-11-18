@@ -17,12 +17,7 @@ import { getNextSongSleepTimerState, getSongSleepTimerTrackKey, normalizeSongSle
 import { getNextMobilePlayMode, type MobilePlayMode } from "@/services/mobilePlayModeModel";
 import { clampPlaybackRate, DEFAULT_PLAYBACK_RATE } from "@/services/playerRateModel";
 import { DEFAULT_VOLUME, getNextMuteState, getNextVolumeState } from "@/services/playerVolumeModel";
-import {
-  insertSongAtQueueEnd,
-  insertSongToPlayNext,
-  enqueueTempPlayList,
-  removeFromTempPlayList as removeFromTempPlayListPure,
-} from "@/services/songQueueActions";
+import { insertSongAtQueueEnd, insertSongToPlayNext } from "@/services/songQueueActions";
 import { syncPlaybackParameters } from "@/services/androidPitchService";
 import { buildMobilePlayRequestKey } from "@/services/playerRequestModel";
 import { beginPlaybackRequest, isCurrentPlaybackRequest } from "@/services/playbackRequest";
@@ -375,8 +370,6 @@ export interface PlayerState {
   shuffleHistory: number[];
   /** 随机模式本轮已播放过的索引，用于整轮去重（避免短期内重复随机到同一首） */
   playedIndices: number[];
-  /** 稍后播放暂存区：独立于主队列，playNext 时优先消费，插播完自动回归主队列 */
-  tempPlayList: MusicInfo[];
   /** 「下一首播放」锚点：随机 / FM 模式下取下一首时优先播它（只存曲目身份，避免下标漂移） */
   pinnedNextSong: MusicInfo | null;
 
@@ -444,11 +437,6 @@ interface PlayerActions {
   reorderQueue: (expectedQueue: readonly MusicInfo[], from: number, to: number) => QueueReorderStatus;
   clearQueue: () => Promise<void>;
 
-  // 稍后播放（独立暂存区）
-  addToTempPlayList: (song: MusicInfo) => void;
-  removeFromTempPlayListAt: (index: number) => void;
-  clearTempPlayList: () => void;
-
   // 播放模式
   setPlayMode: (mode: PlayMode) => Promise<void>;
   togglePlayMode: () => Promise<void>;
@@ -510,7 +498,6 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   currentIndex: -1,
   shuffleHistory: [],
   playedIndices: [],
-  tempPlayList: [],
   pinnedNextSong: null,
   playMode: "list",
   playbackContext: { type: "queue" },
@@ -905,9 +892,6 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       currentIndex: startIndex,
       shuffleHistory: [],
       playedIndices: [],
-      // 切歌单时清空「稍后播放」暂存区，
-      // 避免上一歌单的插播曲目在新歌单里突然出现
-      tempPlayList: [],
       pinnedNextSong: null,
       playbackContext: { type: "queue" },
     });
@@ -939,28 +923,6 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       };
     });
     return shouldStartNow;
-  },
-
-  // 目前没有调用方。接入界面时，预取（playerService.prefetchSong）由调用它的编排函数负责，
-  // 与 queueSongToPlayNext 同一分工。
-  addToTempPlayList: (song: MusicInfo) => {
-    set((state) => ({
-      tempPlayList: enqueueTempPlayList({ tempPlayList: state.tempPlayList, song }),
-    }));
-  },
-
-  removeFromTempPlayListAt: (index: number) => {
-
-    set((state) => ({
-
-      tempPlayList: removeFromTempPlayListPure(state.tempPlayList, index),
-
-    }));
-
-  },
-
-  clearTempPlayList: () => {
-    set({ tempPlayList: [] });
   },
 
   reorderQueue: (expectedQueue, from, to) => {
@@ -1033,7 +995,6 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       currentIndex: -1,
       shuffleHistory: [],
       playedIndices: [],
-      tempPlayList: [],
       pinnedNextSong: null,
       playbackContext: { type: "queue" },
     });

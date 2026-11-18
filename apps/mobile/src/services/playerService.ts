@@ -23,8 +23,7 @@ import {
   PRIMARY_BUDGET_MS,
   withBudget,
 } from "@lx/core";
-import { getNextQueueNavigationState, getPreviousQueueNavigationState, shiftQueueIndicesAfterInsert } from "@/services/queueNavigationModel";
-import { dequeueTempPlayList, insertSongToPlayNext } from "@/services/songQueueActions";
+import { getNextQueueNavigationState, getPreviousQueueNavigationState } from "@/services/queueNavigationModel";
 import { buildPlaybackQualityTiers, getPlaybackQualityFallbacks, normalizePlaybackQuality, normalizeSourceQualityLabel, resolveEffectivePlaybackQuality, type PlaybackQuality } from "@/services/playbackQualityModel";
 import {
   createRequestLimiter,
@@ -904,13 +903,12 @@ export function prefetchSong(song: MusicInfo): void {
  * 取「即将播放的下一首」用于曲末提前预解析。只读 store，不写任何状态
  * （随机历史 / playedIndices 仍由 playNext 在真正切歌时更新）。
  *
- * 优先级与 playNext 一致：稍后播放暂存区首曲 → FM 当前批次下一首/缓冲头部 → 队列下一首。
+ * 优先级与 playNext 一致：FM 当前批次下一首/缓冲头部 → 队列下一首。
  * single 单曲循环与「顺序播放已到队尾」返回 undefined，不产生任何预读副作用。
  */
 function getNextSongForPrefetch(): MusicInfo | undefined {
-  const { playbackContext, queue, currentIndex, playMode, tempPlayList, shuffleHistory, playedIndices } =
+  const { playbackContext, queue, currentIndex, playMode, shuffleHistory, playedIndices } =
     usePlayerStore.getState();
-  if (tempPlayList.length > 0) return tempPlayList[0];
   if (playbackContext.type === "personalFm") {
     return queue[currentIndex + 1] ?? playbackContext.buffer[0];
   }
@@ -1216,7 +1214,7 @@ export async function playShuffledQueue(songs: MusicInfo[]): Promise<void> {
 export async function playNext(auto = false): Promise<void> {
   // 无导航目标时不能取消正在解析的队尾歌曲；预检不消费随机预抽或历史。
   const preview = usePlayerStore.getState();
-  if (preview.tempPlayList.length === 0 && preview.playbackContext.type === "queue") {
+  if (preview.playbackContext.type === "queue") {
     const next = getNextQueueNavigationState({
       queueLength: preview.queue.length, currentIndex: preview.currentIndex,
       playMode: preview.playMode, shuffleHistory: preview.shuffleHistory,
@@ -1237,34 +1235,7 @@ export async function playNext(auto = false): Promise<void> {
   session.intent = intent;
   try {
   const store = usePlayerStore.getState();
-  const { playbackContext, queue, currentIndex, playMode, shuffleHistory, playedIndices, tempPlayList } = store;
-
-  // 稍后播放：优先消费 tempPlayList 首曲（FM 上下文同样生效——插播即脱离 FM 推荐流，
-  // 切回队列上下文，否则暂存区在 FM 里永远不被消费）。取出后插入主队列 currentIndex+1，
-  // 播完自然回到「原本的下一首」逻辑（因为主队列指针只前进了一步）。
-  if (tempPlayList.length > 0) {
-    const { nextSong, tempPlayList: nextTempList } = dequeueTempPlayList(tempPlayList);
-    if (nextSong) {
-      const inserted = insertSongToPlayNext({ queue, currentIndex, song: nextSong });
-      // 与 playNextInQueue 同一规则：插入点之后的索引整体 +1，否则随机历史 /
-      // 已播集合会指向错位的歌（随机模式重播或漏播）。
-      const grew = inserted.queue.length === queue.length + 1;
-      const insertPoint = inserted.currentIndex + 1;
-      const { shuffleHistory, playedIndices } = usePlayerStore.getState();
-      usePlayerStore.setState({
-        queue: inserted.queue,
-        currentIndex: inserted.currentIndex,
-        tempPlayList: nextTempList,
-        playbackContext: { type: "queue" },
-        shuffleHistory: shiftQueueIndicesAfterInsert(shuffleHistory, insertPoint, grew),
-        playedIndices: shiftQueueIndicesAfterInsert(playedIndices, insertPoint, grew),
-      });
-      // 空队列场景：insertSongToPlayNext 返回 currentIndex=0 且 queue=[nextSong]，直接播这首。
-      const targetIndex = queue.length === 0 || currentIndex < 0 ? 0 : currentIndex + 1;
-      await playFromQueue(targetIndex, undefined, intent);
-      return;
-    }
-  }
+  const { playbackContext, queue, currentIndex, playMode, shuffleHistory, playedIndices } = store;
 
   // 「下一首播放」锚点：刚插进主队列的那首必须下一个播（与桌面端一致）。
   // 随机模式会现场抽号、FM 会去拉推荐，两条路径都会绕过插入位置。

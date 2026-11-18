@@ -9,7 +9,7 @@ function setup(config = {}) {
   const calls = [];
   const queue = ["A", "B", "C", "D", "E", "F"].map(id => ({ source: "tx", id }));
   const state = { currentSong: queue[0], queue, currentIndex: 0, error: null, loading: false,
-    flushListeningStats: async () => {}, playbackContext: { type: "queue" }, playMode: "list", tempPlayList: [], shuffleHistory: [], playedIndices: [], volume: 1 };
+    flushListeningStats: async () => {}, playbackContext: { type: "queue" }, playMode: "list", shuffleHistory: [], playedIndices: [], volume: 1 };
   const settings = { autoSkipOnPlaybackError: config.autoSkip !== false };
   const behavior = { next: async () => {}, retry: async () => {}, invalidate: async () => {} };
   const addListener = (event, callback) => {

@@ -220,7 +220,7 @@
 | 列表循环 | 原生 `repeatMode: all` | JS：静音轨事件 → `playNext`（`PlaybackQueueEnded` 兜底） |
 | 随机 | `isShuffle: true` + Fisher-Yates 洗牌 + `playHistory` 回退 | `shuffleHistory` + `playedIndices` 整轮去重 |
 | 上一首 | 随机模式从 `playHistory` 弹栈回退 | 进度 > 3s（`RESTART_PREVIOUS_THRESHOLD_SECONDS`）重播当前曲，否则队列回退 |
-| 下一首播放 | `playNext(music)` 插入当前曲后，空队列则立即开播 | `tempPlayList` 独立暂存区（不污染主队列顺序），`playNext` 优先消费首曲（FM 上下文同样生效） |
+| 下一首播放 | `playNext(music)` 插入当前曲后，空队列则立即开播 | 同桌面：`queueSongToPlayNext` 插入主队列当前曲之后并记下锚点 `pinnedNextSong`（随机 / FM 下也保证下一个播它），空队列则立即开播 |
 | 顺序 | `repeatMode: off`，播完停止 | `sequence`，播完停止 |
 
 **差异本质**：桌面把循环语义交给原生播放器（`repeatMode` 三态），移动端因后台保活与 JS 状态同步需求，把原生固定为 `Off`，全部循环/切歌由 JS 调度，原生只负责播单曲。上一首语义也不同：桌面随机模式依赖 `playHistory` 栈；移动端先看进度——超过 3s 重播当前曲（对齐主流播放器「上一首先回到曲首」习惯）。
