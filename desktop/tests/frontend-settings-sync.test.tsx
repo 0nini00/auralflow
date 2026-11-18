@@ -1,12 +1,15 @@
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SyncSettingsSection } from "../src/views/settings/SyncSettingsSection";
+import { __resetSettingsStoreForTests } from "../src/stores/settingsStore";
+import { seedSettings } from "./helpers/settingsFixture";
 
 const mocks = vi.hoisted(() => ({
   load: vi.fn(), patch: vi.fn(), uploadPlaylists: vi.fn(), uploadSources: vi.fn(), test: vi.fn(),
   feature: { featureEnabled: true, featureReady: true },
 }));
 vi.mock("@lx/tauri-bridge", () => ({ loadSettings: mocks.load, patchSettings: mocks.patch }));
+vi.mock("@/services/logger", () => ({ logger: { warn: vi.fn() } }));
 vi.mock("@/stores/customSourceStore", () => ({ useCustomSourceStore: (select: (state: typeof mocks.feature) => unknown) => select(mocks.feature) }));
 vi.mock("@/services/webdavSyncService", () => ({ uploadPlaylistsSync: mocks.uploadPlaylists, uploadSourcesSync: mocks.uploadSources, testSync: mocks.test }));
 function deferred<T>() {
@@ -24,44 +27,37 @@ async function mount() { await act(async () => { renderer = create(<SyncSettings
 async function edit(index: number, value: string) { await act(async () => input(index).props.onChange({ target: { value } })); }
 async function blur(index: number) { await act(async () => { input(index).props.onBlur(); }); }
 
+/** 模拟 Rust 侧的设置文件：patch 合并进去并返回合并后的完整设置，load 读它。 */
+let disk = { ...config };
+const applyToDisk = (patch: object) => { disk = { ...disk, ...patch }; return { ...disk }; };
+
 beforeEach(() => {
   vi.clearAllMocks();
+  __resetSettingsStoreForTests();
+  disk = { ...config };
+  seedSettings(disk);
   mocks.feature.featureEnabled = true; mocks.feature.featureReady = true;
-  mocks.load.mockReset().mockResolvedValue({ ...config });
-  mocks.patch.mockReset().mockResolvedValue({ ...config });
+  mocks.load.mockReset().mockImplementation(async () => ({ ...disk }));
+  mocks.patch.mockReset().mockImplementation(async (patch: object) => applyToDisk(patch));
   mocks.uploadPlaylists.mockResolvedValue(undefined); mocks.uploadSources.mockResolvedValue(undefined); mocks.test.mockResolvedValue("连接正常");
 });
 afterEach(() => { act(() => renderer?.unmount()); renderer = undefined; });
 
-describe("WebDAV 表单初始化与串行精确保存", () => {
-  it("loading 期间可以编辑，但失焦不把未加载字段写空；迟到初始化保留草稿", async () => {
-    const read = deferred<typeof config>(); mocks.load.mockReturnValueOnce(read.promise);
+describe("WebDAV 表单的串行精确保存", () => {
+  it("表单显示设置里的值，只保存编辑过的字段", async () => {
     await mount();
+    expect([0, 1, 2].map((index) => input(index).props.value)).toEqual([config.webdavUrl, config.webdavUsername, config.webdavPassword]);
     await edit(0, "https://example.invalid/new"); await blur(0);
-    expect(mocks.patch).not.toHaveBeenCalled();
-    await act(async () => read.resolve({ ...config }));
-    expect(input(0).props.value).toBe("https://example.invalid/new");
-    expect(input(1).props.value).toBe(config.webdavUsername);
-    expect(input(2).props.value).toBe(config.webdavPassword);
     expect(mocks.patch).toHaveBeenCalledExactlyOnceWith({ webdavUrl: "https://example.invalid/new" });
+    expect(input(0).props.value).toBe("https://example.invalid/new");
+    expect(mocks.load).not.toHaveBeenCalled();
   });
 
-  it("仅编辑未失焦时，迟到初始化也不能覆盖编辑，且不自动写其他字段", async () => {
-    const read = deferred<typeof config>(); mocks.load.mockReturnValueOnce(read.promise);
-    await mount(); await edit(2, "synthetic-new");
-    await act(async () => read.resolve({ ...config }));
-    expect(input(2).props.value).toBe("synthetic-new");
-    expect(input(0).props.value).toBe(config.webdavUrl);
-    expect(mocks.patch).not.toHaveBeenCalled();
-    await blur(2);
-    expect(mocks.patch).toHaveBeenCalledExactlyOnceWith({ webdavPassword: "synthetic-new" });
-  });
-
-  it("加载失败显式反馈，未加载默认值不得写盘", async () => {
-    mocks.load.mockRejectedValueOnce(new Error("读取被拒绝"));
-    await mount(); await edit(0, "https://example.invalid/new"); await blur(0);
-    expect(text(renderer!.root)).toContain("读取被拒绝");
-    expect(mocks.patch).not.toHaveBeenCalled();
+  it("别的窗口改了设置后，未编辑的字段跟着变，编辑中的草稿保留", async () => {
+    await mount(); await edit(1, "draft-user");
+    act(() => seedSettings({ ...config, webdavUrl: "https://example.invalid/other", webdavUsername: "other-user" }));
+    expect(input(0).props.value).toBe("https://example.invalid/other");
+    expect(input(1).props.value).toBe("draft-user");
   });
 
   it("主动逐项清空全部配置，每个字段包括最后密码均保存为空", async () => {
@@ -80,13 +76,14 @@ describe("WebDAV 表单初始化与串行精确保存", () => {
     await edit(0, "https://example.invalid/two"); await blur(0);
     expect(mocks.patch).toHaveBeenCalledTimes(1);
     expect(text(renderer!.root)).toContain("保存中");
-    await act(async () => first.resolve({}));
+    await act(async () => first.resolve(applyToDisk({ webdavUrl: "https://example.invalid/one" })));
     expect(mocks.patch.mock.calls.map(([patch]) => patch)).toEqual([
       { webdavUrl: "https://example.invalid/one" }, { webdavUrl: "https://example.invalid/two" },
     ]);
     expect(input(0).props.value).toBe("https://example.invalid/two");
-    await act(async () => second.resolve({}));
+    await act(async () => second.resolve(applyToDisk({ webdavUrl: "https://example.invalid/two" })));
     expect(text(renderer!.root)).toContain("已保存");
+    expect(input(0).props.value).toBe("https://example.invalid/two");
   });
 
   it("保存失败保留 dirty 和可见错误，重试仅保存失败字段", async () => {
@@ -124,22 +121,13 @@ describe("WebDAV 表单初始化与串行精确保存", () => {
     expect(mocks.uploadPlaylists).toHaveBeenCalledTimes(1);
     expect(mocks.uploadSources).not.toHaveBeenCalled();
   });
-  it("读取失败后重新读取仍保留用户草稿，再保存时不覆盖其余字段", async () => {
-    mocks.load.mockRejectedValueOnce(new Error("临时读失败"));
-    await mount(); await edit(1, "edited-user");
-    await act(async () => button("重新读取").props.onClick());
-    expect(input(1).props.value).toBe("edited-user");
-    expect(input(2).props.value).toBe(config.webdavPassword);
-    await blur(1);
-    expect(mocks.patch).toHaveBeenCalledExactlyOnceWith({ webdavUsername: "edited-user" });
-  });
 
   it("连续 A-B-A 编辑不被第一次 A 保存成功误判为已保存", async () => {
     const first = deferred<object>(); mocks.patch.mockReturnValueOnce(first.promise);
     await mount(); await edit(1, "A"); await blur(1);
     await edit(1, "B"); await blur(1); await edit(1, "A"); await blur(1);
     expect(mocks.patch).toHaveBeenCalledTimes(1);
-    await act(async () => first.resolve({}));
+    await act(async () => first.resolve(applyToDisk({ webdavUsername: "A" })));
     expect(mocks.patch.mock.calls.map(([patch]) => patch)).toEqual([{ webdavUsername: "A" }, { webdavUsername: "A" }]);
     expect(text(renderer!.root)).toContain("已保存");
   });
@@ -162,7 +150,7 @@ describe("WebDAV 表单初始化与串行精确保存", () => {
     await mount(); await edit(0, "https://example.invalid/new"); await blur(0);
     await act(async () => { button("上传歌单历史").props.onClick(); });
     expect(mocks.uploadPlaylists).not.toHaveBeenCalled();
-    await act(async () => save.resolve({}));
+    await act(async () => save.resolve(applyToDisk({ webdavUrl: "https://example.invalid/new" })));
     expect(mocks.uploadPlaylists).toHaveBeenCalledTimes(1);
     expect(mocks.patch).toHaveBeenCalledTimes(1);
   });
@@ -176,10 +164,11 @@ describe("WebDAV 表单初始化与串行精确保存", () => {
     expect(text(renderer!.root)).not.toContain("已开启启动时自动同步");
     await act(async () => button("重试保存").props.onClick());
     expect(text(renderer!.root)).toContain("已保存");
+    expect(input(3).props.checked).toBe(true);
   });
 
   it("配置未完整时不启用自动同步，也不顺手写空配置", async () => {
-    mocks.load.mockResolvedValueOnce({ ...config, webdavPassword: "" });
+    seedSettings({ ...config, webdavPassword: "" });
     await mount();
     await act(async () => { input(3).props.onChange({ target: { checked: true } }); });
     expect(mocks.patch).not.toHaveBeenCalled();
@@ -187,47 +176,32 @@ describe("WebDAV 表单初始化与串行精确保存", () => {
     expect(text(renderer!.root)).toContain("请先填写");
   });
 
-  it("旧实例等待读取时已卸载，不得在新页面保存后再写入旧 dirty", async () => {
-    const oldRead = deferred<typeof config>(); let disk = { ...config };
-    mocks.load.mockReturnValueOnce(oldRead.promise).mockImplementation(async () => ({ ...disk }));
-    mocks.patch.mockImplementation(async (patch) => { disk = { ...disk, ...patch }; });
-    await mount(); await edit(1, "stale-user"); await blur(1);
-    act(() => { renderer!.unmount(); renderer = undefined; });
-    await mount(); await edit(1, "new-user"); await blur(1);
-    await act(async () => oldRead.resolve({ ...config }));
-    expect(mocks.patch.mock.calls.map(([patch]) => patch)).toEqual([{ webdavUsername: "new-user" }]);
-    expect(disk.webdavUsername).toBe("new-user");
-  });
-
-  it("卸载取消排队 dirty；新实例读取等待已发写入完成，再精确保存新编辑", async () => {
-    const oldWrite = deferred<void>(); let disk = { ...config };
-    mocks.load.mockImplementation(async () => ({ ...disk }));
-    mocks.patch.mockImplementation(async (patch) => {
+  it("卸载取消排队 dirty；新实例等已发写入完成后，再精确保存新编辑", async () => {
+    const oldWrite = deferred<void>();
+    mocks.patch.mockImplementation(async (patch: { webdavUsername?: string }) => {
       if (patch.webdavUsername === "old-issued") await oldWrite.promise;
-      disk = { ...disk, ...patch };
+      return applyToDisk(patch);
     });
     await mount(); await edit(1, "old-issued"); await blur(1);
     await edit(1, "old-queued"); await blur(1);
     act(() => { renderer!.unmount(); renderer = undefined; }); await mount();
     await edit(1, "new-user"); await blur(1);
     try {
-      expect(mocks.load).toHaveBeenCalledTimes(1);
       expect(mocks.patch).toHaveBeenCalledTimes(1);
     } finally {
       await act(async () => oldWrite.resolve());
     }
-    expect(mocks.load).toHaveBeenCalledTimes(2);
     expect(mocks.patch.mock.calls.map(([patch]) => patch)).toEqual([{ webdavUsername: "old-issued" }, { webdavUsername: "new-user" }]);
     expect(disk.webdavUsername).toBe("new-user");
     expect(input(1).props.value).toBe("new-user");
   });
 
-  it("新页面不带编辑时读取到旧页面已经发出的最新保存，而非保存前快照", async () => {
-    const oldWrite = deferred<void>(); let disk = { ...config };
-    mocks.load.mockImplementation(async () => ({ ...disk }));
-    mocks.patch.mockImplementation(async (patch) => { await oldWrite.promise; disk = { ...disk, ...patch }; });
+  it("新页面不带编辑时显示旧页面已经发出的保存，而非保存前的值", async () => {
+    const oldWrite = deferred<void>();
+    mocks.patch.mockImplementation(async (patch: object) => { await oldWrite.promise; return applyToDisk(patch); });
     await mount(); await edit(1, "issued-user"); await blur(1);
     act(() => { renderer!.unmount(); renderer = undefined; }); await mount();
+    expect(input(1).props.value).toBe("issued-user");
     await act(async () => oldWrite.resolve());
     expect(input(1).props.value).toBe("issued-user");
     expect(mocks.patch).toHaveBeenCalledTimes(1);
@@ -239,26 +213,7 @@ describe("WebDAV 表单初始化与串行精确保存", () => {
     expect(mocks.patch).not.toHaveBeenCalled();
   });
 
-  it("等待初始化的同步操作在卸载后取消，不写配置也不发远端请求", async () => {
-    const read = deferred<typeof config>(); mocks.load.mockReturnValueOnce(read.promise);
-    await mount(); await edit(1, "stale-user");
-    await act(async () => { button("上传歌单历史").props.onClick(); });
-    act(() => { renderer!.unmount(); renderer = undefined; });
-    await act(async () => read.resolve({ ...config }));
-    expect(mocks.patch).not.toHaveBeenCalled();
-    expect(mocks.uploadPlaylists).not.toHaveBeenCalled();
-  });
-  it("新挂载等待旧写入期间再次卸载，不执行已经作废的读取", async () => {
-    const write = deferred<object>(); mocks.patch.mockReturnValueOnce(write.promise);
-    await mount(); await edit(1, "issued"); await blur(1);
-    act(() => { renderer!.unmount(); renderer = undefined; }); await mount();
-    act(() => { renderer!.unmount(); renderer = undefined; }); await mount();
-    await act(async () => write.resolve({}));
-    expect(mocks.load).toHaveBeenCalledTimes(2);
-    expect(mocks.patch).toHaveBeenCalledTimes(1);
-  });
-
-  it("已发旧写入失败也会结束屏障，新页面按真实磁盘读取且可以继续保存", async () => {
+  it("已发旧写入失败也会结束屏障，新页面回到真实设置且可以继续保存", async () => {
     const write = deferred<object>(); mocks.patch.mockReturnValueOnce(write.promise);
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
@@ -266,6 +221,8 @@ describe("WebDAV 表单初始化与串行精确保存", () => {
       act(() => { renderer!.unmount(); renderer = undefined; }); await mount();
       await act(async () => write.reject(new Error("合成写入失败")));
       expect(log).toHaveBeenCalledWith("离开同步设置后已提交的配置保存失败", expect.any(Error));
+      // 写入失败后 store 重读了一次真实值
+      expect(mocks.load).toHaveBeenCalledTimes(1);
       expect(input(1).props.value).toBe(config.webdavUsername);
       await edit(1, "retry-user"); await blur(1);
       expect(mocks.patch).toHaveBeenLastCalledWith({ webdavUsername: "retry-user" });
