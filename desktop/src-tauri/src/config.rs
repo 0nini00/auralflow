@@ -2,13 +2,22 @@
 //! 使用 JSON 文件存储用户设置，路径由 Tauri app_data_dir 提供
 
 use crate::atomic_file::{lock_persistence, write_atomic};
+use crate::logging::ResultExt;
 use crate::models::AppSettings;
 use crate::secret_store;
+use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 const CONFIG_FILE_NAME: &str = "auralflow_settings.json";
+
+/// 设置变更事件：`patch_settings` 每次成功落盘且确有字段变化后，发给**所有**窗口。
+///
+/// 载荷只有 `changedKeys`（变化了的顶层字段名，camelCase），**不带任何值**：
+/// 每个窗口（含只有一个解锁按钮的 `lyric-unlock`）都会收到它，而设置里有
+/// `wyCookie` / `webdavPassword` 这样的凭证。前端收到后自行 `load_settings` 取值。
+const SETTINGS_CHANGED_EVENT: &str = "settings-changed";
 
 /// 需要加密落盘的凭证字段。
 ///
@@ -89,25 +98,73 @@ fn save_settings_locked(app: &AppHandle, settings: &AppSettings) -> Result<(), S
 
 /// 更新部分配置字段 — 合并传入的 JSON patch 到现有配置
 ///
+/// 这是设置的**唯一修改入口**：前端的 `patch_settings` 命令，以及 Rust 自己的写入
+/// （歌词窗置顶/几何、主窗口位置、迷你播放器位置、关闭确认的答复）全部经过这里，
+/// 所以「设置变了要通知前端」也只在这里做一次（见 `SETTINGS_CHANGED_EVENT`）。
+/// 另一处会写文件的是首次启动时落默认值（`load_settings_locked`），那不改变任何值，不发事件。
+///
 /// 全程持有持久化写锁：load / merge / save 是一次 read-modify-write，
 /// 拆开会让并发调用方（多个 WebView、歌词窗位置持久化任务）互相覆盖。
-pub fn patch_settings(app: &AppHandle, patch: serde_json::Value) -> Result<AppSettings, String> {
+pub fn patch_settings(app: &AppHandle, patch: Value) -> Result<AppSettings, String> {
     let _guard = lock_persistence();
 
     let current = load_settings_locked(app)?;
-
-    // 将 current 序列化为 Value，再 merge patch
-    let mut current_val =
-        serde_json::to_value(&current).map_err(|e| format!("序列化当前配置失败: {}", e))?;
-
-    reject_unknown_keys(&current_val, &patch)?;
-    merge_json(&mut current_val, patch);
-
-    let updated: AppSettings = serde_json::from_value(current_val)
-        .map_err(|e| format!("合并配置后反序列化失败: {}", e))?;
+    let (updated, changed_keys) = apply_patch(&current, patch)?;
 
     save_settings_locked(app, &updated)?;
+    // 落盘成功之后才通知：前端收到事件再读，一定读得到这次写入。
+    emit_settings_changed(app, &changed_keys);
     Ok(updated)
+}
+
+/// 把 patch 合并进当前设置，返回新设置与**值确实变了**的顶层字段名。纯计算，不做 IO。
+fn apply_patch(current: &AppSettings, patch: Value) -> Result<(AppSettings, Vec<String>), String> {
+    let before =
+        serde_json::to_value(current).map_err(|e| format!("序列化当前配置失败: {}", e))?;
+    reject_unknown_keys(&before, &patch)?;
+
+    let mut merged = before.clone();
+    merge_json(&mut merged, patch);
+    let updated: AppSettings = serde_json::from_value(merged)
+        .map_err(|e| format!("合并配置后反序列化失败: {}", e))?;
+
+    // 用「经过 AppSettings 归一化之后」的结果来比，而不是合并出来的原始 JSON：
+    // patch 里的 `0` 与结构体序列化出的 `0.0` 在 JSON 层不相等，直接比会把没变的字段报成变了。
+    let after =
+        serde_json::to_value(&updated).map_err(|e| format!("序列化更新后的配置失败: {}", e))?;
+    Ok((updated, changed_top_level_keys(&before, &after)))
+}
+
+/// 两份设置之间值不同的顶层字段名，按字典序（顺序稳定，与 serde_json 是否保序无关）。
+fn changed_top_level_keys(before: &Value, after: &Value) -> Vec<String> {
+    let (Some(before_map), Some(after_map)) = (before.as_object(), after.as_object()) else {
+        return Vec::new();
+    };
+    let mut keys: Vec<String> = after_map
+        .iter()
+        .filter(|(key, value)| before_map.get(key.as_str()) != Some(*value))
+        .map(|(key, _)| key.clone())
+        .collect();
+    keys.sort();
+    keys
+}
+
+/// 通知所有窗口设置已变更。没有字段变化（例如窗口位置原样重写一遍）就不发：
+/// 事件的含义是「值变了」，空事件只会让每个窗口白醒一次。
+///
+/// 发不出去只记日志：写入已经成功，不能因为通知失败把这次写入报成失败。
+fn emit_settings_changed(app: &AppHandle, changed_keys: &[String]) {
+    if changed_keys.is_empty() {
+        return;
+    }
+    app.emit(SETTINGS_CHANGED_EVENT, settings_changed_payload(changed_keys))
+        .log_warn("[settings] 通知前端设置变更失败");
+}
+
+/// 事件载荷。只有字段名，没有值（理由见 `SETTINGS_CHANGED_EVENT`）；
+/// 前端的类型登记在 `@lx/tauri-bridge` 的 `TauriEventPayloads`。
+fn settings_changed_payload(changed_keys: &[String]) -> Value {
+    json!({ "changedKeys": changed_keys })
 }
 
 /// 校验 patch 顶层字段都存在于 AppSettings。
@@ -115,7 +172,7 @@ pub fn patch_settings(app: &AppHandle, patch: serde_json::Value) -> Result<AppSe
 /// AppSettings 带 `#[serde(default)]`，未知字段会被 serde 静默丢弃：
 /// 前端把 `lyricFontSize` 拼成 `lyricFontSizee` 时调用会「成功」返回但什么都没改，
 /// 重启后设置回退且无任何报错。这里显式失败，让拼写错误在开发期即暴露。
-fn reject_unknown_keys(base: &serde_json::Value, patch: &serde_json::Value) -> Result<(), String> {
+fn reject_unknown_keys(base: &Value, patch: &Value) -> Result<(), String> {
     let (Some(base_map), Some(patch_map)) = (base.as_object(), patch.as_object()) else {
         return Ok(());
     };
@@ -146,6 +203,61 @@ fn merge_json(base: &mut serde_json::Value, patch: serde_json::Value) {
         (base, patch) => {
             *base = patch;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn patch_reports_only_the_keys_whose_value_changed() {
+        let current = AppSettings::default();
+        let (updated, changed) = apply_patch(
+            &current,
+            json!({ "lyricFontSize": 40, "volume": current.volume }),
+        )
+        .unwrap();
+        assert_eq!(updated.lyric_font_size, 40);
+        // volume 写的是原值：出现在 patch 里不等于变了
+        assert_eq!(changed, vec!["lyricFontSize".to_string()]);
+    }
+
+    #[test]
+    fn rewriting_the_same_values_reports_no_change() {
+        // 两种真实场景：窗口位置原样重写一遍；JSON 里的整数写进浮点字段。
+        let current = AppSettings {
+            main_window_x: Some(120.0),
+            ..AppSettings::default()
+        };
+        let (_, changed) = apply_patch(
+            &current,
+            json!({ "mainWindowX": 120, "lyricTextPositionX": 0 }),
+        )
+        .unwrap();
+        assert!(changed.is_empty(), "没变的字段被报成变了: {:?}", changed);
+    }
+
+    #[test]
+    fn event_payload_names_secret_fields_but_never_carries_their_values() {
+        let (_, changed) = apply_patch(
+            &AppSettings::default(),
+            json!({ "wyCookie": "MUSIC_U=secret-cookie", "webdavPassword": "secret-password" }),
+        )
+        .unwrap();
+        let payload = settings_changed_payload(&changed);
+        assert_eq!(
+            payload,
+            json!({ "changedKeys": ["webdavPassword", "wyCookie"] })
+        );
+        assert!(!payload.to_string().contains("secret"));
+    }
+
+    #[test]
+    fn unknown_keys_are_rejected() {
+        let error = apply_patch(&AppSettings::default(), json!({ "lyricFontSizee": 30 }))
+            .unwrap_err();
+        assert!(error.contains("lyricFontSizee"), "{}", error);
     }
 }
 

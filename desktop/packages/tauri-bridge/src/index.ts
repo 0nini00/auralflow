@@ -487,7 +487,7 @@ export async function taskbarUpdateTrack(track: TaskbarTrackPayload): Promise<vo
  * 命令名靠上面的包装函数集中，事件名此前却是散在各文件里的字符串字面量：同一个名字
  * 写两遍，拼错只表现为「事件永远不来」。新增事件时在这里登记名字，并在
  * `TauriEventPayloads` 写明载荷；两者都要对着 Rust 源码核对（当前出处：main.rs、
- * tray.rs、smtc.rs、taskbar.rs、commands/downloads.rs、lyric_window.rs）。
+ * config.rs、tray.rs、smtc.rs、taskbar.rs、commands/downloads.rs、lyric_window.rs）。
  *
  * 不在此列：`auralflow-player-sync` 是窗口之间互发的应用层通道，Rust 不参与，载荷是
  * 业务模型（PlaybackSnapshot）而桥不依赖业务代码，名字与类型都留在 stores/playerSync.ts。
@@ -499,6 +499,11 @@ export const TAURI_EVENTS = {
   appBeforeQuit: "app-before-quit",
   /** 等待落盘应答超时，退出已取消 */
   appQuitFailed: "app-quit-failed",
+  /**
+   * 设置落盘且确有字段变化之后，发给所有窗口（config.rs 的 SETTINGS_CHANGED_EVENT）。
+   * 不论是谁写的——任一窗口的 patchSettings，还是 Rust 自己（歌词窗置顶/几何、窗口位置、关闭确认）。
+   */
+  settingsChanged: "settings-changed",
   /** 托盘菜单的播放控制 */
   nativeAction: "native-action",
   /** 系统媒体控制反向控制（Rust 侧 smtc.rs 的 ACTION_EVENT 必须一致） */
@@ -527,6 +532,11 @@ export interface TauriEventPayloads {
   [TAURI_EVENTS.appBeforeQuit]: { requestId: string };
   /** 给用户看的失败说明 */
   [TAURI_EVENTS.appQuitFailed]: string;
+  /**
+   * 只有变化了的顶层字段名，**没有值**：事件发给所有窗口，而设置里有 wyCookie /
+   * webdavPassword。要值的窗口自己调 loadSettings。
+   */
+  [TAURI_EVENTS.settingsChanged]: { changedKeys: Array<keyof RustAppSettings> };
   [TAURI_EVENTS.nativeAction]: NativeActionName;
   [TAURI_EVENTS.smtcAction]: SmtcActionEvent;
   [TAURI_EVENTS.taskbarAction]: TaskbarActionEvent;

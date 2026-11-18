@@ -78,10 +78,12 @@ describe("Tauri 事件名与 Rust 侧一致", () => {
   });
 
   it("每个事件都有前端监听者；没人听的必须在这里点名", () => {
+    // settings-changed：Rust 侧已经在发（config.rs），前端的唯一监听者是下一步引入的
+    // stores/settingsStore.ts。它落地后把这一项删掉。
     // lyric-window-lock-failed：Rust 在锁定/解锁落到窗口失败时发出（lyric_window.rs），
     // 注释写明「必须把错误暴露到前端」，但前端至今没有监听——失败仍然是静默的。
     // 补上监听后把它从这里删掉。
-    const knownUnheard = ["lyricWindowLockFailed"];
+    const knownUnheard = ["settingsChanged", "lyricWindowLockFailed"];
     const frontend = readSources(join(desktopRoot, "src"), [".ts", ".tsx"]).map(({ text }) => text).join("\n");
     const unheard = Object.keys(TAURI_EVENTS).filter((key) => !frontend.includes(`TAURI_EVENTS.${key}`));
     expect(unheard).toEqual(knownUnheard);
