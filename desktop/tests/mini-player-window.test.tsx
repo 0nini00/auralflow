@@ -28,10 +28,10 @@ vi.mock('@lx/tauri-bridge', () => ({
 vi.mock('@tauri-apps/api/window', () => ({
   getCurrentWindow: () => ({ startDragging: api.startDragging }),
 }));
-vi.mock('@/stores/playerStore', () => ({
-  usePlayerStore: (selector: (state: typeof api.state) => unknown) => selector(api.state),
+vi.mock('@/stores/playbackMirrorStore', () => ({
+  usePlaybackMirrorStore: (selector: (state: typeof api.state) => unknown) => selector(api.state),
 }));
-vi.mock('@/stores/playerSync', () => ({ dispatchLyricAction: api.dispatch }));
+vi.mock('@/stores/playerSync', () => ({ dispatchLyricAction: api.dispatch, setupSecondaryPlayerSync: vi.fn() }));
 vi.mock('@/stores/themeStore', () => ({
   applyInitialAppearance: api.applyAppearance,
   useThemeStore: { persist: { rehydrate: api.rehydrate } },

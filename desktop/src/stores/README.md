@@ -1,12 +1,13 @@
 # stores/
 
-全局状态层：15 个 Zustand store（同目录下另有 `libraryPersistence` / `libraryRefreshModel` / `playerPersistence` / `playerResumeTarget` / `playerSync` 五个非 store 的辅助模块），集中持有播放、歌单、收藏、历史、设置等状态；store 不含 React 逻辑，组件订阅、services 读写。
+全局状态层：16 个 Zustand store（同目录下另有 `libraryPersistence` / `libraryRefreshModel` / `playerPersistence` / `playerResumeTarget` / `playerSync` / `playerSyncMain` 六个非 store 的辅助模块），集中持有播放、歌单、收藏、历史、设置等状态；store 不含 React 逻辑，组件订阅、services 读写。
 
 ## Store 清单
 
 | Store | 文件 | 职责 | 持久化方式 |
 | --- | --- | --- | --- |
 | playerStore | `playerStore.ts` (1057 行) | 当前曲目 / 队列 / 随机 / 循环 / FM / 引擎桥接 | 非持久化（快照存 library） |
+| playbackMirrorStore | `playbackMirrorStore.ts` | 副窗口（桌面歌词 / 迷你播放器）里的播放状态镜像：只有界面读的 6 个字段，由主窗口广播的快照写入 | 非持久化 |
 | playlistStore | — | 歌单 CRUD | `libraryPersistence` → `library/playlists.json` |
 | favoritesStore | — | 收藏 | `libraryPersistence` → `library/favorites.json` |
 | historyStore | — | 播放历史 | `libraryPersistence` → `library/recent.json` |
@@ -30,7 +31,7 @@
 
 ## 跨窗口同步
 
-- **playerSync**：`BroadcastChannel("auralflow-player-sync")` + Tauri 事件后备；进度变化在 Δ≥0.4s 或 200ms 节流时广播，保证 main / lyric / lyric-unlock 三窗口一致。
+- **playerSync / playerSyncMain**：`BroadcastChannel("auralflow-player-sync")` + Tauri 事件后备；进度变化在 Δ≥0.4s 或 200ms 节流时广播。播放只在主窗口：`playerSyncMain`（只由 `MainWindow` 加载）把 `playerStore` 的快照发出去并执行副窗口发回的控件动作；`playerSync` 是通道与副窗口一端，把快照写进 `playbackMirrorStore`。副窗口不加载 `playerStore`（`tests/window-dependency.test.ts` 锁着）。
 - **settingsStore**：不在窗口之间传值。任何一处写入都由 Rust 落盘并向所有窗口发 `settings-changed`（只带变化的字段名），各窗口收到后自己重读；只涉及 Rust 自管的窗口几何字段时不重读。未读到时 `settings` 为 `null`，不提供占位默认值；默认值只在 Rust 的 `AppSettings::default()`。
 - 歌词窗的**锁定**是窗口运行时状态而不是设置：以 Rust 为准（`getLyricWindowState` 查询 + `lyric-settings-changed` 事件），不经过 settingsStore。
 
@@ -38,4 +39,4 @@
 
 - **数据流向**：services → store 直接读写；组件 → store 订阅；store 内不含 React 逻辑。反方向也存在：11 个 service 会 `import @/stores` 直接读写 store（`persistentCache`、`playback/playbackResolver`、`playback/prefetchService`、`playback/customSourceBackend`、`playback/playbackSnapshot`、`playback/playbackSnapshotModel`、`playlistTransferService`、`smtcService`、`taskbarService`、`customSourceRuntime`、`webdavSyncService`），所以这是**双向**关系，不是单向分层——详见 `desktop/src/SPEC.md`。
 - **敏感数据**：cookie 等不进 Zustand 持久化，由 settings 统一管理。
-- **窗口角色**：`App.tsx` 按 `getCurrentWindow().label` + `location.hash` 区分 main / lyric / lyric-unlock，各窗口订阅同一套 store。
+- **窗口角色**：`App.tsx` 按 `getCurrentWindow().label` + `location.hash` 区分 main / lyric / lyric-unlock，主窗口用 `playerStore`，桌面歌词 / 迷你播放器用 `playbackMirrorStore`。

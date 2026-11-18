@@ -1,6 +1,5 @@
 import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { setupPlayerSync } from "./stores/playerSync";
 import { tryGetCurrentWindow } from "./utils/appWindow";
 import { detectWindowRoleFromParts, type AppWindowRole } from "./utils/windowRole";
 import { windowComponents, windowScopes } from "./windowModules";
@@ -26,11 +25,7 @@ function App() {
     const resolveRole = () => {
       // 非 Tauri 环境（浏览器里的纯 UI 调试）读不到窗口标签，按主窗口处理。
       const label = tryGetCurrentWindow()?.label ?? "";
-      const nextRole = detectWindowRoleFromParts(label, window.location.hash);
-      if (nextRole !== "lyric-unlock") {
-        setupPlayerSync(nextRole);
-      }
-      setRole(nextRole);
+      setRole(detectWindowRoleFromParts(label, window.location.hash));
     };
     const onHashChange = () => resolveRole();
     resolveRole();
