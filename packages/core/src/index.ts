@@ -21,7 +21,6 @@ export * from "./custom-source";
 export * from "./playlist-link";
 export * from "./history";
 export * from "./stats/aggregate";
-export * from "./recommendations";
 export * from "./search-cache";
 export * from "./wy-cookie";
 export * from "./wy-crypto";

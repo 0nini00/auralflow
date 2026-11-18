@@ -2,7 +2,7 @@
 const test = require("node:test");
 const { createLoader, mobileRequire } = require("./helpers/loadTs.cjs");
 const pure = createLoader({});
-const core = { ...pure("../../packages/core/src/switch-step-queue.ts"), ...pure("../../packages/core/src/request-limiter.ts"), ...pure("../../packages/core/src/playback-quality.ts"), ...pure("../../packages/core/src/recommendations/heartbeat-queue.ts"), ...pure("../../packages/core/src/song-variant.ts"), isPreviewDuration: () => false };
+const core = { ...pure("../../packages/core/src/switch-step-queue.ts"), ...pure("../../packages/core/src/request-limiter.ts"), ...pure("../../packages/core/src/playback-quality.ts"), ...pure("../../packages/core/src/song-variant.ts"), isPreviewDuration: () => false };
 const song = (id, source = "tx") => ({ id, source, name: id, singer: "Artist", interval: 180 });
 async function flush() { await new Promise(setImmediate); }
 // node:test 的 mock timers 同步 tick，回调间的微任务要显式 flush，
@@ -29,7 +29,7 @@ function setup(sources, runtimeImpl) {
   native.getQueue = async () => [];
   const customStore = { sources, applyRuntimeUpdateAlert() {} };
   const cache = { getCachedPlaybackUrl: async () => null, saveCachedPlaybackUrl: async () => {}, invalidateCachedPlaybackUrl: async () => {} };
-  const recommendations = { getPersonalFmSongs: async () => ({ songs: [], hasMore: false }), getHeartbeatModeList: async () => [] };
+  const recommendations = { getPersonalFmSongs: async () => ({ songs: [], hasMore: false }) };
   const cross = { findTxVariants: async () => [], describeCrossSourceFailure: () => "无替代歌曲" };
   const load = createLoader({
     zustand: mobileRequire("zustand"), "react-native": { AppState: { addEventListener: () => ({ remove() {} }) } },

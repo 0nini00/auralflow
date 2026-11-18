@@ -60,19 +60,16 @@ for (const [from, to, order, currentIndex, history, played] of [
   });
 }
 
-for (const type of ["personalFm", "heartbeat"]) {
-  test(type + " remaps batch indices without discarding context or its buffer", () => {
-    const { store, queue } = setup();
-    const context = { type, currentBatch: queue, currentBatchIndex: 2, buffer: [song("buffer")], hasMore: true,
-      ...(type === "heartbeat" ? { seedSongId: "seed", playlistId: "playlist" } : {}) };
-    store.setState({ playbackContext: context });
-    assert.equal(reorder(store, queue, 2, 0), "reordered");
-    const state = store.getState();
-    assert.deepEqual(state.playbackContext, { ...context, currentBatch: state.queue, currentBatchIndex: 0 });
-    assert.strictEqual(state.playbackContext.currentBatch, state.queue);
-    assert.strictEqual(state.playbackContext.buffer, context.buffer);
-  });
-}
+test("personalFm remaps batch indices without discarding context or its buffer", () => {
+  const { store, queue } = setup();
+  const context = { type: "personalFm", currentBatch: queue, currentBatchIndex: 2, buffer: [song("buffer")], hasMore: true };
+  store.setState({ playbackContext: context });
+  assert.equal(reorder(store, queue, 2, 0), "reordered");
+  const state = store.getState();
+  assert.deepEqual(state.playbackContext, { ...context, currentBatch: state.queue, currentBatchIndex: 0 });
+  assert.strictEqual(state.playbackContext.currentBatch, state.queue);
+  assert.strictEqual(state.playbackContext.buffer, context.buffer);
+});
 
 test("stale baseline cannot overwrite replacement with identical songs or another reorder", () => {
   const { store, queue } = setup();
@@ -202,14 +199,13 @@ test("queue replacement between long press and drop is rejected by the real stor
   assert.strictEqual(store.getState(), before);
 });
 
-for (const context of ["queue", "personalFm", "heartbeat"]) {
+for (const context of ["queue", "personalFm"]) {
   test("resetting " + context + " with the same array invalidates an in-flight drag", () => {
     const { store } = setup();
-    const payload = { currentBatch: store.getState().queue, currentBatchIndex: 0, seedSongId: "seed", playlistId: "list" };
+    const payload = { currentBatch: store.getState().queue, currentBatchIndex: 0 };
     const reset = () => {
       if (context === "queue") store.getState().setQueue(payload.currentBatch);
-      else if (context === "personalFm") store.getState().setPersonalFmContext(payload);
-      else store.getState().setHeartbeatContext(payload);
+      else store.getState().setPersonalFmContext(payload);
     };
     reset();
     const baseline = store.getState().queue;

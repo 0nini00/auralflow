@@ -318,7 +318,7 @@ function nativeNavigationSetup(blockAt, { autoSkip = false } = {}) {
     "@react-native-async-storage/async-storage": { getItem: async () => null, setItem: async () => {} },
     "react-native-track-player": { __esModule: true, default: native, State: { Playing: "playing", Paused: "paused", Stopped: "stopped", Buffering: "buffering", Error: "error" }, RepeatMode: { Off: 0 },
       Event: Object.fromEntries(events.map(event => [event, event])), AppKilledPlaybackBehavior: {}, Capability: {} },
-    "@lx/core": { ...coreLoad("../../packages/core/src/switch-step-queue.ts"), ...coreLoad("../../packages/core/src/request-limiter.ts"), ...coreLoad("../../packages/core/src/playback-quality.ts"), ...coreLoad("../../packages/core/src/recommendations/heartbeat-queue.ts"), ...coreLoad("../../packages/core/src/song-variant.ts"), isPreviewDuration: () => false },
+    "@lx/core": { ...coreLoad("../../packages/core/src/switch-step-queue.ts"), ...coreLoad("../../packages/core/src/request-limiter.ts"), ...coreLoad("../../packages/core/src/playback-quality.ts"), ...coreLoad("../../packages/core/src/song-variant.ts"), isPreviewDuration: () => false },
     "@/services/logger": { logger: { info() {}, warn() {}, error() {} } },
     "@/services/androidPitchService": { syncPlaybackParameters() {} },
     "@/services/playbackUrlCache": cache, "./playbackUrlCache": cache,
@@ -363,45 +363,40 @@ for (const nativeMethod of ["add", "skip"]) {
 }
 
 
-for (const mode of ["personalFm", "heartbeat"]) {
-  for (const autoSkip of [true, false]) {
-    test(mode + "续批成功后B解析失败，" + (autoSkip ? "开启跳过继续C" : "关闭跳过明确停在B"), options, async (t) => {
-      const h = nativeNavigationSetup("never", { autoSkip });
-      const tracks = ["B", "C"].map(id => ({ id, source: "tx", name: id, singer: "Test", interval: 100 }));
-      let refillCount = 0;
-      const refill = async () => { refillCount += 1; return refillCount === 1 ? tracks : []; };
-      h.playlistApi.getPersonalFmSongs = async () => ({ songs: await refill(), hasMore: false });
-      h.playlistApi.getHeartbeatModeList = refill;
-      const parsed = [];
-      h.cache.getCachedPlaybackUrl = async song => {
-        parsed.push(song.id);
-        if (song.id === "B") throw new Error("B解析失败");
-        return { url: "https://fixture.invalid/audio", quality: "320k" };
-      };
-      const a = h.store.getState().currentSong;
-      const context = { currentBatch: [a], currentBatchIndex: 0, buffer: [], hasMore: true };
-      if (mode === "personalFm") h.store.getState().setPersonalFmContext(context);
-      else h.store.getState().setHeartbeatContext({ ...context, seedSongId: "A", playlistId: "fixture-list" });
-      h.store.setState({ onSilenceGap: true });
-      const lifetime = h.service({ serviceId: "refill-recovery" });
-      t.after(async () => { await h.emit(DESTROYED, { serviceId: "refill-recovery" }); await lifetime; });
-      await h.emit("PlaybackQueueEnded");
-      assert.ok(refillCount >= 1);
-      assert.ok(parsed.includes("B"));
-      assert.equal(h.store.getState().playbackContext.type, mode);
-      if (autoSkip) {
-        assert.equal(h.store.getState().currentSong.id, "C");
-        assert.ok(parsed.includes("C"));
-        assert.equal(count(h, "play"), 1);
-        assert.equal(count(h, "stop"), 0);
-      } else {
-        assert.equal(h.store.getState().currentSong.id, "B");
-        assert.equal(parsed.includes("C"), false);
-        assert.match(h.store.getState().error, /B解析失败.*自动跳过已关闭/);
-        assert.equal(count(h, "stop"), 1);
-      }
-    });
-  }
+for (const autoSkip of [true, false]) {
+  test("personalFm续批成功后B解析失败，" + (autoSkip ? "开启跳过继续C" : "关闭跳过明确停在B"), options, async (t) => {
+    const h = nativeNavigationSetup("never", { autoSkip });
+    const tracks = ["B", "C"].map(id => ({ id, source: "tx", name: id, singer: "Test", interval: 100 }));
+    let refillCount = 0;
+    const refill = async () => { refillCount += 1; return refillCount === 1 ? tracks : []; };
+    h.playlistApi.getPersonalFmSongs = async () => ({ songs: await refill(), hasMore: false });
+    const parsed = [];
+    h.cache.getCachedPlaybackUrl = async song => {
+      parsed.push(song.id);
+      if (song.id === "B") throw new Error("B解析失败");
+      return { url: "https://fixture.invalid/audio", quality: "320k" };
+    };
+    const a = h.store.getState().currentSong;
+    h.store.getState().setPersonalFmContext({ currentBatch: [a], currentBatchIndex: 0, buffer: [], hasMore: true });
+    h.store.setState({ onSilenceGap: true });
+    const lifetime = h.service({ serviceId: "refill-recovery" });
+    t.after(async () => { await h.emit(DESTROYED, { serviceId: "refill-recovery" }); await lifetime; });
+    await h.emit("PlaybackQueueEnded");
+    assert.ok(refillCount >= 1);
+    assert.ok(parsed.includes("B"));
+    assert.equal(h.store.getState().playbackContext.type, "personalFm");
+    if (autoSkip) {
+      assert.equal(h.store.getState().currentSong.id, "C");
+      assert.ok(parsed.includes("C"));
+      assert.equal(count(h, "play"), 1);
+      assert.equal(count(h, "stop"), 0);
+    } else {
+      assert.equal(h.store.getState().currentSong.id, "B");
+      assert.equal(parsed.includes("C"), false);
+      assert.match(h.store.getState().error, /B解析失败.*自动跳过已关闭/);
+      assert.equal(count(h, "stop"), 1);
+    }
+  });
 }
 
 

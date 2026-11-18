@@ -240,7 +240,7 @@ export default async function playbackService(data: { serviceId: string }): Prom
     await runRecovery(async (operation) => {
       const { playMode, queue, playbackContext } = usePlayerStore.getState();
       try {
-        if (playbackContext.type !== "personalFm" && playbackContext.type !== "heartbeat" && playMode === "single") {
+        if (playbackContext.type !== "personalFm" && playMode === "single") {
           await TrackPlayer.skip(0);
           if (!owns(operation)) return;
           await TrackPlayer.seekTo(0);
@@ -252,7 +252,7 @@ export default async function playbackService(data: { serviceId: string }): Prom
           usePlayerStore.setState({ position: 0, isPlaying: true, onSilenceGap: false });
           return;
         }
-        if (queue.length === 0 && playbackContext.type !== "personalFm" && playbackContext.type !== "heartbeat") return;
+        if (queue.length === 0 && playbackContext.type !== "personalFm") return;
         await invoke(operation, () => playNext(true));
         if (owns(operation) && operation.nativeError) await recoverFailure(operation, operation.nativeError, true);
       } catch (error) {
@@ -326,7 +326,7 @@ export default async function playbackService(data: { serviceId: string }): Prom
 
 function resolveAutoSkipBlockReason(): string | null {
   const { playbackContext, playMode, queue, currentIndex, tempPlayList, shuffleHistory, playedIndices } = usePlayerStore.getState();
-  if (playbackContext.type === "personalFm" || playbackContext.type === "heartbeat") return null;
+  if (playbackContext.type === "personalFm") return null;
   if (playMode === "single") return "单曲循环";
   if (tempPlayList.length > 0) return null;
   if (queue.length <= 1) return "队列里没有其它歌曲";

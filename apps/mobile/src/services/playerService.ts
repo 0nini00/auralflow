@@ -13,11 +13,9 @@ import { useCustomSourceStore } from "../stores/customSourceStore";
 import { requestCustomSourceMusicUrl } from "./customSourceRuntime";
 import { cacheCover, cacheLyrics, getCachedLyrics, cacheAudioFile, getCachedAudioFile, isLocalFilePlayable, CACHEABLE_AUDIO_SOURCES } from "./cacheService";
 import { getCachedPlaybackUrl, saveCachedPlaybackUrl, invalidateCachedPlaybackUrl } from "./playbackUrlCache";
-import { getHeartbeatModeList, getPersonalFmSongs, trashPersonalFmSong } from "./wyPlaylistService";
+import { getPersonalFmSongs, trashPersonalFmSong } from "./wyPlaylistService";
 import {
-  appendHeartbeatRefill,
   buildSongKey,
-  consumeHeartbeatNext,
   CUSTOM_SOURCE_RESOLVE_BUDGET_MS,
   CUSTOM_SOURCE_SPREAD_MS,
   MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS,
@@ -912,7 +910,7 @@ function getNextSongForPrefetch(): MusicInfo | undefined {
   const { playbackContext, queue, currentIndex, playMode, tempPlayList, shuffleHistory, playedIndices } =
     usePlayerStore.getState();
   if (tempPlayList.length > 0) return tempPlayList[0];
-  if (playbackContext.type === "personalFm" || playbackContext.type === "heartbeat") {
+  if (playbackContext.type === "personalFm") {
     return (
       playbackContext.currentBatch[playbackContext.currentBatchIndex + 1] ?? playbackContext.buffer[0]
     );
@@ -1157,8 +1155,6 @@ export async function playFromQueue(
   const song = queue[index];
   if (playbackContext.type === "personalFm") {
     usePlayerStore.getState().setPersonalFmBatchIndex(index);
-  } else if (playbackContext.type === "heartbeat") {
-    usePlayerStore.getState().setHeartbeatBatchIndex(index);
   } else {
     usePlayerStore.setState({ currentIndex: index });
   }
@@ -1275,11 +1271,6 @@ export async function playNext(auto = false): Promise<void> {
     return;
   }
 
-  if (playbackContext.type === "heartbeat") {
-    await playNextHeartbeatSong(intent);
-    return;
-  }
-
   const next = getNextQueueNavigationState({
     queueLength: queue.length,
     currentIndex,
@@ -1319,7 +1310,7 @@ export async function playPrevious(): Promise<void> {
   const restartCurrent = () => interrupted
     ? playFromQueue(Math.max(0, currentIndex), undefined, intent)
     : usePlayerStore.getState().seekTo(0);
-  if (playbackContext.type === "personalFm" || playbackContext.type === "heartbeat") {
+  if (playbackContext.type === "personalFm") {
     if (position > 3) {
       await restartCurrent();
       return;
@@ -1329,11 +1320,7 @@ export async function playPrevious(): Promise<void> {
       await restartCurrent();
       return;
     }
-    if (playbackContext.type === "personalFm") {
-      usePlayerStore.getState().setPersonalFmBatchIndex(prevIndex);
-    } else {
-      usePlayerStore.getState().setHeartbeatBatchIndex(prevIndex);
-    }
+    usePlayerStore.getState().setPersonalFmBatchIndex(prevIndex);
     await playFromQueue(prevIndex, undefined, intent);
     return;
   }
@@ -1473,114 +1460,6 @@ export async function dislikeCurrentPersonalFmSong(): Promise<void> {
   await trashPersonalFmSong(currentSong.id);
   store.markCurrentPersonalFmSongSkipped();
   await playNextPersonalFmSong();
-}
-
-/**
- * 启动心动模式（基于种子歌曲与网易云红心歌单 ID）
- */
-export async function startHeartbeat(seedSong: MusicInfo, playlistId: string): Promise<MusicInfo[]> {
-  const songs = await getHeartbeatModeList(seedSong.id, playlistId);
-  if (songs.length === 0) {
-    throw new Error("暂无可播放的心动模式推荐歌曲");
-  }
-
-  const rest = songs.filter((s) => s.id !== seedSong.id);
-  usePlayerStore.getState().setHeartbeatContext({
-    seedSongId: seedSong.id,
-    playlistId,
-    currentBatch: [seedSong],
-    currentBatchIndex: 0,
-    buffer: rest,
-    hasMore: true,
-  });
-
-  try {
-    await playSongCore(seedSong);
-  } catch (playError) {
-    // 种子歌曲播放失败（如 VIP 或无版权），自动尝试播放推荐列表中的首首歌曲
-    if (rest.length > 0) {
-      const firstValid = rest[0]!;
-      usePlayerStore.getState().setHeartbeatContext({
-        seedSongId: seedSong.id,
-        playlistId,
-        currentBatch: [seedSong, firstValid],
-        currentBatchIndex: 1,
-        buffer: rest.slice(1),
-        hasMore: true,
-      });
-      await playSongCore(firstValid);
-    } else {
-      throw playError;
-    }
-  }
-  return [seedSong, ...rest];
-}
-
-export async function playNextHeartbeatSong(requestId?: number): Promise<void> {
-  const store = usePlayerStore.getState();
-  const context = store.playbackContext;
-  if (context.type !== "heartbeat") {
-    return;
-  }
-
-  if (requestId !== undefined && !isCurrentPlaybackRequest(requestId)) return;
-  const intent = requestId ?? beginPlaybackRequest();
-
-  const { nextSong, nextBatch, nextBatchIndex, nextBuffer, needsRefill } =
-    consumeHeartbeatNext(context.currentBatch, context.currentBatchIndex, context.buffer);
-
-  if (!nextSong) {
-    const currentSong = store.currentSong;
-    if (!currentSong) throw new Error("心动模式暂无更多推荐歌曲");
-    const refill = await resolvePlaybackRefill(() => getHeartbeatModeList(currentSong.id, context.playlistId), intent);
-    if (!refill || !isCurrentPlaybackRequest(refill.requestId)) return;
-    const fresh = refill.value;
-    if (fresh.length === 0) {
-      throw new Error("心动模式暂无更多推荐歌曲");
-    }
-    const [first, ...rest] = fresh;
-    usePlayerStore.getState().setHeartbeatContext({
-      seedSongId: context.seedSongId,
-      playlistId: context.playlistId,
-      currentBatch: [...context.currentBatch, first].slice(-FM_HISTORY_MAX),
-      currentBatchIndex: Math.min(context.currentBatch.length, FM_HISTORY_MAX - 1),
-      buffer: rest,
-      hasMore: true,
-    });
-    await playSongCore(first, undefined, intent);
-    return;
-  }
-
-  const truncatedBatch = nextBatch.slice(-FM_HISTORY_MAX);
-  const truncatedIndex = Math.min(nextBatchIndex, truncatedBatch.length - 1);
-
-  usePlayerStore.getState().setHeartbeatContext({
-    seedSongId: context.seedSongId,
-    playlistId: context.playlistId,
-    currentBatch: truncatedBatch,
-    currentBatchIndex: truncatedIndex,
-    buffer: nextBuffer,
-    hasMore: context.hasMore,
-  });
-
-  await playSongCore(nextSong, undefined, intent);
-
-  if (needsRefill && context.hasMore) {
-    void (async () => {
-      try {
-        const owner = usePlayerStore.getState().playbackContext;
-        const refill = await runPlaybackResolution(() => getHeartbeatModeList(nextSong.id, context.playlistId));
-        const latest = usePlayerStore.getState().playbackContext;
-        if (latest === owner && latest.type === "heartbeat") {
-          const existingKeys = new Set(latest.currentBatch.map(buildSongKey));
-          const { nextBuffer: appended } = appendHeartbeatRefill(latest.buffer, refill, existingKeys);
-          usePlayerStore.getState().appendHeartbeatBuffer(appended.slice(latest.buffer.length), true);
-        }
-      } catch (err) {
-        logger.warn("[Heartbeat] 续批推荐失败 (静默忽略):", err);
-      }
-    })();
-  }
 }
 
 /**

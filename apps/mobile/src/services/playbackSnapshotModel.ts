@@ -57,3 +57,17 @@ export function isPlaybackSnapshotEmpty(snapshot: {
 }): boolean {
   return snapshot.currentSong == null && snapshot.queue.length === 0;
 }
+
+/** 心动模式（已下线）写进快照的播放上下文类型。 */
+const RETIRED_HEARTBEAT_CONTEXT_TYPE = "heartbeat";
+
+/**
+ * 快照里的播放上下文是否属于已下线的心动模式。
+ *
+ * 快照是磁盘上的外部输入：带心动模式的旧版本会把它的上下文原样写进去，
+ * 而 `PlaybackContext` 类型里已经没有这一支，所以这里按 unknown 判断。
+ */
+export function isRetiredHeartbeatContext(playbackContext: unknown): boolean {
+  if (typeof playbackContext !== "object" || playbackContext === null) return false;
+  return (playbackContext as { type?: unknown }).type === RETIRED_HEARTBEAT_CONTEXT_TYPE;
+}

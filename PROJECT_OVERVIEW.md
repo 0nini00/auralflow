@@ -23,7 +23,7 @@ flowchart TB
         C4[stream-integrity 试听检测]
         C5[webdav-merge 加法合并纯函数]
         C6[outbound-host SSRF 守卫]
-        C7[mobile-api 网关 / history/ / recommendations/ 等]
+        C7[mobile-api 网关 / history/ 等]
     end
 
     subgraph Desktop["@auralflow/desktop（desktop/）"]
@@ -74,7 +74,6 @@ flowchart TB
 | `history/listen-threshold.ts` | 100 | 入历史 / 打点阈值追踪（默认 120s 或 50%；只累计播放中的连续推进，排除 seek 与暂停造成的虚假进度） |
 | `history/day-groups.ts` | 121 | 历史按天口径唯一实现：本地日归零、日历加减、今天/昨天标题、分组与月历格子；桌面 `HistoryView` 与移动端 `historyGroupModel` 共用 |
 | `history/entries.ts` | 216 | 历史条目模型 `HistoryEntry`、按天去重与保留策略：同日同曲只留一条、365 天窗口 / 4000 条上限 / 按整天裁剪 / 未知时间 200 条；另有 WebDAV 上传窗口（180 天 / 2000 条） |
-| `recommendations/heartbeat-queue.ts` | 97 | 心动模式待播缓冲的补充判定与逐曲推进（batch 播尽时从 buffer 取出并追加） |
 | `stats/aggregate.ts` | 65 | 只保留结果类型（`ListeningStats` / `ListeningStatsTrack` / `ListeningStatsArtist` / `ListeningStatsDay`）。聚合实现已迁到 `stats/listening-session.ts`；旧的 `aggregateListeningStats` 已删除，不要再按「两套聚合口径」理解 |
 | `cover-image.ts` | 149 | 缩略图处理 |
 | `switch-step-queue.ts` | 57 | 连点合并 |
@@ -83,7 +82,7 @@ flowchart TB
 | `github-mirror.ts` | 61 | GitHub 加速镜像地址改写（刻意手写解析而不用 `new URL`，RN 的 polyfill 不完整） |
 | `removed-source.ts` | 57 | 已下线来源的历史条目清理（`isRemovedSource` / `dropRemovedSourceEntries`） |
 
-合计 75 文件 8501 行（45 个模块文件 + 30 个测试文件；另含 5 个 barrel：`index.ts` / `lyrics/index.ts` / `sources/index.ts` / `history/index.ts` / `recommendations/index.ts`）。
+合计 75 文件 8501 行（45 个模块文件 + 30 个测试文件；另含 4 个 barrel：`index.ts` / `lyrics/index.ts` / `sources/index.ts` / `history/index.ts`）。
 
 `@lx/core` 独立于 UI 框架与平台运行时，**无构建步骤**（`main` / `types` 直接指向 `src/index.ts`）。播放队列、播放状态、缓存 IO、自定义音源运行时（桌面同 WebView 非沙箱执行、移动端隐藏 WebView）、平台网络请求仍由双端分别实现。跨源匹配与搜索结果合并去重曾位于 `sources/resolver.ts`，f91c469 判定其解析链不可达后删除，该职责现由双端各自实现。
 

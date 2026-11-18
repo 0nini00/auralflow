@@ -6,7 +6,7 @@ import { clampPlaybackRate, DEFAULT_PLAYBACK_RATE } from "@/services/playerRateM
 import { normalizePersistedVolumeState } from "@/services/playerVolumeModel";
 import { logger } from "@/services/logger";
 import { loadLyricsForRestoredSong } from "./playerService";
-import { getPlaybackSnapshotSaveTrigger, isPlaybackSnapshotEmpty } from "./playbackSnapshotModel";
+import { getPlaybackSnapshotSaveTrigger, isPlaybackSnapshotEmpty, isRetiredHeartbeatContext } from "./playbackSnapshotModel";
 
 const SNAPSHOT_KEY = "auralflow:playback-snapshot:v1";
 const SAVE_DEBOUNCE_MS = 1500;
@@ -96,6 +96,13 @@ export async function loadPlaybackSnapshot(): Promise<PlaybackSnapshot | null> {
       return null;
     }
 
+    // 心动模式已下线，但旧版本写下的快照仍可能带着它的上下文。当时 queue / currentIndex
+    // 与推荐批次保持同步，按普通队列恢复即可，丢掉的只有还没播到的推荐缓冲。
+    // 不能静默：用户看到的是「重启后不再接着推荐」，日志里要查得到原因。
+    if (isRetiredHeartbeatContext(data.playbackContext)) {
+      logger.warn("[播放快照] 快照带有已下线的心动模式上下文，已按普通队列恢复");
+    }
+
     const restoredVolume = normalizePersistedVolumeState({
       volume: data.volume,
       previousVolume: data.previousVolume,
@@ -114,7 +121,8 @@ export async function loadPlaybackSnapshot(): Promise<PlaybackSnapshot | null> {
       volume: restoredVolume.volume,
       previousVolume: restoredVolume.previousVolume,
       isMuted: restoredVolume.isMuted,
-      // personalFm 上下文无法离线恢复缓冲，退化为 queue
+      // 只有 queue 上下文原样恢复：personalFm 的缓冲无法离线恢复，
+      // 已下线的心动模式上下文（上面已记日志）同样退化为 queue
       playbackContext:
         data.playbackContext && data.playbackContext.type === "queue"
           ? data.playbackContext

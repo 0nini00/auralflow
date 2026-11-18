@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { createLoader, deferred, mobileRequire } = require("./helpers/loadTs.cjs");
 const pure = createLoader({});
-const core = { ...pure("../../packages/core/src/switch-step-queue.ts"), ...pure("../../packages/core/src/request-limiter.ts"), ...pure("../../packages/core/src/playback-quality.ts"), ...pure("../../packages/core/src/recommendations/heartbeat-queue.ts"), ...pure("../../packages/core/src/song-variant.ts"), ...pure("../../packages/core/src/playback-budgets.ts"), isPreviewDuration: () => false };
+const core = { ...pure("../../packages/core/src/switch-step-queue.ts"), ...pure("../../packages/core/src/request-limiter.ts"), ...pure("../../packages/core/src/playback-quality.ts"), ...pure("../../packages/core/src/song-variant.ts"), ...pure("../../packages/core/src/playback-budgets.ts"), isPreviewDuration: () => false };
 const song = (id, source = "tx") => ({ id, source, name: id, singer: "Artist", interval: 180 });
 async function flush() { await new Promise(setImmediate); }
 async function until(predicate) { for (let i=0;i<100;i++) { if(predicate())return; await flush(); } assert.fail("播放链未到达检查点"); }
@@ -13,7 +13,7 @@ function setup(overrides = {}) {
   }
   native.getQueue=async()=>[];
   const cache={ getCachedPlaybackUrl:async track=>{lookups.push(track.id);return {url:`https://fixture.invalid/${track.id}`,quality:"320k"};}, saveCachedPlaybackUrl:async()=>{}, invalidateCachedPlaybackUrl:async()=>{} };
-  const recommendations = { getPersonalFmSongs: async () => ({ songs: [], hasMore: false }), getHeartbeatModeList: async () => [] };
+  const recommendations = { getPersonalFmSongs: async () => ({ songs: [], hasMore: false }) };
   const cross={findTxVariants:async()=>[],describeCrossSourceFailure:()=>"无替代歌曲"};
   const load=createLoader({
     zustand:mobileRequire("zustand"), "react-native":{AppState:{addEventListener:()=>({remove(){}})}},
@@ -177,26 +177,19 @@ test("顺序队尾的下一首不取消唯一在途解析或留下永久loading"
 });
 
 
-for(const kind of ["personalFm","heartbeat"]){
-  test(`${kind}续批与后续播放共享同步认领的请求身份`,options,async()=>{
-    const h=setup();const gate=deferred();let entered=false;
-    if(kind==="personalFm"){
-      h.recommendations.getPersonalFmSongs=async()=>{entered=true;return gate.promise;};
-      h.store.getState().setPersonalFmContext({currentBatch:[song("A")],currentBatchIndex:0,buffer:[],hasMore:true});
-    }else{
-      h.recommendations.getHeartbeatModeList=async()=>{entered=true;return gate.promise;};
-      h.store.getState().setHeartbeatContext({seedSongId:"A",playlistId:"list",currentBatch:[song("A")],currentBatchIndex:0,buffer:[],hasMore:true});
-    }
-    h.store.setState({currentSong:song("A")});
-    const playing=h.service.playNext();
-    const owner=h.requests.getCurrentPlaybackRequestId();
-    await until(()=>entered);
-    gate.resolve(kind==="personalFm"?{songs:[song("B")],hasMore:false}:[song("B")]);
-    await playing;
-    assert.equal(h.requests.getCurrentPlaybackRequestId(),owner);
-    assert.equal(h.store.getState().currentSong.id,"B");
-  });
-}
+test("personalFm续批与后续播放共享同步认领的请求身份",options,async()=>{
+  const h=setup();const gate=deferred();let entered=false;
+  h.recommendations.getPersonalFmSongs=async()=>{entered=true;return gate.promise;};
+  h.store.getState().setPersonalFmContext({currentBatch:[song("A")],currentBatchIndex:0,buffer:[],hasMore:true});
+  h.store.setState({currentSong:song("A")});
+  const playing=h.service.playNext();
+  const owner=h.requests.getCurrentPlaybackRequestId();
+  await until(()=>entered);
+  gate.resolve({songs:[song("B")],hasMore:false});
+  await playing;
+  assert.equal(h.requests.getCurrentPlaybackRequestId(),owner);
+  assert.equal(h.store.getState().currentSong.id,"B");
+});
 
 test("会员直连优先：官方取链作为主源直接起播，网关与自定义源都不被唤醒",options,async()=>{
   const requested=[];

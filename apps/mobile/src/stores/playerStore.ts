@@ -151,7 +151,7 @@ export async function loadPersistedVolume(): Promise<number | null> {
 
 
 export type PlayMode = MobilePlayMode;
-export type PlaybackContextType = "queue" | "personalFm" | "heartbeat";
+export type PlaybackContextType = "queue" | "personalFm";
 
 export interface PersonalFmContext {
   type: "personalFm";
@@ -161,20 +161,9 @@ export interface PersonalFmContext {
   hasMore: boolean;
 }
 
-export interface HeartbeatContext {
-  type: "heartbeat";
-  seedSongId: string;
-  playlistId: string;
-  buffer: MusicInfo[];
-  currentBatch: MusicInfo[];
-  currentBatchIndex: number;
-  hasMore: boolean;
-}
-
 export type PlaybackContext =
   | { type: "queue" }
-  | PersonalFmContext
-  | HeartbeatContext;
+  | PersonalFmContext;
 
 let isPlayerSetup = false;
 let playerSetupPromise: Promise<void> | null = null;
@@ -444,18 +433,6 @@ interface PlayerActions {
   appendPersonalFmBuffer: (songs: MusicInfo[], hasMore?: boolean) => void;
   shiftPersonalFmBuffer: () => MusicInfo | null;
   markCurrentPersonalFmSongSkipped: () => void;
-
-  // 心动模式上下文
-  setHeartbeatContext: (payload: {
-    seedSongId: string;
-    playlistId: string;
-    currentBatch: MusicInfo[];
-    currentBatchIndex: number;
-    buffer?: MusicInfo[];
-    hasMore?: boolean;
-  }) => void;
-  setHeartbeatBatchIndex: (index: number) => void;
-  appendHeartbeatBuffer: (songs: MusicInfo[], hasMore?: boolean) => void;
 
   // 状态更新
   buffered: number;
@@ -1143,60 +1120,6 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       },
       queue: nextBatch,
       currentIndex: nextIndex,
-    });
-  },
-
-  // 心动模式上下文
-  setHeartbeatContext: ({ seedSongId, playlistId, currentBatch: songs, currentBatchIndex, buffer = [], hasMore = true }) => {
-    const currentBatch = [...songs];
-    set({
-      playbackContext: {
-        type: "heartbeat",
-        seedSongId,
-        playlistId,
-        currentBatch,
-        currentBatchIndex,
-        buffer,
-        hasMore,
-      },
-      queue: currentBatch,
-      currentIndex: currentBatchIndex,
-      shuffleHistory: [],
-      playedIndices: [],
-    });
-  },
-
-  setHeartbeatBatchIndex: (index: number) => {
-    set((state) => {
-      if (state.playbackContext.type !== "heartbeat") {
-        return state;
-      }
-
-      const maxIndex = Math.max(0, state.playbackContext.currentBatch.length - 1);
-      const nextIndex = Math.max(0, Math.min(index, maxIndex));
-      return {
-        playbackContext: {
-          ...state.playbackContext,
-          currentBatchIndex: nextIndex,
-        },
-        currentIndex: nextIndex,
-      };
-    });
-  },
-
-  appendHeartbeatBuffer: (songs: MusicInfo[], hasMore = true) => {
-    set((state) => {
-      if (state.playbackContext.type !== "heartbeat") {
-        return state;
-      }
-
-      return {
-        playbackContext: {
-          ...state.playbackContext,
-          buffer: [...state.playbackContext.buffer, ...songs],
-          hasMore,
-        },
-      };
     });
   },
 
