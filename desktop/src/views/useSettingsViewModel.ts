@@ -3,8 +3,6 @@ import { open } from "@tauri-apps/plugin-dialog";
 import {
   clearMediaCache,
   getMediaCacheStats,
-  patchSettings,
-  loadSettings,
   libraryReset,
   type MediaCacheStats,
 } from "@lx/tauri-bridge";
@@ -12,9 +10,7 @@ import { useThemeStore } from "@/stores/themeStore";
 import { useHistoryStore } from "@/stores/historyStore";
 import { confirmAction } from "@/components/ui/ConfirmDialog";
 import { useCustomSourceStore } from "@/stores/customSourceStore";
-import { broadcastLyricSettings } from "@/stores/lyricSettingsSync";
-import { playerEngine } from "@/services/playerEngine";
-import { normalizePauseOnExternalPlayback } from "@/services/mediaInterruptionPolicy";
+import { resetSettingsToDefault, updateSettings, useLoadedSettings, type SettingsPatch } from "@/stores/settingsStore";
 import {
   clearCachedLyrics,
   clearCachedPlaybackUrls,
@@ -24,16 +20,15 @@ import {
 } from "@/services/persistentCache";
 import { clearLyricsMemoryCache } from "@/services/lyricsService";
 import { formatBytes } from "@/utils/formatBytes";
-import { setPlaybackFailedAutoNext as applyPlaybackFailedAutoNext } from "@/stores/playerStore";
 import { clearPlaybackPrefetchCache } from "@/services/playback/prefetchService";
-import { notifyAppBackgroundChanged, toAppBackgroundImageUrl } from "@/services/appBackground";
+import { toAppBackgroundImageUrl } from "@/services/appBackground";
+import { SYSTEM_DEFAULT_LYRIC_FONT_FAMILY } from "@/services/lyrics/immersiveLyricFont";
 
-const DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY = "\"Inter\", \"Noto Sans CJK SC\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif";
 const HEX_COLOR_PATTERN = /^#?[0-9a-fA-F]{6}$/;
 export const IMMERSIVE_LYRIC_FONT_OPTIONS = [
   {
     label: "系统默认",
-    value: DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY,
+    value: SYSTEM_DEFAULT_LYRIC_FONT_FAMILY,
   },
   {
     label: "霞鹜文楷",
@@ -89,7 +84,7 @@ const [accentColorInput, setAccentColorInput] = useState(accentColor.toUpperCase
 const normalizedAccentInput = normalizeAccentInput(accentColorInput);
 const isAccentColorInputValid = normalizedAccentInput !== null;
 const isAccentColorInputDirty = normalizedAccentInput !== null && normalizedAccentInput.toLowerCase() !== accentColor;
-const [appBackgroundImagePath, setAppBackgroundImagePath] = useState("");
+const appBackgroundImagePath = useLoadedSettings((s) => s.appBackgroundImagePath ?? "");
 const [appBackgroundStatus, setAppBackgroundStatus] = useState("");
 const appBackgroundPreviewUrl = toAppBackgroundImageUrl(appBackgroundImagePath);
 
@@ -101,17 +96,17 @@ const normalizeQualityValue = (value: string) => {
 };
 
 // 播放设置
-const [defaultQuality, setDefaultQuality] = useState("320k");
-const [pauseOnExternalPlayback, setPauseOnExternalPlayback] = useState(true);
-const [playbackFailedAutoNext, setPlaybackFailedAutoNext] = useState(false);
+const defaultQuality = useLoadedSettings((s) => normalizeQualityValue(s.defaultQuality));
+const pauseOnExternalPlayback = useLoadedSettings((s) => s.pauseOnExternalPlayback);
+const playbackFailedAutoNext = useLoadedSettings((s) => s.playbackFailedAutoNext);
 const [playbackSettingsStatus, setPlaybackSettingsStatus] = useState("");
 const [appearanceStatus, setAppearanceStatus] = useState("");
 const [customScriptText, setCustomScriptText] = useState("");
 const [customSourceStatus, setCustomSourceStatus] = useState("");
 const [customSourceFeaturePending, setCustomSourceFeaturePending] = useState(false);
 const [customSourceFeatureError, setCustomSourceFeatureError] = useState("");
-const [customSourceAutoCheck, setCustomSourceAutoCheck] = useState(true);
-const [immersiveLyricFontFamily, setImmersiveLyricFontFamily] = useState(DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
+const customSourceAutoCheck = useLoadedSettings((s) => s.customSourceAutoCheck);
+const immersiveLyricFontFamily = useLoadedSettings((s) => s.immersiveLyricFontFamily);
 const [mediaCacheStats, setMediaCacheStats] = useState<MediaCacheStats | null>(null);
 const [persistentCacheSummary, setPersistentCacheSummary] = useState<PersistentCacheSummary | null>(null);
 const [dataPending, setDataPending] = useState(false);
@@ -139,24 +134,6 @@ const refreshCacheStats = async () => {
   setPersistentCacheSummary(summary);
   return stats;
 };
-
-// 初始化加载已保存设置
-useEffect(() => {
-  loadSettings().then(settings => {
-    if (settings.defaultQuality) setDefaultQuality(normalizeQualityValue(settings.defaultQuality));
-    const nextPauseOnExternalPlayback = normalizePauseOnExternalPlayback(settings.pauseOnExternalPlayback);
-    setPauseOnExternalPlayback(nextPauseOnExternalPlayback);
-    playerEngine.setPauseOnExternalPlayback(nextPauseOnExternalPlayback);
-    const nextAutoNext = settings.playbackFailedAutoNext === true;
-    setPlaybackFailedAutoNext(nextAutoNext);
-    applyPlaybackFailedAutoNext(nextAutoNext);
-    setCustomSourceAutoCheck(settings.customSourceAutoCheck !== false);
-    setAppBackgroundImagePath(settings.appBackgroundImagePath ?? "");
-    setImmersiveLyricFontFamily(settings.immersiveLyricFontFamily || DEFAULT_IMMERSIVE_LYRIC_FONT_FAMILY);
-  }).catch((error) => {
-    setDataStatus(`读取设置失败：${error instanceof Error ? error.message : String(error)}`);
-  });
-}, []);
 
 useEffect(() => {
   refreshCacheStats().catch((error) => {
@@ -203,9 +180,7 @@ const handleSelectAppBackground = async () => {
       ],
     });
     if (typeof selected !== "string") return;
-    await patchSettings({ appBackgroundImagePath: selected });
-    setAppBackgroundImagePath(selected);
-    notifyAppBackgroundChanged(selected);
+    await updateSettings({ appBackgroundImagePath: selected });
     setAppBackgroundStatus("已应用主界面背景。");
   } catch (error) {
     setAppBackgroundStatus(`设置背景失败：${error instanceof Error ? error.message : String(error)}`);
@@ -215,19 +190,18 @@ const handleSelectAppBackground = async () => {
 const handleClearAppBackground = async () => {
   setAppBackgroundStatus("");
   try {
-    await patchSettings({ appBackgroundImagePath: null });
-    setAppBackgroundImagePath("");
-    notifyAppBackgroundChanged(null);
+    await updateSettings({ appBackgroundImagePath: null });
     setAppBackgroundStatus("已恢复默认背景。");
   } catch (error) {
     setAppBackgroundStatus(`清除背景失败：${error instanceof Error ? error.message : String(error)}`);
   }
 };
 
-const patchPlaybackSetting = async (patch: Record<string, unknown>): Promise<boolean> => {
+/** 写入播放设置；失败时界面由 store 回到真实值，这里只负责把原因告诉用户。 */
+const patchPlaybackSetting = async (patch: SettingsPatch): Promise<boolean> => {
   setPlaybackSettingsStatus("");
   try {
-    await patchSettings(patch);
+    await updateSettings(patch);
     return true;
   } catch (error) {
     setPlaybackSettingsStatus(`保存失败：${error instanceof Error ? error.message : String(error)}`);
@@ -236,34 +210,13 @@ const patchPlaybackSetting = async (patch: Record<string, unknown>): Promise<boo
 };
 
 const handleDefaultQualityChange = async (quality: string) => {
-  const previous = defaultQuality;
-  setDefaultQuality(quality);
-  if (!(await patchPlaybackSetting({ defaultQuality: quality }))) {
-    setDefaultQuality(previous);
-    return;
-  }
-  clearPlaybackPrefetchCache();
+  if (await patchPlaybackSetting({ defaultQuality: quality })) clearPlaybackPrefetchCache();
 };
 
-const handlePauseOnExternalPlaybackChange = async (next: boolean) => {
-  const previous = pauseOnExternalPlayback;
-  setPauseOnExternalPlayback(next);
-  playerEngine.setPauseOnExternalPlayback(next);
-  if (!(await patchPlaybackSetting({ pauseOnExternalPlayback: next }))) {
-    setPauseOnExternalPlayback(previous);
-    playerEngine.setPauseOnExternalPlayback(previous);
-  }
-};
+// 播放引擎与播放器各自从设置取这两个开关（MainWindow / playerStore），这里只负责写。
+const handlePauseOnExternalPlaybackChange = (next: boolean) => patchPlaybackSetting({ pauseOnExternalPlayback: next });
 
-const handlePlaybackFailedAutoNextChange = async (enabled: boolean) => {
-  const previous = playbackFailedAutoNext;
-  setPlaybackFailedAutoNext(enabled);
-  applyPlaybackFailedAutoNext(enabled);
-  if (!(await patchPlaybackSetting({ playbackFailedAutoNext: enabled }))) {
-    setPlaybackFailedAutoNext(previous);
-    applyPlaybackFailedAutoNext(previous);
-  }
-};
+const handlePlaybackFailedAutoNextChange = (enabled: boolean) => patchPlaybackSetting({ playbackFailedAutoNext: enabled });
 
 const handleCustomSourceFeatureChange = async (enabled: boolean) => {
   setCustomSourceFeaturePending(true);
@@ -278,28 +231,26 @@ const handleCustomSourceFeatureChange = async (enabled: boolean) => {
 };
 
 const handleCustomSourceAutoCheckToggle = () => {
-  const next = !customSourceAutoCheck;
-  setCustomSourceAutoCheck(next);
   setCustomSourceStatus("");
-  patchSettings({ customSourceAutoCheck: next }).catch((error) => {
-    setCustomSourceAutoCheck(!next);
+  updateSettings({ customSourceAutoCheck: !customSourceAutoCheck }).catch((error) => {
     setCustomSourceStatus(`保存自动检测开关失败：${error instanceof Error ? error.message : String(error)}`);
   });
 };
 
-const handleImmersiveLyricFontFamilyChange = async (next: string) => {
-  const previous = immersiveLyricFontFamily;
-  setImmersiveLyricFontFamily(next);
+const saveImmersiveLyricFontFamily = async (save: () => Promise<unknown>) => {
   setAppearanceStatus("");
   try {
-    broadcastLyricSettings({ immersiveLyricFontFamily: next });
-    await patchSettings({ immersiveLyricFontFamily: next });
+    await save();
   } catch (error) {
-    setImmersiveLyricFontFamily(previous);
-    broadcastLyricSettings({ immersiveLyricFontFamily: previous });
     setAppearanceStatus(`保存歌词字体失败：${error instanceof Error ? error.message : String(error)}`);
   }
 };
+
+const handleImmersiveLyricFontFamilyChange = (next: string) =>
+  saveImmersiveLyricFontFamily(() => updateSettings({ immersiveLyricFontFamily: next }));
+
+const handleImmersiveLyricFontFamilyReset = () =>
+  saveImmersiveLyricFontFamily(() => resetSettingsToDefault(["immersiveLyricFontFamily"]));
 
 const handleImportCustomSourceFile = async () => {
   setCustomSourceStatus("导入中...");
@@ -454,14 +405,11 @@ const getCapabilityTitle = (source: typeof customSources[number]) => {
     isAccentColorInputValid,
     isAccentColorInputDirty,
     appBackgroundImagePath,
-    setAppBackgroundImagePath,
     appBackgroundStatus,
     appBackgroundPreviewUrl,
     appearanceStatus,
     defaultQuality,
-    setDefaultQuality,
     pauseOnExternalPlayback,
-    setPauseOnExternalPlayback,
     playbackFailedAutoNext,
     playbackSettingsStatus,
     handleDefaultQualityChange,
@@ -476,9 +424,7 @@ const getCapabilityTitle = (source: typeof customSources[number]) => {
     customSourceStatus,
     setCustomSourceStatus,
     customSourceAutoCheck,
-    setCustomSourceAutoCheck,
     immersiveLyricFontFamily,
-    setImmersiveLyricFontFamily,
     mediaCacheStats,
     setMediaCacheStats,
     persistentCacheSummary,
@@ -504,6 +450,7 @@ const getCapabilityTitle = (source: typeof customSources[number]) => {
     handlePauseOnExternalPlaybackChange,
     handleCustomSourceAutoCheckToggle,
     handleImmersiveLyricFontFamilyChange,
+    handleImmersiveLyricFontFamilyReset,
     handleImportCustomSourceFile,
     handleImportCustomSourceText,
     handleClearPlaybackHistory,
@@ -550,6 +497,7 @@ export type AppearanceSettingsModel = Pick<SettingsViewModel,
   | "handleClearAppBackground"
   | "immersiveLyricFontFamily"
   | "handleImmersiveLyricFontFamilyChange"
+  | "handleImmersiveLyricFontFamilyReset"
 >;
 
 export type PlaybackSettingsModel = Pick<SettingsViewModel,

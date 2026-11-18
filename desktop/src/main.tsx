@@ -1,12 +1,12 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { tryGetCurrentWindow } from "@/utils/appWindow";
-import { loadSettings } from "@lx/tauri-bridge";
 
 import App from "./App";
 import { preloadWindowModule } from "./windowModules";
-import { prepareInitialAppBackground } from "./services/appBackground";
-import { installGlobalErrorHandlers } from "./services/logger";
+import { normalizeAppBackgroundPath, preloadAppBackground } from "./services/appBackground";
+import { installGlobalErrorHandlers, logger } from "./services/logger";
+import { ensureSettingsLoaded, type AppSettings } from "./stores/settingsStore";
 import { detectWindowRoleFromParts } from "./utils/windowRole";
 import "./index.css";
 import "./styles/theme.css";
@@ -50,24 +50,39 @@ window.addEventListener("contextmenu", (event) => {
 const appWindow = tryGetCurrentWindow();
 const windowRole = detectWindowRoleFromParts(appWindow?.label, window.location.hash);
 
-async function prepareMainWindowBackground(): Promise<boolean> {
-  if (windowRole !== "main") return false;
+/**
+ * 本窗口对设置的唯一一次读盘（之后靠 settings-changed 刷新，见 stores/settingsStore.ts）。
+ * 渲染前读好，界面第一帧拿到的就是用户的真实设置。
+ *
+ * lyric-unlock 只有一个解锁按钮、不读任何设置，所以不把含凭证的设置载入它的 WebView。
+ * 读取失败不阻断启动：store 里 settings 保持 null、loadError 有值，由各界面提示。
+ */
+async function loadWindowSettings(): Promise<AppSettings | null> {
+  if (windowRole === "lyric-unlock") return null;
+  try {
+    return await ensureSettingsLoaded();
+  } catch (error) {
+    logger.error("启动时读取设置失败", error);
+    return null;
+  }
+}
 
-  const settings = await loadSettings();
-  await prepareInitialAppBackground({
-    loadPersistedPath: async () => settings.appBackgroundImagePath,
-  });
-  return settings.startMinimized === true;
+/** 背景图先解码好再渲染，首帧不闪一下纯色背景。 */
+async function prepareMainWindowBackground(settings: AppSettings): Promise<void> {
+  const path = normalizeAppBackgroundPath(settings.appBackgroundImagePath);
+  if (!path) return;
+  try {
+    await preloadAppBackground(path);
+  } catch (error) {
+    console.error("启动背景预加载失败", error);
+  }
 }
 
 async function startApp() {
-  let startMinimized = false;
-  try {
-    startMinimized = await prepareMainWindowBackground();
-  } catch (error) {
-    // 读设置失败时默认显示窗口，避免用户启动后看不到应用。
-    console.error("启动背景预加载失败", error);
-  }
+  const settings = await loadWindowSettings();
+  if (windowRole === "main" && settings) await prepareMainWindowBackground(settings);
+  // 读不到设置时照常显示窗口，避免用户启动后看不到应用。
+  const startMinimized = settings?.startMinimized === true;
 
   // 本窗口的界面模块先就位再渲染（映射见 windowModules.ts）：窗口是 show() 之后才可见的，
   // 模块还在路上就先 show() 会先闪一帧空白。预加载失败不阻断渲染 —— 真正的加载错误

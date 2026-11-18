@@ -1,5 +1,6 @@
 import { fetch } from "@tauri-apps/plugin-http";
-import { loadSettings } from "@lx/tauri-bridge";
+import { ensureSettingsLoaded } from "@/stores/settingsStore";
+import { logger } from "@/services/logger";
 import { eapi } from "@/lib/crypto/weapi";
 import { createQrSvgDataUri } from "@/services/qrCode";
 export { normalizeWyCookie } from "@lx/core";
@@ -160,12 +161,13 @@ export function setWyCookie(c: string): string {
 
 export async function getWyCookie(): Promise<string> {
   if (cookie) return cookie;
-  // 唯一持久化来源：Rust settings（由 SettingsView 通过 patchSettings 写入）
+  // 唯一持久化来源：设置里的 wyCookie；这里的 cookie 是登录事务期间使用的会话副本。
   try {
-    const settings = await loadSettings();
+    const settings = await ensureSettingsLoaded();
     cookie = normalizeWyCookie(settings.wyCookie ?? "");
-  } catch {
-    // settings 文件可能尚不存在
+  } catch (error) {
+    // 读不到设置时本次请求按未登录继续（搜索、试听不该因此全部失败），下次调用会重读。
+    logger.warn("[网易云] 读取设置失败，本次请求按未登录处理", error);
   }
   return cookie;
 }

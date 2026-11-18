@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { AlignCenter, AlignLeft, AlignRight, Mic2, RotateCcw, Type } from "lucide-react";
+import { isLyricWindowOpen, setLyricWindowPinned, type RustAppSettings } from "@lx/tauri-bridge";
 import {
-  isLyricWindowOpen,
-  loadSettings,
-  patchSettings,
-  setLyricWindowPinned,
-} from "@lx/tauri-bridge";
-import { broadcastLyricSettings, subscribeLyricSettings } from "@/stores/lyricSettingsSync";
+  resetSettingsToDefault,
+  updateSettings,
+  useLoadedSettings,
+  type SettingsPatch,
+} from "@/stores/settingsStore";
 import { toggleDesktopLyricFromPlayer } from "@/utils/desktopLyricToggle";
 import {
   normalizeLyricAnimationIntensity,
@@ -22,86 +22,71 @@ const LYRIC_SETTINGS_TABS: Array<{ id: LyricSettingsTab; label: string }> = [
   { id: "color", label: "颜色与背景" },
 ];
 
+/** 「恢复默认样式」覆盖的字段。只列字段名：默认值由 Rust 的 AppSettings::default() 决定。 */
+const LYRIC_STYLE_KEYS = [
+  "lyricFontSize",
+  "lyricShowNextLine",
+  "lyricSingleLine",
+  "lyricMaxLineNum",
+  "lyricShowTranslation",
+  "lyricShowRomanization",
+  "lyricShowRuby",
+  "lyricAlign",
+  "lyricLineGap",
+  "lyricFontWeight",
+  "lyricActiveColor",
+  "lyricNextColor",
+  "lyricShadowColor",
+  "lyricTextOpacity",
+  "lyricBackgroundOpacity",
+  "lyricTextPositionX",
+  "lyricTextPositionY",
+  "lyricHoverHide",
+  "lyricEnableAnimation",
+  "lyricAnimationIntensity",
+] as const satisfies ReadonlyArray<keyof RustAppSettings>;
+
 export function DesktopLyricSettingsSection() {
   const [activeLyricTab, setActiveLyricTab] = useState<LyricSettingsTab>("basic");
-  const [pinned, setPinned] = useState(true);
-  const [pauseHide, setPauseHide] = useState(false);
-  const [fontSize, setFontSize] = useState(28);
-  const [showNextLine, setShowNextLine] = useState(true);
-  const [singleLine, setSingleLine] = useState(false);
-  const [maxLineNum, setMaxLineNum] = useState(2);
-  const [showTranslation, setShowTranslation] = useState(true);
-  const [showRomanization, setShowRomanization] = useState(false);
-  const [showRuby, setShowRuby] = useState(false);
-  const [align, setAlign] = useState("center");
-  const [lineGap, setLineGap] = useState(8);
-  const [fontWeight, setFontWeight] = useState(700);
-  const [activeColor, setActiveColor] = useState("#ffffff");
-  const [nextColor, setNextColor] = useState("#d1d5db");
-  const [shadowColor, setShadowColor] = useState("#000000");
-  const [textOpacity, setTextOpacity] = useState(0.95);
-  const [backgroundOpacity, setBackgroundOpacity] = useState(0.55);
-  const [textPositionX, setTextPositionX] = useState(0);
-  const [textPositionY, setTextPositionY] = useState(0);
-  const [hoverHide, setHoverHide] = useState(false);
-  const [enableAnimation, setEnableAnimation] = useState(true);
-  const [animationIntensity, setAnimationIntensity] = useState<LyricAnimationIntensity>("normal");
-  const [manualOffsetMs, setManualOffsetMs] = useState(0);
+  const pinned = useLoadedSettings((s) => s.lyricPinned);
+  const pauseHide = useLoadedSettings((s) => s.lyricPauseHide);
+  const fontSize = useLoadedSettings((s) => s.lyricFontSize);
+  const showNextLine = useLoadedSettings((s) => s.lyricShowNextLine);
+  const singleLine = useLoadedSettings((s) => s.lyricSingleLine);
+  const maxLineNum = useLoadedSettings((s) => s.lyricMaxLineNum);
+  const showTranslation = useLoadedSettings((s) => s.lyricShowTranslation);
+  const showRomanization = useLoadedSettings((s) => s.lyricShowRomanization);
+  const showRuby = useLoadedSettings((s) => s.lyricShowRuby);
+  const align = useLoadedSettings((s) => s.lyricAlign);
+  const lineGap = useLoadedSettings((s) => s.lyricLineGap);
+  const fontWeight = useLoadedSettings((s) => s.lyricFontWeight);
+  const activeColor = useLoadedSettings((s) => s.lyricActiveColor);
+  const nextColor = useLoadedSettings((s) => s.lyricNextColor);
+  const shadowColor = useLoadedSettings((s) => s.lyricShadowColor);
+  const textOpacity = useLoadedSettings((s) => s.lyricTextOpacity);
+  const backgroundOpacity = useLoadedSettings((s) => s.lyricBackgroundOpacity);
+  const textPositionX = useLoadedSettings((s) => s.lyricTextPositionX);
+  const textPositionY = useLoadedSettings((s) => s.lyricTextPositionY);
+  const hoverHide = useLoadedSettings((s) => s.lyricHoverHide);
+  const enableAnimation = useLoadedSettings((s) => s.lyricEnableAnimation);
+  const animationIntensity = useLoadedSettings((s) => normalizeLyricAnimationIntensity(s.lyricAnimationIntensity));
+  const manualOffsetMs = useLoadedSettings((s) => s.lyricManualOffsetMs);
   const [windowOpen, setWindowOpen] = useState(false);
   const [status, setStatus] = useState("");
 
   useEffect(() => {
-    loadSettings()
-      .then((s) => {
-        setPinned(s.lyricPinned);
-        setPauseHide(s.lyricPauseHide);
-        setFontSize(s.lyricFontSize || 28);
-        setShowNextLine(s.lyricShowNextLine);
-        setSingleLine(s.lyricSingleLine);
-        setMaxLineNum(s.lyricMaxLineNum || 3);
-        setShowTranslation(s.lyricShowTranslation);
-        setShowRomanization(s.lyricShowRomanization === true);
-        setShowRuby(s.lyricShowRuby === true);
-        setAlign(s.lyricAlign || "center");
-        setLineGap(s.lyricLineGap ?? 8);
-        setFontWeight(s.lyricFontWeight ?? 700);
-        setActiveColor(s.lyricActiveColor || "#ffffff");
-        setNextColor(s.lyricNextColor || "#d1d5db");
-        setShadowColor(s.lyricShadowColor || "#000000");
-        setTextOpacity(typeof s.lyricTextOpacity === "number" ? s.lyricTextOpacity : 0.95);
-        setBackgroundOpacity(typeof s.lyricBackgroundOpacity === "number" ? s.lyricBackgroundOpacity : 0.55);
-        setTextPositionX(typeof s.lyricTextPositionX === "number" ? s.lyricTextPositionX : 0);
-        setTextPositionY(typeof s.lyricTextPositionY === "number" ? s.lyricTextPositionY : 0);
-        setHoverHide(s.lyricHoverHide);
-        setEnableAnimation(s.lyricEnableAnimation);
-        setAnimationIntensity(normalizeLyricAnimationIntensity(s.lyricAnimationIntensity));
-        setManualOffsetMs(typeof s.lyricManualOffsetMs === "number" ? s.lyricManualOffsetMs : 0);
-      })
-      .catch((error) => {
-        setStatus(`读取桌面歌词设置失败：${error instanceof Error ? error.message : String(error)}`);
-      });
     isLyricWindowOpen().then(setWindowOpen).catch((error) => {
       setStatus(`读取桌面歌词窗口状态失败：${error instanceof Error ? error.message : String(error)}`);
     });
   }, []);
 
-  useEffect(() => subscribeLyricSettings((patch) => {
-    if (typeof patch.lyricShowRomanization === "boolean") setShowRomanization(patch.lyricShowRomanization);
-    if (typeof patch.lyricShowRuby === "boolean") setShowRuby(patch.lyricShowRuby);
-    if (typeof patch.lyricPinned === "boolean") setPinned(patch.lyricPinned);
-    if (typeof patch.lyricShowTranslation === "boolean") setShowTranslation(patch.lyricShowTranslation);
-    if (typeof patch.lyricAnimationIntensity === "string") {
-      setAnimationIntensity(normalizeLyricAnimationIntensity(patch.lyricAnimationIntensity));
-    }
-  }), []);
-
-  const patchLyricSetting = async (patch: Record<string, unknown>) => {
+  /** 写入歌词设置；失败时界面由 store 回到真实值，这里只负责把原因告诉用户。 */
+  const patchLyricSetting = async (patch: SettingsPatch, errorPrefix = "") => {
     setStatus("");
-    broadcastLyricSettings(patch);
     try {
-      await patchSettings(patch);
+      await updateSettings(patch);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : String(error));
+      setStatus(`${errorPrefix}${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
@@ -118,181 +103,78 @@ export function DesktopLyricSettingsSection() {
     }
   };
 
+  // 置顶由 Rust 落到窗口上并写回设置，界面等 settings-changed 刷新，不自己先改。
   const handlePinnedChange = async (next: boolean) => {
-    setPinned(next);
     setStatus("");
     try {
       await setLyricWindowPinned(next);
-      broadcastLyricSettings({ lyricPinned: next });
     } catch (error) {
-      setPinned(!next);
       setStatus(error instanceof Error ? error.message : String(error));
     }
   };
 
-  const handlePauseHideChange = async (next: boolean) => {
-    setPauseHide(next);
-    await patchLyricSetting({ lyricPauseHide: next });
-  };
+  const handlePauseHideChange = (next: boolean) => patchLyricSetting({ lyricPauseHide: next });
 
-  const handleFontSizeChange = async (nextValue: number) => {
-    const next = Math.max(16, Math.min(52, nextValue));
-    setFontSize(next);
-    await patchLyricSetting({ lyricFontSize: next });
-  };
+  const handleFontSizeChange = (nextValue: number) =>
+    patchLyricSetting({ lyricFontSize: Math.max(16, Math.min(52, nextValue)) });
 
-  const handleShowNextLineChange = async (next: boolean) => {
-    setShowNextLine(next);
-    await patchLyricSetting({ lyricShowNextLine: next });
-  };
+  const handleShowNextLineChange = (next: boolean) => patchLyricSetting({ lyricShowNextLine: next });
 
-  const handleSingleLineChange = async (next: boolean) => {
-    setSingleLine(next);
-    await patchLyricSetting({ lyricSingleLine: next });
-  };
+  const handleSingleLineChange = (next: boolean) => patchLyricSetting({ lyricSingleLine: next });
 
-  const handleMaxLineNumChange = async (nextValue: number) => {
-    const next = Math.max(1, Math.min(4, nextValue));
-    setMaxLineNum(next);
-    await patchLyricSetting({ lyricMaxLineNum: next });
-  };
+  const handleMaxLineNumChange = (nextValue: number) =>
+    patchLyricSetting({ lyricMaxLineNum: Math.max(1, Math.min(4, nextValue)) });
 
-  const handleShowTranslationChange = async (next: boolean) => {
-    setShowTranslation(next);
-    await patchLyricSetting({ lyricShowTranslation: next });
-  };
+  const handleShowTranslationChange = (next: boolean) => patchLyricSetting({ lyricShowTranslation: next });
 
-  const handleReadingChange = async (key: "lyricShowRomanization" | "lyricShowRuby", value: boolean) => {
-    setStatus("");
-    const patch = { [key]: value };
-    try {
-      await patchSettings(patch);
-      if (key === "lyricShowRomanization") setShowRomanization(value);
-      else setShowRuby(value);
-      broadcastLyricSettings(patch);
-    } catch (error) {
-      setStatus(`保存读音设置失败：${error instanceof Error ? error.message : String(error)}`);
-    }
-  };
+  const handleReadingChange = (key: "lyricShowRomanization" | "lyricShowRuby", value: boolean) =>
+    patchLyricSetting({ [key]: value }, "保存读音设置失败：");
 
-  const handleAlignChange = async (next: string) => {
-    setAlign(next);
-    await patchLyricSetting({ lyricAlign: next });
-  };
+  const handleAlignChange = (next: string) => patchLyricSetting({ lyricAlign: next });
 
-  const handleLineGapChange = async (nextValue: number) => {
-    const next = Math.max(0, Math.min(28, nextValue));
-    setLineGap(next);
-    await patchLyricSetting({ lyricLineGap: next });
-  };
+  const handleLineGapChange = (nextValue: number) =>
+    patchLyricSetting({ lyricLineGap: Math.max(0, Math.min(28, nextValue)) });
 
-  const handleFontWeightChange = async (next: number) => {
-    setFontWeight(next);
-    await patchLyricSetting({ lyricFontWeight: next });
-  };
+  const handleFontWeightChange = (next: number) => patchLyricSetting({ lyricFontWeight: next });
 
-  const handleManualOffsetChange = async (nextValue: number) => {
-    const next = Math.max(-2000, Math.min(2000, Math.round(nextValue)));
-    setManualOffsetMs(next);
-    await patchLyricSetting({ lyricManualOffsetMs: next });
-  };
+  const handleManualOffsetChange = (nextValue: number) =>
+    patchLyricSetting({ lyricManualOffsetMs: Math.max(-2000, Math.min(2000, Math.round(nextValue))) });
 
-  const handleColorChange = async (key: "lyricActiveColor" | "lyricNextColor" | "lyricShadowColor", value: string) => {
-    if (key === "lyricActiveColor") setActiveColor(value);
-    if (key === "lyricNextColor") setNextColor(value);
-    if (key === "lyricShadowColor") setShadowColor(value);
-    await patchLyricSetting({ [key]: value });
-  };
+  const handleColorChange = (key: "lyricActiveColor" | "lyricNextColor" | "lyricShadowColor", value: string) =>
+    patchLyricSetting({ [key]: value });
 
-  const handleBackgroundOpacityChange = async (nextValue: number) => {
-    const next = Math.max(0.15, Math.min(0.95, nextValue));
-    setBackgroundOpacity(next);
-    await patchLyricSetting({ lyricBackgroundOpacity: next });
-  };
+  const handleBackgroundOpacityChange = (nextValue: number) =>
+    patchLyricSetting({ lyricBackgroundOpacity: Math.max(0.15, Math.min(0.95, nextValue)) });
 
-  const handleTextOpacityChange = async (nextValue: number) => {
-    const next = Math.max(0.1, Math.min(1, nextValue));
-    setTextOpacity(next);
-    await patchLyricSetting({ lyricTextOpacity: next });
-  };
+  const handleTextOpacityChange = (nextValue: number) =>
+    patchLyricSetting({ lyricTextOpacity: Math.max(0.1, Math.min(1, nextValue)) });
 
-  const handleTextPositionXChange = async (nextValue: number) => {
-    const next = Math.max(-40, Math.min(40, nextValue));
-    setTextPositionX(next);
-    await patchLyricSetting({ lyricTextPositionX: next });
-  };
+  const handleTextPositionXChange = (nextValue: number) =>
+    patchLyricSetting({ lyricTextPositionX: Math.max(-40, Math.min(40, nextValue)) });
 
-  const handleTextPositionYChange = async (nextValue: number) => {
-    const next = Math.max(-40, Math.min(40, nextValue));
-    setTextPositionY(next);
-    await patchLyricSetting({ lyricTextPositionY: next });
-  };
+  const handleTextPositionYChange = (nextValue: number) =>
+    patchLyricSetting({ lyricTextPositionY: Math.max(-40, Math.min(40, nextValue)) });
 
-  const handleHoverHideChange = async (next: boolean) => {
-    setHoverHide(next);
-    await patchLyricSetting({ lyricHoverHide: next });
-  };
+  const handleHoverHideChange = (next: boolean) => patchLyricSetting({ lyricHoverHide: next });
 
-  const handleAnimationChange = async (next: boolean) => {
-    setEnableAnimation(next);
-    await patchLyricSetting({ lyricEnableAnimation: next });
-  };
+  const handleAnimationChange = (next: boolean) => patchLyricSetting({ lyricEnableAnimation: next });
 
-  const handleAnimationIntensityChange = async (next: LyricAnimationIntensity) => {
-    setAnimationIntensity(next);
-    await patchLyricSetting({ lyricAnimationIntensity: next });
-  };
+  const handleAnimationIntensityChange = (next: LyricAnimationIntensity) =>
+    patchLyricSetting({ lyricAnimationIntensity: next });
 
   const handleResetStyle = async () => {
-    const patch = {
-      lyricFontSize: 28,
-      lyricShowNextLine: true,
-      lyricSingleLine: false,
-      lyricMaxLineNum: 3,
-      lyricShowTranslation: true,
-      lyricShowRomanization: false,
-      lyricShowRuby: false,
-      lyricAlign: "center",
-      lyricLineGap: 8,
-      lyricFontWeight: 700,
-      lyricActiveColor: "#ffffff",
-      lyricNextColor: "#d1d5db",
-      lyricShadowColor: "#000000",
-      lyricTextOpacity: 0.95,
-      lyricBackgroundOpacity: 0.55,
-      lyricTextPositionX: 0,
-      lyricTextPositionY: 0,
-      lyricHoverHide: false,
-      lyricEnableAnimation: true,
-      lyricAnimationIntensity: "normal" as const,
-    };
-    setFontSize(patch.lyricFontSize);
-    setShowNextLine(patch.lyricShowNextLine);
-    setSingleLine(patch.lyricSingleLine);
-    setMaxLineNum(patch.lyricMaxLineNum);
-    setShowTranslation(patch.lyricShowTranslation);
-    setShowRomanization(patch.lyricShowRomanization);
-    setShowRuby(patch.lyricShowRuby);
-    setAlign(patch.lyricAlign);
-    setLineGap(patch.lyricLineGap);
-    setFontWeight(patch.lyricFontWeight);
-    setActiveColor(patch.lyricActiveColor);
-    setNextColor(patch.lyricNextColor);
-    setShadowColor(patch.lyricShadowColor);
-    setTextOpacity(patch.lyricTextOpacity);
-    setBackgroundOpacity(patch.lyricBackgroundOpacity);
-    setTextPositionX(patch.lyricTextPositionX);
-    setTextPositionY(patch.lyricTextPositionY);
-    setHoverHide(patch.lyricHoverHide);
-    setEnableAnimation(patch.lyricEnableAnimation);
-    setAnimationIntensity(patch.lyricAnimationIntensity);
-    await patchLyricSetting(patch);
+    setStatus("");
+    try {
+      await resetSettingsToDefault(LYRIC_STYLE_KEYS);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    }
   };
 
   const handleResetWindow = async () => {
     setStatus("正在重置窗口位置...");
     try {
-      await patchSettings({
+      await updateSettings({
         lyricWindowX: null,
         lyricWindowY: null,
         lyricWindowWidth: null,

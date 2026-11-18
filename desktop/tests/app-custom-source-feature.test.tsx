@@ -2,6 +2,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../src/App";
 import { customSourcePersistence, useCustomSourceStore } from "../src/stores/customSourceStore";
+import { __resetSettingsStoreForTests } from "../src/stores/settingsStore";
 
 const dependencies = vi.hoisted(() => ({
   loadSettings: vi.fn(), checkForUpdate: vi.fn(), autoSyncPlaylistsOnce: vi.fn(),
@@ -60,7 +61,7 @@ vi.mock("@/stores/playerSync", () => ({ setupPlayerSync: vi.fn() }));
 vi.mock("@/stores/favoritesStore", () => ({ favoritesPersistence: { ready: Promise.resolve() } }));
 vi.mock("@/stores/playlistStore", () => ({ playlistPersistence: { ready: Promise.resolve() } }));
 vi.mock("@/stores/historyStore", () => ({ historyPersistence: { ready: Promise.resolve() } }));
-vi.mock("@/stores/playerStore", () => ({ usePlayerStore: { getState: () => ({ setVolume: dependencies.setVolume }) }, setPlaybackFailedAutoNext: vi.fn() }));
+vi.mock("@/stores/playerStore", () => ({ usePlayerStore: { getState: () => ({ setVolume: dependencies.setVolume }) } }));
 vi.mock("@/services/playerEngine", () => ({ playerEngine: { setPauseOnExternalPlayback: dependencies.setPauseOnExternalPlayback } }));
 vi.mock("@/services/logger", () => ({ logger: { warn: vi.fn() } }));
 vi.mock("@/stores/libraryPersistence", () => ({ flushLibraryPersistence: dependencies.flush }));
@@ -73,6 +74,7 @@ const settings = { customSourceAutoCheck: true, webdavAutoSyncPlaylists: true, w
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  __resetSettingsStoreForTests();
   vi.stubGlobal("window", Object.assign(new EventTarget(), {
     location: { hash: "" }, setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout,
   }));

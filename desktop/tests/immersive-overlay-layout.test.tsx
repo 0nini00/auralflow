@@ -5,7 +5,7 @@ const deps = vi.hoisted(() => ({
   player: {} as any,
   interpolatedProgress: 25,
   lyricReads: vi.fn(), clockReads: vi.fn(), playerReads: vi.fn(),
-  loadSettings: vi.fn(), patchSettings: vi.fn(), broadcast: vi.fn(), subscribe: vi.fn(),
+  loadSettings: vi.fn(), patchSettings: vi.fn(),
   getCurrentWindow: vi.fn(), toggleDesktop: vi.fn(), copy: vi.fn(),
 }));
 vi.mock('@/stores/playerStore', () => ({ usePlayerStore: Object.assign((selector?: unknown) => { deps.playerReads(); return typeof selector === 'function' ? (selector as (state: typeof deps.player) => unknown)(deps.player) : deps.player; }, { getState: () => deps.player }) }));
@@ -14,7 +14,6 @@ vi.mock('@lx/tauri-bridge', async (importOriginal) => ({
   loadSettings: deps.loadSettings, patchSettings: deps.patchSettings,
   isLyricWindowOpen: async () => false, getLyricWindowState: async () => ({ locked: false }),
 }));
-vi.mock('@/stores/lyricSettingsSync', () => ({ broadcastLyricSettings: deps.broadcast, subscribeLyricSettings: deps.subscribe }));
 vi.mock('@/hooks/useLyrics', () => ({ useLyrics: () => { deps.lyricReads(); return { lyrics: [], currentLine: 0 }; } }));
 vi.mock('@/hooks/useInterpolatedPlaybackProgress', () => ({ useInterpolatedPlaybackProgress: () => { deps.clockReads(); return deps.interpolatedProgress; } }));
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: deps.getCurrentWindow }));
@@ -24,6 +23,12 @@ vi.mock('@/components/SongAddMenuButton', () => ({ SongAddMenuButton: () => <but
 // 真正的DOM焦点循环由 frontend-immersive-focus.test.tsx 验证。
 vi.mock('@/hooks/useDialogFocus', () => ({ useDialogFocus: vi.fn() }));
 import { ImmersiveLyricsOverlay } from '../src/components/ImmersiveLyricsOverlay';
+import { useSettingsStore, type AppSettings } from '../src/stores/settingsStore';
+import { seedSettings } from './helpers/settingsFixture';
+
+const savedSettings = { lyricShowTranslation: true, lyricShowRomanization: true, lyricShowRuby: true };
+/** 模拟别的窗口改了设置：本窗口的 store 在 settings-changed 之后刷新。 */
+const refreshSettings = (value: Partial<AppSettings>) => seedSettings({ ...useSettingsStore.getState().settings, ...value });
 
 let renderer: ReactTestRenderer;
 let keydown: Array<(event: any) => void>;
@@ -61,8 +66,10 @@ beforeEach(() => {
     togglePlay: vi.fn(), toggleMute: vi.fn(), setVolume: vi.fn(), setProgress: vi.fn(), setPlaybackRate: vi.fn(), setPlayMode: vi.fn(),
     playByIndex: vi.fn(), prev: vi.fn(), next: vi.fn(), removeFromQueue: vi.fn(),
   };
-  deps.loadSettings.mockResolvedValue({ lyricShowTranslation: true, lyricShowRomanization: true, lyricShowRuby: true });
-  deps.patchSettings.mockResolvedValue({}); deps.subscribe.mockReturnValue(() => {});
+  seedSettings(savedSettings);
+  // 写入失败后 store 会重读一次真实值；写入成功时 Rust 返回合并后的完整设置
+  deps.loadSettings.mockResolvedValue(savedSettings);
+  deps.patchSettings.mockImplementation(async (patch: object) => ({ ...useSettingsStore.getState().settings, ...patch }));
   deps.toggleDesktop.mockResolvedValue({ open: true, locked: false });
   keydown = []; onClose = vi.fn();
   vi.stubGlobal('HTMLElement', ElementTarget); vi.stubGlobal('HTMLInputElement', InputTarget);
@@ -86,22 +93,22 @@ beforeEach(() => {
 afterEach(() => { act(() => renderer?.unmount()); vi.unstubAllGlobals(); });
 async function mount() { await act(async () => { renderer = create(<ImmersiveLyricsOverlay open onClose={onClose} />); }); }
 
-it('关闭的沉浸页不订阅播放器、不读取歌词也不启动插值时钟，重新打开读取最新设置', async () => {
+it('关闭的沉浸页不订阅播放器、不读取歌词也不启动插值时钟，重新打开用的是最新设置', async () => {
   await act(async () => { renderer = create(<ImmersiveLyricsOverlay open={false} onClose={onClose} />); });
   expect(deps.playerReads).not.toHaveBeenCalled();
   expect(deps.lyricReads).not.toHaveBeenCalled();
   expect(deps.clockReads).not.toHaveBeenCalled();
   await act(async () => { renderer.update(<ImmersiveLyricsOverlay open onClose={onClose} />); });
-  expect(deps.loadSettings).toHaveBeenCalledTimes(1);
   await act(async () => { renderer.update(<ImmersiveLyricsOverlay open={false} onClose={onClose} />); });
   deps.playerReads.mockClear(); deps.lyricReads.mockClear(); deps.clockReads.mockClear();
   await act(async () => { renderer.update(<ImmersiveLyricsOverlay open={false} onClose={() => {}} />); });
   expect(deps.playerReads).not.toHaveBeenCalled();
   expect(deps.lyricReads).not.toHaveBeenCalled();
   expect(deps.clockReads).not.toHaveBeenCalled();
-  deps.loadSettings.mockResolvedValue({ lyricShowTranslation: false });
+  act(() => refreshSettings({ lyricShowTranslation: false }));
   await act(async () => { renderer.update(<ImmersiveLyricsOverlay open onClose={onClose} />); });
-  expect(deps.loadSettings).toHaveBeenCalledTimes(2);
+  // 设置只由 store 持有：打开沉浸页不再自己读盘
+  expect(deps.loadSettings).not.toHaveBeenCalled();
   expect(renderer.root.findByProps({ 'data-testid': 'lyrics' }).props.showTranslation).toBe(false);
 });
 
@@ -120,22 +127,20 @@ it('不渲染顶部全屏入口，封面信息与底栏三列保持不变；退�
   expect(renderer.root.findByProps({ className: 'af-immersive-control-row' }).children).toHaveLength(3);
 });
 
-it('原有 roma/ruby/translation 传给可视化器且快速设置持久化后广播', async () => {
+it('原有 roma/ruby/translation 传给可视化器且快速设置落盘', async () => {
   await mount();
   expect(renderer.root.findByProps({ 'data-testid': 'lyrics' }).props).toMatchObject({ showTranslation: true, showRomanization: true, showRuby: true });
   click('歌词工具');
   await act(async () => button('罗马音').props.onClick());
   expect(deps.patchSettings).toHaveBeenCalledWith({ lyricShowRomanization: false });
-  expect(deps.broadcast).toHaveBeenCalledWith({ lyricShowRomanization: false });
   expect(renderer.root.findByProps({ 'data-testid': 'lyrics' }).props.showRomanization).toBe(false);
 });
 
-it('歌词设置保存失败保留原状态并显示失败信息，不广播成功', async () => {
+it('歌词设置保存失败回到原状态并显示失败信息', async () => {
   await mount(); deps.patchSettings.mockRejectedValueOnce(new Error('disk unavailable'));
   click('歌词工具');
   await act(async () => button('注音').props.onClick());
   expect(renderer.root.findByProps({ 'data-testid': 'lyrics' }).props.showRuby).toBe(true);
-  expect(deps.broadcast).not.toHaveBeenCalled();
   expect(renderer.root.findAllByProps({ role: 'alert' }).some(node => JSON.stringify(node.children).includes('disk unavailable'))).toBe(true);
 });
 
@@ -198,18 +203,27 @@ it.each([
   ['译文', 'lyricShowTranslation', 'showTranslation'],
   ['罗马音', 'lyricShowRomanization', 'showRomanization'],
   ['注音', 'lyricShowRuby', 'showRuby'],
-])('%s 快速开关保存成功后才改变歌词，且可接收跨窗更新', async (label, setting, prop) => {
+])('%s 快速开关立即生效、保存期间禁用，并跟随别的窗口的修改', async (label, setting, prop) => {
   await mount(); click('歌词工具');
-  let resolve!: () => void;
-  deps.patchSettings.mockImplementationOnce(() => new Promise<void>(done => { resolve = done; }));
-  act(() => { button(label).props.onClick(); });
-  expect(renderer.root.findByProps({ 'data-testid': 'lyrics' }).props[prop]).toBe(true);
-  expect(button(label).props.disabled).toBe(true);
-  await act(async () => resolve());
-  expect(deps.broadcast).toHaveBeenCalledWith({ [setting]: false });
+  let resolve!: (saved: object) => void;
+  deps.patchSettings.mockImplementationOnce(() => new Promise<object>(done => { resolve = done; }));
+  // 写入排在 store 的串行队列里，等一拍才真正发出
+  await act(async () => { button(label).props.onClick(); });
   expect(renderer.root.findByProps({ 'data-testid': 'lyrics' }).props[prop]).toBe(false);
-  act(() => deps.subscribe.mock.calls[0][0]({ [setting]: true }));
+  expect(button(label).props.disabled).toBe(true);
+  await act(async () => resolve({ ...savedSettings, [setting]: false }));
+  expect(button(label).props.disabled).toBe(false);
+  expect(renderer.root.findByProps({ 'data-testid': 'lyrics' }).props[prop]).toBe(false);
+  act(() => refreshSettings({ [setting]: true }));
   expect(renderer.root.findByProps({ 'data-testid': 'lyrics' }).props[prop]).toBe(true);
+});
+
+it('设置没读到时歌词显示开关不可用，也不写设置', async () => {
+  useSettingsStore.setState({ settings: null, loadError: '解析配置文件失败' });
+  await mount(); click('歌词工具');
+  expect(renderer.root.findByProps({ 'data-testid': 'lyrics' }).props).toMatchObject({ showTranslation: false, showRomanization: false, showRuby: false });
+  for (const label of ['译文', '罗马音', '注音']) expect(button(label).props.disabled).toBe(true);
+  expect(deps.patchSettings).not.toHaveBeenCalled();
 });
 
 it('桌面歌词错误保留可见反馈，分享保留状态反馈', async () => {
@@ -240,11 +254,11 @@ it('键盘调整进度后保留焦点时，显示进度继续跟随播放而不�
   expect(button('播放进度').props.value).toBe(42);
 });
 it('歌词手动偏移同时传给高亮时间，播放进度保持真实音频时间', async () => {
-  deps.loadSettings.mockResolvedValue({ lyricManualOffsetMs: 2000, lyricShowTranslation: true });
+  seedSettings({ lyricManualOffsetMs: 2000, lyricShowTranslation: true });
   await mount();
   expect(renderer.root.findByProps({ 'data-testid': 'lyrics' }).props.currentTime).toBe(27);
   expect(button('播放进度').props.value).toBe(25);
-  act(() => deps.subscribe.mock.calls[0][0]({ lyricManualOffsetMs: -1500 }));
+  act(() => refreshSettings({ lyricManualOffsetMs: -1500 }));
   expect(renderer.root.findByProps({ 'data-testid': 'lyrics' }).props.currentTime).toBe(23.5);
   expect(button('播放进度').props.value).toBe(25);
 });

@@ -8,6 +8,7 @@ import {
 } from "@/stores/themeStore";
 import type { AppearanceSettingsModel } from "../useSettingsViewModel";
 import { IMMERSIVE_LYRIC_FONT_OPTIONS } from "../useSettingsViewModel";
+import { SYSTEM_DEFAULT_LYRIC_FONT_FAMILY } from "@/services/lyrics/immersiveLyricFont";
 import { SettingRow } from "./SettingRow";
 
 const THEME_OPTIONS: Array<{ value: Theme; label: string; Icon: typeof Sun }> = [
@@ -27,8 +28,6 @@ const ACCENT_PRESETS = [
   { label: "暖橙", value: "#f59e0b" },
   { label: "珊瑚红", value: "#ef4444" },
 ];
-
-const DEFAULT_LYRIC_FONT_FAMILY = IMMERSIVE_LYRIC_FONT_OPTIONS[0].value;
 
 /** 单项「恢复默认」：外观 section 每一行右侧的统一形态。 */
 function AppearanceResetButton({
@@ -127,10 +126,11 @@ export function AppearanceSettingsSection({ model }: { model: AppearanceSettings
     handleClearAppBackground,
     immersiveLyricFontFamily,
     handleImmersiveLyricFontFamilyChange,
+    handleImmersiveLyricFontFamilyReset,
   } = model;
 
   const accentColorIsDefault = accentColor === APPEARANCE_DEFAULTS.accentColor;
-  const lyricFontIsDefault = immersiveLyricFontFamily === DEFAULT_LYRIC_FONT_FAMILY;
+  const lyricFontIsDefault = immersiveLyricFontFamily === SYSTEM_DEFAULT_LYRIC_FONT_FAMILY;
   const appearanceIsDefault =
     theme === APPEARANCE_DEFAULTS.theme &&
     accentColorIsDefault &&
@@ -147,7 +147,7 @@ export function AppearanceSettingsSection({ model }: { model: AppearanceSettings
 
   const restoreAllAppearance = () => {
     resetAppearance();
-    if (!lyricFontIsDefault) void handleImmersiveLyricFontFamilyChange(DEFAULT_LYRIC_FONT_FAMILY);
+    if (!lyricFontIsDefault) void handleImmersiveLyricFontFamilyReset();
   };
 
   return (
@@ -450,7 +450,7 @@ export function AppearanceSettingsSection({ model }: { model: AppearanceSettings
         <AppearanceResetButton
           label="歌词字体"
           disabled={lyricFontIsDefault}
-          onClick={() => { void handleImmersiveLyricFontFamilyChange(DEFAULT_LYRIC_FONT_FAMILY); }}
+          onClick={() => { void handleImmersiveLyricFontFamilyReset(); }}
         />
       </SettingRow>
       <div

@@ -1,7 +1,8 @@
 import type { MusicInfo } from '@lx/core';
 import { buildPlaybackQualityTiers, DEFAULT_QUALITY_UPGRADE_WINDOW_MS, getPlaybackQualityFallbacks, getPlaybackQualityRank, normalizePlaybackQuality, raceForBestQuality, withBudget } from '@lx/core';
 import { PRIMARY_BUDGET_MS } from '@lx/core';
-import { debugLog, loadSettings } from '@lx/tauri-bridge';
+import { debugLog } from '@lx/tauri-bridge';
+import { ensureSettingsLoaded } from '@/stores/settingsStore';
 import { estimateStreamDurationSeconds, isPreviewStream } from '@lx/core';
 import { builtinNeteaseBackend } from './builtinNeteaseBackend';
 import { builtinProviderBackend } from './builtinProviderBackend';
@@ -232,7 +233,7 @@ async function resolvePlaybackUrlUncapped(
   operation?: CustomSourceOperation,
   deadlineAt = Date.now() + PLAYBACK_RESOLVE_TOTAL_BUDGET_MS,
 ): Promise<PlaybackResolvedUrl> {
-  const settings = await loadSettings();
+  const settings = await ensureSettingsLoaded();
   const qualityFloor = preferredQuality ?? settings.defaultQuality;
   // 分轮次:首轮是「不低于选定音质」的全部档位一起竞速,之后逐档下调。
   // exactQuality（下载）只保留用户选的那一档：缓存查询也不许命中其它档位，

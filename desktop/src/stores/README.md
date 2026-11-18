@@ -1,6 +1,6 @@
 # stores/
 
-全局状态层：14 个 Zustand store（同目录下另有 `libraryPersistence` / `libraryRefreshModel` / `playerPersistence` / `playerResumeTarget` / `playerSync` / `lyricSettingsSync` 六个非 store 的辅助模块），集中持有播放、歌单、收藏、历史、设置等状态；store 不含 React 逻辑，组件订阅、services 读写。
+全局状态层：15 个 Zustand store（同目录下另有 `libraryPersistence` / `libraryRefreshModel` / `playerPersistence` / `playerResumeTarget` / `playerSync` 五个非 store 的辅助模块），集中持有播放、歌单、收藏、历史、设置等状态；store 不含 React 逻辑，组件订阅、services 读写。
 
 ## Store 清单
 
@@ -19,7 +19,7 @@
 | discoverFeedStore | — | 发现页推荐歌单 + 榜单清单 + 榜单试读（10 分钟 TTL，与账号无关） | 非持久化 |
 | cloudDriveStore | — | 音乐云盘列表 + 容量（按 uid 归属，同账号加载过就复用，只有刷新/换账号才重拉；`services/cloudDriveCache` 落盘，10 分钟保鲜，退出登录删） | `library/cloudDrive.json`（按 uid 分区，缓存语义、不进 WebDAV 同步） |
 | sleepTimerStore | — | 睡眠定时器 | 非持久化 |
-| lyricSettingsSync | — | 歌词设置跨窗口同步 | BroadcastChannel |
+| settingsStore | `settingsStore.ts` | 应用设置在前端的唯一持有者：读（`ensureSettingsLoaded` / selector）、写（`updateSettings` / `resetSettingsToDefault`）都只经过它 | Rust 设置文件（`load_settings` / `patch_settings` / `reset_settings`） |
 | updateStore | `updateStore.ts` | 待安装的可用更新（更新弹窗的数据源） | 非持久化 |
 
 ## 持久化架构
@@ -31,7 +31,8 @@
 ## 跨窗口同步
 
 - **playerSync**：`BroadcastChannel("auralflow-player-sync")` + Tauri 事件后备；进度变化在 Δ≥0.4s 或 200ms 节流时广播，保证 main / lyric / lyric-unlock 三窗口一致。
-- **lyricSettingsSync**：BroadcastChannel 广播歌词设置变更。
+- **settingsStore**：不在窗口之间传值。任何一处写入都由 Rust 落盘并向所有窗口发 `settings-changed`（只带变化的字段名），各窗口收到后自己重读；只涉及 Rust 自管的窗口几何字段时不重读。未读到时 `settings` 为 `null`，不提供占位默认值；默认值只在 Rust 的 `AppSettings::default()`。
+- 歌词窗的**锁定**是窗口运行时状态而不是设置：以 Rust 为准（`getLyricWindowState` 查询 + `lyric-settings-changed` 事件），不经过 settingsStore。
 
 ## 设计约定
 

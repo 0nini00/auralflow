@@ -43,7 +43,7 @@ vi.mock('@/stores/libraryPersistence', () => ({ flushLibraryPersistence: vi.fn(a
 vi.mock('@/stores/favoritesStore', () => ({ favoritesPersistence: { ready: Promise.resolve() } }));
 vi.mock('@/stores/playlistStore', () => ({ playlistPersistence: { ready: Promise.resolve() } }));
 vi.mock('@/stores/historyStore', () => ({ historyPersistence: { ready: Promise.resolve() } }));
-vi.mock('@/stores/playerStore', () => ({ usePlayerStore: Object.assign(() => ({}), { getState: () => ({ setVolume: vi.fn() }) }), setPlaybackFailedAutoNext: vi.fn() }));
+vi.mock('@/stores/playerStore', () => ({ usePlayerStore: Object.assign(() => ({}), { getState: () => ({ setVolume: vi.fn() }) }) }));
 vi.mock('@/services/webdavSyncService', () => ({ autoSyncPlaylistsOnce: vi.fn(async () => {}) }));
 vi.mock('@/stores/customSourceStore', async () => {
   const { create } = await import('zustand');

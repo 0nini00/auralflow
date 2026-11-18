@@ -14,10 +14,10 @@ import { useInterpolatedPlaybackProgress } from "@/hooks/useInterpolatedPlayback
 import {
   getLyricAnimationIntensityScale,
   normalizeLyricAnimationIntensity,
-  type LyricAnimationIntensity,
 } from "@/services/lyrics/animationIntensity";
 import { dispatchLyricAction } from "@/stores/playerSync";
-import { subscribeLyricSettings, broadcastLyricSettings } from "@/stores/lyricSettingsSync";
+import { updateSettings, useLoadedSettings, useSettingsStore } from "@/stores/settingsStore";
+import { logger } from "@/services/logger";
 import {
   buildDesktopLyricLines,
   getDesktopLyricScrollDuration,
@@ -26,14 +26,25 @@ import {
   type DesktopLyricDisplayLine,
 } from "@/utils/desktopLyric";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { TAURI_EVENTS, getLyricWindowState, listenTauriEvent, loadSettings, patchSettings, prepareLyricWindowLock, setLyricWindowHeight, setLyricWindowPinned, setLyricWindowLocked, toggleLyricWindow } from "@lx/tauri-bridge";
+import { TAURI_EVENTS, getLyricWindowState, listenTauriEvent, prepareLyricWindowLock, setLyricWindowHeight, setLyricWindowPinned, setLyricWindowLocked, toggleLyricWindow } from "@lx/tauri-bridge";
 import { Play, Pause, SkipBack, SkipForward, X, Pin, PinOff, Plus, Minus, Lock, Unlock } from "lucide-react";
 import type { CSSProperties, MouseEvent } from "react";
 import { memo, useEffect, useRef, useState } from "react";
 
 /** 歌词区上下各 2px 内边距（见 .af-lyric-stage），算窗口高度时要算进去 */
 const STAGE_VERTICAL_PADDING = 4;
+/**
+ * 歌词窗只在设置读到之后渲染歌词：字号、颜色、行数全部来自设置，没有可用的占位值。
+ * 读取失败时把原因显示在窗口里，而不是用一套默认样式假装正常。
+ */
 export function LyricWindowView() {
+  const loaded = useSettingsStore((s) => s.settings !== null);
+  const loadError = useSettingsStore((s) => s.loadError);
+  if (loaded) return <LoadedLyricWindowView />;
+  return loadError ? <div className="af-lyric-shell" role="alert">读取设置失败：{loadError}</div> : null;
+}
+
+function LoadedLyricWindowView() {
   const current = usePlayerStore((s) => s.current);
   const status = usePlayerStore((s) => s.status);
   const progress = usePlayerStore((s) => s.progress);
@@ -42,108 +53,51 @@ export function LyricWindowView() {
   const playbackRate = usePlayerStore((s) => s.playbackRate);
 
   const lyricProgress = useInterpolatedPlaybackProgress({ status, progress, progressSampledAt, duration, playbackRate });
-  const [manualOffsetMs, setManualOffsetMs] = useState(0);
+  const manualOffsetMs = useLoadedSettings((s) => s.lyricManualOffsetMs);
   const lyricTime = lyricProgress + manualOffsetMs / 1000;
   const { lyrics, currentLine } = useLyrics(current, lyricTime);
   const isPlaying = status === "playing";
 
-  // 持久化：置顶状态 + 字号
-  const [pinned, setPinned] = useState(true);
+  const pinned = useLoadedSettings((s) => s.lyricPinned);
+  const pauseHide = useLoadedSettings((s) => s.lyricPauseHide);
+  const fontSize = useLoadedSettings((s) => s.lyricFontSize);
+  const showNextLine = useLoadedSettings((s) => s.lyricShowNextLine);
+  const singleLine = useLoadedSettings((s) => s.lyricSingleLine);
+  const maxLineNum = useLoadedSettings((s) => s.lyricMaxLineNum);
+  const showTranslation = useLoadedSettings((s) => s.lyricShowTranslation);
+  const showRomanization = useLoadedSettings((s) => s.lyricShowRomanization);
+  const showRuby = useLoadedSettings((s) => s.lyricShowRuby);
+  const align = useLoadedSettings((s) => s.lyricAlign);
+  const lineGap = useLoadedSettings((s) => s.lyricLineGap);
+  const fontWeight = useLoadedSettings((s) => s.lyricFontWeight);
+  const activeColor = useLoadedSettings((s) => s.lyricActiveColor);
+  const nextColor = useLoadedSettings((s) => s.lyricNextColor);
+  const shadowColor = useLoadedSettings((s) => s.lyricShadowColor);
+  const textOpacity = useLoadedSettings((s) => s.lyricTextOpacity);
+  const backgroundOpacity = useLoadedSettings((s) => s.lyricBackgroundOpacity);
+  const textPositionX = useLoadedSettings((s) => s.lyricTextPositionX);
+  const textPositionY = useLoadedSettings((s) => s.lyricTextPositionY);
+  const hoverHide = useLoadedSettings((s) => s.lyricHoverHide);
+  const enableAnimation = useLoadedSettings((s) => s.lyricEnableAnimation);
+  const animationIntensity = useLoadedSettings((s) => normalizeLyricAnimationIntensity(s.lyricAnimationIntensity));
+  // 锁定是窗口的运行时状态，不是设置：以 Rust 为准（查询一次 + lyric-settings-changed 事件）。
   const [locked, setLocked] = useState(false);
-  const [pauseHide, setPauseHide] = useState(false);
-  const [fontSize, setFontSize] = useState(28);
-  const [showNextLine, setShowNextLine] = useState(true);
-  const [singleLine, setSingleLine] = useState(false);
-  const [maxLineNum, setMaxLineNum] = useState(2);
-  const [showTranslation, setShowTranslation] = useState(true);
-  const [showRomanization, setShowRomanization] = useState(false);
-  const [showRuby, setShowRuby] = useState(false);
-  const [align, setAlign] = useState("center");
-  const [lineGap, setLineGap] = useState(8);
-  const [fontWeight, setFontWeight] = useState(700);
-  const [activeColor, setActiveColor] = useState("#ffffff");
-  const [nextColor, setNextColor] = useState("#d1d5db");
-  const [shadowColor, setShadowColor] = useState("#000000");
-  const [textOpacity, setTextOpacity] = useState(0.95);
-  const [backgroundOpacity, setBackgroundOpacity] = useState(0.55);
-  const [textPositionX, setTextPositionX] = useState(0);
-  const [textPositionY, setTextPositionY] = useState(0);
-  const [hoverHide, setHoverHide] = useState(false);
-  const [enableAnimation, setEnableAnimation] = useState(true);
-  const [animationIntensity, setAnimationIntensity] = useState<LyricAnimationIntensity>("normal");
   const [cursorHover, setCursorHover] = useState(false);
 
   useEffect(() => {
     let disposed = false;
-    void loadSettings()
-      .then(async (s) => {
-        if (disposed) return;
-        setPinned(s.lyricPinned);
-        setPauseHide(s.lyricPauseHide);
-        if (s.lyricFontSize && s.lyricFontSize > 0) setFontSize(s.lyricFontSize);
-        setShowNextLine(s.lyricShowNextLine);
-        setSingleLine(s.lyricSingleLine);
-        setMaxLineNum(s.lyricMaxLineNum || 3);
-        setShowTranslation(s.lyricShowTranslation);
-        setShowRomanization(s.lyricShowRomanization === true);
-        setShowRuby(s.lyricShowRuby === true);
-        setAlign(s.lyricAlign || "center");
-        setLineGap(s.lyricLineGap ?? 8);
-        setFontWeight(s.lyricFontWeight ?? 700);
-        setActiveColor(s.lyricActiveColor || "#ffffff");
-        setNextColor(s.lyricNextColor || "#d1d5db");
-        setShadowColor(s.lyricShadowColor || "#000000");
-        setTextOpacity(typeof s.lyricTextOpacity === "number" ? s.lyricTextOpacity : 0.95);
-        setBackgroundOpacity(typeof s.lyricBackgroundOpacity === "number" ? s.lyricBackgroundOpacity : 0.55);
-        setTextPositionX(typeof s.lyricTextPositionX === "number" ? s.lyricTextPositionX : 0);
-        setTextPositionY(typeof s.lyricTextPositionY === "number" ? s.lyricTextPositionY : 0);
-        setHoverHide(s.lyricHoverHide);
-        setEnableAnimation(s.lyricEnableAnimation);
-        setAnimationIntensity(normalizeLyricAnimationIntensity(s.lyricAnimationIntensity));
-        setManualOffsetMs(typeof s.lyricManualOffsetMs === "number" ? s.lyricManualOffsetMs : 0);
-        try {
-          const runtimeState = await getLyricWindowState();
-          if (!disposed) setLocked(runtimeState.locked);
-        } catch {
-          // Keep the default unlocked UI rather than trusting stale persisted lock state.
-        }
+    void getLyricWindowState()
+      .then((runtimeState) => {
+        if (!disposed) setLocked(runtimeState.locked);
       })
-      .catch(() => undefined);
-
-    const unsubscribeLyricSettings = subscribeLyricSettings((patch) => {
-      if (disposed) return;
-      if (typeof patch.lyricShowRomanization === "boolean") setShowRomanization(patch.lyricShowRomanization);
-      if (typeof patch.lyricShowRuby === "boolean") setShowRuby(patch.lyricShowRuby);
-      if (typeof patch.lyricPinned === "boolean") setPinned(patch.lyricPinned);
-      if (typeof patch.lyricLocked === "boolean") setLocked(patch.lyricLocked);
-      if (typeof patch.lyricPauseHide === "boolean") setPauseHide(patch.lyricPauseHide);
-      if (typeof patch.lyricFontSize === "number" && patch.lyricFontSize > 0) {
-        setFontSize(patch.lyricFontSize);
-      }
-      if (typeof patch.lyricShowNextLine === "boolean") setShowNextLine(patch.lyricShowNextLine);
-      if (typeof patch.lyricSingleLine === "boolean") setSingleLine(patch.lyricSingleLine);
-      if (typeof patch.lyricMaxLineNum === "number") setMaxLineNum(patch.lyricMaxLineNum);
-      if (typeof patch.lyricShowTranslation === "boolean") setShowTranslation(patch.lyricShowTranslation);
-      if (typeof patch.lyricAlign === "string") setAlign(patch.lyricAlign);
-      if (typeof patch.lyricLineGap === "number") setLineGap(patch.lyricLineGap);
-      if (typeof patch.lyricFontWeight === "number") setFontWeight(patch.lyricFontWeight);
-      if (typeof patch.lyricActiveColor === "string") setActiveColor(patch.lyricActiveColor);
-      if (typeof patch.lyricNextColor === "string") setNextColor(patch.lyricNextColor);
-      if (typeof patch.lyricShadowColor === "string") setShadowColor(patch.lyricShadowColor);
-      if (typeof patch.lyricTextOpacity === "number") setTextOpacity(patch.lyricTextOpacity);
-      if (typeof patch.lyricBackgroundOpacity === "number") setBackgroundOpacity(patch.lyricBackgroundOpacity);
-      if (typeof patch.lyricTextPositionX === "number") setTextPositionX(patch.lyricTextPositionX);
-      if (typeof patch.lyricTextPositionY === "number") setTextPositionY(patch.lyricTextPositionY);
-      if (typeof patch.lyricHoverHide === "boolean") setHoverHide(patch.lyricHoverHide);
-      if (typeof patch.lyricEnableAnimation === "boolean") setEnableAnimation(patch.lyricEnableAnimation);
-      if (typeof patch.lyricAnimationIntensity === "string") {
-        setAnimationIntensity(normalizeLyricAnimationIntensity(patch.lyricAnimationIntensity));
-      }
-      if (typeof patch.lyricManualOffsetMs === "number") setManualOffsetMs(patch.lyricManualOffsetMs);
+      .catch((error) => logger.warn("[桌面歌词] 读取窗口锁定状态失败，按未锁定显示", error));
+    const unlistenPromise = listenTauriEvent(TAURI_EVENTS.lyricSettingsChanged, ({ lyricLocked }) => {
+      if (!disposed) setLocked(lyricLocked);
     });
+    unlistenPromise.catch((error) => logger.warn("[桌面歌词] 无法监听锁定状态变化", error));
     return () => {
       disposed = true;
-      unsubscribeLyricSettings();
+      void unlistenPromise.then((unlisten) => unlisten()).catch(() => undefined);
     };
   }, []);
 
@@ -279,36 +233,25 @@ export function LyricWindowView() {
     void toggleLyricWindow().catch(() => undefined);
   };
 
-  const togglePinned = async () => {
-    const next = !pinned;
-    setPinned(next);
-    try {
-      await setLyricWindowPinned(next);
-      broadcastLyricSettings({ lyricPinned: next });
-    } catch {
-      setPinned(!next); // 回滚
-    }
+  // 置顶由 Rust 落到窗口上并写回设置，按钮等 settings-changed 刷新，不自己先改。
+  const togglePinned = () => {
+    setLyricWindowPinned(!pinned).catch((error) => logger.warn("[桌面歌词] 切换置顶失败", error));
   };
 
   const toggleLocked = async () => {
     const next = !locked;
     try {
       const lockEpoch = next ? await prepareLyricWindowLock() : undefined;
-      const applied = await setLyricWindowLocked(next, lockEpoch, "lyric-window");
-      if (!applied) return;
-      setLocked(next);
-      broadcastLyricSettings({ lyricLocked: next });
-    } catch {
-      setLocked(locked);
-      broadcastLyricSettings({ lyricLocked: locked });
+      // 生效后 Rust 会发 lyric-settings-changed，上面的监听负责更新 locked。
+      await setLyricWindowLocked(next, lockEpoch, "lyric-window");
+    } catch (error) {
+      logger.warn("[桌面歌词] 切换锁定失败", error);
     }
   };
 
   const adjustFontSize = (delta: number) => {
     const next = Math.max(16, Math.min(52, fontSize + delta));
-    setFontSize(next);
-    broadcastLyricSettings({ lyricFontSize: next });
-    void patchSettings({ lyricFontSize: next }).catch(() => undefined);
+    updateSettings({ lyricFontSize: next }).catch((error) => logger.warn("[桌面歌词] 保存字号失败", error));
   };
 
   const startWindowDrag = (event: MouseEvent<HTMLDivElement>) => {

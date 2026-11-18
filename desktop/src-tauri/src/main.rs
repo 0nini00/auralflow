@@ -273,6 +273,7 @@ pub fn run() {
             // 配置管理
             commands::load_settings,
             commands::patch_settings,
+            commands::reset_settings,
             commands::resolve_close_request,
             commands::ack_close_request,
             commands::debug_log,

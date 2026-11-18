@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { patchSettings } from "@lx/tauri-bridge";
+import { updateSettings } from "@/stores/settingsStore";
+import { logger } from "@/services/logger";
 import type { MusicInfo } from "@lx/core";
 import { setVipOfficialFirst } from "@/services/playback/officialPriority";
 import { WyAuthExpiredError } from "@lx/core";
@@ -157,8 +158,9 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
       if (authBroken) {
         // 失效 Cookie 不要继续留在内存/设置里，否则下次启动会反复失败
         setWyCookie("");
-        void patchSettings({ wyCookie: null }).catch(() => {
-          // settings 写失败不阻断登出语义
+        updateSettings({ wyCookie: null }).catch((error) => {
+          // 写失败不阻断登出语义；但失效 Cookie 还留在设置里，下次启动会再失败一次，留痕。
+          logger.warn("[网易云] 清除失效登录信息失败", error);
         });
       }
       set({
@@ -206,7 +208,7 @@ export const useWyAccountStore = create<WyAccountState>((set, get) => ({
       error: "",
     });
     try {
-      await patchSettings({ wyCookie: null });
+      await updateSettings({ wyCookie: null });
     } catch (error) {
       const cookie = await previousCookie;
       if (generation === accountGeneration) {

@@ -2,7 +2,6 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { PlaybackSnapshot } from "../src/services/playback/playbackSnapshot";
 
 const mocks = vi.hoisted(() => ({
-  loadSettings: vi.fn(),
   setEnabled: vi.fn(),
   updateTrack: vi.fn(),
   listen: vi.fn(),
@@ -14,7 +13,6 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@lx/tauri-bridge", async (importOriginal) => ({
   TAURI_EVENTS: (await importOriginal<typeof import("@lx/tauri-bridge")>()).TAURI_EVENTS,
   listenTauriEvent: mocks.listen,
-  loadSettings: mocks.loadSettings,
   taskbarSetEnabled: mocks.setEnabled,
   taskbarUpdateTrack: mocks.updateTrack,
 }));
@@ -31,6 +29,8 @@ vi.mock("@/services/playback/playbackSnapshot", () => ({
 }));
 vi.mock("@/services/logger", () => ({ logger: { warn: mocks.warn } }));
 import { setupTaskbarThumbnails } from "../src/services/taskbarService";
+import { __resetSettingsStoreForTests } from "../src/stores/settingsStore";
+import { seedSettings } from "./helpers/settingsFixture";
 
 let dispose: (() => void) | undefined;
 
@@ -56,18 +56,17 @@ async function start() {
 }
 
 async function changeEnabled(enabled: boolean) {
-  mocks.loadSettings.mockResolvedValue({ taskbarThumbnails: enabled });
-  window.dispatchEvent(new Event("af-taskbar-change"));
+  seedSettings({ taskbarThumbnails: enabled });
   await settle();
 }
 
 beforeEach(() => {
   vi.resetAllMocks();
   vi.useFakeTimers();
-  vi.stubGlobal("window", new EventTarget());
+  __resetSettingsStoreForTests();
+  seedSettings({ taskbarThumbnails: true });
   mocks.subscribers.clear();
   mocks.snapshot = { current: null, status: "playing", progress: 0 };
-  mocks.loadSettings.mockResolvedValue({ taskbarThumbnails: true });
   mocks.setEnabled.mockResolvedValue(undefined);
   mocks.updateTrack.mockResolvedValue(undefined);
   mocks.listen.mockResolvedValue(mocks.unlisten);
@@ -78,7 +77,6 @@ afterEach(() => {
   dispose = undefined;
   vi.clearAllTimers();
   vi.useRealTimers();
-  vi.unstubAllGlobals();
 });
 
 it("挂载时按设置启用并推一次当前播放状态", async () => {
@@ -122,29 +120,31 @@ it("卸载后不再推送，并移除订阅与事件监听", async () => {
   await start();
   dispose?.();
   publish("paused");
-  await settle();
+  await changeEnabled(false);
+  expect(mocks.setEnabled.mock.calls).toEqual([[true]]);
   expect(mocks.updateTrack).toHaveBeenCalledTimes(1);
   expect(mocks.subscribers.size).toBe(0);
   expect(mocks.unlisten).toHaveBeenCalledOnce();
 });
 
-it("旧设置响应晚返回不能覆盖更新的设置响应", async () => {
-  const old = deferred<{ taskbarThumbnails: boolean }>();
-  mocks.loadSettings.mockReturnValueOnce(old.promise);
+it("较早一次开关的原生调用晚返回，不会按它重推状态", async () => {
+  const old = deferred<void>();
+  mocks.setEnabled.mockReturnValueOnce(old.promise);
   await start();
   await changeEnabled(false);
-  old.resolve({ taskbarThumbnails: true });
+  old.resolve();
   await settle();
-  // 只应用「关闭」这一次设置，旧响应被代次挡掉，也不会因此重新推送
-  expect(mocks.setEnabled.mock.calls).toEqual([[false]]);
+  // 「打开」那次调用返回时开关已经关了：被代次挡掉，不再推送
+  expect(mocks.setEnabled.mock.calls).toEqual([[true], [false]]);
   expect(mocks.updateTrack).not.toHaveBeenCalled();
 });
 
-it("最新设置读取失败只记日志，不切换开关", async () => {
-  const error = new Error("settings unavailable");
-  mocks.loadSettings.mockRejectedValueOnce(error);
+it("设置还没读到时不切换开关，读到后按真实值应用", async () => {
+  __resetSettingsStoreForTests();
   await start();
-  expect(mocks.warn).toHaveBeenCalledWith("[任务栏缩略图] 读取设置失败", error);
   expect(mocks.setEnabled).not.toHaveBeenCalled();
   expect(mocks.updateTrack).not.toHaveBeenCalled();
+
+  await changeEnabled(false);
+  expect(mocks.setEnabled.mock.calls).toEqual([[false]]);
 });

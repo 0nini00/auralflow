@@ -1,25 +1,16 @@
 import { Outlet, useLocation } from "react-router-dom";
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef } from "react";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { PlayerBar } from "../PlayerBar";
 import { NowPlayingPanel } from "../NowPlayingPanel";
 import { ErrorBoundary } from "../ErrorBoundary";
-import { loadSettings } from "@lx/tauri-bridge";
 import { useUiStore } from "@/stores/uiStore";
-import {
-  APP_BACKGROUND_CHANGE_EVENT,
-  cacheAppBackgroundPath,
-  type AppBackgroundChangeDetail,
-  normalizeAppBackgroundPath,
-  readCachedAppBackgroundPath,
-  toAppBackgroundImageUrl,
-} from "@/services/appBackground";
+import { useSettingsStore } from "@/stores/settingsStore";
+import { toAppBackgroundImageUrl } from "@/services/appBackground";
 
 export function Layout() {
-  const [appBackgroundImagePath, setAppBackgroundImagePath] = useState<string | null>(
-    () => readCachedAppBackgroundPath() ?? null,
-  );
+  const appBackgroundImagePath = useSettingsStore((s) => s.settings?.appBackgroundImagePath);
   const appBackgroundImageUrl = useMemo(
     () => toAppBackgroundImageUrl(appBackgroundImagePath),
     [appBackgroundImagePath],
@@ -34,25 +25,6 @@ export function Layout() {
   useEffect(() => {
     if (contentScrollRef.current) contentScrollRef.current.scrollTop = 0;
   }, [location.pathname]);
-
-  useEffect(() => {
-    loadSettings()
-      .then((settings) => {
-        const path = normalizeAppBackgroundPath(settings.appBackgroundImagePath);
-        cacheAppBackgroundPath(path);
-        setAppBackgroundImagePath(path);
-      })
-      .catch((error) => {
-        console.error("读取应用背景设置失败", error);
-      });
-
-    const handleBackgroundChange = (event: Event) => {
-      const detail = (event as CustomEvent<AppBackgroundChangeDetail>).detail;
-      setAppBackgroundImagePath(normalizeAppBackgroundPath(detail?.path));
-    };
-    window.addEventListener(APP_BACKGROUND_CHANGE_EVENT, handleBackgroundChange);
-    return () => window.removeEventListener(APP_BACKGROUND_CHANGE_EVENT, handleBackgroundChange);
-  }, []);
 
   return (
     <div className={`af-app ${appBackgroundImageUrl ? "af-app-has-background" : ""} ${isSearchRoute ? "af-route-search" : ""}`}>

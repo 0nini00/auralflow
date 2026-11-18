@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { loadSettings, patchSettings } from "@lx/tauri-bridge";
+import { useEffect, useRef, useState } from "react";
 import { CloudSyncRefusalError } from "@lx/core";
 import { useCustomSourceStore } from "@/stores/customSourceStore";
+import { updateSettings, useLoadedSettings, type SettingsPatch } from "@/stores/settingsStore";
 import { confirmAction } from "@/components/ui/ConfirmDialog";
 
 interface WebdavConfig {
@@ -12,17 +12,23 @@ interface WebdavConfig {
 }
 type WebdavField = keyof WebdavConfig;
 
-// 仅保存操作的顺序屏障，不保留设置副本；新实例的读取也等待已发写入收敛。
+/**
+ * 表单提交的顺序屏障，不保存任何设置值（值在 settingsStore）。
+ * 它管的是表单自己的事：轮到某次提交时才取「当时还没保存的编辑」一起写，
+ * 并且轮到时页面已经离开的提交直接作废——这两点都要在「真正发出写入的那一刻」判断。
+ */
 let webdavWriteQueue: Promise<boolean> = Promise.resolve(true);
 
 export function SyncSettingsSection() {
   const featureEnabled = useCustomSourceStore((state) => state.featureEnabled);
   const featureReady = useCustomSourceStore((state) => state.featureReady);
   const sourcesSyncEnabled = featureReady && featureEnabled;
-  const [config, setConfig] = useState<WebdavConfig>({
-    webdavUrl: "", webdavUsername: "", webdavPassword: "", webdavAutoSyncPlaylists: false,
-  });
-  const [loadState, setLoadState] = useState<"loading" | "ready" | "failed">("loading");
+  const savedUrl = useLoadedSettings((s) => s.webdavUrl ?? "");
+  const savedUser = useLoadedSettings((s) => s.webdavUsername ?? "");
+  const savedPass = useLoadedSettings((s) => s.webdavPassword ?? "");
+  const savedAutoSync = useLoadedSettings((s) => s.webdavAutoSyncPlaylists);
+  // 还没保存的编辑；保存成功后清掉，输入框回到设置里的值。
+  const [drafts, setDrafts] = useState<Partial<WebdavConfig>>({});
   const [configError, setConfigError] = useState("");
   const [dirtyCount, setDirtyCount] = useState(0);
   const [savingCount, setSavingCount] = useState(0);
@@ -33,102 +39,65 @@ export function SyncSettingsSection() {
   const lifecycleRef = useRef({ active: false });
   // 每次编辑都有独立标记，旧保存完成不能清除同字段的新编辑（包括 A → B → A）。
   const dirtyFieldsRef = useRef(new Map<WebdavField, { value: string | boolean }>());
-  const loadRequestRef = useRef<Promise<Awaited<ReturnType<typeof loadSettings>> | null> | null>(null);
-  const { webdavUrl, webdavUsername: webdavUser, webdavPassword: webdavPass, webdavAutoSyncPlaylists: autoSyncPlaylists } = config;
-
-  const loadConfig = useCallback(() => {
-    const lifecycle = lifecycleRef.current;
-    if (!lifecycle.active) return;
-    setLoadState("loading");
-    setConfigError("");
-    // null 表示读取开始前已离开页面，不以空配置代替失败或取消。
-    const read = () => lifecycle.active ? loadSettings() : null;
-    const request = webdavWriteQueue.then(read, read);
-    loadRequestRef.current = request;
-    void request.then((settings) => {
-      if (!lifecycle.active || settings === null || loadRequestRef.current !== request) return;
-      const loaded: WebdavConfig = {
-        webdavUrl: settings.webdavUrl ?? "",
-        webdavUsername: settings.webdavUsername ?? "",
-        webdavPassword: settings.webdavPassword ?? "",
-        webdavAutoSyncPlaylists: Boolean(settings.webdavAutoSyncPlaylists),
-      };
-      // 只恢复未编辑字段，加载期间允许输入，但保存必须等待读取成功。
-      const dirty = new Set(dirtyFieldsRef.current.keys());
-      setConfig((current) => ({
-        webdavUrl: dirty.has("webdavUrl") ? current.webdavUrl : loaded.webdavUrl,
-        webdavUsername: dirty.has("webdavUsername") ? current.webdavUsername : loaded.webdavUsername,
-        webdavPassword: dirty.has("webdavPassword") ? current.webdavPassword : loaded.webdavPassword,
-        webdavAutoSyncPlaylists: dirty.has("webdavAutoSyncPlaylists") ? current.webdavAutoSyncPlaylists : loaded.webdavAutoSyncPlaylists,
-      }));
-      setLoadState("ready");
-    }, (error) => {
-      if (!lifecycle.active || loadRequestRef.current !== request) return;
-      setLoadState("failed");
-      setConfigError("读取同步配置失败：" + (error instanceof Error ? error.message : String(error)));
-    });
-  }, []);
+  const webdavUrl = drafts.webdavUrl ?? savedUrl;
+  const webdavUser = drafts.webdavUsername ?? savedUser;
+  const webdavPass = drafts.webdavPassword ?? savedPass;
+  const autoSyncPlaylists = drafts.webdavAutoSyncPlaylists ?? savedAutoSync;
 
   useEffect(() => {
     const lifecycle = { active: true };
     lifecycleRef.current = lifecycle;
-    loadConfig();
     return () => { lifecycle.active = false; };
-  }, [loadConfig]);
+  }, []);
 
   const editConfig = <K extends WebdavField>(field: K, value: WebdavConfig[K]) => {
-    setConfig((current) => ({ ...current, [field]: value }));
+    setDrafts((current) => ({ ...current, [field]: value }));
     const persistedValue = typeof value === "string" && field !== "webdavPassword" ? value.trim() : value;
     dirtyFieldsRef.current.set(field, { value: persistedValue });
     setDirtyCount(dirtyFieldsRef.current.size);
     setSaved(false);
   };
 
-  const saveWebdavConfig = (): Promise<boolean> => {
+  /** 已保存的编辑不再是草稿：从 dirty 与 drafts 里一起拿掉（期间又被改过的字段保留）。 */
+  const settleSavedEdits = (snapshot: Map<WebdavField, { value: string | boolean }>) => {
+    const settled = [...snapshot].filter(([field, edit]) => dirtyFieldsRef.current.get(field) === edit).map(([field]) => field);
+    for (const field of settled) dirtyFieldsRef.current.delete(field);
+    setDrafts((current) => Object.fromEntries(Object.entries(current).filter(([field]) => !settled.includes(field as WebdavField))));
+    setDirtyCount(dirtyFieldsRef.current.size);
+    setSaved(dirtyFieldsRef.current.size === 0);
+  };
+
+  const saveWebdavConfig = async (): Promise<boolean> => {
     const lifecycle = lifecycleRef.current;
-    if (!lifecycle.active) return Promise.resolve(false);
+    if (!lifecycle.active) return false;
     setSavingCount((count) => count + 1);
-    const request = loadRequestRef.current;
-    const persist = async () => {
-      let submitted = false;
-      try {
-        if (!request) throw new Error("同步配置尚未开始读取");
-        const loaded = await request;
-        if (!lifecycle.active || loaded === null) return false;
-        const write = async () => {
-          // 排队时仍在页面，不代表真正轮到写入时仍在同一个生命周期。
-          if (!lifecycle.active) return false;
-          const snapshot = new Map(dirtyFieldsRef.current);
-          if (snapshot.size === 0) return true;
-          setConfigError("");
-          submitted = true;
-          await patchSettings(Object.fromEntries([...snapshot].map(([field, edit]) => [field, edit.value])));
-          if (lifecycle.active) {
-            for (const [field, edit] of snapshot) {
-              if (dirtyFieldsRef.current.get(field) === edit) dirtyFieldsRef.current.delete(field);
-            }
-            setDirtyCount(dirtyFieldsRef.current.size);
-            setSaved(dirtyFieldsRef.current.size === 0);
-          }
-          return true;
-        };
-        // 只将已完成初始化的保存排队；卸载后的慢读取不能阻塞新页面。
-        // 写入失败由对应调用方报告，之后仍允许读取磁盘及重试。
-        const queued = webdavWriteQueue.then(write, write);
-        webdavWriteQueue = queued;
-        return await queued;
-      } catch (error) {
-        if (lifecycle.active) {
-          setConfigError("保存同步配置失败：" + (error instanceof Error ? error.message : String(error)));
-        } else if (submitted) {
-          console.error("离开同步设置后已提交的配置保存失败", error);
-        }
-        return false;
-      } finally {
-        if (lifecycle.active) setSavingCount((count) => count - 1);
-      }
+    let submitted = false;
+    const write = async () => {
+      // 排队时仍在页面，不代表真正轮到写入时仍在同一个生命周期。
+      if (!lifecycle.active) return false;
+      const snapshot = new Map(dirtyFieldsRef.current);
+      if (snapshot.size === 0) return true;
+      setConfigError("");
+      submitted = true;
+      await updateSettings(Object.fromEntries([...snapshot].map(([field, edit]) => [field, edit.value])) as SettingsPatch);
+      if (lifecycle.active) settleSavedEdits(snapshot);
+      return true;
     };
-    return persist();
+    try {
+      // 写入失败由对应调用方报告，之后仍允许重试。
+      const queued = webdavWriteQueue.then(write, write);
+      webdavWriteQueue = queued;
+      return await queued;
+    } catch (error) {
+      if (lifecycle.active) {
+        setConfigError("保存同步配置失败：" + (error instanceof Error ? error.message : String(error)));
+      } else if (submitted) {
+        console.error("离开同步设置后已提交的配置保存失败", error);
+      }
+      return false;
+    } finally {
+      if (lifecycle.active) setSavingCount((count) => count - 1);
+    }
   };
 
   const handleToggleAutoSync = async (enabled: boolean) => {
@@ -272,17 +241,12 @@ export function SyncSettingsSection() {
       <p className="af-settings-hint">用于备份/恢复自定义音源、收藏、本地歌单和播放历史。下载前会检查云端是否比本地旧，并自动备份当前本地数据。自定义音源脚本会以明文上传到 WebDAV。</p>
 
       <p className="af-settings-hint" role="status" aria-live="polite">
-        {loadState === "loading" ? "正在读取配置，可先编辑；读取完成后才会保存。" : ""}
         {savingCount > 0 ? "保存中..." : dirtyCount > 0 ? "有未保存的修改" : saved ? "配置已保存" : ""}
       </p>
       {configError && (
         <div role="alert" className="af-settings-error">
           <p>{configError}</p>
-          {loadState === "failed" ? (
-            <button type="button" className="af-settings-small-button" onClick={loadConfig}>重新读取</button>
-          ) : (
-            <button type="button" className="af-settings-small-button" disabled={savingCount > 0} onClick={handleInputBlur}>重试保存</button>
-          )}
+          <button type="button" className="af-settings-small-button" disabled={savingCount > 0} onClick={handleInputBlur}>重试保存</button>
         </div>
       )}
 
@@ -336,7 +300,7 @@ export function SyncSettingsSection() {
             role="switch"
             aria-label="启动时自动同步歌单历史"
             checked={autoSyncPlaylists}
-            disabled={loadState !== "ready" || savingCount > 0 || syncBusy}
+            disabled={savingCount > 0 || syncBusy}
             onChange={(e) => { void handleToggleAutoSync(e.target.checked); }}
           />
         </div>

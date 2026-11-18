@@ -9,7 +9,6 @@ import {
 } from "@lx/tauri-bridge";
 
 import { withTimeout } from "@/utils/withTimeout";
-import { broadcastLyricSettings } from "@/stores/lyricSettingsSync";
 import { logger } from "@/services/logger";
 
 export type DesktopLyricPlayerToggleAction = "opened" | "closed" | "unlocked";
@@ -25,7 +24,6 @@ export interface DesktopLyricPlayerToggleContext {
   knownOpen?: boolean;
   knownLocked?: boolean;
   setLocked?: (locked: boolean) => Promise<unknown>;
-  broadcastSettings?: typeof broadcastLyricSettings;
   getState?: () => Promise<RustLyricWindowState>;
   unlockFirst?: () => Promise<RustLyricWindowPlayerUnlockResult>;
   stateQueryTimeoutMs?: number;
@@ -36,7 +34,6 @@ export async function toggleDesktopLyricFromPlayer(
   context: DesktopLyricPlayerToggleContext = {},
 ): Promise<DesktopLyricPlayerToggleResult> {
   const setLocked = context.setLocked ?? ((locked: boolean) => setLyricWindowLocked(locked, undefined, "player-helper"));
-  const broadcastSettings = context.broadcastSettings ?? broadcastLyricSettings;
   let backendState: RustLyricWindowState | null = null;
 
   try {
@@ -46,7 +43,6 @@ export async function toggleDesktopLyricFromPlayer(
       "桌面歌词状态查询",
     );
     if (unlockResult.unlocked) {
-      broadcastSettings({ lyricLocked: false });
       return {
         action: "unlocked",
         open: true,
@@ -77,7 +73,6 @@ export async function toggleDesktopLyricFromPlayer(
 
   if (shouldUnlock) {
     await setLocked(false);
-    broadcastSettings({ lyricLocked: false });
     return {
       action: "unlocked",
       open: true,
@@ -88,7 +83,5 @@ export async function toggleDesktopLyricFromPlayer(
 
   // 状态查询失败时不能把前端旧状态当成后端事实，否则窗口已关闭时会被误判为“已打开”。
   // 只有后端明确报告锁定，或明确的 knownLocked，才执行解锁。
-  const result = await toggleCommand();
-  broadcastSettings({ lyricLocked: result.locked });
-  return result;
+  return toggleCommand();
 }
