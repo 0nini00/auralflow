@@ -12,7 +12,7 @@ import TrackPlayer, {
   Capability
 } from "react-native-track-player";
 import type { MusicInfo } from "@lx/core";
-import { buildSongKey, isPreviewDuration } from "@lx/core";
+import { buildSongKey } from "@lx/core";
 import { getNextSongSleepTimerState, getSongSleepTimerTrackKey, normalizeSongSleepTimerCount } from "@/services/songSleepTimerModel";
 import { getNextMobilePlayMode, type MobilePlayMode } from "@/services/mobilePlayModeModel";
 import { clampPlaybackRate, DEFAULT_PLAYBACK_RATE } from "@/services/playerRateModel";
@@ -26,10 +26,7 @@ import {
 import { syncPlaybackParameters } from "@/services/androidPitchService";
 import { buildMobilePlayRequestKey } from "@/services/playerRequestModel";
 import { beginPlaybackRequest, isCurrentPlaybackRequest } from "@/services/playbackRequest";
-import { invalidateCachedPlaybackUrl } from "@/services/playbackUrlCache";
-import { notePlaybackHealthy } from "@/services/playbackFailurePolicy";
 import { cancelPendingPlayback } from "@/services/switchStepSession";
-import { invalidatePrefetchForSong, playFromQueue, playSong, prefetchUpcomingSongNearEnd } from "../services/playerService";
 import {
   isLyricOverlaySupported,
   setLyricOverlayClockRate,
@@ -71,14 +68,18 @@ export function shouldAttributePlaybackErrorToCurrentSong(): boolean {
 }
 
 // 已判定为试听片段的歌曲 key：进度事件 0.25s 触发一次，防同一首歌重复告警。
+// 归 store 持有是因为它与播放会话同寿命：play 成功提交时清空（见 play）。
 const previewRejectedKeys = new Set<string>();
 
 /**
- * 判定「该曲确实可播」的播放位置阈值（秒）：越过它才归还重试额度。
- * 取 5s 是为了越过坏链的报错窗口——实测坏链要到约 3s 后原生才发 PlaybackError，
- * 阈值若落在窗口内会把即将失败的加载误判为健康，重试额度反复归还即成无限重试。
+ * 认领一次试听判定：本播放会话内首次判定返回 true，已处置过返回 false。
+ * 判定后的处置（停播、清各级缓存）属于编排，见 src/player/playerListeners.ts。
  */
-const PLAYBACK_HEALTHY_POSITION_SECONDS = 5;
+export function claimPreviewRejection(songKey: string): boolean {
+  if (previewRejectedKeys.has(songKey)) return false;
+  previewRejectedKeys.add(songKey);
+  return true;
+}
 
 // 播放失败的重试额度与处置结论由 @/services/playbackFailurePolicy 统一持有：
 // 本 store 与后台 playbackService 监听同一条原生事件，各自记账会得出矛盾结论。
@@ -165,6 +166,16 @@ export interface PersonalFmContext {
 export type PlaybackContext =
   | { type: "queue" }
   | PersonalFmContext;
+
+/** resumeTransport 交还给编排层的重载目标：当前曲在原生侧没有可续播的轨道。 */
+export interface PlaybackReloadTarget {
+  /** 本次续播认领的播放请求；重载沿用它，期间被新意图取代即作废。 */
+  requestId: number;
+  song: MusicInfo;
+  /** 当前曲仍占着的队列槽位；已不在槽位上（如跨源接管后的替代曲）时为 null。 */
+  queueIndex: number | null;
+  startPosition: number | undefined;
+}
 
 let isPlayerSetup = false;
 let playerSetupPromise: Promise<void> | null = null;
@@ -382,7 +393,14 @@ interface PlayerActions {
   // 播放控制
   play: (song: MusicInfo, url: string, headers?: Record<string, string>, startPosition?: number, requestId?: number) => Promise<void>;
   pause: () => Promise<void>;
-  resume: () => Promise<void>;
+  /**
+   * transport 续播的原生半段：同步认领播放意图并收口未完成的装载。
+   * 当前曲在原生侧有可续播的轨道时直接续播，返回 null；
+   * 没有（播放器未 setup，或装载被取消后 currentUrl 已清空）时不碰原生，
+   * 排空已送入原生的旧提交后把重载目标交还调用方——重新取链是编排，
+   * 由 playerService.resumePlayback 完成。界面与媒体按键一律走 resumePlayback。
+   */
+  resumeTransport: () => Promise<PlaybackReloadTarget | null>;
   /**
    * 切歌起步阶段先压掉声音（只动音量、不动播放状态）。
    *
@@ -406,7 +424,12 @@ interface PlayerActions {
   // 队列控制
   setQueue: (songs: MusicInfo[], startIndex?: number) => void;
   addToQueue: (song: MusicInfo) => void;
-  playNextInQueue: (song: MusicInfo) => void;
+  /**
+   * 「下一首播放」的队列半段：把歌插到当前曲之后并记下锚点。
+   * 返回 true 表示插入前没有当前曲（空队列 / 无指针），这首歌已成为队首且尚未出声——
+   * 起播与预取是编排，由 playerService.queueSongToPlayNext 完成，界面一律走它。
+   */
+  playNextInQueue: (song: MusicInfo) => boolean;
   removeFromQueue: (index: number) => void;
   /** 撤销移除：把歌曲插回原索引，并同步平移当前曲与历史下标。 */
   insertQueueAt: (index: number, song: MusicInfo) => void;
@@ -684,28 +707,30 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     }
   },
 
-  resume: async () => {
+  resumeTransport: async () => {
     const requestId = cancelTransportPlayback();
     const { currentSong, currentUrl, currentIndex, queue, position } = get();
     if (currentSong && (!isPlayerSetup || !currentUrl)) {
       // 取消不能撤回已送入原生的 add/skip；先排空它们再重建本曲，避免交错提交。
       await Promise.all(Array.from(nativePlayRequests, entry => entry.promise));
-      if (!isCurrentPlaybackRequest(requestId)) return;
+      if (!isCurrentPlaybackRequest(requestId)) return null;
       const queuedSong = queue[currentIndex];
-      if (queuedSong?.source === currentSong.source && String(queuedSong.id) === String(currentSong.id)) {
-        await playFromQueue(currentIndex, position > 0 ? position : undefined, requestId);
-      } else {
-        await playSong(currentSong);
-      }
-      return;
+      const sameSlot = queuedSong?.source === currentSong.source && String(queuedSong.id) === String(currentSong.id);
+      return {
+        requestId,
+        song: currentSong,
+        queueIndex: sameSlot ? currentIndex : null,
+        startPosition: position > 0 ? position : undefined,
+      };
     }
-    if (!isPlayerSetup) return;
+    if (!isPlayerSetup) return null;
     await TrackPlayer.play();
-    if (!isCurrentPlaybackRequest(requestId)) return;
+    if (!isCurrentPlaybackRequest(requestId)) return null;
     // IDLE/ENDED 的 play 可能是 no-op，回读原生状态，不能伪造播放成功。
     const state = await TrackPlayer.getState();
-    if (!isCurrentPlaybackRequest(requestId)) return;
+    if (!isCurrentPlaybackRequest(requestId)) return null;
     get().syncPlayerState(state);
+    return null;
   },
 
   stop: async () => {
@@ -905,18 +930,15 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
         pinnedNextSong: shouldStartNow ? null : song,
       };
     });
-    // 空队列 / 无当前曲：插入后立即开播，避免只改队列不出声（与桌面端一致）。
-    if (shouldStartNow) void playFromQueue(0).catch(() => undefined);
-    // 立即预取该曲播放 URL/歌词/封面：播到它时命中缓存秒开（避免插播时实时解析）。
-    // 懒加载避免 playerStore ↔ playerService 循环依赖。
-    void import("../services/playerService").then((m) => m.prefetchSong(song)).catch(() => undefined);
+    return shouldStartNow;
   },
 
+  // 目前没有调用方。接入界面时，预取（playerService.prefetchSong）由调用它的编排函数负责，
+  // 与 queueSongToPlayNext 同一分工。
   addToTempPlayList: (song: MusicInfo) => {
     set((state) => ({
       tempPlayList: enqueueTempPlayList({ tempPlayList: state.tempPlayList, song }),
     }));
-    void import("../services/playerService").then((m) => m.prefetchSong(song)).catch(() => undefined);
   },
 
   removeFromTempPlayListAt: (index: number) => {
@@ -1183,12 +1205,14 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   },
 }));
 
-// 监听播放器事件
-let playerListenersSetup = false;
+// 监听播放器事件：只做「原生事件 → store 状态」的同步，幂等。
+// 需要取链缓存 / 预读的处置（曲末预读、试听兜底）在 src/player/playerListeners.ts；
+// 应用入口只调用它的 setupPlayerListeners，由它先注册这里、再注册处置。
+let playerStateListenersSetup = false;
 
-export function setupPlayerListeners() {
-  if (playerListenersSetup) return;
-  playerListenersSetup = true;
+export function setupPlayerStateListeners() {
+  if (playerStateListenersSetup) return;
+  playerStateListenersSetup = true;
   AppState.addEventListener('change', state => {
     if (state !== 'active') {
       void usePlayerStore.getState().flushListeningStats().catch(error => logger.error('后台保存收听统计失败', error));
@@ -1222,35 +1246,9 @@ export function setupPlayerListeners() {
     // 睡眠定时器的进度驱动结算：后台 timer 可能被冻结，只要进度事件在流就能到点停播
     maybeReconcileSleepTimer();
     // 静音占位轨期间（曲末 2s 窗口）：position/duration 是占位轨的，
-    // 写入会把真实进度污染成 2s 长度；且「明显短于期望时长」恰好命中
-    // 试听兜底判定，会造成曲末误报"检测到试听片段"。整段忽略。
+    // 写入会把真实进度污染成 2s 长度。整段忽略。
     if (usePlayerStore.getState().onSilenceGap) return;
     updateProgress(position, duration, buffered);
-    // 曲末提前预解析下一首：剩余 10s 内触发一次（内部按「当前曲→下一首」组合与
-    // 预读 key 双重去重，0.25s 的进度事件不会重复解析）。无下一首/单曲循环无副作用。
-    prefetchUpcomingSongNearEnd(position, duration);
-    // 试听兜底：解析期拿不到 Content-Length / Content-Range 的流式响应靠播放器实际时长判定。
-    // 明显短于期望时长（song.interval）即视为试听：停播 + 清缓存，下次重播强制重新解析（对齐失败即停）。
-    const song = usePlayerStore.getState().currentSong;
-    if (!song) return;
-    const key = buildSongKey(song);
-    // 位置推进过阈值即证明该曲可播（音频真的在解码）：归还其重试额度，
-    // 使下次遇到坏链时仍能重新走「重试一次 → 再失败才跳」，而非一失败就直接跳。
-    if (position >= PLAYBACK_HEALTHY_POSITION_SECONDS) notePlaybackHealthy(key);
-    if (previewRejectedKeys.has(key)) return;
-    if (isPreviewDuration({ actualDurationSeconds: duration, expectedDurationSeconds: song.interval })) {
-      previewRejectedKeys.add(key);
-      setError(`检测到试听片段（约 ${Math.round(duration)}s），已清除缓存，请重新播放或切换音源`);
-      void TrackPlayer.pause().catch(() => {});
-      void invalidateCachedPlaybackUrl(song).catch(() => undefined);
-      invalidatePrefetchForSong(song);
-      // 磁盘音频缓存必须一起失效：解析链先查磁盘文件、命中即直接返回，不经任何试听判定。
-      // 只清 URL 缓存会留下死循环（命中 → 播放试听 → 判定 → 再命中）。用动态 import
-      // 避免 store ↔ service 的静态循环依赖，与本文件其它一次性清理的写法一致。
-      void import("@/services/cacheService")
-        .then(({ deleteCachedAudioForMusic }) => deleteCachedAudioForMusic(song))
-        .catch(() => undefined);
-    }
   });
 
   // 播放状态变化
@@ -1281,9 +1279,6 @@ export function setupPlayerListeners() {
     setError(message);
   });
 
-  // 曲末自动切歌不在此注册：该逻辑必须运行在 TrackPlayer 的后台服务上下文
-  // （src/player/playbackService.ts），否则 app 退到后台后 JS 挂起，切歌要等
-  // 用户回到前台才发生。此处只保留与 UI 状态直接相关的监听。
 }
 
 

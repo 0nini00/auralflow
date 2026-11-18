@@ -86,9 +86,36 @@ test("失败切歌失效旧地址，继续播放必须重新解析当前歌曲",
     resolvedId = track.id;
     return { url: "https://fixture.invalid/B", quality: "320k" };
   };
-  await h.store.getState().resume();
+  await h.service.resumePlayback();
   assert.equal(resolvedId, "B");
   assert.equal(h.store.getState().currentUrl, "https://fixture.invalid/B");
+  await h.store.getState().clearQueue();
+});
+
+const settle = () => new Promise(resolve => setImmediate(resolve));
+
+test("空队列点「下一首播放」后立即开播，避免只改队列不出声", async () => {
+  const h = setup();
+  h.service.queueSongToPlayNext(song("X"));
+  for (let turn = 0; turn < 20 && !h.events.includes("play"); turn += 1) await settle();
+  assert.equal(h.events.filter(name => name === "play").length, 1, "空队列场景应直接播放这一首");
+  assert.equal(h.store.getState().currentSong.id, "X");
+  assert.equal(h.store.getState().currentIndex, 0);
+  assert.equal(h.store.getState().isPlaying, true);
+  await h.store.getState().clearQueue();
+});
+
+test("已有当前曲时「下一首播放」只插队并预取，不打断正在播的歌", async () => {
+  const h = setup();
+  await h.service.playQueue([song("A"), song("B")]);
+  const lookups = [];
+  h.cache.getCachedPlaybackUrl = async track => { lookups.push(track.id); return { url: "https://fixture.invalid/X", quality: "320k" }; };
+  h.service.queueSongToPlayNext(song("X"));
+  for (let turn = 0; turn < 20 && lookups.length === 0; turn += 1) await settle();
+  assert.deepEqual(h.store.getState().queue.map(item => item.id), ["A", "X", "B"]);
+  assert.equal(h.store.getState().currentSong.id, "A");
+  assert.equal(h.events.filter(name => name === "play").length, 1, "插队不能再次触发原生播放");
+  assert.deepEqual(lookups, ["X"], "插入的歌应立即预取播放地址");
   await h.store.getState().clearQueue();
 });
 

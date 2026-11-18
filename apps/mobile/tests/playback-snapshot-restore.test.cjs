@@ -87,7 +87,7 @@ test("心动模式快照恢复后可以续播和切歌，不停在已下线的�
   await h.snapshot.loadPlaybackSnapshot();
 
   // 续播：恢复的那首从快照位置起播
-  await h.store.getState().resume();
+  await h.service.resumePlayback();
   assert.equal(h.store.getState().currentSong.id, "C");
   assert.equal(h.store.getState().currentUrl, "https://fixture.invalid/C");
   assert.equal(h.store.getState().position, 37.5);

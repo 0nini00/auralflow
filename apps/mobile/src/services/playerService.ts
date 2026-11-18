@@ -1152,6 +1152,34 @@ export async function playFromQueue(
 }
 
 /**
+ * 继续播放（界面播放键、媒体按键共用）。
+ *
+ * 原生侧还留着当前曲时由 store 直接续播；没有可续播的轨道（快照恢复后尚未 setup、
+ * 装载被暂停取消）时按 store 交还的目标重新取链装载。意图在 resumeTransport 的
+ * 同步段就已认领，调用方可以在本函数返回 Promise 的同一拍读到新的请求代次。
+ */
+export async function resumePlayback(): Promise<void> {
+  const reload = await usePlayerStore.getState().resumeTransport();
+  if (!reload || !isCurrentPlaybackRequest(reload.requestId)) return;
+  if (reload.queueIndex !== null) {
+    await playFromQueue(reload.queueIndex, reload.startPosition, reload.requestId);
+    return;
+  }
+  await playSong(reload.song);
+}
+
+/**
+ * 「下一首播放」：插到当前曲之后，并立即预取它的播放 URL/歌词/封面，
+ * 播到它时命中缓存秒开（避免插播时实时解析）。
+ * 空队列 / 无当前曲时插入后立即开播，避免只改队列不出声（与桌面端一致）。
+ */
+export function queueSongToPlayNext(song: MusicInfo): void {
+  const shouldStartNow = usePlayerStore.getState().playNextInQueue(song);
+  if (shouldStartNow) void playFromQueue(0).catch(() => undefined);
+  prefetchSong(song);
+}
+
+/**
  * 批量添加到队列并播放
  *
  * 与 playFromQueue 相同的手动语义：调用即生效，旧的在途请求由 intent 令牌作废。

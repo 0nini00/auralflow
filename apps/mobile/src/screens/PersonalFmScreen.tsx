@@ -35,6 +35,7 @@ import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/theme
 import {
   dislikeCurrentPersonalFmSong,
   playNext,
+  resumePlayback,
   startPersonalFm,
   startPersonalFmWithSongs,
 } from "@/services/playerService";
@@ -63,7 +64,6 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const playerLoading = usePlayerStore((state) => state.loading);
   const pause = usePlayerStore((state) => state.pause);
-  const resume = usePlayerStore((state) => state.resume);
 
   // 心形收藏（对齐桌面端本地收藏）
   const isLiked = useFavoritesStore((state) => state.isFavorite(currentSong));
@@ -170,7 +170,7 @@ export function PersonalFmScreen({ onNavigateToPlayer, onBack }: PersonalFmScree
     if (isPlaying) {
       await pause();
     } else {
-      await resume();
+      await resumePlayback();
     }
   };
 

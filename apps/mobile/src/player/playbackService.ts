@@ -3,7 +3,7 @@ import TrackPlayer, { Event, State, type EventPayloadByEvent } from "react-nativ
 import { buildSongKey } from "@lx/core";
 import {
   invalidatePrefetchForSong, playFromQueue, playNext,
-  playPrevious, playSong, prefetchUpcomingSongNearEnd,
+  playPrevious, playSong, prefetchUpcomingSongNearEnd, resumePlayback,
 } from "../services/playerService";
 import { cancelPendingPlayback } from "@/services/switchStepSession";
 import { getCurrentPlaybackRequestId, isCurrentPlaybackRequest } from "@/services/playbackRequest";
@@ -17,9 +17,8 @@ import {
   noteAutomaticSkip, resetPlaybackFailures,
 } from "@/services/playbackFailurePolicy";
 import { usePlaybackSettingsStore } from "@/stores/playbackSettingsStore";
-import {
-  setupPlayerListeners, shouldAttributePlaybackErrorToCurrentSong, SILENCE_GAP_TRACK_ID, usePlayerStore,
-} from "@/stores/playerStore";
+import { setupPlayerListeners } from "@/player/playerListeners";
+import { shouldAttributePlaybackErrorToCurrentSong, SILENCE_GAP_TRACK_ID, usePlayerStore } from "@/stores/playerStore";
 
 declare const module: { exports: any };
 const SERVICE_DESTROYED_EVENT = "auralflow-playback-service-destroyed";
@@ -266,7 +265,7 @@ export default async function playbackService(data: { serviceId: string }): Prom
   logger.info("后台播放服务已就绪", session.id);
   // RNTP 原生 HeadlessJsTaskService 已持有服务级 WakeLock，不叠加共享的临时锁。
   // transport 由 store 同步认领意图并收口未完成的装载；正常续播不重建原生队列。
-  listen(Event.RemotePlay, () => runCommand(() => usePlayerStore.getState().resume(), { cancelPlayback: false }));
+  listen(Event.RemotePlay, () => runCommand(() => resumePlayback(), { cancelPlayback: false }));
   listen(Event.RemotePause, () => runCommand(() => usePlayerStore.getState().pause(), { cancelPlayback: false }));
   listen(Event.RemoteStop, () => runCommand(() => usePlayerStore.getState().stop(), { cancelPlayback: false }));
   // 导航只失效恢复令牌：解析是否可抢占、原生提交如何合并，统一由导航入口决定。

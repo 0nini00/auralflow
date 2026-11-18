@@ -24,7 +24,7 @@ import { AddToLocalPlaylistModal } from "@/components/AddToLocalPlaylistModal";
 import { DownloadQualityModal } from "@/components/DownloadQualityModal";
 import { Touchable } from "@/components/Touchable";
 
-import { playQueue } from "@/services/playerService";
+import { playQueue, queueSongToPlayNext } from "@/services/playerService";
 import { runPlaybackUiAction } from "@/services/playbackUiAction";
 import { buildPlaylistDetailActions, findPlaylistCurrentSongIndex } from "@/services/playlistDetailActions";
 import { resolveLocalPlaylistCover } from "@/services/localPlaylistModel";
@@ -65,7 +65,6 @@ export function LocalPlaylistDetailScreen({
   const deleteLocalPlaylist = usePlaylistStore((state) => state.deleteLocalPlaylist);
   const removeSongFromLocalPlaylist = usePlaylistStore((state) => state.removeSongFromLocalPlaylist);
   const removeSongsFromLocalPlaylist = usePlaylistStore((state) => state.removeSongsFromLocalPlaylist);
-  const playNextInQueue = usePlayerStore((state) => state.playNextInQueue);
   const currentSong = usePlayerStore((state) => state.currentSong);
   const downloadSong = useDownloadStore((state) => state.downloadSong);
 
@@ -197,7 +196,7 @@ export function LocalPlaylistDetailScreen({
   // 批量操作处理
   const handleBatchPlayNext = () => {
     if (selectedSongs.length === 0) return;
-    selectedSongs.slice().reverse().forEach((song) => playNextInQueue(song));
+    selectedSongs.slice().reverse().forEach((song) => queueSongToPlayNext(song));
     Alert.alert("已设置下一首", `已将 ${selectedSongs.length} 首歌曲设为下一首播放`);
     exitSelectionMode();
   };

@@ -16,7 +16,7 @@ import { getHomeFeedScope } from "@/services/homeFeedModels";
 import type { HomeFeedSection, HomeFeedSectionId } from "@/services/homeFeedService";
 import { fetchWyLeaderboardBoards } from "@/services/wyLeaderboardService";
 import { getPlaylistDetail } from "@/services/wyPlaylistService";
-import { playFromQueue, playQueue } from "@/services/playerService";
+import { playFromQueue, playQueue, resumePlayback } from "@/services/playerService";
 import { runPlaybackUiAction } from "@/services/playbackUiAction";
 import { selectPlaybackArtwork } from "@/services/localMediaPlaybackModel";
 import { useAccountStore } from "@/stores/accountStore";
@@ -239,7 +239,6 @@ function ContinueListeningCard({
   const position = usePlayerStore((state) => state.position);
   const duration = usePlayerStore((state) => state.duration);
   const pause = usePlayerStore((state) => state.pause);
-  const resume = usePlayerStore((state) => state.resume);
 
   if (!currentSong) return null;
 
@@ -252,7 +251,7 @@ function ContinueListeningCard({
         await pause();
         return;
       }
-      await resume();
+      await resumePlayback();
       const state = usePlayerStore.getState();
       if (!state.isPlaying && state.currentIndex >= 0) {
         // 快照恢复后原生无曲：重新播放当前曲并续播上次保存的进度
