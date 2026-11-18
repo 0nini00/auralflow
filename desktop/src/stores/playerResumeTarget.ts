@@ -8,7 +8,7 @@
 
 import type { MusicInfo } from '@lx/core';
 
-/** 播放请求标识，与 playerStore 内部的 `buildPlayRequestKey` 同构（`source:id`）。 */
+/** 播放请求标识，与 player/playRequestState 的 `buildPlayRequestKey` 同构（`source:id`）。 */
 export function playbackTrackKey(music: Pick<MusicInfo, 'source' | 'id'>): string {
   return `${music.source}:${music.id}`;
 }

@@ -1,12 +1,12 @@
 # stores/
 
-全局状态层：16 个 Zustand store（同目录下另有 `libraryPersistence` / `libraryRefreshModel` / `playerPersistence` / `playerResumeTarget` / `playerSync` / `playerSyncMain` 六个非 store 的辅助模块），集中持有播放、歌单、收藏、历史、设置等状态；store 不含 React 逻辑，组件订阅、services 读写。
+全局状态层：16 个 Zustand store（同目录下另有 `libraryPersistence` / `libraryRefreshModel` / `playerPersistence` / `playerResumeTarget` / `playerSync` / `playerSyncMain` 六个非 store 的辅助模块，以及 `player/` 目录——`playerStore` 的实现分块），集中持有播放、歌单、收藏、历史、设置等状态；store 不含 React 逻辑，组件订阅、services 读写。
 
 ## Store 清单
 
 | Store | 文件 | 职责 | 持久化方式 |
 | --- | --- | --- | --- |
-| playerStore | `playerStore.ts` (1057 行) | 当前曲目 / 队列 / 随机 / 循环 / FM / 引擎桥接 | 非持久化（快照存 library） |
+| playerStore | `playerStore.ts` (195 行) + `player/` | 当前曲目 / 队列 / 随机 / 循环 / FM / 引擎桥接；对外只有 `usePlayerStore`，实现分块见下方「playerStore 的内部划分」 | 非持久化（快照存 library） |
 | playbackMirrorStore | `playbackMirrorStore.ts` | 副窗口（桌面歌词 / 迷你播放器）里的播放状态镜像：只有界面读的 6 个字段，由主窗口广播的快照写入 | 非持久化 |
 | playlistStore | — | 歌单 CRUD | `libraryPersistence` → `library/playlists.json` |
 | favoritesStore | — | 收藏 | `libraryPersistence` → `library/favorites.json` |
@@ -22,6 +22,22 @@
 | sleepTimerStore | — | 睡眠定时器 | 非持久化 |
 | settingsStore | `settingsStore.ts` | 应用设置在前端的唯一持有者：读（`ensureSettingsLoaded` / selector）、写（`updateSettings` / `resetSettingsToDefault`）都只经过它 | Rust 设置文件（`load_settings` / `patch_settings` / `reset_settings`） |
 | updateStore | `updateStore.ts` | 待安装的可用更新（更新弹窗的数据源） | 非持久化 |
+
+## playerStore 的内部划分
+
+`playerStore.ts` 只负责组装 store，并留着播放控制（togglePlay / pause / resume / stop / setProgress / setPlaybackRate）、播放模式、FM 开关和一次性提示这些短动作。其余在 `player/` 下，调用方一律从 `@/stores/playerStore` 导入，不直接引用这些文件：
+
+| 文件 | 职责 |
+| --- | --- |
+| `player/types.ts` | `PlayerStore` 状态与动作类型、`RepeatMode`、`PlayerSet` / `PlayerGet` |
+| `player/playRequestState.ts` | 请求代次、引擎接管目标、在途请求、切歌连点队列四份模块级状态的唯一持有者；`invalidatePlayRequest` 把它们一并复位 |
+| `player/playbackPipeline.ts` | `play` 动作（取链、预取消费、缓存作废、跨源降级）及其辅助函数 |
+| `player/queueNavigation.ts` | `playByIndex` / `next` / `prev`、连点补跳、私人 FM 续播 |
+| `player/engineSync.ts` | 播放引擎事件到 store 的同步：状态与进度、听歌统计、出错自动跳、播完续播、试听片段兜底 |
+| `player/queueActions.ts` | 队列编辑：`playQueue` / `addToQueue` / `playNext` / `removeFromQueue` / `insertQueueAt` / `clearQueue` |
+| `player/volumeActions.ts` | `setVolume` / `toggleMute` 与音量防抖落盘 |
+
+依赖单向：`types`、`playRequestState` ← `playbackPipeline` ← `queueNavigation` ← `engineSync` ← `playerStore`；`queueActions`、`volumeActions` 只依赖前两者之一并被 `playerStore` 组装。动作模块经参数拿 `set` / `get`，不反向导入 `playerStore`。除 `types` 外都只该在主窗口加载（`tests/window-dependency.test.ts` 点名锁着）。
 
 ## 持久化架构
 

@@ -48,6 +48,12 @@ function runtimeClosure(entry: string): string[] {
 /** 只属于主窗口的模块：播放本体，以及一加载就读盘的 library store。 */
 const MAIN_WINDOW_ONLY = [
   'stores/playerStore.ts',
+  'stores/player/playRequestState.ts',
+  'stores/player/playbackPipeline.ts',
+  'stores/player/queueNavigation.ts',
+  'stores/player/engineSync.ts',
+  'stores/player/queueActions.ts',
+  'stores/player/volumeActions.ts',
   'stores/playerSyncMain.ts',
   'services/playerEngine.ts',
   'stores/libraryPersistence.ts',

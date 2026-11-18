@@ -6,7 +6,7 @@
  *
  * 恢复的语义是「上次听到哪儿」：只重建 store 与队列，**不自动播放**。
  * 引擎在启动时没有加载任何音频（状态回落 `idle`），用户按下播放时由
- * `takeResumeProgress()`（见 playerStore 的 playThroughEngine）补一次起播位置。
+ * `takeResumeProgress()`（见 player/playbackPipeline 的 playThroughEngine）补一次起播位置。
  */
 
 import type { MusicInfo } from '@lx/core';

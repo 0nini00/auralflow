@@ -122,7 +122,7 @@ export default function MainWindow() {
   }, []);
 
   // 播放会话持久化：恢复队列 / 当前曲 / 上次播放位置（library 的 playback 命名空间）。
-  // 只重建状态、不自动播放 —— 用户按下播放时由 playerStore 的 playThroughEngine
+  // 只重建状态、不自动播放 —— 用户按下播放时由 stores/player/playbackPipeline 的 playThroughEngine
   // 取一次待恢复位置交给引擎（见 stores/playerPersistence.ts）。
   useEffect(() => {
     attachPlaybackPersistence();
