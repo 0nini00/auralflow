@@ -199,12 +199,15 @@ test('实际原生播放入口在同曲重播、倍速、暂停、seek 和后台
     '@/services/lyricOverlayPlayback': { syncLyricOverlayPlaybackClock: async () => {} },
     '@/services/playbackUrlCache': {},
     '@/services/audioInterruptionPolicy': { getAudioInterruptionAction: () => ({ type: 'none' }) },
-    '../services/playerService': { cancelPendingPlayback: () => 0, prefetchUpcomingSongNearEnd() {} },
+    '../services/playerService': { prefetchUpcomingSongNearEnd() {} },
+    '@/services/switchStepSession': { cancelPendingPlayback: () => 0 },
+    '@/services/cacheService': { deleteCachedAudioForMusic: async () => {} },
     '@/stores/historyStore': { useHistoryStore: { getState: () => ({ addToHistory: async () => {} }) } },
     '@/stores/playbackSettingsStore': { usePlaybackSettingsStore: { getState: () => ({ enableScrobble: false }) } },
     './wyScrobbleService': { scrobbleWySong: async () => {} },
   });
-  const { usePlayerStore: player, setupPlayerListeners, SILENCE_GAP_TRACK_ID } = load('src/stores/playerStore.ts');
+  const { usePlayerStore: player, SILENCE_GAP_TRACK_ID } = load('src/stores/playerStore.ts');
+  const { setupPlayerListeners } = load('src/player/playerListeners.ts');
   const request = load('src/services/playbackRequest.ts');
   const tracker = load('src/services/listenTrackerService.ts');
   const stats = load('src/stores/listeningStatsStore.ts').useListeningStatsStore;

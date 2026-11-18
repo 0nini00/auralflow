@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { AppState } from "react-native";
 import type { MusicInfo } from "@lx/core";
-import { usePlayerStore, type PlayMode, type PlaybackContext } from "../stores/playerStore";
+import { usePlayerStore, type PlayMode, type PlaybackContext, type PlayerState } from "../stores/playerStore";
 import { clampPlaybackRate, DEFAULT_PLAYBACK_RATE } from "@/services/playerRateModel";
 import { normalizePersistedVolumeState } from "@/services/playerVolumeModel";
 import { logger } from "@/services/logger";
@@ -30,6 +30,29 @@ export interface PlaybackSnapshot {
   savedAt: number;
 }
 
+/**
+ * 落盘的播放上下文，形状与已发布版本一致。
+ *
+ * personalFm 一支带着 currentBatch / currentBatchIndex：早期 store 里 FM 批次另存一份，
+ * 快照原样写出了它。现在批次就是 queue / currentIndex，这两个字段在写出时由它们派生，
+ * 磁盘格式因此不变。恢复时任何版本都不读它们（FM 上下文一律退化为普通队列）。
+ */
+type PersistedPlaybackContext =
+  | { type: "queue" }
+  | { type: "personalFm"; currentBatch: MusicInfo[]; currentBatchIndex: number; buffer: MusicInfo[]; hasMore: boolean };
+
+function toPersistedPlaybackContext(state: PlayerState): PersistedPlaybackContext {
+  const context = state.playbackContext;
+  if (context.type === "queue") return context;
+  return {
+    type: "personalFm",
+    currentBatch: state.queue,
+    currentBatchIndex: state.currentIndex,
+    buffer: context.buffer,
+    hasMore: context.hasMore,
+  };
+}
+
 interface PersistedSnapshot {
   currentSong: MusicInfo | null;
   queue: MusicInfo[];
@@ -42,8 +65,8 @@ interface PersistedSnapshot {
   volume: number;
   previousVolume: number;
   isMuted: boolean;
-  // 只持久化 queue 上下文；personalFm 的缓冲无法离线恢复
-  playbackContext: PlaybackContext;
+  // 只恢复 queue 上下文；personalFm 的缓冲无法离线恢复
+  playbackContext: PersistedPlaybackContext;
   savedAt: number;
 }
 
@@ -61,7 +84,7 @@ function buildSnapshot(): PersistedSnapshot {
     volume: state.volume,
     previousVolume: state.previousVolume,
     isMuted: state.isMuted,
-    playbackContext: state.playbackContext,
+    playbackContext: toPersistedPlaybackContext(state),
     savedAt: Date.now(),
   };
 }

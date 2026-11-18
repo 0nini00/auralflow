@@ -41,11 +41,6 @@ export function reorderQueueState(
   if (![...state.shuffleHistory, ...state.playedIndices].every(index => isQueueIndex(index, length))) {
     return { status: "invalid" };
   }
-  if (context.type !== "queue" && (
-    context.currentBatch.length !== length ||
-    context.currentBatch.some((song, index) => song !== state.queue[index]) ||
-    !isQueueIndex(context.currentBatchIndex, length)
-  )) return { status: "invalid" };
   if (from === to) return { status: "unchanged" };
 
   // 映射槽位而非歌曲 ID，同一歌曲甚至同一对象出现多次时仍保留播放身份。
@@ -63,11 +58,8 @@ export function reorderQueueState(
       currentIndex: remap(state.currentIndex),
       shuffleHistory: state.shuffleHistory.map(remap),
       playedIndices: state.playedIndices.map(remap),
-      playbackContext: context.type === "queue" ? context : {
-        ...context,
-        currentBatch: queue,
-        currentBatchIndex: remap(context.currentBatchIndex),
-      },
+      // FM 的批次就是 queue 本身，无需另行重排；只换上下文对象作废在途补拉（版本凭据）。
+      playbackContext: context.type === "queue" ? context : { ...context },
     },
   };
 }

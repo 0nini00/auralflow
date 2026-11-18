@@ -23,7 +23,7 @@ import {
   type DownloadQuality,
   type DownloadSongResult,
 } from "@/stores/downloadStore";
-import { playQueue } from "@/services/playerService";
+import { playQueue, queueSongToPlayNext } from "@/services/playerService";
 import { runPlaybackUiAction } from "@/services/playbackUiAction";
 import {
   buildPlaylistDetailActions,
@@ -88,7 +88,6 @@ export function PlaylistDetailScreen({
   // 本地收藏、下载、批量操作等本地能力不受影响。
   const isLoggedIn = useAccountStore((state) => state.isLoggedIn);
   const wyUser = useAccountStore((state) => state.user);
-  const playNextInQueue = usePlayerStore((state) => state.playNextInQueue);
   const downloadSong = useDownloadStore((state) => state.downloadSong);
 
   // "我喜欢"已改为本地收藏独立页（LikedSongsScreen），本页只服务真实歌单
@@ -199,7 +198,7 @@ export function PlaylistDetailScreen({
 
   const handleBatchPlayNext = () => {
     if (selectedSongs.length === 0) return;
-    selectedSongs.forEach(playNextInQueue);
+    selectedSongs.forEach((song) => queueSongToPlayNext(song));
     Alert.alert("已设置下一首", `${selectedSongs.length} 首歌曲设为稍后播放`);
   };
 

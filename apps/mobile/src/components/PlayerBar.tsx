@@ -24,7 +24,7 @@ import {
 import { syncLyricOverlayPlaybackClock } from "@/services/lyricOverlayPlayback";
 import { logger } from "@/services/logger";
 import { buildSongKey, shouldCalibrateClock } from "@lx/core";
-import { playFromQueue, playNext } from "@/services/playerService";
+import { playFromQueue, playNext, resumePlayback } from "@/services/playerService";
 import { convertChineseText } from "@/services/chineseConversionService";
 import { useLyricOverlayStore } from "@/stores/lyricOverlayStore";
 import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
@@ -64,7 +64,6 @@ export function PlayerBar({ onOpen }: PlayerBarProps) {
   const loading = usePlayerStore((state) => state.loading);
   const playbackNotice = usePlayerStore((state) => state.playbackNotice);
   const pause = usePlayerStore((state) => state.pause);
-  const resume = usePlayerStore((state) => state.resume);
 
   const overlayVisible = useLyricOverlayStore((state) => state.visible);
   const overlayLocked = useLyricOverlayStore((state) => state.locked);
@@ -149,7 +148,7 @@ export function PlayerBar({ onOpen }: PlayerBarProps) {
         return;
       }
 
-      await resume();
+      await resumePlayback();
       const state = usePlayerStore.getState();
       if (!state.isPlaying && state.currentIndex >= 0) {
         // 快照恢复后原生无曲：重新播放当前曲并续播上次保存的进度

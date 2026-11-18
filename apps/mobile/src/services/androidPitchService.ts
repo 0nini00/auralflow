@@ -1,7 +1,5 @@
 import TrackPlayer from "react-native-track-player";
 
-import { usePlayerStore } from "@/stores/playerStore";
-
 /**
  * Android 倍速同步。
  *
@@ -12,9 +10,8 @@ import { usePlayerStore } from "@/stores/playerStore";
  * - 独立变调在移动端无实现：原生 AudioFx 的 setPitch 返回 false，UI 不提供该控件。
  *
  * 本函数由 playerStore 在播放参数变化时调用，保证倍速始终同步到原生播放器。
+ * 倍速由调用方传入（store 写入后的值）：本模块在 store 之下，不反向读取 store。
  */
-export async function syncPlaybackParameters(): Promise<void> {
-  const rate = usePlayerStore.getState().playbackRate || 1;
-
+export async function syncPlaybackParameters(rate: number): Promise<void> {
   await TrackPlayer.setRate(rate);
 }

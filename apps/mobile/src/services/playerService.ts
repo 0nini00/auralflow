@@ -37,7 +37,7 @@ import {
   raceForBestQuality,
   raceStaggeredPriority,
 } from "@lx/core";
-import { applySwitchStepRequest, createSwitchStepQueueState, finishSwitchStep } from "@lx/core";
+import { applySwitchStepRequest, finishSwitchStep } from "@lx/core";
 import { usePlaybackSettingsStore } from "@/stores/playbackSettingsStore";
 import { useVariantPinStore } from "@/stores/variantPinStore";
 import { buildPlaybackPrefetchKey, isPlaybackPrefetchKeyForSong } from "@/services/playbackPrefetchModel";
@@ -53,6 +53,7 @@ import {
   type HiddenFallbackResult,
 } from "./hiddenFallbackService";
 import { beginPlaybackRequest, getCurrentPlaybackRequestId, isCurrentPlaybackRequest } from "./playbackRequest";
+import { getSwitchStepSession, resetSwitchStepSession, type SwitchStepSession } from "./switchStepSession";
 
 /**
  * 提取 URL 的协议与主机用于错误提示，丢弃路径与查询串（可能含鉴权 token）。
@@ -803,7 +804,7 @@ function getNearbySongs(): MusicInfo[] {
       seen.add(key);
       result.push(song);
     };
-    push(playbackContext.currentBatch[playbackContext.currentBatchIndex + 1]);
+    push(queue[currentIndex + 1]);
     push(playbackContext.buffer[0]);
     push(playbackContext.buffer[1]);
     return result;
@@ -911,9 +912,7 @@ function getNextSongForPrefetch(): MusicInfo | undefined {
     usePlayerStore.getState();
   if (tempPlayList.length > 0) return tempPlayList[0];
   if (playbackContext.type === "personalFm") {
-    return (
-      playbackContext.currentBatch[playbackContext.currentBatchIndex + 1] ?? playbackContext.buffer[0]
-    );
+    return queue[currentIndex + 1] ?? playbackContext.buffer[0];
   }
   if (playMode === "single") return undefined;
   // 随机模式：预抽定下一首（drawPreDrawnShuffleSong），playNext 消费同一首——
@@ -959,26 +958,15 @@ export function prefetchUpcomingSongNearEnd(position: number, duration: number):
 }
 
 /**
- * next/prev 的切歌串行化。
- *
- * 原生 add/skip 未返回时并发再发起一次切歌，会把原生队列的写入顺序打乱
- * （后台/锁屏「下一首」与手动点击可能同时到达），所以这期间的 next/prev 请求
- * 合并成一次「补跳」：等当前切换收尾后再跳一步，总共仍然是两首。
+ * next/prev 的切歌串行化：会话本身由 switchStepSession 持有（见该模块说明）。
  *
  * 注意 playFromQueue / playQueue 不参与这套合并：队列内直选必须立刻生效，
  * 若也走合并，用户点的第 N 首会被降级成「当前曲的下一首」，播出来根本不是他点的那首。
  */
-let switchStepSession = { state: createSwitchStepQueueState(), intent: null as number | null };
-
-/** 清空队列时一并丢弃旧会话中尚未消费的连点，避免补跳推进新队列。 */
-export function cancelPendingPlayback(): number {
-  switchStepSession = { state: createSwitchStepQueueState(), intent: null };
-  return beginPlaybackRequest();
-}
 
 /** 当前切换完成后消费连点补跳（只补一次，防止循环）。 */
-async function completeQueuedSwitchStep(session: typeof switchStepSession): Promise<void> {
-  if (session !== switchStepSession) return;
+async function completeQueuedSwitchStep(session: SwitchStepSession): Promise<void> {
+  if (session !== getSwitchStepSession()) return;
   const superseded = session.intent !== null && !isCurrentPlaybackRequest(session.intent);
   const finished = finishSwitchStep(session.state);
   session.state = finished.nextState;
@@ -1162,6 +1150,34 @@ export async function playFromQueue(
 }
 
 /**
+ * 继续播放（界面播放键、媒体按键共用）。
+ *
+ * 原生侧还留着当前曲时由 store 直接续播；没有可续播的轨道（快照恢复后尚未 setup、
+ * 装载被暂停取消）时按 store 交还的目标重新取链装载。意图在 resumeTransport 的
+ * 同步段就已认领，调用方可以在本函数返回 Promise 的同一拍读到新的请求代次。
+ */
+export async function resumePlayback(): Promise<void> {
+  const reload = await usePlayerStore.getState().resumeTransport();
+  if (!reload || !isCurrentPlaybackRequest(reload.requestId)) return;
+  if (reload.queueIndex !== null) {
+    await playFromQueue(reload.queueIndex, reload.startPosition, reload.requestId);
+    return;
+  }
+  await playSong(reload.song);
+}
+
+/**
+ * 「下一首播放」：插到当前曲之后，并立即预取它的播放 URL/歌词/封面，
+ * 播到它时命中缓存秒开（避免插播时实时解析）。
+ * 空队列 / 无当前曲时插入后立即开播，避免只改队列不出声（与桌面端一致）。
+ */
+export function queueSongToPlayNext(song: MusicInfo): void {
+  const shouldStartNow = usePlayerStore.getState().playNextInQueue(song);
+  if (shouldStartNow) void playFromQueue(0).catch(() => undefined);
+  prefetchSong(song);
+}
+
+/**
  * 批量添加到队列并播放
  *
  * 与 playFromQueue 相同的手动语义：调用即生效，旧的在途请求由 intent 令牌作废。
@@ -1209,10 +1225,10 @@ export async function playNext(auto = false): Promise<void> {
     if (next.nextIndex === null) return;
   }
   if (!auto && interruptPlaybackResolution()) {
-    switchStepSession = { state: createSwitchStepQueueState(), intent: null };
+    resetSwitchStepSession();
     logger.info("手动下一首取消旧解析");
   }
-  const session = switchStepSession;
+  const session = getSwitchStepSession();
   if (auto && session.state.switching) return;
   const step = applySwitchStepRequest(session.state, "next");
   session.state = step.nextState;
@@ -1296,10 +1312,10 @@ export async function playPrevious(): Promise<void> {
   if (usePlayerStore.getState().queue.length === 0) return;
   const interrupted = interruptPlaybackResolution();
   if (interrupted) {
-    switchStepSession = { state: createSwitchStepQueueState(), intent: null };
+    resetSwitchStepSession();
     logger.info("手动上一首取消旧解析");
   }
-  const session = switchStepSession;
+  const session = getSwitchStepSession();
   const step = applySwitchStepRequest(session.state, "prev");
   session.state = step.nextState;
   if (!step.startNow) return;
@@ -1400,15 +1416,17 @@ export async function playNextPersonalFmSong(requestId?: number): Promise<void> 
   }
   if (requestId !== undefined && !isCurrentPlaybackRequest(requestId)) return;
   const intent = requestId ?? beginPlaybackRequest();
-  const nextInBatchIndex = context.currentBatchIndex + 1;
-  if (nextInBatchIndex < context.currentBatch.length) {
+  // FM 的当前批次就是队列本身（见 PersonalFmContext）；与 context 同一时刻取，后面续批沿用。
+  const { queue: currentBatch, currentIndex: currentBatchIndex } = store;
+  const nextInBatchIndex = currentBatchIndex + 1;
+  if (nextInBatchIndex < currentBatch.length) {
     usePlayerStore.getState().setPersonalFmContext({
-      currentBatch: context.currentBatch,
+      currentBatch,
       currentBatchIndex: nextInBatchIndex,
       buffer: context.buffer,
       hasMore: context.hasMore,
     });
-    await playSongCore(context.currentBatch[nextInBatchIndex], undefined, intent);
+    await playSongCore(currentBatch[nextInBatchIndex], undefined, intent);
     return;
   }
   let nextSong = store.shiftPersonalFmBuffer();
@@ -1430,8 +1448,8 @@ export async function playNextPersonalFmSong(requestId?: number): Promise<void> 
     return;
   }
   // FM 历史上限：追加后超过 50 条时截断保留最新 50 条（对齐桌面端 fmHistory 上限），
-  // 防止 currentBatch 随切歌无限增长（currentBatchIndex 始终指向末尾，截断只丢最旧记录）。
-  const nextBatch = [...context.currentBatch, nextSong].slice(-FM_HISTORY_MAX);
+  // 防止批次随切歌无限增长（指针始终指向末尾，截断只丢最旧记录）。
+  const nextBatch = [...currentBatch, nextSong].slice(-FM_HISTORY_MAX);
   const refreshedContext = usePlayerStore.getState().playbackContext;
   const nextBuffer = refreshedContext.type === "personalFm" ? refreshedContext.buffer : [];
   usePlayerStore.getState().setPersonalFmContext({

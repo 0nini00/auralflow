@@ -17,7 +17,7 @@ function setup() {
     "@/services/playbackUrlCache": {},
     "@/services/playbackFailurePolicy": {},
     "@/services/logger": { logger: { warn() {} } },
-    "../services/playerService": {},
+    "@/services/switchStepSession": {},
     "@/services/lyricOverlayService": {},
     "@/services/listenTrackerService": {},
   });
@@ -60,14 +60,18 @@ for (const [from, to, order, currentIndex, history, played] of [
   });
 }
 
+// FM 的批次就是 queue / currentIndex 本身（上下文里不再另存一份）：重排后批次指针
+// 即 currentIndex，上下文只保留缓冲，并换成新对象作废在途的后台补拉。
 test("personalFm remaps batch indices without discarding context or its buffer", () => {
   const { store, queue } = setup();
-  const context = { type: "personalFm", currentBatch: queue, currentBatchIndex: 2, buffer: [song("buffer")], hasMore: true };
+  const context = { type: "personalFm", buffer: [song("buffer")], hasMore: true };
   store.setState({ playbackContext: context });
   assert.equal(reorder(store, queue, 2, 0), "reordered");
   const state = store.getState();
-  assert.deepEqual(state.playbackContext, { ...context, currentBatch: state.queue, currentBatchIndex: 0 });
-  assert.strictEqual(state.playbackContext.currentBatch, state.queue);
+  assert.deepEqual(state.playbackContext, context);
+  assert.notStrictEqual(state.playbackContext, context);
+  assert.equal(state.currentIndex, 0);
+  assert.strictEqual(state.queue[state.currentIndex], queue[2]);
   assert.strictEqual(state.playbackContext.buffer, context.buffer);
 });
 
@@ -118,14 +122,10 @@ test("invalid indices and same-slot drops cause no state change", () => {
   assert.strictEqual(store.getState(), before);
 });
 
-test("invalid history or divergent FM batch is rejected, not silently repaired", () => {
+test("invalid history is rejected, not silently repaired", () => {
   const { store, queue } = setup();
   store.setState({ shuffleHistory: [99] });
-  let before = store.getState();
-  assert.equal(reorder(store, queue, 0, 2), "invalid");
-  assert.strictEqual(store.getState(), before);
-  store.setState({ shuffleHistory: [], playbackContext: { type: "personalFm", currentBatch: [song("other")], currentBatchIndex: 0, buffer: [], hasMore: false } });
-  before = store.getState();
+  const before = store.getState();
   assert.equal(reorder(store, queue, 0, 2), "invalid");
   assert.strictEqual(store.getState(), before);
 });

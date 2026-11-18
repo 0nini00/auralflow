@@ -14,6 +14,7 @@ import { Touchable } from "./Touchable";
 import { useFavoritesStore } from "@/stores/favoritesStore";
 import { useDownloadStore, type DownloadQuality } from "@/stores/downloadStore";
 import { usePlayerStore } from "@/stores/playerStore";
+import { queueSongToPlayNext } from "@/services/playerService";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { shareMusic } from "@/services/shareMusicService";
 import { hapticLight } from "@/services/hapticService";
@@ -135,7 +136,6 @@ export function SongList({
   const { width } = useWindowDimensions();
   const showDuration = width >= 380;
   const downloadSong = useDownloadStore((state) => state.downloadSong);
-  const playNextInQueue = usePlayerStore((state) => state.playNextInQueue);
   const currentSong = usePlayerStore((state) => state.currentSong);
 
   // 三个操作弹窗提升到列表根部作为单例，避免每行都实例化 Modal 组件树。
@@ -334,7 +334,7 @@ export function SongList({
         ? "重试"
         : "下载";
     const items: ActionMenuItem[] = [
-      { label: buildSongQueueActionLabels().playNextLabel, icon: "playNext", onPress: () => playNextInQueue(song) },
+      { label: buildSongQueueActionLabels().playNextLabel, icon: "playNext", onPress: () => queueSongToPlayNext(song) },
       // 这三个都会在菜单关闭的同帧挂载另一个 Modal；Android 上二级弹层会点不穿，
       // 必须等一级收完动画（与 QueueModal / ImmersiveMoreMenu 的处理一致）。
       { label: "收藏到歌单", icon: "playlist", onPress: () => afterModalDismiss(() => openAddToPlaylist(song)) },

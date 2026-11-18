@@ -32,7 +32,7 @@ function setup() {
     "@/services/androidPitchService": {},
     "@/services/playbackUrlCache": {},
     "@/services/playbackFailurePolicy": {},
-    "../services/playerService": { cancelPendingPlayback: () => load("src/services/playbackRequest.ts").beginPlaybackRequest() },
+    "@/services/switchStepSession": { cancelPendingPlayback: () => load("src/services/playbackRequest.ts").beginPlaybackRequest() },
     "@/services/lyricOverlayService": overlay,
     "@/services/listenTrackerService": { startListeningSession() {}, resetListeningSession() {}, onPlaybackProgress() {}, seekListeningSession() {}, flushListeningSession: async () => {} },
   });

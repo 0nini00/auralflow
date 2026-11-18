@@ -157,7 +157,7 @@ export function createMediaAudioSession(onInterrupted: () => void): MediaAudioSe
     const current = await readNativePlayback();
     if (!canResume() || !sameTrack(snapshot, current)) return;
     if (current.playWhenReady || current.state !== State.Paused) return;
-    // 不走 store.resume：它在 currentUrl 丢失时会重新解析并重建队列。
+    // 不走 resumePlayback：它在 currentUrl 丢失时会重新解析并重建队列。
     await TrackPlayer.play();
     if (!canResume()) return stopCancelledRestore();
     const playback = await TrackPlayer.getPlaybackState();

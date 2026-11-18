@@ -8,7 +8,6 @@ const ids = (list) => list.map((item) => item.id).join(",");
 // 「下一首播放」必须在主队列里当场生效：此前只写 tempPlayList 暂存区，队列面板
 // 看不到任何东西，直到播到它才突然出现（用户可见的症状即由此而来）。
 function setup({ queue = [], currentIndex = -1, shuffleHistory = [], playedIndices = [] } = {}) {
-  const played = [];
   const load = createLoader({
     zustand: mobileRequire("zustand"),
     "react-native": { AppState: { addEventListener: () => ({ remove() {} }) } },
@@ -23,21 +22,22 @@ function setup({ queue = [], currentIndex = -1, shuffleHistory = [], playedIndic
     "@/services/playbackUrlCache": {},
     "@/services/playbackFailurePolicy": {},
     "@/services/logger": { logger: { warn() {}, info() {} } },
-    "../services/playerService": { playFromQueue: async (index) => { played.push(index); } },
+    "@/services/switchStepSession": {},
     "@/services/lyricOverlayService": {},
     "@/services/listenTrackerService": {},
   });
   const store = load("src/stores/playerStore.ts").usePlayerStore;
   store.setState({ queue: [...queue], currentIndex, shuffleHistory, playedIndices, tempPlayList: [] });
-  return { store, played };
+  return { store };
 }
 
 test("插入到当前曲之后，并且不写暂存区", () => {
   const { store } = setup({ queue: [song("A"), song("B"), song("C")], currentIndex: 0 });
 
-  store.getState().playNextInQueue(song("X"));
+  const shouldStartNow = store.getState().playNextInQueue(song("X"));
 
   const state = store.getState();
+  assert.equal(shouldStartNow, false, "已有当前曲时只插队，不要求调用方起播");
   assert.equal(ids(state.queue), "A,X,B,C", "X 必须立刻出现在主队列当前曲之后");
   assert.equal(state.currentIndex, 0, "插入不应改变当前播放位置");
   assert.deepEqual(state.tempPlayList, [], "不应再写独立暂存区（那正是队列里看不到的原因）");
@@ -70,15 +70,16 @@ test("连点两首时后点的先播，队列顺序与锚点同步", () => {
   assert.equal(state.pinnedNextSong?.id, "Y", "锚点指向最后一次点击的歌");
 });
 
-test("空队列插入后立即开播，避免只改队列不出声", async () => {
-  const { store, played } = setup();
+// 起播本身由 playerService.queueSongToPlayNext 完成（store 不依赖播放编排），
+// 「空队列插入后真的出声」在 playback-regressions.test.cjs 用真实 service 锁住。
+test("空队列插入后成为队首，并告知调用方需要立即开播", () => {
+  const { store } = setup();
 
-  store.getState().playNextInQueue(song("X"));
-  await new Promise((resolve) => setImmediate(resolve));
+  const shouldStartNow = store.getState().playNextInQueue(song("X"));
 
   const state = store.getState();
   assert.equal(ids(state.queue), "X");
   assert.equal(state.currentIndex, 0);
-  assert.equal(state.pinnedNextSong, null, "已经直接开播了，不该再留锚点让下一首重播它");
-  assert.deepEqual(played, [0], "空队列场景应直接播放这一首");
+  assert.equal(state.pinnedNextSong, null, "马上就要直接开播，不该再留锚点让下一首重播它");
+  assert.equal(shouldStartNow, true, "空队列场景必须要求调用方直接播放这一首");
 });

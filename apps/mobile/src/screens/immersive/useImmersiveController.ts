@@ -8,7 +8,7 @@ import { buildImmersivePlaybackRateModel } from "@/services/playerRateModel";
 import { buildImmersiveQueuePanelModel } from "@/services/playerQueueModel";
 import { buildImmersiveVolumeControlModel } from "@/services/playerVolumeModel";
 import { buildMobileSleepTimerControl } from "@/services/songSleepTimerModel";
-import { playFromQueue, playNext, playPrevious, loadLyricsForRestoredSong } from "@/services/playerService";
+import { playFromQueue, playNext, playPrevious, loadLyricsForRestoredSong, resumePlayback } from "@/services/playerService";
 import { useLyricLineIndex } from "@/hooks/useLyricLineIndex";
 import { shareMusic } from "@/services/shareMusicService";
 import { saveCoverToDownloads } from "@/services/downloadService";
@@ -57,7 +57,6 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
   const currentIndex = usePlayerStore((s) => s.currentIndex);
   const downloadSong = useDownloadStore((s) => s.downloadSong);
   const pause = usePlayerStore((s) => s.pause);
-  const resume = usePlayerStore((s) => s.resume);
   const seekTo = usePlayerStore((s) => s.seekTo);
   const togglePlayMode = usePlayerStore((s) => s.togglePlayMode);
   const setVolume = usePlayerStore((s) => s.setVolume);
@@ -224,7 +223,7 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
       return;
     }
     try {
-      await resume();
+      await resumePlayback();
       const after = usePlayerStore.getState();
       if (!after.isPlaying && after.currentIndex >= 0) {
         // 快照恢复后原生无曲：重新播放当前曲并续播上次保存的进度

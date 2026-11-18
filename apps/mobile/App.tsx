@@ -29,7 +29,7 @@ import { autoCleanCache } from "@/services/cacheService";
 import { consumeLastJSError } from "@/services/globalErrorCapture";
 import { checkForUpdates, type UpdateInfo } from "@/services/updateService";
 import { logger } from "@/services/logger";
-import { setupPlayerListeners } from "@/stores/playerStore";
+import { setupPlayerListeners } from "@/player/playerListeners";
 import { canRunStartupNetworkTasks } from "@/services/startupPolicy";
 import { useAccountStore } from "@/stores/accountStore";
 import { useFavoritesStore } from "@/stores/favoritesStore";

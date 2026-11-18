@@ -33,6 +33,7 @@ function setup(config = {}) {
     invalidatePrefetchForSong() { calls.push("invalidatePrefetchForSong"); },
     playFromQueue() { calls.push("playFromQueue"); request.beginPlaybackRequest(); return behavior.retry(); },
     playSong() { calls.push("playSong"); request.beginPlaybackRequest(); return behavior.retry(); },
+    resumePlayback() { playerService.cancelPendingPlayback(); return native.play(); },
   };
   const load = createLoader({
     "react-native-track-player": { __esModule: true, default: native, State: { Error: "error" }, Event: Object.fromEntries(events.map(event => [event, event])) },
@@ -41,14 +42,16 @@ function setup(config = {}) {
     "@/services/queueNavigationModel": { getNextQueueNavigationState: () => ({ nextIndex: state.currentIndex + 1 < state.queue.length ? state.currentIndex + 1 : null }) },
     "@/stores/playbackSettingsStore": { usePlaybackSettingsStore: { getState: () => settings } },
     "@/stores/playerStore": { usePlayerStore: { getState: () => state, setState: patch => Object.assign(state, patch) },
-      setupPlayerListeners: () => calls.push("setupPlayerListeners"), shouldAttributePlaybackErrorToCurrentSong: () => true, SILENCE_GAP_TRACK_ID: "gap" },
+      shouldAttributePlaybackErrorToCurrentSong: () => true, SILENCE_GAP_TRACK_ID: "gap" },
+    "@/player/playerListeners": { setupPlayerListeners: () => calls.push("setupPlayerListeners") },
     "@/services/logger": { logger: { info: (...args) => calls.push(["info", ...args]), warn: (...args) => calls.push(["warn", ...args]), error: (...args) => calls.push(["error", ...args]) } },
     "@/services/playbackUrlCache": { invalidateCachedPlaybackUrl: () => { calls.push("invalidateCachedPlaybackUrl"); return behavior.invalidate(); } },
     "@/services/listenTrackerService": { startListeningSession() {}, resetListeningSession() {}, onPlaybackProgress() {}, seekListeningSession() {}, flushListeningSession: async () => {} },
     "../services/playerService": playerService,
+    "@/services/switchStepSession": { cancelPendingPlayback: playerService.cancelPendingPlayback },
   });
   request = load("src/services/playbackRequest.ts");
-  for (const [action, method] of [["resume", "play"], ["pause", "pause"], ["stop", "stop"]]) {
+  for (const [action, method] of [["pause", "pause"], ["stop", "stop"]]) {
     state[action] = () => { playerService.cancelPendingPlayback(); return native[method](); };
   }
   const policy = load("src/services/playbackFailurePolicy.ts");
@@ -329,6 +332,7 @@ function nativeNavigationSetup(blockAt, { autoSkip = false } = {}) {
     "../stores/customSourceStore": {}, "./streamProbe": {}, "@/services/crossSourceFallbackService": {},
     "@/stores/playbackSettingsStore": { usePlaybackSettingsStore: { getState: () => ({ defaultQuality: "320k", autoSkipOnPlaybackError: autoSkip }) } },
     "./cacheService": { CACHEABLE_AUDIO_SOURCES: new Set(), getCachedLyrics: async () => [], cacheCover: async () => {}, cacheLyrics: async () => {} },
+    "@/services/cacheService": { deleteCachedAudioForMusic: async () => {} },
   });
   // 真实 service、store、播放意图和切换模型，仅替换平台/网络边界。
   const store = load("src/stores/playerStore.ts").usePlayerStore;
@@ -450,7 +454,7 @@ for (const transport of ["RemotePlay", "resume"]) {
     await h.emit("RemotePause");
     h.cache.getCachedPlaybackUrl = async song => ({ url: "https://fixture.invalid/" + song.id, quality: "320k" });
     if (transport === "RemotePlay") await h.emit(transport);
-    else await h.store.getState().resume();
+    else await h.navigation.resumePlayback();
     assert.equal(h.addedTracks.filter(track => track.id === "tx-B").length, 1);
     assert.equal(h.store.getState().currentUrl, "https://fixture.invalid/B");
     assert.equal(h.store.getState().isPlaying, true);
@@ -462,7 +466,7 @@ for (const transport of ["RemotePlay", "resume"]) {
     await h.emit("RemotePause");
     const url = h.store.getState().currentUrl;
     if (transport === "RemotePlay") await h.emit(transport);
-    else await h.store.getState().resume();
+    else await h.navigation.resumePlayback();
     assert.equal(count(h, "add"), 1);
     assert.equal(count(h, "skip"), 1);
     assert.equal(h.store.getState().position, 37);
