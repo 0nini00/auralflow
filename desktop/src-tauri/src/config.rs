@@ -117,6 +117,29 @@ pub fn patch_settings(app: &AppHandle, patch: Value) -> Result<AppSettings, Stri
     Ok(updated)
 }
 
+/// 把指定的顶层字段恢复成默认值。
+///
+/// 默认值只在 `AppSettings::default()` 这一处定义：前端的「恢复默认」只说要恢复
+/// 哪些字段，不带任何值过来，因此前端不需要、也不应该再存一份默认值表。
+/// 写入仍走 `patch_settings`，加锁、落盘、变更事件都与普通修改完全一致。
+pub fn reset_settings(app: &AppHandle, keys: &[String]) -> Result<AppSettings, String> {
+    patch_settings(app, default_values_for(keys)?)
+}
+
+/// 取出这些字段的默认值，拼成一份 patch。字段名不存在即报错（与 patch 的未知字段同一口径）。
+fn default_values_for(keys: &[String]) -> Result<Value, String> {
+    let defaults = serde_json::to_value(AppSettings::default())
+        .map_err(|e| format!("序列化默认配置失败: {}", e))?;
+    let mut patch = serde_json::Map::new();
+    for key in keys {
+        let value = defaults
+            .get(key)
+            .ok_or_else(|| format!("未知的配置字段: {}", key))?;
+        patch.insert(key.clone(), value.clone());
+    }
+    Ok(Value::Object(patch))
+}
+
 /// 把 patch 合并进当前设置，返回新设置与**值确实变了**的顶层字段名。纯计算，不做 IO。
 fn apply_patch(current: &AppSettings, patch: Value) -> Result<(AppSettings, Vec<String>), String> {
     let before =
@@ -257,6 +280,36 @@ mod tests {
     fn unknown_keys_are_rejected() {
         let error = apply_patch(&AppSettings::default(), json!({ "lyricFontSizee": 30 }))
             .unwrap_err();
+        assert!(error.contains("lyricFontSizee"), "{}", error);
+    }
+
+    #[test]
+    fn reset_takes_its_values_from_the_rust_defaults() {
+        let defaults = AppSettings::default();
+        let patch =
+            default_values_for(&["lyricFontSize".to_string(), "lyricAlign".to_string()]).unwrap();
+        assert_eq!(
+            patch,
+            json!({ "lyricFontSize": defaults.lyric_font_size, "lyricAlign": defaults.lyric_align })
+        );
+
+        // 套回一份改过的设置：只有点名的字段回到默认值
+        let customized = AppSettings {
+            lyric_font_size: 44,
+            lyric_align: "left".to_string(),
+            lyric_line_gap: 20,
+            ..AppSettings::default()
+        };
+        let (restored, changed) = apply_patch(&customized, patch).unwrap();
+        assert_eq!(restored.lyric_font_size, defaults.lyric_font_size);
+        assert_eq!(restored.lyric_align, defaults.lyric_align);
+        assert_eq!(restored.lyric_line_gap, 20);
+        assert_eq!(changed, vec!["lyricAlign".to_string(), "lyricFontSize".to_string()]);
+    }
+
+    #[test]
+    fn reset_rejects_unknown_keys() {
+        let error = default_values_for(&["lyricFontSizee".to_string()]).unwrap_err();
         assert!(error.contains("lyricFontSizee"), "{}", error);
     }
 }

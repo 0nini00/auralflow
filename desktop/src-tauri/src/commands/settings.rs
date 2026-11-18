@@ -38,6 +38,14 @@ pub fn patch_settings(app: AppHandle, patch: Value) -> Result<AppSettings, Strin
     Ok(settings)
 }
 
+/// 把 `keys` 列出的顶层字段恢复为默认值（默认值由 Rust 的 `AppSettings::default()` 决定）。
+#[tauri::command]
+pub fn reset_settings(app: AppHandle, keys: Vec<String>) -> Result<AppSettings, String> {
+    let settings = config::reset_settings(&app, &keys)?;
+    allow_app_background_asset(&app, &settings);
+    Ok(settings)
+}
+
 // ─── 关闭窗口的确认答复 ────────────────────────────────────────
 
 /// 前端关闭确认框的答复：`action` = `"tray"`（最小化到托盘）/ `"quit"`（退出应用）。

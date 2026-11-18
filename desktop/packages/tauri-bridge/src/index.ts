@@ -145,8 +145,16 @@ export async function loadSettings(): Promise<RustAppSettings> {
 }
 
 /** 部分更新设置 */
-export async function patchSettings(patch: Record<string, unknown>): Promise<RustAppSettings> {
+export async function patchSettings(patch: Partial<RustAppSettings>): Promise<RustAppSettings> {
   return invoke<RustAppSettings>("patch_settings", { patch });
+}
+
+/**
+ * 把 `keys` 列出的顶层字段恢复成默认值。默认值只在 Rust 的 `AppSettings::default()` 定义，
+ * 前端只说恢复哪些字段、不带值；字段名不存在会被 Rust 拒绝。
+ */
+export async function resetSettings(keys: ReadonlyArray<keyof RustAppSettings>): Promise<RustAppSettings> {
+  return invoke<RustAppSettings>("reset_settings", { keys });
 }
 
 /** 主窗口完成退出前持久化后应答；错误会取消本次退出。 */
