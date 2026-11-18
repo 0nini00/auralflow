@@ -2,9 +2,10 @@ import { DeviceEventEmitter } from "react-native";
 import TrackPlayer, { Event, State, type EventPayloadByEvent } from "react-native-track-player";
 import { buildSongKey } from "@lx/core";
 import {
-  cancelPendingPlayback, invalidatePrefetchForSong, playFromQueue, playNext,
+  invalidatePrefetchForSong, playFromQueue, playNext,
   playPrevious, playSong, prefetchUpcomingSongNearEnd,
 } from "../services/playerService";
+import { cancelPendingPlayback } from "@/services/switchStepSession";
 import { getCurrentPlaybackRequestId, isCurrentPlaybackRequest } from "@/services/playbackRequest";
 import { logger } from "@/services/logger";
 import { startListeningSession } from "@/services/listenTrackerService";

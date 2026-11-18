@@ -18,6 +18,7 @@ function setup() {
     "@/services/playbackFailurePolicy": {},
     "@/services/logger": { logger: { warn() {} } },
     "../services/playerService": {},
+    "@/services/switchStepSession": {},
     "@/services/lyricOverlayService": {},
     "@/services/listenTrackerService": {},
   });

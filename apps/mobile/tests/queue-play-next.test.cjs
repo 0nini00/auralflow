@@ -24,6 +24,7 @@ function setup({ queue = [], currentIndex = -1, shuffleHistory = [], playedIndic
     "@/services/playbackFailurePolicy": {},
     "@/services/logger": { logger: { warn() {}, info() {} } },
     "../services/playerService": { playFromQueue: async (index) => { played.push(index); } },
+    "@/services/switchStepSession": {},
     "@/services/lyricOverlayService": {},
     "@/services/listenTrackerService": {},
   });

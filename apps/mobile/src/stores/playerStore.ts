@@ -28,7 +28,8 @@ import { buildMobilePlayRequestKey } from "@/services/playerRequestModel";
 import { beginPlaybackRequest, isCurrentPlaybackRequest } from "@/services/playbackRequest";
 import { invalidateCachedPlaybackUrl } from "@/services/playbackUrlCache";
 import { notePlaybackHealthy } from "@/services/playbackFailurePolicy";
-import { cancelPendingPlayback, invalidatePrefetchForSong, playFromQueue, playSong, prefetchUpcomingSongNearEnd } from "../services/playerService";
+import { cancelPendingPlayback } from "@/services/switchStepSession";
+import { invalidatePrefetchForSong, playFromQueue, playSong, prefetchUpcomingSongNearEnd } from "../services/playerService";
 import {
   isLyricOverlaySupported,
   setLyricOverlayClockRate,
@@ -755,7 +756,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     onPlaybackProgress(previous.position, previous.isPlaying, previous.playbackRate);
     set({ playbackRate: nextRate });
     try {
-      await syncPlaybackParameters();
+      await syncPlaybackParameters(nextRate);
     } catch (error) {
       set({ playbackRate: previous.playbackRate, error: error instanceof Error ? error.message : '修改播放速度失败' });
       throw error;

@@ -37,7 +37,7 @@ import {
   raceForBestQuality,
   raceStaggeredPriority,
 } from "@lx/core";
-import { applySwitchStepRequest, createSwitchStepQueueState, finishSwitchStep } from "@lx/core";
+import { applySwitchStepRequest, finishSwitchStep } from "@lx/core";
 import { usePlaybackSettingsStore } from "@/stores/playbackSettingsStore";
 import { useVariantPinStore } from "@/stores/variantPinStore";
 import { buildPlaybackPrefetchKey, isPlaybackPrefetchKeyForSong } from "@/services/playbackPrefetchModel";
@@ -53,6 +53,7 @@ import {
   type HiddenFallbackResult,
 } from "./hiddenFallbackService";
 import { beginPlaybackRequest, getCurrentPlaybackRequestId, isCurrentPlaybackRequest } from "./playbackRequest";
+import { getSwitchStepSession, resetSwitchStepSession, type SwitchStepSession } from "./switchStepSession";
 
 /**
  * 提取 URL 的协议与主机用于错误提示，丢弃路径与查询串（可能含鉴权 token）。
@@ -959,26 +960,15 @@ export function prefetchUpcomingSongNearEnd(position: number, duration: number):
 }
 
 /**
- * next/prev 的切歌串行化。
- *
- * 原生 add/skip 未返回时并发再发起一次切歌，会把原生队列的写入顺序打乱
- * （后台/锁屏「下一首」与手动点击可能同时到达），所以这期间的 next/prev 请求
- * 合并成一次「补跳」：等当前切换收尾后再跳一步，总共仍然是两首。
+ * next/prev 的切歌串行化：会话本身由 switchStepSession 持有（见该模块说明）。
  *
  * 注意 playFromQueue / playQueue 不参与这套合并：队列内直选必须立刻生效，
  * 若也走合并，用户点的第 N 首会被降级成「当前曲的下一首」，播出来根本不是他点的那首。
  */
-let switchStepSession = { state: createSwitchStepQueueState(), intent: null as number | null };
-
-/** 清空队列时一并丢弃旧会话中尚未消费的连点，避免补跳推进新队列。 */
-export function cancelPendingPlayback(): number {
-  switchStepSession = { state: createSwitchStepQueueState(), intent: null };
-  return beginPlaybackRequest();
-}
 
 /** 当前切换完成后消费连点补跳（只补一次，防止循环）。 */
-async function completeQueuedSwitchStep(session: typeof switchStepSession): Promise<void> {
-  if (session !== switchStepSession) return;
+async function completeQueuedSwitchStep(session: SwitchStepSession): Promise<void> {
+  if (session !== getSwitchStepSession()) return;
   const superseded = session.intent !== null && !isCurrentPlaybackRequest(session.intent);
   const finished = finishSwitchStep(session.state);
   session.state = finished.nextState;
@@ -1209,10 +1199,10 @@ export async function playNext(auto = false): Promise<void> {
     if (next.nextIndex === null) return;
   }
   if (!auto && interruptPlaybackResolution()) {
-    switchStepSession = { state: createSwitchStepQueueState(), intent: null };
+    resetSwitchStepSession();
     logger.info("手动下一首取消旧解析");
   }
-  const session = switchStepSession;
+  const session = getSwitchStepSession();
   if (auto && session.state.switching) return;
   const step = applySwitchStepRequest(session.state, "next");
   session.state = step.nextState;
@@ -1296,10 +1286,10 @@ export async function playPrevious(): Promise<void> {
   if (usePlayerStore.getState().queue.length === 0) return;
   const interrupted = interruptPlaybackResolution();
   if (interrupted) {
-    switchStepSession = { state: createSwitchStepQueueState(), intent: null };
+    resetSwitchStepSession();
     logger.info("手动上一首取消旧解析");
   }
-  const session = switchStepSession;
+  const session = getSwitchStepSession();
   const step = applySwitchStepRequest(session.state, "prev");
   session.state = step.nextState;
   if (!step.startNow) return;

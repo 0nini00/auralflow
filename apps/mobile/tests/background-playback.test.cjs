@@ -46,6 +46,7 @@ function setup(config = {}) {
     "@/services/playbackUrlCache": { invalidateCachedPlaybackUrl: () => { calls.push("invalidateCachedPlaybackUrl"); return behavior.invalidate(); } },
     "@/services/listenTrackerService": { startListeningSession() {}, resetListeningSession() {}, onPlaybackProgress() {}, seekListeningSession() {}, flushListeningSession: async () => {} },
     "../services/playerService": playerService,
+    "@/services/switchStepSession": { cancelPendingPlayback: playerService.cancelPendingPlayback },
   });
   request = load("src/services/playbackRequest.ts");
   for (const [action, method] of [["resume", "play"], ["pause", "pause"], ["stop", "stop"]]) {
