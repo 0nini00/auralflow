@@ -34,13 +34,11 @@ function setup() {
     "@/services/lyricOverlayService": { isLyricOverlaySupported: () => false },
     "@/services/lyricOverlayPlayback": { syncLyricOverlayPlaybackClock: async () => {} },
     "@/services/listenTrackerService": { startListeningSession() {}, resetListeningSession() {}, onPlaybackProgress() {}, seekListeningSession() {}, flushListeningSession: async () => {} },
-    "@/services/playbackUrlCache": { invalidateCachedPlaybackUrl: async (track) => { calls.push(["invalidateUrl", track.id]); } },
     "@/services/playbackFailurePolicy": { notePlaybackHealthy: (key) => { calls.push(["healthy", key]); } },
-    "@/services/cacheService": { deleteCachedAudioForMusic: async (track) => { calls.push(["deleteAudio", track.id]); } },
     "../services/playerService": {
       // 记录预读被调用那一刻 store 里的进度：证明状态同步层先于处置层。
       prefetchUpcomingSongNearEnd: (position, duration) => { prefetchSeen.push({ position, duration, storePosition: store.getState().position }); },
-      invalidatePrefetchForSong: (track) => { calls.push(["invalidatePrefetch", track.id]); },
+      invalidateResolvedPlayback: async (track, options) => { calls.push(["invalidate", track.id, options]); },
     },
   });
   store = load("src/stores/playerStore.ts").usePlayerStore;
@@ -84,7 +82,7 @@ test("静音占位轨期间的进度既不写 store 也不触发处置", options
   assert.equal(h.store.getState().error, null);
 });
 
-test("试听片段只处置一次：停播并清掉三级缓存；重新起播后再次拦截", options, async () => {
+test("试听片段只处置一次：停播并连磁盘音频一起作废；重新起播后再次拦截", options, async () => {
   const h = setup();
   h.setupPlayerListeners();
   await h.store.getState().play(song, "https://fixture.invalid/one");
@@ -92,14 +90,13 @@ test("试听片段只处置一次：停播并清掉三级缓存；重新起播�
   for (const position of [1, 1.25, 1.5]) h.emit("PlaybackProgressUpdated", { position, duration: 30, buffered: 30 });
   assert.match(h.store.getState().error, /检测到试听片段（约 30s）/);
   assert.equal(h.calls.filter(call => call[0] === "native" && call[1] === "pause").length, pausesBefore + 1);
-  assert.deepEqual(h.named("invalidateUrl"), [["invalidateUrl", "one"]]);
-  assert.deepEqual(h.named("invalidatePrefetch"), [["invalidatePrefetch", "one"]]);
-  assert.deepEqual(h.named("deleteAudio"), [["deleteAudio", "one"]]);
+  // 三级各自怎么清由 invalidateResolvedPlayback 负责（tests/playback-cache-invalidation.test.cjs）；
+  // 这里锁的是试听判定一律把磁盘音频算进去，哪怕正在播的是在线链接。
+  assert.deepEqual(h.named("invalidate"), [["invalidate", "one", { includeDiskAudio: true }]]);
 
   // 用户手动重试：新的播放会话重新允许检测（防缓存命中后漏网）。
   h.load("src/services/playbackRequest.ts").beginPlaybackRequest();
   await h.store.getState().play(song, "https://fixture.invalid/one-again");
   h.emit("PlaybackProgressUpdated", { position: 1, duration: 30, buffered: 30 });
-  assert.equal(h.named("deleteAudio").length, 2);
-  assert.equal(h.named("invalidatePrefetch").length, 2);
+  assert.equal(h.named("invalidate").length, 2);
 });

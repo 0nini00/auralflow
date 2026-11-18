@@ -1,10 +1,9 @@
 import TrackPlayer, { Event } from "react-native-track-player";
 import { buildSongKey, isPreviewDuration } from "@lx/core";
-import { deleteCachedAudioForMusic } from "@/services/cacheService";
 import { notePlaybackHealthy } from "@/services/playbackFailurePolicy";
-import { invalidateCachedPlaybackUrl } from "@/services/playbackUrlCache";
 import { claimPreviewRejection, setupPlayerStateListeners, usePlayerStore } from "@/stores/playerStore";
-import { invalidatePrefetchForSong, prefetchUpcomingSongNearEnd } from "../services/playerService";
+import { logger } from "@/services/logger";
+import { invalidateResolvedPlayback, prefetchUpcomingSongNearEnd } from "../services/playerService";
 
 /**
  * 判定「该曲确实可播」的播放位置阈值（秒）：越过它才归还重试额度。
@@ -52,10 +51,10 @@ export function setupPlayerListeners(): void {
     if (!claimPreviewRejection(key)) return;
     usePlayerStore.getState().setError(`检测到试听片段（约 ${Math.round(duration)}s），已清除缓存，请重新播放或切换音源`);
     void TrackPlayer.pause().catch(() => {});
-    void invalidateCachedPlaybackUrl(song).catch(() => undefined);
-    invalidatePrefetchForSong(song);
-    // 磁盘音频缓存必须一起失效：解析链先查磁盘文件、命中即直接返回，不经任何试听判定。
-    // 只清 URL 缓存会留下死循环（命中 → 播放试听 → 判定 → 再命中）。
-    void deleteCachedAudioForMusic(song).catch(() => undefined);
+    // 试听片段可能来自三级里的任何一级。磁盘音频文件必须一起失效：解析链先查磁盘文件、
+    // 命中即直接返回，不经任何试听判定，只清 URL 缓存会留下死循环（命中 → 播放试听 → 判定 → 再命中）。
+    void invalidateResolvedPlayback(song, { includeDiskAudio: true }).catch((error) => {
+      logger.warn("[试听兜底] 清除该曲的解析缓存失败，重新播放可能仍命中试听片段", error);
+    });
   });
 }

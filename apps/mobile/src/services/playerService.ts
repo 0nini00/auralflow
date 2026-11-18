@@ -11,7 +11,7 @@ import type { PlayMode } from "../stores/playerStore";
 import { resetListeningSession } from "./listenTrackerService";
 import { useCustomSourceStore } from "../stores/customSourceStore";
 import { requestCustomSourceMusicUrl } from "./customSourceRuntime";
-import { cacheCover, cacheLyrics, getCachedLyrics, cacheAudioFile, getCachedAudioFile, isLocalFilePlayable, CACHEABLE_AUDIO_SOURCES } from "./cacheService";
+import { cacheCover, cacheLyrics, getCachedLyrics, cacheAudioFile, deleteCachedAudioForMusic, getCachedAudioFile, isLocalFilePlayable, CACHEABLE_AUDIO_SOURCES } from "./cacheService";
 import { getCachedPlaybackUrl, saveCachedPlaybackUrl, invalidateCachedPlaybackUrl } from "./playbackUrlCache";
 import { getPersonalFmSongs, trashPersonalFmSong } from "./wyPlaylistService";
 import {
@@ -137,10 +137,43 @@ export function clearPrefetchCache(): void {
   prefetchCache.clear();
 }
 
-/** 清掉某首歌的预读缓存（切换音质时必须失效旧 URL）。 */
-export function invalidatePrefetchForSong(song: MusicInfo): void {
+/** 清掉某首歌的预读缓存。 */
+function invalidatePrefetchForSong(song: MusicInfo): void {
   for (const key of prefetchCache.keys()) {
     if (isPlaybackPrefetchKeyForSong(key, song)) prefetchCache.delete(key);
+  }
+}
+
+const LOCAL_FILE_URL_PREFIX = "file://";
+
+/** 这个播放地址是不是磁盘上的音频缓存文件（解析链命中磁盘缓存时返回的就是 file:// 地址）。 */
+export function isLocalFilePlaybackUrl(url: string | null): boolean {
+  return url?.startsWith(LOCAL_FILE_URL_PREFIX) === true;
+}
+
+/**
+ * 一首歌的「已解析结果」作废：播放结果证明它不可用（原生报错、判定为试听片段）时的唯一入口。
+ *
+ * 解析结果存在三级里，解析链按这个顺序查、命中即返回：预读（内存）→ 磁盘音频文件 →
+ * 持久化 URL。漏清任何一级，重新解析都会原样拿回同一份坏结果。
+ *
+ * - 持久化 URL 与预读：一律清。
+ * - 磁盘音频文件：由调用方用 `includeDiskAudio` 说明它有没有嫌疑。原生报错时只有正在播的
+ *   就是本地文件才算（见 isLocalFilePlaybackUrl）：出问题的是在线链接（过期、403）时文件
+ *   本身没有嫌疑，删掉它等于丢掉用户的离线缓存，而重新解析时命中它恰恰是最好的恢复。
+ *   试听判定则一律算：试听片段可能已经落盘。
+ *
+ * 顺序：先清落盘的两级，最后清预读。解析链命中前两者时会回填预读，反过来清的话，
+ * 并发的一次解析可以在两步之间把刚清掉的预读又填回去。
+ */
+export async function invalidateResolvedPlayback(song: MusicInfo, { includeDiskAudio }: { includeDiskAudio: boolean }): Promise<void> {
+  try {
+    await Promise.all([
+      invalidateCachedPlaybackUrl(song),
+      includeDiskAudio ? deleteCachedAudioForMusic(song) : undefined,
+    ]);
+  } finally {
+    invalidatePrefetchForSong(song);
   }
 }
 

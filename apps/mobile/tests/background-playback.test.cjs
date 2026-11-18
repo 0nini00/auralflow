@@ -30,7 +30,8 @@ function setup(config = {}) {
     playPrevious() { calls.push("playPrevious"); request.beginPlaybackRequest(); return Promise.resolve(); },
     cancelPendingPlayback() { calls.push("cancelPendingPlayback"); return request.beginPlaybackRequest(); },
     prefetchUpcomingSongNearEnd() {},
-    invalidatePrefetchForSong() { calls.push("invalidatePrefetchForSong"); },
+    invalidateResolvedPlayback(song, options) { calls.push("invalidateResolvedPlayback"); calls.push(["invalidate", song.id, options]); return behavior.invalidate(); },
+    isLocalFilePlaybackUrl: url => typeof url === "string" && url.startsWith("file://"),
     playFromQueue() { calls.push("playFromQueue"); request.beginPlaybackRequest(); return behavior.retry(); },
     playSong() { calls.push("playSong"); request.beginPlaybackRequest(); return behavior.retry(); },
     resumePlayback() { playerService.cancelPendingPlayback(); return native.play(); },
@@ -45,7 +46,6 @@ function setup(config = {}) {
       shouldAttributePlaybackErrorToCurrentSong: () => true, SILENCE_GAP_TRACK_ID: "gap" },
     "@/player/playerListeners": { setupPlayerListeners: () => calls.push("setupPlayerListeners") },
     "@/services/logger": { logger: { info: (...args) => calls.push(["info", ...args]), warn: (...args) => calls.push(["warn", ...args]), error: (...args) => calls.push(["error", ...args]) } },
-    "@/services/playbackUrlCache": { invalidateCachedPlaybackUrl: () => { calls.push("invalidateCachedPlaybackUrl"); return behavior.invalidate(); } },
     "@/services/listenTrackerService": { startListeningSession() {}, resetListeningSession() {}, onPlaybackProgress() {}, seekListeningSession() {}, flushListeningSession: async () => {} },
     "../services/playerService": playerService,
     "@/services/switchStepSession": { cancelPendingPlayback: playerService.cancelPendingPlayback },
@@ -482,7 +482,7 @@ for (const event of ["PlaybackQueueEnded", "PlaybackError"]) {
     await h.emit(event, { message: "迟到错误" });
     assert.equal(count(h, "playNext"), 0);
     assert.equal(count(h, "playFromQueue"), 0);
-    assert.equal(count(h, "invalidateCachedPlaybackUrl"), 0);
+    assert.equal(count(h, "invalidateResolvedPlayback"), 0);
   });
 
   test(event + "异步读取播放意图期间暂停使旧事件失效", options, async t => {
@@ -496,6 +496,22 @@ for (const event of ["PlaybackQueueEnded", "PlaybackError"]) {
     await pending;
     assert.equal(count(h, "playNext"), 0);
     assert.equal(count(h, "playFromQueue"), 0);
+  });
+}
+
+for (const [label, currentUrl, includeDiskAudio] of [
+  ["在线链接", "https://fixture.invalid/A", false],
+  ["磁盘缓存文件", "file:///cache/audio/tx-A-320k.audio", true],
+  ["尚未装载（无地址）", null, false],
+]) {
+  test("原生报错重试前作废该曲的解析缓存：正在播的是" + label, options, async t => {
+    const h = start(t);
+    h.state.currentUrl = currentUrl;
+    await h.emit("PlaybackError", { message: "原生错误" });
+    // 只有报错的就是本地文件时才删磁盘音频：在线链接失效不该连累用户的离线缓存。
+    assert.deepEqual(h.calls.filter(call => Array.isArray(call) && call[0] === "invalidate"), [["invalidate", "A", { includeDiskAudio }]]);
+    assert.equal(count(h, "playFromQueue"), 1);
+    assert.ok(h.calls.indexOf("invalidateResolvedPlayback") < h.calls.indexOf("playFromQueue"), "必须先作废再重解析");
   });
 }
 

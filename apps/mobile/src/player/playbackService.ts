@@ -2,14 +2,13 @@ import { DeviceEventEmitter } from "react-native";
 import TrackPlayer, { Event, State, type EventPayloadByEvent } from "react-native-track-player";
 import { buildSongKey } from "@lx/core";
 import {
-  invalidatePrefetchForSong, playFromQueue, playNext,
+  invalidateResolvedPlayback, isLocalFilePlaybackUrl, playFromQueue, playNext,
   playPrevious, playSong, prefetchUpcomingSongNearEnd, resumePlayback,
 } from "../services/playerService";
 import { cancelPendingPlayback } from "@/services/switchStepSession";
 import { getCurrentPlaybackRequestId, isCurrentPlaybackRequest } from "@/services/playbackRequest";
 import { logger } from "@/services/logger";
 import { startListeningSession } from "@/services/listenTrackerService";
-import { invalidateCachedPlaybackUrl } from "@/services/playbackUrlCache";
 import { getAudioInterruptionAction } from "@/services/audioInterruptionPolicy";
 import { getNextQueueNavigationState } from "@/services/queueNavigationModel";
 import {
@@ -174,9 +173,9 @@ export default async function playbackService(data: { serviceId: string }): Prom
       if (shouldRetry && decidePlaybackFailureAction(buildSongKey(song)) === "retry") {
         logger.warn("原生播放失败，重解析一次", failureMessage(error));
         try {
-          await invalidateCachedPlaybackUrl(song);
+          // 报错的若是磁盘缓存文件，它会连同两级 URL 缓存一起作废；否则重解析会原样命中它再失败一次。
+          await invalidateResolvedPlayback(song, { includeDiskAudio: isLocalFilePlaybackUrl(usePlayerStore.getState().currentUrl) });
           if (!owns(operation)) return;
-          invalidatePrefetchForSong(song);
           const { queue, currentIndex } = usePlayerStore.getState();
           const queuedSong = queue[currentIndex];
           const sameSlot = queuedSong?.source === song.source && String(queuedSong.id) === String(song.id);
