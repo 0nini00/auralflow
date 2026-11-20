@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MusicInfo } from '@lx/core';
 const io = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn() }));
-vi.mock('@lx/tauri-bridge', () => ({ libraryLoad: io.load, librarySave: io.save }));
+vi.mock('@lx/tauri-bridge', () => ({ loadListeningStats: async () => ({ months: {}, legacy: await io.load() }), saveListeningStatsMonth: (month: string, events: unknown) => io.save(month, { events }), libraryReset: vi.fn() }));
 const song = { id: '1', source: 'wy', name: 'Song', singer: 'Artist', albumName: '' } as MusicInfo;
 beforeEach(() => { vi.resetModules(); vi.useFakeTimers(); io.load.mockResolvedValue(null); io.save.mockReset().mockResolvedValue(undefined); });
 describe('desktop listening persistence', () => {

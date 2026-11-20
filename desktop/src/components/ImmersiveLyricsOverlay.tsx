@@ -1,10 +1,9 @@
 import { useDialogFocus } from '@/hooks/useDialogFocus';
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import { ImmersivePlayerControls, type ImmersivePlayerControlsHandle, type LyricDisplayOption } from '@/components/ImmersivePlayerControls';
 import { ImmersiveBackground } from '@/components/ImmersiveBackground';
 import { PlayerVisualizerRenderer } from '@/components/playerVisualizers/PlayerVisualizerRenderer';
 import { SongAddMenuButton } from '@/components/SongAddMenuButton';
-import { useInterpolatedPlaybackProgress } from '@/hooks/useInterpolatedPlaybackProgress';
 import { useLyrics } from '@/hooks/useLyrics';
 import { getNextPlayMode, getPlayModeControl } from '@/services/playback/playModeControl';
 import { resolveImmersiveKeyboardAction } from '@/services/playback/immersiveKeyboard';
@@ -109,8 +108,9 @@ function ImmersiveLyricsContent({ open, onClose }: ImmersiveLyricsOverlayProps) 
   const isPlaying = status === 'playing';
   const coverUrl = coverSrc(currentTrack?.img || currentTrack?.picUrl || '', IMMERSIVE_COVER_CSS_SIZE);
   const playModeControl = getPlayModeControl({ repeatMode, isShuffle });
-  const lyricProgress = useInterpolatedPlaybackProgress({ status, progress, progressSampledAt, duration, playbackRate });
-  const lyricTime = lyricProgress + manualOffsetMs / 1000;
+  const playbackClock = useMemo(() => ({ status, progress, updatedAt: progressSampledAt, duration, playbackRate }),
+    [status, progress, progressSampledAt, duration, playbackRate]);
+  const lyricTime = progress + manualOffsetMs / 1000;
   const { lyrics, currentLine: currentLyricIndex } = useLyrics(currentTrack, lyricTime);
 
   useEffect(() => {
@@ -281,7 +281,7 @@ function ImmersiveLyricsContent({ open, onClose }: ImmersiveLyricsOverlayProps) 
   if (!open) return null;
 
   // 拖动进度条时用 scrub 值，避免插值进度和拖拽互相抢
-  const liveProgress = isPlaying ? lyricProgress : progress;
+  const liveProgress = progress;
   const displayProgress = isScrubbing ? scrubProgress : liveProgress;
   const progressPercent = duration > 0 ? Math.min(100, Math.max(0, (displayProgress / duration) * 100)) : 0;
   const volumePercent = Math.min(100, Math.max(0, volume * 100));
@@ -377,6 +377,8 @@ function ImmersiveLyricsContent({ open, onClose }: ImmersiveLyricsOverlayProps) 
             showRomanization={showRomanization}
             showRuby={showRuby}
             layoutKey={`${immersiveLyricFontFamily}:${showTranslation}:${showRomanization}:${showRuby}:${animationIntensity}`}
+            playbackClock={playbackClock}
+            lyricOffsetSeconds={manualOffsetMs / 1000}
           />
         </section>
       </main>
@@ -388,8 +390,10 @@ function ImmersiveLyricsContent({ open, onClose }: ImmersiveLyricsOverlayProps) 
         timeline={{
           current: displayProgress,
           duration,
+          clock: playbackClock,
+          scrubbing: isScrubbing,
           onSeek: handleSeek,
-          onSeekStart: () => { setIsScrubbing(true); setScrubProgress(liveProgress); },
+          onSeekStart: (current = liveProgress) => { setIsScrubbing(true); setScrubProgress(current); },
           onSeekEnd: handleSeekEnd,
         }}
         lyrics={{ showTranslation, showRomanization, showRuby, pending: lyricSettingsPending || !settingsLoaded, onToggle: handleLyricDisplayToggle }}

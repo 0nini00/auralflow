@@ -1,3 +1,4 @@
+import { throwIfAborted } from '../playback/cancellation';
 import type {
   MusicInfo,
   MusicSource,
@@ -78,8 +79,8 @@ const TX_APP_HEADERS: Record<string, string> = {
   Cookie: "tmeLoginType=-1;",
 };
 
-async function qqFetch(url: string): Promise<any> {
-  const resp = await tauriFetch(url, { headers: COMMON_HEADERS });
+async function qqFetch(url: string, signal?: AbortSignal): Promise<any> {
+  const resp = await tauriFetch(url, { headers: COMMON_HEADERS, signal });
   if (!resp.ok) {
     throw new Error(`QQ Music request failed: ${resp.status}`);
   }
@@ -87,8 +88,9 @@ async function qqFetch(url: string): Promise<any> {
   return parseQQText(text);
 }
 
-async function qqPost(url: string, body: unknown): Promise<any> {
+async function qqPost(url: string, body: unknown, signal?: AbortSignal): Promise<any> {
   const resp = await tauriFetch(url, {
+    signal,
     method: "POST",
     headers: {
       ...COMMON_HEADERS,
@@ -102,7 +104,7 @@ async function qqPost(url: string, body: unknown): Promise<any> {
   return resp.json();
 }
 
-async function qqMusicuRequest(method: string, module: string, param: Record<string, unknown>): Promise<any> {
+async function qqMusicuRequest(method: string, module: string, param: Record<string, unknown>, signal?: AbortSignal): Promise<any> {
   const payload = JSON.stringify({
     comm: {
       ct: 11,
@@ -123,7 +125,9 @@ async function qqMusicuRequest(method: string, module: string, param: Record<str
     },
   });
 
+  throwIfAborted(signal);
   const resp = await tauriFetch(MUSIC_U_API, {
+    signal,
     method: "POST",
     headers: {
       ...TX_APP_HEADERS,
@@ -146,6 +150,7 @@ async function qqSearch(
   page: number,
   limit: number,
   searchType: number,
+  signal?: AbortSignal,
 ): Promise<any> {
   return qqMusicuRequest("DoSearchForQQMusicLite", "music.search.SearchCgiService", {
     search_id: String(Math.floor(Math.random() * 100000000000000 + Date.now() % 86400000)),
@@ -158,7 +163,7 @@ async function qqSearch(
     nqc_flag: 0,
     page_id: 1,
     grp: 1,
-  });
+  }, signal);
 }
 
 function firstArray(...values: unknown[]): any[] {
@@ -177,9 +182,10 @@ function firstArray(...values: unknown[]): any[] {
 async function searchQqSongs(
   keyword: string,
   page: number,
-  limit: number
+  limit: number,
+  signal?: AbortSignal,
 ): Promise<SearchPage<MusicInfo[]>> {
-  const data = await qqSearch(keyword, page, limit, 0);
+  const data = await qqSearch(keyword, page, limit, 0, signal);
   const body = data?.body ?? {};
   const list = firstArray(body?.item_song, data?.item_song);
   return {
@@ -191,14 +197,15 @@ async function searchQqSongs(
 async function searchSongs(
   keyword: string,
   page: number,
-  limit: number
+  limit: number,
+  signal?: AbortSignal,
 ): Promise<SearchResult> {
   // 官方 musicu 搜索为主链，网关 joox 作为兜底与元数据补充
   return searchSongsPage(
-    () => searchQqSongs(keyword, page, limit),
+    () => searchQqSongs(keyword, page, limit, signal),
     async () => {
       const metadataLimit = Math.min(limit, 30);
-      const result = await searchBuiltinMusicApiSongs("joox", keyword, page, metadataLimit, "tx");
+      const result = await searchBuiltinMusicApiSongs("joox", keyword, page, metadataLimit, "tx", signal);
       return { result, hasMore: result.length >= metadataLimit };
     },
   );
@@ -207,7 +214,7 @@ async function searchSongs(
 async function searchPlaylists(
   keyword: string,
   page: number,
-  limit: number
+  limit: number,
 ): Promise<SearchResult> {
   const data = await qqSearch(keyword, page, limit, 3);
   const body = data?.body ?? {};
@@ -308,7 +315,7 @@ async function getPlaylistSongs(id: string): Promise<MusicInfo[]> {
   }
 }
 
-async function getSongUrl(songmid: string, _quality?: string): Promise<string | null> {
+async function getSongUrl(songmid: string, _quality?: string, signal?: AbortSignal): Promise<string | null> {
   const guid = String(Math.random() * 10000000).replace(".", "");
 
   const body = {
@@ -326,7 +333,7 @@ async function getSongUrl(songmid: string, _quality?: string): Promise<string | 
     },
   };
 
-  const data = await qqPost(MUSIC_U_API, body);
+  const data = await qqPost(MUSIC_U_API, body, signal);
   const midurlinfo = data?.req_0?.data?.midurlinfo ?? [];
   const sip = data?.req_0?.data?.sip ?? [];
 
@@ -339,14 +346,14 @@ async function getSongUrl(songmid: string, _quality?: string): Promise<string | 
   return `${server}${info.purl}`;
 }
 
-async function getLyric(songmid: string): Promise<{ lyric?: string; tlyric?: string }> {
+async function getLyric(songmid: string, signal?: AbortSignal): Promise<{ lyric?: string; tlyric?: string }> {
   const params = new URLSearchParams({
     songmid,
     format: "json",
     nobase64: "1",
   });
 
-  const data = await qqFetch(`${LYRIC_API}?${params}`);
+  const data = await qqFetch(`${LYRIC_API}?${params}`, signal);
   return {
     lyric: data?.lyric ?? undefined,
     tlyric: data?.trans ?? undefined,
@@ -358,9 +365,9 @@ export const txProvider: MusicSource = {
   name: "QQ 音乐",
   supportedSearchTypes: ["song", "playlist"],
 
-  async search(keyword: string, type: SearchType, page = 1): Promise<SearchResult> {
+  async search(keyword: string, type: SearchType, page = 1, signal?: AbortSignal): Promise<SearchResult> {
     if (type === "song") {
-      return searchSongs(keyword, page, 50);
+      return searchSongs(keyword, page, 50, signal);
     }
 
     if (type === "playlist") {
@@ -370,27 +377,28 @@ export const txProvider: MusicSource = {
     return {};
   },
 
-  async getMusicUrl(music: MusicInfo, _quality?: string): Promise<string | null> {
+  async getMusicUrl(music: MusicInfo, _quality?: string, signal?: AbortSignal): Promise<string | null> {
     if (canResolveWithBuiltinMusicApi(music)) {
-      return (await resolveBuiltinMusicApiUrl(music, _quality)).url;
+      return (await resolveBuiltinMusicApiUrl(music, _quality, signal)).url;
     }
-    return getSongUrl(music.id);
+    return getSongUrl(music.id, _quality, signal);
   },
 
   async getMusicDetail(music: MusicInfo): Promise<MusicInfo> {
     return music;
   },
 
-  async getLyric(music: MusicInfo): Promise<{ lyric?: string; tlyric?: string }> {
+  async getLyric(music: MusicInfo, signal?: AbortSignal): Promise<{ lyric?: string; tlyric?: string }> {
     // 官方歌词优先；失败或为空时才回退网关解析
     try {
-      const result = await getLyric(music.id);
+      const result = await getLyric(music.id, signal);
       if (result.lyric) return result;
       if (!canResolveWithBuiltinMusicApi(music)) return result;
     } catch (error) {
+      throwIfAborted(signal);
       if (!canResolveWithBuiltinMusicApi(music)) throw error;
     }
-    return getBuiltinMusicApiLyric(music);
+    return getBuiltinMusicApiLyric(music, signal);
   },
 
   async getPlaylistDetail(playlist: PlaylistInfo): Promise<MusicInfo[]> {

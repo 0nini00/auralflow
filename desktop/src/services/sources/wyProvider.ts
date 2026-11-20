@@ -1,3 +1,4 @@
+import { throwIfAborted } from '../playback/cancellation';
 /**
  * 网易云音乐 Provider — 前端直接用 tauri-plugin-http fetch 发请求
  *
@@ -40,7 +41,7 @@ const NETEASE_EAPI_BATCH = "https://interface.music.163.com/eapi/batch";
 
 // ─── HTTP 封装 ─────────────────────────────────────────
 
-async function eapiRequest(url: string, data: Record<string, unknown>): Promise<any> {
+async function eapiRequest(url: string, data: Record<string, unknown>, signal?: AbortSignal): Promise<any> {
   const cookie = await getWyCookie();
   const params = eapi(url, data);
   const body = `params=${encodeURIComponent(params)}`;
@@ -53,16 +54,16 @@ async function eapiRequest(url: string, data: Record<string, unknown>): Promise<
   };
   if (cookie) headers["Cookie"] = cookie;
 
-  const resp = await fetch(NETEASE_EAPI_BATCH, { method: "POST", headers, body });
+  const resp = await fetch(NETEASE_EAPI_BATCH, { method: "POST", headers, body, signal });
   if (!resp.ok) throw new Error(`eapi HTTP ${resp.status}`);
   return resp.json();
 }
 
-async function weapiRequest(path: string, data: Record<string, unknown>): Promise<any> {
+async function weapiRequest(path: string, data: Record<string, unknown>, signal?: AbortSignal): Promise<any> {
   const cookie = await getWyCookie();
   if (!cookie) throw new Error("未登录网易云");
 
-  const body = await sendWyWeapi(path, data, cookie);
+  const body = await sendWyWeapi(path, data, cookie, signal);
   assertWyOk(body);
   return body;
 }
@@ -85,7 +86,7 @@ function getSongDetailsViaEapi(ids: number[]) {
   return fetchWySongDetails(ids, (data) => eapiRequest("/api/v3/song/detail", data));
 }
 
-async function searchWyViaCloudSearch(keyword: string, type: SearchType, page = 1): Promise<SearchResult> {
+async function searchWyViaCloudSearch(keyword: string, type: SearchType, page = 1, signal?: AbortSignal): Promise<SearchResult> {
   const limit = type === "playlist" ? 30 : 100;
   const offset = (page - 1) * limit;
 
@@ -102,7 +103,7 @@ async function searchWyViaCloudSearch(keyword: string, type: SearchType, page = 
     type: typeMap[type] ?? 1,
     limit,
     offset,
-  });
+  }, signal);
 
   if (type === "song") {
     const rawSongs: any[] = body?.result?.songs ?? [];
@@ -202,7 +203,7 @@ function isWyLevelBelowRequested(level: unknown, requestedRank: number): boolean
  * 网络或加密失败原样抛出，由 `getLyric` 统一转成「歌词获取失败」——在这里吞掉
  * 会变成「暂无歌词」，对用户而言是另一个答案。
  */
-function requestWyLyricBody(id: string): Promise<any> {
+function requestWyLyricBody(id: string, signal?: AbortSignal): Promise<any> {
   return eapiRequest("/api/song/lyric/v1", {
     id: parseInt(id, 10),
     cp: false,
@@ -213,7 +214,7 @@ function requestWyLyricBody(id: string): Promise<any> {
     yv: -1,
     ytv: -1,
     yrv: -1,
-  });
+  }, signal);
 }
 
 /** 歌词响应体 → provider 返回结构。字段映射与 lx-music-desktop 对齐。 */
@@ -242,12 +243,13 @@ function pickLyricFields(body: any) {
  * 规整歌名相等 + 至少一位歌手重合 + 双方有时长时差 ≤ 5 秒），移动端同样用它，
  * 不在这里另造一套容忍度。
  */
-async function findMatchedOnlineSong(music: MusicInfo): Promise<MusicInfo | null> {
+async function findMatchedOnlineSong(music: MusicInfo, signal?: AbortSignal): Promise<MusicInfo | null> {
   let candidates: MusicInfo[] = [];
   try {
-    const result = await searchWyViaCloudSearch(`${music.name} ${music.singer}`, "song");
+    const result = await searchWyViaCloudSearch(`${music.name} ${music.singer}`, "song", 1, signal);
     candidates = result.songs ?? [];
   } catch {
+    throwIfAborted(signal);
     return null;
   }
 
@@ -285,7 +287,8 @@ export const wyProvider: MusicSource = {
     return searchWyViaCloudSearch(keyword, type, page);
   },
 
-  async getMusicUrl(music: MusicInfo, quality = "320k"): Promise<string | null> {
+  async getMusicUrl(music: MusicInfo, quality = "320k", signal?: AbortSignal): Promise<string | null> {
+    throwIfAborted(signal);
     const idNum = parseInt(music.id, 10);
     if (isNaN(idNum)) return null;
     // 云盘曲（wyCloud）走同一套接口，但取链语义不同，见下方两处判定。
@@ -307,7 +310,7 @@ export const wyProvider: MusicSource = {
         ids: `[${idNum}]`,
         level,
         encodeType: "flac",
-      });
+      }, signal);
       const entry = body?.data?.[0] as { url?: string; level?: unknown } | undefined;
       const url = entry?.url;
       // 云盘曲不做转码：返回的 level 就是文件本身（实测请求 exhigh 分别得到
@@ -318,6 +321,7 @@ export const wyProvider: MusicSource = {
         return url;
       }
     } catch (error) {
+      throwIfAborted(signal);
       failures.push(`weapi: ${error instanceof Error ? error.message : String(error)}`);
     }
 
@@ -342,6 +346,7 @@ export const wyProvider: MusicSource = {
       const resp = await fetch(
         `https://interface3.music.163.com/eapi/song/enhance/player/url`,
         {
+          signal,
           method: "POST",
           headers: {
             "User-Agent": WY_WEB_USER_AGENT,
@@ -359,6 +364,7 @@ export const wyProvider: MusicSource = {
         return url;
       }
     } catch (error) {
+      throwIfAborted(signal);
       failures.push(`eapi: ${error instanceof Error ? error.message : String(error)}`);
     }
     return failWithReasons(failures);
@@ -368,17 +374,17 @@ export const wyProvider: MusicSource = {
     return music;
   },
 
-  async getLyric(music: MusicInfo) {
+  async getLyric(music: MusicInfo, signal?: AbortSignal) {
     try {
-      const body = await requestWyLyricBody(music.id);
+      const body = await requestWyLyricBody(music.id, signal);
       // 实测：云盘条目的 id 是「云盘条目 id」，服务端对它只回占位歌词
       // `{ lrc: "…暂无歌词", uncollected: true }`。原样返回会让上层把占位当成
       // 已有歌词，所以一律收敛成空对象；云盘曲额外按元数据去找线上曲目取词。
       if (body?.uncollected === true || body?.nolyric === true) {
         if (music.wyCloud === true) {
-          const matched = await findMatchedOnlineSong(music);
+          const matched = await findMatchedOnlineSong(music, signal);
           if (matched) {
-            const matchedBody = await requestWyLyricBody(matched.id);
+            const matchedBody = await requestWyLyricBody(matched.id, signal);
             const fields = pickLyricFields(matchedBody);
             // 主轨可能只有逐字轨（yrc）而没有普通 lrc，两者任一有内容即可。
             const hasContent = String(fields.yrc || fields.lyric || "").trim().length > 0;
@@ -393,6 +399,7 @@ export const wyProvider: MusicSource = {
       }
       return pickLyricFields(body);
     } catch (error) {
+      throwIfAborted(signal);
       throw new Error(`网易云歌词获取失败：${error instanceof Error ? error.message : String(error)}`);
     }
   },

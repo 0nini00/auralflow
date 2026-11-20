@@ -1,6 +1,4 @@
 import { BarChart3, Clock, Play, TrendingUp, Trophy, Users } from "lucide-react";
-import { useMemo } from "react";
-import { aggregateListeningEvents } from "@lx/core";
 import { useListeningStatsStore } from "@/stores/listeningStatsStore";
 
 /** 趋势区最多展示最近多少天（core 的 byDay 只含数据里出现过的天，空白天不补零）。 */
@@ -28,10 +26,9 @@ function barWidth(value: number, max: number): string {
 
 /** 本机独立收听会话；旧历史与 WebDAV 历史不冒充真实收听事件。 */
 export function StatsView() {
-  const events = useListeningStatsStore((s) => s.events);
+  const stats = useListeningStatsStore((s) => s.getStats());
   const error = useListeningStatsStore((s) => s.error);
   const loaded = useListeningStatsStore((s) => s.loaded);
-  const stats = useMemo(() => aggregateListeningEvents(events), [events]);
 
   const topTracks = stats.topTracks.slice(0, RANK_LIMIT);
   const topArtists = stats.topArtists.slice(0, RANK_LIMIT);

@@ -290,6 +290,10 @@
   gap: 8px;
 }
 
+.af-search-results .af-search-result-item {
+  margin-bottom: 8px;
+}
+
 .af-search-result-item {
   display: grid;
   grid-template-columns: 40px 56px minmax(0, 1fr) 132px 120px;

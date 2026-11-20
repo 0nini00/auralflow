@@ -253,13 +253,17 @@ it('键盘调整进度后保留焦点时，显示进度继续跟随播放而不�
   act(() => renderer.update(<ImmersiveLyricsOverlay open onClose={onClose} />));
   expect(button('播放进度').props.value).toBe(42);
 });
-it('歌词手动偏移同时传给高亮时间，播放进度保持真实音频时间', async () => {
+it('歌词手动偏移与原始时钟传给活动行，播放控件独立插值真实音频时间', async () => {
   seedSettings({ lyricManualOffsetMs: 2000, lyricShowTranslation: true });
   await mount();
-  expect(renderer.root.findByProps({ 'data-testid': 'lyrics' }).props.currentTime).toBe(27);
+  expect(renderer.root.findByProps({ 'data-testid': 'lyrics' }).props).toMatchObject({
+    currentTime: 22, lyricOffsetSeconds: 2, playbackClock: { progress: 20 },
+  });
   expect(button('播放进度').props.value).toBe(25);
   act(() => refreshSettings({ lyricManualOffsetMs: -1500 }));
-  expect(renderer.root.findByProps({ 'data-testid': 'lyrics' }).props.currentTime).toBe(23.5);
+  expect(renderer.root.findByProps({ 'data-testid': 'lyrics' }).props).toMatchObject({
+    currentTime: 18.5, lyricOffsetSeconds: -1.5, playbackClock: { progress: 20 },
+  });
   expect(button('播放进度').props.value).toBe(25);
 });
 

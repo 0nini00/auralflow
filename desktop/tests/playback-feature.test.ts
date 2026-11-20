@@ -86,6 +86,54 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); });
 
 describe('LX backend 生命周期', () => {
+  it('前台接管在途预读取得 URL 后立即返回，不等待挂起歌词', async () => {
+    const service = await import('../src/services/playback/prefetchService');
+    const url = deferred<ReturnType<typeof resolved>>();
+    const lyrics = deferred<{ lines: never[] }>();
+    fixture.lyrics.mockReturnValue(lyrics.promise);
+    const pending = service.prefetchNearbyTracks({ queue: [next, music], currentIndex: 0, repeatMode: 'off', resolvePlaybackUrl: () => url.promise as never });
+    const consumed = service.consumePrefetchedTrack(music);
+    url.resolve(resolved());
+    await vi.waitFor(() => expect(fixture.lyrics).toHaveBeenCalled());
+    expect(await Promise.race([consumed, Promise.resolve('still waiting')])).not.toBe('still waiting');
+    lyrics.resolve({ lines: [] });
+    await pending;
+  });
+  it('预读URL失败也立即释放前台接管，不被后台歌词阻塞重解析', async () => {
+    const service = await import('../src/services/playback/prefetchService');
+    const lyrics = deferred<{ lines: [] }>();
+    fixture.lyrics.mockReturnValue(lyrics.promise);
+    const pending = service.prefetchNearbyTracks({ queue: [next, music], currentIndex: 0, repeatMode: 'off',
+      resolvePlaybackUrl: async () => { throw new Error('url failed'); } });
+    let settled = false;
+    const foreground = service.consumePrefetchedTrack(music).then(value => { settled = true; return value; });
+    try {
+      await new Promise(setImmediate);
+      expect(settled).toBe(true);
+      expect(await foreground).toBeUndefined();
+    } finally {
+      lyrics.resolve({ lines: [] });
+      await Promise.all([pending, foreground]);
+    }
+  });
+  it('重复邻曲预读合并在途解析与歌词，前台消费者阻止窗口替换取消', async () => {
+    const service = await import('../src/services/playback/prefetchService');
+    const gate = deferred<ReturnType<typeof resolved>>();
+    const resolveUrl = vi.fn((_music, _variants, _quality, options) => gate.promise);
+    const options = { queue: [next, music], currentIndex: 0, repeatMode: 'off' as const, resolvePlaybackUrl: resolveUrl as never };
+    const first = service.prefetchNearbyTracks(options);
+    const duplicate = service.prefetchNearbyTracks(options);
+    await vi.waitFor(() => expect(resolveUrl).toHaveBeenCalled());
+    expect(resolveUrl).toHaveBeenCalledTimes(1);
+    const controller = new AbortController();
+    const consumed = service.consumePrefetchedTrack(music, controller.signal);
+    await service.prefetchNearbyTracks({ ...options, queue: [] });
+    expect(resolveUrl.mock.calls[0][3].signal.aborted).toBe(false);
+    gate.resolve(resolved());
+    await Promise.all([first, duplicate]);
+    expect((await consumed)?.url).toBe('https://audio/customSource');
+    expect(fixture.lyrics).toHaveBeenCalledTimes(1);
+  });
   it('已 hydrated 时在第一个异步让出点前捕获令牌', async () => {
     const { customSourceBackend } = await import('../src/services/playback/customSourceBackend');
     const pending = customSourceBackend.resolve({ primary: music, qualityPreference: ['flac24bit'] });
@@ -213,6 +261,7 @@ describe('LX 播放候选与异步返回', () => {
       'https://audio/a.flac',
       expect.objectContaining({ Referer: 'https://music.163.com' }),
       expect.any(Number),
+      expect.any(AbortSignal),
     );
   });
 });
@@ -297,6 +346,7 @@ describe('持久化外部地址的老化处理', () => {
       'https://audio/builtinNetease',
       { Referer: 'https://music.163.com' },
       expect.any(Number),
+      expect.any(AbortSignal),
     );
     // 不是把已经过期的签名地址交给播放器，而是走了重新解析
     expect(result.url).toBe('https://audio/customSource');
@@ -404,7 +454,7 @@ describe('自定义源整链单次竞速', () => {
     await expect(resolvePlaybackUrl(music, undefined, '320k', {
       cacheMedia: false, exactQuality: true, purpose: 'download',
     })).rejects.toThrow();
-    expect(fixture.probe).toHaveBeenCalledWith('https://audio/preview', expect.anything(), expect.any(Number));
+    expect(fixture.probe).toHaveBeenCalledWith('https://audio/preview', expect.anything(), expect.any(Number), expect.any(AbortSignal));
     expect(fixture.librarySave.mock.calls.some(([, cache]) =>
       !(cache as { playbackUrls: Record<string, unknown> }).playbackUrls['wy:1:320k'],
     )).toBe(true);

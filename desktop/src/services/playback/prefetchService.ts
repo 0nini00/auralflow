@@ -6,6 +6,7 @@ import { canReuseCustomSourceResult, usesCustomSourceRuntime } from '@/services/
 import { snapshotCustomSourceAccess } from '@/services/customSourceGate';
 import { useVariantPinStore } from '@/stores/variantPinStore';
 import { resolvePlaybackUrl } from './playbackResolver';
+import { waitWithSignal, throwIfAborted } from './cancellation';
 import {
   buildPlaybackPrefetchEntry,
   type PlaybackPrefetchEntry,
@@ -24,9 +25,9 @@ export interface PrefetchNearbyTracksOptions {
     music: MusicInfo,
     variants?: MusicInfo[],
     preferredQuality?: string,
-    options?: { cacheMedia?: boolean },
+    options?: { cacheMedia?: boolean; signal?: AbortSignal },
   ) => Promise<PrefetchResolvedUrl | null | undefined>;
-  getLyrics?: (music: MusicInfo) => Promise<LyricResponse>;
+  getLyrics?: (music: MusicInfo, variants?: MusicInfo[], signal?: AbortSignal) => Promise<LyricResponse>;
   preloadUrl?: (url: string) => void;
   preloadCoverUrl?: (url: string) => void;
   now?: () => number;
@@ -37,6 +38,52 @@ const PREFETCH_OFFSETS = [-1, 1, 2] as const;
 const SHUFFLE_PREFETCH_OFFSETS = [1, 2, -1] as const;
 const prefetchCache = new Map<string, PlaybackPrefetchEntry>();
 let cacheGeneration = 0;
+interface PrefetchProducer {
+  controller: AbortController;
+  promise: Promise<void>;
+  ready: Promise<PlaybackPrefetchEntry | undefined>;
+  background: boolean;
+  consumers: number;
+  selectionKey: string;
+}
+const producers = new Map<string, PrefetchProducer>();
+
+function releaseUnusedProducer(key: string, producer: PrefetchProducer): void {
+  if (producer.background || producer.consumers > 0) return;
+  producer.controller.abort();
+  if (producers.get(key) === producer) producers.delete(key);
+}
+
+function replaceBackgroundWindow(tracks: MusicInfo[]): void {
+  const keys = new Set(tracks.map(getTrackKey));
+  for (const [key, producer] of producers) {
+    producer.background = keys.has(key);
+    releaseUnusedProducer(key, producer);
+  }
+}
+
+/** 前台只租用生产者，切歌只释放自己的消费者；窗口更换不能取消仍被前台消费的请求。 */
+export async function consumePrefetchedTrack(music: MusicInfo, signal?: AbortSignal): Promise<PlaybackPrefetchEntry | undefined> {
+  const key = getTrackKey(music);
+  for (const [otherKey, producer] of producers) {
+    if (otherKey === key) continue;
+    producer.background = false;
+    releaseUnusedProducer(otherKey, producer);
+  }
+  const cached = getPrefetchedTrack(music);
+  if (cached) return cached;
+  const producer = producers.get(key);
+  if (!producer || producer.selectionKey !== getSelectionKey(music)) return undefined;
+  producer.consumers++;
+  try {
+    const entry = await waitWithSignal(producer.ready, signal);
+    return entry && !producer.controller.signal.aborted && isEntryAccessible(entry) && producer.selectionKey === getSelectionKey(music) ? entry : undefined;
+  } finally {
+    producer.consumers--;
+    releaseUnusedProducer(key, producer);
+  }
+}
+
 
 function getTrackKey(music: MusicInfo): string {
   return `${music.source}:${music.id}`;
@@ -109,17 +156,20 @@ function defaultPreloadCover(url: string): void {
   image.src = url;
 }
 
-async function prefetchTrack(
+async function produceTrack(
   music: MusicInfo,
   options: Required<Pick<PrefetchNearbyTracksOptions, 'resolvePlaybackUrl' | 'getLyrics' | 'preloadUrl' | 'preloadCoverUrl' | 'now'>>,
+  signal: AbortSignal,
+  publish: (entry?: PlaybackPrefetchEntry) => void,
 ): Promise<void> {
   // 身份快照必须在第一个 await 之前取：调用之后才发生的清缓存/换选择，都要让本次结果作废。
   const generation = cacheGeneration;
   const selectionKey = getSelectionKey(music);
-  const isCurrentSelection = () => generation === cacheGeneration && selectionKey === getSelectionKey(music);
+  const isCurrentSelection = () => !signal.aborted && generation === cacheGeneration && selectionKey === getSelectionKey(music);
   // 预取除了令牌还要代际：条目带着它供消费方比对；功能关着（没有令牌）时，
   // 也得靠它发现「预取期间被打开/换代」，见函数末尾。
   const access = await snapshotCustomSourceAccess();
+  throwIfAborted(signal);
   const fetchedAt = options.now();
   const key = getTrackKey(music);
   if (getPrefetchedTrack(music, fetchedAt)) return;
@@ -142,7 +192,7 @@ async function prefetchTrack(
       };
     } else {
       const variants = getPlaybackVariants(music);
-      const resolved = await options.resolvePlaybackUrl(music, variants, undefined, { cacheMedia: false });
+      const resolved = await waitWithSignal(options.resolvePlaybackUrl(music, variants, undefined, { cacheMedia: false, signal }), signal);
       if (resolved?.url) {
         // 同一 source 的链接也可能来自 LX（普通自定义源或隐藏兜底），不能用 source 推断权限。
         if (!canReuseCustomSourceResult(resolved.backend, access.operation)) return;
@@ -160,8 +210,11 @@ async function prefetchTrack(
     entry.error = error instanceof Error ? error.message : String(error);
   }
 
+  if (!isCurrentSelection()) return;
+  // URL 阶段结束即交还前台；取链失败时也不能让歌词阻塞正常重解析。
+  publish(entry.url && isEntryAccessible(entry) ? entry : undefined);
   try {
-    entry.lyrics = await options.getLyrics(music);
+    entry.lyrics = await waitWithSignal(options.getLyrics(music, undefined, signal), signal);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     entry.error = entry.error ? `${entry.error}\n${message}` : message;
@@ -171,6 +224,30 @@ async function prefetchTrack(
   if (!entry.url && customSourceAccess.version !== access.version) return;
   if (!isEntryAccessible(entry) || !isCurrentSelection()) return;
   prefetchCache.set(key, entry);
+}
+
+function prefetchTrack(music: MusicInfo, options: Parameters<typeof produceTrack>[1]): Promise<void> {
+  const key = getTrackKey(music);
+  if (getPrefetchedTrack(music, options.now())) return Promise.resolve();
+  const selectionKey = getSelectionKey(music);
+  const existing = producers.get(key);
+  if (existing && existing.selectionKey === selectionKey && !existing.controller.signal.aborted) {
+    existing.background = true;
+    return existing.promise;
+  }
+  if (existing) existing.controller.abort();
+  const controller = new AbortController();
+  let publish!: (entry?: PlaybackPrefetchEntry) => void;
+  const ready = new Promise<PlaybackPrefetchEntry | undefined>(resolve => { publish = resolve; });
+  const producer: PrefetchProducer = { controller, selectionKey, consumers: 0, background: true, ready, promise: Promise.resolve() };
+  producers.set(key, producer);
+  producer.promise = produceTrack(music, options, controller.signal, publish).catch(error => {
+    if (!controller.signal.aborted) throw error;
+  }).finally(() => {
+    publish();
+    if (producers.get(key) === producer) producers.delete(key);
+  });
+  return producer.promise;
 }
 
 export async function prefetchNearbyTracks({
@@ -185,7 +262,7 @@ export async function prefetchNearbyTracks({
   preloadCoverUrl = defaultPreloadCover,
   now = () => Date.now(),
 }: PrefetchNearbyTracksOptions): Promise<void> {
-  if (fmMode || queue.length === 0) return;
+  if (fmMode || queue.length === 0) { replaceBackgroundWindow([]); return; }
 
   const dependencies = {
     resolvePlaybackUrl: resolveUrl,
@@ -197,6 +274,7 @@ export async function prefetchNearbyTracks({
 
   // 并行预取所有邻近歌曲，避免单首 URL 解析卡顿拖慢整体
   const tracks = getNearbyTracks(queue, currentIndex, repeatMode, isShuffle);
+  replaceBackgroundWindow(tracks);
   await Promise.all(tracks.map((music) => prefetchTrack(music, dependencies)));
 }
 
@@ -205,6 +283,7 @@ export async function prefetchNearbyTracks({
  * 解析播放 URL + 预取歌词/封面并写入缓存，切歌时 URL 命中预取缓存秒开。
  */
 export async function prefetchTracks(musicList: MusicInfo[]): Promise<void> {
+  replaceBackgroundWindow(musicList);
   if (musicList.length === 0) return;
 
   const dependencies = {
@@ -237,9 +316,14 @@ export function getPrefetchedTrack(music: MusicInfo, now = Date.now()): Playback
 
 export function clearPlaybackPrefetchCache(): void {
   cacheGeneration++;
+  for (const producer of producers.values()) producer.controller.abort();
+  producers.clear();
   prefetchCache.clear();
 }
 
 export function invalidatePrefetchedTrack(music: MusicInfo): void {
-  prefetchCache.delete(getTrackKey(music));
+  const key = getTrackKey(music);
+  producers.get(key)?.controller.abort();
+  producers.delete(key);
+  prefetchCache.delete(key);
 }

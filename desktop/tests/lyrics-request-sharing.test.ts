@@ -13,6 +13,25 @@ beforeEach(() => {
   clearLyricsMemoryCache(); vi.resetAllMocks();
   deps.read.mockResolvedValue(null); deps.save.mockResolvedValue(undefined);
 });
+it('共享歌词只在最后一个消费者取消后停止 HTTP', async () => {
+  let signal: AbortSignal | undefined;
+  deps.provider.mockImplementation((_music, requestSignal) => {
+    signal = requestSignal;
+    return new Promise((_resolve, reject) => signal?.addEventListener('abort', () => reject(Object.assign(new Error('cancelled'), { name: 'AbortError' })), { once: true }));
+  });
+  const first = new AbortController(), second = new AbortController();
+  const a = getLyrics(track('shared'), undefined, first.signal).catch(error => error.name);
+  const b = getLyrics(track('shared'), undefined, second.signal).catch(error => error.name);
+  await vi.waitFor(() => expect(deps.provider).toHaveBeenCalled());
+  expect(signal).toBeDefined();
+  first.abort();
+  expect(await a).toBe('AbortError');
+  expect(signal?.aborted).toBe(false);
+  second.abort();
+  expect(await b).toBe('AbortError');
+  expect(signal?.aborted).toBe(true);
+  expect(deps.save).not.toHaveBeenCalled();
+});
 it('同曲多个视图和预取并发只发一份请求、只写一次主曲缓存', async () => {
   let resolve!: (value: unknown) => void;
   deps.provider.mockReturnValue(new Promise(done => { resolve = done; }));

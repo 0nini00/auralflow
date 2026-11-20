@@ -28,10 +28,11 @@ const SONG_DETAIL_CHUNK_SIZE = 500;
  * 其余一律用 `assertWyOk` 收口。
  * @param cookie 已按接口需要处理好的 Cookie（是否改写成 PC 形态由调用方决定）。
  */
-export async function sendWyWeapi(path: string, data: WyJson, cookie: string): Promise<WyJson> {
+export async function sendWyWeapi(path: string, data: WyJson, cookie: string, signal?: AbortSignal): Promise<WyJson> {
   const { params, encSecKey } = await weapi({ ...data, csrf_token: extractWyCsrfToken(cookie) });
   const request = buildWyWeapiRequest({ path, params, encSecKey, cookie });
   const response = await fetch(request.url, {
+    signal,
     method: request.method,
     headers: request.headers,
     body: request.body,

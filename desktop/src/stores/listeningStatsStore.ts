@@ -1,39 +1,124 @@
 import {
-  createListeningSession, LISTENING_CHECKPOINT_MS, parseListeningEvents,
-  sampleListeningSession, seekListeningSession, upsertListeningEvent,
-  type ListeningEvent, type ListeningSample, type ListeningSession, type MusicInfo,
+  createListeningSession, createListeningStatsIndex, LISTENING_CHECKPOINT_MS, parseListeningEvents,
+  sampleListeningSession, seekListeningSession,
+  type ListeningEvent, type ListeningSample, type ListeningSession, type ListeningStats, type MusicInfo,
 } from '@lx/core';
-import { attachLibraryPersistence, createLibraryStore, registerLibraryFlushHook } from './libraryPersistence';
+import { create } from 'zustand';
+import { libraryReset, loadListeningStats, saveListeningStatsMonth } from '@lx/tauri-bridge';
+import { markNamespaceDegraded, registerLibraryPersistence, registerLibraryFlushHook, type LibraryPersistenceController } from './libraryPersistence';
 
 interface ListeningStatsState {
   events: ListeningEvent[];
+  revision: number;
+  getStats: () => ListeningStats;
   error: string | null;
   /** 磁盘水合完成前不要渲染“还没有播放记录”，否则冷启动会先闪一次空态。 */
   loaded: boolean;
   record: (event: ListeningEvent) => void;
 }
-export const useListeningStatsStore = createLibraryStore<ListeningStatsState>((set) => ({
-  events: [],
+const buckets = new Map<string, Map<string, ListeningEvent>>();
+const positions = new Map<string, number>();
+const dirty = new Map<string, number>();
+let nextRevision = 0;
+let statsIndex = createListeningStatsIndex();
+let migrationPending = false;
+let loadError: Error | null = null;
+let writes: Promise<void> = Promise.resolve();
+let writing = false;
+const eventMonth = (event: ListeningEvent) => new Date(event.startedAt).toISOString().slice(0, 7);
+function putEvent(event: ListeningEvent): void {
+  const month = eventMonth(event);
+  const bucket = buckets.get(month) ?? new Map<string, ListeningEvent>();
+  bucket.set(event.sessionId, event);
+  buckets.set(month, bucket);
+}
+
+export const useListeningStatsStore = create<ListeningStatsState>((set, get) => ({
+  events: [], revision: 0, getStats: () => statsIndex.snapshot(),
   error: null,
   loaded: false,
-  record: (event) => set((state) => ({ events: upsertListeningEvent(state.events, event) })),
+  record: (event) => {
+    const state = get();
+    const index = positions.get(event.sessionId);
+    const previous = index === undefined ? undefined : state.events[index];
+    if (previous && previous.listenedMs >= event.listenedMs) return;
+    if (previous && eventMonth(previous) !== eventMonth(event)) {
+      const oldMonth = eventMonth(previous);
+      buckets.get(oldMonth)?.delete(event.sessionId);
+      dirty.set(oldMonth, ++nextRevision);
+    }
+    putEvent(event);
+    dirty.set(eventMonth(event), ++nextRevision);
+    const events = state.events.slice();
+    const nextIndex = index ?? events.length;
+    events[nextIndex] = event;
+    positions.set(event.sessionId, nextIndex);
+    statsIndex.record(event);
+    set({ events, revision: state.revision + 1 });
+  },
 }));
-
-export const listeningStatsPersistence = attachLibraryPersistence<ListeningStatsState, { events: unknown }>(useListeningStatsStore, {
-  namespace: 'listeningStats',
-  pick: ({ events }) => ({ events }),
-  shouldPersist: (state, previous) => state.events !== previous.events,
-  apply: (slice, set) => set({ events: parseListeningEvents(slice.events) }),
-});
 
 function reportPersistenceError(error: unknown): void {
   useListeningStatsStore.setState({ error: error instanceof Error ? error.message : String(error) });
 }
 
-void listeningStatsPersistence.ready.then(() => {
-  if (listeningStatsPersistence.loadError) reportPersistenceError(listeningStatsPersistence.loadError);
-  useListeningStatsStore.setState({ loaded: true });
-});
+const ready = (async () => {
+  try {
+    const archive = await loadListeningStats();
+    const restored: ListeningEvent[] = [];
+    for (const [month, contents] of Object.entries(archive.months)) {
+      const events = parseListeningEvents(contents);
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || events.some(event => eventMonth(event) !== month)) {
+        throw new Error(`收听统计月份内容不匹配：${month}`);
+      }
+      restored.push(...events);
+    }
+    if (archive.legacy !== null && (!archive.legacy || typeof archive.legacy !== 'object' || !('events' in archive.legacy))) {
+      throw new Error('旧收听统计文件结构错误');
+    }
+    const legacy = parseListeningEvents(archive.legacy === null ? null : (archive.legacy as { events: unknown }).events);
+    const merged = parseListeningEvents([...restored, ...legacy, ...useListeningStatsStore.getState().events]);
+    buckets.clear(); positions.clear();
+    for (const [index, event] of merged.entries()) { putEvent(event); positions.set(event.sessionId, index); }
+    for (const event of [...restored, ...legacy]) {
+      if (eventMonth(event) !== eventMonth(merged[positions.get(event.sessionId)!])) dirty.set(eventMonth(event), ++nextRevision);
+    }
+    migrationPending = archive.legacy !== null;
+    if (migrationPending) for (const month of buckets.keys()) dirty.set(month, ++nextRevision);
+    statsIndex = createListeningStatsIndex(merged);
+    useListeningStatsStore.setState(state => ({ events: merged, revision: state.revision + 1, loaded: true }));
+  } catch (error) {
+    loadError = error instanceof Error ? error : new Error(String(error));
+    markNamespaceDegraded('listeningStats');
+    reportPersistenceError(loadError);
+    useListeningStatsStore.setState({ loaded: true });
+  }
+})();
+
+export const listeningStatsPersistence: LibraryPersistenceController = {
+  ready,
+  get loadError() { return loadError; },
+  get hasPendingWrites() { return dirty.size > 0 || migrationPending || writing; },
+  flush() {
+    const task = writes.catch(() => undefined).then(async () => {
+      await ready;
+      if (loadError) throw loadError;
+      writing = true;
+      try {
+        do {
+          for (const [month, revision] of [...dirty]) {
+            await saveListeningStatsMonth(month, [...(buckets.get(month)?.values() ?? [])]);
+            if (dirty.get(month) === revision) dirty.delete(month);
+          }
+        } while (dirty.size > 0);
+        if (migrationPending) { await libraryReset('listeningStats'); migrationPending = false; }
+      } finally { writing = false; }
+    });
+    writes = task;
+    return task;
+  },
+};
+registerLibraryPersistence(listeningStatsPersistence);
 
 let session: ListeningSession | null = null;
 let checkpointAt = 0;

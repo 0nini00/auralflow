@@ -1,6 +1,8 @@
 import CryptoJS from 'crypto-js';
 import forge from 'node-forge';
 import {
+  createRequestLimiter,
+  MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS,
   CUSTOM_SOURCE_CHECK_UPDATE_ALERT_WAIT_MS,
   CUSTOM_SOURCE_INIT_TIMEOUT_MS,
   CUSTOM_SOURCE_REMOTE_SCRIPT_ACCEPT,
@@ -30,6 +32,8 @@ import { hiddenSourceSearchers } from '@/services/sources/hidden/hiddenSearchers
 import { awaitCustomSourceOperation, CustomSourceDisabledError, type CustomSourceOperation } from '@/services/customSourceAccess';
 import { deflateBytes, inflateBytes, zlibFormatFromOptions } from '@/utils/compression';
 import { withTimeout } from '@/utils/withTimeout';
+import { createCancellationScope, throwIfAborted, waitWithSignal } from './playback/cancellation';
+import { createPlaybackRequestScheduler } from './playback/requestScheduler';
 
 // 脚本协议（头部解析、能力归一化、取链请求、更新比对、深度测试编排）在 @lx/core 的
 // custom-source 模块里，两端共用；本文件只保留桌面端宿主：new Function 执行环境、
@@ -41,6 +45,8 @@ export type { CustomSourcePlatformRequest };
 interface RuntimeInstance {
   operation: CustomSourceOperation;
   dispose: () => void;
+  drain: () => Promise<void>;
+  hasPendingRequests: () => boolean;
   init: Promise<CustomSourceRuntimeInitResult>;
   request: (data: CustomSourceRuntimeRequestPayload) => Promise<CustomSourceRuntimeRequestResult>;
   getUpdateAlert: () => CustomSourceUpdateAlert | undefined;
@@ -223,12 +229,15 @@ function tagCustomSourceError(error: unknown, sourceName: string): Error {
   return normalized;
 }
 
+const httpLimiter = createRequestLimiter({ limit: MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS });
+
 function runHttpRequest(
   url: string,
   options: HttpRequestOptions,
   callback: (error: Error | null, response: unknown, body: unknown) => void,
   operation: CustomSourceOperation,
   sourceName: string,
+  requests: Set<Promise<void>>,
 ): () => void {
   operation.assertActive();
   // 脚本调用 lx.request 时漏传回调：异步 IIFE 会在错误分支里以 TypeError 结束，
@@ -238,8 +247,7 @@ function runHttpRequest(
     return () => {};
   }
   // 出站校验（含 SSRF 与重定向逐跳）在 Rust 侧 outbound.rs 统一完成，这里不再重复判定。
-  // 代价：请求发出后无法真正中止，cancel 只丢弃回调。
-  let cancelled = false;
+  const scope = createCancellationScope(operation.signal);
   const timeoutMs = typeof options.timeout === 'number' && options.timeout > 0 ? Math.min(options.timeout, 60_000) : 60_000;
   // 脚本回调自己抛错时不能再走一次 callback —— 那会把回调错误变成新的未处理拒绝。
   const deliver = (error: Error | null, response: unknown, body: unknown) => {
@@ -250,8 +258,11 @@ function runHttpRequest(
     }
   };
 
-  void (async () => {
+  const task = (async () => {
+    let release: (() => void) | undefined;
     try {
+      release = await httpLimiter.acquire(scope.signal);
+      throwIfAborted(scope.signal);
       let body: string | undefined;
       if (options.body != null) {
         body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
@@ -263,6 +274,7 @@ function runHttpRequest(
 
       const binary = wantsBinaryResponse(options.responseType);
       const response = await outboundRequest(url, {
+        signal: scope.signal,
         method: options.method ?? 'GET',
         headers: options.headers,
         body,
@@ -270,7 +282,7 @@ function runHttpRequest(
         // 二进制响应必须让 Rust 侧回 base64：按 UTF-8 lossy 转文本会把字节改掉
         responseType: binary ? 'base64' : 'text',
       });
-      if (cancelled || !operation.isActive()) return;
+      if (scope.signal.aborted || !operation.isActive()) return;
       if (binary) {
         // 脚本按 Buffer 使用（length / 下标 / utils.buffer.bufToString），Uint8Array 都满足
         const bytes = toBytes(response.base64(), 'base64');
@@ -278,7 +290,7 @@ function runHttpRequest(
         return;
       }
       const text = await response.text();
-      if (cancelled || !operation.isActive()) return;
+      if (scope.signal.aborted || !operation.isActive()) return;
       let parsed: unknown = text;
       try {
         parsed = JSON.parse(text);
@@ -287,19 +299,22 @@ function runHttpRequest(
       }
       deliver(null, createRequestResponse(parsed, response.status, response.statusText, response.headers), parsed);
     } catch (error) {
-      if (cancelled || !operation.isActive()) return;
+      if (scope.signal.aborted || !operation.isActive()) return;
       deliver(tagCustomSourceError(error, sourceName), null, null);
+    } finally {
+      scope.dispose();
+      release?.();
     }
   })();
-
-  return () => {
-    cancelled = true;
-  };
+  requests.add(task);
+  void task.finally(() => requests.delete(task));
+  return () => scope.dispose();
 }
 
 function createRuntime(api: CustomSourceItem, parentOperation: CustomSourceOperation, options?: CreateRuntimeOptions): RuntimeInstance {
   parentOperation.assertActive();
   const controller = new AbortController();
+  const requests = new Set<Promise<void>>();
   const operation: CustomSourceOperation = {
     signal: controller.signal,
     isActive: () => !controller.signal.aborted && parentOperation.isActive(),
@@ -344,7 +359,7 @@ function createRuntime(api: CustomSourceItem, parentOperation: CustomSourceOpera
   const lx = {
     EVENT_NAMES,
     request(url: string, options: any = {}, callback: (error: Error | null, response: unknown, body: unknown) => void) {
-      return runHttpRequest(url, options, callback, operation, api.name);
+      return runHttpRequest(url, options, callback, operation, api.name, requests);
     },
     send(eventName: string, data?: unknown) {
       return new Promise<void>((resolve, reject) => {
@@ -475,6 +490,8 @@ function createRuntime(api: CustomSourceItem, parentOperation: CustomSourceOpera
   return {
     operation,
     dispose,
+    drain: async () => { await Promise.all([...requests]); },
+    hasPendingRequests: () => requests.size > 0,
     init,
     getUpdateAlert() {
       return updateAlert;
@@ -515,8 +532,9 @@ function createRuntime(api: CustomSourceItem, parentOperation: CustomSourceOpera
 // 按 api.id + api.script 的 hash 缓存已初始化的 RuntimeInstance，避免每次播放
 // 都重新执行脚本（createRuntime 内含 new Function + 网络初始化，耗时且有超时风险）。
 
-const RUNTIME_CACHE_MAX = 8;
-const runtimeCache = new Map<string, RuntimeInstance>();
+const runtimeCache = new Map<string, RuntimeInstance[]>();
+const busyRuntimes = new Set<RuntimeInstance>();
+const runtimeScheduler = createPlaybackRequestScheduler();
 
 /** Fast non-crypto hash so script body changes always bust the runtime cache. */
 function hashScript(script: string): string {
@@ -535,77 +553,54 @@ function getCacheKey(api: CustomSourceItem): string {
   return `${api.id}::${hashScript(api.script)}`;
 }
 
+function removeRuntime(runtime: RuntimeInstance): void {
+  for (const [key, entries] of runtimeCache) {
+    const remaining = entries.filter(entry => entry !== runtime);
+    if (remaining.length) runtimeCache.set(key, remaining);
+    else runtimeCache.delete(key);
+  }
+  runtime.dispose();
+}
+
+function trimRuntimeCache(): void {
+  const idle = [...runtimeCache.values()].flat().filter(runtime => !busyRuntimes.has(runtime));
+  for (const runtime of idle.slice(0, Math.max(0, idle.length - MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS))) removeRuntime(runtime);
+}
+
+/** 每个运行时独占一次取链，异步 lx.request 不依赖跨请求的全局 owner。 */
 function getCachedRuntime(api: CustomSourceItem, operation: CustomSourceOperation, onUpdateAlert?: UpdateAlertListener): RuntimeInstance {
   operation.assertActive();
   const key = getCacheKey(api);
-  const cached = runtimeCache.get(key);
-  if (cached?.operation.isActive()) {
-    // 命中缓存也接上本次传入的监听器：深度测试 prime 进来的 Runtime 没有监听器，
-    // 后续取链期间的运行时 updateAlert 才不会继续被丢弃
+  const entries = runtimeCache.get(key) ?? [];
+  const cached = entries.find(runtime => runtime.operation.isActive() && !busyRuntimes.has(runtime));
+  if (cached) {
     if (onUpdateAlert) cached.setUpdateAlertListener(onUpdateAlert);
-    // 命中后移到末尾：Map 的插入序就是淘汰序，不刷新的话超过 8 个音源时
-    // 常用的会被冷门音源挤掉，导致反复重新执行脚本（new Function + 网络初始化）
-    runtimeCache.delete(key);
-    runtimeCache.set(key, cached);
+    busyRuntimes.add(cached);
     return cached;
   }
-  if (runtimeCache.size >= RUNTIME_CACHE_MAX) {
-    const oldest = runtimeCache.keys().next().value;
-    if (oldest !== undefined) {
-      // 淘汰的是仍在运行的脚本：只删 Map 会留下监听器、定时器和在途请求。
-      runtimeCache.get(oldest)?.dispose();
-      runtimeCache.delete(oldest);
-    }
-  }
-  cached?.dispose();
   const runtime = createRuntime(api, operation, { onUpdateAlert });
-  runtimeCache.set(key, runtime);
-  // 初始化失败时从缓存中移除，下次重试
-  runtime.init.catch(() => {
-    if (runtimeCache.get(key) === runtime) runtimeCache.delete(key);
-    runtime.dispose();
-  });
+  busyRuntimes.add(runtime);
+  runtimeCache.set(key, [...entries, runtime]);
+  void runtime.init.catch(() => removeRuntime(runtime));
   return runtime;
 }
 
-/** 清除某个音源的 Runtime 缓存（重新导入脚本时调用） */
 export function invalidateRuntimeCache(apiId: string): void {
-  for (const key of runtimeCache.keys()) {
-    if (key.startsWith(`${apiId}::`)) {
-      runtimeCache.get(key)?.dispose();
-      runtimeCache.delete(key);
-    }
+  for (const [key, entries] of [...runtimeCache]) {
+    if (key.startsWith(`${apiId}::`)) for (const runtime of entries) removeRuntime(runtime);
   }
 }
 
-/** 释放应用管理的运行时；不承诺终止脚本逃逸后创建的任意副作用。 */
 export function invalidateAllRuntimeCaches(): void {
-  for (const runtime of runtimeCache.values()) runtime.dispose();
+  for (const runtime of [...runtimeCache.values()].flat()) runtime.dispose();
   runtimeCache.clear();
 }
 
-/** 把已初始化的 Runtime 放回缓存（深度测试复用，避免重复执行脚本） */
 function primeRuntimeCache(api: CustomSourceItem, runtime: RuntimeInstance): void {
   runtime.operation.assertActive();
   const key = getCacheKey(api);
-  if (runtimeCache.size >= RUNTIME_CACHE_MAX) {
-    const oldest = runtimeCache.keys().next().value;
-    if (oldest !== undefined) {
-      // 淘汰的是仍在运行的脚本：只删 Map 会留下监听器、定时器和在途请求。
-      runtimeCache.get(oldest)?.dispose();
-      runtimeCache.delete(oldest);
-    }
-  }
-  // 同一 key 已有运行时：优先保留正在使用的那个（可能在播放），不要用测试实例覆盖它。
-  const existing = runtimeCache.get(key);
-  if (existing && existing !== runtime) {
-    if (existing.operation.isActive()) {
-      runtime.dispose();
-      return;
-    }
-    existing.dispose();
-  }
-  runtimeCache.set(key, runtime);
+  runtimeCache.set(key, [...(runtimeCache.get(key) ?? []), runtime]);
+  trimRuntimeCache();
 }
 
 export async function testCustomSource(api: CustomSourceItem, operation: CustomSourceOperation, updateAlertWaitMs = CUSTOM_SOURCE_TEST_UPDATE_ALERT_WAIT_MS): Promise<CustomSourceRuntimeInitResult> {
@@ -685,13 +680,36 @@ export async function requestCustomSourceMusicUrl(
   operation: CustomSourceOperation,
   onUpdateAlert?: UpdateAlertListener,
   platformRequest?: CustomSourcePlatformRequest,
+  signal?: AbortSignal,
 ): Promise<{ url: string; quality: string; sources?: Record<string, CustomSourceSourceInfo> }> {
   operation.assertActive();
-  const runtime = getCachedRuntime(api, operation, onUpdateAlert);
-  const initResult = await awaitCustomSourceOperation(operation, runtime.init);
-  const result = await runtime.request(
-    buildCustomSourceMusicUrlRequest(initResult.sources, music, quality, platformRequest),
-  );
-  operation.assertActive();
-  return { ...readCustomSourceMusicUrlResult(result, quality), sources: initResult.sources };
+  return runtimeScheduler.run(async requestSignal => {
+    operation.assertActive();
+    const runtime = getCachedRuntime(api, operation, onUpdateAlert);
+    const abort = () => removeRuntime(runtime);
+    requestSignal.addEventListener('abort', abort, { once: true });
+    try {
+      throwIfAborted(requestSignal);
+      const initResult = await waitWithSignal(awaitCustomSourceOperation(operation, runtime.init), requestSignal);
+      const result = await waitWithSignal(runtime.request(
+        buildCustomSourceMusicUrlRequest(initResult.sources, music, quality, platformRequest),
+      ), requestSignal);
+      operation.assertActive();
+      throwIfAborted(requestSignal);
+      return { ...readCustomSourceMusicUrlResult(result, quality), sources: initResult.sources };
+    } catch (error) {
+      throwIfAborted(requestSignal);
+      throw error;
+    } finally {
+      requestSignal.removeEventListener('abort', abort);
+      // 尚有初始化或取链 HTTP 的实例不能回到空闲池，避免下一位继承旧请求。
+      if (runtime.hasPendingRequests()) removeRuntime(runtime);
+      if (requestSignal.aborted) {
+        removeRuntime(runtime);
+        await runtime.drain();
+      }
+      busyRuntimes.delete(runtime);
+      trimRuntimeCache();
+    }
+  }, signal);
 }

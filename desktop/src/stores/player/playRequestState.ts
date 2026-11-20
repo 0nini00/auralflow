@@ -16,6 +16,12 @@ interface InflightPlayRequest {
 }
 
 let activePlayRequestId = 0;
+let activePlayController = new AbortController();
+
+export function getPlayRequestSignal(requestId: number): AbortSignal {
+  if (requestId !== activePlayRequestId) return AbortSignal.abort();
+  return activePlayController.signal;
+}
 /**
  * 引擎当前“应当”播放的曲目 key。
  *
@@ -39,6 +45,8 @@ export function buildPlayRequestKey(music: MusicInfo): string {
 
 /** 开启新一代播放请求，并把它的曲目登记为引擎应当接管的目标；返回本次请求的代次。 */
 export function beginPlayRequest(requestKey: string): number {
+  activePlayController.abort();
+  activePlayController = new AbortController();
   const requestId = activePlayRequestId + 1;
   activePlayRequestId = requestId;
   // 从这一行到引擎真正加载本曲目之前，引擎推来的状态都属于上一首：全部屏蔽。
@@ -75,6 +83,7 @@ export function setEngineTargetKey(key: string | null): void {
 }
 
 export function invalidatePlayRequest(): void {
+  activePlayController.abort();
   activePlayRequestId += 1;
   inflightPlayRequest = null;
   engineTargetKey = null;

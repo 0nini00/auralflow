@@ -1,3 +1,4 @@
+import { createCancellationScope, throwIfAborted, waitWithSignal } from './cancellation';
 import type { MusicInfo } from '@lx/core';
 import { buildPlaybackQualityTiers, DEFAULT_QUALITY_UPGRADE_WINDOW_MS, getPlaybackQualityFallbacks, getPlaybackQualityRank, normalizePlaybackQuality, PLAYBACK_RESOLVE_TOTAL_BUDGET_MS, raceForBestQuality, withBudget } from '@lx/core';
 import { CUSTOM_SOURCE_PROBE_RESERVE_MS, PRIMARY_BUDGET_MS } from '@lx/core';
@@ -27,16 +28,28 @@ export async function resolvePlaybackUrl(
 ): Promise<PlaybackResolvedUrl> {
   // 解析链总预算:竞速 + 慢源回退(实测第三方源 2-10s)后仍需在预算内留出
   // 探活与媒体缓存的时间;14s 内未出结果直接抛错走错误分支,不再无限等。
-  const operation = await openCustomSourceAccess();
+  throwIfAborted(options.signal);
+  const scope = createCancellationScope(options.signal, PLAYBACK_RESOLVE_TOTAL_BUDGET_MS);
   const deadlineAt = Date.now() + PLAYBACK_RESOLVE_TOTAL_BUDGET_MS;
-  const resolved = await withResolveDeadline(
-    resolvePlaybackUrlUncapped(music, variants, preferredQuality, options, operation, deadlineAt),
-  );
-  requireCustomSourceOperation(resolved.backend, operation);
-  return resolved;
+  try {
+    const operation = await waitWithSignal(openCustomSourceAccess(), scope.signal);
+    const resolved = await waitWithSignal(
+      resolvePlaybackUrlUncapped(music, variants, preferredQuality, { ...options, signal: scope.signal }, operation, deadlineAt),
+      scope.signal,
+    );
+    requireCustomSourceOperation(resolved.backend, operation);
+    return resolved;
+  } catch (error) {
+    throwIfAborted(options.signal);
+    if (scope.signal.aborted) throw new Error(`播放地址解析超时(${PLAYBACK_RESOLVE_TOTAL_BUDGET_MS / 1000}s),请重试或切换音源`);
+    throw error;
+  } finally {
+    scope.dispose();
+  }
 }
 
 export interface ResolvePlaybackOptions {
+  signal?: AbortSignal;
   bypassCache?: boolean;
   cacheMedia?: boolean;
   /** 下载没有播放器实际时长兜底，需采用严格的流完整性校验。 */
@@ -83,6 +96,7 @@ function shouldRevalidateCachedUrl(cached: PlaybackResolvedUrl): boolean {
 async function pickPlayableFallback(
   current: PlaybackResolvedUrl,
   deadlineAt: number,
+  signal?: AbortSignal,
 ): Promise<{ resolved: PlaybackResolvedUrl; probe: StreamProbeResult } | null> {
   let tolerated: { resolved: PlaybackResolvedUrl; probe: StreamProbeResult } | null = null;
   for (const candidate of current.fallbacks ?? []) {
@@ -92,6 +106,7 @@ async function pickPlayableFallback(
       candidate.url,
       buildStreamHeaders(candidate.music.source),
       probeBudgetMs(deadlineAt),
+      signal,
     );
     if (probe.ok) return { resolved: candidate, probe };
     if (!probe.definitive && !tolerated) tolerated = { resolved: candidate, probe };
@@ -101,24 +116,6 @@ async function pickPlayableFallback(
 
 // 历史调用方（downloadService）从本模块取这个函数，保留原导出路径。
 export { buildStreamHeaders } from './streamHeaders';
-
-function withResolveDeadline(task: Promise<PlaybackResolvedUrl>): Promise<PlaybackResolvedUrl> {
-  return new Promise<PlaybackResolvedUrl>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error(`播放地址解析超时(${PLAYBACK_RESOLVE_TOTAL_BUDGET_MS / 1000}s),请重试或切换音源`));
-    }, PLAYBACK_RESOLVE_TOTAL_BUDGET_MS);
-    task.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
-}
 
 type RacingBackendId = Exclude<PlaybackBackendId, 'hiddenSource'>;
 
@@ -165,6 +162,7 @@ async function raceQualityTierLazy(
   holdUntil: string,
   operation?: CustomSourceOperation,
 ): Promise<PlaybackResolvedUrl> {
+  throwIfAborted(request.signal);
   const targetRank = getPlaybackQualityRank(request.qualityPreference[0]);
 
   // 第一步:只跑主源,带预算。主源请求只发一次——预算耗尽只代表「等不及」,
@@ -179,7 +177,8 @@ async function raceQualityTierLazy(
   );
   const raceDeadlineAt = (request.deadlineAt ?? Date.now() + PLAYBACK_RESOLVE_TOTAL_BUDGET_MS) - CUSTOM_SOURCE_PROBE_RESERVE_MS;
   const remainingRaceBudget = () => Math.max(0, raceDeadlineAt - Date.now());
-  const primaryHit = await resolveWithBudget(primaryAttempt, Math.min(PRIMARY_BUDGET_MS, remainingRaceBudget()));
+  const primaryHit = await waitWithSignal(resolveWithBudget(primaryAttempt, Math.min(PRIMARY_BUDGET_MS, remainingRaceBudget())), request.signal);
+  throwIfAborted(request.signal);
   if (primaryHit && getPlaybackQualityRank(primaryHit.quality) >= targetRank) {
     return primaryHit;
   }
@@ -190,7 +189,7 @@ async function raceQualityTierLazy(
     // 没有自定义源可唤醒：等这条在途请求收尾（受 request.deadlineAt 约束），
     // 不重发。旧实现在这里立刻再发一个一模一样的请求且无预算，对限流网关
     // 是纯放大；而且那个重发与在途请求争同一个配额，反而更容易一起超时。
-    const late = await primaryAttempt;
+    const late = await waitWithSignal(primaryAttempt, request.signal);
     if (late) return late;
     throw new Error(`${primary.id}: ${formatReason(primaryError)}`);
   }
@@ -233,7 +232,8 @@ async function resolvePlaybackUrlUncapped(
   operation?: CustomSourceOperation,
   deadlineAt = Date.now() + PLAYBACK_RESOLVE_TOTAL_BUDGET_MS,
 ): Promise<PlaybackResolvedUrl> {
-  const settings = await ensureSettingsLoaded();
+  const settings = await waitWithSignal(ensureSettingsLoaded(), options.signal);
+  throwIfAborted(options.signal);
   const qualityFloor = preferredQuality ?? settings.defaultQuality;
   // 分轮次:首轮是「不低于选定音质」的全部档位一起竞速,之后逐档下调。
   // exactQuality（下载）只保留用户选的那一档：缓存查询也不许命中其它档位，
@@ -253,7 +253,7 @@ async function resolvePlaybackUrlUncapped(
   let hiddenSearch: Promise<HiddenCandidateGroup[]> | null = null;
   const ensureHiddenSearch = (): Promise<HiddenCandidateGroup[]> => {
     if (!hiddenSearch) {
-      hiddenSearch = startHiddenSearch(music, deadlineAt).catch((error) => {
+      hiddenSearch = startHiddenSearch(music, deadlineAt, options.signal).catch((error) => {
         debugLog(`[resolve] 隐藏音源搜索失败: ${error instanceof Error ? error.message : String(error)}`);
         return [];
       });
@@ -264,7 +264,7 @@ async function resolvePlaybackUrlUncapped(
   const ensureHiddenResolve = (): Promise<PlaybackResolvedUrl | null> => {
     if (!hiddenResolve) {
       hiddenResolve = ensureHiddenSearch()
-        .then((groups) => resolveHiddenFromGroups(groups, music, qualityPreference, deadlineAt, operation))
+        .then((groups) => resolveHiddenFromGroups(groups, music, qualityPreference, deadlineAt, operation, options.signal))
         .catch((error) => {
           debugLog(`[resolve] 隐藏兜底失败: ${error instanceof Error ? error.message : String(error)}`);
           return null;
@@ -285,6 +285,7 @@ async function resolvePlaybackUrlUncapped(
   // 重解析）都必须绕开本地文件：前两者要远端直链，后者要摆脱刚刚失败的同一份缓存。
   if (!options.bypassCache && options.cacheMedia !== false && !options.exactQuality && music.source !== 'local') {
     for (const candidate of cacheVariants) {
+      throwIfAborted(options.signal);
       let local: PlaybackResolvedUrl | null = null;
       try {
         local = await findCachedPlaybackMedia(candidate, qualityPreference, operation);
@@ -317,6 +318,7 @@ async function resolvePlaybackUrlUncapped(
             cached.url,
             buildStreamHeaders(cached.music.source),
             Math.min(probeBudgetMs(deadlineAt), CACHED_URL_REVALIDATE_TIMEOUT_MS),
+            options.signal,
           );
           const preview = revalidate.ok && validateDownload && isPreviewStream({
             totalBytes: revalidate.totalBytes,
@@ -356,6 +358,7 @@ async function resolvePlaybackUrlUncapped(
         }
       }
     } catch (error) {
+      throwIfAborted(options.signal);
       // 缓存读失败按未命中处理，继续走网络解析；但不能完全静默，
       // 否则缓存文件损坏/权限异常会退化成"每次都重新解析"而无任何线索。
       debugLog(`[resolve] 读取持久化缓存失败，按未命中处理: ${error instanceof Error ? error.message : String(error)}`);
@@ -383,6 +386,7 @@ async function resolvePlaybackUrlUncapped(
       qualityPreference,
       exactQuality: options.exactQuality,
       deadlineAt,
+      signal: options.signal,
     });
     debugLog(`[resolve] 云盘曲官方直连 ${music.name} url=${resolved.url.slice(0, 60)}`);
     const playable = await prepareResolvedPlaybackMedia(
@@ -436,6 +440,7 @@ async function resolvePlaybackUrlUncapped(
         qualityPreference,
         exactQuality: options.exactQuality,
         deadlineAt,
+        signal: options.signal,
       }).catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`${customBackend.id}: ${message}`);
@@ -445,12 +450,14 @@ async function resolvePlaybackUrlUncapped(
   };
   let lowerQualityCandidate: PlaybackResolvedUrl | undefined;
   for (const tier of qualityTiers) {
+    throwIfAborted(options.signal);
     const request: import('./types').PlaybackRequest = {
       primary: music,
       variants: allVariants,
       qualityPreference: tier,
       exactQuality: options.exactQuality,
       deadlineAt,
+      signal: options.signal,
     };
     try {
       const tierFloorRank = getPlaybackQualityRank(tier[tier.length - 1]);
@@ -489,13 +496,13 @@ async function resolvePlaybackUrlUncapped(
       // 探活必须带「实际解析到的变体」的 Referer：wy 主源可能解析到 tx 变体，
       // 用主源 Referer 会被 QQ CDN 判 403，把可用地址误杀。
       const probeHeaders = buildStreamHeaders(resolved.music.source);
-      let probe = await probeStreamUrl(resolved.url, probeHeaders, probeBudgetMs(deadlineAt));
+      let probe = await probeStreamUrl(resolved.url, probeHeaders, probeBudgetMs(deadlineAt), options.signal);
       if (!probe.ok && probe.definitive) {
         // 胜出地址被服务端明确拒绝（403/404/410/451）。同一轮竞速里往往已经有
         // 别的源/档位结算出可用地址——先按「音质降序 → 源序」回退；整轮都没
         // 可用才丢这一轮进下一档，否则这轮所有结果都白跑了。
         const rejectedReason = probe.reason;
-        const fallback = await pickPlayableFallback(resolved, deadlineAt);
+        const fallback = await pickPlayableFallback(resolved, deadlineAt, options.signal);
         if (!fallback) {
           tierErrors.push(`探活失败(${rejectedReason})`);
           // 自定义源整轮已结算的地址都不可用：作废缓存的竞速结果，下一轮重新唤醒。
@@ -533,6 +540,7 @@ async function resolvePlaybackUrlUncapped(
       });
       return playable;
     } catch (error) {
+      throwIfAborted(options.signal);
       tierErrors.push(error instanceof Error ? error.message : String(error));
       void ensureHiddenResolve();
     }
@@ -548,6 +556,7 @@ async function resolvePlaybackUrlUncapped(
         qualityPreference,
         exactQuality: options.exactQuality,
         deadlineAt,
+        signal: options.signal,
       });
       debugLog(`[resolve] 官方直连兜底成功 ${music.name} url=${resolved.url.slice(0, 60)}`);
       // 官方直连兜底同样要过试听判定：wy eapi 无 VIP 正是返回 30s 试听的场景
@@ -559,6 +568,7 @@ async function resolvePlaybackUrlUncapped(
         resolved.url,
         buildStreamHeaders(resolved.music.source),
         probeBudgetMs(deadlineAt),
+        options.signal,
       );
       if (!fallbackProbe.ok && fallbackProbe.definitive) {
         tierErrors.push(`官方直连兜底探活失败(${fallbackProbe.reason})`);
@@ -582,6 +592,7 @@ async function resolvePlaybackUrlUncapped(
         return playable;
       }
     } catch (error) {
+      throwIfAborted(options.signal);
       tierErrors.push(`内置音源(官方直连兜底): ${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -591,7 +602,7 @@ async function resolvePlaybackUrlUncapped(
   // 服务端明确拒绝才放弃，超时/抖动下不了结论时仍采用地址，由播放器错误回调兜底。
   const hidden = await ensureHiddenResolve();
   if (hidden) {
-    const hiddenProbe = await probeStreamUrl(hidden.url, undefined, probeBudgetMs(deadlineAt));
+    const hiddenProbe = await probeStreamUrl(hidden.url, undefined, probeBudgetMs(deadlineAt), options.signal);
     if (!hiddenProbe.ok && hiddenProbe.definitive) {
       tierErrors.push(`隐藏音源兜底探活失败(${hiddenProbe.reason})`);
     } else if (

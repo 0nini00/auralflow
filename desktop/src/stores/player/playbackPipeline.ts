@@ -14,7 +14,7 @@ import { invalidateCachedPlaybackUrl, isLocalCachedPlaybackUrl } from "@/service
 import { findTxVariants, describeCrossSourceFailure } from "@/services/playback/crossSourceFallbackService";
 import { resolvePlaybackUrl, type PlaybackBackendId } from "@/services/playback/playbackResolver";
 import { selectCachedPlaybackTarget } from "@/services/playback/prefetchModel";
-import { prefetchNearbyTracks, prefetchTracks, getPrefetchedTrack, invalidatePrefetchedTrack } from "@/services/playback/prefetchService";
+import { prefetchNearbyTracks, prefetchTracks, getPrefetchedTrack, consumePrefetchedTrack, invalidatePrefetchedTrack } from "@/services/playback/prefetchService";
 import { playerEngine } from "@/services/playerEngine";
 import { customSourceAccess } from "@/stores/customSourceStore";
 import { useDiscoveryStore } from "@/stores/discoveryStore";
@@ -26,6 +26,7 @@ import {
   beginPlayRequest,
   buildPlayRequestKey,
   getInflightPlayRequest,
+  getPlayRequestSignal,
   isActivePlayRequest,
   registerInflightPlayRequest,
   releaseInflightPlayRequest,
@@ -156,6 +157,7 @@ export function createPlay(set: PlayerSet, get: PlayerGet): PlayerStore["play"] 
     };
 
     const requestId = beginPlayRequest(requestKey);
+    const signal = getPlayRequestSignal(requestId);
     set({ current: music, status: "loading", error: null, progress: 0, duration: 0 });
 
     const run = (async () => {
@@ -191,7 +193,7 @@ export function createPlay(set: PlayerSet, get: PlayerGet): PlayerStore["play"] 
           music,
           useVariantPinStore.getState().getPinnedVariantKey(buildSongKey(music)),
         );
-        let cachedTarget = selectCachedPlaybackTarget(music, getPrefetchedTrack(music));
+        let cachedTarget = selectCachedPlaybackTarget(music, getPrefetchedTrack(music) ?? await consumePrefetchedTrack(music, signal));
         if (cachedTarget && usesCustomSourceRuntime(cachedTarget.backend) && (
           !operation?.isActive() || cachedTarget.customSourceVersion !== customSourceAccess.version
         )) {
@@ -220,7 +222,7 @@ export function createPlay(set: PlayerSet, get: PlayerGet): PlayerStore["play"] 
               await invalidatePersistentPlaybackCache(music, cachedTarget.music, cachedTarget.quality);
             }
 
-            const resolved = await resolvePlaybackUrl(music, variants, undefined, { bypassCache: true });
+            const resolved = await resolvePlaybackUrl(music, variants, undefined, { bypassCache: true, signal });
             if (!isActivePlayRequest(requestId)) return;
 
             if (!resolved?.url) {
@@ -235,7 +237,7 @@ export function createPlay(set: PlayerSet, get: PlayerGet): PlayerStore["play"] 
 
           // 在线音乐交给播放解析器：先内置网易云，失败后再走备用播放方式。
 
-          const resolved = await resolvePlaybackUrl(music, variants);
+          const resolved = await resolvePlaybackUrl(music, variants, undefined, { signal });
 
           if (!isActivePlayRequest(requestId)) return;
 
@@ -250,7 +252,7 @@ export function createPlay(set: PlayerSet, get: PlayerGet): PlayerStore["play"] 
             if (!resolved.fromCache) throw playbackError;
 
             await invalidatePersistentPlaybackCache(music, resolved.music, resolved.quality);
-            const refreshed = await resolvePlaybackUrl(music, variants, undefined, { bypassCache: true });
+            const refreshed = await resolvePlaybackUrl(music, variants, undefined, { bypassCache: true, signal });
             if (!isActivePlayRequest(requestId)) return;
             playedMusic = refreshed.music;
             await playResolved(refreshed);
@@ -271,13 +273,13 @@ export function createPlay(set: PlayerSet, get: PlayerGet): PlayerStore["play"] 
         if (music.source === "wy" && music.wyCloud !== true) {
           try {
             debugLog(`[fallback] 网易云曲目解析失败，尝试自动跨源降级 QQ 音乐: ${music.name}`);
-            const candidates = await findTxVariants(music);
+            const candidates = await findTxVariants(music, signal);
             if (!isActivePlayRequest(requestId)) return;
 
             for (const candidate of candidates) {
               if (!isActivePlayRequest(requestId)) return;
               try {
-                const fallbackResolved = await resolvePlaybackUrl(candidate);
+                const fallbackResolved = await resolvePlaybackUrl(candidate, undefined, undefined, { signal });
                 if (!isActivePlayRequest(requestId)) return;
                 if (fallbackResolved?.url) {
                   await playResolved(fallbackResolved);

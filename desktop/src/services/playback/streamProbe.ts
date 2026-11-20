@@ -7,6 +7,7 @@
  * 不受白名单限制，且自带 SSRF 守卫与逐跳重定向验证。
  */
 import { outboundRequest } from "@/services/outboundHttp";
+import { throwIfAborted } from './cancellation';
 import { parseContentRangeTotal } from "@lx/core";
 
 /** 探活超时：与移动端一致，5s 内无响应即判死。 */
@@ -56,10 +57,13 @@ export async function probeStreamUrl(
   url: string,
   headers: Record<string, string> | undefined,
   timeoutMs = PROBE_TIMEOUT_MS,
+  signal?: AbortSignal,
 ): Promise<StreamProbeResult> {
+  throwIfAborted(signal);
   if (!/^https?:\/\//i.test(url)) return { ok: true };
   try {
     const response = await outboundRequest(url, {
+      signal,
       method: "GET",
       headers: { ...headers, Range: "bytes=0-0" },
       timeoutMs,
@@ -75,6 +79,7 @@ export async function probeStreamUrl(
       definitive: DEFINITIVE_FAILURE_STATUS.has(response.status),
     };
   } catch (error) {
+    throwIfAborted(signal);
     return {
       ok: false,
       reason: error instanceof Error ? error.message : String(error),

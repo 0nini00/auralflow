@@ -24,7 +24,7 @@ export interface BuiltinMusicApiGateway {
 export interface BuiltinMusicApiClient {
   searchSongs(source: string, keyword: string, page: number, limit: number, displaySource: Extract<SourceTag, "wy" | "tx">, signal?: AbortSignal): Promise<MusicInfo[]>;
   resolveUrl(music: MusicInfo, quality?: string, signal?: AbortSignal): Promise<{ url: string; quality: string }>;
-  getLyric(music: MusicInfo): Promise<{ lyric?: string; tlyric?: string }>;
+  getLyric(music: MusicInfo, signal?: AbortSignal): Promise<{ lyric?: string; tlyric?: string }>;
 }
 
 function asString(value: unknown): string {
@@ -232,7 +232,7 @@ export function createBuiltinMusicApiClient(fetchText: (url: string, signal?: Ab
       };
     },
 
-    async getLyric(music) {
+    async getLyric(music, signal) {
       const gateway = getBuiltinMusicApiGateway(music);
       if (!gateway?.lyricId) return {};
 
@@ -240,7 +240,7 @@ export function createBuiltinMusicApiClient(fetchText: (url: string, signal?: Ab
         type: "lyric",
         source: gateway.source,
         id: gateway.lyricId,
-      }));
+      }), signal);
       const json = JSON.parse(text);
 
       return {

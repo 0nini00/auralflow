@@ -103,6 +103,18 @@ function normalizeDownloadQuality(quality?: string): DownloadQuality | undefined
   return undefined;
 }
 
+/** 恢复时不能把进程已终止的任务展示为仍在传输。 */
+function recoverDownloadTask(task: DownloadTask): DownloadTask {
+  if (task.status === 'processing') {
+    return { ...task, status: 'completed', cancelRequested: false,
+      warning: '应用关闭，文件已下载，但封面/歌词/标签后处理未完成' };
+  }
+  if (task.status === 'downloading' || task.status === 'resolving' || task.status === 'queued') {
+    return { ...task, status: 'failed', cancelRequested: false, speed: 0, error: '应用关闭，下载已中断' };
+  }
+  return task;
+}
+
 const activeTaskIds = new Set<string>();
 const cancelledTaskIds = new Set<string>();
 let pumpScheduled = false;
@@ -223,8 +235,8 @@ async function runOneTask(taskId: string, get: StoreGet, set: StoreSet) {
   }
 }
 
-export const useDownloadStore = create<DownloadStore>()(
-  persist(
+export const useDownloadStore = create<DownloadStore>()((setTransient, getStore, api) =>
+  persist<DownloadStore, [], [], Pick<DownloadStore, 'downloadDir' | 'tasks'>>(
     (set, get) => ({
       tasks: [],
       downloadDir: null,
@@ -247,7 +259,8 @@ export const useDownloadStore = create<DownloadStore>()(
         if (get().listenersReady) return;
 
         await listenTauriEvent(TAURI_EVENTS.downloadProgress, (payload) => {
-          set((state) => {
+          // 进度只更新内存；阶段变化仍经持久化 set 立即保存，不把每个 tick 写成整份存档。
+          setTransient((state) => {
             const current = state.tasks.find((t) => t.id === payload.taskId);
             if (!current || current.status !== 'downloading') {
               return state;
@@ -388,19 +401,14 @@ export const useDownloadStore = create<DownloadStore>()(
     }),
     {
       name: 'download-storage',
+      merge: (persisted, current) => {
+        const saved = persisted as Pick<DownloadStore, 'downloadDir' | 'tasks'> | undefined;
+        return saved ? { ...current, ...saved, tasks: saved.tasks.map(recoverDownloadTask) } : current;
+      },
       partialize: (state) => ({
         downloadDir: state.downloadDir,
-        tasks: state.tasks.map((task) => {
-          if (task.status === 'processing') {
-            return { ...task, status: 'completed' as const, cancelRequested: false,
-              warning: '应用关闭，文件已下载，但封面/歌词/标签后处理未完成' };
-          }
-          if (task.status === 'downloading' || task.status === 'resolving' || task.status === 'queued') {
-            return { ...task, status: 'failed' as const, cancelRequested: false, speed: 0, error: '应用关闭，下载已中断' };
-          }
-          return task;
-        }),
+        tasks: state.tasks.map(recoverDownloadTask),
       }),
     },
-  ),
+  )(setTransient, getStore, api),
 );

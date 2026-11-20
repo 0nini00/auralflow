@@ -1,6 +1,5 @@
 import {
   CANDIDATE_PROBE_TIMEOUT_MS,
-  createRequestLimiter,
   CUSTOM_SOURCE_MIN_ATTEMPT_MS,
   CUSTOM_SOURCE_PROBE_RESERVE_MS,
   CUSTOM_SOURCE_RESOLVE_BUDGET_MS,
@@ -9,11 +8,12 @@ import {
   DEFAULT_SOURCE_STAGGER_MS,
   getChildPlaybackDeadline,
   getPlaybackQualityRank,
-  MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS,
   normalizeSourceQualityLabel,
   raceStaggeredPriority,
   withBudget,
 } from '@lx/core';
+import { createCancellationScope, throwIfAborted, waitWithSignal } from './cancellation';
+import { createPlaybackRequestScheduler } from './requestScheduler';
 import { debugLog } from '@lx/tauri-bridge';
 import { useCustomSourceStore } from '@/stores/customSourceStore';
 import { requireCustomSourceAccess } from '@/services/customSourceGate';
@@ -54,7 +54,9 @@ export const customSourceBackend: PlaybackBackend = {
    * 追加 128k,导致用户选无损时第一轮就可能拿到 128k。
    */
   async resolve(request: PlaybackRequest): Promise<PlaybackResolvedUrl> {
+    throwIfAborted(request.signal);
     const operation = await requireCustomSourceAccess();
+    throwIfAborted(request.signal);
     const enabledSources = useCustomSourceStore.getState().sources.filter((source) => source.enabled);
     if (!enabledSources.length) {
       throw new Error('当前备用播放方式为自定义音源,但尚未导入或启用任何 LX Music 自定义音源');
@@ -87,12 +89,6 @@ export const customSourceBackend: PlaybackBackend = {
       // 本轮所有已结算的成功结果（包括没有胜出的）。胜出地址探活被 CDN 明确
       // 拒绝时，外层按音质/源序回退到这些候选，而不是丢掉整轮重新解析。
       const collected: Array<CustomSourceHit & { rank: number; sourceIndex: number }> = [];
-      // 竞速是「源 × 音质」二维展开，最坏会同时打出 20+ 个远程请求；对第三方
-      // 公益代理是明显的放大，被限流后所有源一起变慢，竞速会退化成一起超时。
-      // 这里把在途压到 3 个，超出的候选排队；本轮一结束就 abandon，排队中的
-      // 候选直接作废，一个字节都不会在「已经有结果」之后补发出去。
-      // 桌面暂保留旧的软调度；租约放行不代表真实 HTTP 在途上限。
-      const limiter = createRequestLimiter({ limit: MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS, mode: "soft" });
 
       // 有 sources 元数据时先按平台过滤：没有声明 musicUrl 的源不必执行脚本再失败。
       // 元数据缺失（从未测试/初始化）的源保持参与，运行时仍会做最终校验。
@@ -108,9 +104,14 @@ export const customSourceBackend: PlaybackBackend = {
       // QQ 历史歌单可能缺 file.media_mid：脚本拿 songmid 顶替会拼出 403 的文件名。
       // 只补 tx 曲目；详情请求有独立上限，超时就用原条目继续（网络失败不阻塞播放）。
       const hydrateBudget = Math.min(TX_META_HYDRATE_TIMEOUT_MS, budgetEndsAt - Date.now() - CUSTOM_SOURCE_MIN_ATTEMPT_MS);
-      const hydrated = hydrateBudget > 0
-        ? await withBudget(hydrateTxTrackMeta(rawMusic), hydrateBudget)
-        : null;
+      const hydration = createCancellationScope(request.signal, hydrateBudget);
+      let hydrated: PlaybackRequest['primary'] | null = null;
+      try {
+        if (hydrateBudget > 0) hydrated = await waitWithSignal(hydrateTxTrackMeta(rawMusic, hydration.signal), hydration.signal);
+      } catch (error) {
+        throwIfAborted(request.signal);
+        if (!hydration.signal.aborted) throw error;
+      } finally { hydration.dispose(); }
       if (hydrated == null && hydrateBudget > 0) {
         debugLog(`[customSource] txMeta 补全超时，使用原条目: ${rawMusic.name}`);
       }
@@ -124,6 +125,8 @@ export const customSourceBackend: PlaybackBackend = {
       // 首个达标结果开启升级窗口,最高档在窗口内赶上仍可翻盘。
       // 旧实现按档位串行等待:服务端对高清单走慢回退路径(实测 flac24bit 18.7s 才回
       // 320k 兜底,而 flac 只要 2.1s)时,整源被拖死,真正可用的档位从未被请求。
+      const scheduler = createPlaybackRequestScheduler();
+      const scope = createCancellationScope(request.signal);
       const outcomes = customSources.map<string | undefined>(() => undefined);
       const launchers = customSources.map((api, index) => () => (async (): Promise<CustomSourceHit> => {
         operation.assertActive();
@@ -138,10 +141,9 @@ export const customSourceBackend: PlaybackBackend = {
           outcomes[index] = `${api.name} 未声明支持 ${qualities.join('/')} 中的任何音质`;
           throw new Error(outcomes[index]);
         }
-        const qualityLaunchers = sourceQualities.map((requested) => () => (async () => {
+        const qualityLaunchers = sourceQualities.map((requested, qualityIndex) => () => scheduler.run(async signal => {
           operation.assertActive();
           // 排队期间本轮可能已经定稿，acquire 会直接抛错，一个请求都不发。
-          const releaseSlot = await limiter.acquire();
           try {
             // 运行时上浮:正常播放取链期间脚本 send updateAlert 且无 waiter 等待时回调,
             // 写入 store 让全局更新弹窗(updateStatus === 'available')能感知;
@@ -149,11 +151,12 @@ export const customSourceBackend: PlaybackBackend = {
             const result = await requestCustomSourceMusicUrl(api, music, requested, operation, (alert) => {
               operation.assertActive();
               useCustomSourceStore.getState().applyRuntimeUpdateAlert(api.id, alert);
-            });
+            }, undefined, signal);
+            throwIfAborted(signal);
             operation.assertActive();
             // 先判死链再参与裁决：死地址一旦胜出，外层探活会把它否掉，而本轮
             // 其它已结算候选只能当回退；更糟的是后续每个音质轮次都会复用同一个死地址。
-            const deadReason = await rejectDeadCandidate(result.url, music.source, qualityDeadlineAt);
+            const deadReason = await rejectDeadCandidate(result.url, music.source, qualityDeadlineAt, signal);
             operation.assertActive();
             if (deadReason) throw new Error(`候选地址不可用(${deadReason})`);
             const hit: CustomSourceHit = {
@@ -176,12 +179,11 @@ export const customSourceBackend: PlaybackBackend = {
               error: compactError(error),
             });
             throw new Error(`${requested}: ${compactError(error)}`);
-          } finally {
-            releaseSlot();
           }
-        })());
+        }, scope.signal, qualityIndex * customSources.length + index));
         try {
           const hit = await raceStaggeredPriority(qualityLaunchers, {
+            signal: scope.signal,
             getQuality: (value) => value.quality,
             // 门槛取该源实际可用的最低档：声明 flac-only 的源不该因为「不到 320k」被否，
             // 它给的就是它能给的最高音质。
@@ -208,6 +210,7 @@ export const customSourceBackend: PlaybackBackend = {
         const hit = await (async () => {
           try {
             return await raceStaggeredPriority(launchers, {
+              signal: scope.signal,
               getQuality: (value) => value.quality,
               floor: floorQuality,
               ceiling: qualities[0],
@@ -220,8 +223,7 @@ export const customSourceBackend: PlaybackBackend = {
                 new Error(errors.map((error) => (error instanceof Error ? error.message : String(error))).join(';')),
             });
           } finally {
-            // 定稿或失败后立刻关闸：排队中的候选不再发请求，在途的让它收尾。
-            limiter.abandon();
+            scope.dispose();
           }
         })();
         operation.assertActive();
@@ -242,6 +244,7 @@ export const customSourceBackend: PlaybackBackend = {
           fallbacks: buildFallbackCandidates(collected, hit),
         };
       } catch (error) {
+        throwIfAborted(request.signal);
         // 生命周期失效时抛出生命周期错误,而不是被聚合成解析失败。
         operation.assertActive();
         const detail = outcomes.filter((item): item is string => Boolean(item)).join(';');
@@ -275,11 +278,12 @@ async function rejectDeadCandidate(
   url: string,
   source: string | undefined,
   deadlineAt: number,
+  signal?: AbortSignal,
 ): Promise<string | null> {
   const budget = Math.min(CANDIDATE_PROBE_TIMEOUT_MS, getChildPlaybackDeadline(deadlineAt) - Date.now());
   if (budget <= 0) return null;
   // IPC 的超时响应也需要回传时间，宿主等待必须独立服从同一探活预算。
-  const probe = await withBudget(probeStreamUrl(url, buildStreamHeaders(source), budget), budget);
+  const probe = await withBudget(probeStreamUrl(url, buildStreamHeaders(source), budget, signal), budget);
   if (!probe) {
     debugLog('[customSource] 候选探活预算耗尽，交给外层探活继续判定');
     return null;

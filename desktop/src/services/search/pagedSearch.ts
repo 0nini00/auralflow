@@ -17,26 +17,46 @@ export interface DesktopSearchSnapshot {
   result: SearchResult;
 }
 
+function mergeItems<T extends { id: string; source: string }>(current: T[] = [], incoming: T[] = []): T[] {
+  if (incoming.length === 0) return current;
+  const seen = new Set(current.map(item => `${item.source}:${item.id}`));
+  const additions = incoming.filter(item => {
+    const key = `${item.source}:${item.id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return additions.length ? [...current, ...additions] : current;
+}
+
 function mergeUnique(current: SearchResult, incoming: SearchResult): SearchResult {
-  const next = createEmptySearchResult();
-  const seen = new Set<string>();
-  const add = (items: readonly { id: string; source: string }[] | undefined, key: string, target: unknown[]) => {
-    for (const item of items ?? []) {
-      const id = `${key}:${item.source}:${item.id}`;
-      if (seen.has(id)) continue;
-      seen.add(id);
-      target.push(item);
-    }
+  return {
+    songs: mergeItems(current.songs, incoming.songs),
+    playlists: mergeItems(current.playlists, incoming.playlists),
+    artists: mergeItems(current.artists, incoming.artists),
+    albums: mergeItems(current.albums, incoming.albums),
   };
-  add(current.songs, "song", next.songs!);
-  add(current.playlists, "playlist", next.playlists!);
-  add(current.artists, "artist", next.artists!);
-  add(current.albums, "album", next.albums!);
-  add(incoming.songs, "song", next.songs!);
-  add(incoming.playlists, "playlist", next.playlists!);
-  add(incoming.artists, "artist", next.artists!);
-  add(incoming.albums, "album", next.albums!);
-  return next;
+}
+
+function createCategoryAggregator<T extends { id: string; source: string }>() {
+  let previous: (T[] | undefined)[] = [];
+  let result: T[] = [];
+  return (inputs: (T[] | undefined)[]): T[] => {
+    if (inputs.length === previous.length && inputs.every((items, index) => items === previous[index])) return result;
+    previous = inputs;
+    const next: T[] = [];
+    const seen = new Set<string>();
+    for (const items of inputs) {
+      for (const item of items ?? []) {
+        const key = `${item.source}:${item.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        next.push(item);
+      }
+    }
+    if (next.length !== result.length || next.some((item, index) => item !== result[index])) result = next;
+    return result;
+  };
 }
 
 export function createDesktopSearchSession(
@@ -51,6 +71,21 @@ export function createDesktopSearchSession(
       .map((provider) => ({ id: `${provider.id}:${category}`, category, provider })),
   );
   let latest: DesktopSearchSnapshot = { states: [], result: createEmptySearchResult() };
+  const songs = createCategoryAggregator<NonNullable<SearchResult['songs']>[number]>();
+  const playlists = createCategoryAggregator<NonNullable<SearchResult['playlists']>[number]>();
+  const artists = createCategoryAggregator<NonNullable<SearchResult['artists']>[number]>();
+  const albums = createCategoryAggregator<NonNullable<SearchResult['albums']>[number]>();
+  const aggregate = (states: DesktopSearchSnapshot['states']): SearchResult => {
+    const result = {
+      songs: songs(states.map(state => state.result.songs)),
+      playlists: playlists(states.map(state => state.result.playlists)),
+      artists: artists(states.map(state => state.result.artists)),
+      albums: albums(states.map(state => state.result.albums)),
+    };
+    const previous = latest.result;
+    return result.songs === previous.songs && result.playlists === previous.playlists
+      && result.artists === previous.artists && result.albums === previous.albums ? previous : result;
+  };
   // 每个来源已经见过的条目。有些音源忽略 page 参数、反复返回同一页，
   // 只按“本页非空”判 hasMore 会让“加载更多”永远停不下来。
   const seenBySource = new Map<string, Set<string>>();
@@ -76,13 +111,13 @@ export function createDesktopSearchSession(
       return { result, hasMore: result.hasMore ?? (countSearchResults(result) > 0 && addsNew) };
     },
     onChange: (states) => {
-      const result = states.reduce((acc, state) => mergeUnique(acc, state.result), createEmptySearchResult());
+      const result = aggregate(states);
       latest = { states, result };
       onChange?.(latest);
     },
   });
   const states = session.getSnapshot();
-  latest = { states, result: states.reduce((acc, state) => mergeUnique(acc, state.result), createEmptySearchResult()) };
+  latest = { states, result: aggregate(states) };
   return {
     start: session.start,
     loadMore: session.loadMore,

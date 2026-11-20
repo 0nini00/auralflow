@@ -20,7 +20,7 @@ vi.mock('../src/services/playerEngine', () => ({ playerEngine: {
   setVolume: fixture.setVolume, subscribe: fixture.subscribe, onEnded: vi.fn(), onPreviewDetected: vi.fn(),
 } }));
 vi.mock('../src/services/playback/playbackResolver', () => ({ resolvePlaybackUrl: fixture.resolve }));
-vi.mock('../src/services/playback/prefetchService', () => ({ getPrefetchedTrack: fixture.cached, prefetchNearbyTracks: vi.fn(async () => {}), prefetchTracks: vi.fn(async () => {}), invalidatePrefetchedTrack: fixture.invalidatePrefetched }));
+vi.mock('../src/services/playback/prefetchService', () => ({ consumePrefetchedTrack: vi.fn(async () => undefined), getPrefetchedTrack: fixture.cached, prefetchNearbyTracks: vi.fn(async () => {}), prefetchTracks: vi.fn(async () => {}), invalidatePrefetchedTrack: fixture.invalidatePrefetched }));
 vi.mock('../src/services/persistentCache', () => ({ invalidateCachedPlaybackUrl: fixture.invalidatePersistent, isLocalCachedPlaybackUrl: (url: string) => url.startsWith('asset://') }));
 vi.mock('../src/services/mediaCache', () => ({ removeCachedAudioForMusic: vi.fn(async () => {}), cacheResolvedPlaybackMedia: fixture.cacheMedia }));
 vi.mock('../src/services/playback/crossSourceFallbackService', () => ({ findTxVariants: vi.fn(async () => []), describeCrossSourceFailure: () => '无候选' }));
@@ -61,6 +61,24 @@ beforeEach(() => {
   fixture.invalidatePersistent.mockResolvedValue(undefined);
 });
 describe('playerStore LX 快路径及在途结果', () => {
+  it('切歌立即取消旧解析的工作信号，功能权限令牌不受影响', async () => {
+    let firstSignal: AbortSignal | undefined;
+    fixture.resolve.mockImplementation((track, _variants, _quality, options) => {
+      if (track.id !== music.id) return Promise.resolve({ ...resolved('builtinNetease'), music: track });
+      firstSignal = options.signal;
+      return new Promise((_resolve, reject) => firstSignal?.addEventListener('abort', () => reject(Object.assign(new Error('cancelled'), { name: 'AbortError' })), { once: true }));
+    });
+    const { usePlayerStore, customSourceAccess } = await load();
+    const operation = customSourceAccess.capture();
+    const previous = usePlayerStore.getState().play(music);
+    await vi.waitFor(() => expect(firstSignal).toBeDefined());
+    await usePlayerStore.getState().play({ ...music, id: 'new' });
+    expect(firstSignal?.aborted).toBe(true);
+    expect(operation.isActive()).toBe(true);
+    await previous;
+    expect(fixture.play.mock.calls).toHaveLength(1);
+    expect(fixture.play.mock.calls[0][0].id).toBe('new');
+  });
   it('关闭时 wy 的 LX 预取快路径不播放，仍解析内置', async () => {
     fixture.state.featureEnabled = false;
     fixture.cached.mockReturnValue({ ...resolved(), fetchedAt: Date.now() });

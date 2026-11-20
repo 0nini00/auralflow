@@ -32,6 +32,65 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe("自定义脚本运行生命周期", () => {
+  it('单个脚本并行 HTTP 也受真实全局上限约束，取消后排队请求零唤醒', async () => {
+    let active = 0, peak = 0;
+    network.request.mockImplementation((_url, options) => new Promise((_resolve, reject) => {
+      peak = Math.max(peak, ++active);
+      options.signal.addEventListener('abort', () => { active--; reject(new Error('cancelled')); }, { once: true });
+    }));
+    const source = api(`${initialized}
+      lx.on(lx.EVENT_NAMES.request, () => Promise.all(Array.from({ length: 6 }, (_, index) =>
+        new Promise(resolve => lx.request('https://example.com/' + index, {}, () => resolve('https://example.com/song.mp3'))))));
+    `);
+    const controller = new AbortController();
+    const outcome = requestCustomSourceMusicUrl(source, song, '128k', access.capture(), undefined, undefined, controller.signal).catch(error => error.name);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(network.request).toHaveBeenCalledTimes(3);
+    expect(peak).toBe(3);
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await outcome).toBe('AbortError');
+    expect(active).toBe(0);
+    expect(network.request).toHaveBeenCalledTimes(3);
+  });
+
+  it('没有竞争时八秒慢源仍保留完整等待预算', async () => {
+    const source = api(`${initialized}
+      lx.on(lx.EVENT_NAMES.request, () => new Promise(resolve => setTimeout(() => resolve('https://example.com/slow.mp3'), 8000)));
+    `);
+    const pending = requestCustomSourceMusicUrl(source, song, '128k', access.capture());
+    await vi.advanceTimersByTimeAsync(8000);
+    expect((await pending).url).toBe('https://example.com/slow.mp3');
+  });
+  it('播放取消会终止本次 HTTP，独立请求与功能权限仍然有效', async () => {
+    const signals: AbortSignal[] = [];
+    network.request.mockImplementation((_url, options) => new Promise((resolve, reject) => {
+      const signal = options.signal as AbortSignal;
+      if (signal) signals.push(signal);
+      signal?.addEventListener('abort', () => reject(Object.assign(new Error('cancelled'), { name: 'AbortError' })), { once: true });
+    }));
+    const source = api(`${initialized}
+      lx.on(lx.EVENT_NAMES.request, async () => {
+        await Promise.resolve();
+        return new Promise(resolve => lx.request('https://example.com/request', {}, () => resolve('https://example.com/song.mp3')));
+      });
+    `);
+    const first = new AbortController();
+    const second = new AbortController();
+    const operation = access.capture();
+    const a = requestCustomSourceMusicUrl(source, song, '128k', operation, undefined, undefined, first.signal).catch(error => error.name);
+    const b = requestCustomSourceMusicUrl(source, song, '128k', operation, undefined, undefined, second.signal).catch(error => error.name);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(signals).toHaveLength(2);
+    first.abort();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await a).toBe('AbortError');
+    expect(signals[0].aborted).toBe(true);
+    expect(signals[1].aborted).toBe(false);
+    expect(operation.isActive()).toBe(true);
+    second.abort();
+    await b;
+  });
   it("已经失效的令牌不能启动脚本", async () => {
     const operation = access.capture();
     access.invalidate();
@@ -109,7 +168,7 @@ describe("深度测试接线", () => {
     return pending;
   }
   beforeEach(() => {
-    network.request.mockReturnValue(new Promise(() => {}));
+    network.request.mockResolvedValue({ status: 200, ok: true, headers: {}, text: async () => 'booted' });
   });
 
   it("取链通过后保留测试用的运行时，播放不再重新执行脚本", async () => {

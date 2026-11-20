@@ -60,7 +60,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 vi.mock('../src/services/playback/playbackResolver', () => ({ resolvePlaybackUrl: vi.fn() }));
 vi.mock('../src/services/playback/prefetchService', () => ({
-  getPrefetchedTrack: vi.fn(() => null),
+  consumePrefetchedTrack: vi.fn(async () => undefined), getPrefetchedTrack: vi.fn(() => null),
   prefetchNearbyTracks: vi.fn(async () => {}),
   prefetchTracks: vi.fn(async () => {}),
   invalidatePrefetchedTrack: vi.fn(),

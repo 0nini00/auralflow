@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { estimatePlaybackProgress, type PlaybackProgressClock } from "@lx/core";
 
-interface UseInterpolatedPlaybackProgressOptions {
+export interface UseInterpolatedPlaybackProgressOptions {
   status: string;
   progress: number;
   /** progress 的 engine 采样时刻（Date.now() 基准）；跨 WebView 仍可使用 */
@@ -21,13 +21,20 @@ function getClockNow(): number {
 }
 
 
-export function useInterpolatedPlaybackProgress({
+const identity = (progress: number) => progress;
+
+export function useInterpolatedPlaybackProgress(options: UseInterpolatedPlaybackProgressOptions): number {
+  return usePlaybackProgressValue(options, identity);
+}
+
+/** 只在投影值变化时更新 React；行定位可逐帧采样而不逐帧重渲染整篇歌词。 */
+export function usePlaybackProgressValue({
   status,
   progress,
   progressSampledAt,
   duration,
   playbackRate,
-}: UseInterpolatedPlaybackProgressOptions): number {
+}: UseInterpolatedPlaybackProgressOptions, select: (progress: number) => number): number {
   const clockRef = useRef<PlaybackProgressClock>({
     status,
     progress,
@@ -37,7 +44,9 @@ export function useInterpolatedPlaybackProgress({
   });
   // 上一次输出的插值进度：用于单调钳制（只许前进，不许回跳）
   const lastEstimatedRef = useRef<number>(progress);
-  const [currentProgress, setCurrentProgress] = useState(progress);
+  const selectRef = useRef(select);
+  selectRef.current = select;
+  const [currentProgress, setCurrentProgress] = useState(() => select(progress));
 
   useEffect(() => {
     // 锚点时刻优先用 engine 采样时刻（同帧取的 performance.now()），
@@ -56,14 +65,14 @@ export function useInterpolatedPlaybackProgress({
     if (status !== "playing") {
       // 暂停/空闲：直接跟随锚点，不做单调钳制（暂停时进度静止）
       lastEstimatedRef.current = progress;
-      setCurrentProgress(progress);
+      setCurrentProgress(select(progress));
       return;
     }
 
     // 锚点大跳（seek/切歌/回退）：重置单调基准，不做拉回
     if (Math.abs(progress - lastEstimatedRef.current) > ANCHOR_JUMP_RESET_SECONDS) {
       lastEstimatedRef.current = estimatePlaybackProgress(clock);
-      setCurrentProgress(lastEstimatedRef.current);
+      setCurrentProgress(select(lastEstimatedRef.current));
       return;
     }
 
@@ -72,8 +81,8 @@ export function useInterpolatedPlaybackProgress({
     // 保证歌词/进度条视觉上只前进不回跳。
     const anchored = estimatePlaybackProgress(clock);
     lastEstimatedRef.current = Math.max(lastEstimatedRef.current, anchored);
-    setCurrentProgress(lastEstimatedRef.current);
-  }, [duration, playbackRate, progress, progressSampledAt, status]);
+    setCurrentProgress(select(lastEstimatedRef.current));
+  }, [duration, playbackRate, progress, progressSampledAt, status, select]);
 
   useEffect(() => {
     if (status !== "playing") return;
@@ -84,7 +93,7 @@ export function useInterpolatedPlaybackProgress({
       // 帧间也保持单调：熔断冻结（时钟过久未刷新）时沿用上一次值，不回退
       if (Number.isFinite(estimated)) {
         lastEstimatedRef.current = Math.max(lastEstimatedRef.current, estimated);
-        setCurrentProgress(lastEstimatedRef.current);
+        setCurrentProgress(selectRef.current(lastEstimatedRef.current));
       }
       frameId = requestAnimationFrame(tick);
     };

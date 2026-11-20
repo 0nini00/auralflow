@@ -96,20 +96,22 @@ export function createLyricAutoScrollController({
   const setTarget = (index: number) => {
     if (disposed || index < 0 || index === target) return;
     target = index;
-    clearAdjacentTimer();
     if (paused) return;
 
     const isAdjacent = previous >= 0 && index - previous === 1;
     previous = index;
     if (!isAdjacent) {
+      clearAdjacentTimer();
       emitImmediate(index);
       return;
     }
 
+    // 后续短行更新目标，但不延后首次预约，连续快句也能按时追到当前行。
+    if (adjacentTimer != null) return;
     adjacentTimer = setTimeout(() => {
       adjacentTimer = null;
-      if (!paused && target === index) {
-        scroll({ index, durationMs: LYRIC_SCROLL_ADJACENT_DURATION_MS });
+      if (!paused && !disposed) {
+        scroll({ index: target, durationMs: LYRIC_SCROLL_ADJACENT_DURATION_MS });
       }
     }, LYRIC_SCROLL_ADJACENT_DELAY_MS);
   };

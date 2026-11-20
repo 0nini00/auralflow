@@ -1,3 +1,4 @@
+import { createCancellationScope, throwIfAborted } from './playback/cancellation';
 import type { MusicInfo, SourceTag } from "@lx/core";
 import { createBuiltinMusicApiClient } from "@lx/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
@@ -12,21 +13,22 @@ async function fetchTextWithTimeout(
   url: string,
   timeoutMs: number,
   label: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   const chunk = Math.max(500, timeoutMs);
-  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-  const timer = setTimeout(() => controller?.abort(), chunk);
+  const scope = createCancellationScope(signal, chunk);
   try {
     const resp = await fetcher(url, {
       headers: {
         Accept: "application/json,text/plain,*/*",
       },
-      signal: controller?.signal,
+      signal: scope.signal,
     });
     const text = await resp.text();
     if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${text.slice(0, 240)}`);
     return text;
   } catch (error) {
+    throwIfAborted(signal);
     const message = error instanceof Error
       ? error.name === "AbortError"
         ? `请求超时（>${chunk}ms）`
@@ -34,7 +36,7 @@ async function fetchTextWithTimeout(
       : String(error);
     throw new Error(`${label}：${message}`);
   } finally {
-    clearTimeout(timer);
+    scope.dispose();
   }
 }
 
@@ -51,6 +53,7 @@ async function fetchTextWithTimeout(
 export async function fetchBuiltinMusicApiText(
   url: string,
   timeoutMs: number = GATEWAY_REQUEST_TIMEOUT_MS,
+  signal?: AbortSignal,
 ): Promise<string> {
   const deadlineAt = Date.now() + Math.max(500, timeoutMs);
   let tauriError: string;
@@ -61,8 +64,10 @@ export async function fetchBuiltinMusicApiText(
       url,
       deadlineAt - Date.now(),
       "Tauri fetch",
+      signal,
     );
   } catch (error) {
+    throwIfAborted(signal);
     tauriError = error instanceof Error ? error.message : String(error);
   }
 
@@ -77,8 +82,10 @@ export async function fetchBuiltinMusicApiText(
       url,
       remaining,
       "浏览器 fetch",
+      signal,
     );
   } catch (browserError) {
+    throwIfAborted(signal);
     const browserMessage = browserError instanceof Error ? browserError.message : String(browserError);
     throw new Error(`${tauriError}\n${browserMessage}`);
   }
@@ -92,7 +99,7 @@ export async function fetchBuiltinMusicApiText(
  * 此前这里手抄了一份并已漂移：搜索响应不是数组时桌面返回 `[]`、core 抛错。
  * 现在跟随 core——非数组是网关异常（限流/错误对象），按失败上抛，不伪装成「没有结果」。
  */
-const gatewayClient = createBuiltinMusicApiClient((url) => fetchBuiltinMusicApiText(url));
+const gatewayClient = createBuiltinMusicApiClient((url, signal) => fetchBuiltinMusicApiText(url, undefined, signal));
 
 /**
  * 内置音乐 API 搜索（gdstudio 网关直通）。
@@ -104,22 +111,23 @@ export function searchBuiltinMusicApiSongs(
   page: number,
   limit: number,
   displaySource: Extract<SourceTag, "wy" | "tx">,
+  signal?: AbortSignal,
 ): Promise<MusicInfo[]> {
-  return gatewayClient.searchSongs(source, keyword, page, limit, displaySource);
+  return gatewayClient.searchSongs(source, keyword, page, limit, displaySource, signal);
 }
 
 /**
  * 内置音乐 API 解析播放 URL（gdstudio 网关直通）。
  * 入参兼容 br 数值（128/320/740/999）与音质标签。
  */
-export function resolveBuiltinMusicApiUrl(music: MusicInfo, quality?: string): Promise<{
+export function resolveBuiltinMusicApiUrl(music: MusicInfo, quality?: string, signal?: AbortSignal): Promise<{
   url: string;
   quality: string;
 }> {
-  return gatewayClient.resolveUrl(music, quality);
+  return gatewayClient.resolveUrl(music, quality, signal);
 }
 
 /** 内置音乐 API 拉取歌词（gdstudio 网关直通）。 */
-export function getBuiltinMusicApiLyric(music: MusicInfo): Promise<{ lyric?: string; tlyric?: string }> {
-  return gatewayClient.getLyric(music);
+export function getBuiltinMusicApiLyric(music: MusicInfo, signal?: AbortSignal): Promise<{ lyric?: string; tlyric?: string }> {
+  return gatewayClient.getLyric(music, signal);
 }

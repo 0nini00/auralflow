@@ -1,6 +1,7 @@
 import type { MusicInfo } from "@lx/core";
 import { buildSongKey, buildVariantSearchKeyword, matchVariantCandidates } from "@lx/core";
 import { getSource } from "@/services/sources/sourceService";
+import { throwIfAborted } from './cancellation';
 
 /**
  * 桌面端跨源降级服务：网易云版权缺失时，自动在 QQ 音乐中寻找同名曲目接管播放。
@@ -21,7 +22,8 @@ const variantCache = new Map<string, MusicInfo[]>();
  *
  * 仅单向处理 wy → tx：避免反向错位（用户明确选了 QQ 曲目却播网易云版本）。
  */
-export async function findTxVariants(song: MusicInfo): Promise<MusicInfo[]> {
+export async function findTxVariants(song: MusicInfo, signal?: AbortSignal): Promise<MusicInfo[]> {
+  throwIfAborted(signal);
   if (song.source !== "wy") return [];
   const key = buildSongKey(song);
   const cached = variantCache.get(key);
@@ -35,7 +37,8 @@ export async function findTxVariants(song: MusicInfo): Promise<MusicInfo[]> {
 
   // 搜索失败直接上抛，且不落缓存：「QQ 搜索出错」和「QQ 没有这首歌」是两回事，
   // 吞成空数组会让播放报错写成「未找到匹配的同名曲目」，还会让调用方以为没必要重试。
-  const searchRes = await tx.search(keyword, "song", 1);
+  const searchRes = await tx.search(keyword, "song", 1, signal);
+  throwIfAborted(signal);
   const results = searchRes.songs || [];
 
   const matched = matchVariantCandidates(song, results, "tx");

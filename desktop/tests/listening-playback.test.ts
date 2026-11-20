@@ -3,7 +3,9 @@ import type { MusicInfo } from '@lx/core';
 
 const io = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn() }));
 let monotonicNow = 0;
-vi.mock('@lx/tauri-bridge', () => ({ libraryLoad: io.load, librarySave: io.save, debugLog: vi.fn(), patchSettings: vi.fn() }));
+vi.mock('@lx/tauri-bridge', () => ({ libraryLoad: io.load, librarySave: io.save,
+  loadListeningStats: async () => ({ months: {}, legacy: await io.load() }), saveListeningStatsMonth: (month: string, events: unknown) => io.save(month, { events }), libraryReset: vi.fn(),
+  debugLog: vi.fn(), patchSettings: vi.fn() }));
 
 class AudioBoundary {
   static instance: AudioBoundary;

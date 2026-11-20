@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { throwIfAborted } from './playback/cancellation';
 
 /**
  * 运行时可配置目标的出站请求。
@@ -13,6 +14,7 @@ import { invoke } from "@tauri-apps/api/core";
  */
 
 export interface OutboundRequestInit {
+  signal?: AbortSignal;
   method?: string;
   headers?: Record<string, string>;
   body?: string;
@@ -49,17 +51,39 @@ export async function outboundRequest(
   url: string,
   init: OutboundRequestInit = {},
 ): Promise<OutboundResponse> {
-  const payload = await invoke<ProxyResponsePayload>("proxy_http_request", {
-    options: {
-      url,
-      method: init.method ?? "GET",
-      headers: init.headers,
-      body: init.body,
-      timeoutMs: init.timeoutMs,
-      maxBytes: init.maxBytes,
-      responseType: init.responseType,
-    },
-  });
+  throwIfAborted(init.signal);
+  const requestId = init.signal ? crypto.randomUUID() : undefined;
+  if (requestId) await invoke('register_proxy_http_request', { requestId });
+  let cancelTask: Promise<void> | undefined;
+  const abort = () => {
+    cancelTask = invoke<void>('cancel_proxy_http_request', { requestId });
+    // 保留错误并在 finally 上抛，同时避免 IPC 返回前出现未处理拒绝。
+    void cancelTask.catch(() => undefined);
+  };
+  if (init.signal?.aborted) abort();
+  else init.signal?.addEventListener('abort', abort, { once: true });
+  let payload: ProxyResponsePayload;
+  try {
+    payload = await invoke<ProxyResponsePayload>("proxy_http_request", {
+      options: {
+        requestId,
+        url,
+        method: init.method ?? "GET",
+        headers: init.headers,
+        body: init.body,
+        timeoutMs: init.timeoutMs,
+        maxBytes: init.maxBytes,
+        responseType: init.responseType,
+      },
+    });
+    throwIfAborted(init.signal);
+  } catch (error) {
+    throwIfAborted(init.signal);
+    throw error;
+  } finally {
+    init.signal?.removeEventListener('abort', abort);
+    await cancelTask;
+  }
 
   return {
     status: payload.status,

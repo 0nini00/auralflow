@@ -136,52 +136,43 @@ export const useDiscoverFeedStore = create<DiscoverFeedState>((set, get) => {
       previewError: "",
     });
 
-    const [recommendedResult, boardsResult] = await Promise.allSettled([
-      loadRecommended(),
-      fetchWyLeaderboardBoards(),
-    ]);
-    if (requestGeneration !== generation) return;
-
-    if (recommendedResult.status === "fulfilled") {
+    const recommendedTask = loadRecommended().then((recommended) => {
+      if (requestGeneration !== generation) return;
       set({
-        recommended: recommendedResult.value,
-        recommendedStatus: recommendedResult.value.length > 0 ? "ready" : "error",
-        recommendedError: recommendedResult.value.length > 0 ? "" : "推荐歌单为空",
+        recommended,
+        recommendedStatus: recommended.length > 0 ? "ready" : "error",
+        recommendedError: recommended.length > 0 ? "" : "推荐歌单为空",
       });
-    } else {
+    }, (error: unknown) => {
+      if (requestGeneration !== generation) return;
       set({
         recommended: [],
         recommendedStatus: "error",
-        recommendedError: errorText(recommendedResult.reason, "推荐歌单加载失败"),
+        recommendedError: errorText(error, "推荐歌单加载失败"),
       });
-    }
+    });
 
-    const boards = boardsResult.status === "fulfilled"
-      ? boardsResult.value.boards
-      : [];
-    if (boardsResult.status === "fulfilled") {
+    const boardsTask = fetchWyLeaderboardBoards().then(async ({ boards, degraded }) => {
+      if (requestGeneration !== generation) return;
       set({
         boards,
-        boardsDegraded: boardsResult.value.degraded,
+        boardsDegraded: degraded,
         boardsStatus: "ready",
         boardsError: "",
       });
-    } else {
+      const firstOfficial = boards.find((board) => board.group === "official");
+      if (firstOfficial) await loadPreview(firstOfficial, requestGeneration);
+      else set({ previewSongs: [], previewStatus: "idle", previewError: "" });
+    }, (error: unknown) => {
+      if (requestGeneration !== generation) return;
       set({
         boards: [],
         boardsStatus: "error",
-        boardsError: errorText(boardsResult.reason, "排行榜加载失败"),
+        boardsError: errorText(error, "排行榜加载失败"),
+        previewSongs: [], previewStatus: "idle", previewError: "",
       });
-    }
-
-    // 试读固定取首个官方榜（飙升榜）：它是「现在在火什么」最直接的一列。
-    const firstOfficial = boards.find((board) => board.group === "official");
-    if (firstOfficial) {
-      await loadPreview(firstOfficial, requestGeneration);
-    } else if (requestGeneration === generation) {
-      set({ previewSongs: [], previewStatus: "idle", previewError: "" });
-    }
-
+    });
+    await Promise.all([recommendedTask, boardsTask]);
     if (requestGeneration === generation) set({ fetchedAt: Date.now() });
   };
 

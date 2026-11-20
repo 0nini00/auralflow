@@ -60,15 +60,18 @@ function source(id: string, name = id) {
 }
 
 function installRuntime(plans: Plans, calls: Array<{ name: string; quality: string }>) {
-  fixture.runtime.mockImplementation((api: { name: string }, _music: MusicInfo, quality: string) => {
+  fixture.runtime.mockImplementation((api: { name: string }, _music: MusicInfo, quality: string, _operation: unknown, _alert: unknown, _platform: unknown, signal?: AbortSignal) => {
     calls.push({ name: api.name, quality });
     const plan = plans[api.name]?.[quality];
     return new Promise((resolve, reject) => {
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        signal?.removeEventListener('abort', abort);
         if (!plan) reject(new Error(`无该档计划 ${api.name}/${quality}`));
         else if (plan.error) reject(new Error(plan.error));
         else resolve({ url: plan.url, quality: plan.quality ?? quality });
       }, plan?.delayMs ?? 0);
+      const abort = () => { clearTimeout(timer); reject(Object.assign(new Error('cancelled'), { name: 'AbortError' })); };
+      signal?.addEventListener('abort', abort, { once: true });
     });
   });
 }
@@ -93,6 +96,27 @@ async function loadBackend() {
 }
 
 describe('自定义源按序交错竞速', () => {
+  it('慢源严格限制真实在途，取消后不再启动排队候选', async () => {
+    fixture.state.sources = Array.from({ length: 5 }, (_, index) => source(String(index)));
+    let active = 0;
+    let peak = 0;
+    fixture.runtime.mockImplementation((_api, _music, _quality, _operation, _alert, _platform, signal?: AbortSignal) => new Promise((_resolve, reject) => {
+      peak = Math.max(peak, ++active);
+      signal?.addEventListener('abort', () => { active--; reject(Object.assign(new Error('cancelled'), { name: 'AbortError' })); }, { once: true });
+    }));
+    const controller = new AbortController();
+    const backend = await loadBackend();
+    const outcome = backend.resolve({ primary: music, qualityPreference: ['flac24bit', 'flac', '320k', '192k', '128k'], signal: controller.signal }).catch(error => error.name);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(peak).toBeLessThanOrEqual(3);
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await outcome).toBe('AbortError');
+    expect(active).toBe(0);
+    const calls = fixture.runtime.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(fixture.runtime).toHaveBeenCalledTimes(calls);
+  });
   beforeEach(() => {
     vi.resetModules();
     vi.resetAllMocks();
@@ -356,9 +380,7 @@ describe('自定义源按序交错竞速', () => {
         qualityPreference: ['flac24bit', 'flac', '320k', '192k', '128k'],
       }) as Promise<{ url: string; quality: string }>,
     );
-    await vi.advanceTimersByTimeAsync(3400);
-    expect(track.state.settled).toBe(false);
-    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(9000);
     expect(track.state.value?.url).toBe('https://cdn/hyw1.flac');
     expect(track.state.value?.quality).toBe('flac');
     await pending;

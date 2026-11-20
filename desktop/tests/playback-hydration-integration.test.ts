@@ -7,7 +7,7 @@ vi.mock("@/stores/customSourceStore", () => ({
 }));
 vi.mock("@/services/playback/playbackResolver", () => ({ resolvePlaybackUrl: vi.fn() }));
 vi.mock("@/services/playback/prefetchService", () => ({
-  getPrefetchedTrack: () => undefined, prefetchNearbyTracks: vi.fn(async () => {}),
+  consumePrefetchedTrack: vi.fn(async () => undefined), getPrefetchedTrack: () => undefined, prefetchNearbyTracks: vi.fn(async () => {}),
   prefetchTracks: vi.fn(async () => {}), invalidatePrefetchedTrack: vi.fn(),
 }));
 vi.mock("@/services/persistentCache", () => ({ invalidateCachedPlaybackUrl: vi.fn(async () => {}) }));

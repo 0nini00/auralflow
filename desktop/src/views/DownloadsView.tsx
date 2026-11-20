@@ -1,3 +1,5 @@
+import { memo } from 'react';
+import { VirtualList } from '@/components/VirtualList';
 import { AlertTriangle, Download, FolderOpen, Play, RefreshCw, Trash2, XCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useDownloadStore, type DownloadTask } from '@/stores/downloadStore';
@@ -25,32 +27,12 @@ function statusText(task: DownloadTask): string {
 
 }
 
-export function DownloadsView() {
-  const navigate = useNavigate();
-  const {
-
-    tasks,
-
-    downloadDir,
-
-    chooseDownloadDir,
-
-    retryTask,
-
-    removeTask,
-
-    cancelTask,
-
-    clearCompleted,
-
-    toLocalMusic,
-
-  } = useDownloadStore();
-  const playQueue = usePlayerStore((s) => s.playQueue);
-
-  // 下载事件的监听由 store 在每次开始下载前注册（addDownload），与本页面是否挂载无关。
-  // 这里曾再注册一遍并吞掉失败；那次注册既不必要，也让失败无处可见。
-
+const DownloadRow = memo(function DownloadRow({ task }: { task: DownloadTask }) {
+  const retryTask = useDownloadStore(state => state.retryTask);
+  const removeTask = useDownloadStore(state => state.removeTask);
+  const cancelTask = useDownloadStore(state => state.cancelTask);
+  const toLocalMusic = useDownloadStore(state => state.toLocalMusic);
+  const playQueue = usePlayerStore(state => state.playQueue);
   const handleRetry = (task: DownloadTask) => {
     retryTask(task.id).catch((error) => {
       logger.warn('[下载] 重试失败', error);
@@ -65,6 +47,103 @@ export function DownloadsView() {
     // 避免在 FM 中听下载曲播完/切歌被拉回推荐流。
     if (localMusic) playQueue([localMusic]).catch(() => undefined);
   };
+
+  return (
+    <div className={`af-download-item af-download-${task.status}`}>
+      <div className="af-download-cover">
+        {task.music.img || task.music.picUrl ? (
+          <img src={coverSrc(task.music.img || task.music.picUrl, PLAYER_COVER_CSS_SIZE)} alt={task.music.name} />
+        ) : (
+          <Download size={22} />
+        )}
+      </div>
+
+      <div className="af-download-main">
+        <div className="af-download-title-row">
+          <div>
+            <h3>{task.music.name}</h3>
+            <p>{task.music.singer || '未知歌手'} · {task.quality || task.music.quality || '默认音质'}</p>
+          </div>
+          <span className={`af-download-status af-status-${task.status}`}>{statusText(task)}</span>
+        </div>
+
+        <div className="af-download-progress">
+          <div className="af-download-progress-bar" style={{ width: `${Math.max(0, Math.min(100, task.progress))}%` }} />
+        </div>
+
+        <div className="af-download-meta">
+          <span>{task.fileName}</span>
+          <span>{formatBytes(task.downloaded)} / {formatBytes(task.total)}</span>
+          {task.error && task.status === 'downloading' && <span role="alert">{task.error}</span>}
+          {task.status === 'completed' && task.warning && (
+            <span className="af-download-warning" title={task.warning}>
+              <AlertTriangle size={12} /> 标签或歌词未完全写入
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="af-download-actions">
+        {task.status === 'completed' && (
+
+          <button className="af-action-btn" onClick={() => handlePlay(task)} title="播放本地文件">
+
+            <Play size={15} fill="currentColor" />
+
+          </button>
+
+        )}
+
+        {(task.status === 'queued' || task.status === 'resolving' || task.status === 'downloading') && (
+
+          <button
+
+            className="af-action-btn"
+
+            onClick={() => { void cancelTask(task.id); }}
+
+            title="取消下载"
+            disabled={task.cancelRequested}
+
+          >
+
+            <XCircle size={15} />
+
+          </button>
+
+        )}
+
+        {(task.status === 'failed' || task.status === 'cancelled') && (
+
+          <button className="af-action-btn" onClick={() => handleRetry(task)} title="重试">
+
+            <RefreshCw size={15} />
+
+          </button>
+
+        )}
+
+        {task.status === 'failed' && <XCircle className="af-download-error-icon" size={16} />}
+
+        <button className="af-action-btn" onClick={() => removeTask(task.id)} title="移除任务">
+
+          <Trash2 size={15} />
+
+        </button>
+      </div>
+    </div>
+  );
+});
+
+const downloadKey = (task: DownloadTask) => task.id;
+const renderDownload = (task: DownloadTask) => <DownloadRow task={task} />;
+
+export function DownloadsView() {
+  const navigate = useNavigate();
+  const tasks = useDownloadStore(state => state.tasks);
+  const downloadDir = useDownloadStore(state => state.downloadDir);
+  const chooseDownloadDir = useDownloadStore(state => state.chooseDownloadDir);
+  const clearCompleted = useDownloadStore(state => state.clearCompleted);
 
   return (
     <div className="af-downloads-view">
@@ -97,93 +176,10 @@ export function DownloadsView() {
           </div>
         </div>
       ) : (
-        <div className="af-download-list">
-          {tasks.map((task) => (
-            <div key={task.id} className={`af-download-item af-download-${task.status}`}>
-              <div className="af-download-cover">
-                {task.music.img || task.music.picUrl ? (
-                  <img src={coverSrc(task.music.img || task.music.picUrl, PLAYER_COVER_CSS_SIZE)} alt={task.music.name} />
-                ) : (
-                  <Download size={22} />
-                )}
-              </div>
+        <VirtualList items={tasks} rowHeight={126} measureRows
+          className="af-download-list" scrollRootSelector=".af-content-scroll"
+          getItemKey={downloadKey} renderItem={renderDownload} />
 
-              <div className="af-download-main">
-                <div className="af-download-title-row">
-                  <div>
-                    <h3>{task.music.name}</h3>
-                    <p>{task.music.singer || '未知歌手'} · {task.quality || task.music.quality || '默认音质'}</p>
-                  </div>
-                  <span className={`af-download-status af-status-${task.status}`}>{statusText(task)}</span>
-                </div>
-
-                <div className="af-download-progress">
-                  <div className="af-download-progress-bar" style={{ width: `${Math.max(0, Math.min(100, task.progress))}%` }} />
-                </div>
-
-                <div className="af-download-meta">
-                  <span>{task.fileName}</span>
-                  <span>{formatBytes(task.downloaded)} / {formatBytes(task.total)}</span>
-                  {task.error && task.status === 'downloading' && <span role="alert">{task.error}</span>}
-                  {task.status === 'completed' && task.warning && (
-                    <span className="af-download-warning" title={task.warning}>
-                      <AlertTriangle size={12} /> 标签或歌词未完全写入
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <div className="af-download-actions">
-                {task.status === 'completed' && (
-
-                  <button className="af-action-btn" onClick={() => handlePlay(task)} title="播放本地文件">
-
-                    <Play size={15} fill="currentColor" />
-
-                  </button>
-
-                )}
-
-                {(task.status === 'queued' || task.status === 'resolving' || task.status === 'downloading') && (
-
-                  <button
-
-                    className="af-action-btn"
-
-                    onClick={() => { void cancelTask(task.id); }}
-
-                    title="取消下载"
-                    disabled={task.cancelRequested}
-
-                  >
-
-                    <XCircle size={15} />
-
-                  </button>
-
-                )}
-
-                {(task.status === 'failed' || task.status === 'cancelled') && (
-
-                  <button className="af-action-btn" onClick={() => handleRetry(task)} title="重试">
-
-                    <RefreshCw size={15} />
-
-                  </button>
-
-                )}
-
-                {task.status === 'failed' && <XCircle className="af-download-error-icon" size={16} />}
-
-                <button className="af-action-btn" onClick={() => removeTask(task.id)} title="移除任务">
-
-                  <Trash2 size={15} />
-
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
       )}
 
       <style>{`
@@ -236,15 +232,10 @@ export function DownloadsView() {
           min-height: 360px;
         }
 
-        .af-download-list {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-
         .af-download-item {
           display: grid;
-          grid-template-columns: 56px 1fr auto;
+          margin-bottom: 12px;
+          grid-template-columns: 56px minmax(0, 1fr) auto;
           align-items: center;
           gap: 16px;
           padding: 14px;
@@ -286,6 +277,11 @@ export function DownloadsView() {
           margin: 0 0 4px;
           font-size: 16px;
           color: var(--af-text-primary);
+          overflow-wrap: anywhere;
+        }
+
+        .af-download-title-row > div {
+          min-width: 0;
         }
 
         .af-download-title-row p,
@@ -303,7 +299,9 @@ export function DownloadsView() {
         }
 
         .af-download-status {
-          white-space: nowrap;
+          max-width: 45%;
+          overflow-wrap: anywhere;
+          flex-shrink: 0;
           font-size: 13px;
           color: var(--af-text-secondary);
         }
@@ -357,6 +355,8 @@ export function DownloadsView() {
           justify-content: space-between;
           gap: 16px;
           margin-top: 8px;
+          flex-wrap: wrap;
+          overflow-wrap: anywhere;
         }
 
         .af-download-actions {

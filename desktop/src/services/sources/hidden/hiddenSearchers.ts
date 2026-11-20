@@ -15,8 +15,9 @@ import { outboundRequest } from "@/services/outboundHttp";
 
 const HIDDEN_SEARCH_FETCH_TIMEOUT_MS = 6_000;
 
-async function fetchHiddenSourceText(url: string): Promise<string> {
+async function fetchHiddenSourceText(url: string, signal?: AbortSignal): Promise<string> {
   const response = await outboundRequest(url, {
+    signal,
     method: "GET",
     headers: { Accept: "application/json,text/plain,*/*" },
     timeoutMs: HIDDEN_SEARCH_FETCH_TIMEOUT_MS,

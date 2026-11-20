@@ -1,3 +1,4 @@
+import { createCancellationScope, throwIfAborted, waitWithSignal } from './cancellation';
 import {
   buildVariantSearchKeyword,
   CANDIDATE_PROBE_TIMEOUT_MS,
@@ -21,7 +22,6 @@ import {
 import type { CustomSourceOperation } from "@/services/customSourceAccess";
 import { openCustomSourceAccess } from "@/services/customSourceGate";
 import { probeStreamUrl } from "./streamProbe";
-import { withTimeout } from "@/utils/withTimeout";
 import type { PlaybackAttempt, PlaybackResolvedUrl } from "./types";
 
 /**
@@ -64,14 +64,14 @@ const HIDDEN_MAX_TRACKS_PER_PLATFORM = 4;
  * 只把 definitive（服务端明确 4xx）当作「换候选」的理由：超时 / 抖动 / 5xx
  * 下不了结论，误杀一个慢 CDN 上完全可用的地址，比多花一次探活更糟。
  */
-async function rejectCandidate(url: string, deadlineAt: number): Promise<string | null> {
+async function rejectCandidate(url: string, deadlineAt: number, signal?: AbortSignal): Promise<string | null> {
   const budget = Math.min(
     CANDIDATE_PROBE_TIMEOUT_MS,
     deadlineAt - HIDDEN_PROBE_RESERVE_MS - Date.now(),
   );
   // 预算不足时不做内层判定：外层探活着有剩余预算，让它兜底。
   if (budget <= 0) return null;
-  const probe = await probeStreamUrl(url, undefined, budget);
+  const probe = await probeStreamUrl(url, undefined, budget, signal);
   if (probe.ok || !probe.definitive) return null;
   return probe.reason;
 }
@@ -111,7 +111,9 @@ function enabledResolvers(platform: HiddenSourceId): CustomSourceItem[] {
 export async function startHiddenSearch(
   song: MusicInfo,
   deadlineAt: number,
+  signal?: AbortSignal,
 ): Promise<HiddenCandidateGroup[]> {
+  throwIfAborted(signal);
   if (song.isLocal || song.source === "local") return [];
 
   // 搜索不碰 LX 运行时，所以只用门禁的「开没开」、不留令牌：取链时由调用方传入
@@ -129,7 +131,10 @@ export async function startHiddenSearch(
     hiddenSourceSearchers.map(async (searcher) => {
       if (enabledResolvers(searcher.id).length === 0) return null;
       try {
-        const tracks = await withTimeout(searcher.search(keyword), timeoutMs, "隐藏音源搜索");
+        const scope = createCancellationScope(signal, timeoutMs);
+        let tracks: HiddenSourceTrack[];
+        try { tracks = await waitWithSignal(searcher.search(keyword, undefined, scope.signal), scope.signal); }
+        finally { scope.dispose(); }
         const matched = matchHiddenCandidates(song, tracks);
         if (matched.length === 0) return null;
         debugLog(`[hidden] ${searcher.id} 匹配到 ${matched.length} 个候选: ${song.name}`);
@@ -165,6 +170,7 @@ export async function resolveHiddenFromGroups(
   qualityPreference: string[],
   deadlineAt: number,
   operation?: CustomSourceOperation,
+  signal?: AbortSignal,
 ): Promise<PlaybackResolvedUrl | null> {
   if (groups.length === 0) return null;
   if (qualityPreference.length === 0) return null;
@@ -190,6 +196,7 @@ export async function resolveHiddenFromGroups(
         if (qualities.length === 0) continue;
 
         for (const quality of qualities) {
+          throwIfAborted(signal);
           if (Date.now() >= deadlineAt - HIDDEN_PROBE_RESERVE_MS) {
             debugLog(`[hidden] 预算耗尽，停止兜底: ${song.name}`);
             return null;
@@ -202,16 +209,15 @@ export async function resolveHiddenFromGroups(
               deadlineAt - HIDDEN_PROBE_RESERVE_MS - Date.now(),
             );
             if (attemptBudget <= 0) return null;
-            const result = await withTimeout(
-              requestCustomSourceMusicUrl(api, song, quality, operation, undefined, platformRequest),
-              attemptBudget,
-              "隐藏音源取链",
-            );
+            const scope = createCancellationScope(signal, attemptBudget);
+            let result: Awaited<ReturnType<typeof requestCustomSourceMusicUrl>>;
+            try { result = await requestCustomSourceMusicUrl(api, song, quality, operation, undefined, platformRequest, scope.signal); }
+            finally { scope.dispose(); }
             const resolvedQuality = normalizeSourceQualityLabel(result.quality, quality);
             const resolverName = `${group.platform}/${api.name}`;
             // 脚本调用成功不等于地址可用：先判死链，死了就换下一个候选/音质/平台，
             // 而不是把一个必然被外层探活否掉的结果定稿。
-            const deadReason = await rejectCandidate(result.url, deadlineAt);
+            const deadReason = await rejectCandidate(result.url, deadlineAt, signal);
             if (!operation.isActive()) return null;
             if (deadReason) {
               trace.push({
@@ -244,6 +250,7 @@ export async function resolveHiddenFromGroups(
               trace,
             };
           } catch (error) {
+            throwIfAborted(signal);
             trace.push({
               backend: "hiddenSource",
               resolverName: `${group.platform}/${api.name}`,

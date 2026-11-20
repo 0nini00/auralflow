@@ -1,4 +1,6 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import type { PlaybackProgressClock } from '@lx/core';
+import { useInterpolatedPlaybackProgress } from '@/hooks/useInterpolatedPlaybackProgress';
 import { Ellipsis, Gauge, ListMusic, Pause, Play, Repeat, Repeat1, Share2, Shuffle, SkipBack, SkipForward, Languages, Volume2, VolumeX } from 'lucide-react';
 import { IMMERSIVE_QUEUE_CLASSES, QueuePanel } from '@/components/QueuePanel';
 import { formatTime } from '@/utils/formatTime';
@@ -26,7 +28,8 @@ export interface ImmersivePlayerControlsProps {
     setPlaybackRate: (rate: number) => void;
     share: () => void;
   };
-  timeline: { current: number; duration: number; onSeek: (value: number) => void; onSeekStart: () => void; onSeekEnd: () => void };
+  timeline: { current: number; duration: number; onSeek: (value: number) => void; onSeekStart: (current?: number) => void; onSeekEnd: () => void;
+    clock?: PlaybackProgressClock; scrubbing?: boolean };
   lyrics: {
     showTranslation: boolean;
     showRomanization: boolean;
@@ -51,6 +54,11 @@ const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 export const ImmersivePlayerControls = forwardRef<ImmersivePlayerControlsHandle, ImmersivePlayerControlsProps>(
   function ImmersivePlayerControls({ playback, actions, timeline, lyrics, queue, desktopLyrics, onPanelOpenChange, error, shareStatus, children }, ref) {
+    const clock = timeline.clock;
+    const interpolated = useInterpolatedPlaybackProgress(clock
+      ? { ...clock, progressSampledAt: clock.updatedAt }
+      : { status: 'paused', progress: timeline.current, duration: timeline.duration, playbackRate: 1 });
+    const current = timeline.scrubbing ? timeline.current : interpolated;
     const [panel, setPanel] = useState<Panel | null>(null);
     const triggers = useRef<Partial<Record<Panel, HTMLButtonElement | null>>>({});
 
@@ -76,6 +84,7 @@ export const ImmersivePlayerControls = forwardRef<ImmersivePlayerControlsHandle,
 
     return (
       <footer className="af-immersive-controls" aria-label="播放控制" data-panel-open={panel !== null}
+        style={{ '--af-immersive-progress': `${timeline.duration > 0 ? Math.min(100, Math.max(0, current / timeline.duration * 100)) : 0}%` } as CSSProperties}
         onKeyDownCapture={event => {
           if (event.key !== 'Escape' || document.querySelector('.af-add-menu')) return;
           if (!dismissPanel()) return;
@@ -88,15 +97,15 @@ export const ImmersivePlayerControls = forwardRef<ImmersivePlayerControlsHandle,
         <div className="af-immersive-progress-row">
           <div className="af-immersive-progress-track">
             <div className="af-immersive-progress-fill" />
-            <input type="range" min="0" max={timeline.duration || 0} value={timeline.current}
+            <input type="range" min="0" max={timeline.duration || 0} value={current}
               onChange={event => timeline.onSeek(Number(event.target.value))}
-              onPointerDown={timeline.onSeekStart} onPointerUp={timeline.onSeekEnd}
+              onPointerDown={() => timeline.onSeekStart(current)} onPointerUp={timeline.onSeekEnd}
               onPointerCancel={timeline.onSeekEnd} onBlur={timeline.onSeekEnd} aria-label="播放进度" />
           </div>
         </div>
         <div className="af-immersive-control-row">
           <div className="af-immersive-time-group" aria-label="播放时间">
-            <span className="af-immersive-time-current">{formatTime(timeline.current)}</span>
+            <span className="af-immersive-time-current">{formatTime(current)}</span>
             <span className="af-immersive-time-total">{formatTime(timeline.duration)}</span>
           </div>
           <div className="af-immersive-control-center">

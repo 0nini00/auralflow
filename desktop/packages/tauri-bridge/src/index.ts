@@ -363,6 +363,19 @@ export async function librarySave(
   await invoke<void>("library_save", { namespace, value });
 }
 
+export interface ListeningStatsArchive {
+  months: Record<string, unknown>;
+  legacy: unknown;
+}
+
+export async function loadListeningStats(): Promise<ListeningStatsArchive> {
+  return invoke<ListeningStatsArchive>("listening_stats_load");
+}
+
+export async function saveListeningStatsMonth(month: string, events: unknown): Promise<void> {
+  await invoke<void>("listening_stats_save_month", { month, events });
+}
+
 /** 重置单个 namespace */
 export async function libraryReset(namespace: LibraryNamespace): Promise<void> {
   await invoke<void>("library_reset", { namespace });

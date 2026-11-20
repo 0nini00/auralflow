@@ -1,3 +1,5 @@
+import { createSharedRequestPool } from '../playback/sharedRequestPool';
+import { throwIfAborted } from '../playback/cancellation';
 import { fetchTxTrackMeta, type MusicInfo, type TxTrackMeta } from '@lx/core';
 import { debugLog } from '@lx/tauri-bridge';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
@@ -14,11 +16,12 @@ import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
  */
 
 const cache = new Map<string, TxTrackMeta | undefined>();
-const inflight = new Map<string, Promise<TxTrackMeta | undefined>>();
+const inflight = createSharedRequestPool<TxTrackMeta | undefined>();
 
-async function requestMeta(songmid: string): Promise<TxTrackMeta | undefined> {
+async function requestMeta(songmid: string, signal: AbortSignal): Promise<TxTrackMeta | undefined> {
   const meta = await fetchTxTrackMeta(songmid, async (url, init) => {
     const response = await tauriFetch(url, {
+      signal,
       method: init.method,
       headers: init.headers,
       body: init.body,
@@ -28,35 +31,31 @@ async function requestMeta(songmid: string): Promise<TxTrackMeta | undefined> {
     }
     return response.json();
   });
+  throwIfAborted(signal);
   cache.set(songmid, meta);
   return meta;
 }
 
-function getMeta(songmid: string): Promise<TxTrackMeta | undefined> {
+function getMeta(songmid: string, signal?: AbortSignal): Promise<TxTrackMeta | undefined> {
   if (cache.has(songmid)) return Promise.resolve(cache.get(songmid));
-  const pending = requestMeta(songmid).catch((error: unknown) => {
-    debugLog(
-      `[txMeta] 歌曲详情查询失败 ${songmid}: ${error instanceof Error ? error.message : String(error)}`,
-    );
-    return undefined;
-  });
-  inflight.set(songmid, pending);
-  void pending.finally(() => {
-    if (inflight.get(songmid) === pending) inflight.delete(songmid);
-  });
-  return pending;
+  return inflight.run(songmid, async producerSignal => {
+    try { return await requestMeta(songmid, producerSignal); }
+    catch (error) {
+      throwIfAborted(producerSignal);
+      debugLog(`[txMeta] 歌曲详情查询失败 ${songmid}: ${error instanceof Error ? error.message : String(error)}`);
+      return undefined;
+    }
+  }, signal);
 }
 
 /**
  * 返回补齐后的歌曲；无需补齐或补齐失败时原样返回。
  *
- * 调用方负责加超时（播放解析预算不应被歌曲详情请求吃住）；超时后请求会在
- * 后台完成并写入缓存，下一次播放直接命中。
+ * 调用方提供生命周期；同曲共享请求只有在最后一位消费者退出后才取消。
  */
-export async function hydrateTxTrackMeta(music: MusicInfo): Promise<MusicInfo> {
+export async function hydrateTxTrackMeta(music: MusicInfo, signal?: AbortSignal): Promise<MusicInfo> {
   if (music.source !== 'tx' || !music.id || music.txMeta?.strMediaMid) return music;
-  const pending = inflight.get(music.id) ?? getMeta(music.id);
-  const meta = await pending;
+  const meta = await getMeta(music.id, signal);
   if (!meta) return music;
   return { ...music, txMeta: { ...music.txMeta, ...meta } };
 }

@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Play, Plus, Music2, Bookmark, BookmarkCheck, User, Disc3 } from "lucide-react";
 import { registry } from "../services/sources";
 import { usePlayerStore } from "../stores/playerStore";
 import { useWyAccountStore } from "../stores/wyAccountStore";
 import { usePlaylistStore } from "../stores/playlistStore";
+import { VirtualList } from "@/components/VirtualList";
 import { SongAddMenuButton } from "@/components/SongAddMenuButton";
 import { VariantPickerButton } from "@/components/VariantPickerButton";
 import { DownloadQualityButton } from "@/components/DownloadQualityButton";
@@ -23,7 +24,7 @@ import {
   mergeSearchSuggestions,
   type SearchSuggestion,
 } from "@/services/search/searchSuggestions";
-import type { MusicSource, PlaylistInfo, AlbumInfo, SearchResult, SearchType } from "@lx/core";
+import type { MusicInfo, MusicSource, PlaylistInfo, AlbumInfo, SearchResult, SearchType } from "@lx/core";
 import { groupHasSource, groupSongResults, normalizeSearchKeyword, withSongVariants } from "@lx/core";
 import {
   getSearchHistory,
@@ -82,6 +83,203 @@ function toSearchType(filter: ResultFilter): SearchType | undefined {
   if (filter === "overview") return undefined;
   return filter === "artist" ? "singer" : filter;
 }
+
+function resultRowKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+  if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+  event.preventDefault();
+  event.currentTarget.click();
+}
+const searchItemKey = (item: { source: string; id: string }) => `${item.source}:${item.id}`;
+const ArtistResultRow = memo(function ArtistResultRow({ artist }: { artist: NonNullable<SearchResult["artists"]>[number] }) {
+  const navigate = useNavigate();
+  return (
+    <div
+      className="af-search-result-item"
+      data-search-result
+      role="button"
+      tabIndex={0}
+      onKeyDown={resultRowKeyDown}
+      onClick={() => {
+        if (artist.source === "wy") navigate(`/artist/${artist.id}`);
+      }}
+      title={artist.source === "wy" ? "打开歌手详情" : "暂不支持打开歌手详情"}
+    >
+      <span className="af-result-index"><User size={16} /></span>
+      <div className="af-result-cover">
+        {artist.picUrl ? <img src={coverSrc(artist.picUrl, RESULT_COVER_CSS_SIZE)} alt="" /> : <div className="af-cover-placeholder" />}
+      </div>
+      <div className="af-result-info">
+        <div className="af-result-title" title={artist.name}>{artist.name}</div>
+        <div className="af-result-subtitle">
+          {artist.musicSize ? `${artist.musicSize} 首作品` : ""}
+          {artist.albumSize ? ` · ${artist.albumSize} 张专辑` : ""}
+        </div>
+      </div>
+      <div className="af-result-duration"></div>
+      <div className="af-result-actions" onClick={(e) => e.stopPropagation()}>
+        {artist.source === "wy" ? (
+          <span
+            className="af-search-open-text"
+            onClick={() => navigate(`/artist/${artist.id}`)}
+            style={{ cursor: "pointer" }}
+          >打开</span>
+        ) : (
+          <span className="af-search-open-text">暂不支持详情</span>
+        )}
+      </div>
+    </div>
+  );
+});
+const renderArtist = (artist: NonNullable<SearchResult["artists"]>[number]) => <ArtistResultRow artist={artist} />;
+const AlbumResultRow = memo(function AlbumResultRow({ album }: { album: AlbumInfo }) {
+  const navigate = useNavigate();
+  return (
+    <div
+      className="af-search-result-item"
+      data-search-result
+      role="button"
+      tabIndex={0}
+      onKeyDown={resultRowKeyDown}
+      onClick={() => {
+        if (album.source === "wy") navigate(buildAlbumDetailPath(album));
+      }}
+      title={album.source === "wy" ? "打开专辑详情" : "暂不支持打开专辑详情"}
+    >
+      <span className="af-result-index"><Disc3 size={16} /></span>
+      <div className="af-result-cover">
+        {album.picUrl ? <img src={coverSrc(album.picUrl, RESULT_COVER_CSS_SIZE)} alt="" /> : <div className="af-cover-placeholder" />}
+      </div>
+      <div className="af-result-info">
+        <div className="af-result-title" title={album.name}>{album.name}</div>
+        <div className="af-result-subtitle" title={album.artist}>
+          {album.artist || "未知歌手"}
+          {album.trackCount ? ` · ${album.trackCount} 首` : ""}
+        </div>
+      </div>
+      <div className="af-result-duration"></div>
+      <div className="af-result-actions" onClick={(e) => e.stopPropagation()}>
+        {album.source === "wy" ? (
+          <span
+            className="af-search-open-text"
+            onClick={() => navigate(buildAlbumDetailPath(album))}
+            style={{ cursor: "pointer" }}
+          >打开</span>
+        ) : (
+          <span className="af-search-open-text">暂不支持详情</span>
+        )}
+      </div>
+    </div>
+  );
+});
+const renderAlbum = (album: AlbumInfo) => <AlbumResultRow album={album} />;
+const PlaylistResultRow = memo(function PlaylistResultRow({ playlist, isCollected, canCollect, busy, onCollect }: {
+  playlist: PlaylistInfo; isCollected: boolean; canCollect: boolean; busy: boolean; onCollect: (playlist: PlaylistInfo) => Promise<void>;
+}) {
+  const navigate = useNavigate();
+  const collectTitle = isCollected ? "已收藏" : playlist.source === "wy" ? "收藏到网易云账号" : "收藏到本地歌单";
+  return (
+    <div
+      className="af-search-result-item"
+      data-search-result
+      role="button"
+      tabIndex={0}
+      onKeyDown={resultRowKeyDown}
+      onClick={() => {
+        navigate(buildPlaylistDetailPath(playlist), { state: { playlist } });
+      }}
+      title="打开歌单"
+    >
+      <span className="af-result-index"><Music2 size={16} /></span>
+      <div className="af-result-cover">
+        {playlist.picUrl ? <img src={coverSrc(playlist.picUrl, RESULT_COVER_CSS_SIZE)} alt="" /> : <div className="af-cover-placeholder" />}
+      </div>
+      <div className="af-result-info">
+        <div className="af-result-title" title={playlist.name}>{playlist.name}</div>
+        <div className="af-result-subtitle" title={playlist.author}>{playlist.author || "未知创建者"}</div>
+      </div>
+      <div className="af-result-duration af-result-playlist-meta">{formatPlaylistSearchMeta(playlist)}</div>
+      <div className="af-result-actions" onClick={(e) => e.stopPropagation()}>
+        {canCollect && (
+          <button
+            className="af-action-btn"
+            onClick={() => { void onCollect(playlist); }}
+            disabled={busy || isCollected}
+            title={collectTitle}
+            aria-label={collectTitle}
+          >
+            {isCollected
+              ? <BookmarkCheck size={16} />
+              : <Bookmark size={16} />}
+          </button>
+        )}
+        <span
+          className="af-search-open-text"
+          onClick={() => navigate(buildPlaylistDetailPath(playlist), { state: { playlist } })}
+        >打开</span>
+      </div>
+    </div>
+  );
+});
+const SongResultRow = memo(function SongResultRow({ music, index, queue, play }: {
+  music: MusicInfo; index: number; queue: MusicInfo[]; play: (queue: MusicInfo[], index: number) => unknown;
+}) {
+  return (
+    <div
+      className="af-search-result-item"
+      data-search-result
+      role="button"
+      tabIndex={0}
+      onKeyDown={resultRowKeyDown}
+      onClick={() => play(queue, index)}
+      title="单击播放"
+    >
+      <span className="af-result-index">{index + 1}</span>
+      <div className="af-result-cover">
+        {music.img || music.picUrl ? (
+          <img src={coverSrc(music.img || music.picUrl, RESULT_COVER_CSS_SIZE)} alt="" />
+        ) : (
+          <div className="af-cover-placeholder" />
+        )}
+      </div>
+      <div className="af-result-info">
+        <div className="af-result-title" title={music.name}>{music.name}</div>
+        <div className="af-result-subtitle" title={music.singer}>{music.singer}</div>
+      </div>
+      <div className="af-result-duration">{formatDuration(music.interval ?? 0)}</div>
+      <div className="af-result-actions">
+        <button
+          className="af-action-btn"
+          onClick={(e) => { e.stopPropagation(); play(queue, index); }}
+          title="播放"
+        >
+          <Play size={16} />
+        </button>
+        <button
+          className="af-action-btn"
+          onClick={(e) => { e.stopPropagation(); usePlayerStore.getState().addToQueue(music); }}
+          title="加入播放队列"
+        >
+          <Plus size={16} />
+        </button>
+        <SongAddMenuButton
+          song={music}
+          iconSize={16}
+          title="添加到我的喜欢或歌单"
+        />
+        <VariantPickerButton
+          song={music}
+          iconSize={16}
+          title="其他版本"
+        />
+        <DownloadQualityButton
+          song={music}
+          iconSize={16}
+          title="下载"
+        />
+      </div>
+    </div>
+  );
+});
 
 export function SearchView() {
   const navigate = useNavigate();
@@ -231,27 +429,6 @@ export function SearchView() {
     blurTimerRef.current = window.setTimeout(() => setSuggestionsOpen(false), 120);
   }
 
-  /** 结果行统一键盘激活：Enter / Space 触发该行已有的 onClick。 */
-  const resultRowKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    event.currentTarget.click();
-  };
-
-  /** 方向键在结果行之间移动焦点；Tab 仍然可以逐行离开列表。 */
-  const handleResultsKeyDown = (event: React.KeyboardEvent<HTMLUListElement>) => {
-    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-    const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("[data-search-result]"));
-    if (items.length === 0) return;
-    event.preventDefault();
-    const currentIndex = items.findIndex((item) => item === document.activeElement);
-    let nextIndex = 0;
-    if (event.key === "ArrowDown") nextIndex = currentIndex < 0 ? 0 : Math.min(items.length - 1, currentIndex + 1);
-    else if (event.key === "ArrowUp") nextIndex = currentIndex <= 0 ? 0 : currentIndex - 1;
-    else if (event.key === "End") nextIndex = items.length - 1;
-    items[nextIndex]?.focus();
-  };
-
   function handleSearchInputKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Escape") {
       setSuggestionsOpen(false);
@@ -273,7 +450,7 @@ export function SearchView() {
     }
   }
 
-  const handleCollectPlaylist = async (playlist: PlaylistInfo) => {
+  const handleCollectPlaylist = useCallback(async (playlist: PlaylistInfo) => {
     const key = `${playlist.source}:${playlist.id}`;
     setBusyPlaylistKey(key);
     setActionStatus("");
@@ -304,7 +481,7 @@ export function SearchView() {
     } finally {
       setBusyPlaylistKey(null);
     }
-  };
+  }, [importPlaylist, localPlaylists, wySetSubscribed]);
 
   const songGroups = useMemo(() => groupSongResults(songResults), [songResults]);
   const songSourceCounts = useMemo(
@@ -325,6 +502,15 @@ export function SearchView() {
     () => filteredSongGroups.map((group) => withSongVariants(group.primary, group.variants)),
     [filteredSongGroups],
   );
+  const renderSong = useCallback((music: MusicInfo, index: number) => (
+    <SongResultRow music={music} index={index} queue={playableSongQueue} play={playQueue} />
+  ), [playableSongQueue, playQueue]);
+  const renderPlaylist = useCallback((playlist: PlaylistInfo) => (
+    <PlaylistResultRow playlist={playlist}
+      isCollected={playlist.source === "wy" ? wyCollectedIds.has(playlist.id) : importedPlaylistMarkers.has(buildImportedPlaylistMarker(playlist))}
+      canCollect={playlist.source !== "wy" || !!wyAccount}
+      busy={busyPlaylistKey === `${playlist.source}:${playlist.id}`} onCollect={handleCollectPlaylist} />
+  ), [busyPlaylistKey, handleCollectPlaylist, importedPlaylistMarkers, wyAccount, wyCollectedIds]);
   const resultCount = songGroups.length + playlistResults.length + artistResults.length + albumResults.length;
   const resultFilterCounts: Record<ResultFilter, number> = {
     overview: resultCount,
@@ -700,159 +886,33 @@ export function SearchView() {
       {showArtistResults && artistResults.length > 0 && (
         <section className="af-search-section">
           <h2 className="af-search-section-title">歌手</h2>
-          <ul className="af-search-results" role="group" aria-label="搜索结果" onKeyDown={handleResultsKeyDown}>
-            {artistResults.map((artist) => (
-            <li
-              key={`${artist.source}:${artist.id}`}
-              className="af-search-result-item"
-                data-search-result
-              role="button"
-              tabIndex={0}
-              onKeyDown={resultRowKeyDown}
-              onClick={() => {
-                if (artist.source === "wy") navigate(`/artist/${artist.id}`);
-              }}
-              title={artist.source === "wy" ? "打开歌手详情" : "暂不支持打开歌手详情"}
-            >
-              <span className="af-result-index"><User size={16} /></span>
-              <div className="af-result-cover">
-                {artist.picUrl ? <img src={coverSrc(artist.picUrl, RESULT_COVER_CSS_SIZE)} alt="" /> : <div className="af-cover-placeholder" />}
-              </div>
-              <div className="af-result-info">
-                <div className="af-result-title" title={artist.name}>{artist.name}</div>
-                <div className="af-result-subtitle">
-                  {artist.musicSize ? `${artist.musicSize} 首作品` : ""}
-                  {artist.albumSize ? ` · ${artist.albumSize} 张专辑` : ""}
-                </div>
-              </div>
-              <div className="af-result-duration"></div>
-              <div className="af-result-actions" onClick={(e) => e.stopPropagation()}>
-                {artist.source === "wy" ? (
-                  <span
-                    className="af-search-open-text"
-                    onClick={() => navigate(`/artist/${artist.id}`)}
-                    style={{ cursor: "pointer" }}
-                  >打开</span>
-                ) : (
-                  <span className="af-search-open-text">暂不支持详情</span>
-                )}
-              </div>
-            </li>
-            ))}
-          </ul>
+          <div role="group" aria-label="搜索结果">
+            <VirtualList items={artistResults} rowHeight={98} measureRows className="af-search-results"
+              scrollRootSelector=".af-content-scroll" keyboardItemSelector="[data-search-result]"
+              getItemKey={searchItemKey} renderItem={renderArtist} />
+          </div>
         </section>
       )}
 
       {showAlbumResults && albumResults.length > 0 && (
         <section className="af-search-section">
           <h2 className="af-search-section-title">专辑</h2>
-          <ul className="af-search-results" role="group" aria-label="搜索结果" onKeyDown={handleResultsKeyDown}>
-            {albumResults.map((album) => (
-              <li
-                key={`${album.source}:${album.id}`}
-                className="af-search-result-item"
-                data-search-result
-                role="button"
-                tabIndex={0}
-                onKeyDown={resultRowKeyDown}
-                onClick={() => {
-                  if (album.source === "wy") navigate(buildAlbumDetailPath(album));
-                }}
-                title={album.source === "wy" ? "打开专辑详情" : "暂不支持打开专辑详情"}
-              >
-                <span className="af-result-index"><Disc3 size={16} /></span>
-                <div className="af-result-cover">
-                  {album.picUrl ? <img src={coverSrc(album.picUrl, RESULT_COVER_CSS_SIZE)} alt="" /> : <div className="af-cover-placeholder" />}
-                </div>
-                <div className="af-result-info">
-                  <div className="af-result-title" title={album.name}>{album.name}</div>
-                  <div className="af-result-subtitle" title={album.artist}>
-                    {album.artist || "未知歌手"}
-                    {album.trackCount ? ` · ${album.trackCount} 首` : ""}
-                  </div>
-                </div>
-                <div className="af-result-duration"></div>
-                <div className="af-result-actions" onClick={(e) => e.stopPropagation()}>
-                  {album.source === "wy" ? (
-                    <span
-                      className="af-search-open-text"
-                      onClick={() => navigate(buildAlbumDetailPath(album))}
-                      style={{ cursor: "pointer" }}
-                    >打开</span>
-                  ) : (
-                    <span className="af-search-open-text">暂不支持详情</span>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
+          <div role="group" aria-label="搜索结果">
+            <VirtualList items={albumResults} rowHeight={98} measureRows className="af-search-results"
+              scrollRootSelector=".af-content-scroll" keyboardItemSelector="[data-search-result]"
+              getItemKey={searchItemKey} renderItem={renderAlbum} />
+          </div>
         </section>
       )}
 
       {showPlaylistResults && playlistResults.length > 0 && (
         <section className="af-search-section">
           <h2 className="af-search-section-title">歌单</h2>
-          <ul className="af-search-results" role="group" aria-label="搜索结果" onKeyDown={handleResultsKeyDown}>
-            {playlistResults.map((playlist) => (
-              (() => {
-                const playlistKey = `${playlist.source}:${playlist.id}`;
-                const importedMarker = buildImportedPlaylistMarker(playlist);
-                const isCollected = playlist.source === "wy"
-                  ? wyCollectedIds.has(playlist.id)
-                  : importedPlaylistMarkers.has(importedMarker);
-                const collectTitle = isCollected
-                  ? "已收藏"
-                  : playlist.source === "wy"
-                    ? "收藏到网易云账号"
-                    : "收藏到本地歌单";
-                // 未登录网易云时隐藏「收藏到网易云账号」按钮；tx 等来源是收藏到本地歌单，与登录无关
-                const canCollect = playlist.source !== "wy" || !!wyAccount;
-                return (
-                  <li
-                    key={playlistKey}
-                    className="af-search-result-item"
-                data-search-result
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={resultRowKeyDown}
-                    onClick={() => {
-                      navigate(buildPlaylistDetailPath(playlist), { state: { playlist } });
-                    }}
-                    title="打开歌单"
-                  >
-                    <span className="af-result-index"><Music2 size={16} /></span>
-                    <div className="af-result-cover">
-                      {playlist.picUrl ? <img src={coverSrc(playlist.picUrl, RESULT_COVER_CSS_SIZE)} alt="" /> : <div className="af-cover-placeholder" />}
-                    </div>
-                    <div className="af-result-info">
-                      <div className="af-result-title" title={playlist.name}>{playlist.name}</div>
-                      <div className="af-result-subtitle" title={playlist.author}>{playlist.author || "未知创建者"}</div>
-                    </div>
-                    <div className="af-result-duration af-result-playlist-meta">{formatPlaylistSearchMeta(playlist)}</div>
-                    <div className="af-result-actions" onClick={(e) => e.stopPropagation()}>
-                      {canCollect && (
-                        <button
-                          className="af-action-btn"
-                          onClick={() => { void handleCollectPlaylist(playlist); }}
-                          disabled={busyPlaylistKey === playlistKey || isCollected}
-                          title={collectTitle}
-                          aria-label={collectTitle}
-                        >
-                          {isCollected
-                            ? <BookmarkCheck size={16} />
-                            : <Bookmark size={16} />}
-                        </button>
-                      )}
-                      <span
-                        className="af-search-open-text"
-                        onClick={() => navigate(buildPlaylistDetailPath(playlist), { state: { playlist } })}
-                      >打开</span>
-                    </div>
-                  </li>
-                );
-              })()
-            ))}
-          </ul>
+          <div role="group" aria-label="搜索结果">
+            <VirtualList items={playlistResults} rowHeight={98} measureRows className="af-search-results"
+              scrollRootSelector=".af-content-scroll" keyboardItemSelector="[data-search-result]"
+              getItemKey={searchItemKey} renderItem={renderPlaylist} />
+          </div>
         </section>
       )}
 
@@ -879,68 +939,11 @@ export function SearchView() {
               })}
             </div>
           </div>
-          <ul className="af-search-results" role="group" aria-label="搜索结果" onKeyDown={handleResultsKeyDown}>
-            {filteredSongGroups.map((group, index) => {
-            const music = playableSongQueue[index];
-            return (
-              <li
-                key={group.key}
-                className="af-search-result-item"
-                data-search-result
-                role="button"
-                tabIndex={0}
-                onKeyDown={resultRowKeyDown}
-                onClick={() => playQueue(playableSongQueue, index)}
-                title="单击播放"
-              >
-                <span className="af-result-index">{index + 1}</span>
-                <div className="af-result-cover">
-                  {music.img || music.picUrl ? (
-                    <img src={coverSrc(music.img || music.picUrl, RESULT_COVER_CSS_SIZE)} alt="" />
-                  ) : (
-                    <div className="af-cover-placeholder" />
-                  )}
-                </div>
-                <div className="af-result-info">
-                  <div className="af-result-title" title={music.name}>{music.name}</div>
-                  <div className="af-result-subtitle" title={music.singer}>{music.singer}</div>
-                </div>
-                <div className="af-result-duration">{formatDuration(music.interval ?? 0)}</div>
-                <div className="af-result-actions">
-                  <button
-                    className="af-action-btn"
-                    onClick={(e) => { e.stopPropagation(); playQueue(playableSongQueue, index); }}
-                    title="播放"
-                  >
-                    <Play size={16} />
-                  </button>
-                  <button
-                    className="af-action-btn"
-                    onClick={(e) => { e.stopPropagation(); usePlayerStore.getState().addToQueue(music); }}
-                    title="加入播放队列"
-                  >
-                    <Plus size={16} />
-                  </button>
-                  <SongAddMenuButton
-                    song={music}
-                    iconSize={16}
-                    title="添加到我的喜欢或歌单"
-                  />
-                  <VariantPickerButton
-                    song={music}
-                    iconSize={16}
-                    title="其他版本"
-                  />
-                  <DownloadQualityButton
-                    song={music}
-                    iconSize={16}
-                    title="下载"
-                  />
-                </div>
-              </li>
-            );
-            })}
-          </ul>
+          <div role="group" aria-label="搜索结果">
+            <VirtualList items={playableSongQueue} rowHeight={98} measureRows className="af-search-results"
+              scrollRootSelector=".af-content-scroll" keyboardItemSelector="[data-search-result]"
+              getItemKey={searchItemKey} renderItem={renderSong} />
+          </div>
         </section>
       )}
       {(canLoadMore || (moreLoading && visibleResultCount > 0)) && (

@@ -107,6 +107,11 @@ export interface LibraryPersistenceController {
 const persistenceControllers = new Set<LibraryPersistenceController>();
 const beforeFlushHooks = new Set<() => void | Promise<void>>();
 
+/** 分桶存储与普通命名空间共用退出屏障，不能绕过可靠落盘。 */
+export function registerLibraryPersistence(controller: LibraryPersistenceController): void {
+  persistenceControllers.add(controller);
+}
+
 export function registerLibraryFlushHook(hook: () => void | Promise<void>): () => void {
   beforeFlushHooks.add(hook);
   return () => { beforeFlushHooks.delete(hook); };
@@ -160,7 +165,7 @@ export function subscribeDegradedLibraryNamespaces(listener: () => void): () => 
   };
 }
 
-function markNamespaceDegraded(namespace: LibraryNamespace): void {
+export function markNamespaceDegraded(namespace: LibraryNamespace): void {
   if (degradedNamespaces.has(namespace)) return;
   degradedNamespaces.add(namespace);
   degradedSnapshot = [...degradedNamespaces];
@@ -306,6 +311,6 @@ export function attachLibraryPersistence<T extends object, S>(
       } while (pending !== null);
     },
   };
-  persistenceControllers.add(controller);
+  registerLibraryPersistence(controller);
   return controller;
 }

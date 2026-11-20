@@ -1,3 +1,4 @@
+import { throwIfAborted } from './cancellation';
 import { normalizePlaybackQuality } from '@lx/core';
 import type { PlaybackAttempt, PlaybackBackend, PlaybackRequest, PlaybackResolvedUrl } from './types';
 import { canResolveWithBuiltinMusicApi } from '@/services/builtinMusicApiModel';
@@ -51,7 +52,8 @@ export const builtinNeteaseBackend: PlaybackBackend = {
     for (const music of builtinApiVariants) {
       for (const br of getBrCandidates(request.qualityPreference)) {
         try {
-          const resolved = await resolveBuiltinMusicApiUrl(music, br);
+          throwIfAborted(request.signal);
+          const resolved = await resolveBuiltinMusicApiUrl(music, br, request.signal);
           // 网关回传的是 br 数字串（"740"/"999"），统一归一化为音质标签：
           // 持久化缓存 key 与降级链查询都按标签匹配，不归一化则缓存永远不命中。
           const quality = normalizePlaybackQuality(resolved.quality);
@@ -72,6 +74,7 @@ export const builtinNeteaseBackend: PlaybackBackend = {
             trace,
           };
         } catch (error) {
+          throwIfAborted(request.signal);
           trace.push({
             backend: 'builtinNetease',
             resolverName: this.name,

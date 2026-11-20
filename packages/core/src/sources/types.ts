@@ -165,9 +165,9 @@ export interface MusicSource {
   readonly name: string;
   readonly supportedSearchTypes: SearchType[];
 
-  search(keyword: string, type: SearchType, page?: number): Promise<SearchResult>;
-  getMusicUrl(music: MusicInfo, quality?: string): Promise<string | null>;
+  search(keyword: string, type: SearchType, page?: number, signal?: AbortSignal): Promise<SearchResult>;
+  getMusicUrl(music: MusicInfo, quality?: string, signal?: AbortSignal): Promise<string | null>;
   getMusicDetail(music: MusicInfo): Promise<MusicInfo>;
-  getLyric(music: MusicInfo): Promise<LyricResult>;
+  getLyric(music: MusicInfo, signal?: AbortSignal): Promise<LyricResult>;
   getPlaylistDetail(playlist: PlaylistInfo): Promise<MusicInfo[]>;
 }

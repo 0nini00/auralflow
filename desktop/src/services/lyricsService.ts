@@ -1,3 +1,5 @@
+import { createSharedRequestPool } from './playback/sharedRequestPool';
+import { throwIfAborted } from './playback/cancellation';
 import {
   detectLyricSourceType,
   mergeTranslation,
@@ -17,7 +19,7 @@ import { debugLog } from '@lx/tauri-bridge';
 export type { LyricLine, LyricResponse, LyricWord };
 
 const lyricsCache = new Map<string, LyricResponse>();
-const lyricsRequests = new Map<string, Promise<LyricResponse>>();
+const lyricsRequests = createSharedRequestPool<LyricResponse>();
 let lyricsGeneration = 0;
 
 /** 清空进程内歌词缓存；设置页「只清歌词缓存」需要连这一层一起清，否则同一会话仍命中旧词。 */
@@ -147,7 +149,7 @@ function dedupeMusicCandidates(list: MusicInfo[]): MusicInfo[] {
 }
 
 /** 单曲拉取（不含跨 variant 回退）；结果写入该曲自己的缓存键。 */
-async function getLyricsForSingle(music: MusicInfo): Promise<LyricResponse> {
+async function getLyricsForSingle(music: MusicInfo, signal?: AbortSignal): Promise<LyricResponse> {
   const override = getLocalLyricsOverride(music);
   if (override) return override;
 
@@ -159,18 +161,10 @@ async function getLyricsForSingle(music: MusicInfo): Promise<LyricResponse> {
   const cached = lyricsCache.get(cacheKey);
   if (cached) return cached;
 
-  const pending = lyricsRequests.get(cacheKey);
-  if (pending) return pending;
-  const request = loadSingleLyrics(music, cacheKey, lyricsGeneration);
-  lyricsRequests.set(cacheKey, request);
-  try {
-    return await request;
-  } finally {
-    if (lyricsRequests.get(cacheKey) === request) lyricsRequests.delete(cacheKey);
-  }
+  return lyricsRequests.run(cacheKey, producerSignal => loadSingleLyrics(music, cacheKey, lyricsGeneration, producerSignal), signal);
 }
 
-async function loadSingleLyrics(music: MusicInfo, cacheKey: string, generation: number): Promise<LyricResponse> {
+async function loadSingleLyrics(music: MusicInfo, cacheKey: string, generation: number, signal: AbortSignal): Promise<LyricResponse> {
   try {
     try {
       const persisted = await getCachedLyrics(music);
@@ -184,6 +178,7 @@ async function loadSingleLyrics(music: MusicInfo, cacheKey: string, generation: 
       console.error('[lyrics] 读取持久化歌词缓存失败，按未命中处理', error);
     }
 
+    throwIfAborted(signal);
     if (generation !== lyricsGeneration) return { lines: [], error: '歌词请求已失效' };
     let result: LyricResponse;
 
@@ -202,10 +197,11 @@ async function loadSingleLyrics(music: MusicInfo, cacheKey: string, generation: 
         result = { lines: [], error: '不支持的音源' };
       } else {
         try {
-          const lyricResult = await provider.getLyric(music);
+          const lyricResult = await provider.getLyric(music, signal);
           const lines = parseProviderLyrics(lyricResult);
           result = lines.length > 0 ? { lines } : { lines: [], error: '暂无歌词' };
         } catch (providerError) {
+          throwIfAborted(signal);
           // 音源歌词接口抛错就如实报错：原来这里会退到「网易云搜索匹配」，那条链路已删除。
           console.error('[lyrics] 音源歌词接口失败', providerError);
           result = { lines: [], error: '获取歌词失败' };
@@ -213,6 +209,7 @@ async function loadSingleLyrics(music: MusicInfo, cacheKey: string, generation: 
       }
     }
 
+    throwIfAborted(signal);
     // 清理后旧调用仍可结束，但不能回填缓存或移除新一代请求的结果。
     if (generation !== lyricsGeneration) return result;
     if (result.lines.length > 0 || isCacheableEmptyLyricResult(result)) {
@@ -228,6 +225,7 @@ async function loadSingleLyrics(music: MusicInfo, cacheKey: string, generation: 
     }
     return result;
   } catch (error) {
+    throwIfAborted(signal);
     if (generation === lyricsGeneration) lyricsCache.delete(cacheKey);
     console.error('[lyrics] 获取歌词失败', error);
     return { lines: [], error: '获取歌词失败' };
@@ -243,6 +241,7 @@ async function loadSingleLyrics(music: MusicInfo, cacheKey: string, generation: 
 export async function getLyrics(
   music: MusicInfo,
   variants?: MusicInfo[],
+  signal?: AbortSignal,
 ): Promise<LyricResponse> {
   const override = getLocalLyricsOverride(music);
   if (override) return override;
@@ -273,7 +272,9 @@ export async function getLyrics(
     const candidate = candidates[i];
     const isPrimary = candidate.source === music.source && candidate.id === music.id;
     try {
-      const result = await getLyricsForSingle(candidate);
+      throwIfAborted(signal);
+      const result = await getLyricsForSingle(candidate, signal);
+      throwIfAborted(signal);
       if (generation !== lyricsGeneration) return result;
       if (result.lines.length === 0) {
         lastEmpty = result;
@@ -290,6 +291,7 @@ export async function getLyrics(
       // variant 已经足够好也可以停
       if (!isPrimary && quality >= 60) break;
     } catch (err) {
+      throwIfAborted(signal);
       // 单个候选取词失败不影响其它候选：继续试下一个，但要留痕
       console.error('[lyrics] 候选歌词获取失败', err);
     }

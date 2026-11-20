@@ -1,7 +1,8 @@
 import { LyricText, LyricRomanization } from './LyricAnnotations';
-import type { CSSProperties } from 'react';
+import { memo, useCallback, type CSSProperties, type RefCallback } from 'react';
 import { useLyricAutoScroll } from '@/hooks/useLyricAutoScroll';
-import { calculateLyricLineProgress } from '@lx/core';
+import { useInterpolatedPlaybackProgress, usePlaybackProgressValue } from '@/hooks/useInterpolatedPlaybackProgress';
+import { calculateLyricLineProgress, DEFAULT_LYRIC_LEAD_SECONDS, findCurrentLyricLineIndex, LYRIC_LINE_ADVANCE_HYSTERESIS_SECONDS, type PlaybackProgressClock } from '@lx/core';
 import type { LyricLine, LyricWord } from '@/services/lyricsService';
 import { getLyricDisplayText } from './lyricDisplay';
 import type { PlayerVisualizerProps } from './types';
@@ -34,6 +35,44 @@ function buildContentKey(trackKey: string, lyrics: LyricLine[]): string {
   return `${trackKey}:${lyrics.length}:${lyrics[0].time}:${lyrics[lyrics.length - 1].time}`;
 }
 
+function clockOptions(clock: PlaybackProgressClock | undefined, currentTime: number) {
+  return clock
+    ? { ...clock, progressSampledAt: clock.updatedAt }
+    : { status: 'paused', progress: currentTime, duration: 0, playbackRate: 1 };
+}
+
+function ActiveLyricText({ lyrics, index, clock, currentTime, offset, showRuby }: {
+  lyrics: LyricLine[]; index: number; clock?: PlaybackProgressClock;
+  currentTime: number; offset: number; showRuby: boolean;
+}) {
+  const progress = useInterpolatedPlaybackProgress(clockOptions(clock, currentTime));
+  const time = progress + (clock ? offset : 0);
+  const line = lyrics[index];
+  const percent = `${Math.round(calculateLyricLineProgress(lyrics, index, time) * 1000) / 10}%`;
+  return <div className="af-scrolling-lyric-primary" style={{ '--af-scrolling-lyric-progress': percent } as CSSProperties}>
+    {line.words?.length
+      ? line.words.map((word, wordIndex) => renderKaraokeWord(word, time, wordIndex, showRuby))
+      : <LyricText {...line} text={getLyricDisplayText(line)} showRuby={showRuby} />}
+  </div>;
+}
+
+const LyricRow = memo(function LyricRow({ line, lyrics, index, active, completed, lineRef, clock, currentTime,
+  offset, showRuby, showRomanization, showTranslation }: {
+  line: LyricLine; lyrics: LyricLine[]; index: number; active: boolean; completed: boolean;
+  lineRef: RefCallback<HTMLDivElement>; clock?: PlaybackProgressClock; currentTime: number;
+  offset: number; showRuby: boolean; showRomanization: boolean; showTranslation: boolean;
+}) {
+  return <div ref={lineRef} className={`af-scrolling-lyric-line ${active ? 'af-active' : ''}`} aria-current={active ? 'true' : undefined}>
+    {active
+      ? <ActiveLyricText lyrics={lyrics} index={index} clock={clock} currentTime={currentTime} offset={offset} showRuby={showRuby} />
+      : <div className="af-scrolling-lyric-primary" style={{ '--af-scrolling-lyric-progress': completed ? '100%' : '0%' } as CSSProperties}>
+        <LyricText {...line} text={getLyricDisplayText(line)} showRuby={showRuby} />
+      </div>}
+    <LyricRomanization text={line.roma} show={showRomanization} />
+    {showTranslation && line.tr && <div className="af-scrolling-lyric-translation">{line.tr}</div>}
+  </div>;
+});
+
 export function ScrollingLyricsVisualizer({
   currentTrack,
   lyrics,
@@ -44,10 +83,21 @@ export function ScrollingLyricsVisualizer({
   showRomanization = false,
   showRuby = false,
   layoutKey,
+  playbackClock,
+  lyricOffsetSeconds = 0,
 }: PlayerVisualizerProps) {
   const trackKey = `${currentTrack?.source ?? ''}:${currentTrack?.id ?? ''}`;
+  const selectLine = useCallback((progress: number) => {
+    if (!playbackClock) return currentLyricIndex;
+    if (!lyrics.length) return -1;
+    return Math.max(0, findCurrentLyricLineIndex(lyrics, progress + lyricOffsetSeconds, {
+      leadSeconds: DEFAULT_LYRIC_LEAD_SECONDS,
+      hysteresisSeconds: LYRIC_LINE_ADVANCE_HYSTERESIS_SECONDS,
+    }));
+  }, [currentLyricIndex, lyricOffsetSeconds, lyrics, playbackClock]);
+  const activeIndex = usePlaybackProgressValue(clockOptions(playbackClock, currentTime), selectLine);
   const bindings = useLyricAutoScroll({
-    currentLineIndex: currentLyricIndex,
+    currentLineIndex: activeIndex,
     contentKey: buildContentKey(trackKey, lyrics),
     layoutKey: `${layoutKey}:${lyrics.length}:${showRuby}:${showRomanization}`,
     isPlaying,
@@ -69,36 +119,10 @@ export function ScrollingLyricsVisualizer({
       aria-label="滚动歌词"
     >
       <div className="af-scrolling-lyrics-spacer af-scrolling-lyrics-spacer-top" aria-hidden="true" />
-      {lyrics.map((line, index) => {
-        const active = index === currentLyricIndex;
-        const lineProgress = active
-          ? calculateLyricLineProgress(lyrics, currentLyricIndex, currentTime)
-          : index < currentLyricIndex ? 1 : 0;
-        const lineProgressPercent = `${Math.round(lineProgress * 1000) / 10}%`;
-        const karaokeWords = active && line.words?.length ? line.words : null;
-
-        return (
-          <div
-            key={`${line.time}:${index}`}
-            ref={bindings.setLineRef(index)}
-            className={`af-scrolling-lyric-line ${active ? 'af-active' : ''}`}
-            aria-current={active ? 'true' : undefined}
-          >
-            <div
-              className="af-scrolling-lyric-primary"
-              style={{ '--af-scrolling-lyric-progress': lineProgressPercent } as CSSProperties}
-            >
-              {karaokeWords
-                ? karaokeWords.map((word, wordIndex) => renderKaraokeWord(word, currentTime, wordIndex, showRuby))
-                : <LyricText {...line} text={getLyricDisplayText(line)} showRuby={showRuby} />}
-            </div>
-            <LyricRomanization text={line.roma} show={showRomanization} />
-            {showTranslation && line.tr && (
-              <div className="af-scrolling-lyric-translation">{line.tr}</div>
-            )}
-          </div>
-        );
-      })}
+      {lyrics.map((line, index) => <LyricRow key={`${line.time}:${index}`} line={line} lyrics={lyrics} index={index}
+        active={index === activeIndex} completed={index < activeIndex} lineRef={bindings.setLineRef(index)}
+        clock={index === activeIndex ? playbackClock : undefined} currentTime={index === activeIndex ? currentTime : 0}
+        offset={lyricOffsetSeconds} showRuby={showRuby} showRomanization={showRomanization} showTranslation={showTranslation} />)}
       <div className="af-scrolling-lyrics-spacer af-scrolling-lyrics-spacer-bottom" aria-hidden="true" />
     </div>
   );

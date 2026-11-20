@@ -6,6 +6,7 @@ mod audio_session;
 mod commands;
 mod config;
 mod library;
+mod listening_stats;
 mod logging;
 mod lyric_window;
 mod mini_player;
@@ -288,6 +289,8 @@ pub fn run() {
             commands::zlib_deflate,
             // 运行时可配置目标的出站代理（WebDAV / 自定义音源）
             outbound::proxy_http_request,
+            outbound::register_proxy_http_request,
+            outbound::cancel_proxy_http_request,
             commands::cache_remote_audio,
             commands::cache_remote_image,
             commands::lookup_cached_media,
@@ -315,6 +318,8 @@ pub fn run() {
             commands::set_audio_lyrics,
             // 用户数据持久化（B-mid）
             commands::library_load,
+            listening_stats::listening_stats_load,
+            listening_stats::listening_stats_save_month,
             commands::library_save,
             commands::library_reset,
             // 桌面歌词窗口

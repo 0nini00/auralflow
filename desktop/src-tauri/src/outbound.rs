@@ -16,6 +16,36 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
+use std::sync::{Mutex, OnceLock};
+
+type ProxyRequests = HashMap<String, tokio::sync::watch::Sender<bool>>;
+fn proxy_requests() -> &'static Mutex<ProxyRequests> {
+    static REQUESTS: OnceLock<Mutex<ProxyRequests>> = OnceLock::new();
+    REQUESTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[tauri::command]
+pub fn register_proxy_http_request(request_id: String) -> Result<(), String> {
+    let mut requests = proxy_requests().lock().map_err(|err| err.to_string())?;
+    if requests.contains_key(&request_id) { return Err("出站请求 ID 重复".into()); }
+    requests.insert(request_id, tokio::sync::watch::channel(false).0);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn cancel_proxy_http_request(request_id: String) -> Result<(), String> {
+    if let Some(sender) = proxy_requests().lock().map_err(|err| err.to_string())?.get(&request_id) {
+        sender.send_replace(true);
+    }
+    Ok(())
+}
+
+struct ProxyRequestGuard(String);
+impl Drop for ProxyRequestGuard {
+    fn drop(&mut self) {
+        if let Ok(mut requests) = proxy_requests().lock() { requests.remove(&self.0); }
+    }
+}
 
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const MAX_TIMEOUT_MS: u64 = 60_000;
@@ -125,6 +155,7 @@ pub fn guarded_redirect_policy(label: &'static str) -> reqwest::redirect::Policy
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyRequestOptions {
+    pub request_id: Option<String>,
     pub url: String,
     pub method: Option<String>,
     pub headers: Option<HashMap<String, String>>,
@@ -155,6 +186,27 @@ pub struct ProxyResponse {
 /// 无法覆盖用户自填的 WebDAV 服务器和音源脚本的任意目标。
 #[tauri::command]
 pub async fn proxy_http_request(options: ProxyRequestOptions) -> Result<ProxyResponse, String> {
+    let Some(request_id) = options.request_id.clone() else { return execute_proxy_http_request(options).await; };
+    run_registered_proxy_request(request_id, execute_proxy_http_request(options)).await
+}
+
+async fn run_registered_proxy_request<T>(
+    request_id: String,
+    request: impl std::future::Future<Output = Result<T, String>>,
+) -> Result<T, String> {
+    let mut cancelled = proxy_requests().lock().map_err(|err| err.to_string())?
+        .get(&request_id).ok_or("出站请求尚未注册")?.subscribe();
+    let _guard = ProxyRequestGuard(request_id);
+    if *cancelled.borrow() { return Err("出站请求已取消".into()); }
+    // 丢弃包含 send 和 chunk 的整个 future，reqwest 真正停止连接与响应体读取。
+    tokio::select! {
+        biased;
+        _ = cancelled.changed() => Err("出站请求已取消".into()),
+        result = request => result,
+    }
+}
+
+async fn execute_proxy_http_request(options: ProxyRequestOptions) -> Result<ProxyResponse, String> {
     const LABEL: &str = "出站请求";
     let url = assert_public_url(&options.url, LABEL)?;
 
@@ -258,6 +310,45 @@ pub async fn proxy_http_request(options: ProxyRequestOptions) -> Result<ProxyRes
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn cancelling_registered_request_prevents_network_start() {
+        let request_id = "cancel-before-start".to_string();
+        register_proxy_http_request(request_id.clone()).unwrap();
+        cancel_proxy_http_request(request_id.clone()).unwrap();
+        let result: Result<(), String> = run_registered_proxy_request(request_id.clone(), async {
+            panic!("取消后不能执行 HTTP future");
+        }).await;
+        assert_eq!(result.unwrap_err(), "出站请求已取消");
+        assert!(!proxy_requests().lock().unwrap().contains_key(&request_id));
+    }
+
+    #[tokio::test]
+    async fn cancellation_drops_inflight_http_future_and_registration() {
+        use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+        struct PendingHttp(Arc<AtomicBool>);
+        impl std::future::Future for PendingHttp {
+            type Output = Result<(), String>;
+            fn poll(self: std::pin::Pin<&mut Self>, _: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+                std::task::Poll::Pending
+            }
+        }
+        impl Drop for PendingHttp {
+            fn drop(&mut self) { self.0.store(true, Ordering::SeqCst); }
+        }
+        let request_id = "cancel-inflight".to_string();
+        register_proxy_http_request(request_id.clone()).unwrap();
+        let dropped = Arc::new(AtomicBool::new(false));
+        let request = run_registered_proxy_request(request_id.clone(), PendingHttp(dropped.clone()));
+        let cancel = async {
+            tokio::task::yield_now().await;
+            cancel_proxy_http_request(request_id.clone()).unwrap();
+        };
+        let (result, _) = tokio::join!(request, cancel);
+        assert_eq!(result.unwrap_err(), "出站请求已取消");
+        assert!(dropped.load(Ordering::SeqCst));
+        assert!(!proxy_requests().lock().unwrap().contains_key(&request_id));
+    }
 
     /// 这四段是补齐的：标准库没有对应判定，此前桌面端比移动端宽松。
     /// 每段都给「边界内」与「边界外」两个样本，避免把网段写大或写小一位。

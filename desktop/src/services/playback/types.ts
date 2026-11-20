@@ -12,6 +12,7 @@ export interface PlaybackAttempt {
 }
 
 export interface PlaybackRequest {
+  signal?: AbortSignal;
   primary: MusicInfo;
   variants?: MusicInfo[];
   qualityPreference: string[];

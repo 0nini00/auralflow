@@ -1,4 +1,4 @@
-import type { MusicInfo } from '@lx/core';
+import type { MusicInfo, PlaybackProgressClock } from '@lx/core';
 import type { LyricLine } from '@/services/lyricsService';
 
 export interface PlayerVisualizerProps {
@@ -14,4 +14,6 @@ export interface PlayerVisualizerProps {
   showRomanization?: boolean;
   showRuby?: boolean;
   layoutKey: string;
+  playbackClock?: PlaybackProgressClock;
+  lyricOffsetSeconds?: number;
 }
