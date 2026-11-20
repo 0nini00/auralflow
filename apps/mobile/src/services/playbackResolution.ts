@@ -20,10 +20,11 @@ export function interruptPlaybackResolution(): boolean {
 }
 
 /** 预算覆盖整个异步解析流程，包括预读等待与跨源候选；预读不持有播放意图。 */
-export function runPlaybackResolution<T>(resolve: () => Promise<T>, requestId?: number): Promise<T> {
+export function runPlaybackResolution<T>(resolve: (signal: AbortSignal) => Promise<T>, requestId?: number, parentSignal?: AbortSignal): Promise<T> {
   if (requestId !== undefined && !isCurrentPlaybackRequest(requestId)) return Promise.reject(new PlaybackRequestSupersededError());
   if (requestId !== undefined) activeResolutionRequest = requestId;
   return new Promise<T>((fulfill, reject) => {
+    const controller = new AbortController();
     let settled = false;
     let unsubscribe = () => {};
     const finish = (action: () => void) => {
@@ -31,6 +32,8 @@ export function runPlaybackResolution<T>(resolve: () => Promise<T>, requestId?: 
       settled = true;
       clearTimeout(timer);
       unsubscribe();
+      parentSignal?.removeEventListener("abort", abort);
+      controller.abort();
       if (requestId !== undefined && activeResolutionRequest === requestId) activeResolutionRequest = null;
       action();
     };
@@ -38,14 +41,17 @@ export function runPlaybackResolution<T>(resolve: () => Promise<T>, requestId?: 
       () => finish(() => reject(new Error(`播放地址解析超时（${PLAYBACK_RESOLUTION_BUDGET_MS / 1000} 秒），可重试或切换歌曲`))),
       PLAYBACK_RESOLUTION_BUDGET_MS,
     );
-    if (requestId !== undefined) {
+    const abort = () => finish(() => reject(new PlaybackRequestSupersededError()));
+    if (parentSignal?.aborted) abort();
+    else parentSignal?.addEventListener("abort", abort, { once: true });
+    if (requestId !== undefined && !settled) {
       unsubscribe = subscribePlaybackRequest(() => {
         if (!isCurrentPlaybackRequest(requestId)) finish(() => reject(new PlaybackRequestSupersededError()));
       });
     }
     Promise.resolve().then(() => {
       if (settled) throw new PlaybackRequestSupersededError();
-      return resolve();
+      return resolve(controller.signal);
     }).then(
       result => finish(() => fulfill(result)),
       error => finish(() => reject(error)),

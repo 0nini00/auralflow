@@ -36,7 +36,7 @@ function fixture(options = {}) {
           handlers.onMessage({ type: "inited", rid: msg.rid, sources: { sources: options.sources ?? wy() }, updateAlert: options.updateAlert });
         }
         if (msg.type === "request") {
-          const reply = respond(msg.payload);
+          const reply = respond(msg.payload, msg, handlers);
           if (reply) handlers.onMessage({ type: "request-response", rid: msg.rid, id: msg.id, ...reply });
         }
       },
@@ -51,10 +51,66 @@ function fixture(options = {}) {
   });
   const runtime = load("src/services/customSourceRuntime.ts");
   const count = type => sent.filter(msg => msg.type === type).length;
-  return { runtime, sent, fetches, count };
+  return { runtime, sent, fetches, count, receive: msg => handlers.onMessage(msg) };
 }
 
 const flush = () => new Promise(setImmediate);
+
+test("取消一个取链只取消它的 HTTP，另一个消费者继续完成", async t => {
+  const requests = [];
+  const h = fixture({ respond: (_payload, msg, handlers) => {
+    requests.push(msg);
+    handlers.onMessage({ type: "http", rid: msg.rid, id: `http-${msg.id}`, ownerId: msg.id, url: "https://example.com/data", options: {} });
+  } });
+  const fetches = [];
+  t.mock.method(globalThis, "fetch", (_url, init) => new Promise((resolve, reject) => {
+    fetches.push({ signal: init.signal, resolve });
+    init.signal.addEventListener("abort", () => reject(Object.assign(new Error("cancelled"), { name: "AbortError" })), { once: true });
+  }));
+  const controller = new AbortController();
+  const old = h.runtime.requestCustomSourceMusicUrl(api(), { ...song, id: "old" }, "128k", undefined, undefined, controller.signal);
+  const rejected = assert.rejects(old, /取消/);
+  await flush();
+  const current = h.runtime.requestCustomSourceMusicUrl(api(), song, "128k");
+  await flush();
+  controller.abort();
+  await flush();
+  const abortStates = fetches.map(request => request.signal.aborted);
+  const second = requests.find(request => request.payload.info.musicInfo.songmid === song.id);
+  h.receive({ type: "request-response", rid: second.rid, id: second.id, result: "https://example.com/current.mp3" });
+  const result = await current;
+  for (const request of fetches) request.resolve({ url: "https://example.com/data", status: 200, statusText: "OK", headers: new Headers(), text: async () => "{}" });
+  h.runtime.invalidateRuntimeCache(api().id);
+  await flush();
+  assert.deepEqual(abortStates, [true, false]);
+  await rejected;
+  assert.equal(result.url, "https://example.com/current.mp3");
+});
+
+test("脚本扇出 HTTP 仍受全局真实在途上限约束", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const h = fixture({ respond: (_payload, msg, handlers) => {
+    for (let i = 0; i < 12; i++) handlers.onMessage({ type: "http", rid: msg.rid, id: `http-${i}`, ownerId: msg.id, url: "https://example.com/data", options: {} });
+  } });
+  let active = 0;
+  let peak = 0;
+  t.mock.method(globalThis, "fetch", (_url, init) => new Promise((_resolve, reject) => {
+    peak = Math.max(peak, ++active);
+    init.signal.addEventListener("abort", () => { active--; reject(new Error("cancelled")); }, { once: true });
+  }));
+  const controller = new AbortController();
+  const pending = h.runtime.requestCustomSourceMusicUrl(api(), song, "128k", undefined, undefined, controller.signal);
+  const rejected = assert.rejects(pending, /取消/);
+  await flush();
+  t.mock.timers.tick(3_000);
+  await flush();
+  controller.abort();
+  h.runtime.invalidateRuntimeCache(api().id);
+  await rejected;
+  await flush();
+  assert.equal(peak, 3);
+  assert.equal(active, 0);
+});
 
 test("取链把 lx 协议请求发给脚本并复用同一个运行时", async () => {
   const h = fixture();
@@ -67,6 +123,92 @@ test("取链把 lx 协议请求发给脚本并复用同一个运行时", async (
   assert.equal(payload.action, "musicUrl");
   assert.equal(payload.info.type, "128k");
   assert.equal(payload.info.musicInfo.songmid, "1");
+});
+
+test("全局池限制活动和空闲实例，重复访问仍复用最近保留的运行时", async () => {
+  const h = fixture();
+  for (let id = 0; id < 8; id++) await h.runtime.requestCustomSourceMusicUrl(api({ id: String(id) }), song, "128k");
+  assert.equal(h.count("run") - h.count("dispose"), 3);
+  await h.runtime.requestCustomSourceMusicUrl(api({ id: "7" }), song, "128k");
+  assert.equal(h.count("run"), 8);
+});
+
+test("超时退休的实例不能留在缓存中复用", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let attempts = 0;
+  const h = fixture({ respond: () => ++attempts === 1 ? undefined : { result: "https://example.com/retry.mp3" } });
+  const first = h.runtime.requestCustomSourceMusicUrl(api(), song, "128k");
+  const rejected = assert.rejects(first, /取链超时/);
+  await flush();
+  t.mock.timers.tick(30000);
+  await rejected;
+  const result = await h.runtime.requestCustomSourceMusicUrl(api(), song, "128k");
+  assert.equal(result.url, "https://example.com/retry.mp3");
+  assert.equal(h.count("run"), 2);
+});
+
+test("脚本报告遗留异步资源时退休实例，后续请求使用干净实例", async () => {
+  const h = fixture({ respond: () => ({ result: "https://example.com/song.mp3", reusable: false }) });
+  await h.runtime.requestCustomSourceMusicUrl(api(), song, "128k");
+  await h.runtime.requestCustomSourceMusicUrl(api(), song, "128k");
+  assert.equal(h.count("run"), 2);
+  assert.equal(h.count("dispose"), 2);
+});
+
+test("全局名额被旧取链占满时公平取消持有者，新播放仍能开始", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const pendingRequests = [];
+  const h = fixture({ respond: (payload, request) => {
+    if (payload.info.musicInfo.songmid === "new") return { result: "https://example.com/new.mp3" };
+    pendingRequests.push(request);
+  } });
+  const old = Array.from({ length: 3 }, (_, id) => h.runtime.requestCustomSourceMusicUrl(api({ id: String(id) }), song, "128k").catch(error => error));
+  await flush();
+  let finished = false;
+  const current = h.runtime.requestCustomSourceMusicUrl(api({ id: "new" }), { ...song, id: "new" }, "128k").then(result => { finished = true; return result; });
+  await flush();
+  t.mock.timers.tick(3500);
+  await flush();
+  const beforeRelease = finished;
+  for (const request of pendingRequests) h.receive({ type: "request-response", rid: request.rid, id: request.id, result: "https://example.com/old.mp3" });
+  await Promise.all([...old, current]);
+  assert.equal(beforeRelease, true);
+});
+
+test("没有排队竞争时六秒慢请求仍可完成", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const h = fixture({ respond: (_payload, request, handlers) => {
+    setTimeout(() => handlers.onMessage({ type: "request-response", rid: request.rid, id: request.id, result: "https://example.com/slow.mp3" }), 6000);
+  } });
+  const pending = h.runtime.requestCustomSourceMusicUrl(api(), song, "128k");
+  await flush();
+  t.mock.timers.tick(6000);
+  assert.equal((await pending).url, "https://example.com/slow.mp3");
+  assert.equal(h.count("dispose"), 0);
+});
+
+test("持续新增排队者不会重置最早持有者的让位期限", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const pendingRequests = [];
+  const h = fixture({ respond: (payload, request) => {
+    if (payload.info.musicInfo.songmid.startsWith("new")) return { result: "https://example.com/new.mp3" };
+    pendingRequests.push(request);
+  } });
+  const old = Array.from({ length: 3 }, (_, id) => h.runtime.requestCustomSourceMusicUrl(api({ id: String(id) }), song, "128k").catch(error => error));
+  await flush();
+  let completed = 0;
+  const start = id => h.runtime.requestCustomSourceMusicUrl(api({ id }), { ...song, id }, "128k").then(() => completed++);
+  const first = start("new-1");
+  await flush();
+  t.mock.timers.tick(2000);
+  const second = start("new-2");
+  await flush();
+  t.mock.timers.tick(1500);
+  await flush();
+  const beforeRelease = completed;
+  for (const request of pendingRequests) h.receive({ type: "request-response", rid: request.rid, id: request.id, result: "https://example.com/old.mp3" });
+  await Promise.all([...old, first, second]);
+  assert.equal(beforeRelease, 2);
 });
 
 test("脚本未声明的平台或音质不发给脚本", async () => {

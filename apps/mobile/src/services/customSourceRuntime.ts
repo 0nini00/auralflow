@@ -4,6 +4,8 @@ import {
   CUSTOM_SOURCE_INIT_TIMEOUT_MS,
   CUSTOM_SOURCE_REMOTE_SCRIPT_ACCEPT,
   CUSTOM_SOURCE_TEST_UPDATE_ALERT_WAIT_MS,
+  MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS,
+  createRequestLimiter,
   assertPublicOutboundUrl,
   buildCustomSourceDeepTestInitFailure,
   buildCustomSourceMusicUrlRequest,
@@ -34,6 +36,7 @@ import {
 import { disposeRuntimePendingRequests } from "@/services/customSourceRuntimeLifecycleModel";
 import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
 import { hiddenSourceSearchers } from "./hiddenSourceSearchers";
+import { cancellationError, createCancellationScope, throwIfAborted, waitWithSignal } from "@/utils/cancellation";
 
 /** 远端音源脚本拉取超时：脚本通常几十 KB，弱网 15s 足够；不再无限挂起更新检查。 */
 const REMOTE_SCRIPT_FETCH_TIMEOUT_MS = 15_000;
@@ -44,8 +47,8 @@ interface BridgeRoute {
   inited?: (sources: unknown, updateAlert: unknown) => void;
   updateAlert?: (alert: unknown) => void;
   error?: (message: string) => void;
-  http?: (id: string, url: string, options: Record<string, unknown>) => void;
-  requestResponse?: (ok: boolean, value: unknown) => void;
+  http?: (id: string, url: string, options: Record<string, unknown>, ownerId?: string) => void;
+  requestSettled?: (reusable?: boolean) => void;
 }
 const bridgeRoutes = new Map<string, BridgeRoute>();
 // request-response 消息按全局消息 id 路由（跨 runtime 唯一）：rid → pendingById
@@ -65,7 +68,7 @@ function ensureBridgeHandlers(): void {
           else if (msg.type === "updateAlert") route.updateAlert?.(msg.alert);
           else if (msg.type === "error") route.error?.(msg.message ?? "未知错误");
           else if (msg.type === "http") {
-            if (msg.id && msg.url) route.http?.(msg.id, msg.url, msg.options ?? {});
+            if (msg.id && msg.url) route.http?.(msg.id, msg.url, msg.options ?? {}, msg.ownerId);
           } else if (msg.type === "request-response") {
             // 按消息 id 跨 runtime 路由（req-{rid}-{seq}）
             const ownerRid = msg.rid ?? "";
@@ -73,6 +76,7 @@ function ensureBridgeHandlers(): void {
             const pending = msg.id ? table?.get(msg.id) : undefined;
             if (pending) {
               table!.delete(msg.id!);
+              route.requestSettled?.(msg.reusable);
               if (msg.error == null) pending.resolve(msg.result);
               else pending.reject(new Error(msg.error));
             }
@@ -92,82 +96,86 @@ function ensureBridgeHandlers(): void {
 }
 
 /** RN 侧 http 代理：供 WebView 里脚本发起的 lx.request 走 RN fetch（出站校验+超时） */
-function bridgeProxyFetch(
+const httpLimiter = createRequestLimiter({ limit: MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS });
+
+async function bridgeProxyFetch(
   id: string,
   url: string,
   options: Record<string, unknown>,
   rid: string,
-): void {
+  controller: AbortController,
+): Promise<void> {
   const finish = (response: unknown, body: unknown, error?: string) => {
     sendToWebView({ type: "http-response", id, response, body, error, rid });
   };
-  void (async () => {
-    const controller = new AbortController();
-    const timeoutMs =
-      typeof options.timeout === "number" && options.timeout > 0
-        ? Math.min(options.timeout, 60_000)
-        : 60_000;
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      // 出站校验规则见 @lx/core/outbound-host，与桌面端 Rust 侧同源。
-      assertPublicOutboundUrl(url, "自定义音源请求");
-      const headers: Record<string, string> = { ...(options.headers as Record<string, string>) };
-      let body: BodyInit_ | undefined;
-      const rawBody = options.body;
-      if (rawBody != null) {
-        body = typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody);
-      } else if (options.form) {
-        body = new URLSearchParams(options.form as Record<string, string>).toString();
-        if (!headers["Content-Type"] && !headers["content-type"]) {
-          headers["Content-Type"] = "application/x-www-form-urlencoded";
-        }
-      } else if (options.formData != null) {
-        // formData 二进制不过 JSON 桥：WebView 侧已转为 base64，这里解码为二进制
-        const b64 = (options.formData as { __lxBase64?: string }).__lxBase64;
-        if (typeof b64 === "string") {
-          const bin = globalThis.atob(b64);
-          const bytes = new Uint8Array(bin.length);
-          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-          body = bytes;
-        }
+  let release: (() => void) | undefined;
+  const timeoutMs =
+    typeof options.timeout === "number" && options.timeout > 0
+      ? Math.min(options.timeout, 60_000)
+      : 60_000;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    release = await httpLimiter.acquire(controller.signal);
+    throwIfAborted(controller.signal);
+    // 出站校验规则见 @lx/core/outbound-host，与桌面端 Rust 侧同源。
+    assertPublicOutboundUrl(url, "自定义音源请求");
+    const headers: Record<string, string> = { ...(options.headers as Record<string, string>) };
+    let body: BodyInit_ | undefined;
+    const rawBody = options.body;
+    if (rawBody != null) {
+      body = typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody);
+    } else if (options.form) {
+      body = new URLSearchParams(options.form as Record<string, string>).toString();
+      if (!headers["Content-Type"] && !headers["content-type"]) {
+        headers["Content-Type"] = "application/x-www-form-urlencoded";
       }
-      const response = await fetch(url, {
-        method: (options.method as string) ?? "GET",
-        headers,
-        body,
-        // SAFETY: RN 的全局 AbortSignal 与 DOM lib 的 AbortSignal 是不同声明，运行时同一对象，
-        // fetch 可直接消费；该断言仅跳过类型声明差异，无运行时转换。
-        signal: controller.signal as unknown as RequestInit["signal"],
-      });
-      // 不要加 redirect: "manual"：RN 的 fetch 是 whatwg-fetch over XHR，
-      // Request 构造函数根本不读这个字段，Android 侧 OkHttp 始终 followRedirects(true)。
-      // 写上去不会报错，只会让人误以为已经防住了 302 到内网。
-      //
-      // 这里改为校验最终落地 URL。边界（显式声明）：内网请求此时已经发出，
-      // 本校验只阻断响应数据回流到脚本，不能阻止盲打点与端口探测。
-      // 彻底修复需要原生侧 followRedirects(false) 并逐跳校验，对齐桌面端
-      // desktop/src-tauri/src/outbound.rs 的 guarded_redirect_policy。
-      const finalUrl = response.url;
-      if (finalUrl && finalUrl !== url) {
-        assertPublicOutboundUrl(finalUrl, "自定义音源重定向目标");
+    } else if (options.formData != null) {
+      // formData 二进制不过 JSON 桥：WebView 侧已转为 base64，这里解码为二进制
+      const b64 = (options.formData as { __lxBase64?: string }).__lxBase64;
+      if (typeof b64 === "string") {
+        const bin = globalThis.atob(b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        body = bytes;
       }
-      const text = await response.text();
-      let parsed: unknown = text;
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        parsed = text;
-      }
-      finish(
-        createRequestResponse(parsed, response.status, response.statusText, headersToRecord(response.headers)),
-        parsed,
-      );
-    } catch (error) {
-      finish(null, null, error instanceof Error ? error.message : String(error));
-    } finally {
-      clearTimeout(timer);
     }
-  })();
+    const response = await fetch(url, {
+      method: (options.method as string) ?? "GET",
+      headers,
+      body,
+      // SAFETY: RN 的全局 AbortSignal 与 DOM lib 的 AbortSignal 是不同声明，运行时同一对象，
+      // fetch 可直接消费；该断言仅跳过类型声明差异，无运行时转换。
+      signal: controller.signal as unknown as RequestInit["signal"],
+    });
+    // 不要加 redirect: "manual"：RN 的 fetch 是 whatwg-fetch over XHR，
+    // Request 构造函数根本不读这个字段，Android 侧 OkHttp 始终 followRedirects(true)。
+    // 写上去不会报错，只会让人误以为已经防住了 302 到内网。
+    //
+    // 这里改为校验最终落地 URL。边界（显式声明）：内网请求此时已经发出，
+    // 本校验只阻断响应数据回流到脚本，不能阻止盲打点与端口探测。
+    // 彻底修复需要原生侧 followRedirects(false) 并逐跳校验，对齐桌面端
+    // desktop/src-tauri/src/outbound.rs 的 guarded_redirect_policy。
+    const finalUrl = response.url;
+    if (finalUrl && finalUrl !== url) {
+      assertPublicOutboundUrl(finalUrl, "自定义音源重定向目标");
+    }
+    const text = await response.text();
+    let parsed: unknown = text;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = text;
+    }
+    finish(
+      createRequestResponse(parsed, response.status, response.statusText, headersToRecord(response.headers)),
+      parsed,
+    );
+  } catch (error) {
+    finish(null, null, error instanceof Error ? error.message : String(error));
+  } finally {
+    clearTimeout(timer);
+    release?.();
+  }
 }
 
 /**
@@ -192,8 +200,9 @@ function bridgeProxyFetch(
 export type { CustomSourcePlatformRequest };
 
 interface RuntimeInstance {
+  readonly disposed: boolean;
   init: Promise<CustomSourceRuntimeInitResult>;
-  request: (data: CustomSourceRuntimeRequestPayload) => Promise<CustomSourceRuntimeRequestResult>;
+  request: (data: CustomSourceRuntimeRequestPayload, signal?: AbortSignal) => Promise<CustomSourceRuntimeRequestResult>;
   getUpdateAlert: () => CustomSourceUpdateAlert | undefined;
   waitForUpdateAlert: (timeoutMs: number) => Promise<CustomSourceUpdateAlert | undefined>;
   setUpdateAlertHandler: (handler: ((alert: CustomSourceUpdateAlert) => void) | null) => void;
@@ -256,7 +265,7 @@ function headersToRecord(headers: Headers): Record<string, string> {
 }
 
 function createRuntime(api: CustomSourceItem): RuntimeInstance {
-  let requestHandler: ((payload: CustomSourceRuntimeRequestPayload) => Promise<unknown>) | null = null;
+  let requestHandler: ((payload: CustomSourceRuntimeRequestPayload, signal?: AbortSignal) => Promise<unknown>) | null = null;
   let finishInit: (value: CustomSourceRuntimeInitResult) => void = () => undefined;
   let failInit: (error: Error) => void = () => undefined;
   let initSettled = false;
@@ -280,6 +289,12 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
   // —— WebView 桥路由（Hermes 不支持 new Function，脚本在隐藏 WebView 内执行） ——
   const rid = `rt-${++runtimeSeq}`;
   let requestSeq = 0;
+  const httpRequests = new Map<string, { ownerId?: string; controller: AbortController }>();
+  const cancelHttp = (ownerId?: string) => {
+    for (const request of httpRequests.values()) {
+      if (ownerId === undefined || request.ownerId === ownerId) request.controller.abort();
+    }
+  };
 
   ensureBridgeHandlers();
   bridgeRoutes.set(rid, {
@@ -318,14 +333,16 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
         failInit(new Error(message));
       }
     },
-    http(id, url, options) {
+    http(id, url, options, ownerId) {
       if (disposed) return;
+      if (ownerId && !pendingById.has(ownerId)) return;
       // 脚本发起的 lx.request → RN 侧 fetch 代理（出站校验+超时），结果回传 WebView
-      bridgeProxyFetch(id, url, options, rid);
+      const controller = new AbortController();
+      httpRequests.set(id, { ownerId, controller });
+      void bridgeProxyFetch(id, url, options, rid, controller).finally(() => httpRequests.delete(id));
     },
-    requestResponse(ok, value) {
-      // 占位：request-response 按消息 id 路由（见 inflightById），不按 rid
-      void ok; void value;
+    requestSettled(reusable) {
+      if (reusable === false) dispose();
     },
   });
 
@@ -339,6 +356,7 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
   const dispose = () => {
     if (disposed) return;
     disposed = true;
+    cancelHttp();
     if (initTimeoutId) {
       clearTimeout(initTimeoutId);
       initTimeoutId = null;
@@ -358,31 +376,44 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
   };
 
   // 取链请求：发 WebView 内脚本的 lx.on(request) handler，按消息 id 配对应答
-  requestHandler = (payload) =>
+  requestHandler = (payload, signal) =>
     new Promise<unknown>((resolve, reject) => {
+      throwIfAborted(signal);
       if (disposed) {
         reject(new Error("自定义音源运行时已释放"));
         return;
       }
       const id = `req-${rid}-${++requestSeq}`;
-      const timer = setTimeout(() => {
+      const cancelRequest = (error: Error) => {
         const pending = pendingById.get(id);
-        if (pending) {
-          pendingById.delete(id);
-          pending.reject(new Error("自定义音源取链超时"));
-        }
+        if (!pending) return;
+        pendingById.delete(id);
+        cancelHttp(id);
+        sendToWebView({ type: "request-cancel", rid, id });
+        pending.reject(error);
+        // 用户脚本的 await continuation 无法撤销；取消后退休实例，禁止旧代码复用新请求。
+        dispose();
+      };
+      const abort = () => cancelRequest(cancellationError());
+      const timer = setTimeout(() => {
+        cancelRequest(new Error("自定义音源取链超时"));
       }, 30_000);
       // 包一层 settle 前先清定时器：成功/失败（含上层中断）都不留下 30s 的悬挂定时器
       pendingById.set(id, {
         resolve: (value: unknown) => {
           clearTimeout(timer);
+          signal?.removeEventListener("abort", abort);
+          cancelHttp(id);
           resolve(value);
         },
         reject: (error: unknown) => {
           clearTimeout(timer);
+          signal?.removeEventListener("abort", abort);
+          cancelHttp(id);
           reject(error);
         },
       });
+      signal?.addEventListener("abort", abort, { once: true });
       sendToWebView({ type: "request", rid, id, payload });
     });
 
@@ -432,6 +463,7 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
   }, CUSTOM_SOURCE_INIT_TIMEOUT_MS);
 
   return {
+    get disposed() { return disposed; },
     init,
     getUpdateAlert() {
       return updateAlert;
@@ -455,15 +487,16 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
     setUpdateAlertHandler(handler) {
       if (!disposed) updateAlertHandler = handler;
     },
-    async request(data) {
+    async request(data, signal) {
       if (disposed) throw new Error("自定义音源运行时已释放");
-      await init;
+      await waitWithSignal(init, signal);
+      throwIfAborted(signal);
       if (!requestHandler) throw new Error("Request event is not defined");
       const response = await requestHandler({
         source: data.source,
         action: data.action,
         info: data.info,
-      });
+      }, signal);
       const result = toCustomSourceRuntimeRequestResult(data, response);
       if (data.action === "musicUrl") {
         // 在脚本返回值入口收口：这个 URL 下游会流向 probeStreamUrl、
@@ -481,7 +514,41 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
 // 按 api.id + api.script 的 hash 缓存已初始化的 RuntimeInstance，避免每次播放
 // 都重新执行脚本（createRuntime 内含 new Function + 网络初始化，耗时且有超时风险）。
 
-const runtimeCache = new Map<string, RuntimeInstance>();
+const runtimeCache = new Map<string, RuntimeInstance[]>();
+const busyRuntimes = new Set<RuntimeInstance>();
+/** 无竞争时保留原取链预算；出现等待者后只给最早的必要持有者设置一次让位期限。 */
+const CONTENDED_RUNTIME_TIMEOUT_MS = 3_500;
+const runtimeContentionListeners = new Set<(contended: boolean) => void>();
+let waitingRuntimes = 0;
+function updateRuntimeContention(): void {
+  let index = 0;
+  for (const listener of runtimeContentionListeners) listener(index++ < waitingRuntimes);
+}
+const runtimeLimiter = createRequestLimiter({
+  limit: MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS,
+  onQueueChange(waiting) {
+    waitingRuntimes = waiting;
+    updateRuntimeContention();
+  },
+});
+
+function removeRuntime(runtime: RuntimeInstance): void {
+  for (const [key, entries] of runtimeCache) {
+    const remaining = entries.filter(entry => entry !== runtime);
+    if (remaining.length === entries.length) continue;
+    if (remaining.length) runtimeCache.set(key, remaining);
+    else runtimeCache.delete(key);
+  }
+  runtime.dispose();
+}
+
+/** 活跃租用最多三个；空闲池也最多三个，按插入顺序淘汰旧脚本。 */
+function trimRuntimeCache(): void {
+  const idle = [...runtimeCache.values()].flat().filter(runtime => !busyRuntimes.has(runtime));
+  for (const runtime of idle.slice(0, Math.max(0, idle.length - MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS))) {
+    removeRuntime(runtime);
+  }
+}
 
 function getCacheKey(api: CustomSourceItem): string {
   const scriptHash = CryptoJS.SHA256(normalizeCustomSourceScript(api.script)).toString();
@@ -490,24 +557,28 @@ function getCacheKey(api: CustomSourceItem): string {
 
 function getCachedRuntime(api: CustomSourceItem): RuntimeInstance {
   const key = getCacheKey(api);
-  const cached = runtimeCache.get(key);
-  if (cached) return cached;
+  const entries = runtimeCache.get(key) ?? [];
+  const cached = entries.find(runtime => !busyRuntimes.has(runtime));
+  if (cached) {
+    busyRuntimes.add(cached);
+    return cached;
+  }
   const runtime = createRuntime(api);
-  runtimeCache.set(key, runtime);
+  busyRuntimes.add(runtime);
+  runtimeCache.set(key, [...entries, runtime]);
   // 初始化失败时从缓存中移除并释放，下次重试。
   runtime.init.catch(() => {
-    if (runtimeCache.get(key) === runtime) runtimeCache.delete(key);
-    runtime.dispose();
+    removeRuntime(runtime);
   });
   return runtime;
 }
 
 /** 清除某个音源的 Runtime 缓存（重新导入脚本时调用） */
 export function invalidateRuntimeCache(apiId: string): void {
-  for (const [key, runtime] of runtimeCache.entries()) {
+  for (const [key, runtimes] of runtimeCache.entries()) {
     if (!key.startsWith(`${apiId}::`)) continue;
     runtimeCache.delete(key);
-    runtime.dispose();
+    for (const runtime of runtimes) runtime.dispose();
   }
 }
 
@@ -515,8 +586,9 @@ export function invalidateRuntimeCache(apiId: string): void {
 function primeRuntimeCache(api: CustomSourceItem, runtime: RuntimeInstance): void {
   const key = getCacheKey(api);
   const previous = runtimeCache.get(key);
-  if (previous && previous !== runtime) previous.dispose();
-  runtimeCache.set(key, runtime);
+  for (const entry of previous ?? []) if (entry !== runtime) entry.dispose();
+  runtimeCache.set(key, [runtime]);
+  trimRuntimeCache();
 }
 
 export async function testCustomSource(
@@ -604,16 +676,48 @@ export async function requestCustomSourceMusicUrl(
   quality: string,
   onUpdateAlert?: ((alert: CustomSourceUpdateAlert) => void) | null,
   platformRequest?: CustomSourcePlatformRequest,
+  signal?: AbortSignal,
 ): Promise<{ url: string; quality: string; sources?: Record<string, CustomSourceSourceInfo> }> {
-  const runtime = getCachedRuntime(api);
-  // 注入回调后，取链期间脚本 send(updateAlert) 且无 waiter 等待时会透传给消费方。
-  // undefined 表示「不改动已有监听器」——隐藏兜底与主链共享同一 runtime，
-  // 传 undefined 若写成 onUpdateAlert ?? null 会把主链刚注册的回调清空。
-  // 显式传 null 才清掉历史回调。
-  if (onUpdateAlert !== undefined) runtime.setUpdateAlertHandler(onUpdateAlert);
-  const initResult = await runtime.init;
-  const result = await runtime.request(
-    buildCustomSourceMusicUrlRequest(initResult.sources, music, quality, platformRequest),
-  );
-  return { ...readCustomSourceMusicUrlResult(result, quality), sources: initResult.sources };
+  const release = await runtimeLimiter.acquire(signal);
+  const scope = createCancellationScope(signal);
+  let contentionTimer: ReturnType<typeof setTimeout> | undefined;
+  const onContention = (contended: boolean) => {
+    if (!contended) {
+      clearTimeout(contentionTimer);
+      contentionTimer = undefined;
+    } else if (contentionTimer === undefined) {
+      contentionTimer = setTimeout(() => scope.dispose(), CONTENDED_RUNTIME_TIMEOUT_MS);
+    }
+  };
+  runtimeContentionListeners.add(onContention);
+  updateRuntimeContention();
+  let runtime: RuntimeInstance | undefined;
+  let reusable = false;
+  try {
+    throwIfAborted(scope.signal);
+    runtime = getCachedRuntime(api);
+    // 注入回调后，取链期间脚本 send(updateAlert) 且无 waiter 等待时会透传给消费方。
+    // undefined 表示「不改动已有监听器」——隐藏兜底与主链共享同一 runtime，
+    // 传 undefined 若写成 onUpdateAlert ?? null 会把主链刚注册的回调清空。
+    // 显式传 null 才清掉历史回调。
+    if (onUpdateAlert !== undefined) runtime.setUpdateAlertHandler(onUpdateAlert);
+    const initResult = await waitWithSignal(runtime.init, scope.signal);
+    throwIfAborted(scope.signal);
+    const result = await runtime.request(
+      buildCustomSourceMusicUrlRequest(initResult.sources, music, quality, platformRequest),
+      scope.signal,
+    );
+    reusable = true;
+    return { ...readCustomSourceMusicUrlResult(result, quality), sources: initResult.sources };
+  } finally {
+    if (runtime) {
+      busyRuntimes.delete(runtime);
+      if (runtime.disposed || (!reusable && scope.signal.aborted)) removeRuntime(runtime);
+    }
+    clearTimeout(contentionTimer);
+    runtimeContentionListeners.delete(onContention);
+    scope.dispose();
+    release();
+    trimRuntimeCache();
+  }
 }

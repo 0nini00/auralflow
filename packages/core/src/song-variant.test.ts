@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildSongKey,
   buildSongGroupKey,
@@ -123,6 +123,27 @@ describe("rankVariantCandidates", () => {
 });
 
 describe("groupSongResults", () => {
+  it("大批不同歌名只规整每首元数据一次，不随已有分组数量重复规整", () => {
+    const songs = Array.from({ length: 1000 }, (_, index) => song({ id: String(index), name: `曲目${index}` }));
+    const normalize = vi.spyOn(String.prototype, "normalize");
+    try {
+      expect(groupSongResults(songs)).toHaveLength(1000);
+      expect(normalize.mock.calls.length).toBeLessThanOrEqual(songs.length * 4);
+    } finally {
+      normalize.mockRestore();
+    }
+  });
+
+  it("通过变体连接歌手时仍归入输入顺序最早且时长兼容的组", () => {
+    const first = song({ id: "a", singer: "甲", interval: 200 });
+    const second = song({ id: "b", singer: "乙", interval: 210 });
+    const bridge = song({ id: "c", source: "tx", singer: "甲、乙", interval: 205 });
+    const next = song({ id: "d", singer: "乙", interval: 206 });
+    const groups = groupSongResults([first, second, bridge, next]);
+    expect(groups.map(group => group.variants.map(item => item.id))).toEqual([["a", "d", "c"], ["b"]]);
+    expect(groups[0].key).toBe(buildSongGroupKey(first));
+  });
+
   it("跨源同名歌曲合并为一组，primary 取 sourceRank 最优", () => {
     const wy = song();
     const tx = song({ id: "tx1", source: "tx", interval: 202, picUrl: undefined });

@@ -50,10 +50,11 @@ function ImmersivePlayInfo({
   const position = usePlayerStore((s) => s.position);
   const duration = usePlayerStore((s) => s.duration);
   const buffered = usePlayerStore((s) => s.buffered);
+  const trackKey = usePlayerStore((s) => s.currentSong ? `${s.currentSong.source}:${s.currentSong.id}` : undefined);
 
   return (
     <View style={styles.playInfoWrap}>
-      <ProgressBar position={position} duration={duration} buffered={buffered} onSeek={onSeek} palette={palette} />
+      <ProgressBar trackKey={trackKey} position={position} duration={duration} buffered={buffered} onSeek={onSeek} palette={palette} />
       <View style={styles.timeRow}>
         <Text style={[styles.timeText, { color: palette.textMuted }]}>{formatTime(position)}</Text>
         <Text style={[styles.timeText, { color: palette.textMuted }]}>{formatTime(duration)}</Text>

@@ -39,6 +39,8 @@ export interface LyricViewProps {
   onSeek?: (time: number) => void;
   /** 容器样式 */
   style?: StyleProp<ViewStyle>;
+  /** 隐藏页保留列表状态，但暂停跟唱与逐行更新。 */
+  active?: boolean;
 }
 
 // 未测量行高的兜底估算（首次渲染 / 行高尚未 onLayout 时用于滚动偏移计算）
@@ -55,45 +57,7 @@ const SPACING_ROWS = 4;
 const LYRIC_INITIAL_NUM_TO_RENDER = 30;
 const AnimatedView = Animated.createAnimatedComponent(View);
 
-/**
- * 平滑滚动到指定偏移。
- *
- * 旧实现用 10ms 步进自己补间：600ms 内 60 次 JS→native scrollToOffset，任何一次
- * JS 阻塞都会把滚动切成阶梯。现在只下发一次目标，交原生滚动动画完成。
- * duration 参数保留在签名里（调用方按行距节奏发起），不再参与计算。
- */
-function smoothScrollToOffset(
-  list: FlatList<LyricLine> | null,
-  info: NativeSyntheticEvent<NativeScrollEvent>["nativeEvent"] | null,
-  to: number,
-  _duration: number,
-  onDone?: () => void,
-): () => void {
-  if (list == null || info == null) {
-    onDone?.();
-    return () => undefined;
-  }
-
-  const start = info.contentOffset.y;
-  let target = to;
-  if (target > start) {
-    const maxScrollTop = Math.max(0, info.contentSize.height - info.layoutMeasurement.height);
-    if (target > maxScrollTop) target = maxScrollTop;
-  } else if (target < start && target < 0) {
-    target = 0;
-  }
-  if (target === start) {
-    onDone?.();
-    return () => undefined;
-  }
-
-  list.scrollToOffset({ offset: target, animated: true });
-  // 原生动画不回报完成时机；下一次滚动会直接覆盖目标，无需取消。
-  onDone?.();
-  return () => undefined;
-}
-
-export function LyricView({
+export const LyricView = React.memo(function LyricView({
   lyrics,
   emptyText = "暂无歌词",
   currentLineIndex,
@@ -101,8 +65,15 @@ export function LyricView({
   palette,
   onSeek,
   style,
+  active = true,
 }: LyricViewProps) {
   const listRef = useRef<FlatList<LyricLine>>(null);
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const onSeekRef = useRef(onSeek);
+  onSeekRef.current = onSeek;
+  const seekToLine = useCallback((time: number) => onSeekRef.current?.(time), []);
+  const canSeek = onSeek !== undefined;
 
   // 从 store 读取歌词显示设置（字号/颜色/行距/对齐/字重/透明度/动画等）
   const fontSize = useLyricSettingsStore((s) => s.fontSize);
@@ -200,7 +171,6 @@ export function LyricView({
   // ── 动态行高（onLayout 记录每行真实高度，滚动偏移按累计高度计算，解决译文行高度不一的偏移）──
   const lineHeightsRef = useRef<number[]>([]);
   const scrollInfoRef = useRef<NativeSyntheticEvent<NativeScrollEvent>["nativeEvent"] | null>(null);
-  const scrollCancelRef = useRef<(() => void) | null>(null);
   // onScrollToIndexFailed 的补偿重试定时器(纳入统一清理,防切歌后旧回调滚错位)
   const scrollRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -227,38 +197,27 @@ export function LyricView({
   //  - 跨行/seek/首次 → scrollToIndex viewPosition 0.42（立即定位，不播动画）
   const handleScrollToActive = useCallback(
     (index: number, adjacent = false) => {
-      if (index < 0 || !listRef.current) return;
-      if (scrollCancelRef.current) {
-        scrollCancelRef.current();
-        scrollCancelRef.current = null;
-      }
+      if (index < 0 || !listRef.current || !activeRef.current) return;
       // 相邻行且已有滚动信息 → 平滑滚动（按动态行高精确计算偏移）
       if (adjacent && scrollInfoRef.current) {
-        const to = computeTargetOffset(index);
-        scrollCancelRef.current = smoothScrollToOffset(
-          listRef.current,
-          scrollInfoRef.current,
-          to,
-          600,
-          () => {
-            scrollCancelRef.current = null;
-          }
-        );
+        const info = scrollInfoRef.current;
+        const maxOffset = Math.max(0, info.contentSize.height - info.layoutMeasurement.height);
+        const offset = Math.max(0, Math.min(maxOffset, computeTargetOffset(index)));
+        listRef.current.scrollToOffset({ offset, animated: true });
         return;
       }
       // 跨行/首次 → scrollToIndex 立即定位
       try {
         listRef.current.scrollToIndex({ index, animated: false, viewPosition: 0.42 });
-      } catch {
-        // 目标未就绪静默忽略（由 onScrollToIndexFailed 重试）
+      } catch (error) {
+        logger.warn("[LyricView] 歌词定位失败", error);
       }
     },
     [computeTargetOffset]
   );
 
-  // ── 行切换 → 滚动：连续逐行（diff==1）延迟 600ms，跨行/seek 立即滚 ──
+  // 每次换行直接更新原生滚动目标，短行连续切换不会被延迟计时器饿死。
   const prevTargetRef = useRef(targetIndex);
-  const delayScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 最新目标行号 ref：供延迟回调/恢复回调读取，避免闭包捕获过期行号
   const targetIndexRef = useRef(targetIndex);
   targetIndexRef.current = targetIndex;
@@ -266,15 +225,41 @@ export function LyricView({
   // 用户滚动后暂停自动跟唱（松手后 3s 恢复）
   const isPauseScrollRef = useRef(false);
   const scrollResumeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pauseAutoScroll = useCallback(() => {
+    isPauseScrollRef.current = true;
+    if (scrollResumeTimeoutRef.current) clearTimeout(scrollResumeTimeoutRef.current);
+    if (scrollRetryTimeoutRef.current) clearTimeout(scrollRetryTimeoutRef.current);
+    scrollResumeTimeoutRef.current = null;
+    scrollRetryTimeoutRef.current = null;
+  }, []);
+  const scheduleScrollResume = useCallback(() => {
+    if (!isPauseScrollRef.current || !activeRef.current) return;
+    if (scrollResumeTimeoutRef.current) clearTimeout(scrollResumeTimeoutRef.current);
+    scrollResumeTimeoutRef.current = setTimeout(() => {
+      scrollResumeTimeoutRef.current = null;
+      isPauseScrollRef.current = false;
+      const latest = targetIndexRef.current;
+      prevTargetRef.current = latest;
+      if (latest >= 0 && activeRef.current) handleScrollToActive(latest, false);
+    }, 3000);
+  }, [handleScrollToActive]);
 
   useEffect(() => {
     return () => {
-      if (delayScrollTimeoutRef.current) clearTimeout(delayScrollTimeoutRef.current);
       if (scrollResumeTimeoutRef.current) clearTimeout(scrollResumeTimeoutRef.current);
       if (scrollRetryTimeoutRef.current) clearTimeout(scrollRetryTimeoutRef.current);
-      if (scrollCancelRef.current) scrollCancelRef.current();
     };
   }, []);
+
+  useEffect(() => {
+    if (active) return;
+    isPauseScrollRef.current = false;
+    prevTargetRef.current = -1;
+    if (scrollResumeTimeoutRef.current) clearTimeout(scrollResumeTimeoutRef.current);
+    if (scrollRetryTimeoutRef.current) clearTimeout(scrollRetryTimeoutRef.current);
+    scrollResumeTimeoutRef.current = null;
+    scrollRetryTimeoutRef.current = null;
+  }, [active]);
 
   // 切歌/歌词更新时：重置滚动状态，立即滚回首行
   useEffect(() => {
@@ -284,12 +269,13 @@ export function LyricView({
       scrollResumeTimeoutRef.current = null;
     }
     lineHeightsRef.current = [];
+    scrollInfoRef.current = null;
     if (scrollRetryTimeoutRef.current) {
       clearTimeout(scrollRetryTimeoutRef.current);
       scrollRetryTimeoutRef.current = null;
     }
     prevTargetRef.current = -1;
-    if (listRef.current) {
+    if (listRef.current && activeRef.current) {
       try {
         listRef.current.scrollToOffset({ offset: 0, animated: false });
       } catch (error) {
@@ -304,15 +290,15 @@ export function LyricView({
   useEffect(() => {
     lineHeightsRef.current = [];
     const timer = setTimeout(() => {
-      if (isPauseScrollRef.current) return;
+      if (isPauseScrollRef.current || !activeRef.current) return;
       const target = targetIndexRef.current;
       if (target >= 0) handleScrollToActive(target, false);
     }, 350);
     return () => clearTimeout(timer);
-  }, [localFontSize, lineGap, handleScrollToActive]);
+  }, [localFontSize, lineGap, fontFamily, fontWeight, showTranslation, textAlign, handleScrollToActive]);
 
   useEffect(() => {
-    if (targetIndex < 0 || data.length === 0) return;
+    if (!active || targetIndex < 0 || data.length === 0) return;
     // 用户正在手动浏览歌词时不抢滚动（同时不推进 prevTargetRef，保持暂停前的相邻判定基线）
     if (isPauseScrollRef.current) return;
 
@@ -320,33 +306,11 @@ export function LyricView({
     prevTargetRef.current = targetIndex;
     const isAdjacent = targetIndex - prev === 1;
 
-    const doScroll = () => {
-      handleScrollToActive(targetIndex, isAdjacent);
-    };
-
-    if (delayScrollTimeoutRef.current) {
-      clearTimeout(delayScrollTimeoutRef.current);
-      delayScrollTimeoutRef.current = null;
-    }
-    if (scrollCancelRef.current) {
-      scrollCancelRef.current();
-      scrollCancelRef.current = null;
-    }
-
-    if (isAdjacent) {
-      // 连续逐行：延迟 600ms 再滚，给用户留出看清当前行的时间
-      delayScrollTimeoutRef.current = setTimeout(() => {
-        delayScrollTimeoutRef.current = null;
-        if (isPauseScrollRef.current) return;
-        doScroll();
-      }, 600);
-    } else {
-      // 跨行/seek/首次：立即滚
-      doScroll();
-    }
-  }, [targetIndex, data.length, handleScrollToActive]);
+    handleScrollToActive(targetIndex, isAdjacent);
+  }, [active, targetIndex, data, handleScrollToActive]);
 
   const handleScrollToIndexFailed = (info: { index: number; highestMeasuredFrameIndex: number; averageItemLength: number }) => {
+    if (!activeRef.current || isPauseScrollRef.current) return;
     // 目标行未渲染时的补偿定位：先用平均行高估算偏移跳过去（触发目标区域的
     // 窗口渲染与 onLayout 测量），等待后再精确对位。只重试不先跳会原地失败
     // ——initialNumToRender 固定小窗口后，深行号首挂载必然走这里。
@@ -361,16 +325,30 @@ export function LyricView({
     if (scrollRetryTimeoutRef.current) clearTimeout(scrollRetryTimeoutRef.current);
     scrollRetryTimeoutRef.current = setTimeout(() => {
       scrollRetryTimeoutRef.current = null;
+      if (!activeRef.current || isPauseScrollRef.current) return;
       // 用最新行数兜底:切歌后旧索引可能越界,按当前歌词行数钳制
       const maxIndex = data.length - 1;
-      const target = Math.min(info.index, maxIndex);
+      const target = Math.min(targetIndexRef.current, maxIndex);
       if (target >= 0) handleScrollToActive(target, false);
     }, 100);
   };
 
+  const typography = useMemo(() => {
+    const settings = {
+      fontSize: localFontSize, lineGap, fontFamily,
+      activeColor: activeColorSetting, inactiveColor: inactiveColorSetting,
+      textAlign, fontWeight, textOpacity, palette,
+    };
+    return {
+      active: buildLyricTypographyStyleModel({ ...settings, active: true }),
+      inactive: buildLyricTypographyStyleModel({ ...settings, active: false }),
+    };
+  }, [localFontSize, lineGap, fontFamily, activeColorSetting, inactiveColorSetting,
+    textAlign, fontWeight, textOpacity, palette]);
+
   const renderItem = useCallback(
     ({ item, index }: { item: LyricLine; index: number }) => {
-      const isActive = index === targetIndex;
+      const isActive = index === targetIndexRef.current;
       const isSpacer = item.time < 0;
 
       if (isSpacer) {
@@ -385,48 +363,27 @@ export function LyricView({
       const hasTranslation = showTranslation && !!item.tr;
       // 罗马音与译文同属「副行」：跟随译文的显示开关，避免再加一个开关粒度
       const hasRoma = showTranslation && !!item.roma;
-      const typography = buildLyricTypographyStyleModel({
-        active: isActive,
-        fontSize: localFontSize,
-        lineGap,
-        fontFamily,
-        activeColor: activeColorSetting,
-        inactiveColor: inactiveColorSetting,
-        textAlign,
-        fontWeight,
-        textOpacity,
-        palette,
-      });
-
       // 高亮行只用颜色区分（active 纯色），不做逐字卡拉 OK 双层文本填充
       return (
-        <View onLayout={(e) => handleLineLayout(index, e.nativeEvent.layout.height)}>
-          <AnimatedLyricLine
-            item={item}
-            isActive={isActive}
-            hasTranslation={hasTranslation}
-            hasRoma={hasRoma}
-            onSeek={onSeek}
-            typography={typography}
-            animationModel={animationModel}
-            chineseConversion={chineseConversion}
-          />
-        </View>
+        <AnimatedLyricLine
+          index={index}
+          onLayout={handleLineLayout}
+          item={item}
+          isActive={isActive}
+          hasTranslation={hasTranslation}
+          hasRoma={hasRoma}
+          onSeek={canSeek ? seekToLine : undefined}
+          typography={isActive ? typography.active : typography.inactive}
+          animationModel={animationModel}
+          chineseConversion={chineseConversion}
+        />
       );
     },
     [
-      targetIndex,
       showTranslation,
-      localFontSize,
-      fontFamily,
-      lineGap,
-      activeColorSetting,
-      inactiveColorSetting,
-      textAlign,
-      fontWeight,
-      textOpacity,
-      palette,
-      onSeek,
+      typography,
+      canSeek,
+      seekToLine,
       animationModel,
       chineseConversion,
       handleLineLayout,
@@ -443,47 +400,19 @@ export function LyricView({
         <FlatList
           ref={listRef}
           data={data}
+          extraData={targetIndex}
           keyExtractor={(item, index) => `${index}-${item.time}`}
           renderItem={renderItem}
           onScrollToIndexFailed={handleScrollToIndexFailed}
           fadingEdgeLength={100}
           initialNumToRender={LYRIC_INITIAL_NUM_TO_RENDER}
-          onScrollBeginDrag={() => {
-            // 开始拖动 → 取消自动滚动动画与延迟，暂停自动跟唱
-            isPauseScrollRef.current = true;
-            if (delayScrollTimeoutRef.current) {
-              clearTimeout(delayScrollTimeoutRef.current);
-              delayScrollTimeoutRef.current = null;
-            }
-            if (scrollResumeTimeoutRef.current) {
-              clearTimeout(scrollResumeTimeoutRef.current);
-              scrollResumeTimeoutRef.current = null;
-            }
-            if (scrollRetryTimeoutRef.current) {
-              clearTimeout(scrollRetryTimeoutRef.current);
-              scrollRetryTimeoutRef.current = null;
-            }
-            if (scrollCancelRef.current) {
-              scrollCancelRef.current();
-              scrollCancelRef.current = null;
-            }
+          onScrollBeginDrag={pauseAutoScroll}
+          onScrollEndDrag={scheduleScrollResume}
+          onMomentumScrollBegin={() => {
+            // 原生自动滚动也可能触发惯性事件，只有手动浏览才延长暂停。
+            if (isPauseScrollRef.current) pauseAutoScroll();
           }}
-          onScrollEndDrag={() => {
-            // 松手后 3s 恢复自动跟唱（滚动持续时不会提前恢复）
-            if (scrollResumeTimeoutRef.current) {
-              clearTimeout(scrollResumeTimeoutRef.current);
-              scrollResumeTimeoutRef.current = null;
-            }
-            scrollResumeTimeoutRef.current = setTimeout(() => {
-              scrollResumeTimeoutRef.current = null;
-              isPauseScrollRef.current = false;
-              // 读取最新行号（ref），暂停期间行号已前进时恢复仍滚到当前行；
-              // 恢复属于跨行跳转（暂停期间行号可能前进多行），用非动画立即定位
-              const latest = targetIndexRef.current;
-              prevTargetRef.current = latest;
-              if (latest >= 0) handleScrollToActive(latest, false);
-            }, 3000);
-          }}
+          onMomentumScrollEnd={scheduleScrollResume}
           onScroll={(event) => {
             scrollInfoRef.current = event.nativeEvent;
           }}
@@ -494,9 +423,16 @@ export function LyricView({
       )}
     </View>
   );
-}
+}, (previous, next) => {
+  // 隐藏页忽略播放时钟和父级回调引用变化；重新可见时一次读取最新属性。
+  const hidden = previous.active === false && next.active === false;
+  return Object.keys({ ...previous, ...next }).every(key => (hidden && (key === "currentLineIndex" || key === "onSeek"))
+    || Object.is(previous[key as keyof LyricViewProps], next[key as keyof LyricViewProps]));
+});
 
 interface AnimatedLyricLineProps {
+  index: number;
+  onLayout: (index: number, height: number) => void;
   item: LyricLine;
   isActive: boolean;
   hasTranslation: boolean;
@@ -508,7 +444,9 @@ interface AnimatedLyricLineProps {
   chineseConversion: ChineseConversionMode;
 }
 
-function AnimatedLyricLine({
+const AnimatedLyricLine = React.memo(function AnimatedLyricLine({
+  index,
+  onLayout,
   item,
   isActive,
   hasTranslation,
@@ -539,7 +477,7 @@ function AnimatedLyricLine({
     };
   }, [animationModel.enabled, animationModel.lineTransitionDurationMs, isActive, progress]);
 
-  const animatedStyle = {
+  const animatedStyle = useMemo(() => ({
     transform: [
       {
         scale: progress.interpolate({
@@ -548,10 +486,10 @@ function AnimatedLyricLine({
         }),
       },
     ],
-  } as const;
+  }), [progress, animationModel.inactiveScale, animationModel.activeScale]);
 
   return (
-    <AnimatedView style={animatedStyle}>
+    <AnimatedView style={animatedStyle} onLayout={(event: { nativeEvent: { layout: { height: number } } }) => onLayout(index, event.nativeEvent.layout.height)}>
       <Pressable
         onPress={() => onSeek?.(item.time)}
         style={[styles.lineWrap, typography.lineWrapStyle]}
@@ -573,7 +511,7 @@ function AnimatedLyricLine({
       </Pressable>
     </AnimatedView>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {

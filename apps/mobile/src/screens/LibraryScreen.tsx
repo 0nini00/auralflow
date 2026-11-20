@@ -227,8 +227,6 @@ export function LibraryScreen({ onNavigateToPlayer }: LibraryScreenProps) {
       return <LoadingState label="正在读取本地音乐" />;
     }
     switch (contentModel.kind) {
-      case "downloads":
-        return <LibraryDownloadsSection onNavigateToPlayer={onNavigateToPlayer} />;
       case "songList":
         if (contentModel.songSource === "history") {
           return (
@@ -256,7 +254,7 @@ export function LibraryScreen({ onNavigateToPlayer }: LibraryScreenProps) {
   };
 
   // 本地曲库可达上千首：走虚拟化列表（SongList 本体即滚动容器），头部内容进 ListHeaderComponent；
-  // 历史/下载等其余分支维持 ScreenScrollView 结构
+  // 历史等其余分支维持 ScreenScrollView 结构；下载拥有独立虚拟列表。
   const isLocalVirtualList = section === "local" && contentModel.kind === "songList" && contentModel.songSource === "local";
   const playbackErrorNode = (
     <PlaybackErrorState
@@ -315,6 +313,9 @@ export function LibraryScreen({ onNavigateToPlayer }: LibraryScreenProps) {
         <ScreenScrollView>
           <FavoritesSection />
         </ScreenScrollView>
+      ) : section === "downloads" ? (
+        <LibraryDownloadsSection onNavigateToPlayer={onNavigateToPlayer}
+          ListHeaderComponent={<>{playbackErrorNode}{contentErrorNode}</>} />
       ) : isLocalVirtualList ? (
         <SongList
           virtualized
@@ -416,7 +417,9 @@ export function LibraryScreen({ onNavigateToPlayer }: LibraryScreenProps) {
 }
 
 /** 下载区叶子组件：进度数组的订阅隔离在此，进度 tick 不再波及整屏 */
-function LibraryDownloadsSection({ onNavigateToPlayer }: { onNavigateToPlayer: () => void }) {
+function LibraryDownloadsSection({ onNavigateToPlayer, ListHeaderComponent }: {
+  onNavigateToPlayer: () => void; ListHeaderComponent: React.ReactElement;
+}) {
   const downloads = useDownloadStore((state) => state.downloads);
   const downloading = useDownloadStore((state) => state.downloading);
   const failedDownloads = useDownloadStore((state) => state.failedDownloads);
@@ -426,6 +429,8 @@ function LibraryDownloadsSection({ onNavigateToPlayer }: { onNavigateToPlayer: (
       downloading={downloading}
       failedDownloads={failedDownloads}
       onNavigateToPlayer={onNavigateToPlayer}
+      ListHeaderComponent={ListHeaderComponent}
+      contentContainerStyle={styles.listContent}
     />
   );
 }

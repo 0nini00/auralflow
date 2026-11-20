@@ -95,7 +95,7 @@ test("原生文件边界校验 URI、元数据、读取授权及后台生命周�
   const sourceInfo = fs.readFileSync(path.join(nativeDir, "CustomSourceFilePickerModule.java"), "utf8");
   const sourceAudio = fs.readFileSync(path.join(nativeDir, "LocalMusicModule.java"), "utf8");
   const infoMethods = ["getFileInfo", "readFileInfo", "invalidate"].map((name) => readMethod(sourceInfo, name)).join("\n");
-  const audioMethods = ["readLocalAudioFile", "resolveLocalAudioFile", "invalidate"].map((name) => readMethod(sourceAudio, name)).join("\n");
+  const audioMethods = ["readLocalAudioFile", "resolveLocalAudioFile", "invalidate", "rejectPendingActivityRequests"].map((name) => readMethod(sourceAudio, name)).join("\n");
   const field = (source, name) => {
     const match = source.match(new RegExp(`^  private final ExecutorService ${name} = [^]*?;$`, "m"));
     assert.ok(match, `缺少后台执行器 ${name}`);
@@ -107,7 +107,7 @@ test("原生文件边界校验 URI、元数据、读取授权及后台生命周�
     const target = path.join(directory, "ExternalFileNativeHarness.java");
     fs.writeFileSync(target, template
       .replace("/* FILE_INFO_METHODS */", field(sourceInfo, "fileInfoExecutor") + "\n" + infoMethods)
-      .replace("/* AUDIO_METHODS */", field(sourceAudio, "audioAssetsExecutor") + "\n" + audioMethods));
+      .replace("/* AUDIO_METHODS */", ["audioAssetsExecutor", "localIoExecutor", "scanExecutor"].map(name => field(sourceAudio, name)).join("\n") + "\n" + audioMethods));
     for (const [command, args] of [
       ["javac", ["-encoding", "UTF-8", "-d", directory, target]],
       ["java", ["-cp", directory, "ExternalFileNativeHarness", directory]],

@@ -15,10 +15,11 @@ import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
 
 const HIDDEN_SEARCH_FETCH_TIMEOUT_MS = 6_000;
 
-async function fetchHiddenSourceText(url: string): Promise<string> {
+async function fetchHiddenSourceText(url: string, signal?: AbortSignal): Promise<string> {
   const response = await fetchWithTimeout(
     url,
     {
+      signal: signal as RequestInit["signal"],
       headers: {
         Accept: "application/json,text/plain,*/*",
         "User-Agent": "AuralFlowMobile/0.1",

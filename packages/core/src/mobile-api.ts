@@ -22,8 +22,8 @@ export interface BuiltinMusicApiGateway {
 }
 
 export interface BuiltinMusicApiClient {
-  searchSongs(source: string, keyword: string, page: number, limit: number, displaySource: Extract<SourceTag, "wy" | "tx">): Promise<MusicInfo[]>;
-  resolveUrl(music: MusicInfo, quality?: string): Promise<{ url: string; quality: string }>;
+  searchSongs(source: string, keyword: string, page: number, limit: number, displaySource: Extract<SourceTag, "wy" | "tx">, signal?: AbortSignal): Promise<MusicInfo[]>;
+  resolveUrl(music: MusicInfo, quality?: string, signal?: AbortSignal): Promise<{ url: string; quality: string }>;
   getLyric(music: MusicInfo): Promise<{ lyric?: string; tlyric?: string }>;
 }
 
@@ -190,16 +190,16 @@ export function pickBuiltinMusicApiAudioUrl(data: unknown): string | null {
   return candidates.find((item): item is string => typeof item === "string" && /^https?:\/\//.test(item)) ?? null;
 }
 
-export function createBuiltinMusicApiClient(fetchText: (url: string) => Promise<string>): BuiltinMusicApiClient {
+export function createBuiltinMusicApiClient(fetchText: (url: string, signal?: AbortSignal) => Promise<string>): BuiltinMusicApiClient {
   return {
-    async searchSongs(source, keyword, page, limit, displaySource) {
+    async searchSongs(source, keyword, page, limit, displaySource, signal) {
       const text = await fetchText(buildBuiltinMusicApiUrl({
         type: "search",
         source,
         name: keyword,
         count: limit,
         pages: page,
-      }));
+      }), signal);
       const json = JSON.parse(text);
       // 非数组响应是网关异常（如 HTML 错误页 / 限流页），按失败处理而非空结果，
       // 否则竞速网关会把「快速空结果」当成成功，吞掉其它网关的真实结果。
@@ -210,7 +210,7 @@ export function createBuiltinMusicApiClient(fetchText: (url: string) => Promise<
         .filter((item): item is MusicInfo => item != null);
     },
 
-    async resolveUrl(music, quality) {
+    async resolveUrl(music, quality, signal) {
       const gateway = getBuiltinMusicApiGateway(music);
       if (!gateway) throw new Error("该歌曲没有内置音乐 API 解析信息");
 
@@ -220,7 +220,7 @@ export function createBuiltinMusicApiClient(fetchText: (url: string) => Promise<
         source: gateway.source,
         id: gateway.trackId,
         br,
-      }));
+      }), signal);
       const json = JSON.parse(text);
       const audioUrl = pickBuiltinMusicApiAudioUrl(json);
       if (!audioUrl) throw new Error(`接口未返回可播放 URL: ${text.slice(0, 180)}`);

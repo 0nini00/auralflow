@@ -2,6 +2,7 @@ import type { MusicInfo } from "@lx/core";
 import { buildSongKey, buildVariantSearchKeyword, matchVariantCandidates } from "@lx/core";
 
 import { searchSongs } from "@/services/musicApi";
+import { throwIfAborted } from "@/utils/cancellation";
 
 /**
  * 网易云版播不了时，去 QQ 音乐找同一首歌。
@@ -28,7 +29,8 @@ const variantCache = new Map<string, MusicInfo[]>();
  *
  * @returns 通过三重校验的 tx 候选，无匹配时为空数组
  */
-export async function findTxVariants(song: MusicInfo): Promise<MusicInfo[]> {
+export async function findTxVariants(song: MusicInfo, signal?: AbortSignal): Promise<MusicInfo[]> {
+  throwIfAborted(signal);
   if (song.source !== "wy") return [];
   const key = buildSongKey(song);
   const cached = variantCache.get(key);
@@ -40,11 +42,13 @@ export async function findTxVariants(song: MusicInfo): Promise<MusicInfo[]> {
 
   let results: MusicInfo[] = [];
   try {
-    results = await searchSongs("tx", keyword);
+    results = await searchSongs("tx", keyword, 1, signal);
   } catch {
+    throwIfAborted(signal);
     // 搜索失败不缓存：网络抖动导致的失败不该让整次会话都放弃降级
     return [];
   }
+  throwIfAborted(signal);
 
   const matched = matchVariantCandidates(song, results, "tx");
 

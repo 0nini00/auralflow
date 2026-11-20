@@ -21,13 +21,14 @@
   // 协议（window.ReactNativeWebView.postMessage 双向 JSON）：
   //   RN→WV { type:'run', rid, script, scriptInfo }        在独立 Compartment 执行用户脚本
   //   RN→WV { type:'request', rid, id, payload }           RN 发起取链 → 脚本 lx.on(request) handler
+  //   RN→WV { type:'request-cancel', rid, id }             退休独占该请求的实例，阻断异步后续动作
   //   RN→WV { type:'http-response', rid, id, response, body, error }  RN fetch 代理结果
   //   WV→RN { type:'ready' }                               vendor 加载完成
   //   WV→RN { type:'inited', rid, sources, updateAlert }   脚本 send(inited)
   //   WV→RN { type:'updateAlert', rid, alert }             脚本 send(updateAlert)
   //   WV→RN { type:'error', rid, message }                 脚本执行失败
-  //   WV→RN { type:'http', rid, id, url, options }         脚本 lx.request → RN fetch 代理
-  //   WV→RN { type:'request-response', rid, id, result|error }        取链结果回 RN
+  //   WV→RN { type:'http', rid, id, ownerId, url, options } 脚本 lx.request → RN fetch 代理
+  //   WV→RN { type:'request-response', rid, id, result|error, reusable } 取链结果回 RN
   // 二进制 body（ArrayBuffer/TypedArray）不能过 JSON：脚本侧 formData/base64 加密输入
   // 经 utils 处理后如需出站，由脚本自身序列化为字符串；桥只透传 JSON 可表达数据。
 
@@ -139,6 +140,7 @@
     var lx = {
       EVENT_NAMES: EVENT_NAMES,
       request: function (url, options, callback) {
+        if (runtimes.get(rid) !== rt) return;
         var id = 'http-' + rid + '-' + Math.random().toString(36).slice(2);
         rt.httpPending.set(id, callback);
         // options 过 JSON 桥：formData 二进制（Uint8Array）转 base64 占位对象
@@ -160,10 +162,11 @@
             safeOpts[k] = v;
           }
         });
-        post({ type: 'http', rid: rid, id: id, url: String(url), options: safeOpts });
+        post({ type: 'http', rid: rid, id: id, ownerId: rt.activeRequest, url: String(url), options: safeOpts });
       },
       send: function (eventName, data) {
         return new Promise(function (resolve, reject) {
+          if (runtimes.get(rid) !== rt) { reject(new Error('音源请求已取消')); return; }
           if (eventName === EVENT_NAMES.inited) {
             rt.inited = true;
             post({ type: 'inited', rid: rid, sources: data, updateAlert: rt.pendingAlert });
@@ -253,8 +256,9 @@
       return;
     }
 
-    if (data.type === 'dispose') {
+    if (data.type === 'dispose' || data.type === 'request-cancel') {
       var disposedRuntime = runtimes.get(data.rid);
+      if (data.type === 'request-cancel' && disposedRuntime && disposedRuntime.activeRequest !== data.id) return;
       if (disposedRuntime) {
         if (disposedRuntime.timers) disposedRuntime.timers.forEach(clearTimeout);
         // 宿主已拒绝该运行时的 pending 请求；释放时不再执行用户代码。
@@ -271,16 +275,25 @@
         post({ type: 'request-response', rid: data.rid, id: data.id, error: '音源脚本未注册取链处理器' });
         return;
       }
+      if (rt2.activeRequest) {
+        post({ type: 'request-response', rid: data.rid, id: data.id, error: '运行时正在处理其它请求' });
+        return;
+      }
+      rt2.activeRequest = data.id;
       Promise.resolve().then(function () {
         if (runtimes.get(data.rid) !== rt2) return;
         return rt2.requestHandler(data.payload);
       })
         .then(function (result) {
-          if (runtimes.get(data.rid) === rt2) post({ type: 'request-response', rid: data.rid, id: data.id, result: result });
+          var reusable = rt2.httpPending.size === 0 && rt2.timers.size === 0;
+          if (reusable) rt2.activeRequest = null;
+          if (runtimes.get(data.rid) === rt2) post({ type: 'request-response', rid: data.rid, id: data.id, result: result, reusable: reusable });
         })
         .catch(function (err) {
+          var reusable = rt2.httpPending.size === 0 && rt2.timers.size === 0;
+          if (reusable) rt2.activeRequest = null;
           if (runtimes.get(data.rid) !== rt2) return;
-          post({ type: 'request-response', rid: data.rid, id: data.id, error: err && err.message ? err.message : String(err) });
+          post({ type: 'request-response', rid: data.rid, id: data.id, error: err && err.message ? err.message : String(err), reusable: reusable });
         });
       return;
     }

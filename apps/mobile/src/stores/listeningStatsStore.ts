@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NativeModules } from 'react-native';
 import { create } from 'zustand';
-import { parseListeningEvents, type ListeningEvent } from '@lx/core';
+import { createListeningStatsIndex, parseListeningEvents, type ListeningEvent, type ListeningStats } from '@lx/core';
 import { logger } from '@/services/logger';
 
 const LEGACY_STORAGE_KEY = 'af-listening-events-v1';
@@ -25,6 +25,8 @@ function eventMonth(event: ListeningEvent): string {
 }
 interface ListeningStatsState {
   events: ListeningEvent[];
+  revision: number;
+  getStats: () => ListeningStats;
   error: string | null;
   /** 部分月份无法读取时的提示；不影响其它月份继续记录与落盘。 */
   warning: string | null;
@@ -36,6 +38,8 @@ interface ListeningStatsState {
 let loading: Promise<void> | null = null;
 let writes: Promise<void> = Promise.resolve();
 let buckets = new Map<string, Map<string, ListeningEvent>>();
+let eventIndexes = new Map<string, number>();
+let statsIndex = createListeningStatsIndex();
 /** 读不出来的月份：既不参与统计，也不允许被新事件覆盖写回。 */
 const corruptMonths = new Set<string>();
 const dirtyMonths = new Map<string, number>();
@@ -63,7 +67,7 @@ export function reportListeningStatsError(error: unknown): void {
 }
 
 export const useListeningStatsStore = create<ListeningStatsState>((set, get) => ({
-  events: [], error: null, warning: null, loaded: false,
+  events: [], revision: 0, getStats: () => statsIndex.snapshot(), error: null, warning: null, loaded: false,
   load: async () => {
     if (get().loaded) return;
     if (loading) return loading;
@@ -99,10 +103,21 @@ export const useListeningStatsStore = create<ListeningStatsState>((set, get) => 
         // 线性合并读盘期间产生的会话；失败前不修改已加载基线或覆盖文件。
         const merged = parseListeningEvents([...restored, ...legacyEvents, ...currentEvents()]);
         buckets = groupEvents(merged);
+        eventIndexes = new Map(merged.map((event, index) => [event.sessionId, index]));
+        statsIndex = createListeningStatsIndex(merged);
+        // 加载期间会话可能被较新检查点移至另一 UTC 月；旧月即使变空也必须落盘删除旧记录。
+        for (const restoredEvent of restored) {
+          const current = merged[eventIndexes.get(restoredEvent.sessionId)!];
+          const oldMonth = eventMonth(restoredEvent);
+          if (eventMonth(current) === oldMonth) continue;
+          if (!buckets.has(oldMonth)) buckets.set(oldMonth, new Map());
+          dirtyMonths.set(oldMonth, ++revision);
+        }
         for (const event of legacyEvents) dirtyMonths.set(eventMonth(event), ++revision);
         legacyPendingRemoval = legacy !== null;
         set({
           events: merged,
+          revision: get().revision + 1,
           loaded: true,
           error: null,
           warning: skipped.length > 0 ? `以下统计月份读取失败，已跳过：${skipped.join('、')}` : null,
@@ -118,13 +133,25 @@ export const useListeningStatsStore = create<ListeningStatsState>((set, get) => 
     const month = eventMonth(event);
     // 该月文件读不出来：保留磁盘原样，别用新事件覆盖掉仅存的数据。
     if (corruptMonths.has(month)) return;
-    const bucket = buckets.get(month) ?? new Map<string, ListeningEvent>();
-    const previous = bucket.get(event.sessionId);
+    const index = eventIndexes.get(event.sessionId);
+    const current = get().events;
+    const previous = index === undefined ? undefined : current[index];
     if (previous && previous.listenedMs >= event.listenedMs) return;
+    if (previous && eventMonth(previous) !== month) {
+      const oldMonth = eventMonth(previous);
+      buckets.get(oldMonth)?.delete(event.sessionId);
+      dirtyMonths.set(oldMonth, ++revision);
+    }
+    const bucket = buckets.get(month) ?? new Map<string, ListeningEvent>();
     bucket.set(event.sessionId, event);
     buckets.set(month, bucket);
     dirtyMonths.set(month, ++revision);
-    set({ events: currentEvents() });
+    const events = current.slice();
+    const nextIndex = index ?? events.length;
+    events[nextIndex] = event;
+    eventIndexes.set(event.sessionId, nextIndex);
+    statsIndex.record(event);
+    set({ events, revision: get().revision + 1 });
   },
   flush: () => {
     // 失败由原调用方接收；后续重试可排队，快照在轮到事务时读取。

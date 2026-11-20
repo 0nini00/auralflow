@@ -30,11 +30,11 @@ export interface HiddenSourceTrack {
 
 export interface HiddenSourceSearcher {
   readonly id: HiddenSourceId;
-  search(keyword: string, limit?: number): Promise<HiddenSourceTrack[]>;
+  search(keyword: string, limit?: number, signal?: AbortSignal): Promise<HiddenSourceTrack[]>;
 }
 
 /** 文本 GET 注入点；桌面走浏览器 fetch/Tauri HTTP，移动端走 RN fetch。 */
-export type FetchHiddenSourceText = (url: string) => Promise<string>;
+export type FetchHiddenSourceText = (url: string, signal?: AbortSignal) => Promise<string>;
 
 const DEFAULT_SEARCH_LIMIT = 20;
 
@@ -135,13 +135,13 @@ function mapKugouTrack(item: Record<string, unknown>): HiddenSourceTrack | null 
 export function createKuwoHiddenSearcher(fetchText: FetchHiddenSourceText): HiddenSourceSearcher {
   return {
     id: "kw",
-    async search(keyword, limit = DEFAULT_SEARCH_LIMIT) {
+    async search(keyword, limit = DEFAULT_SEARCH_LIMIT, signal) {
       const url =
         `https://search.kuwo.cn/r.s?client=kt&all=${encodeURIComponent(keyword)}` +
         `&pn=0&rn=${limit}&uid=794762570&ver=kwplayer_ar_9.2.2.1&vipver=1` +
         `&show_copyright_off=1&newver=1&ft=music&cluster=0&strategy=2012` +
         `&encoding=utf8&rformat=json&vermerge=1&mobi=1&issubtitle=1`;
-      const json = JSON.parse(await fetchText(url)) as { abslist?: unknown };
+      const json = JSON.parse(await fetchText(url, signal)) as { abslist?: unknown };
       if (!Array.isArray(json.abslist)) return [];
       return json.abslist
         .map((item) => mapKuwoTrack(item as Record<string, unknown>))
@@ -154,12 +154,12 @@ export function createKuwoHiddenSearcher(fetchText: FetchHiddenSourceText): Hidd
 export function createKugouHiddenSearcher(fetchText: FetchHiddenSourceText): HiddenSourceSearcher {
   return {
     id: "kg",
-    async search(keyword, limit = DEFAULT_SEARCH_LIMIT) {
+    async search(keyword, limit = DEFAULT_SEARCH_LIMIT, signal) {
       const url =
         `https://songsearch.kugou.com/song_search_v2?keyword=${encodeURIComponent(keyword)}` +
         `&page=1&pagesize=${limit}&userid=0&clientver=&platform=WebFilter` +
         `&filter=2&iscorrection=1&privilege_filter=0&area_code=1`;
-      const json = JSON.parse(await fetchText(url)) as { data?: { lists?: unknown } };
+      const json = JSON.parse(await fetchText(url, signal)) as { data?: { lists?: unknown } };
       const lists = Array.isArray(json.data?.lists) ? json.data.lists : [];
 
       const items: Record<string, unknown>[] = [];

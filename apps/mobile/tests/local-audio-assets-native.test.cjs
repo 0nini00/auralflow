@@ -40,17 +40,20 @@ before(() => {
   }
   assert.ok(jar && fs.existsSync(jar), 'Set JAUDIOTAGGER_JAR; do not skip the actual-library test');
   // 只替换 Android/RN 边界；Native API、线程与生命周期方法直接从当前源码编译。
-  const methods = ['readAudioAssets', 'readLocalAudioAssets', 'getAudioAssetsFile', 'getAudioDisplayName', 'invalidate']
+  const methods = ['readAudioAssets', 'readLocalAudioAssets', 'getAudioAssetsFile', 'getAudioDisplayName', 'invalidate', 'rejectPendingActivityRequests']
     .map(name => {
       const match = source.match(new RegExp(`^  (?:public|private) (?:static )?[^\\n]+ ${name}\\([^]*?^  }`, 'm'));
       assert.ok(match, `Missing native method: ${name}`);
       return match[0];
     }).join('\n');
-  const executor = source.match(/^  private final ExecutorService audioAssetsExecutor = [^]*?;$/m);
-  assert.ok(executor, 'Reader must own a background executor');
+  const executors = ['audioAssetsExecutor', 'localIoExecutor', 'scanExecutor'].map(name => {
+    const match = source.match(new RegExp(`^  private final ExecutorService ${name} = [^]*?;$`, 'm'));
+    assert.ok(match, `Missing executor: ${name}`);
+    return match[0];
+  }).join('\n');
   const harness = fs.readFileSync(path.join(__dirname, 'fixtures/local-audio-assets/LocalAudioAssetsHarness.java'), 'utf8');
   const harnessPath = path.join(work, 'LocalAudioAssetsHarness.java');
-  fs.writeFileSync(harnessPath, harness.replace('/* NATIVE_READ_METHODS */', executor[0] + '\n' + methods));
+  fs.writeFileSync(harnessPath, harness.replace('/* NATIVE_READ_METHODS */', executors + '\n' + methods));
   run(javaTool('javac'), ['-encoding', 'UTF-8', '-Xlint:all', '-cp', jar, '-d', work,
     harnessPath, path.join(nativeDir, 'LocalTagEditor.java'), path.join(nativeDir, 'LocalAudioAssetsReader.java')]);
   for (const [extension, codec, extra = []] of [

@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo } from "react";
+import { useIsFocused } from "@react-navigation/native";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { ChartColumnBig, ChevronLeft, TrendingUp } from "lucide-react-native";
 import {
-  aggregateListeningEvents,
+  type ListeningStats,
   type ListeningStatsArtist,
   type ListeningStatsDay,
   type ListeningStatsTrack,
@@ -25,6 +26,7 @@ const TOP_LIST_SIZE = 10;
 const TREND_DAY_LIMIT = 30;
 /** 趋势柱高度（纯 RN 视图，用像素高而不是百分比，避免小数宽度告警） */
 const TREND_BAR_MAX_HEIGHT = 88;
+const EMPTY_STATS: ListeningStats = { totalMs: 0, totalPlays: 0, playsWithoutDuration: 0, topTracks: [], topArtists: [], byDay: [] };
 
 /** 毫秒 → 人话时长（小于 1 分钟也显示分钟，避免出现 0 秒这种无意义读数） */
 function formatTotalDuration(ms: number): string {
@@ -127,6 +129,7 @@ function artistMeta(artist: ListeningStatsArtist): string {
 }
 
 export function ListeningStatsScreen({ onBack }: { onBack?: () => void }) {
+  const focused = useIsFocused();
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
@@ -134,12 +137,13 @@ export function ListeningStatsScreen({ onBack }: { onBack?: () => void }) {
     () => getThemePalette(getResolvedTheme(mode, systemTheme), accentColor),
     [mode, systemTheme, accentColor],
   );
-  const events = useListeningStatsStore((state) => state.events);
+  const revision = useListeningStatsStore((state) => focused ? state.revision : null);
+  const getStats = useListeningStatsStore((state) => state.getStats);
   const error = useListeningStatsStore((state) => state.error);
   const warning = useListeningStatsStore((state) => state.warning);
   const load = useListeningStatsStore((state) => state.load);
   const loaded = useListeningStatsStore((state) => state.loaded);
-  const stats = useMemo(() => aggregateListeningEvents(events), [events]);
+  const stats = useMemo(() => revision === null ? EMPTY_STATS : getStats(), [revision, getStats]);
 
   useEffect(() => {
     void load().catch(reportListeningStatsError);

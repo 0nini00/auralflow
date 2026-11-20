@@ -106,6 +106,29 @@ test("跨源替代逐个记录候选失败原因，全部失败才报终局",opt
   assert.equal(message,"原曲不可用（无替代歌曲）");
 });
 
+test("播放切换把取消信号传给跨源搜索，不再解析旧搜索候选", options, async () => {
+  const h = setup();
+  const gate = deferred();
+  let searchSignal;
+  let entered = false;
+  h.cache.getCachedPlaybackUrl = async track => {
+    if (track.source === "wy") throw new Error("原曲不可用");
+    return { url: `https://fixture.invalid/${track.id}`, quality: "320k" };
+  };
+  h.cross.findTxVariants = async (_song, signal) => {
+    entered = true;
+    searchSignal = signal;
+    return gate.promise;
+  };
+  const old = h.service.playQueue([song("original", "wy")]);
+  await until(() => entered);
+  await h.service.playQueue([song("current")]);
+  gate.resolve([song("stale")]);
+  await old;
+  assert.equal(searchSignal?.aborted, true);
+  assert.equal(h.store.getState().currentSong.id, "current");
+});
+
 for(const direction of ["next","previous"]){
   test(`手动${direction}立即取消卡住的解析，不等待旧链收口`,options,async()=>{
     const h=setup();const gate=deferred();let entered=false;
@@ -149,6 +172,41 @@ test("预读超时释放在途条目，真实切歌可以重新解析",options,a
   gate.resolve({url:"https://fixture.invalid/old",quality:"320k"});await playing;
   assert.equal(beforeRelease,2);
   assert.equal(h.store.getState().currentSong.id,"B");
+});
+
+test("新的预读取消不再被消费的旧预读，避免慢源占满全局名额",options,async()=>{
+  const requests = [];
+  const h = setup({ streamProbe: { probeStreamUrl: async () => ({ ok: true }) }, parseUrl: (track, quality, signal) => new Promise((resolve, reject) => {
+    requests.push({ id: track.id, signal, resolve, quality });
+    signal?.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
+  }) });
+  h.cache.getCachedPlaybackUrl = async () => null;
+  h.service.prefetchSong(song("old"));
+  await until(() => requests.length === 1);
+  h.service.prefetchSong(song("new"));
+  await until(() => requests.length === 2);
+  const wasCancelled = requests[0].signal?.aborted;
+  for (const request of requests) request.resolve({ url: `https://cdn/${request.id}`, quality: request.quality });
+  await flush();
+  await flush();
+  assert.equal(wasCancelled, true);
+});
+
+test("实际播放复用中的预读不会被下一首预读误取消",options,async()=>{
+  const requests = [];
+  const h = setup({ streamProbe: { probeStreamUrl: async () => ({ ok: true }) }, parseUrl: (track, quality, signal) => new Promise(resolve => requests.push({ id: track.id, signal, resolve, quality })) });
+  h.cache.getCachedPlaybackUrl = async () => null;
+  h.service.prefetchSong(song("shared"));
+  await until(() => requests.length === 1);
+  const playing = h.service.playQueue([song("shared")]);
+  await flush();
+  h.service.prefetchSong(song("next"));
+  await until(() => requests.length === 2);
+  const wasCancelled = requests[0].signal?.aborted;
+  for (const request of requests) request.resolve({ url: `https://cdn/${request.id}`, quality: request.quality });
+  await playing;
+  assert.equal(wasCancelled, false);
+  assert.equal(requests.filter(request => request.id === "shared").length, 1);
 });
 
 test("FM续批请求同样可被手动下一首替代，旧结果不覆盖新批次",options,async()=>{

@@ -21,6 +21,7 @@ import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.ReadableArray;
 import com.facebook.react.bridge.ReadableMap;
+import com.facebook.react.bridge.UiThreadUtil;
 import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.WritableMap;
 
@@ -99,6 +100,9 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
   private PendingMetadataUpdate updatePending;
   private Promise pickAudioPromise;
   private final ExecutorService audioAssetsExecutor = Executors.newSingleThreadExecutor();
+  private final ExecutorService localIoExecutor = Executors.newSingleThreadExecutor();
+  private final ExecutorService scanExecutor = Executors.newSingleThreadExecutor();
+  private volatile boolean invalidated;
 
   private interface TagMutator {
     void mutate(AudioFile audioFile, Tag tag) throws Exception;
@@ -128,7 +132,8 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
         return;
       }
       // 授权成功，重试真正的写入。
-      writeTagToFile(pending.audioUri, pending.mutator, pending.promise);
+      submitIo(localIoExecutor, pending.promise, "LOCAL_MUSIC_TAG_WRITE_FAILED",
+          () -> writeTagToFile(pending.audioUri, pending.mutator, pending.promise));
     }
   };
 
@@ -281,10 +286,37 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
 
   @Override
   public void invalidate() {
-    // 不接受新读取，但排空已接受的任务，让每个 Promise 都能结束后再释放线程。
+    invalidated = true;
+    // 排空已经接受的 I/O，避免取消写入中途丢失文件事务或 Promise。
     audioAssetsExecutor.shutdown();
-    getReactApplicationContext().removeActivityEventListener(writeActivityEventListener);
+    localIoExecutor.shutdown();
+    scanExecutor.shutdown();
+    UiThreadUtil.runOnUiThread(this::rejectPendingActivityRequests);
     super.invalidate();
+  }
+
+  private void rejectPendingActivityRequests() {
+    getReactApplicationContext().removeActivityEventListener(writeActivityEventListener);
+    if (pickAudioPromise != null) {
+      pickAudioPromise.reject("LOCAL_MUSIC_INVALIDATED", "本地音乐模块已关闭");
+      pickAudioPromise = null;
+    }
+    if (writePending != null) {
+      writePending.promise.reject("LOCAL_MUSIC_INVALIDATED", "本地音乐模块已关闭");
+      writePending = null;
+    }
+    if (updatePending != null) {
+      updatePending.promise.reject("LOCAL_MUSIC_INVALIDATED", "本地音乐模块已关闭");
+      updatePending = null;
+    }
+  }
+
+  private void submitIo(ExecutorService executor, Promise promise, String errorCode, Runnable action) {
+    try {
+      executor.execute(action);
+    } catch (RejectedExecutionException error) {
+      promise.reject(errorCode, error);
+    }
   }
 
   /**
@@ -293,6 +325,14 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
    */
   @ReactMethod
   public void pickLocalAudioFiles(Promise promise) {
+    UiThreadUtil.runOnUiThread(() -> launchAudioPicker(promise));
+  }
+
+  private void launchAudioPicker(Promise promise) {
+    if (invalidated) {
+      promise.reject("LOCAL_MUSIC_INVALIDATED", "本地音乐模块已关闭");
+      return;
+    }
     Activity activity = getCurrentActivity();
     if (activity == null) {
       promise.reject("NO_ACTIVITY", "当前没有可用的 Android Activity");
@@ -333,6 +373,10 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
       return;
     }
 
+    submitIo(localIoExecutor, promise, "LOCAL_MUSIC_PICK_FAILED", () -> readPickedAudioFiles(data, promise));
+  }
+
+  private void readPickedAudioFiles(Intent data, Promise promise) {
     WritableArray songs = Arguments.createArray();
     ContentResolver resolver = getReactApplicationContext().getContentResolver();
 
@@ -619,8 +663,16 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
     appendSignaturePart(signature, Long.toString(file.length()));
   }
 
-  private static String buildScanSignature(Cursor cursor, File audioFile) {
-    StringBuilder signature = new StringBuilder("v1:");
+  private static String buildDirectoryCoverSignature(File directory) {
+    StringBuilder signature = new StringBuilder();
+    for (String coverName : SIDECAR_COVER_NAMES) {
+      appendFileStamp(signature, new File(directory, coverName));
+    }
+    return signature.toString();
+  }
+
+  private static String buildScanSignature(Cursor cursor, File audioFile, ScanDirectorySignatures covers) {
+    StringBuilder signature = new StringBuilder("v2:");
     // 包含 MediaStore 修改时间、大小及基础元数据，亦检测仅修改数据库标签的情况。
     for (int i = 0; i < cursor.getColumnCount(); i++) {
       appendSignaturePart(signature, safeString(cursor, i));
@@ -634,9 +686,7 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
     int dot = name.lastIndexOf('.');
     String stem = dot > 0 ? name.substring(0, dot) : name;
     appendFileStamp(signature, new File(dir, stem + ".lrc"));
-    for (String coverName : SIDECAR_COVER_NAMES) {
-      appendFileStamp(signature, new File(dir, coverName));
-    }
+    appendSignaturePart(signature, covers.get(dir));
     for (String ext : new String[] { ".jpg", ".jpeg", ".png" }) {
       appendFileStamp(signature, new File(dir, stem + ext));
     }
@@ -645,7 +695,13 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
 
   @ReactMethod
   public void scanLocalMusic(ReadableMap knownSignatures, Promise promise) {
+    submitIo(scanExecutor, promise, "LOCAL_MUSIC_SCAN_FAILED",
+        () -> scanLocalMusicInBackground(knownSignatures, promise));
+  }
+
+  private void scanLocalMusicInBackground(ReadableMap knownSignatures, Promise promise) {
     try {
+      ScanDirectorySignatures covers = new ScanDirectorySignatures(LocalMusicModule::buildDirectoryCoverSignature);
       ContentResolver resolver = getReactApplicationContext().getContentResolver();
       Uri collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
       String[] projection = new String[] {
@@ -685,7 +741,7 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
           String filePath = safeString(cursor, dataIndex);
           String contentUri = ContentUris.withAppendedId(collection, id).toString();
           File audioFile = filePath.startsWith("/") ? new File(filePath) : null;
-          String signature = buildScanSignature(cursor, audioFile);
+          String signature = buildScanSignature(cursor, audioFile, covers);
           boolean tagsUnchanged = knownSignatures != null && knownSignatures.hasKey(mediaId)
               && !knownSignatures.isNull(mediaId) && signature.equals(knownSignatures.getString(mediaId));
           WritableMap song = Arguments.createMap();
@@ -704,13 +760,15 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
             if (lyrics != null) song.putString("lyrics", lyrics);
             String coverUri = resolveCover(resolver, albumId, audioFile);
             if (coverUri != null) song.putString("albumArtUri", coverUri);
-            if (!signature.equals(buildScanSignature(cursor, audioFile))) {
+            if (!signature.equals(buildScanSignature(cursor, audioFile, covers))) {
               throw new IllegalStateException("音频或旁挂文件在扫描期间发生变化，请重试：" + contentUri);
             }
           }
           songs.pushMap(song);
         }
       }
+      // 公共封面只按目录复用；发布前复查，扫描中修改不能被本轮缓存掩盖。
+      covers.verifyUnchanged();
       WritableMap result = Arguments.createMap();
       result.putString("scope", MEDIA_STORE_SCOPE);
       result.putBoolean("complete", true);
@@ -726,6 +784,11 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
    */
   @ReactMethod
   public void updateAudioMetadata(String mediaId, ReadableMap metadata, Promise promise) {
+    submitIo(localIoExecutor, promise, "LOCAL_MUSIC_UPDATE_FAILED",
+        () -> updateAudioMetadataInBackground(mediaId, metadata, promise));
+  }
+
+  private void updateAudioMetadataInBackground(String mediaId, ReadableMap metadata, Promise promise) {
     ContentResolver resolver = getReactApplicationContext().getContentResolver();
     Uri uri = null;
     ContentValues values = null;
@@ -768,6 +831,11 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
    */
   @ReactMethod
   public void writeAudioCover(String mediaId, String imageUri, Promise promise) {
+    submitIo(localIoExecutor, promise, "LOCAL_MUSIC_COVER_FAILED",
+        () -> writeAudioCoverInBackground(mediaId, imageUri, promise));
+  }
+
+  private void writeAudioCoverInBackground(String mediaId, String imageUri, Promise promise) {
     try {
       Uri audioUri = ContentUris.withAppendedId(
           MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, Long.parseLong(mediaId));
@@ -799,6 +867,11 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
    */
   @ReactMethod
   public void writeAudioLyrics(String mediaId, String lrc, Promise promise) {
+    submitIo(localIoExecutor, promise, "LOCAL_MUSIC_LYRICS_FAILED",
+        () -> writeAudioLyricsInBackground(mediaId, lrc, promise));
+  }
+
+  private void writeAudioLyricsInBackground(String mediaId, String lrc, Promise promise) {
     try {
       Uri audioUri = ContentUris.withAppendedId(
           MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, Long.parseLong(mediaId));
@@ -873,13 +946,15 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
       pending.promise.reject("WRITE_DENIED", "用户拒绝了修改媒体文件的授权");
       return;
     }
-    ContentResolver resolver = getReactApplicationContext().getContentResolver();
-    try {
-      int rows = resolver.update(pending.audioUri, pending.values, null, null);
-      pending.promise.resolve(rows);
-    } catch (Exception error) {
-      pending.promise.reject("LOCAL_MUSIC_UPDATE_FAILED", error);
-    }
+    submitIo(localIoExecutor, pending.promise, "LOCAL_MUSIC_UPDATE_FAILED", () -> {
+      ContentResolver resolver = getReactApplicationContext().getContentResolver();
+      try {
+        int rows = resolver.update(pending.audioUri, pending.values, null, null);
+        pending.promise.resolve(rows);
+      } catch (Exception error) {
+        pending.promise.reject("LOCAL_MUSIC_UPDATE_FAILED", error);
+      }
+    });
   }
 
   private PendingIntent createWriteAccessIntent(Uri audioUri, SecurityException securityError) {
@@ -895,6 +970,14 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
   }
 
   private void requestUpdateAccess(Uri audioUri, ContentValues values, Promise promise, SecurityException securityError) {
+    UiThreadUtil.runOnUiThread(() -> requestUpdateAccessOnUiThread(audioUri, values, promise, securityError));
+  }
+
+  private void requestUpdateAccessOnUiThread(Uri audioUri, ContentValues values, Promise promise, SecurityException securityError) {
+    if (invalidated) {
+      promise.reject("LOCAL_MUSIC_INVALIDATED", "本地音乐模块已关闭");
+      return;
+    }
     if (updatePending != null) {
       promise.reject("WRITE_BUSY", "已有写入授权请求进行中，请稍后再试");
       return;
@@ -916,6 +999,14 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
   }
 
   private void requestWriteAccess(Uri audioUri, TagMutator mutator, Promise promise, SecurityException securityError) {
+    UiThreadUtil.runOnUiThread(() -> requestWriteAccessOnUiThread(audioUri, mutator, promise, securityError));
+  }
+
+  private void requestWriteAccessOnUiThread(Uri audioUri, TagMutator mutator, Promise promise, SecurityException securityError) {
+    if (invalidated) {
+      promise.reject("LOCAL_MUSIC_INVALIDATED", "本地音乐模块已关闭");
+      return;
+    }
     if (writePending != null) {
       promise.reject("WRITE_BUSY", "已有写入授权请求进行中，请稍后再试");
       return;

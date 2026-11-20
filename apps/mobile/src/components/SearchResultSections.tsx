@@ -1,5 +1,5 @@
 import React from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { FlatList, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 
 import { ActionButton } from "@/components/ActionButton";
 import { CachedImage } from "@/components/CachedImage";
@@ -24,28 +24,36 @@ export interface PlaylistImportAction {
   onPress: (playlist: SearchPlaylistResult) => void;
 }
 
-interface ArtistListProps {
+interface VirtualResultProps {
+  virtualized?: boolean;
+  ListHeaderComponent?: React.ReactElement | null;
+  ListFooterComponent?: React.ReactElement | null;
+  contentContainerStyle?: StyleProp<ViewStyle>;
+}
+
+interface ArtistListProps extends VirtualResultProps {
   artists: SearchArtistResult[];
   emptyText?: string;
   onPress?: ArtistPressHandler;
 }
 
-interface AlbumListProps {
+interface AlbumListProps extends VirtualResultProps {
   albums: SearchAlbumResult[];
   emptyText?: string;
   onPress?: AlbumPressHandler;
 }
 
-interface PlaylistListProps {
+interface PlaylistListProps extends VirtualResultProps {
   playlists: SearchPlaylistResult[];
   emptyText?: string;
   onPress?: PlaylistPressHandler;
   getImportAction?: (playlist: SearchPlaylistResult) => PlaylistImportAction;
 }
 
-export function ArtistResultList({ artists, emptyText, onPress }: ArtistListProps) {
+export function ArtistResultList({ artists, emptyText, onPress, ...listProps }: ArtistListProps) {
   return (
     <ResultList
+      {...listProps}
       data={artists}
       emptyText={emptyText || "没有找到歌手"}
       keyExtractor={(item) => item.id}
@@ -54,9 +62,10 @@ export function ArtistResultList({ artists, emptyText, onPress }: ArtistListProp
   );
 }
 
-export function AlbumResultList({ albums, emptyText, onPress }: AlbumListProps) {
+export function AlbumResultList({ albums, emptyText, onPress, ...listProps }: AlbumListProps) {
   return (
     <ResultList
+      {...listProps}
       data={albums}
       emptyText={emptyText || "没有找到专辑"}
       keyExtractor={(item) => item.id}
@@ -65,9 +74,10 @@ export function AlbumResultList({ albums, emptyText, onPress }: AlbumListProps) 
   );
 }
 
-export function PlaylistResultList({ playlists, emptyText, onPress, getImportAction }: PlaylistListProps) {
+export function PlaylistResultList({ playlists, emptyText, onPress, getImportAction, ...listProps }: PlaylistListProps) {
   return (
     <ResultList
+      {...listProps}
       data={playlists}
       emptyText={emptyText || "没有找到歌单"}
       keyExtractor={(item) => item.id}
@@ -83,26 +93,38 @@ export function PlaylistResultList({ playlists, emptyText, onPress, getImportAct
   );
 }
 
-interface ResultListProps<T> {
+interface ResultListProps<T> extends VirtualResultProps {
   data: T[];
   emptyText: string;
   keyExtractor: (item: T) => string;
   renderItem: (item: T, palette: ThemePalette) => React.ReactElement;
 }
 
-function ResultList<T>({ data, emptyText, keyExtractor, renderItem }: ResultListProps<T>) {
+function ResultList<T>({ data, emptyText, keyExtractor, renderItem, virtualized, ...listProps }: ResultListProps<T>) {
   const themeMode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor);
 
-  if (data.length === 0) {
-    return (
+  const empty = (
       <View style={styles.emptyContainer}>
         <Text style={[styles.emptyText, { color: palette.textMuted }]}>{emptyText}</Text>
       </View>
-    );
+  );
+  if (virtualized) {
+    return <FlatList
+      {...listProps}
+      data={data}
+      keyExtractor={keyExtractor}
+      renderItem={({ item }) => renderItem(item, palette)}
+      ListEmptyComponent={empty}
+      keyboardShouldPersistTaps="handled"
+      initialNumToRender={12}
+      maxToRenderPerBatch={12}
+      windowSize={7}
+    />;
   }
+  if (data.length === 0) return empty;
 
   return (
     <View style={styles.listContent}>

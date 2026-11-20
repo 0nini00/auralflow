@@ -155,15 +155,15 @@ export function SongList({
   // 头部（Hero + 简介/分区头）默认 0，onLayout 后更新；描述区展开/收起等高度变化会再次触发更新。
   const [headerHeight, setHeaderHeight] = useState(0);
 
-  // ---- 增量挂载：首屏 60 行，交互空闲后每批 +100，直到挂满 ----
+  // 仅短列表的 legacy 宿主需要分批挂载；虚拟列表由 FlatList 控制窗口。
   const [mountedCount, setMountedCount] = useState(INITIAL_MOUNT_COUNT);
   useEffect(() => {
-    if (mountedCount >= songs.length) return;
+    if (virtualized || mountedCount >= songs.length) return;
     const task = InteractionManager.runAfterInteractions(() => {
       setMountedCount((count) => Math.min(count + MOUNT_BATCH_SIZE, songs.length));
     });
     return () => task.cancel();
-  }, [mountedCount, songs.length]);
+  }, [mountedCount, songs.length, virtualized]);
 
   // ---- 稳定回调：让 memo 行组件在父级重渲染（切歌/选择）时真正跳过 ----
   const handleRowPress = useCallback(
@@ -382,8 +382,6 @@ export function SongList({
     return items;
   };
 
-  const visibleSongs = songs.slice(0, mountedCount);
-
   if (virtualized) {
     return (
       <View style={[styles.virtualizedRoot]}>
@@ -401,6 +399,7 @@ export function SongList({
           })}
           keyExtractor={(item, index) => `${item.source}-${item.id}-${index}`}
           renderItem={renderSongRow}
+          keyboardShouldPersistTaps="handled"
           ListHeaderComponent={
             ListHeaderComponent ? (
               <View
@@ -483,7 +482,7 @@ export function SongList({
 
   return (
     <View style={styles.listContent}>
-      {visibleSongs.map((song, index) => {
+      {songs.slice(0, mountedCount).map((song, index) => {
         const key = buildSongKey(song);
         return (
           <SongItem

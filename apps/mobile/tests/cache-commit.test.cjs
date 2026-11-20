@@ -59,7 +59,7 @@ function setup(initialFiles = {}, options = {}) {
       if (!files.has(from)) throw new Error("ENOENT");
       moves.push([from, to]); files.set(to, files.get(from)); files.delete(from);
     } } } },
-    "@lx/core": { COVER_SIZE_LARGE: 500, resizeCoverUrl: url => url },
+    "@lx/core": { COVER_SIZE_LARGE: 500, resizeCoverUrl: url => url, ...createLoader({})('../../packages/core/src/request-limiter.ts') },
     "./playbackUrlCache": { clearPlaybackUrlCache: async () => {} },
     "./musicApi": { buildStreamHeaders: () => ({}) },
     "@/stores/playerStore": { usePlayerStore: { getState: () => ({}) } },
@@ -67,6 +67,33 @@ function setup(initialFiles = {}, options = {}) {
   });
   return { service: load("src/services/cacheService.ts"), files, jobs, warnings, moves, asyncStorage, storage, rnfs };
 }
+
+test('封面并发有界且目录检查仅初始化一次，重复URL共用同一任务', settings, async () => {
+  const h = setup();
+  let exists = 0;
+  const read = h.rnfs.exists;
+  h.rnfs.exists = async path => { exists++; return read(path); };
+  const promises = Array.from({ length: 10 }, (_, i) => h.service.cacheCover(`https://example.org/${i}.jpg`));
+  const duplicate = h.service.cacheCover('https://example.org/0.jpg');
+  let assertions;
+  await new Promise(setImmediate);
+  try {
+    assert.equal(h.jobs.length, 3);
+    assert.ok(h.jobs.every(job => job.request.connectionTimeout > 0 && job.request.readTimeout > 0));
+    assert.ok(exists <= 15, `unexpected exists: ${exists}`);
+  } catch (error) { assertions = error; }
+  let finished = 0;
+  while (finished < 10) {
+    await until(() => h.jobs.length > finished);
+    const batch = h.jobs.slice(finished);
+    for (const job of batch) job.finish();
+    finished += batch.length;
+  }
+  const result = await Promise.all(promises);
+  assert.equal(await duplicate, result[0]);
+  assert.equal(h.jobs.length, 10);
+  if (assertions) throw assertions;
+});
 
 test('离线列表读取失败不能伪装为空缓存', async () => {
   const h = setup(); h.rnfs.readDir = async () => { throw new Error('permission denied'); };

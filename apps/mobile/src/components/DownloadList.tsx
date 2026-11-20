@@ -1,5 +1,5 @@
 import React from "react";
-import { Alert, StyleSheet, Text, View } from "react-native";
+import { Alert, SectionList, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import { Pause, Play, RotateCcw, X } from "lucide-react-native";
 import type { MusicInfo } from "@lx/core";
 
@@ -26,6 +26,8 @@ interface DownloadListProps {
   downloading: ReturnType<typeof useDownloadStore.getState>["downloading"];
   failedDownloads?: ReturnType<typeof useDownloadStore.getState>["failedDownloads"];
   onNavigateToPlayer: () => void;
+  ListHeaderComponent?: React.ReactElement | null;
+  contentContainerStyle?: StyleProp<ViewStyle>;
 }
 
 /**
@@ -37,7 +39,55 @@ interface DownloadListProps {
  * - 进行中任务提供 暂停/继续/取消（图标按常规语义：暂停=Pause，取消=X）；
  *   失败任务提供 重试/移除
  */
-export function DownloadList({ downloads, downloading, failedDownloads = [], onNavigateToPlayer }: DownloadListProps) {
+type DownloadState = ReturnType<typeof useDownloadStore.getState>;
+type DownloadItem = DownloadState["downloads"][number] | DownloadState["downloading"][number] | DownloadState["failedDownloads"][number];
+type DownloadKind = "active" | "failed" | "completed";
+type DownloadSection = { kind: DownloadKind; data: readonly DownloadItem[] };
+const EMPTY_FAILED: DownloadState["failedDownloads"] = [];
+
+export function DownloadList({ downloads, downloading, failedDownloads = EMPTY_FAILED, onNavigateToPlayer, ListHeaderComponent, contentContainerStyle }: DownloadListProps) {
+  const mode = useThemeStore((state) => state.mode);
+  const systemTheme = useThemeStore((state) => state.systemTheme);
+  const accentColor = useThemeStore((state) => state.accentColor);
+  const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
+  const [playbackError, setPlaybackError] = React.useState<string | null>(null);
+  const handlePlay = React.useCallback(async (song: MusicInfo, localPath: string) => {
+    setPlaybackError(null);
+    const result = await runPlaybackUiAction(() =>
+      usePlayerStore.getState().play(song, localPath),
+    );
+    if (!result.ok) {
+      setPlaybackError(result.message);
+      return;
+    }
+    onNavigateToPlayer();
+  }, [onNavigateToPlayer]);
+
+  const sections = React.useMemo<DownloadSection[]>(() => [
+    { kind: "active", data: downloading },
+    { kind: "failed", data: failedDownloads },
+    { kind: "completed", data: downloads },
+  ], [downloading, failedDownloads, downloads]);
+  const renderItem = React.useCallback(({ item, section }: { item: DownloadItem; section: DownloadSection }) =>
+    <DownloadRow item={item} kind={section.kind} onPlay={handlePlay} />, [handlePlay]);
+  const empty = sections.every(section => section.data.length === 0);
+  return <SectionList<DownloadItem, DownloadSection>
+    sections={sections}
+    keyExtractor={item => [item.song.source, item.song.id, item.quality ?? item.song.quality ?? "320k"].join(":")}
+    renderItem={renderItem}
+    ListHeaderComponent={<>{ListHeaderComponent}<PlaybackErrorState message={playbackError} onDismiss={() => setPlaybackError(null)} />
+      {empty && <View style={styles.emptyContainer}><Text style={[styles.emptyText, { color: palette.textMuted }]}>还没有下载记录</Text></View>}</>}
+    contentContainerStyle={[styles.downloadList, contentContainerStyle]}
+    initialNumToRender={12}
+    maxToRenderPerBatch={12}
+    windowSize={7}
+    stickySectionHeadersEnabled={false}
+  />;
+}
+
+const DownloadRow = React.memo(function DownloadRow({ item: entry, kind, onPlay: handlePlay }: {
+  item: DownloadItem; kind: DownloadKind; onPlay: (song: MusicInfo, path: string) => Promise<void>;
+}) {
   const removeDownloadRecord = useDownloadStore((state) => state.removeDownloadRecord);
   const removeDownload = useDownloadStore((state) => state.removeDownload);
   const cancelDownload = useDownloadStore((state) => state.cancelDownload);
@@ -49,236 +99,204 @@ export function DownloadList({ downloads, downloading, failedDownloads = [], onN
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
-  const [playbackError, setPlaybackError] = React.useState<string | null>(null);
-
-  if (downloads.length === 0 && downloading.length === 0 && failedDownloads.length === 0) {
+  const coverFor = (song: MusicInfo) => song.picUrl || song.img;
+  if (kind === "active") {
+    const item = entry as DownloadState["downloading"][number];
+    const key = `${item.song.source}:${item.song.id}:${item.quality}`;
+    const metadata = buildDownloadingMetadata(item);
+    const isPaused = item.status === "paused";
+    const isWaiting = item.status === "waiting";
+    const speedLabel = formatDownloadSpeed(item.speed);
     return (
-      <View style={styles.emptyContainer}>
-        <Text style={[styles.emptyText, { color: palette.textMuted }]}>还没有下载记录</Text>
+      <View key={key} style={[styles.downloadItem, { backgroundColor: palette.surface }]}>
+        <CachedImage
+          uri={coverFor(item.song) || ""}
+          style={styles.cover}
+          fallback={<View style={[styles.coverFallback, { backgroundColor: palette.surfaceStrong }]} />}
+        />
+        <View style={styles.downloadInfo}>
+          <Text style={[styles.downloadSongName, { color: palette.text }]} numberOfLines={1}>
+            {item.song.name}
+          </Text>
+          <Text style={[styles.downloadMeta, { color: palette.textMuted }]} numberOfLines={1}>
+            {metadata.titleMeta}
+          </Text>
+          {isWaiting ? (
+            <Text style={[styles.downloadStatus, { color: palette.textMuted }]}>等待中…</Text>
+          ) : isPaused ? (
+            <Text style={[styles.downloadStatus, { color: palette.textMuted }]}>已暂停</Text>
+          ) : (
+            <View style={styles.progressBlock}>
+              <View style={[styles.progressTrack, { backgroundColor: palette.surfaceStrong }]}>
+                <View
+                  style={[
+                    styles.progressFill,
+                    {
+                      width: `${Math.max(0, Math.min(100, Math.round((item.progress || 0) * 100)))}%`,
+                      backgroundColor: palette.primary,
+                    },
+                  ]}
+                />
+              </View>
+              <View style={styles.progressMetaRow}>
+                <Text style={[styles.downloadDetail, { color: palette.textSubtle }]} numberOfLines={1}>
+                  {metadata.detailLabel}
+                </Text>
+                {speedLabel ? (
+                  <Text style={[styles.speedText, { color: palette.primaryInk }]} numberOfLines={1}>
+                    {speedLabel}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+          )}
+        </View>
+        <View style={styles.downloadActions}>
+          {isPaused ? (
+            <IconButton
+              size="sm"
+              tone="default"
+              accessibilityLabel="继续下载"
+              onPress={() => resumeDownload(item.song, item.quality)}
+              render={({ color, size }) => <Play color={color} size={size} />}
+            />
+          ) : (
+            <IconButton
+              size="sm"
+              tone="default"
+              accessibilityLabel="暂停下载"
+              onPress={() => pauseDownload(item.song, item.quality)}
+              render={({ color, size }) => <Pause color={color} size={size} />}
+            />
+          )}
+          <IconButton
+            size="sm"
+            tone="danger"
+            accessibilityLabel="取消下载"
+            onPress={() => cancelDownload(item.song, item.quality)}
+            render={({ color, size }) => <X color={color} size={size} />}
+          />
+        </View>
       </View>
     );
   }
-
-  const handlePlay = async (song: MusicInfo, localPath: string) => {
-    setPlaybackError(null);
-    const result = await runPlaybackUiAction(() =>
-      usePlayerStore.getState().play(song, localPath),
+  if (kind === "failed") {
+    const item = entry as DownloadState["failedDownloads"][number];
+    const key = `${item.song.source}:${item.song.id}:${item.quality}`;
+    const metadata = buildFailedDownloadMetadata(item);
+    return (
+      <View key={key} style={[styles.downloadItem, { backgroundColor: palette.surface }]}>
+        <CachedImage
+          uri={coverFor(item.song) || ""}
+          style={styles.cover}
+          fallback={<View style={[styles.coverFallback, { backgroundColor: palette.surfaceStrong }]} />}
+        />
+        <View style={styles.downloadInfo}>
+          <Text style={[styles.downloadSongName, { color: palette.text }]} numberOfLines={1}>
+            {item.song.name}
+          </Text>
+          <Text style={[styles.downloadMeta, { color: palette.textMuted }]} numberOfLines={1}>
+            {metadata.titleMeta}
+          </Text>
+          <Text style={[styles.downloadStatus, { color: palette.danger }]} numberOfLines={2}>
+            {metadata.detailLabel}
+          </Text>
+        </View>
+        <View style={styles.downloadActions}>
+          <IconButton
+            size="sm"
+            tone="default"
+            accessibilityLabel="重试下载"
+            onPress={() => void downloadSong(item.song, item.quality)}
+            render={({ color, size }) => <RotateCcw color={color} size={size} />}
+          />
+          <IconButton
+            size="sm"
+            tone="danger"
+            accessibilityLabel="移除失败记录"
+            onPress={() => removeFailedDownload(item.song, item.quality)}
+            render={({ color, size }) => <X color={color} size={size} />}
+          />
+        </View>
+      </View>
     );
-    if (!result.ok) {
-      setPlaybackError(result.message);
-      return;
-    }
-    onNavigateToPlayer();
-  };
-
-  const coverFor = (song: MusicInfo) => song.picUrl || song.img;
-
+  }
+  const item = entry as DownloadState["downloads"][number];
+  const quality = (item.quality ?? item.song.quality ?? "320k") as DownloadQuality;
+  const key = `${item.song.source}:${item.song.id}:${quality}`;
+  const metadata = buildCompletedDownloadMetadata(item);
   return (
-    <View style={styles.downloadList}>
-      <PlaybackErrorState
-        message={playbackError}
-        onDismiss={() => setPlaybackError(null)}
+    <Touchable
+      key={key}
+      style={[styles.downloadItem, { backgroundColor: palette.surface }]}
+      onPress={() => void handlePlay(item.song, item.localPath)}
+      accessibilityRole="button"
+      accessibilityLabel={`播放 ${item.song.name}`}
+    >
+      <CachedImage
+        uri={coverFor(item.song) || ""}
+        style={styles.cover}
+        fallback={<View style={[styles.coverFallback, { backgroundColor: palette.surfaceStrong }]} />}
       />
-      {downloading.map((item) => {
-        const key = `${item.song.source}:${item.song.id}:${item.quality}`;
-        const metadata = buildDownloadingMetadata(item);
-        const isPaused = item.status === "paused";
-        const isWaiting = item.status === "waiting";
-        const speedLabel = formatDownloadSpeed(item.speed);
-        return (
-          <View key={key} style={[styles.downloadItem, { backgroundColor: palette.surface }]}>
-            <CachedImage
-              uri={coverFor(item.song) || ""}
-              style={styles.cover}
-              fallback={<View style={[styles.coverFallback, { backgroundColor: palette.surfaceStrong }]} />}
-            />
-            <View style={styles.downloadInfo}>
-              <Text style={[styles.downloadSongName, { color: palette.text }]} numberOfLines={1}>
-                {item.song.name}
-              </Text>
-              <Text style={[styles.downloadMeta, { color: palette.textMuted }]} numberOfLines={1}>
-                {metadata.titleMeta}
-              </Text>
-              {isWaiting ? (
-                <Text style={[styles.downloadStatus, { color: palette.textMuted }]}>等待中…</Text>
-              ) : isPaused ? (
-                <Text style={[styles.downloadStatus, { color: palette.textMuted }]}>已暂停</Text>
-              ) : (
-                <View style={styles.progressBlock}>
-                  <View style={[styles.progressTrack, { backgroundColor: palette.surfaceStrong }]}>
-                    <View
-                      style={[
-                        styles.progressFill,
-                        {
-                          width: `${Math.max(0, Math.min(100, Math.round((item.progress || 0) * 100)))}%`,
-                          backgroundColor: palette.primary,
-                        },
-                      ]}
-                    />
-                  </View>
-                  <View style={styles.progressMetaRow}>
-                    <Text style={[styles.downloadDetail, { color: palette.textSubtle }]} numberOfLines={1}>
-                      {metadata.detailLabel}
-                    </Text>
-                    {speedLabel ? (
-                      <Text style={[styles.speedText, { color: palette.primaryInk }]} numberOfLines={1}>
-                        {speedLabel}
-                      </Text>
-                    ) : null}
-                  </View>
-                </View>
-              )}
-            </View>
-            <View style={styles.downloadActions}>
-              {isPaused ? (
-                <IconButton
-                  size="sm"
-                  tone="default"
-                  accessibilityLabel="继续下载"
-                  onPress={() => resumeDownload(item.song, item.quality)}
-                  render={({ color, size }) => <Play color={color} size={size} />}
-                />
-              ) : (
-                <IconButton
-                  size="sm"
-                  tone="default"
-                  accessibilityLabel="暂停下载"
-                  onPress={() => pauseDownload(item.song, item.quality)}
-                  render={({ color, size }) => <Pause color={color} size={size} />}
-                />
-              )}
-              <IconButton
-                size="sm"
-                tone="danger"
-                accessibilityLabel="取消下载"
-                onPress={() => cancelDownload(item.song, item.quality)}
-                render={({ color, size }) => <X color={color} size={size} />}
-              />
-            </View>
-          </View>
-        );
-      })}
-
-      {failedDownloads.map((item) => {
-        const key = `${item.song.source}:${item.song.id}:${item.quality}`;
-        const metadata = buildFailedDownloadMetadata(item);
-        return (
-          <View key={key} style={[styles.downloadItem, { backgroundColor: palette.surface }]}>
-            <CachedImage
-              uri={coverFor(item.song) || ""}
-              style={styles.cover}
-              fallback={<View style={[styles.coverFallback, { backgroundColor: palette.surfaceStrong }]} />}
-            />
-            <View style={styles.downloadInfo}>
-              <Text style={[styles.downloadSongName, { color: palette.text }]} numberOfLines={1}>
-                {item.song.name}
-              </Text>
-              <Text style={[styles.downloadMeta, { color: palette.textMuted }]} numberOfLines={1}>
-                {metadata.titleMeta}
-              </Text>
-              <Text style={[styles.downloadStatus, { color: palette.danger }]} numberOfLines={2}>
-                {metadata.detailLabel}
-              </Text>
-            </View>
-            <View style={styles.downloadActions}>
-              <IconButton
-                size="sm"
-                tone="default"
-                accessibilityLabel="重试下载"
-                onPress={() => void downloadSong(item.song, item.quality)}
-                render={({ color, size }) => <RotateCcw color={color} size={size} />}
-              />
-              <IconButton
-                size="sm"
-                tone="danger"
-                accessibilityLabel="移除失败记录"
-                onPress={() => removeFailedDownload(item.song, item.quality)}
-                render={({ color, size }) => <X color={color} size={size} />}
-              />
-            </View>
-          </View>
-        );
-      })}
-
-      {downloads.map((item) => {
-        const quality = (item.quality ?? item.song.quality ?? "320k") as DownloadQuality;
-        const key = `${item.song.source}:${item.song.id}:${quality}`;
-        const metadata = buildCompletedDownloadMetadata(item);
-        return (
-          <Touchable
-            key={key}
-            style={[styles.downloadItem, { backgroundColor: palette.surface }]}
-            onPress={() => void handlePlay(item.song, item.localPath)}
-            accessibilityRole="button"
-            accessibilityLabel={`播放 ${item.song.name}`}
+      <View style={styles.downloadInfo}>
+        <Text style={[styles.downloadSongName, { color: palette.text }]} numberOfLines={1}>
+          {item.song.name}
+        </Text>
+        <Text style={[styles.downloadMeta, { color: palette.textMuted }]} numberOfLines={1}>
+          {metadata.titleMeta}
+        </Text>
+        <Text style={[styles.downloadStatus, { color: palette.primaryInk }]}>{metadata.statusLabel}</Text>
+        <Text style={[styles.downloadDetail, { color: palette.textSubtle }]} numberOfLines={1}>
+          {metadata.detailLabel}
+        </Text>
+        {metadata.warningLabel ? (
+          <Text
+            style={[styles.downloadDetail, { color: palette.danger }]}
+            numberOfLines={2}
           >
-            <CachedImage
-              uri={coverFor(item.song) || ""}
-              style={styles.cover}
-              fallback={<View style={[styles.coverFallback, { backgroundColor: palette.surfaceStrong }]} />}
-            />
-            <View style={styles.downloadInfo}>
-              <Text style={[styles.downloadSongName, { color: palette.text }]} numberOfLines={1}>
-                {item.song.name}
-              </Text>
-              <Text style={[styles.downloadMeta, { color: palette.textMuted }]} numberOfLines={1}>
-                {metadata.titleMeta}
-              </Text>
-              <Text style={[styles.downloadStatus, { color: palette.primaryInk }]}>{metadata.statusLabel}</Text>
-              <Text style={[styles.downloadDetail, { color: palette.textSubtle }]} numberOfLines={1}>
-                {metadata.detailLabel}
-              </Text>
-              {metadata.warningLabel ? (
-                <Text
-                  style={[styles.downloadDetail, { color: palette.danger }]}
-                  numberOfLines={2}
-                >
-                  {metadata.warningLabel}
-                </Text>
-              ) : null}
-            </View>
-            <View style={styles.downloadActions}>
-              {/* 两个删除动作语义不同必须可见：移除记录=只清列表项保留文件；删除文件=连本地文件一起删 */}
-              <Touchable
-                style={[styles.textAction, { backgroundColor: palette.surfaceStrong }]}
-                onPress={(e) => {
-                  e?.stopPropagation?.();
-                  void removeDownloadRecord(item.song, quality);
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="移除下载记录，保留本地文件"
-              >
-                <Text style={[styles.textActionText, { color: palette.textMuted }]}>移除记录</Text>
-              </Touchable>
-              <Touchable
-                style={[styles.textAction, { backgroundColor: withAlpha(palette.danger, 0.12) }]}
-                onPress={(e) => {
-                  e?.stopPropagation?.();
-                  Alert.alert(
-                    "删除下载文件",
-                    "将同时删除本地文件与下载记录,此操作不可恢复。确定删除?",
-                    [
-                      { text: "取消", style: "cancel" },
-                      {
-                        text: "删除",
-                        style: "destructive",
-                        onPress: () => void removeDownload(item.song, quality),
-                      },
-                    ],
-                  );
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="删除下载文件并移除记录"
-              >
-                <Text style={[styles.textActionText, { color: palette.danger }]}>删除文件</Text>
-              </Touchable>
-            </View>
-          </Touchable>
-        );
-      })}
-    </View>
+            {metadata.warningLabel}
+          </Text>
+        ) : null}
+      </View>
+      <View style={styles.downloadActions}>
+        {/* 两个删除动作语义不同必须可见：移除记录=只清列表项保留文件；删除文件=连本地文件一起删 */}
+        <Touchable
+          style={[styles.textAction, { backgroundColor: palette.surfaceStrong }]}
+          onPress={(e) => {
+            e?.stopPropagation?.();
+            void removeDownloadRecord(item.song, quality);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="移除下载记录，保留本地文件"
+        >
+          <Text style={[styles.textActionText, { color: palette.textMuted }]}>移除记录</Text>
+        </Touchable>
+        <Touchable
+          style={[styles.textAction, { backgroundColor: withAlpha(palette.danger, 0.12) }]}
+          onPress={(e) => {
+            e?.stopPropagation?.();
+            Alert.alert(
+              "删除下载文件",
+              "将同时删除本地文件与下载记录,此操作不可恢复。确定删除?",
+              [
+                { text: "取消", style: "cancel" },
+                {
+                  text: "删除",
+                  style: "destructive",
+                  onPress: () => void removeDownload(item.song, quality),
+                },
+              ],
+            );
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="删除下载文件并移除记录"
+        >
+          <Text style={[styles.textActionText, { color: palette.danger }]}>删除文件</Text>
+        </Touchable>
+      </View>
+    </Touchable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   emptyContainer: {

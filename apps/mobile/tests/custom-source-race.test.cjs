@@ -71,6 +71,60 @@ function track(promise) {
   return state;
 }
 
+test("取消解析停止后续候选调度并取消已启动脚本", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const calls = [];
+  const controller = new AbortController();
+  const { service } = setup(
+    [{ id: "a", name: "a", enabled: true }, { id: "b", name: "b", enabled: true }],
+    (_source, _song, _quality, _alert, _platform, signal) => {
+      calls.push(signal);
+      return new Promise(() => {});
+    },
+  );
+  const state = track(service.resolveUrlWithCustomSource(song("1"), ["flac", "320k"], Date.now() + 14000, controller.signal));
+  await advance(t, 100);
+  controller.abort();
+  await advance(t, 5000);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.aborted, true);
+  assert.equal(state.settled, true);
+});
+
+test("八个慢源中队尾唯一可用源仍获得机会，真实脚本并发不超过三", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  let active = 0;
+  let peak = 0;
+  const { service } = setup(
+    Array.from({ length: 8 }, (_, id) => ({ id: String(id), name: String(id), enabled: true })),
+    (source, _song, quality, _alert, _platform, signal) => new Promise((resolve, reject) => {
+      peak = Math.max(peak, ++active);
+      const finish = () => { active--; resolve({ url: "https://cdn/last", quality }); };
+      if (source.id === "7") setTimeout(finish, 100);
+      else signal?.addEventListener("abort", () => { active--; reject(new Error("cancelled")); }, { once: true });
+    }),
+  );
+  const state = track(service.resolveUrlWithCustomSource(song("1"), ["flac", "320k", "128k"], Date.now() + 14000));
+  await advance(t, 11000);
+  assert.equal(peak, 3);
+  assert.equal(state.value?.url, "https://cdn/last");
+  assert.equal(active, 0);
+});
+
+test("三个源的前排多档挂起也不会堵死末尾可用源", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { service } = setup(
+    Array.from({ length: 3 }, (_, id) => ({ id: String(id), name: String(id), enabled: true })),
+    (source, _song, quality, _alert, _platform, signal) => new Promise((resolve, reject) => {
+      if (source.id === "2") setTimeout(() => resolve({ url: "https://cdn/third", quality }), 100);
+      else signal?.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
+    }),
+  );
+  const state = track(service.resolveUrlWithCustomSource(song("1"), ["flac", "320k", "128k"], Date.now() + 14000));
+  await advance(t, 11000);
+  assert.equal(state.value?.url, "https://cdn/third");
+});
+
 test("预算末尾取得的地址不会因内层探活超时而丢失", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
   const { service } = setup(

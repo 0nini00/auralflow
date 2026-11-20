@@ -1,14 +1,16 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Animated, Easing, StyleSheet, Pressable, View, type GestureResponderEvent, type LayoutChangeEvent } from "react-native";
+import { Animated, Easing, StyleSheet, View, type GestureResponderEvent, type LayoutChangeEvent } from "react-native";
 
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { withAlpha } from "@/services/themePaletteModel";
+import { logger } from "@/services/logger";
 
 interface ProgressBarProps {
   position: number;
   duration: number;
   buffered?: number;
-  onSeek: (position: number) => void;
+  trackKey?: string;
+  onSeek: (position: number) => void | Promise<void>;
   /** 播放页固定深色时传入播放器的 dark palette，避免进度条轨道跟着全局浅色主题发亮 */
   palette?: ReturnType<typeof getThemePalette>;
 }
@@ -17,20 +19,23 @@ export function ProgressBar({
   position,
   duration,
   buffered,
+  trackKey,
   onSeek,
   palette: paletteOverride,
 }: ProgressBarProps) {
   const [seeking, setSeeking] = useState(false);
-  const [seekPosition, setSeekPosition] = useState(0);
   const [trackWidth, setTrackWidth] = useState(0);
+  const dragRef = useRef<{ originX: number; duration: number; progress: number; trackKey?: string } | null>(null);
+  const pendingSeekRef = useRef<{ position: number; duration: number } | null>(null);
   const themeMode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
   const themePalette = getThemePalette(getResolvedTheme(themeMode, systemTheme), accentColor);
   const palette = paletteOverride ?? themePalette;
 
-  const current = seeking ? seekPosition : position;
-  const progress = duration > 0 ? Math.min(1, Math.max(0, current / duration)) : 0;
+  const progress = duration > 0 ? Math.min(1, Math.max(0, position / duration)) : 0;
+  const playbackProgressRef = useRef(progress);
+  playbackProgressRef.current = progress;
   const bufferedProgress =
     duration > 0 && typeof buffered === "number" && Number.isFinite(buffered)
       ? Math.min(1, buffered / duration)
@@ -43,27 +48,34 @@ export function ProgressBar({
   const progressRef = useRef(progress);
 
   useEffect(() => {
-    const listenerId = progressAnim.addListener(({ value }) => {
-      progressRef.current = value;
-    });
-    return () => progressAnim.removeListener(listenerId);
-  }, [progressAnim]);
-
-  useEffect(() => {
-    if (seeking) {
-      // 按点选位置即时跟随，不走动画追赶
+    if (dragRef.current && (dragRef.current.duration !== duration || dragRef.current.trackKey !== trackKey)) {
+      // 曲目/时长变化时旧手势失效，不能把旧坐标提交给新曲目。
+      dragRef.current = null;
+      pendingSeekRef.current = null;
+      setSeeking(false);
       progressAnim.setValue(progress);
+      progressRef.current = progress;
       return;
     }
+    if (seeking) return;
+    const pending = pendingSeekRef.current;
+    if (pending && pending.position === position && pending.duration === duration) {
+      // 松手后保留预览，等播放层发布新位置再接回正常进度。
+      return;
+    }
+    pendingSeekRef.current = null;
     // seek/切歌跳变用 200ms 快速追赶，正常播放用 1000ms 平滑推进（对齐 MiniProgressBar）
     const isJump = Math.abs(progress - progressRef.current) > 0.05;
-    Animated.timing(progressAnim, {
+    progressRef.current = progress;
+    const animation = Animated.timing(progressAnim, {
       toValue: progress,
       duration: isJump ? 200 : 1000,
       easing: Easing.linear,
       useNativeDriver: true,
-    }).start();
-  }, [progress, seeking, progressAnim]);
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [progress, position, duration, trackKey, seeking, progressAnim]);
 
   // 插值节点按 trackWidth 缓存：本组件随进度事件 4Hz 重渲染，
   // 若每次渲染都重建 .interpolate() 会向原生动画层高频注册/丢弃节点
@@ -81,29 +93,72 @@ export function ProgressBar({
     setTrackWidth(event.nativeEvent.layout.width);
   };
 
-  const handlePress = (event: GestureResponderEvent) => {
-    // 触点 X 坐标在 nativeEvent 上；宽度用 onLayout 实测值，避免误取导致 NaN 传入 seekTo。
-    const locationX = event.nativeEvent.locationX;
-    if (trackWidth <= 0 || duration <= 0 || !Number.isFinite(locationX)) return;
-    const newProgress = Math.max(0, Math.min(1, locationX / trackWidth));
-    const newPosition = newProgress * duration;
-    if (!Number.isFinite(newPosition)) return;
-
-    onSeek(newPosition);
+  const canSeek = trackWidth > 0 && Number.isFinite(duration) && duration > 0;
+  const updateDrag = (event: GestureResponderEvent) => {
+    const drag = dragRef.current;
+    if (!drag || !Number.isFinite(event.nativeEvent.pageX) || trackWidth <= 0) return;
+    drag.progress = Math.max(0, Math.min(1, (event.nativeEvent.pageX - drag.originX) / trackWidth));
+    progressAnim.setValue(drag.progress);
+  };
+  const startDrag = (event: GestureResponderEvent) => {
+    const { locationX, pageX } = event.nativeEvent;
+    if (!canSeek || !Number.isFinite(locationX) || !Number.isFinite(pageX)) return;
+    pendingSeekRef.current = null;
+    dragRef.current = { originX: pageX - locationX, duration, progress, trackKey };
+    progressAnim.stopAnimation();
+    setSeeking(true);
+    updateDrag(event);
+  };
+  const releaseDrag = async (event: GestureResponderEvent) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    updateDrag(event);
+    dragRef.current = null;
+    progressRef.current = drag.progress;
+    const request = { position, duration };
+    pendingSeekRef.current = request;
+    setSeeking(false);
+    try {
+      await onSeek(drag.progress * drag.duration);
+    } catch (error) {
+      if (pendingSeekRef.current === request) {
+        pendingSeekRef.current = null;
+        progressAnim.setValue(playbackProgressRef.current);
+        progressRef.current = playbackProgressRef.current;
+      }
+      logger.warn("[ProgressBar] 跳转播放位置失败", error);
+    }
+  };
+  const cancelDrag = () => {
+    dragRef.current = null;
+    pendingSeekRef.current = null;
+    progressAnim.setValue(progress);
+    progressRef.current = progress;
+    setSeeking(false);
   };
 
   return (
-    <Pressable
+    <View
       style={styles.container}
-      onPress={handlePress}
       onLayout={handleLayout}
-      onPressIn={() => {
-        setSeeking(true);
-        setSeekPosition(position);
+      onStartShouldSetResponder={() => canSeek}
+      onResponderGrant={startDrag}
+      onResponderMove={updateDrag}
+      onResponderRelease={releaseDrag}
+      onResponderTerminate={cancelDrag}
+      onResponderTerminationRequest={() => false}
+      accessibilityRole="adjustable"
+      accessibilityLabel="播放进度"
+      accessibilityValue={{ min: 0, max: duration > 0 ? duration : 0, now: position }}
+      accessibilityActions={[{ name: "increment", label: "快进5秒" }, { name: "decrement", label: "后退5秒" }]}
+      onAccessibilityAction={event => {
+        if (!canSeek) return;
+        const { actionName } = event.nativeEvent;
+        if (actionName === "increment") onSeek(Math.min(duration, position + 5));
+        if (actionName === "decrement") onSeek(Math.max(0, position - 5));
       }}
-      onPressOut={() => setSeeking(false)}
     >
-      <View style={[styles.track, { backgroundColor: withAlpha(palette.text, 0.14) }]}>
+      <View pointerEvents="none" style={[styles.track, { backgroundColor: withAlpha(palette.text, 0.14) }]}>
         {bufferedProgress !== undefined ? (
           <View
             style={[
@@ -136,7 +191,7 @@ export function ProgressBar({
           ]}
         />
       </View>
-    </Pressable>
+    </View>
   );
 }
 

@@ -310,37 +310,34 @@ export const useHomeFeedStore = create<HomeFeedStore>((set, get) => {
       const generation = accountGeneration;
       const request = ++requestGeneration;
       fullRefreshGeneration = request;
+      const isCurrent = () => generation === accountGeneration
+        && request === requestGeneration && get().cacheKey === cacheKey;
       const task: Promise<void> = (async () => {
         set({ refreshing: true, error: null });
         try {
-          const incoming = sectionsForContext(context, await fetchHomeFeed(context));
-          if (
-            generation !== accountGeneration
-            || request !== requestGeneration
-            || get().cacheKey !== cacheKey
-          ) return;
+          await fetchHomeFeed(context, (incoming) => {
+            if (!isCurrent()) return;
+            const currentSections = get().sections;
+            const previous = currentSections.find(section => section.id === incoming.id);
+            const merged = mergeFeedSection(previous, incoming);
+            set({
+              sections: sectionsForContext(context, [
+                ...currentSections.filter(section => section.id !== incoming.id), merged,
+              ]),
+              loaded: true,
+            });
+          });
+          if (!isCurrent()) return;
 
-          const previous = get().sections;
-          const sections = incoming.map((section) => mergeFeedSection(
-            previous.find((item) => item.id === section.id),
-            section,
-          ));
+          const sections = get().sections;
           const lastUpdated = Date.now();
+          set({ loaded: true, lastUpdated, refreshing: false });
           await writeCacheIfCurrent(
             cacheKey,
             sections,
             lastUpdated,
-            () => generation === accountGeneration
-              && request === requestGeneration
-              && get().cacheKey === cacheKey,
+            isCurrent,
           );
-          if (
-            generation === accountGeneration
-            && request === requestGeneration
-            && get().cacheKey === cacheKey
-          ) {
-            set({ sections, loaded: true, lastUpdated, error: null });
-          }
         } catch (error) {
           if (
             generation === accountGeneration

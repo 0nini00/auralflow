@@ -22,6 +22,8 @@ export interface LxBridgeInbound {
   alert?: unknown;
   message?: string;
   id?: string;
+  ownerId?: string;
+  reusable?: boolean;
   url?: string;
   options?: Record<string, unknown>;
   result?: unknown;

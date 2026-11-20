@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MusicInfo } from '../sources';
-import { aggregateListeningEvents, createListeningSession, sampleListeningSession, seekListeningSession, parseListeningEvents, upsertListeningEvent } from './listening-session';
+import { aggregateListeningEvents, createListeningSession, sampleListeningSession, seekListeningSession, parseListeningEvents, upsertListeningEvent, createListeningStatsIndex } from './listening-session';
 
 const song = { id: '1', source: 'wy', name: 'Song', singer: 'Artist', interval: 300 } as MusicInfo;
 const sample = (at: number, position: number, playing = true, rate = 1) => ({ at, position, playing, rate });
@@ -54,5 +54,46 @@ describe('actual listening sessions', () => {
     expect(parsed).toHaveLength(2000);
     expect(parsed[1].listenedMs).toBe(9000);
     expect(identityReads).toBeLessThan(20_000);
+  });
+});
+
+describe('incremental listening statistics', () => {
+  it('matches full aggregation after checkpoints, new sessions, and corrected identities and dates', () => {
+    const index = createListeningStatsIndex();
+    let events: Parameters<typeof aggregateListeningEvents>[0] = [];
+    const first = { sessionId: 'first', song, startedAt: new Date(2026, 0, 31, 23, 59).getTime(), listenedMs: 0 };
+    const updates = [first, { ...first, listenedMs: 1000 },
+      { ...first, sessionId: 'second', listenedMs: 1000 },
+      { ...first, listenedMs: 3000 },
+      { ...first, listenedMs: 2000 },
+      { ...first, listenedMs: 4000, startedAt: new Date(2026, 1, 1).getTime(), song: { ...song, id: 'other', singer: 'Other' } },
+      { ...first, sessionId: 'third', listenedMs: 2500, song: { ...song, singer: '' } },
+    ];
+    for (const event of updates) {
+      events = upsertListeningEvent(events, event);
+      index.record(event);
+      expect(index.snapshot()).toEqual(aggregateListeningEvents(events));
+    }
+  });
+
+  it('preserves published snapshots and returns the same snapshot for replayed checkpoints', () => {
+    const first = { sessionId: 'first', song, startedAt: Date.UTC(2026, 1, 1), listenedMs: 1000 };
+    const index = createListeningStatsIndex([first]);
+    const snapshot = index.snapshot();
+    expect(index.record(first)).toBe(false);
+    expect(index.snapshot()).toBe(snapshot);
+    index.record({ ...first, listenedMs: 2000 });
+    expect(snapshot.totalMs).toBe(1000);
+    expect(snapshot.topTracks[0].totalMs).toBe(1000);
+    expect(index.snapshot().totalMs).toBe(2000);
+  });
+
+  it('uses local calendar dates across UTC month and daylight-saving boundaries', () => {
+    const events = [
+      { sessionId: 'before', song, startedAt: new Date(2026, 2, 8, 0, 30).getTime(), listenedMs: 1000 },
+      { sessionId: 'after', song, startedAt: new Date(2026, 2, 8, 23, 30).getTime(), listenedMs: 2000 },
+      { sessionId: 'month', song, startedAt: new Date(2026, 1, 1, 0, 30).getTime(), listenedMs: 3000 },
+    ];
+    expect(createListeningStatsIndex(events).snapshot()).toEqual(aggregateListeningEvents(events));
   });
 });

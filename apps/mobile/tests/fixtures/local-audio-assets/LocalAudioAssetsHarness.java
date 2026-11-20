@@ -21,6 +21,11 @@ public final class LocalAudioAssetsHarness extends AudioAssetsBaseModule {
   private final File cache;
   private final ContentResolver resolver;
   private final Object writeActivityEventListener = new Object();
+  private Promise pickAudioPromise;
+  private PendingOperation writePending;
+  private PendingOperation updatePending;
+  private static final class PendingOperation { Promise promise; }
+  private static final class UiThreadUtil { static void runOnUiThread(Runnable action) { action.run(); } }
   private LocalAudioAssetsHarness(File cache, ContentResolver resolver) {
     this.cache = cache;
     this.resolver = resolver;
@@ -105,6 +110,7 @@ public final class LocalAudioAssetsHarness extends AudioAssetsBaseModule {
     volatile Throwable error;
     void resolve(Object value) { result = (WritableMap) value; done.countDown(); }
     void reject(String code, Throwable value) { error = value; done.countDown(); }
+    void reject(String code, String value) { reject(code, new IOException(value)); }
     Map<String, Object> await() throws Exception {
       check(done.await(4, TimeUnit.SECONDS), "Promise never settled");
       if (error != null) throw new IOException("Native rejected", error);

@@ -1,7 +1,7 @@
 import RNFS from "react-native-fs";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import CryptoJS from "crypto-js";
-import { COVER_SIZE_LARGE, resizeCoverUrl, type MusicInfo } from "@lx/core";
+import { COVER_SIZE_LARGE, createRequestLimiter, resizeCoverUrl, type MusicInfo } from "@lx/core";
 import { clearPlaybackUrlCache } from "./playbackUrlCache";
 import { selectFilesToEvict, type CachedFileEntry } from "./cacheEvictionModel";
 import { buildStreamHeaders } from "./musicApi";
@@ -75,10 +75,11 @@ const emptyCacheStats = (): CacheStats => ({
 /**
  * 初始化缓存目录
  */
-let partialRecovery: Promise<void> | undefined;
+let directoriesReady: Promise<void> | undefined;
 
-async function initCacheDirectories(): Promise<void> {
-  try {
+function initCacheDirectories(): Promise<void> {
+  if (directoriesReady) return directoriesReady;
+  directoriesReady = (async () => {
     const dirs = [CACHE_DIR, COVER_CACHE_DIR, LYRIC_CACHE_DIR, AUDIO_CACHE_DIR];
     for (const dir of dirs) {
       const exists = await RNFS.exists(dir);
@@ -86,15 +87,12 @@ async function initCacheDirectories(): Promise<void> {
         await RNFS.mkdir(dir);
       }
     }
-    if (!partialRecovery) {
-      partialRecovery = Promise.all([COVER_CACHE_DIR, AUDIO_CACHE_DIR].map(removeOrphanedPartialDownloads))
-        .then(() => undefined)
-        .catch((error) => { partialRecovery = undefined; throw error; });
-    }
-    await partialRecovery;
-  } catch (error) {
+    await Promise.all([COVER_CACHE_DIR, AUDIO_CACHE_DIR].map(removeOrphanedPartialDownloads));
+  })().catch((error) => {
+    directoriesReady = undefined;
     throw error;
-  }
+  });
+  return directoriesReady;
 }
 
 /**
@@ -142,6 +140,7 @@ async function isCacheValidWithAge(filePath: string): Promise<boolean> {
 
 /** 封面与音频共用文件提交边界；同一路径只允许一个写入任务。 */
 const cacheDownloadsInFlight = new Map<string, Promise<string | null>>();
+const coverDownloads = createRequestLimiter({ limit: 3 });
 
 async function downloadCacheFile(url: string, filePath: string, headers: Record<string, string> | undefined, onCommitted?: () => Promise<void>): Promise<string | null> {
   const running = cacheDownloadsInFlight.get(filePath);
@@ -154,7 +153,17 @@ async function downloadCacheFile(url: string, filePath: string, headers: Record<
       if (abandoned) await discardPartialDownload(partialPath);
     };
     try {
-      const download = RNFS.downloadFile({ fromUrl: url, toFile: partialPath, headers });
+      const release = filePath.startsWith(`${COVER_CACHE_DIR}/`) ? await coverDownloads.acquire() : undefined;
+      let download;
+      try {
+        download = RNFS.downloadFile({ fromUrl: url, toFile: partialPath, headers,
+          connectionTimeout: DOWNLOAD_TIMEOUT_MS, readTimeout: DOWNLOAD_TIMEOUT_MS });
+      } catch (error) {
+        release?.();
+        throw error;
+      }
+      // 停止请求不等于原生已经结算，实际下载完成才归还并发名额。
+      void download.promise.then(() => release?.(), () => release?.());
       // stopDownload 不保证原生 Promise 立即结束；迟到写入只能清理本次独占临时文件。
       void download.promise.then(cleanLateDownload, cleanLateDownload).catch((error) => {
         logger.warn("清理迟到缓存下载失败", error);
@@ -663,6 +672,7 @@ export async function clearAllCache(): Promise<void> {
     if (exists) {
       await RNFS.unlink(CACHE_DIR);
     }
+    directoriesReady = undefined;
     await AsyncStorage.removeItem(AUDIO_CACHE_INDEX_KEY);
     await clearPlaybackUrlCache();
     await initCacheDirectories();

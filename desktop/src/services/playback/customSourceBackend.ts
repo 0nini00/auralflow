@@ -91,7 +91,8 @@ export const customSourceBackend: PlaybackBackend = {
       // 公益代理是明显的放大，被限流后所有源一起变慢，竞速会退化成一起超时。
       // 这里把在途压到 3 个，超出的候选排队；本轮一结束就 abandon，排队中的
       // 候选直接作废，一个字节都不会在「已经有结果」之后补发出去。
-      const limiter = createRequestLimiter({ limit: MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS });
+      // 桌面暂保留旧的软调度；租约放行不代表真实 HTTP 在途上限。
+      const limiter = createRequestLimiter({ limit: MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS, mode: "soft" });
 
       // 有 sources 元数据时先按平台过滤：没有声明 musicUrl 的源不必执行脚本再失败。
       // 元数据缺失（从未测试/初始化）的源保持参与，运行时仍会做最终校验。

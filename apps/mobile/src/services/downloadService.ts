@@ -10,8 +10,7 @@ import { probeStreamUrl } from "./streamProbe";
 import { commitDownloadedFile, createPartialDownloadPath, removeOrphanedPartialDownloads, validateDownloadedFile } from "./fileDownloadCommit";
 import { buildDownloadFileStem } from "./downloadFileNaming";
 
-import { embedId3Tag, type Id3Cover } from "./id3TagWriter";
-import { base64ToBytes, bytesToBase64 } from "@/utils/base64";
+import { writeDownloadedMp3Tags } from "./downloadTagService";
 export { formatDownloadSize } from "./downloadSizeFormatter";
 
 /**
@@ -599,30 +598,9 @@ async function writeSidecarLyrics(
   }
 }
 
-/** 拉取封面字节（对齐桌面端 fetchCoverDataUrl），失败返回 undefined 不阻断下载。 */
-async function fetchCoverBytes(song: MusicInfo): Promise<Id3Cover | undefined> {
-  const url = song.picUrl || song.img;
-  if (!url) return undefined;
-  // 临时文件统一在 finally 里清理：非 200 / 下载异常 / 读盘异常也不能残留泄漏。
-  const tmpPath = `${RNFS.CachesDirectoryPath}/auralflow_cover_${Date.now()}.tmp`;
-  try {
-    const mime = url.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
-    const result = await RNFS.downloadFile({ fromUrl: url, toFile: tmpPath }).promise;
-    if (result.statusCode !== 200) return undefined;
-    const b64 = await RNFS.readFile(tmpPath, "base64");
-    return { mime, data: base64ToBytes(b64) };
-  } catch {
-    return undefined;
-  } finally {
-    await RNFS.unlink(tmpPath).catch(() => undefined);
-  }
-}
-
 /**
  * 对齐桌面端 enhanceDownloadedFile：把标题/歌手/专辑 + 封面 + 歌词写进下载音频。
- * 只处理非本地、MP3 类文件：
- * - FLAC/M4A 用 ID3v2 头是非标准格式（播放器可能忽略甚至误读），跳过；
- * - 读整文件进内存 + base64 双转换，超过体积上限（25MB）跳过，避免 Hermes OOM。
+ * 非本地 MP3 交给原生后台事务；音频和封面均不经过 JS 字节转换。
  * 封面缺失可继续；文件重写失败必须终止任务，不能把截断音频当作完成下载。
  */
 async function enhanceDownloadedFile(
@@ -636,26 +614,44 @@ async function enhanceDownloadedFile(
   if (song.wyCloud === true) return [];
   const ext = finalFilePath.split(".").pop()?.toLowerCase() ?? "";
   if (ext !== "mp3") return [];
+  const warnings: string[] = [];
+  let tagFailure: Error | undefined;
+  const coverUrl = song.picUrl || song.img;
+  const coverPath = coverUrl ? `${RNFS.CachesDirectoryPath}/auralflow_cover_${Date.now()}.tmp` : null;
   try {
-    const stat = await RNFS.stat(audioFilePath);
-    if (Number(stat.size) > 25 * 1024 * 1024) return [];
     const lrc = formatLyricsAsLrc(lyrics ?? []);
-    const cover = await fetchCoverBytes(song);
-
-    const b64 = await RNFS.readFile(audioFilePath, "base64");
-    const audio = base64ToBytes(b64);
-    const tagged = embedId3Tag(audio, {
+    let downloadedCover: string | null = null;
+    if (coverUrl && coverPath) {
+      try {
+        const result = await RNFS.downloadFile({ fromUrl: coverUrl, toFile: coverPath }).promise;
+        if (result.statusCode !== 200) throw new Error(`HTTP ${result.statusCode}`);
+        downloadedCover = coverPath;
+      } catch (error) {
+        warnings.push(`下载内嵌封面失败：${formatDownloadReason(error)}`);
+      }
+    }
+    await writeDownloadedMp3Tags(audioFilePath, {
       title: song.name || undefined,
       artist: song.singer || undefined,
       album: song.albumName || undefined,
-      cover,
       lyrics: lrc || undefined,
-    });
-    await RNFS.writeFile(audioFilePath, bytesToBase64(tagged), "base64");
-    return [];
+    }, downloadedCover);
   } catch (error) {
-    throw new Error(`写入内嵌标签失败：${formatDownloadReason(error)}`);
+    tagFailure = new Error(`写入内嵌标签失败：${formatDownloadReason(error)}`);
+  } finally {
+    if (coverPath) {
+      try {
+        if (await RNFS.exists(coverPath)) await RNFS.unlink(coverPath);
+      } catch (error) {
+        warnings.push(`清理临时封面失败：${formatDownloadReason(error)}`);
+      }
+    }
   }
+  if (tagFailure) {
+    if (warnings.length > 0) tagFailure.message += `；${warnings.join("；")}`;
+    throw tagFailure;
+  }
+  return warnings;
 }
 
 /** 把任意抛出物压成一行可展示的原因。 */

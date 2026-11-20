@@ -22,6 +22,9 @@ export async function fetchWithTimeout(
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Promise<Response> {
   const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (init?.signal?.aborted) abort();
+  else init?.signal?.addEventListener("abort", abort, { once: true });
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   // credentials 默认 "omit"：RN Android 在 withCredentials 为真时保留 OkHttp 的
   // ReactCookieJarContainer（NetworkingModule.kt: `if (!withCredentials) cookieJar(NO_COOKIES)`），
@@ -41,5 +44,6 @@ export async function fetchWithTimeout(
     });
   } finally {
     clearTimeout(timer);
+    init?.signal?.removeEventListener("abort", abort);
   }
 }

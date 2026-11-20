@@ -99,6 +99,7 @@ public final class ExternalFileNativeHarness {
     Throwable error;
     void resolve(Object value) { result = (WritableMap) value; done.countDown(); }
     void reject(String code, Throwable cause) { error = cause; done.countDown(); }
+    void reject(String code, String cause) { reject(code, new IllegalStateException(cause)); }
     WritableMap value() throws Exception {
       check(done.await(4, TimeUnit.SECONDS), "Promise never settled");
       if (error != null) throw new AssertionError(error);
@@ -129,6 +130,12 @@ public final class ExternalFileNativeHarness {
 
   static final class AudioModule extends BaseModule {
     final Object writeActivityEventListener = new Object();
+    Promise pickAudioPromise;
+    static class PendingWrite { Promise promise; }
+    static class PendingMetadataUpdate { Promise promise; }
+    PendingWrite writePending;
+    PendingMetadataUpdate updatePending;
+    static class UiThreadUtil { static void runOnUiThread(Runnable action) { action.run(); } }
     int mapped;
     WritableMap buildSongFromUri(ContentResolver resolver, Uri uri) {
       check(!Thread.currentThread().getName().equals("main"), "Song mapping must run in background");

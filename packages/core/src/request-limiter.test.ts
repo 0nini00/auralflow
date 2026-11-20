@@ -33,7 +33,7 @@ describe("createRequestLimiter", () => {
 
   it("租约到期让出槽位，挂死的请求不再阻塞后来者", async () => {
     // 排队上限故意设得比租约长：只验证租约本身能救回队尾。
-    const limiter = createRequestLimiter({ limit: 1, leaseMs: 1_000, queueWaitMs: 5_000 });
+    const limiter = createRequestLimiter({ limit: 1, mode: "soft", leaseMs: 1_000, queueWaitMs: 5_000 });
     await limiter.acquire();
 
     let admitted = false;
@@ -65,7 +65,7 @@ describe("createRequestLimiter", () => {
   });
 
   it("排队超时后溢出放行，其释放函数不占用也不归还槽位", async () => {
-    const limiter = createRequestLimiter({ limit: 1, queueWaitMs: 300, leaseMs: 10_000 });
+    const limiter = createRequestLimiter({ limit: 1, mode: "soft", queueWaitMs: 300, leaseMs: 10_000 });
     const held = await limiter.acquire();
 
     let overflowRelease: (() => void) | null = null;
@@ -91,5 +91,30 @@ describe("createRequestLimiter", () => {
     const releaseNext = await next;
     releaseNext();
     held();
+  });
+
+  it("严格模式不因时间经过释放真实在途名额", async () => {
+    const limiter = createRequestLimiter({ limit: 1 });
+    const release = await limiter.acquire();
+    let started = false;
+    const queued = limiter.acquire().then((done) => { started = true; return done; });
+    await vi.advanceTimersByTimeAsync(10_000);
+    const beforeRelease = started;
+    release();
+    (await queued)();
+    expect(beforeRelease).toBe(false);
+  });
+
+  it("取消排队者不获取名额，也不影响其它等待者", async () => {
+    const limiter = createRequestLimiter({ limit: 1 });
+    const release = await limiter.acquire();
+    const controller = new AbortController();
+    const cancelled = limiter.acquire(controller.signal);
+    const rejection = expect(cancelled).rejects.toMatchObject({ name: "AbortError" });
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(1_000);
+    release();
+    await rejection;
+    (await limiter.acquire())();
   });
 });

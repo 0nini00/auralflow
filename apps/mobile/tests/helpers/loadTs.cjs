@@ -18,14 +18,19 @@ const transpiled = new Map();
 function transpile(filename, source) {
   const cached = transpiled.get(filename);
   if (cached && cached.source === source) return cached.code;
-  const code = ts.transpileModule(source, {
+  const result = ts.transpileModule(source, {
+    reportDiagnostics: true,
     compilerOptions: {
       module: ts.ModuleKind.CommonJS,
       target: ts.ScriptTarget.ES2022,
       esModuleInterop: true,
+      jsx: ts.JsxEmit.ReactJSX,
     },
     fileName: filename,
-  }).outputText;
+  });
+  const errors = result.diagnostics?.filter(diagnostic => diagnostic.category === ts.DiagnosticCategory.Error) ?? [];
+  if (errors.length) throw new Error(errors.map(error => `${filename}: ${ts.flattenDiagnosticMessageText(error.messageText, '\n')}`).join('\n'));
+  const code = result.outputText;
   transpiled.set(filename, { source, code });
   return code;
 }
@@ -33,7 +38,7 @@ function transpile(filename, source) {
 /** 导入名解析成源码文件：先试同名 .ts，再试目录下的 index.ts（core 里有 `./sources` 这种目录导入）。 */
 function resolveSourceFile(base, request) {
   const target = path.resolve(base, request);
-  for (const candidate of [`${target}.ts`, path.join(target, "index.ts")]) {
+  for (const candidate of [`${target}.ts`, `${target}.tsx`, path.join(target, "index.ts")]) {
     if (fs.existsSync(candidate)) return candidate;
   }
   throw new Error(`找不到模块 ${request}（基准目录 ${base}）`);
@@ -53,6 +58,7 @@ function createLoader(mocks) {
     modules.set(resolved, module);
     function requireDependency(name) {
       if (Object.hasOwn(mocks, name)) return mocks[name];
+      if (name === "react/jsx-runtime") return mobileRequire(name);
       if (name === "@lx/core") return loadFile(CORE_ENTRY);
       if (resolved.startsWith(`${coreRoot}${path.sep}`) && !name.startsWith(".")) return coreRequire(name);
       if (name.startsWith("@/")) return loadFile(resolveSourceFile(mobileRoot, `src/${name.slice(2)}`));

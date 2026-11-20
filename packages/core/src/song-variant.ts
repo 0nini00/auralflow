@@ -133,24 +133,35 @@ export function buildSongGroupKey(song: MusicInfo): string {
  */
 export function groupSongResults(songs: MusicInfo[]): SongVariantGroup[] {
   const groups: SongVariantGroup[] = [];
+  const groupsByName = new Map<string, Array<{ group: SongVariantGroup; matches: Array<{ singers: string[]; interval?: number }> }>>();
 
   for (const song of songs) {
-    const existing = groups.find((group) => group.variants.some((variant) => isSameSong(variant, song)));
+    const name = normalizeSongName(song.name);
+    const singers = splitSingerTokens(song.singer);
+    const candidates = groupsByName.get(name) ?? [];
+    const existing = candidates.find(({ matches }) => matches.some((variant) =>
+      singers.some(singer => variant.singers.includes(singer))
+      && (!variant.interval || !song.interval || Math.abs(variant.interval - song.interval) <= SONG_MATCH_INTERVAL_TOLERANCE),
+    ));
     if (!existing) {
-      groups.push({
-        key: buildSongGroupKey(song),
+      const group: SongVariantGroup = {
+        key: `${name}:${normalizeArtist(song.singer)}:${song.interval ?? 0}`,
         primary: song,
         variants: [song],
-      });
+      };
+      groups.push(group);
+      candidates.push({ group, matches: [{ singers, interval: song.interval }] });
+      groupsByName.set(name, candidates);
       continue;
     }
 
-    if (!existing.variants.some((variant) => variant.source === song.source && variant.id === song.id)) {
-      existing.variants.push(song);
+    if (!existing.group.variants.some((variant) => variant.source === song.source && variant.id === song.id)) {
+      existing.group.variants.push(song);
+      existing.matches.push({ singers, interval: song.interval });
     }
 
-    existing.variants.sort((a, b) => sourceRank(a.source) - sourceRank(b.source));
-    existing.primary = existing.variants[0];
+    existing.group.variants.sort((a, b) => sourceRank(a.source) - sourceRank(b.source));
+    existing.group.primary = existing.group.variants[0];
   }
 
   return groups;

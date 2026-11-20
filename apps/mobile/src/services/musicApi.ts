@@ -22,6 +22,7 @@ import { mapWyTrackToMusicInfo } from "./wyMusicMapper";
 import { postWyEapi } from "./wyDirectProvider";
 import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
 import { parseNeteaseCommentResult, type SongCommentResult } from "./songCommentModel";
+import { throwIfAborted } from "@/utils/cancellation";
 
 const DEFAULT_LIMIT = 30;
 const SONG_PAGE_SIZE = { wy: 100, tx: 50 } as const;
@@ -103,8 +104,9 @@ export interface AlbumDetailResult {
   songs: MusicInfo[];
 }
 
-async function fetchText(url: string): Promise<string> {
+async function fetchText(url: string, signal?: AbortSignal): Promise<string> {
   const response = await fetchWithTimeout(url, {
+    signal: signal as RequestInit["signal"],
     headers: {
       Accept: "application/json,text/plain,*/*",
       "User-Agent": "AuralFlowMobile/0.1",
@@ -215,12 +217,13 @@ async function searchDirectSongs(
   source: Extract<SourceTag, "wy" | "tx">,
   keyword: string,
   page = 1,
+  signal?: AbortSignal,
 ): Promise<MusicInfo[]> {
   // 直连路径是网关挂掉时的完整兑底 + 元数据补全源，拉取量与桌面端对齐（wy 100 / tx 50）
   if (source === "wy") {
-    return searchWySongsViaCloudSearch(keyword, SONG_PAGE_SIZE.wy, page);
+    return searchWySongsViaCloudSearch(keyword, SONG_PAGE_SIZE.wy, page, signal);
   }
-  return searchTxSongs(keyword, SONG_PAGE_SIZE.tx, {}, page);
+  return searchTxSongs(keyword, SONG_PAGE_SIZE.tx, { signal }, page);
 }
 
 /**
@@ -236,7 +239,9 @@ export async function searchSongs(
   source: Extract<SourceTag, "wy" | "tx">,
   keyword: string,
   page = 1,
+  signal?: AbortSignal,
 ): Promise<MusicInfo[]> {
+  throwIfAborted(signal);
   keyword = normalizeSearchKeyword(keyword);
   const namespace = `${SONGS_CACHE_NAMESPACE}:page:${page}`;
   // 优先查缓存，命中则直接返回
@@ -244,17 +249,20 @@ export async function searchSongs(
   if (cached) return cached;
 
   const cacheAndReturn = (songs: MusicInfo[]): MusicInfo[] => {
+    throwIfAborted(signal);
     setCachedResult(source, keyword, songs, namespace);
     return songs;
   };
 
   let apiError: unknown;
   try {
-    const directSongs = await searchDirectSongs(source, keyword, page);
+    const directSongs = await searchDirectSongs(source, keyword, page, signal);
+    throwIfAborted(signal);
     // 首页空结果可能是被风控软拒（200 + 无 songs），不能当成“真的没有”缓存 5 分钟：
     // 继续走网关兜底；只有非首页的空页才按真实末页缓存。
     if (directSongs.length > 0 || page > 1) return cacheAndReturn(directSongs);
   } catch (error) {
+    throwIfAborted(signal);
     apiError = error;
   }
 
@@ -272,9 +280,11 @@ export async function searchSongs(
       page,
       SONG_PAGE_SIZE[source],
       source,
+      signal,
     );
     return cacheAndReturn(apiSongs);
   } catch (fallbackError) {
+    throwIfAborted(signal);
     if (!apiError) throw fallbackError;
     const apiMessage = apiError instanceof Error ? apiError.message : String(apiError);
     const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
@@ -398,11 +408,12 @@ export async function fetchNeteaseAlbumDetail(albumId: string): Promise<AlbumDet
  * 重录 / 同名不同曲；且即便匹配准确，用户点的是 QQ 音乐的曲目却播网易云版本，
  * 元数据与音质都对不上。tx 缺 gateway 时交给自定义音源用真实 songmid 解析。
  */
-export async function resolveSongUrl(song: MusicInfo, quality = "320k"): Promise<{ url: string; quality: string }> {
+export async function resolveSongUrl(song: MusicInfo, quality = "320k", signal?: AbortSignal): Promise<{ url: string; quality: string }> {
   if (!getBuiltinMusicApiGateway(song)) {
     throw new Error("内置音乐 API 无该歌曲的解析元数据");
   }
-  return builtinClient.resolveUrl(song, quality);
+  throwIfAborted(signal);
+  return builtinClient.resolveUrl(song, quality, signal);
 }
 
 /** 在线音频流统一浏览器 UA（CDN 防盗链要求，与桌面端一致）。 */
@@ -577,22 +588,23 @@ function getPlaybackCandidates(song: MusicInfo): MusicInfo[] {
   return orderPlaybackCandidates(song);
 }
 
-async function parseSingleUrl(song: MusicInfo, quality: string): Promise<{ url: string; quality: string }> {
+async function parseSingleUrl(song: MusicInfo, quality: string, signal?: AbortSignal): Promise<{ url: string; quality: string }> {
   // wy / tx 等在线源：统一由内置音乐 API 网关解析播放地址（
   // 官方直连只负责搜索与歌单/封面/歌词元数据，播放与下载走内置音乐 API）。
-  return await resolveSongUrl(song, quality);
+  return await resolveSongUrl(song, quality, signal);
 }
 
 /**
  * 返回网关实际给出的音质而非请求档位：竞速择优要按真实音质排序，
  * 请求 flac 但网关降级返回 320k 时不能记成 flac。
  */
-export async function parseUrl(song: MusicInfo, quality = "320k"): Promise<{ url: string; quality: string }> {
+export async function parseUrl(song: MusicInfo, quality = "320k", signal?: AbortSignal): Promise<{ url: string; quality: string }> {
   const errors: string[] = [];
 
   for (const candidate of getPlaybackCandidates(song)) {
+    throwIfAborted(signal);
     try {
-      return await parseSingleUrl(candidate, quality);
+      return await parseSingleUrl(candidate, quality, signal);
     } catch (error) {
       errors.push(`${candidate.source}:${candidate.id} ${error instanceof Error ? error.message : String(error)}`);
     }

@@ -29,7 +29,7 @@ test('搜索歌曲分页传给真实来源并使用独立缓存键', async () =>
 });
 test('切换网关后仍保持同一页大小避免漏过歌曲',async()=>{
   const h=setup({failDirect:true});await h.api.searchSongs('wy','song',2);
-  assert.deepEqual(h.calls.find(call=>call[0]==='gateway').slice(1),['netease','song',2,100,'wy']);
+  assert.deepEqual(h.calls.find(call=>call[0]==='gateway').slice(1),['netease','song',2,100,'wy',undefined]);
 });
 test('HTTP成功但业务拒绝时分类显式失败且不写空缓存',async()=>{
   const h=setup({payload:{code:301,message:'login required'}});

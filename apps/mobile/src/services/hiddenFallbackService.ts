@@ -15,6 +15,7 @@ import { useCustomSourceStore, type CustomSourceItem } from "@/stores/customSour
 import { hiddenSourceSearchers } from "./hiddenSourceSearchers";
 import { probeStreamUrl } from "./streamProbe";
 import { logger } from "@/services/logger";
+import { createCancellationScope, throwIfAborted, waitWithSignal } from "@/utils/cancellation";
 
 /**
  * 移动端隐藏兜底解析：内置网关 / 自定义音源 / 官方直连全部失败后，
@@ -86,14 +87,14 @@ function withTimeout<T>(task: Promise<T>, timeoutMs: number): Promise<T> {
  * 只把 definitive（服务端明确 4xx）当作换候选的理由：超时 / 抖动 / 5xx 下不了
  * 结论，误杀一个慢 CDN 上完全可用的地址比多花一次探活更糟。
  */
-async function rejectCandidate(url: string, deadlineAt: number): Promise<string | null> {
+async function rejectCandidate(url: string, deadlineAt: number, signal?: AbortSignal): Promise<string | null> {
   const budget = Math.min(
     CANDIDATE_PROBE_TIMEOUT_MS,
     deadlineAt - HIDDEN_PROBE_RESERVE_MS - Date.now(),
   );
   // 预算不足时不做内层判定，交给外层探活兜底。
   if (budget <= 0) return null;
-  const probe = await probeStreamUrl(url, undefined, budget);
+  const probe = await probeStreamUrl(url, undefined, budget, signal);
   if (probe.ok || !probe.definitive) return null;
   return probe.reason;
 }
@@ -107,7 +108,9 @@ async function rejectCandidate(url: string, deadlineAt: number): Promise<string 
 export async function startHiddenSearch(
   song: MusicInfo,
   deadlineAt: number,
+  signal?: AbortSignal,
 ): Promise<HiddenCandidateGroup[]> {
+  throwIfAborted(signal);
   if (song.isLocal || song.source === "local") return [];
 
   const keyword = buildVariantSearchKeyword(song);
@@ -121,7 +124,7 @@ export async function startHiddenSearch(
     hiddenSourceSearchers.map(async (searcher) => {
       if (enabledResolvers(searcher.id).length === 0) return null;
       try {
-        const tracks = await withTimeout(searcher.search(keyword), timeoutMs);
+        const tracks = await waitWithSignal(withTimeout(searcher.search(keyword, undefined, signal), timeoutMs), signal);
         const matched = matchHiddenCandidates(song, tracks);
         if (matched.length === 0) return null;
         logger.debug(`[hidden] ${searcher.id} 匹配到 ${matched.length} 个候选: ${song.name}`);
@@ -153,7 +156,9 @@ export async function resolveHiddenFromGroups(
   song: MusicInfo,
   qualityPreference: string[],
   deadlineAt: number,
+  signal?: AbortSignal,
 ): Promise<HiddenFallbackResult | null> {
+  throwIfAborted(signal);
   if (groups.length === 0) return null;
   if (qualityPreference.length === 0) return null;
 
@@ -176,6 +181,7 @@ export async function resolveHiddenFromGroups(
         if (qualities.length === 0) continue;
 
         for (const quality of qualities) {
+          throwIfAborted(signal);
           if (Date.now() >= deadlineAt - HIDDEN_PROBE_RESERVE_MS) {
             logger.debug(`[hidden] 预算耗尽，停止兜底: ${song.name}`);
             return null;
@@ -187,14 +193,17 @@ export async function resolveHiddenFromGroups(
               deadlineAt - HIDDEN_PROBE_RESERVE_MS - Date.now(),
             );
             if (attemptBudget <= 0) return null;
-            const result = await withTimeout(
-              requestCustomSourceMusicUrl(api, song, quality, undefined, platformRequest),
-              attemptBudget,
-            );
+            const scope = createCancellationScope(signal, attemptBudget);
+            let result;
+            try {
+              result = await requestCustomSourceMusicUrl(api, song, quality, undefined, platformRequest, scope.signal);
+            } finally {
+              scope.dispose();
+            }
             const resolvedQuality = normalizeSourceQualityLabel(result.quality, quality);
             const resolverName = `${group.platform}/${api.name}`;
             // 脚本调用成功不等于地址可用：先判死链，死了就换下一个候选/音质/平台。
-            const deadReason = await rejectCandidate(result.url, deadlineAt);
+            const deadReason = await rejectCandidate(result.url, deadlineAt, signal);
             if (deadReason) {
               logger.debug(
                 `[hidden] ${song.name} ${resolverName} 返回的地址不可用（${deadReason}），换下一个候选`,
@@ -204,6 +213,7 @@ export async function resolveHiddenFromGroups(
             logger.debug(`[hidden] ${song.name} 由 ${resolverName} 兜底成功 (${resolvedQuality})`);
             return { url: result.url, quality: resolvedQuality, resolverName };
           } catch (error) {
+            throwIfAborted(signal);
             logger.debug(`[hidden] ${song.name} ${group.platform}/${api.name} ${quality} 失败: ${errorMessage(error)}`);
           }
         }

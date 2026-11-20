@@ -15,8 +15,27 @@ export function mergeSearchPages(current: SearchResults, incoming: SearchResults
     playlists: unique([...current.playlists, ...incoming.playlists]),
   };
 }
-export function collectSearchResults(states: MobileSearchState[]): SearchResults {
-  return states.reduce((result, state) => mergeSearchPages(result, state.result), emptySearchResults());
+/** 一次搜索会话只重建发生变化的分类，状态通知不使其它分类失去引用。 */
+export function createSearchResultCollector(): (states: MobileSearchState[]) => SearchResults {
+  let result = emptySearchResults();
+  const inputs = new Map<SearchCategory, unknown[]>();
+  return (states) => {
+    let next = result;
+    for (const category of ['songs', 'artists', 'albums', 'playlists'] as const) {
+      const arrays = states.filter(state => state.source.category === category).map(state => state.result[category]);
+      const previous = inputs.get(category);
+      if (previous?.length === arrays.length && arrays.every((array, index) => array === previous[index])) continue;
+      inputs.set(category, arrays);
+      const items = unique<{ source: string; id: string }>(arrays.flat());
+      const current = result[category];
+      if (current.length === items.length && items.every((item, index) => item === current[index])) continue;
+      if (next === result) next = { ...result };
+      // category 与输入数组保持对应；四类条目只共用身份去重规则。
+      Object.assign(next, { [category]: items });
+    }
+    result = next;
+    return result;
+  };
 }
 export function createMobileSearchSession(
   keyword: string,

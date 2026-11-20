@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { View, StyleSheet, type StyleProp } from "react-native";
 import FastImage, { type ResizeMode, type ImageStyle } from "@d11/react-native-fast-image";
 import { COVER_SIZE_THUMB, resizeCoverUrl } from "@lx/core";
-import { cacheCover } from "@/services/cacheService";
+import { getCachedCover } from "@/services/cacheService";
+import { logger } from "@/services/logger";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 
 interface CachedImageProps {
@@ -27,9 +28,7 @@ const DEFAULT_HEADERS = {
 /**
  * 带缓存的图片组件（FastImage/Glide 原生内存+磁盘双层缓存 + UA 请求头 + 失败重试）。
  *
- * 远端 URL 即时展示（首帧零磁盘往返），同时后台下载到本地缓存；
- * 远端 URL 即时展示（首帧零磁盘往返），同时后台下载到本地缓存；
- * 远端加载失败时自动重试，重试后仍失败则回退到已下载的本地文件。
+ * 列表显示交给原生图片缓存；加载失败时才查播放器已保存的离线封面。
  *
  * 渲染内核为 @d11/react-native-fast-image：
  * - Glide 原生内存缓存：列表滚动重复渲染零异步开销（对比此前 RN Image + RNFS 异步查盘）
@@ -61,10 +60,7 @@ export function CachedImage({ uri, style, resizeMode = "cover", fallback, native
       return;
     }
 
-    let retries = 0;
-    // 后台下载/命中本地缓存（cacheCover 自带先查盘再下载，带 UA header）：
-    // 后台下载仅用于离线回退与下次的本地命中
-    const localFilePromise = cacheCover(safeUri).catch(() => null);
+    let checkedLocal = false;
 
     const applyLocal = (localPath: string | null) => {
       if (!mounted) return;
@@ -80,15 +76,15 @@ export function CachedImage({ uri, style, resizeMode = "cover", fallback, native
 
     onRemoteErrorRef.current = () => {
       if (!mounted) return;
-      if (retries < 2) {
-        retries += 1;
-        // 改 URL 强制 FastImage 重新请求（避免复用失败结果），query 不影响缓存 key
-        setImageUri(`${safeUri}${safeUri.includes("?") ? "&" : "?"}r=${retries}`);
-        setError(false);
-      } else {
-        // 重试失败 → 回退到本地缓存文件（离线时这是唯一可用的图）
-        void localFilePromise.then(applyLocal);
+      if (checkedLocal || !/^https?:\/\//.test(safeUri)) {
+        setError(true);
+        return;
       }
+      checkedLocal = true;
+      void getCachedCover(safeUri).then(applyLocal, (error: unknown) => {
+        logger.warn("读取离线封面失败", error);
+        applyLocal(null);
+      });
     };
 
     // 远端 URL 立即显示（Glide 内存缓存让重复进入零异步开销），首帧不等待磁盘往返；

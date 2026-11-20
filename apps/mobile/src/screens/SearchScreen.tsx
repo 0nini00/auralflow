@@ -34,7 +34,7 @@ import {
   type SearchPlaylistResult,
   type SearchResults,
 } from "@/services/musicApi";
-import { createMobileSearchSession, collectSearchResults, type MobileSearchState } from "@/services/searchSession";
+import { createMobileSearchSession, createSearchResultCollector, type MobileSearchState } from "@/services/searchSession";
 import { LatestRequestGate } from "@/services/latestRequestGate";
 import { playQueue } from "@/services/playerService";
 import { runPlaybackUiAction } from "@/services/playbackUiAction";
@@ -63,8 +63,6 @@ import {
   buildAlbumFallbackDetail,
   buildArtistFallbackDetail,
 } from "@/services/searchFallbackDetailModel";
-import { usePlaylistStore } from "@/stores/playlistStore";
-import { useAccountStore } from "@/stores/accountStore";
 
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { useSearchQueryStore } from "@/stores/searchQueryStore";
@@ -212,10 +210,11 @@ export function SearchScreen({
       sessionRef.current?.dispose();
       setResults(EMPTY_RESULTS);
       setSearchStates([]);
+      const collectResults = createSearchResultCollector();
       const session = createMobileSearchSession(query, (states) => {
         if (requestId !== searchRequestSeqRef.current) return;
         setSearchStates(states);
-        setResults(collectSearchResults(states));
+        setResults(collectResults(states));
         setLoading(states.some(state => state.status === 'idle' || state.status === 'loading'));
       });
       sessionRef.current = session;
@@ -399,9 +398,7 @@ export function SearchScreen({
 
   // 搜索结果页的歌单卡片只负责进入详情：收藏/导入功能在歌单详情页内。
 
-  return (
-    <ScreenScaffold>
-      <ScreenScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+  const header = <View style={styles.container}>
         <LargeHeader title="搜索" style={styles.pageHeader} />
         <PlaybackErrorState
           message={playbackError}
@@ -659,44 +656,16 @@ export function SearchScreen({
             </View>
           )}
 
-          <View style={styles.resultSection}>
-            <SectionHeader
-              title="单曲"
-              action={results.songs.length > 0 ? (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="查看全部单曲"
-                  style={styles.headerAction}
-                  onPress={() => setActiveTab("songs")}
-                >
-                  <Text style={[styles.resultSectionAction, { color: palette.primaryInk }]}>查看全部</Text>
-                </Pressable>
-              ) : undefined}
-            />
-            <SongList songs={dedupedSongs} onPlay={handlePlay} getExtraMetadata={getSongSourceLabel} emptyText="没有找到单曲" />
-          </View>
         </View>
         )}
-
-        {showResults && activeTab === "songs" && (
-        <SongList songs={dedupedSongs} onPlay={handlePlay} getExtraMetadata={getSongSourceLabel} emptyText="没有找到单曲" />
-        )}
-
-        {showResults && activeTab === "artists" && (
-          <ArtistResultList artists={results.artists} emptyText="没有找到歌手" onPress={handleArtistPress} />
-        )}
-
-        {showResults && activeTab === "albums" && (
-          <AlbumResultList albums={results.albums} emptyText="没有找到专辑" onPress={handleAlbumPress} />
-        )}
-
-        {showResults && activeTab === "playlists" && (
-        <PlaylistResultList
-          playlists={results.playlists}
-          emptyText="没有找到歌单"
-          onPress={handlePlaylistPress}
-        />
-        )}
+        {showResults && activeTab === "all" && <SectionHeader title="单曲" action={results.songs.length > 0 ? (
+          <Pressable accessibilityRole="button" accessibilityLabel="查看全部单曲" style={styles.headerAction}
+            onPress={() => setActiveTab("songs")}>
+            <Text style={[styles.resultSectionAction, { color: palette.primaryInk }]}>查看全部</Text>
+          </Pressable>
+        ) : undefined} />}
+  </View>;
+  const footer = <View style={styles.container}>
         {Boolean(submittedQuery) && visibleCategories.map(tab => {
           const states = searchStates.filter(state => state.source.category === tab.key);
           const busy = states.some(state => state.status === 'loading' || state.status === 'idle');
@@ -714,12 +683,35 @@ export function SearchScreen({
             </Pressable>}
           </View>;
         })}
-      </ScreenScrollView>
-    </ScreenScaffold>
-  );
+  </View>;
+  const listProps = {
+    virtualized: true,
+    ListHeaderComponent: header,
+    ListFooterComponent: footer,
+    contentContainerStyle: styles.virtualContent,
+  };
+  let content: React.ReactNode;
+  if (!showResults) {
+    content = <ScreenScrollView keyboardShouldPersistTaps="handled">{header}{footer}</ScreenScrollView>;
+  } else if (activeTab === "all" || activeTab === "songs") {
+    content = <SongList {...listProps} songs={dedupedSongs} onPlay={handlePlay}
+      getExtraMetadata={getSongSourceLabel} emptyText="没有找到单曲" />;
+  } else if (activeTab === "artists") {
+    content = <ArtistResultList {...listProps} artists={results.artists} onPress={handleArtistPress} />;
+  } else if (activeTab === "albums") {
+    content = <AlbumResultList {...listProps} albums={results.albums} onPress={handleAlbumPress} />;
+  } else {
+    content = <PlaylistResultList {...listProps} playlists={results.playlists} onPress={handlePlaylistPress} />;
+  }
+  return <ScreenScaffold>{content}</ScreenScaffold>;
 }
 
 const styles = StyleSheet.create({
+  virtualContent: {
+    paddingHorizontal: layout.pagePadding,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.l,
+  },
   container: {
     gap: spacing.l,
   },

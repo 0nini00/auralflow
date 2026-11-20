@@ -3,6 +3,7 @@ import { extractTxTrackMeta } from "@lx/core";
 import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
 import type { SearchPlaylistResult } from "./musicApi";
 import type { WyPlaylistInfo } from "./wyPlaylistService";
+import { throwIfAborted } from "@/utils/cancellation";
 
 const MUSIC_U_API = "https://u.y.qq.com/cgi-bin/musicu.fcg";
 const PLAYLIST_DETAIL_API = "https://c.y.qq.com/qzone/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg";
@@ -20,6 +21,7 @@ const TX_APP_HEADERS: Record<string, string> = {
 };
 
 export interface TxPlaylistRequestOptions {
+  signal?: AbortSignal;
   fetchJson?: (url: string, init?: RequestInit) => Promise<any>;
 }
 
@@ -166,9 +168,11 @@ export function mapTxPlaylistSong(item: any): MusicInfo | null {
 }
 
 async function musicuRequest(body: unknown, options: TxPlaylistRequestOptions): Promise<any> {
+  throwIfAborted(options.signal);
   const fetchJson = options.fetchJson ?? defaultFetchJson;
   return fetchJson(MUSIC_U_API, {
     method: "POST",
+    signal: options.signal as RequestInit["signal"],
     headers: {
       ...TX_APP_HEADERS,
       "Content-Type": "application/json",

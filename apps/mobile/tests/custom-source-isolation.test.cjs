@@ -104,6 +104,30 @@ test('释放之后在途取链结果不会回流到宿主', async () => {
   assert.equal(h.messages.some(item => item.id === 'late'), false);
 });
 
+test('请求级取消携带所属 ID，异步恢复后不再发 HTTP 或迟到结果', async () => {
+  const h = bridge();
+  h.run(`lx.on(lx.EVENT_NAMES.request,async()=>{await new Promise(resolve=>lx.request('https://fixture.invalid/first',{},resolve));lx.request('https://fixture.invalid/late',{},()=>{});return 'late';});`);
+  h.send({ type: 'request', rid: 'fixture', id: 'r1', payload: {} });
+  await new Promise(setImmediate);
+  const request = h.messages.find(item => item.type === 'http');
+  assert.equal(request.ownerId, 'r1');
+  h.send({ type: 'request-cancel', rid: 'fixture', id: 'r1' });
+  h.send({ type: 'http-response', rid: 'fixture', id: request.id, body: {} });
+  await new Promise(setImmediate);
+  assert.equal(h.messages.filter(item => item.type === 'http').length, 1);
+  assert.equal(h.messages.some(item => item.type === 'request-response' && item.id === 'r1'), false);
+});
+
+test('取链结束仍有子 HTTP 时声明不可复用，防止旧异步分支冒用下一次请求', async () => {
+  const h = bridge();
+  h.run(`lx.on(lx.EVENT_NAMES.request,()=>{lx.request('https://fixture.invalid/child',{},()=>{});return 'https://fixture.invalid/song';});`);
+  h.send({ type: 'request', rid: 'fixture', id: 'r1', payload: {} });
+  await new Promise(setImmediate);
+  const result = h.messages.find(item => item.type === 'request-response');
+  assert.equal(result.reusable, false);
+  h.send({ type: 'dispose', rid: 'fixture' });
+});
+
 test('兼容周期计时，释放只清理本运行时拥有的定时器', async () => {
   const h = bridge();
   h.run(`let timer=setInterval(()=>{clearInterval(timer);lx.send(lx.EVENT_NAMES.inited,{tick:true});},2);`);

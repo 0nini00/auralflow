@@ -3,6 +3,7 @@ import { eapiEncrypt } from "./wyDirectProvider";
 import { mapWyTrackToMusicInfo } from "./wyMusicMapper";
 import { getWyCookie } from "./wyAccountService";
 import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
+import { throwIfAborted } from "@/utils/cancellation";
 
 /**
  * 网易云直连搜索（eapi cloudsearch，免登录）。
@@ -24,7 +25,9 @@ export async function searchWySongsViaCloudSearch(
   keyword: string,
   limit = 30,
   page = 1,
+  signal?: AbortSignal,
 ): Promise<MusicInfo[]> {
+  throwIfAborted(signal);
   const query = keyword.trim();
   if (!query) return [];
 
@@ -36,6 +39,7 @@ export async function searchWySongsViaCloudSearch(
   });
 
   const cookie = await getWyCookie();
+  throwIfAborted(signal);
   const headers: Record<string, string> = {
     "User-Agent": WY_UA,
     Origin: "https://music.163.com",
@@ -46,6 +50,7 @@ export async function searchWySongsViaCloudSearch(
 
   const response = await fetchWithTimeout(WY_CLOUDSEARCH_EAPI_URL, {
     method: "POST",
+    signal: signal as RequestInit["signal"],
     headers,
     body: `params=${encodeURIComponent(params)}`,
   });

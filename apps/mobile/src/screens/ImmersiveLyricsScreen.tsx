@@ -479,6 +479,7 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
   const lyricContent = (
     <View style={styles.flexFill}>
       <LyricView
+        active={visible && (isSplit || isLyricsPage)}
         lyrics={lyrics}
         emptyText={localMediaMessage}
         currentLineIndex={currentLyricIndex}

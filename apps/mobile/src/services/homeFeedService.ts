@@ -137,9 +137,16 @@ export async function fetchHomeFeedSection<K extends HomeFeedSectionId>(
   }
 }
 
-export async function fetchHomeFeed(context: HomeFeedContext): Promise<HomeFeedSection[]> {
+export async function fetchHomeFeed(
+  context: HomeFeedContext,
+  onSection?: (section: HomeFeedSection) => void,
+): Promise<HomeFeedSection[]> {
   return Promise.all(HOME_FEED_REMOTE_SECTION_ORDER.map(
-    (id): Promise<HomeFeedSection> => fetchHomeFeedSection(id, context),
+    async (id): Promise<HomeFeedSection> => {
+      const section = await fetchHomeFeedSection(id, context);
+      onSection?.(section);
+      return section;
+    },
   ));
 }
 

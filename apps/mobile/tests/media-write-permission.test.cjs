@@ -7,7 +7,7 @@ const test = require("node:test");
 
 test("Android 10 使用异常携带的媒体授权，Android 11 起使用 MediaStore 写入授权", { timeout: 60000 }, () => {
   const source = fs.readFileSync(path.join(__dirname, "../android/app/src/main/java/cn/chenle/auralflow/mobile/LocalMusicModule.java"), "utf8");
-  const methods = ["requestUpdateAccess", "requestWriteAccess", "createWriteAccessIntent"].flatMap(name => {
+  const methods = ["requestUpdateAccess", "requestUpdateAccessOnUiThread", "requestWriteAccess", "requestWriteAccessOnUiThread", "createWriteAccessIntent"].flatMap(name => {
     const match = source.match(new RegExp(`^  private (?:static )?[^\\n]+ ${name}\\([^]*?^  }`, "m"));
     return match ? [match[0].replaceAll("android.app.RecoverableSecurityException", "RecoverableSecurityException")] : [];
   }).join("\n");
@@ -18,6 +18,8 @@ public class PermissionHarness {
   static final int REQUEST_UPDATE_AUDIO = 1, REQUEST_WRITE_AUDIO = 2;
   PendingMetadataUpdate updatePending;
   PendingWrite writePending;
+  boolean invalidated;
+  static class UiThreadUtil { static void runOnUiThread(Runnable action) { action.run(); } }
   Activity activity = new Activity();
   Activity getCurrentActivity() { return activity; }
   PermissionHarness getReactApplicationContext() { return this; }

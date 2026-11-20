@@ -5,6 +5,7 @@ import { postWyWeapi } from "./wyPlaylistService";
 import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
 import type { PlaybackQuality } from "./playbackQualityModel";
 import { getPlaybackQualityRank } from "./playbackQualityModel";
+import { throwIfAborted } from "@/utils/cancellation";
 
 /**
  * 网易云直连播放 URL 解析（对齐桌面端 wyProvider）。
@@ -105,12 +106,14 @@ function wyBrForQuality(quality: PlaybackQuality): number {
  */
 export async function postWyEapi(
   path: string,
-  params: Record<string, unknown>
+  params: Record<string, unknown>,
+  signal?: AbortSignal,
 ): Promise<unknown> {
   const response = await fetchWithTimeout(
     `https://interface3.music.163.com/eapi/${path.replace(/^\/api\//, "")}`,
     {
       method: "POST",
+      signal: signal as RequestInit["signal"],
       headers: {
         "User-Agent": WY_UA,
         Origin: "https://music.163.com",
@@ -139,6 +142,7 @@ export async function postWyEapi(
 export async function resolveWySongUrl(
   song: MusicInfo,
   quality: PlaybackQuality = "320k",
+  signal?: AbortSignal,
 ): Promise<string> {
   const idNum = Number(song.id);
   if (!Number.isFinite(idNum)) {
@@ -149,6 +153,7 @@ export async function resolveWySongUrl(
   // 失败原因必须带到最终错误里：无版权/需要 VIP 与网络错误的处置方式完全不同，
   // 静默吞掉会让用户只看到 eapi 的报错，误以为是网络问题。
   const cookie = await getWyCookie();
+  throwIfAborted(signal);
   let weapiFailure: string | null = null;
   const requestedRank = getPlaybackQualityRank(quality);
   if (cookie) {
@@ -163,6 +168,7 @@ export async function resolveWySongUrl(
           encodeType: "flac",
         },
         cookie,
+        { signal },
       );
       const entry = body?.data?.[0];
       const url = entry?.url;
@@ -177,6 +183,7 @@ export async function resolveWySongUrl(
         weapiFailure = `未返回播放地址，歌曲可能无版权或需要 VIP`;
       }
     } catch (error) {
+      throwIfAborted(signal);
       weapiFailure = `weapi 失败：${error instanceof Error ? error.message : String(error)}`;
     }
   } else {
@@ -196,7 +203,7 @@ export async function resolveWySongUrl(
     const json = (await postWyEapi("/api/song/enhance/player/url", {
       ids: [idNum],
       br: wyBrForQuality(quality),
-    })) as { data?: Array<{ url?: string; level?: unknown }> };
+    }, signal)) as { data?: Array<{ url?: string; level?: unknown }> };
     const entry = json?.data?.[0];
     const url = entry?.url;
     if (url && url.length > 0) {

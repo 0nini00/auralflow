@@ -118,3 +118,139 @@ export function aggregateListeningEvents(events: readonly ListeningEvent[]): Lis
     byDay: [...days.values()].sort((a, b) => a.dayStart - b.dayStart),
   };
 }
+
+interface IndexedListeningEvent {
+  event: ListeningEvent;
+  order: number;
+  trackKey: string;
+  artist: string;
+  day: ListeningStatsDay;
+}
+
+function listeningDay(startedAt: number): ListeningStatsDay {
+  const date = new Date(startedAt);
+  return {
+    dayStart: new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime(),
+    day: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
+    plays: 0, totalMs: 0,
+  };
+}
+
+/** 会话检查点只更新受影响的曲目、歌手和本地日；排序快照在界面需要时才生成。 */
+export function createListeningStatsIndex(initial: readonly ListeningEvent[] = []) {
+  const events = new Map<string, IndexedListeningEvent>();
+  const tracks = new Map<string, {
+    summary: ListeningStatsTrack;
+    firstOrder: number;
+    members: Map<string, IndexedListeningEvent>;
+  }>();
+  const artists = new Map<string, ListeningStatsArtist>();
+  const days = new Map<number, ListeningStatsDay>();
+  let totalMs = 0;
+  let totalPlays = 0;
+  let cached: ListeningStats | null = null;
+  let timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  function updateDay(item: IndexedListeningEvent, plays: number, milliseconds: number) {
+    const previous = days.get(item.day.dayStart) ?? item.day;
+    const next = { ...previous, plays: previous.plays + plays, totalMs: previous.totalMs + milliseconds };
+    if (next.plays === 0) days.delete(item.day.dayStart);
+    else days.set(item.day.dayStart, next);
+  }
+
+  function updateArtist(name: string, plays: number, milliseconds: number) {
+    if (!name) return;
+    const previous = artists.get(name) ?? { name, plays: 0, totalMs: 0 };
+    const next = { ...previous, plays: previous.plays + plays, totalMs: previous.totalMs + milliseconds };
+    if (next.plays === 0) artists.delete(name);
+    else artists.set(name, next);
+  }
+
+  function syncTimezone() {
+    const next = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (next === timezone) return;
+    timezone = next;
+    days.clear();
+    for (const item of events.values()) {
+      item.day = listeningDay(item.event.startedAt);
+      if (item.event.listenedMs > 0) updateDay(item, 1, item.event.listenedMs);
+    }
+    cached = null;
+  }
+
+  function remove(item: IndexedListeningEvent) {
+    if (item.event.listenedMs <= 0) return;
+    totalMs -= item.event.listenedMs;
+    totalPlays--;
+    updateArtist(item.artist, -1, -item.event.listenedMs);
+    updateDay(item, -1, -item.event.listenedMs);
+    const track = tracks.get(item.trackKey)!;
+    track.members.delete(item.event.sessionId);
+    if (!track.members.size) { tracks.delete(item.trackKey); return; }
+    let first: IndexedListeningEvent | undefined;
+    if (track.firstOrder === item.order) {
+      for (const candidate of track.members.values()) {
+        if (!first || candidate.order < first.order) first = candidate;
+      }
+      track.firstOrder = first!.order;
+    }
+    track.summary = { ...track.summary, song: first?.event.song ?? track.summary.song,
+      plays: track.summary.plays - 1, totalMs: track.summary.totalMs - item.event.listenedMs };
+  }
+
+  function add(item: IndexedListeningEvent) {
+    if (item.event.listenedMs <= 0) return;
+    totalMs += item.event.listenedMs;
+    totalPlays++;
+    updateArtist(item.artist, 1, item.event.listenedMs);
+    updateDay(item, 1, item.event.listenedMs);
+    const track = tracks.get(item.trackKey) ?? {
+      summary: { key: item.trackKey, song: item.event.song, plays: 0, totalMs: 0 },
+      firstOrder: item.order, members: new Map<string, IndexedListeningEvent>(),
+    };
+    track.members.set(item.event.sessionId, item);
+    const first = item.order <= track.firstOrder;
+    if (first) track.firstOrder = item.order;
+    track.summary = { ...track.summary, song: first ? item.event.song : track.summary.song,
+      plays: track.summary.plays + 1, totalMs: track.summary.totalMs + item.event.listenedMs };
+    tracks.set(item.trackKey, track);
+  }
+
+  function record(event: ListeningEvent): boolean {
+    const previous = events.get(event.sessionId);
+    if (previous && previous.event.listenedMs >= event.listenedMs) return false;
+    const item: IndexedListeningEvent = { event, order: previous?.order ?? events.size,
+      trackKey: `${event.song.source}:${event.song.id}`, artist: event.song.singer.trim(), day: listeningDay(event.startedAt) };
+    if (previous && previous.event.listenedMs > 0 && previous.trackKey === item.trackKey
+      && previous.artist === item.artist && previous.day.dayStart === item.day.dayStart) {
+      const delta = event.listenedMs - previous.event.listenedMs;
+      totalMs += delta;
+      updateArtist(item.artist, 0, delta);
+      updateDay(item, 0, delta);
+      const track = tracks.get(item.trackKey)!;
+      track.members.set(event.sessionId, item);
+      track.summary = { ...track.summary, totalMs: track.summary.totalMs + delta,
+        song: track.firstOrder === item.order ? event.song : track.summary.song };
+    } else {
+      if (previous) remove(previous);
+      add(item);
+    }
+    events.set(event.sessionId, item);
+    cached = null;
+    return true;
+  }
+
+  function snapshot(): ListeningStats {
+    syncTimezone();
+    if (cached) return cached;
+    const rank = (a: { totalMs: number; plays: number }, b: { totalMs: number; plays: number }) => b.totalMs - a.totalMs || b.plays - a.plays;
+    cached = { totalMs, totalPlays, playsWithoutDuration: 0,
+      topTracks: [...tracks.values()].map(track => track.summary).sort((a, b) => rank(a, b) || (a.key < b.key ? -1 : 1)),
+      topArtists: [...artists.values()].sort((a, b) => rank(a, b) || (a.name < b.name ? -1 : 1)),
+      byDay: [...days.values()].sort((a, b) => a.dayStart - b.dayStart) };
+    return cached;
+  }
+
+  for (const event of initial) record(event);
+  return { record, snapshot };
+}

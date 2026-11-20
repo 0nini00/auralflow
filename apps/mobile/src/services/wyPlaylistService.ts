@@ -45,6 +45,7 @@ const WY_REQUEST_HEADERS = { "User-Agent": WY_WEB_USER_AGENT };
 type JsonRecord = Record<string, unknown>;
 
 export interface WyWeapiOptions {
+  signal?: AbortSignal;
   /**
    * 是否把 Cookie 改写成 PC 形态（追加 `os=pc`）。
    *
@@ -72,6 +73,7 @@ export async function postWyWeapi<TResponse = JsonRecord>(
     cookie: options.pcCookie === false ? cookie : buildNeteasePcCookie(cookie),
   });
   const response = await fetchWithTimeout(request.url, {
+    signal: options.signal as RequestInit["signal"],
     method: request.method,
     headers: request.headers,
     body: request.body,

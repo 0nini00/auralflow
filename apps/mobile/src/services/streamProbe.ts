@@ -10,6 +10,7 @@
  */
 import { parseContentRangeTotal } from "@lx/core";
 import { fetchWithTimeout, isTimeoutError } from "@/utils/fetchWithTimeout";
+import { throwIfAborted } from "@/utils/cancellation";
 
 /** 探活超时：死代理 TCP 连上后永不返数据，1 字节 Range 也拉不同，5s 内无响应即判死。 */
 export const PROBE_TIMEOUT_MS = 5_000;
@@ -53,7 +54,9 @@ export async function probeStreamUrl(
   url: string,
   headers: Record<string, string> | undefined,
   timeoutMs: number = PROBE_TIMEOUT_MS,
+  signal?: AbortSignal,
 ): Promise<StreamProbeResult> {
+  throwIfAborted(signal);
   // 本地文件与非 HTTP(S) 协议无需探活
   if (!/^https?:\/\//i.test(url)) return { ok: true };
   try {
@@ -61,6 +64,7 @@ export async function probeStreamUrl(
       url,
       {
         method: "GET",
+        signal: signal as RequestInit["signal"],
         headers: { ...headers, Range: "bytes=0-0" },
         // 探活请求无需携带 Cookie，避免干扰服务端会话判定
         credentials: "omit",
@@ -80,6 +84,7 @@ export async function probeStreamUrl(
       definitive: DEFINITIVE_FAILURE_STATUS.has(response.status),
     };
   } catch (error) {
+    throwIfAborted(signal);
     if (isTimeoutError(error)) {
       return { ok: false, reason: `无响应（>${timeoutMs / 1000}s）`, definitive: false };
     }

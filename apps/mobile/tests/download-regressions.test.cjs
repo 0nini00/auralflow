@@ -31,6 +31,8 @@ function setup(options = {}) {
   const probes = [];
   const cloudResolutions = [];
   const saves = [];
+  const tagWrites = [];
+  const fileReads = [];
   let lyricsCalls = 0;
   let haptics = 0;
   const rnfs = {
@@ -44,7 +46,7 @@ function setup(options = {}) {
     mkdir: async () => {},
     stat: async (p) => {
       if (!files.has(p)) throw new Error("ENOENT");
-      return { size: Buffer.byteLength(files.get(p)) };
+      return { size: options.audioSize && p.endsWith(".part") ? options.audioSize : Buffer.byteLength(files.get(p)) };
     },
     readDir: async (dir) => [...files].filter(([p]) => path.posix.dirname(p) === dir)
       .map(([p, data]) => ({ name: path.posix.basename(p), path: p, size: data.length, isFile: () => true })),
@@ -59,10 +61,10 @@ function setup(options = {}) {
       events.push(`move:${from}:${to}`);
     },
     writeFile: async (p, data) => {
-      if (options.failTagWrite && p.endsWith(".part")) { files.set(p, "ID3"); throw new Error("ENOSPC"); }
       files.set(p, data); events.push(`write:${p}`);
     },
     readFile: async (p, encoding) => {
+      fileReads.push({ path: p, encoding });
       if (!files.has(p)) throw new Error("ENOENT");
       return encoding === "base64" ? Buffer.from(files.get(p)).toString("base64") : files.get(p);
     },
@@ -75,7 +77,7 @@ function setup(options = {}) {
         request, pending, stopped: false,
         finish() {
           files.set(request.toFile, `complete-audio-${id}`);
-          pending.resolve({ statusCode: 200, bytesWritten: 16 });
+          pending.resolve({ statusCode: request.fromUrl.includes("cover") ? options.coverStatus ?? 200 : 200, bytesWritten: options.audioSize ?? 16 });
         },
       };
       jobs.push(job);
@@ -99,7 +101,14 @@ function setup(options = {}) {
       },
     },
     "react-native-fs": rnfs,
-    "react-native": { NativeModules: { DownloadFileModule: { commitDownload: rnfs.moveFile } } },
+    "react-native": { NativeModules: {
+      DownloadFileModule: { commitDownload: rnfs.moveFile },
+      DownloadTagModule: { writeMp3Tags: async (audioFilePath, metadata, coverPath) => {
+        tagWrites.push({ audioFilePath, metadata, coverPath });
+        if (options.tagGate) await options.tagGate.promise;
+        if (options.failTagWrite) throw new Error("ENOSPC");
+      } },
+    } },
     "@lx/core": {
       ...streamIntegrity,
       cloudFileExtension,
@@ -132,11 +141,6 @@ function setup(options = {}) {
       probes.push(streamUrl);
       return options.probeResult ?? { ok: true };
     } },
-    "./id3TagWriter": { embedId3Tag: (audio) => audio },
-    "@/utils/base64": {
-      base64ToBytes: (value) => Buffer.from(value, "base64"),
-      bytesToBase64: (value) => Buffer.from(value).toString("base64"),
-    },
     zustand: mobileRequire("zustand"),
     "@/stores/playbackSettingsStore": { usePlaybackSettingsStore: { getState: () => ({ defaultQuality: "flac" }) } },
     "@/services/hapticService": { hapticSuccess: () => { haptics++; } },
@@ -148,7 +152,7 @@ function setup(options = {}) {
   const service = load("src/services/downloadService.ts");
   const store = load("src/stores/downloadStore.ts").useDownloadStore;
   return {
-    files, storage, events, jobs, parses, probes, cloudResolutions, saves, service, store,
+    files, storage, events, jobs, parses, probes, cloudResolutions, saves, service, store, tagWrites, fileReads,
     saved: () => JSON.parse(storage.get(STORE_KEY) ?? "[]"),
     get lyricsCalls() { return lyricsCalls; },
     get haptics() { return haptics; },
@@ -484,6 +488,61 @@ test("MP3标签部分写入失败不得发布损坏音频", settings, async () =
   assert.equal(result.status, "failed");
   assert.deepEqual(h.saved(), []);
   assert.equal(h.files.size, 0);
+});
+
+test("MP3 后处理仅向原生传路径与元数据，不把音频或封面读入 JS", settings, async () => {
+  const h = setup({ resolvedUrl: { url: "https://mock.invalid/audio.mp3", quality: "320k" } });
+  const track = { ...song, albumName: "Album", picUrl: "https://mock.invalid/cover.png" };
+  assert.equal((await h.store.getState().downloadSong(track, "320k")).status, "completed");
+  assert.equal(h.tagWrites.length, 1);
+  assert.ok(h.tagWrites[0].audioFilePath.endsWith(".part"));
+  assert.deepEqual(h.tagWrites[0].metadata, {
+    title: "Audit", artist: "Mock", album: "Album", lyrics: "[00:00.000]mock lyric",
+  });
+  assert.equal(typeof h.tagWrites[0].coverPath, "string");
+  assert.deepEqual(h.fileReads, []);
+  assert.equal(h.files.has(h.tagWrites[0].coverPath), false);
+});
+
+test("原生标签未结束时取消等待原生收尾，随后清理且不发布文件", settings, async () => {
+  const tagGate = deferred();
+  const h = setup({ tagGate, resolvedUrl: { url: "https://mock.invalid/audio.mp3", quality: "320k" } });
+  let settled = false;
+  const pending = h.store.getState().downloadSong(song, "320k").then(result => { settled = true; return result; });
+  await until(() => h.tagWrites.length === 1);
+  h.store.getState().cancelDownload(song, "320k");
+  await new Promise(setImmediate);
+  assert.equal(settled, false);
+  assert.equal(h.files.has(h.tagWrites[0].audioFilePath), true);
+  tagGate.resolve();
+  assert.equal((await pending).status, "cancelled");
+  assert.equal(h.files.size, 0);
+  assert.deepEqual(h.saved(), []);
+});
+
+test("大于旧25MiB限制的MP3仍执行原生标签写入", settings, async () => {
+  const h = setup({ audioSize: 30 * 1024 * 1024, resolvedUrl: { url: "https://mock.invalid/audio.mp3", quality: "320k" } });
+  assert.equal((await h.store.getState().downloadSong(song, "320k")).status, "completed");
+  assert.equal(h.tagWrites.length, 1);
+  assert.deepEqual(h.fileReads, []);
+});
+
+test("封面下载失败显式记录警告，音频标签仍写入并清理封面临时文件", settings, async () => {
+  const h = setup({ coverStatus: 503, resolvedUrl: { url: "https://mock.invalid/audio.mp3", quality: "320k" } });
+  const track = { ...song, picUrl: "https://mock.invalid/cover.png" };
+  assert.equal((await h.store.getState().downloadSong(track, "320k")).status, "completed");
+  assert.equal(h.tagWrites[0].coverPath, null);
+  assert.match(h.saved()[0].warning, /下载内嵌封面失败.*503/);
+  assert.equal([...h.files.keys()].some(p => p.endsWith(".tmp")), false);
+});
+
+test("标签与临时封面清理同时失败时两项错误都报告", settings, async () => {
+  const h = setup({ failTagWrite: true, failUnlink: p => p.endsWith(".tmp"),
+    resolvedUrl: { url: "https://mock.invalid/audio.mp3", quality: "320k" } });
+  const result = await h.store.getState().downloadSong({ ...song, picUrl: "https://mock.invalid/cover.png" }, "320k");
+  assert.equal(result.status, "failed");
+  assert.match(result.error, /ENOSPC/);
+  assert.match(result.error, /清理临时封面失败.*Mock unlink denied/);
 });
 
 test("清空下载先中断在途与排队任务，收尾后不落盘也不回写记录", settings, async () => {

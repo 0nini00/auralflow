@@ -381,3 +381,14 @@ test("控制区入场只淡入，不遗留独立于恢复逻辑的向上位移",
   const host = ancestors(renderScreen().tree, "ImmersiveTransport")[0].at(-1);
   assert.equal(host.props.entering.kind, "FadeIn");
 });
+
+test("歌词仅在可见页面或分栏布局激活，隐藏屏幕停止跟唱", () => {
+  for (const [options, expected] of [
+    [{ currentPage: 0 }, false], [{ currentPage: 1 }, true],
+    [{ width: 1200, height: 800, currentPage: 0 }, true],
+    [{ width: 1200, height: 800, currentPage: 1, visible: false }, false],
+  ]) {
+    const [lyrics] = descendants(renderScreen(options).tree, "LyricView");
+    assert.equal(lyrics.props.active, expected);
+  }
+});

@@ -16,6 +16,7 @@ import { migrateLegacySecret } from "@/services/secureStorageMigrationModel";
 import { assertHttpsWebdavUrl } from "@/services/webdavUrlModel";
 import { logger } from "@/services/logger";
 import { backupCorruptStorageValue } from "@/services/corruptStorageBackup";
+import { createCloudPlaylistSongsCache } from "./cloudPlaylistSongsCache";
 
 /**
  * 移动端 WebDAV 同步服务。
@@ -541,8 +542,11 @@ function buildPlayHistorySync(entries: HistoryEntry[]): PlayHistorySyncItem[] {
 }
 
 async function buildPlaylistsSyncFile(): Promise<PlaylistsSyncFile> {
-  await loadCloudSongsCache();
   const { playlists, localPlaylists, currentPlaylist, currentPlaylistSongs } = usePlaylistStore.getState();
+  const cachedSongs = new Map(await Promise.all(playlists.map(async playlist => {
+    const key = cloudPlaylistKey(playlist.source, playlist.id);
+    return [key, await cloudSongsCache.get(key)] as const;
+  })));
   // loveList = 本地收藏（对齐桌面端 favoritesStore），双端同一数据槽互通
   const favorites = useFavoritesStore.getState().favorites;
 
@@ -575,7 +579,7 @@ async function buildPlaylistsSyncFile(): Promise<PlaylistsSyncFile> {
           // （如桌面端写入的），上传时重新挂载，避免用空列表覆盖云端数据。
           // 优先使用当前已加载/编辑过的本地真实歌曲列表，仅当本地未加载为空时
           // 才回退到上次下载的缓存快照，避免“本地删除被旧快照回滚”。
-          list: cloudPlaylistUploadSongs(playlist, currentPlaylist, currentPlaylistSongs),
+          list: cloudPlaylistUploadSongs(playlist, currentPlaylist, currentPlaylistSongs, cachedSongs),
           createdAt: Date.now(),
           updatedAt: playlist.updatedAt ?? Date.now(),
         })),
@@ -612,84 +616,35 @@ function parsePlayHistory(value: unknown): HistoryEntry[] {
 // 歌曲缓存下来，上传时重新挂载，避免上传方向的数据丢失。
 // ---------------------------------------------------------------------------
 
-const CLOUD_SONGS_CACHE_KEY = "auralflow.mobile.webdavCloudPlaylistSongs";
-const cloudSongsCache = new Map<string, MusicInfo[]>();
+const cloudSongsCache = createCloudPlaylistSongsCache(AsyncStorage);
 
 function cloudPlaylistKey(source: string, id: string): string {
   return `${source}:${id}`;
-}
-
-async function loadCloudSongsCache(): Promise<void> {
-  if (cloudSongsCache.size > 0) return;
-  try {
-    const raw = await AsyncStorage.getItem(CLOUD_SONGS_CACHE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    for (const [key, value] of Object.entries(parsed)) {
-      if (!Array.isArray(value)) continue;
-      const songs = toMusicList(value);
-      if (songs.length) cloudSongsCache.set(key, songs);
-    }
-  } catch {
-    // 缓存损坏时忽略，退化为不挂载歌曲
-  }
-}
-
-async function rememberCloudSongs(songsByKey: Map<string, MusicInfo[]>): Promise<void> {
-  for (const [key, songs] of songsByKey) {
-    if (songs.length) cloudSongsCache.set(key, songs);
-  }
-  if (songsByKey.size === 0) return;
-  try {
-    const payload: Record<string, MusicInfo[]> = {};
-    for (const [key, songs] of cloudSongsCache) {
-      payload[key] = songs;
-    }
-    await AsyncStorage.setItem(CLOUD_SONGS_CACHE_KEY, JSON.stringify(payload));
-  } catch (error) {
-    logger.warn("保存 WebDAV 云端歌曲缓存失败", error);
-  }
-}
-
-function cachedCloudSongs(source: string, id: string): MusicInfo[] {
-  return cloudSongsCache.get(cloudPlaylistKey(source, id)) ?? [];
 }
 
 function cloudPlaylistUploadSongs(
   playlist: WyPlaylistInfo,
   currentPlaylist: WyPlaylistInfo | null,
   currentPlaylistSongs: MusicInfo[],
+  cachedSongs: ReadonlyMap<string, MusicInfo[] | undefined>,
 ): MusicInfo[] {
-  // 当前打开且已加载的云端歌单：其歌曲列表是用户在本地真实看到/编辑过的内容，
-  // 上传时以它为准，避免用旧的下载快照回滚本地的增删。仅当本地未加载为空时才
-  // 回退到缓存快照，防止用空列表抹掉云端已有歌曲。
+  // 缓存事务已等待本地编辑落盘，也可能接纳了其后显式下载的新快照；旧详情不能再次盖回去。
+  const cached = cachedSongs.get(cloudPlaylistKey(playlist.source, playlist.id));
+  if (cached !== undefined) return cached;
+  // 服务订阅建立前已存在的详情尚无缓存记录，仍保留这份真实歌曲数据。
   if (
     currentPlaylist != null &&
     String(currentPlaylist.id) === String(playlist.id) &&
-    (currentPlaylist.source ?? "wy") === (playlist.source ?? "wy") &&
-    currentPlaylistSongs.length > 0
+    (currentPlaylist.source ?? "wy") === (playlist.source ?? "wy")
   ) {
     return currentPlaylistSongs;
   }
-  return cachedCloudSongs(playlist.source, playlist.id);
+  return [];
 }
 
-/** 移除某个云端歌单的缓存歌曲（本地删空/移除了该歌单的全部歌曲时调用），
- *  避免上传时把旧下载快照重新挂载、导致本地删除被回滚。只删确有缓存的条目，
- *  无缓存时直接返回，不写盘。 */
+/** 保存空记录，跨重启区分“已清空”和“尚未加载”，自动同步不能重新补入旧歌曲。 */
 export async function forgetCloudSongs(source: string, id: string): Promise<void> {
-  const key = cloudPlaylistKey(source, id);
-  if (!cloudSongsCache.has(key)) return;
-  cloudSongsCache.delete(key);
-  try {
-    const payload: Record<string, MusicInfo[]> = {};
-    for (const [cacheKey, songs] of cloudSongsCache) {
-      payload[cacheKey] = songs;
-    }
-    await AsyncStorage.setItem(CLOUD_SONGS_CACHE_KEY, JSON.stringify(payload));
-  } catch (error) {
-    logger.warn("保存 WebDAV 云端歌曲缓存失败", error);
-  }
+  await cloudSongsCache.setLocal(cloudPlaylistKey(source, id), []);
 }
 
 /**
@@ -700,35 +655,22 @@ export async function forgetCloudSongs(source: string, id: string): Promise<void
  * 重新挂载，导致本地删除被“回滚”（删除没生效）或新增丢失。
  *
  * 这里订阅歌单 store：当前打开的云端歌单一旦发生歌曲编辑（增/删），立即把它的当前
- * 歌曲列表同步回 cloudSongsCache，确保下次上传用的是编辑后的真实内容。只在与缓存确有
- * 差异、且是非空列表时写入，避免用“详情加载失败/未加载完”的空列表抹掉已有缓存。
+ * 歌曲列表同步回 cloudSongsCache，确保下次上传用的是编辑后的真实内容。
+ * 只观察详情引用变化；加载新详情时 currentPlaylist 为 null，不会清掉旧缓存。
  */
 function syncOpenCloudPlaylistSongs(state: {
   currentPlaylist: WyPlaylistInfo | null;
   currentPlaylistSongs: MusicInfo[];
-}): void {
+}, previous: { currentPlaylist: WyPlaylistInfo | null; currentPlaylistSongs: MusicInfo[] }): void {
+  if (state.currentPlaylist === previous.currentPlaylist && state.currentPlaylistSongs === previous.currentPlaylistSongs) return;
   const cp = state.currentPlaylist;
   if (!cp || cp.source === "local") return;
   const songs = state.currentPlaylistSongs;
   const key = cloudPlaylistKey(cp.source, cp.id);
-  if (!songs.length) {
-    // 打开的云端歌单歌曲已被清空（本地删除/删到空）：删掉该歌单的缓存快照，
-    // 避免上传时把旧快照重新挂载、导致删除被回滚。只有 currentPlaylist 非空才
-    // 走到这——未加载/加载失败的场景不会以空列表出现，故不会误伤已有缓存。
-    void forgetCloudSongs(cp.source, cp.id);
-    return;
-  }
-  if (sameSongKeyOrder(cachedCloudSongs(cp.source, cp.id), songs)) return;
-  cloudSongsCache.set(key, songs);
-  void rememberCloudSongs(new Map([[key, songs]]));
-}
-
-function sameSongKeyOrder(a: MusicInfo[], b: MusicInfo[]): boolean {
-  if (a.length !== b.length) return false;
-  for (let index = 0; index < a.length; index += 1) {
-    if (buildSongKey(a[index]) !== buildSongKey(b[index])) return false;
-  }
-  return true;
+  void cloudSongsCache.setLocal(key, songs).catch(error => {
+    logger.error("保存 WebDAV 云端歌曲缓存失败", error);
+    usePlaylistStore.setState({ error: error instanceof Error ? error.message : String(error) });
+  });
 }
 
 usePlaylistStore.subscribe(syncOpenCloudPlaylistSongs);
@@ -957,15 +899,16 @@ export async function downloadSourcesSync(options?: { force?: boolean }): Promis
  */
 async function primeCloudSongsCacheForUpload(cfg: WebdavConfig): Promise<void> {
   const { playlists } = usePlaylistStore.getState();
-  const needsPrime = playlists.some(
-    (p) => p.source !== "local" && !cloudSongsCache.has(cloudPlaylistKey(p.source, p.id)),
-  );
+  const cached = await Promise.all(playlists.filter(p => p.source !== "local")
+    .map(p => cloudSongsCache.get(cloudPlaylistKey(p.source, p.id))));
+  const needsPrime = cached.some(songs => songs === undefined);
   if (!needsPrime) return;
+  const cacheRevision = cloudSongsCache.revision();
   const text = await readSyncFileWithLegacyFallback(cfg, playlistsPath);
   // 云端没有歌单文件：没有任何可被覆盖的数据，直接放行
   if (!text) return;
   const { cloudSongs } = parsePlaylistsSyncFile(text);
-  await rememberCloudSongs(cloudSongs);
+  await cloudSongsCache.mergeRemote(cloudSongs, { sinceRevision: cacheRevision, onlyMissing: true });
 }
 
 /** 上传收藏、歌单和播放历史到 WebDAV（覆盖远端 playlists.json）。 */
@@ -1023,6 +966,7 @@ export async function downloadPlaylistsSync(options?: {
     const cfg = await getConfig();
     if (!cfg) throw new Error("请先填写 WebDAV 地址");
 
+    const cacheRevision = cloudSongsCache.revision();
     const text = await readSyncFileWithLegacyFallback(cfg, playlistsPath);
     if (!text) {
       if (options?.allowMissing) return;
@@ -1049,7 +993,11 @@ export async function downloadPlaylistsSync(options?: {
       historyEntries,
       cloudSongs,
     } = parsePlaylistsSyncFile(text);
-    await rememberCloudSongs(cloudSongs);
+    await cloudSongsCache.mergeRemote(cloudSongs, {
+      sinceRevision: cacheRevision,
+      // 自动同步保留本地编辑（含清空）；用户显式下载允许重新采用远端内容。
+      overwriteLocal: !options?.allowMissing,
+    });
 
     const playlistStore = usePlaylistStore.getState();
     const favoritesStore = useFavoritesStore.getState();

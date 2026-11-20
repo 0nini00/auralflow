@@ -273,6 +273,7 @@ function defaultQualityRaceError(errors: unknown[]): Error {
 export const DEFAULT_SOURCE_STAGGER_MS = 800;
 
 export interface StaggeredPriorityRaceOptions<T> {
+  signal?: AbortSignal;
   getQuality: (value: T) => unknown;
   /** 本轮可接受的最高档：命中且没有更靠前的候选在途时立即定稿。 */
   ceiling?: unknown;
@@ -340,11 +341,23 @@ export function raceStaggeredPriority<T>(
   let windowTimer: ReturnType<typeof setTimeout> | null = null;
 
   return new Promise<T>((resolve, reject) => {
+    const launchTimers = new Set<ReturnType<typeof setTimeout>>();
+    const cleanup = () => {
+      if (windowTimer !== null) clearTimeout(windowTimer);
+      if (deadlineTimer !== null) clearTimeout(deadlineTimer);
+      for (const timer of launchTimers) clearTimeout(timer);
+      options.signal?.removeEventListener("abort", abort);
+    };
+    const abort = () => {
+      if (done) return;
+      done = true;
+      cleanup();
+      reject(Object.assign(new Error("请求已取消"), { name: "AbortError" }));
+    };
     const finish = () => {
       if (done) return;
       done = true;
-      if (windowTimer !== null) clearTimeout(windowTimer);
-      if (deadlineTimer !== null) clearTimeout(deadlineTimer);
+      cleanup();
       if (bestRank >= 0) resolve(best as T);
       else reject(formatError(errors));
     };
@@ -421,7 +434,11 @@ export function raceStaggeredPriority<T>(
         (error) => onError(index, error),
       );
       if (index + 1 < launchers.length) {
-        setTimeout(() => maybeLaunchNext(index), effectiveStaggerMs);
+        const timer = setTimeout(() => {
+          launchTimers.delete(timer);
+          maybeLaunchNext(index);
+        }, effectiveStaggerMs);
+        launchTimers.add(timer);
       }
     };
 
@@ -433,6 +450,10 @@ export function raceStaggeredPriority<T>(
           finish();
         }, options.deadlineMs);
 
-    launchNext();
+    if (options.signal?.aborted) abort();
+    else {
+      options.signal?.addEventListener("abort", abort, { once: true });
+      launchNext();
+    }
   });
 }
