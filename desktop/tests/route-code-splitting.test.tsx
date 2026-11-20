@@ -85,6 +85,7 @@ afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 async function mount() {
@@ -93,6 +94,8 @@ async function mount() {
     root = createRoot(document.getElementById('root')!);
     root.render(<App />);
   });
+  // 首次提交才启动窗口懒加载；等真实 import 完成后再让 act 刷新 Suspense 重试。
+  await act(async () => { await vi.dynamicImportSettled(); });
 }
 
 async function navigate(path: string) {
@@ -100,20 +103,18 @@ async function navigate(path: string) {
     window.history.pushState({}, '', path);
     window.dispatchEvent(new PopStateEvent('popstate'));
   });
+  await act(async () => { await vi.dynamicImportSettled(); });
 }
 
 it('首屏只加载当前路由的页面，切页时才拉取目标页面', async () => {
+  const errors = vi.spyOn(console, 'error');
   await mount();
-  // 懒加载的页面要等模块到位后才出现在 DOM 里：模块求值在先，渲染随后。
-  await vi.waitFor(() => {
-    expect(document.querySelector('[data-testid="view-HomeView"]')).not.toBeNull();
-  });
+  expect(document.querySelector('[data-testid="view-HomeView"]')).not.toBeNull();
   expect(loaded.modules).toEqual(['HomeView']);
   await navigate('/stats');
-  await vi.waitFor(() => {
-    expect(document.querySelector('[data-testid="view-StatsView"]')).not.toBeNull();
-  });
+  expect(document.querySelector('[data-testid="view-StatsView"]')).not.toBeNull();
   expect(loaded.modules).toEqual(['HomeView', 'StatsView']);
+  expect(errors.mock.calls.filter(args => args.some(value => String(value).includes('not wrapped in act')))).toEqual([]);
 });
 
 it('切页只换内容区，外壳与播放条不重建', async () => {

@@ -3,12 +3,13 @@ import { buildSongKey, isPreviewDuration } from "@lx/core";
 import { notePlaybackHealthy } from "@/services/playbackFailurePolicy";
 import { claimPreviewRejection, setupPlayerStateListeners, usePlayerStore } from "@/stores/playerStore";
 import { logger } from "@/services/logger";
-import { invalidateResolvedPlayback, prefetchUpcomingSongNearEnd } from "../services/playerService";
+import { notePlaybackCandidateHealthy, prefetchUpcomingSongNearEnd, recoverCurrentSongPlayback } from "../services/playerService";
+import { getCurrentPlaybackRequestId, isCurrentPlaybackRequest } from "@/services/playbackRequest";
 
 /**
- * 判定「该曲确实可播」的播放位置阈值（秒）：越过它才归还重试额度。
+ * 判定「该曲确实可播」的播放位置阈值（秒）：越过它才归还自动跳过额度。
  * 取 5s 是为了越过坏链的报错窗口——实测坏链要到约 3s 后原生才发 PlaybackError，
- * 阈值若落在窗口内会把即将失败的加载误判为健康，重试额度反复归还即成无限重试。
+ * 恢复候选还需要相对恢复起点推进，才能获得下一次网络故障的恢复窗口。
  */
 const PLAYBACK_HEALTHY_POSITION_SECONDS = 5;
 
@@ -40,21 +41,31 @@ export function setupPlayerListeners(): void {
     // 预读 key 双重去重，0.25s 的进度事件不会重复解析）。无下一首/单曲循环无副作用。
     prefetchUpcomingSongNearEnd(position, duration);
     // 试听兜底：解析期拿不到 Content-Length / Content-Range 的流式响应靠播放器实际时长判定。
-    // 明显短于期望时长（song.interval）即视为试听：停播 + 清缓存，下次重播强制重新解析（对齐失败即停）。
+    // 明显短于期望时长时主动拒绝当前候选，继续同歌曲的剩余来源。
     const song = usePlayerStore.getState().currentSong;
     if (!song) return;
     const key = buildSongKey(song);
-    // 位置推进过阈值即证明该曲可播（音频真的在解码）：归还其重试额度，
-    // 使下次遇到坏链时仍能重新走「重试一次 → 再失败才跳」，而非一失败就直接跳。
-    if (position >= PLAYBACK_HEALTHY_POSITION_SECONDS) notePlaybackHealthy(key);
-    if (!isPreviewDuration({ actualDurationSeconds: duration, expectedDurationSeconds: song.interval })) return;
+    if (!isPreviewDuration({ actualDurationSeconds: duration, expectedDurationSeconds: song.interval })) {
+      // 先排除试听，再把已持续解码的候选记为健康。
+      notePlaybackCandidateHealthy(key, position);
+      if (position >= PLAYBACK_HEALTHY_POSITION_SECONDS) {
+        notePlaybackHealthy(key);
+      }
+      return;
+    }
     if (!claimPreviewRejection(key)) return;
-    usePlayerStore.getState().setError(`检测到试听片段（约 ${Math.round(duration)}s），已清除缓存，请重新播放或切换音源`);
-    void TrackPlayer.pause().catch(() => {});
-    // 试听片段可能来自三级里的任何一级。磁盘音频文件必须一起失效：解析链先查磁盘文件、
-    // 命中即直接返回，不经任何试听判定，只清 URL 缓存会留下死循环（命中 → 播放试听 → 判定 → 再命中）。
-    void invalidateResolvedPlayback(song, { includeDiskAudio: true }).catch((error) => {
-      logger.warn("[试听兜底] 清除该曲的解析缓存失败，重新播放可能仍命中试听片段", error);
+    const pending = recoverCurrentSongPlayback(getCurrentPlaybackRequestId(), { rejectPreview: true });
+    const owner = getCurrentPlaybackRequestId();
+    void pending.catch(async (error) => {
+      if (!isCurrentPlaybackRequest(owner)) return;
+      logger.warn("[试听兜底] 同歌曲换源失败", error);
+      let message = error instanceof Error ? error.message : String(error);
+      const paused = usePlayerStore.getState().pause();
+      const pauseOwner = getCurrentPlaybackRequestId();
+      try { await paused; }
+      catch (pauseError) { message += `；停止试听失败：${pauseError instanceof Error ? pauseError.message : String(pauseError)}`; }
+      if (!isCurrentPlaybackRequest(pauseOwner)) return;
+      usePlayerStore.setState({ loading: false, isPlaying: false, error: `检测到试听片段，同歌曲换源失败：${message}` });
     });
   });
 }

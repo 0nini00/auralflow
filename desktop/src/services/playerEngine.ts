@@ -34,6 +34,7 @@ type PreviewListener = (duration: number) => void;
 class PlayerEngine {
   private readonly audio = new Audio();
   private loadVersion = 0;
+  private rejectedPlayback: Error | null = null;
   private preloadAudio: HTMLAudioElement | null = null;
   private preloadedUrl: string | null = null;
   private state: PlayerEngineState = {
@@ -91,6 +92,7 @@ class PlayerEngine {
     });
 
     on("play", () => {
+      if (this.rejectedPlayback) { this.rejectCurrentPlayback(this.rejectedPlayback.message); return; }
       this.startProgressLoop();
       this.patchState({ status: "playing", currentTime: this.audio.currentTime || 0 });
     });
@@ -184,6 +186,7 @@ class PlayerEngine {
     assertCurrent();
     assertPlaybackAllowed?.();
     this.audio.volume = this.state.volume;
+    this.rejectedPlayback = null;
     this.patchState({
       currentMusic: music,
       currentUrl: url,
@@ -213,6 +216,7 @@ class PlayerEngine {
       if (version !== this.loadVersion) throw new Error("播放加载已被更新的操作取消");
       assertPlaybackAllowed?.();
       await this.audio.play();
+      if (this.rejectedPlayback) throw this.rejectedPlayback;
     } catch (error) {
       if (version === this.loadVersion) {
         this.cancelFade();
@@ -221,6 +225,14 @@ class PlayerEngine {
       throw error;
     }
     if (version === this.loadVersion) void this.fadeIn();
+  }
+
+  /** 元数据证明流是试听时，走与原生网络/解码失败一致的恢复入口。 */
+  rejectCurrentPlayback(message: string): void {
+    this.rejectedPlayback = new Error(message);
+    this.markInternalPause();
+    this.audio.pause();
+    this.patchState({ status: 'error', error: message });
   }
 
   pause(): void {

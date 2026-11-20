@@ -2,23 +2,24 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { createLoader, deferred, mobileRequire } = require("./helpers/loadTs.cjs");
 const pure = createLoader({});
-const core = { ...pure("../../packages/core/src/switch-step-queue.ts"), ...pure("../../packages/core/src/request-limiter.ts"), ...pure("../../packages/core/src/playback-quality.ts"), ...pure("../../packages/core/src/song-variant.ts"), ...pure("../../packages/core/src/playback-budgets.ts"), isPreviewDuration: () => false };
+const core = { ...pure("../../packages/core/src/index.ts"), isPreviewDuration: () => false };
 const song = (id, source = "tx") => ({ id, source, name: id, singer: "Artist", interval: 180 });
 async function flush() { await new Promise(setImmediate); }
 async function until(predicate) { for (let i=0;i<100;i++) { if(predicate())return; await flush(); } assert.fail("播放链未到达检查点"); }
 function setup(overrides = {}) {
   const calls=[]; const lookups=[]; const native={}; const logs=[];
-  for(const method of ["setupPlayer","updateOptions","setRepeatMode","add","skip","remove","setRate","setVolume","play","stop","reset","pause"]) {
+  for(const method of ["setupPlayer","updateOptions","setRepeatMode","add","skip","remove","setRate","setVolume","play","stop","reset","pause","seekTo"]) {
     native[method]=async(...args)=>{calls.push([method,...args]);};
   }
   native.getQueue=async()=>[];
+  native.getState=async()=>"playing";
   const cache={ getCachedPlaybackUrl:async track=>{lookups.push(track.id);return {url:`https://fixture.invalid/${track.id}`,quality:"320k"};}, saveCachedPlaybackUrl:async()=>{}, invalidateCachedPlaybackUrl:async()=>{} };
   const recommendations = { getPersonalFmSongs: async () => ({ songs: [], hasMore: false }) };
   const cross={findTxVariants:async()=>[],describeCrossSourceFailure:()=>"无替代歌曲"};
   const load=createLoader({
     zustand:mobileRequire("zustand"), "react-native":{AppState:{addEventListener:()=>({remove(){}})}},
     "@react-native-async-storage/async-storage":{getItem:async()=>null,setItem:async()=>{}},
-    "react-native-track-player":{__esModule:true,default:native,State:{},RepeatMode:{Off:0},Event:{},AppKilledPlaybackBehavior:{},Capability:{}},
+    "react-native-track-player":{__esModule:true,default:native,State:{Playing:"playing",Paused:"paused"},RepeatMode:{Off:0},Event:{},AppKilledPlaybackBehavior:{},Capability:{}},
     "@lx/core":core,"@/services/androidPitchService":{}, "./playbackUrlCache":cache,"@/services/playbackUrlCache":cache,
     "@/services/playbackFailurePolicy":{},"@/services/lyricOverlayService":{isLyricOverlaySupported:()=>false},
     "@/services/listenTrackerService":{startListeningSession() {}, resetListeningSession() {}, onPlaybackProgress() {}, seekListeningSession() {}, flushListeningSession: async () => {}},"./listenTrackerService":{startListeningSession() {}, resetListeningSession() {}, onPlaybackProgress() {}, seekListeningSession() {}, flushListeningSession: async () => {}},
@@ -32,7 +33,7 @@ function setup(overrides = {}) {
     "./hiddenFallbackService":{startHiddenSearch:async()=>[],resolveHiddenFromGroups:async()=>null,resolveHiddenFallback:async()=>null},
     "@/services/crossSourceFallbackService":cross,
     "@/stores/playbackSettingsStore":{usePlaybackSettingsStore:{getState:()=>({defaultQuality:overrides.defaultQuality??"320k"})}},
-    "./cacheService":{CACHEABLE_AUDIO_SOURCES:new Set(),getCachedLyrics:async()=>[],cacheCover:async()=>{},cacheLyrics:async()=>{}},
+    "./cacheService":{CACHEABLE_AUDIO_SOURCES:new Set(),getCachedLyrics:async()=>[],cacheCover:async()=>{},cacheLyrics:async()=>{},deleteCachedAudioForMusic:overrides.deleteCachedAudioForMusic??(async()=>{})},
     "@/services/logger":{logger:{debug(...args){logs.push(["debug",...args]);},info(...args){logs.push(["info",...args]);},warn(...args){logs.push(["warn",...args]);},error(...args){logs.push(["error",...args]);}}},
   });
   const store=load("src/stores/playerStore.ts").usePlayerStore;
@@ -42,6 +43,257 @@ function setup(overrides = {}) {
 // 上限只是 runner 的安全网，不是断言：这些用例靠推进虚拟计时器消耗真实 CPU，墙钟时间只反映
 // 机器速度。5000ms 在并发跑整个套件时会把它们判成超时（实测同一用例 4.2s，转译未缓存时更高）。
 const options={timeout:15000};
+
+for (const invalidProbe of [{ ok: false, reason: "HTTP 404", definitive: true }, { ok: true, totalBytes: 300000 }]) {
+  test(`网关每档快速返回${invalidProbe.ok ? "试听" : "404"}时仍尝试可用自定义源`, options, async t => {
+    t.mock.timers.enable({apis:["setTimeout","Date"]});
+    let customCalls = 0;
+    const h = setup({
+      defaultQuality: "flac",
+      parseUrl: async (_song, quality) => ({ url: "https://gateway.invalid/rejected", quality }),
+      customSourceStore: { useCustomSourceStore: { getState: () => ({ sources: [{ id: "good", name: "good", enabled: true }] }) } },
+      customSourceRuntime: { requestCustomSourceMusicUrl: async (_source, _song, quality) => { customCalls++; return { url: "https://custom.invalid/full", quality }; } },
+      streamProbe: { PROBE_TIMEOUT_MS: 5000, probeStreamUrl: async url => url.includes("gateway.invalid") ? invalidProbe : { ok: true, totalBytes: 5000000 } },
+    });
+    h.cache.getCachedPlaybackUrl = async () => null;
+    const pending = h.service.playSong(song("candidate"));
+    let outcome;
+    pending.then(() => { outcome = "played"; }, error => { outcome = error.message; });
+    await flush();
+    for (let elapsed = 0; elapsed < 10000; elapsed += 100) { t.mock.timers.tick(100); await flush(); }
+    assert.equal(outcome, "played");
+    assert.equal(h.store.getState().currentUrl, "https://custom.invalid/full");
+    assert.ok(customCalls > 0);
+    await pending;
+  });
+}
+
+test("原生加载拒收网关地址后排除同一来源并尝试同歌曲自定义源", options, async t => {
+  t.mock.timers.enable({apis:["setTimeout","Date"]});
+  const loaded = [];
+  const h = setup({
+    parseUrl: async (_song, quality) => ({ url: "https://gateway.invalid/native-rejected", quality }),
+    customSourceStore: { useCustomSourceStore: { getState: () => ({ sources: [{ id: "good", name: "good", enabled: true }] }) } },
+    customSourceRuntime: { requestCustomSourceMusicUrl: async (_source, _song, quality) => ({ url: "https://custom.invalid/native-good", quality }) },
+    streamProbe: { PROBE_TIMEOUT_MS: 5000, probeStreamUrl: async () => ({ ok: true, totalBytes: 5000000 }) },
+  });
+  h.cache.getCachedPlaybackUrl = async () => null;
+  h.store.setState({ play: async (track, url) => {
+    loaded.push(url);
+    if (url.includes("gateway.invalid")) throw new Error("native decoder rejected");
+    h.store.setState({ currentSong: track, currentUrl: url, isPlaying: true });
+  } });
+  let outcome;
+  const pending = h.service.playSong(song("native-recovery"));
+  pending.then(() => { outcome = "played"; }, error => { outcome = error.message; });
+  await flush();
+  for (let elapsed = 0; elapsed < 10000; elapsed += 100) { t.mock.timers.tick(100); await flush(); }
+  assert.equal(outcome, "played");
+  assert.deepEqual(loaded, ["https://gateway.invalid/native-rejected", "https://custom.invalid/native-good"]);
+  assert.equal(h.store.getState().currentSong.id, "native-recovery");
+  await pending;
+});
+
+test("连续原生错误保留已拒绝来源，按同歌曲剩余候选恢复", options, async t => {
+  t.mock.timers.enable({apis:["setTimeout","Date"]});
+  const requested = [];
+  const h = setup({
+    parseUrl: async (_song, quality) => { requested.push(["gateway", quality]); return { url: "https://gateway.invalid/a", quality }; },
+    customSourceStore: { useCustomSourceStore: { getState: () => ({ sources: ["b", "c"].map(id => ({ id, name: id, enabled: true })) }) } },
+    customSourceRuntime: { requestCustomSourceMusicUrl: async (source, _song, quality) => { requested.push([source.id, quality]); return { url: `https://custom.invalid/${source.id}`, quality }; } },
+    streamProbe: { PROBE_TIMEOUT_MS: 5000, probeStreamUrl: async () => ({ ok: true, totalBytes: 5000000 }) },
+  });
+  h.cache.getCachedPlaybackUrl = async () => null;
+  await h.service.playSong(song("repeated-native"));
+  assert.equal(h.store.getState().currentUrl, "https://gateway.invalid/a");
+  await h.service.recoverCurrentSongPlayback(h.requests.getCurrentPlaybackRequestId());
+  assert.equal(h.store.getState().currentUrl, "https://custom.invalid/b");
+  await h.service.recoverCurrentSongPlayback(h.requests.getCurrentPlaybackRequestId());
+  assert.equal(h.store.getState().currentUrl, "https://custom.invalid/c");
+  assert.equal(requested.filter(([id]) => id === "c").length, 1);
+  assert.ok(requested.some(([id]) => id === "b"));
+});
+
+test("连续原生错误不刷新同歌曲截止时间", options, async t => {
+  t.mock.timers.enable({apis:["setTimeout","Date"]});
+  const h = setup({
+    parseUrl: async (_song, quality) => ({ url: "https://gateway.invalid/a", quality }),
+    customSourceStore: { useCustomSourceStore: { getState: () => ({ sources: [{ id: "slow", name: "slow", enabled: true }] }) } },
+    customSourceRuntime: { requestCustomSourceMusicUrl: () => new Promise(() => {}) },
+    streamProbe: { PROBE_TIMEOUT_MS: 5000, probeStreamUrl: async () => ({ ok: true }) },
+  });
+  h.cache.getCachedPlaybackUrl = async () => null;
+  await h.service.playSong(song("deadline-native"));
+  t.mock.timers.tick(25000); await flush();
+  let outcome = "pending";
+  const pending = h.service.recoverCurrentSongPlayback(h.requests.getCurrentPlaybackRequestId());
+  pending.then(() => { outcome = "played"; }, error => { outcome = error.message; });
+  await flush();
+  for (let elapsed = 0; elapsed < 5100; elapsed += 100) { t.mock.timers.tick(100); await flush(); }
+  assert.notEqual(outcome, "pending");
+  assert.notEqual(outcome, "played");
+  await pending.catch(() => {});
+});
+
+test("同源flac被播放器拒收后仍可使用其320k候选", options, async t => {
+  t.mock.timers.enable({apis:["setTimeout","Date"]});
+  const loaded = [];
+  const h = setup({
+    defaultQuality: "flac",
+    parseUrl: async () => { throw new Error("gateway unavailable"); },
+    customSourceStore: { useCustomSourceStore: { getState: () => ({ sources: [{ id: "same", name: "same", enabled: true, sources: { tx: { actions: ["musicUrl"], qualitys: ["flac", "320k"] } } }] }) } },
+    customSourceRuntime: { requestCustomSourceMusicUrl: async (_source, _song, quality) => ({ url: `https://custom.invalid/${quality}`, quality }) },
+    streamProbe: { PROBE_TIMEOUT_MS: 5000, probeStreamUrl: async () => ({ ok: true, totalBytes: 5000000 }) },
+  });
+  h.cache.getCachedPlaybackUrl = async () => null;
+  h.store.setState({ play: async (track, url) => {
+    loaded.push(url);
+    if (url.endsWith("flac")) throw new Error("flac decoder failure");
+    h.store.setState({ currentSong: track, currentUrl: url, isPlaying: true });
+  } });
+  let outcome;
+  const pending = h.service.playSong(song("same-source"));
+  pending.then(() => { outcome = "played"; }, error => { outcome = error.message; });
+  await flush();
+  for (let elapsed = 0; elapsed < 30000; elapsed += 100) { t.mock.timers.tick(100); await flush(); }
+  assert.equal(outcome, "played");
+  assert.deepEqual(loaded, ["https://custom.invalid/flac", "https://custom.invalid/320k"]);
+  await pending;
+});
+
+test("同档来源返回旋转坏URL时不重新请求已拒绝候选", options, async t => {
+  t.mock.timers.enable({apis:["setTimeout","Date"]});
+  const requested = new Map();
+  const loaded = [];
+  const h = setup({
+    parseUrl: async () => { throw new Error("gateway unavailable"); },
+    customSourceStore: { useCustomSourceStore: { getState: () => ({ sources: ["bad", "good"].map(id => ({ id, name: id, enabled: true, sources: { tx: { actions: ["musicUrl"], qualitys: ["320k"] } } })) }) } },
+    customSourceRuntime: { requestCustomSourceMusicUrl: async (source, _song, quality) => {
+      requested.set(source.id, (requested.get(source.id) ?? 0) + 1);
+      return { url: `https://custom.invalid/${source.id}/${requested.get(source.id)}`, quality };
+    } },
+    streamProbe: { PROBE_TIMEOUT_MS: 5000, probeStreamUrl: async () => ({ ok: true }) },
+  });
+  h.cache.getCachedPlaybackUrl = async () => null;
+  h.store.setState({ play: async (track, url) => {
+    loaded.push(url);
+    if (url.includes("/bad/")) throw new Error("bad codec");
+    h.store.setState({ currentSong: track, currentUrl: url });
+  } });
+  const pending = h.service.playSong(song("rotate"));
+  await flush();
+  for (let elapsed = 0; elapsed < 5000; elapsed += 100) { t.mock.timers.tick(100); await flush(); }
+  await pending;
+  assert.equal(requested.get("bad"), 1);
+  assert.deepEqual(loaded, ["https://custom.invalid/bad/1", "https://custom.invalid/good/1"]);
+});
+
+test("恢复旧进度不等于健康播放，未推进五秒不能刷新恢复期限", options, async t => {
+  t.mock.timers.enable({apis:["setTimeout","Date"]});
+  const h = setup({
+    parseUrl: async (_song, quality) => ({ url: "https://gateway.invalid/a", quality }),
+    customSourceStore: { useCustomSourceStore: { getState: () => ({ sources: [{ id: "b", name: "b", enabled: true }] }) } },
+    customSourceRuntime: { requestCustomSourceMusicUrl: async (_source, _song, quality) => ({ url: "https://custom.invalid/b", quality }) },
+    streamProbe: { PROBE_TIMEOUT_MS: 5000, probeStreamUrl: async () => ({ ok: true }) },
+  });
+  h.cache.getCachedPlaybackUrl = async () => null;
+  await h.service.playSong(song("resumed"));
+  for (const position of [0, 1, 2, 3, 4, 5]) h.service.notePlaybackCandidateHealthy("tx:resumed", position);
+  h.store.setState({ position: 50 });
+  t.mock.timers.tick(60000); await flush();
+  await h.service.recoverCurrentSongPlayback(h.requests.getCurrentPlaybackRequestId());
+  h.service.notePlaybackCandidateHealthy("tx:resumed", 50);
+  t.mock.timers.tick(30000); await flush();
+  await assert.rejects(h.service.recoverCurrentSongPlayback(h.requests.getCurrentPlaybackRequestId()), /换源预算耗尽/);
+});
+
+test("探活无size而原生识别试听时清除磁盘候选并继续同曲换源", options, async () => {
+  const invalidated = [];
+  const h = setup({
+    parseUrl: async (_song, quality) => ({ url: "https://gateway.invalid/preview", quality }),
+    customSourceStore: { useCustomSourceStore: { getState: () => ({ sources: [{ id: "full", name: "full", enabled: true }] }) } },
+    customSourceRuntime: { requestCustomSourceMusicUrl: async (_source, _song, quality) => ({ url: "https://custom.invalid/full", quality }) },
+    streamProbe: { PROBE_TIMEOUT_MS: 5000, probeStreamUrl: async () => ({ ok: true }) },
+    deleteCachedAudioForMusic: async track => { invalidated.push(track.id); },
+  });
+  h.cache.getCachedPlaybackUrl = async () => null;
+  await h.service.playSong(song("native-preview"));
+  await h.service.recoverCurrentSongPlayback(h.requests.getCurrentPlaybackRequestId(), { rejectPreview: true });
+  assert.equal(h.store.getState().currentUrl, "https://custom.invalid/full");
+  assert.equal(h.store.getState().currentSong.id, "native-preview");
+  assert.deepEqual(invalidated, ["native-preview"]);
+});
+
+for (const rejectPreview of [false, true]) {
+  test(`失效缓存挂起也必须受恢复总deadline约束(preview=${rejectPreview})`, options, async t => {
+    t.mock.timers.enable({apis:["setTimeout","Date"]});
+    const h = setup({ parseUrl: async (_song, quality) => ({ url: "https://gateway.invalid/new", quality }), streamProbe: { probeStreamUrl: async () => ({ ok: true }) } });
+    await h.service.playSong(song("cleanup-timeout"));
+    h.cache.invalidateCachedPlaybackUrl = () => new Promise(() => {});
+    let outcome = "pending";
+    const pending = h.service.recoverCurrentSongPlayback(h.requests.getCurrentPlaybackRequestId(), { rejectPreview });
+    pending.then(() => { outcome = "played"; }, error => { outcome = error.message; });
+    await flush();
+    t.mock.timers.tick(core.PLAYBACK_RESOLVE_TOTAL_BUDGET_MS + 1); await flush();
+    assert.match(outcome, /解析超时|换源预算耗尽/);
+    await pending.catch(() => {});
+  });
+}
+
+test("失效缓存挂起时手动新意图立即结算旧恢复", options, async () => {
+  const h = setup();
+  await h.service.playSong(song("cleanup-cancel"));
+  h.cache.invalidateCachedPlaybackUrl = () => new Promise(() => {});
+  let settled = false;
+  const pending = h.service.recoverCurrentSongPlayback(h.requests.getCurrentPlaybackRequestId(), { rejectPreview: true });
+  pending.catch(() => {}).finally(() => { settled = true; });
+  await flush();
+  h.requests.beginPlaybackRequest(); await flush();
+  assert.equal(settled, true);
+  await pending.catch(() => {});
+});
+
+test("真实暂停续播保留当前候选身份，不让旋转坏地址重新抢占恢复", options, async () => {
+  const requested = [];
+  const h = setup({
+    parseUrl: async () => { throw new Error("gateway unavailable"); },
+    customSourceStore: { useCustomSourceStore: { getState: () => ({ sources: ["bad", "good"].map(id => ({ id, name: id, enabled: true, sources: { tx: { actions: ["musicUrl"], qualitys: ["320k"] } } })) }) } },
+    customSourceRuntime: { requestCustomSourceMusicUrl: async (source, _song, quality) => {
+      requested.push(source.id);
+      return { url: `https://custom.invalid/${source.id}/${requested.length}`, quality };
+    } },
+    streamProbe: { probeStreamUrl: async () => ({ ok: true }) },
+  });
+  h.cache.getCachedPlaybackUrl = async () => null;
+  await h.service.playSong(song("resumed-candidate"));
+  await h.store.getState().pause();
+  await h.service.resumePlayback();
+  await h.service.recoverCurrentSongPlayback(h.requests.getCurrentPlaybackRequestId());
+  assert.deepEqual(requested, ["bad", "good"]);
+  assert.match(h.store.getState().currentUrl, /\/good\//);
+});
+
+test("真实seek不能把未健康候选变成健康并刷新恢复期限", options, async t => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const h = setup();
+  await h.service.playSong(song("seek-not-healthy"));
+  h.service.notePlaybackCandidateHealthy("tx:seek-not-healthy", 0);
+  await h.store.getState().seekTo(50);
+  h.service.notePlaybackCandidateHealthy("tx:seek-not-healthy", 50);
+  t.mock.timers.tick(core.PLAYBACK_RESOLVE_TOTAL_BUDGET_MS + 1); await flush();
+  await assert.rejects(h.service.recoverCurrentSongPlayback(h.requests.getCurrentPlaybackRequestId()), /换源预算耗尽/);
+});
+
+test("小幅seek中断连续健康计量，恢复期内不能拼接跳转进度", options, async t => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const h = setup();
+  await h.service.playSong(song("small-seek"));
+  for (const position of [0, 1, 2, 3, 4]) h.service.notePlaybackCandidateHealthy("tx:small-seek", position);
+  await h.store.getState().seekTo(5);
+  h.service.notePlaybackCandidateHealthy("tx:small-seek", 5);
+  t.mock.timers.tick(core.PLAYBACK_RESOLVE_TOTAL_BUDGET_MS + 1); await flush();
+  await assert.rejects(h.service.recoverCurrentSongPlayback(h.requests.getCurrentPlaybackRequestId()), /换源预算耗尽/);
+});
 
 test("主源挂起时采用已有低档结果，并为外层探活保留预算", options, async t=>{
   t.mock.timers.enable({apis:["setTimeout","Date"]});
@@ -60,7 +312,7 @@ test("主源挂起时采用已有低档结果，并为外层探活保留预算",
   const playing=h.service.playSong(song("fallback"));
   playing.then(()=>{outcome="played";},error=>{outcome=error.message;});
   await flush();
-  for(let elapsed=0;elapsed<13900;elapsed+=100){t.mock.timers.tick(100);await flush();}
+  for(let elapsed=0;elapsed<30000;elapsed+=100){t.mock.timers.tick(100);await flush();}
   assert.equal(outcome,"played");
   assert.equal(h.store.getState().currentUrl,"https://fixture.invalid/320k");
   await playing;
@@ -78,7 +330,7 @@ test("总预算涵盖主源失败后的跨源候选，超时后迟到结果不�
   const playing=h.service.playQueue([song("original","wy")]);
   playing.then(()=>{outcome="resolved";},error=>{outcome=error.message;});
   await until(()=>entered);
-  t.mock.timers.tick(14000);await flush();const atDeadline=outcome;
+  t.mock.timers.tick(core.PLAYBACK_RESOLVE_TOTAL_BUDGET_MS);await flush();const atDeadline=outcome;
   gate.resolve({url:"https://fixture.invalid/late",quality:"320k"});await playing.catch(()=>{});await flush();
   assert.match(atDeadline,/解析超时/);
   assert.equal(h.calls.some(call=>call[0]==="play"),false);
@@ -165,7 +417,7 @@ test("预读超时释放在途条目，真实切歌可以重新解析",options,a
   const get=h.cache.getCachedPlaybackUrl;
   h.cache.getCachedPlaybackUrl=async track=>{lookupCount++;return lookupCount===1?gate.promise:get(track);};
   h.service.prefetchSong(song("B"));await until(()=>lookupCount===1);
-  t.mock.timers.tick(14000);await flush();
+  t.mock.timers.tick(core.PLAYBACK_RESOLVE_TOTAL_BUDGET_MS);await flush();
   h.store.getState().setQueue([song("A"),song("B")],0);
   const playing=h.service.playNext();await flush();await flush();
   const beforeRelease=lookupCount;

@@ -12,7 +12,7 @@ import { getPlayModeState } from "@/services/playback/playModeControl";
 import { finishListeningStats, pauseListeningStats, seekListeningStats, sampleListeningStats } from "./listeningStatsStore";
 import { stopOnPreviewDetected, syncEngineToStore } from "./player/engineSync";
 import { createPlay, getLocalPlaybackMusic } from "./player/playbackPipeline";
-import { buildPlayRequestKey, invalidatePlayRequest } from "./player/playRequestState";
+import { buildPlayRequestKey, invalidatePlayRequest, resetPlaybackHealth, resumePlaybackRecovery } from "./player/playRequestState";
 import { createQueueActions } from "./player/queueActions";
 import { createQueueNavigation } from "./player/queueNavigation";
 import type { PlayerStore } from "./player/types";
@@ -78,7 +78,7 @@ export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
 
     pause: () => {
       const { status, current } = get();
-      invalidatePlayRequest();
+      invalidatePlayRequest(true);
       playerEngine.pause();
       const engine = playerEngine.getState();
       pauseListeningStats({ at: engine.currentTimeSampledAtMonotonic, position: engine.currentTime, playing: false, rate: engine.playbackRate });
@@ -94,6 +94,7 @@ export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
         void get().play(current).catch(() => undefined);
         return;
       }
+      if (current) resumePlaybackRecovery(buildPlayRequestKey(current));
       playerEngine.resume();
     },
 
@@ -118,6 +119,7 @@ export const usePlayerStore = createLibraryStore<PlayerStore>((set, get) => {
     prev: queueNavigation.prev,
 
     setProgress: (progress) => {
+      resetPlaybackHealth();
       const before = playerEngine.sampleCurrentTime();
       sampleListeningStats({ at: before.currentTimeSampledAtMonotonic, position: before.currentTime, playing: before.status === "playing", rate: before.playbackRate });
       // seek 同步推送进度；先重置测量基点，避免小幅跳转被误认成连续播放。

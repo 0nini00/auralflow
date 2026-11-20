@@ -38,6 +38,20 @@ export interface CustomSourceItem {
   updatedAt: number;
 }
 
+/** 未初始化的能力保持待定；已有声明时只调度当前平台真正支持的取链档位。 */
+export function getCustomSourcePlaybackQualities(
+  source: Pick<CustomSourceItem, "sources">,
+  platform: string,
+  requested: readonly string[],
+): string[] {
+  if (source.sources === undefined) return [...requested];
+  const capability = source.sources[platform];
+  if (!capability?.actions.includes("musicUrl")) return [];
+  return capability.qualitys.length
+    ? requested.filter(quality => capability.qualitys.includes(quality))
+    : [...requested];
+}
+
 /** 脚本经 `updateAlert` 事件或远端比对得出的更新提示。 */
 export interface CustomSourceUpdateAlert {
   log: string;

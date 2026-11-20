@@ -34,6 +34,33 @@ let engineTargetKey: string | null = null;
 // 切歌连点合并：切换进行中（解析/播放器加载）时重复点击只补跳一次，不重复解析。
 let switchStepQueue = createSwitchStepQueueState();
 let inflightPlayRequest: InflightPlayRequest | null = null;
+interface PlaybackRecovery {
+  requestId: number;
+  recover: (url: string) => Promise<boolean>;
+  resume: (requestId: number, signal: AbortSignal) => void;
+}
+let playbackRecovery: PlaybackRecovery | null = null;
+let previousPlaybackPosition: number | null = null;
+let healthyPlaybackSeconds = 0;
+
+export function resetPlaybackHealth(): void {
+  previousPlaybackPosition = null;
+  healthyPlaybackSeconds = 0;
+}
+
+export function notePlaybackProgress(position: number): void {
+  if (!Number.isFinite(position)) return;
+  if (previousPlaybackPosition !== null) {
+    const advance = position - previousPlaybackPosition;
+    if (advance < 0 || advance > 2) healthyPlaybackSeconds = 0;
+    else healthyPlaybackSeconds += advance;
+  }
+  previousPlaybackPosition = position;
+}
+
+export function hasHealthyPlayback(): boolean {
+  return healthyPlaybackSeconds >= 5;
+}
 
 export function buildPlayRequestKey(music: MusicInfo): string {
   const localUrl =
@@ -46,6 +73,8 @@ export function buildPlayRequestKey(music: MusicInfo): string {
 /** 开启新一代播放请求，并把它的曲目登记为引擎应当接管的目标；返回本次请求的代次。 */
 export function beginPlayRequest(requestKey: string): number {
   activePlayController.abort();
+  playbackRecovery = null;
+  resetPlaybackHealth();
   activePlayController = new AbortController();
   const requestId = activePlayRequestId + 1;
   activePlayRequestId = requestId;
@@ -57,6 +86,27 @@ export function beginPlayRequest(requestKey: string): number {
 /** 请求代次检查点：false 表示本请求已被更新的请求或 invalidatePlayRequest 取代。 */
 export function isActivePlayRequest(requestId: number): boolean {
   return requestId === activePlayRequestId;
+}
+
+export function getCurrentPlayRequestId(): number {
+  return activePlayRequestId;
+}
+
+export function registerPlaybackRecovery(requestId: number, recover: PlaybackRecovery['recover'], resume: PlaybackRecovery['resume']): void {
+  if (isActivePlayRequest(requestId)) playbackRecovery = { requestId, recover, resume };
+}
+
+export function resumePlaybackRecovery(requestKey: string): void {
+  if (!playbackRecovery || isActivePlayRequest(playbackRecovery.requestId)) return;
+  const registration = playbackRecovery;
+  const requestId = beginPlayRequest(requestKey);
+  registration.resume(requestId, getPlayRequestSignal(requestId));
+  playbackRecovery = { ...registration, requestId };
+}
+
+export function recoverActivePlayback(url: string): Promise<boolean> | undefined {
+  if (inflightPlayRequest || !playbackRecovery || !isActivePlayRequest(playbackRecovery.requestId)) return undefined;
+  return playbackRecovery.recover(url);
 }
 
 export function getInflightPlayRequest(): InflightPlayRequest | null {
@@ -82,10 +132,12 @@ export function setEngineTargetKey(key: string | null): void {
   engineTargetKey = key;
 }
 
-export function invalidatePlayRequest(): void {
+export function invalidatePlayRequest(preserveRecovery = false): void {
   activePlayController.abort();
   activePlayRequestId += 1;
   inflightPlayRequest = null;
+  if (!preserveRecovery) playbackRecovery = null;
+  resetPlaybackHealth();
   engineTargetKey = null;
   switchStepQueue = createSwitchStepQueueState();
 }

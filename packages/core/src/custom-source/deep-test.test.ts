@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HiddenSourceSearcher, HiddenSourceTrack } from "../hidden-source";
-import { CUSTOM_SOURCE_PLAYBACK_WINDOW_MS } from "../playback-budgets";
+import { CUSTOM_SOURCE_ATTEMPT_TIMEOUT_MS } from "../playback-budgets";
 import {
   buildCustomSourceDeepTestInitFailure,
   buildCustomSourceDeepTestTarget,
@@ -32,6 +32,7 @@ function deps(overrides: Partial<CustomSourceDeepTestDeps> = {}) {
     searchers: [searcher("kw", [kwTrack])],
     withTimeout: vi.fn(<T>(task: Promise<T>) => task) as unknown as CustomSourceDeepTestDeps["withTimeout"] & ReturnType<typeof vi.fn>,
     requestMusicUrl: vi.fn(async (_target: CustomSourceDeepTestTarget, quality: string) => ({ url: "https://example.com/song.mp3", quality })),
+    probeStream: vi.fn(async () => ({ ok: true as const, totalBytes: 5000000 })),
     ...overrides,
   };
 }
@@ -74,7 +75,7 @@ describe("buildCustomSourceDeepTestTarget", () => {
     const d = deps();
     await expect(buildCustomSourceDeepTestTarget("wy", d)).resolves.toEqual({
       platform: "wy",
-      music: { id: "2034742057", name: "江南", singer: "林俊杰", albumName: "第二天堂", source: "wy" },
+      music: { id: "2034742057", name: "江南", singer: "林俊杰", albumName: "第二天堂", source: "wy", interval: 267 },
     });
     await expect(buildCustomSourceDeepTestTarget("tx", d)).resolves.toMatchObject({
       music: {
@@ -105,6 +106,46 @@ describe("buildCustomSourceDeepTestTarget", () => {
 });
 
 describe("runCustomSourceDeepTestPlatforms", () => {
+  it("返回HTTP URL但探活404时不能显示测试通过", async () => {
+    const d = deps({ probeStream: vi.fn(async () => ({ ok: false as const, definitive: true, reason: "HTTP 404" })) });
+    const { passed, result } = await runCustomSourceDeepTestPlatforms({ sources: { wy: music() } }, ["wy"], d);
+    expect(passed).toBe(0);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("HTTP 404");
+  });
+
+  it("已知时长的曲目只有试听时不能显示测试通过", async () => {
+    const d = deps({ probeStream: vi.fn(async () => ({ ok: true as const, totalBytes: 360000 })) });
+    const { passed, result } = await runCustomSourceDeepTestPlatforms({ sources: { kw: music() } }, ["kw"], d);
+    expect(passed).toBe(0);
+    expect(result.message).toContain("试听");
+  });
+
+  it("网易云与QQ固定测试曲也检查试听片段", async () => {
+    const d = deps({ probeStream: vi.fn(async () => ({ ok: true as const, totalBytes: 360000 })) });
+    const { passed, result } = await runCustomSourceDeepTestPlatforms({ sources: { wy: music(), tx: music() } }, ["wy", "tx"], d);
+    expect(passed).toBe(0);
+    expect(result.message).toContain("wy 失败");
+    expect(result.message).toContain("tx 失败");
+  });
+
+  it("探活无结论如实报告未验证，不把522标成通过", async () => {
+    const d = deps({ probeStream: vi.fn(async () => ({ ok: false as const, definitive: false, reason: "HTTP 522" })) });
+    const { result } = await runCustomSourceDeepTestPlatforms({ sources: { wy: music() } }, ["wy"], d);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("未能验证");
+  });
+
+  it("取链与探活共用候选8秒期限且探活不超过2.5秒", async () => {
+    const d = deps({ requestMusicUrl: vi.fn(async () => {
+      vi.setSystemTime(Date.now() + 7000);
+      return { url: "https://example.com/song.mp3", quality: "128k" };
+    }) });
+    const { result } = await runCustomSourceDeepTestPlatforms({ sources: { wy: music() } }, ["wy"], d);
+    expect(result.ok).toBe(true);
+    expect(d.probeStream).toHaveBeenCalledWith("https://example.com/song.mp3", expect.objectContaining({ platform: "wy" }), 1000);
+  });
+
   it("逐个平台取链并汇总，全部通过才算 ok", async () => {
     const sources = { wy: music(), kw: music() };
     const updateAlert = { log: "新版本" };
@@ -161,7 +202,7 @@ describe("runCustomSourceDeepTestPlatforms", () => {
     expect(one.withTimeout).toHaveBeenNthCalledWith(
       2,
       expect.any(Promise),
-      CUSTOM_SOURCE_PLAYBACK_WINDOW_MS,
+      CUSTOM_SOURCE_ATTEMPT_TIMEOUT_MS,
       "取链测试",
     );
 
@@ -171,7 +212,7 @@ describe("runCustomSourceDeepTestPlatforms", () => {
     expect(four.withTimeout).toHaveBeenNthCalledWith(
       1,
       expect.any(Promise),
-      CUSTOM_SOURCE_PLAYBACK_WINDOW_MS,
+      CUSTOM_SOURCE_ATTEMPT_TIMEOUT_MS,
       "取链测试",
     );
   });
@@ -187,7 +228,7 @@ describe("runCustomSourceDeepTestPlatforms", () => {
     const { passed, result } = await runCustomSourceDeepTestPlatforms({ sources: { wy: music(), tx: music(), kw: music() } }, ["wy", "tx", "kw"], d);
     // tx 只剩 10s：均摊值 5s 即最低平台预算
     expect(d.withTimeout).toHaveBeenNthCalledWith(2, expect.any(Promise), 5_000, "取链测试");
-    expect(passed).toBe(2);
+    expect(passed).toBe(0);
     expect(result.message).toContain("kw 失败:未测试（总预算耗尽）");
     expect(d.requestMusicUrl).toHaveBeenCalledTimes(2);
   });
@@ -211,7 +252,7 @@ describe("runCustomSourceDeepTestPlatforms", () => {
     });
     const { result } = await runCustomSourceDeepTestPlatforms({ sources: { wy: music() } }, ["wy"], d);
     expect(result.message).toContain(
-      `wy 失败:取链失败：取链测试超时（${CUSTOM_SOURCE_PLAYBACK_WINDOW_MS}ms）`,
+      `wy 失败:取链失败：取链测试超时（${CUSTOM_SOURCE_ATTEMPT_TIMEOUT_MS}ms）`,
     );
   });
 

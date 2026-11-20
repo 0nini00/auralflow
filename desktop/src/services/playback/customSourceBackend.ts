@@ -1,5 +1,4 @@
 import {
-  CANDIDATE_PROBE_TIMEOUT_MS,
   CUSTOM_SOURCE_MIN_ATTEMPT_MS,
   CUSTOM_SOURCE_PROBE_RESERVE_MS,
   CUSTOM_SOURCE_RESOLVE_BUDGET_MS,
@@ -7,10 +6,11 @@ import {
   DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
   DEFAULT_SOURCE_STAGGER_MS,
   getChildPlaybackDeadline,
+  buildSongKey,
+  getCustomSourcePlaybackQualities,
   getPlaybackQualityRank,
   normalizeSourceQualityLabel,
   raceStaggeredPriority,
-  withBudget,
 } from '@lx/core';
 import { createCancellationScope, throwIfAborted, waitWithSignal } from './cancellation';
 import { createPlaybackRequestScheduler } from './requestScheduler';
@@ -19,8 +19,7 @@ import { useCustomSourceStore } from '@/stores/customSourceStore';
 import { requireCustomSourceAccess } from '@/services/customSourceGate';
 import { requestCustomSourceMusicUrl } from '@/services/customSourceRuntime';
 import { hydrateTxTrackMeta } from '@/services/sources/txMetaService';
-import { probeStreamUrl } from './streamProbe';
-import { buildStreamHeaders } from './streamHeaders';
+import { assessResolvedCandidate } from './assessCandidate';
 import type { PlaybackAttempt, PlaybackBackend, PlaybackRequest, PlaybackResolvedUrl } from './types';
 
 function compactError(error: unknown): string {
@@ -33,6 +32,8 @@ interface CustomSourceHit {
   music: PlaybackRequest['primary'];
   quality: string;
   url: string;
+  assessment: PlaybackResolvedUrl['assessment'];
+  candidateId: string;
 }
 
 export const customSourceBackend: PlaybackBackend = {
@@ -67,8 +68,7 @@ export const customSourceBackend: PlaybackBackend = {
     if (!qualities.length) throw new Error('没有可尝试的音质档位');
     const floorQuality = qualities[qualities.length - 1];
     const trace: PlaybackAttempt[] = [];
-    // 自定义源不独占总预算：外层 deadline 之前还要留出探活与媒体缓存的时间。
-    // 之前固定 10s 会把 2.5s 主源 + 10s 自定义源 + 5s 探活叠加到 17.5s，超过 14s。
+    // 候选内部完成探活；只为结果结算和媒体缓存保留尾部时间。
     const availableBudget = request.deadlineAt
       ? getChildPlaybackDeadline(request.deadlineAt - CUSTOM_SOURCE_PROBE_RESERVE_MS) - Date.now()
       : CUSTOM_SOURCE_RESOLVE_BUDGET_MS;
@@ -92,12 +92,11 @@ export const customSourceBackend: PlaybackBackend = {
 
       // 有 sources 元数据时先按平台过滤：没有声明 musicUrl 的源不必执行脚本再失败。
       // 元数据缺失（从未测试/初始化）的源保持参与，运行时仍会做最终校验。
-      const customSources = enabledSources.filter((api) => {
-        const info = api.sources?.[rawMusic.source];
-        return !info || info.actions.includes('musicUrl');
-      });
+      const sourceQualitiesFor = (api: typeof enabledSources[number]) => getCustomSourcePlaybackQualities(api, rawMusic.source, qualities)
+        .filter(quality => !request.excludedCandidateIds?.has(`custom:${api.id}:${buildSongKey(rawMusic)}:${quality}`));
+      const customSources = enabledSources.filter(api => sourceQualitiesFor(api).length > 0);
       if (!customSources.length) {
-        failures.push(`${rawMusic.source} 没有声明支持 musicUrl 的自定义音源`);
+        failures.push(`${rawMusic.source} 未声明支持所需平台、musicUrl 或音质的自定义音源`);
         continue;
       }
 
@@ -133,10 +132,7 @@ export const customSourceBackend: PlaybackBackend = {
         // 按脚本声明的音质预过滤（与隐藏音源 pickQualities 同语义）。
         // 不声明时保持全部档位参与；声明了却一个都不匹配就直接判该源失败，
         // 而不是把整条降级链都发过去、等运行时再抛「音源不支持 xx 音质」白跑一轮。
-        const declared = api.sources?.[music.source]?.qualitys ?? [];
-        const sourceQualities = declared.length
-          ? qualities.filter((quality) => declared.includes(quality))
-          : qualities;
+        const sourceQualities = sourceQualitiesFor(api);
         if (sourceQualities.length === 0) {
           outcomes[index] = `${api.name} 未声明支持 ${qualities.join('/')} 中的任何音质`;
           throw new Error(outcomes[index]);
@@ -156,15 +152,24 @@ export const customSourceBackend: PlaybackBackend = {
             operation.assertActive();
             // 先判死链再参与裁决：死地址一旦胜出，外层探活会把它否掉，而本轮
             // 其它已结算候选只能当回退；更糟的是后续每个音质轮次都会复用同一个死地址。
-            const deadReason = await rejectDeadCandidate(result.url, music.source, qualityDeadlineAt, signal);
+            const candidate = await assessResolvedCandidate({
+              url: result.url,
+              music,
+              quality: normalizeSourceQualityLabel(result.quality, requested),
+              backend: 'customSource',
+              resolverName: api.name,
+              trace: [],
+              candidateId: `custom:${api.id}:${buildSongKey(music)}:${requested}`,
+            }, { ...request, deadlineAt: qualityDeadlineAt, signal });
             operation.assertActive();
-            if (deadReason) throw new Error(`候选地址不可用(${deadReason})`);
             const hit: CustomSourceHit = {
               apiName: api.name,
               music,
               // 脚本没回传可识别档位时退回本次请求的档位，而不是静默当成 320k。
-              quality: normalizeSourceQualityLabel(result.quality, requested),
+              quality: candidate.quality,
               url: result.url,
+              assessment: candidate.assessment,
+              candidateId: candidate.candidateId!,
             };
             collected.push({ ...hit, rank: getPlaybackQualityRank(hit.quality), sourceIndex: index });
             return hit;
@@ -185,6 +190,7 @@ export const customSourceBackend: PlaybackBackend = {
           const hit = await raceStaggeredPriority(qualityLaunchers, {
             signal: scope.signal,
             getQuality: (value) => value.quality,
+            isVerified: (value) => value.assessment?.status === 'verified',
             // 门槛取该源实际可用的最低档：声明 flac-only 的源不该因为「不到 320k」被否，
             // 它给的就是它能给的最高音质。
             floor: sourceQualities[sourceQualities.length - 1],
@@ -199,7 +205,7 @@ export const customSourceBackend: PlaybackBackend = {
             formatError: (errors) =>
               new Error(errors.map((error) => (error instanceof Error ? error.message : String(error))).join(' | ')),
           });
-          return { apiName: api.name, music, quality: hit.quality, url: hit.url };
+          return { ...hit, apiName: api.name, music };
         } catch (error) {
           outcomes[index] = `${api.name} 全部音质失败:${error instanceof Error ? error.message : String(error)}`;
           throw new Error(outcomes[index]);
@@ -212,6 +218,7 @@ export const customSourceBackend: PlaybackBackend = {
             return await raceStaggeredPriority(launchers, {
               signal: scope.signal,
               getQuality: (value) => value.quality,
+              isVerified: (value) => value.assessment?.status === 'verified',
               floor: floorQuality,
               ceiling: qualities[0],
               staggerMs: DEFAULT_SOURCE_STAGGER_MS,
@@ -241,6 +248,8 @@ export const customSourceBackend: PlaybackBackend = {
           backend: 'customSource',
           resolverName: hit.apiName,
           trace,
+          assessment: hit.assessment,
+          candidateId: hit.candidateId,
           fallbacks: buildFallbackCandidates(collected, hit),
         };
       } catch (error) {
@@ -265,34 +274,6 @@ const MAX_FALLBACK_CANDIDATES = 2;
 const TX_META_HYDRATE_TIMEOUT_MS = 1500;
 
 /**
- * 候选地址内层探活：脚本「调用成功」不等于「地址可用」。
- *
- * LX 源常见返回过期签名或已下架资源；旧实现把第一个返回的地址直接定稿，
- * 外层探活判死后整轮的其它源/档位根本没被尝试过，而且同一个死地址会被后续
- * 每个音质轮次复用。这里在候选进入竞速裁决前就判死，让竞速继续试下一个候选。
- *
- * 只把服务端明确 4xx（definitive）当作死链；超时/抖动/5xx 下不了结论时放行，
- * 交给外层探活决定——误杀一个慢 CDN 上完全可用的地址比多花一次探活更糟。
- */
-async function rejectDeadCandidate(
-  url: string,
-  source: string | undefined,
-  deadlineAt: number,
-  signal?: AbortSignal,
-): Promise<string | null> {
-  const budget = Math.min(CANDIDATE_PROBE_TIMEOUT_MS, getChildPlaybackDeadline(deadlineAt) - Date.now());
-  if (budget <= 0) return null;
-  // IPC 的超时响应也需要回传时间，宿主等待必须独立服从同一探活预算。
-  const probe = await withBudget(probeStreamUrl(url, buildStreamHeaders(source), budget, signal), budget);
-  if (!probe) {
-    debugLog('[customSource] 候选探活预算耗尽，交给外层探活继续判定');
-    return null;
-  }
-  if (probe.ok || !probe.definitive) return null;
-  return probe.reason;
-}
-
-/**
  * 把本轮已结算但没胜出的候选整理成回退链（按音质降序 → 源序升序）。
  * 同一个 URL 被多个源/档位返回时只留第一次出现的那个。
  */
@@ -315,6 +296,8 @@ function buildFallbackCandidates(
       backend: 'customSource',
       resolverName: item.apiName,
       trace: [],
+      assessment: item.assessment,
+      candidateId: item.candidateId,
     });
     if (fallbacks.length >= MAX_FALLBACK_CANDIDATES) break;
   }

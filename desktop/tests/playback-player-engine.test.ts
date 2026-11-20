@@ -8,6 +8,7 @@ class FakeAudio {
   volume = 1;
   playbackRate = 1;
   currentTime = 0;
+  duration = 200;
   ended = false;
   listeners = new Map<string, (() => void)[]>();
   load = vi.fn();
@@ -30,6 +31,16 @@ beforeEach(() => {
 });
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 describe('引擎最后提交点的许可回调', () => {
+  it('起播期间元数据确认试听会拒绝play承诺，不能伪装成已播放', async () => {
+    const { playerEngine } = await import('../src/services/playerEngine');
+    const audio = FakeAudio.instances[0];
+    audio.duration = 30;
+    playerEngine.onPreviewDetected(() => playerEngine.rejectCurrentPlayback('试听片段'));
+    audio.load.mockImplementation(() => audio.emit('loadedmetadata'));
+    await expect(playerEngine.play({ ...music, interval: 200 }, 'https://fixture.invalid/preview')).rejects.toThrow('试听片段');
+    expect(audio.paused).toBe(true);
+    expect(playerEngine.getState().status).toBe('error');
+  });
   it('淡出期间 off→on，不替换旧 src、不播放新 LX，并恢复当前音量', async () => {
     const { playerEngine } = await import('../src/services/playerEngine');
     const audio = FakeAudio.instances[0];

@@ -5,6 +5,8 @@ export * from "./song-variant";
 export * from "./hidden-source";
 export * from "./lyrics";
 export * from "./playback-budgets";
+export * from "./playback-candidate";
+export * from "./playback-request-scheduler";
 export * from "./cover-image";
 export * from "./mobile-api";
 export * from "./playback-quality";

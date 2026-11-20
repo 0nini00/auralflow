@@ -20,7 +20,7 @@ export function interruptPlaybackResolution(): boolean {
 }
 
 /** 预算覆盖整个异步解析流程，包括预读等待与跨源候选；预读不持有播放意图。 */
-export function runPlaybackResolution<T>(resolve: (signal: AbortSignal) => Promise<T>, requestId?: number, parentSignal?: AbortSignal): Promise<T> {
+export function runPlaybackResolution<T>(resolve: (signal: AbortSignal) => Promise<T>, requestId?: number, parentSignal?: AbortSignal, deadlineAt = Date.now() + PLAYBACK_RESOLUTION_BUDGET_MS): Promise<T> {
   if (requestId !== undefined && !isCurrentPlaybackRequest(requestId)) return Promise.reject(new PlaybackRequestSupersededError());
   if (requestId !== undefined) activeResolutionRequest = requestId;
   return new Promise<T>((fulfill, reject) => {
@@ -39,7 +39,7 @@ export function runPlaybackResolution<T>(resolve: (signal: AbortSignal) => Promi
     };
     const timer = setTimeout(
       () => finish(() => reject(new Error(`播放地址解析超时（${PLAYBACK_RESOLUTION_BUDGET_MS / 1000} 秒），可重试或切换歌曲`))),
-      PLAYBACK_RESOLUTION_BUDGET_MS,
+      Math.max(0, deadlineAt - Date.now()),
     );
     const abort = () => finish(() => reject(new PlaybackRequestSupersededError()));
     if (parentSignal?.aborted) abort();

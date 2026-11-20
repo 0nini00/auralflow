@@ -33,7 +33,8 @@ import { awaitCustomSourceOperation, CustomSourceDisabledError, type CustomSourc
 import { deflateBytes, inflateBytes, zlibFormatFromOptions } from '@/utils/compression';
 import { withTimeout } from '@/utils/withTimeout';
 import { createCancellationScope, throwIfAborted, waitWithSignal } from './playback/cancellation';
-import { createPlaybackRequestScheduler } from './playback/requestScheduler';
+import { probeStreamUrl } from './playback/streamProbe';
+import { buildStreamHeaders } from './playback/streamHeaders';
 
 // 脚本协议（头部解析、能力归一化、取链请求、更新比对、深度测试编排）在 @lx/core 的
 // custom-source 模块里，两端共用；本文件只保留桌面端宿主：new Function 执行环境、
@@ -339,7 +340,7 @@ function createRuntime(api: CustomSourceItem, parentOperation: CustomSourceOpera
   const updateAlertWaiters = new Set<(alert: CustomSourceUpdateAlert | undefined) => void>();
   const init = new Promise<CustomSourceRuntimeInitResult>((resolve, reject) => {
     finishInit = resolve;
-    failInit = reject;
+    failInit = error => reject(Object.assign(new Error(`自定义音源 ${api.name} (${api.id}) 初始化失败: ${error.message}`), { cause: error, name: error.name }));
   });
 
   const dispose = () => {
@@ -534,7 +535,7 @@ function createRuntime(api: CustomSourceItem, parentOperation: CustomSourceOpera
 
 const runtimeCache = new Map<string, RuntimeInstance[]>();
 const busyRuntimes = new Set<RuntimeInstance>();
-const runtimeScheduler = createPlaybackRequestScheduler();
+const runtimeLimiter = createRequestLimiter({ limit: MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS });
 
 /** Fast non-crypto hash so script body changes always bust the runtime cache. */
 function hashScript(script: string): string {
@@ -651,6 +652,7 @@ export async function testCustomSourceDeep(api: CustomSourceItem, operation: Cus
     withTimeout,
     requestMusicUrl: (target, quality) =>
       requestCustomSourceMusicUrl(api, target.music, quality, operation, undefined, target.platformRequest),
+    probeStream: (url, target, timeoutMs) => probeStreamUrl(url, buildStreamHeaders(target.platform), timeoutMs, operation.signal),
     // 生命周期失效要抛出，而不是伪装成「测试失败」。
     assertActive: () => operation.assertActive(),
   });
@@ -683,7 +685,10 @@ export async function requestCustomSourceMusicUrl(
   signal?: AbortSignal,
 ): Promise<{ url: string; quality: string; sources?: Record<string, CustomSourceSourceInfo> }> {
   operation.assertActive();
-  return runtimeScheduler.run(async requestSignal => {
+  const release = await runtimeLimiter.acquire(signal);
+  const scope = createCancellationScope(signal);
+  const requestSignal = scope.signal;
+  try {
     operation.assertActive();
     const runtime = getCachedRuntime(api, operation, onUpdateAlert);
     const abort = () => removeRuntime(runtime);
@@ -711,5 +716,8 @@ export async function requestCustomSourceMusicUrl(
       busyRuntimes.delete(runtime);
       trimRuntimeCache();
     }
-  }, signal);
+  } finally {
+    scope.dispose();
+    release();
+  }
 }

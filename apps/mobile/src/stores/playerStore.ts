@@ -20,7 +20,7 @@ import { DEFAULT_VOLUME, getNextMuteState, getNextVolumeState } from "@/services
 import { insertSongAtQueueEnd, insertSongToPlayNext } from "@/services/songQueueActions";
 import { syncPlaybackParameters } from "@/services/androidPitchService";
 import { buildMobilePlayRequestKey } from "@/services/playerRequestModel";
-import { beginPlaybackRequest, isCurrentPlaybackRequest } from "@/services/playbackRequest";
+import { beginPlaybackRequest, isCurrentPlaybackRequest, notePlaybackSeek } from "@/services/playbackRequest";
 import { cancelPendingPlayback } from "@/services/switchStepSession";
 import {
   isLyricOverlaySupported,
@@ -745,6 +745,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   seekTo: async (position: number) => {
     // 拖动进度可能传入非有限值（见 ProgressBar），入原生前兜底。
     if (!Number.isFinite(position)) return;
+    notePlaybackSeek();
     if (!isPlayerSetup) {
       set({ position });
       return;

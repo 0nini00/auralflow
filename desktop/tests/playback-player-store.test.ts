@@ -5,8 +5,9 @@ const fixture = vi.hoisted(() => ({
   state: { featureEnabled: true, featureReady: true, sources: [] },
   persistence: { ready: Promise.resolve() },
   setVolume: vi.fn(), subscribe: vi.fn(), play: vi.fn(), pause: vi.fn(), stop: vi.fn(), resume: vi.fn(), getEngineState: vi.fn(), resolve: vi.fn(), cached: vi.fn(), history: vi.fn(),
-  cacheMedia: vi.fn(), invalidatePersistent: vi.fn(), invalidatePrefetched: vi.fn(),
+  cacheMedia: vi.fn(), invalidatePersistent: vi.fn(), invalidatePrefetched: vi.fn(), preview: vi.fn(), rejectPlayback: vi.fn(),
 }));
+vi.mock('@/stores/libraryStore', () => ({ useLibraryStore: { getState: () => ({ localSongs: [] }), subscribe: vi.fn() } }));
 vi.mock('../src/stores/customSourceStore', async () => {
   const { createCustomSourceAccess } = await import('../src/services/customSourceAccess');
   return {
@@ -17,7 +18,7 @@ vi.mock('../src/stores/customSourceStore', async () => {
 });
 vi.mock('../src/services/playerEngine', () => ({ playerEngine: {
   play: fixture.play, pause: fixture.pause, stop: fixture.stop, resume: fixture.resume, getState: fixture.getEngineState,
-  setVolume: fixture.setVolume, subscribe: fixture.subscribe, onEnded: vi.fn(), onPreviewDetected: vi.fn(),
+  setVolume: fixture.setVolume, subscribe: fixture.subscribe, onEnded: vi.fn(), onPreviewDetected: fixture.preview, rejectCurrentPlayback: fixture.rejectPlayback,
 } }));
 vi.mock('../src/services/playback/playbackResolver', () => ({ resolvePlaybackUrl: fixture.resolve }));
 vi.mock('../src/services/playback/prefetchService', () => ({ consumePrefetchedTrack: vi.fn(async () => undefined), getPrefetchedTrack: fixture.cached, prefetchNearbyTracks: vi.fn(async () => {}), prefetchTracks: vi.fn(async () => {}), invalidatePrefetchedTrack: fixture.invalidatePrefetched }));
@@ -60,6 +61,168 @@ beforeEach(() => {
   fixture.cacheMedia.mockImplementation(async (_music: unknown, resolved: { url: string }) => resolved);
   fixture.invalidatePersistent.mockResolvedValue(undefined);
 });
+
+it('新鲜地址被播放器拒收后先播放已取得的同曲备用地址', async () => {
+  const current = { ...music, source: 'tx' } as MusicInfo;
+  const good = { ...resolved('customSource'), music: current, url: 'https://fixture.invalid/good' };
+  fixture.resolve.mockResolvedValue({ ...good, url: 'https://fixture.invalid/bad', fallbacks: [good] });
+  fixture.play.mockRejectedValueOnce(new Error('codec unsupported')).mockResolvedValue(undefined);
+  const { usePlayerStore } = await load();
+  await usePlayerStore.getState().play(current);
+  expect(fixture.play.mock.calls.map(args => args[1])).toEqual(['https://fixture.invalid/bad', 'https://fixture.invalid/good']);
+  expect(fixture.resolve).toHaveBeenCalledTimes(1);
+  expect(usePlayerStore.getState().error).toBeNull();
+});
+
+it('新鲜地址失败且无备用时，重新解析必须排除已拒绝URL', async () => {
+  const current = { ...music, source: 'tx' } as MusicInfo;
+  const good = { ...resolved('customSource'), music: current, url: 'https://fixture.invalid/good' };
+  fixture.resolve.mockResolvedValueOnce({ ...good, url: 'https://fixture.invalid/bad' }).mockResolvedValue(good);
+  fixture.play.mockRejectedValueOnce(new Error('network error')).mockResolvedValue(undefined);
+  const { usePlayerStore } = await load();
+  await usePlayerStore.getState().play(current);
+  expect(fixture.resolve).toHaveBeenCalledTimes(2);
+  expect(fixture.resolve.mock.calls[1][3].excludedUrls.has('https://fixture.invalid/bad')).toBe(true);
+  expect(fixture.play.mock.calls.map(args => args[1])).toEqual(['https://fixture.invalid/bad', 'https://fixture.invalid/good']);
+});
+
+it('播放中错误先恢复同曲备用地址，不直接下一首', async () => {
+  const current = { ...music, source: 'tx' } as MusicInfo;
+  const good = { ...resolved('customSource'), music: current, url: 'https://fixture.invalid/good' };
+  fixture.resolve.mockResolvedValue({ ...good, url: 'https://fixture.invalid/bad', fallbacks: [good] });
+  const { usePlayerStore } = await load();
+  const next = vi.fn(async () => undefined);
+  usePlayerStore.setState({ next });
+  await usePlayerStore.getState().play(current);
+  const emit = fixture.subscribe.mock.calls[0][0];
+  const state = { currentMusic: current, currentUrl: 'https://fixture.invalid/bad', status: 'playing', currentTime: 5, currentTimeSampledAt: Date.now(), duration: 200, volume: .8, playbackRate: 1, error: null };
+  emit(state);
+  emit({ ...state, status: 'error', error: 'HTTP 522' });
+  await vi.waitFor(() => expect(fixture.play).toHaveBeenCalledTimes(2));
+  expect(fixture.play.mock.calls[1][1]).toBe('https://fixture.invalid/good');
+  expect(fixture.play.mock.calls[1][3]).toBe(5);
+  expect(next).not.toHaveBeenCalled();
+});
+
+it('没有实际进度推进的恢复不得因已有播放位置而续期', async () => {
+  vi.useFakeTimers();
+  try {
+    const current = { ...music, source: 'tx' } as MusicInfo;
+    const good = { ...resolved('customSource'), music: current, url: 'https://fixture.invalid/good' };
+    fixture.resolve.mockResolvedValue({ ...good, url: 'https://fixture.invalid/bad', fallbacks: [good] });
+    const { usePlayerStore } = await load();
+    await usePlayerStore.getState().play(current);
+    const emit = fixture.subscribe.mock.calls[0][0];
+    const state = { currentMusic: current, currentUrl: 'https://fixture.invalid/bad', status: 'playing', currentTime: 100, currentTimeSampledAt: Date.now(), duration: 200, volume: .8, playbackRate: 1, error: null };
+    emit(state);
+    await vi.advanceTimersByTimeAsync(31000);
+    emit({ ...state, status: 'error', error: 'HTTP 522' });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fixture.play).toHaveBeenCalledTimes(1);
+    expect(usePlayerStore.getState().status).toBe('error');
+  } finally { vi.clearAllTimers(); vi.useRealTimers(); }
+}, 20000);
+
+it('旧歌恢复仍在等待时，新歌运行期错误也能恢复且旧结果不得接管', async () => {
+  const a = { ...music, source: 'tx', id: 'a' } as MusicInfo;
+  const b = { ...music, source: 'tx', id: 'b' } as MusicInfo;
+  const target = (track: MusicInfo, url: string) => ({ ...resolved('customSource'), music: track, url });
+  const stale = deferred<ReturnType<typeof target>>();
+  fixture.resolve.mockResolvedValueOnce(target(a, 'https://fixture.invalid/a'))
+    .mockImplementationOnce(() => stale.promise)
+    .mockResolvedValueOnce({ ...target(b, 'https://fixture.invalid/b'), fallbacks: [target(b, 'https://fixture.invalid/b-good')] });
+  const { usePlayerStore } = await load();
+  const emit = fixture.subscribe.mock.calls[0][0];
+  const engine = (track: MusicInfo, url: string, status: string) => ({ currentMusic: track, currentUrl: url, status, currentTime: 5, currentTimeSampledAt: Date.now(), duration: 200, volume: .8, playbackRate: 1, error: status === 'error' ? 'network failed' : null });
+  await usePlayerStore.getState().play(a);
+  emit(engine(a, 'https://fixture.invalid/a', 'playing'));
+  emit(engine(a, 'https://fixture.invalid/a', 'error'));
+  await vi.waitFor(() => expect(fixture.resolve).toHaveBeenCalledTimes(2));
+  await usePlayerStore.getState().play(b);
+  emit(engine(b, 'https://fixture.invalid/b', 'playing'));
+  emit(engine(b, 'https://fixture.invalid/b', 'error'));
+  await vi.waitFor(() => expect(fixture.play.mock.calls.map(args => args[1])).toContain('https://fixture.invalid/b-good'));
+  stale.resolve(target(a, 'https://fixture.invalid/a-late'));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(fixture.play.mock.calls.map(args => args[1])).not.toContain('https://fixture.invalid/a-late');
+  expect(usePlayerStore.getState().current?.id).toBe('b');
+});
+
+it('播放器实际时长发现试听时通过统一错误恢复继续同曲备用地址', async () => {
+  const current = { ...music, source: 'tx', interval: 200 } as MusicInfo;
+  const good = { ...resolved('customSource'), music: current, url: 'https://fixture.invalid/full' };
+  fixture.resolve.mockResolvedValue({ ...good, url: 'https://fixture.invalid/preview', fallbacks: [good] });
+  const { usePlayerStore } = await load();
+  await usePlayerStore.getState().play(current);
+  const emit = fixture.subscribe.mock.calls[0][0];
+  const engine = { currentMusic: current, currentUrl: 'https://fixture.invalid/preview', status: 'playing', currentTime: 0, currentTimeSampledAt: Date.now(), duration: 30, volume: .8, playbackRate: 1, error: null };
+  emit(engine);
+  fixture.rejectPlayback.mockImplementation(message => emit({ ...engine, status: 'error', error: message }));
+  fixture.preview.mock.calls[0][0](30);
+  await vi.waitFor(() => expect(fixture.play).toHaveBeenCalledTimes(2));
+  expect(fixture.play.mock.calls[1][1]).toBe('https://fixture.invalid/full');
+});
+
+it('暂停后原地续播保留候选归属，后续错误仍恢复同曲', async () => {
+  const current = { ...music, source: 'tx' } as MusicInfo;
+  const good = { ...resolved('customSource'), music: current, url: 'https://fixture.invalid/full' };
+  fixture.resolve.mockResolvedValue({ ...good, url: 'https://fixture.invalid/first', fallbacks: [good] });
+  const { usePlayerStore } = await load();
+  await usePlayerStore.getState().play(current);
+  fixture.getEngineState.mockReturnValue({ currentMusic: current, currentTime: 10, currentTimeSampledAtMonotonic: 0, playbackRate: 1 });
+  const emit = fixture.subscribe.mock.calls[0][0];
+  const engine = { currentMusic: current, currentUrl: 'https://fixture.invalid/first', status: 'playing', currentTime: 10, currentTimeSampledAt: Date.now(), duration: 200, volume: .8, playbackRate: 1, error: null };
+  emit(engine);
+  usePlayerStore.getState().pause();
+  usePlayerStore.getState().resume();
+  expect(fixture.play).toHaveBeenCalledTimes(1);
+  expect(fixture.resume).toHaveBeenCalledTimes(1);
+  emit(engine);
+  emit({ ...engine, status: 'error', error: 'network failed' });
+  await vi.waitFor(() => expect(fixture.play).toHaveBeenCalledTimes(2));
+  expect(fixture.play.mock.calls[1][1]).toBe('https://fixture.invalid/full');
+  expect(fixture.play.mock.calls[1][3]).toBe(10);
+});
+
+it('恢复后健康推进，之后再次故障可开启新恢复窗口', async () => {
+  vi.useFakeTimers();
+  try {
+    const current = { ...music, source: 'tx' } as MusicInfo;
+    const target = (url: string) => ({ ...resolved('customSource'), music: current, url });
+    fixture.resolve.mockResolvedValue({ ...target('https://fixture.invalid/a'), fallbacks: [target('https://fixture.invalid/b'), target('https://fixture.invalid/c')] });
+    const { usePlayerStore } = await load();
+    const emit = fixture.subscribe.mock.calls[0][0];
+    const engine = (url: string, status: string, position: number) => ({ currentMusic: current, currentUrl: url, status, currentTime: position, currentTimeSampledAt: Date.now(), duration: 200, volume: .8, playbackRate: 1, error: status === 'error' ? 'network failed' : null });
+    await usePlayerStore.getState().play(current);
+    emit(engine('https://fixture.invalid/a', 'playing', 0));
+    emit(engine('https://fixture.invalid/a', 'error', 0));
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fixture.play).toHaveBeenCalledTimes(2);
+    for (let position = 0; position <= 6; position++) emit(engine('https://fixture.invalid/b', 'playing', position));
+    await vi.advanceTimersByTimeAsync(40000);
+    emit(engine('https://fixture.invalid/b', 'error', 6));
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fixture.play).toHaveBeenCalledTimes(3);
+    expect(fixture.play.mock.calls[2][1]).toBe('https://fixture.invalid/c');
+  } finally { vi.clearAllTimers(); vi.useRealTimers(); }
+});
+
+it('失败缓存清理挂起也受当前恢复绝对截止时间约束', async () => {
+  vi.useFakeTimers();
+  try {
+    const current = { ...music, source: 'tx' } as MusicInfo;
+    fixture.resolve.mockResolvedValue({ ...resolved('customSource'), music: current });
+    fixture.play.mockRejectedValue(new Error('decoder failed'));
+    fixture.invalidatePersistent.mockImplementation(() => new Promise(() => {}));
+    const { usePlayerStore } = await load();
+    let finished = false;
+    const playing = usePlayerStore.getState().play(current).then(() => { finished = true; });
+    await vi.advanceTimersByTimeAsync(30001);
+    expect(finished).toBe(true);
+    expect(usePlayerStore.getState().status).toBe('error');
+    await playing;
+  } finally { vi.clearAllTimers(); vi.useRealTimers(); }
+});
 describe('playerStore LX 快路径及在途结果', () => {
   it('切歌立即取消旧解析的工作信号，功能权限令牌不受影响', async () => {
     let firstSignal: AbortSignal | undefined;
@@ -85,7 +248,7 @@ describe('playerStore LX 快路径及在途结果', () => {
     const { usePlayerStore } = await load();
     await usePlayerStore.getState().play(music);
     expect(fixture.resolve).toHaveBeenCalled();
-    expect(fixture.play).toHaveBeenCalledWith(music, 'https://audio/builtinNetease', undefined, undefined);
+    expect(fixture.play).toHaveBeenCalledWith(music, 'https://audio/builtinNetease', expect.any(Function), undefined);
     expect(fixture.play).not.toHaveBeenCalledWith(music, 'https://audio/customSource', expect.any(Function), undefined);
   });
   it('开启且版本匹配时仍走 LX 快路径', async () => {
@@ -122,7 +285,7 @@ describe('playerStore LX 快路径及在途结果', () => {
       expect(fixture.play).not.toHaveBeenCalled();
       expect(fixture.history).not.toHaveBeenCalled();
     } else {
-      expect(fixture.play).toHaveBeenCalledWith(music, 'https://audio/builtinNetease', undefined, undefined);
+      expect(fixture.play).toHaveBeenCalledWith(music, 'https://audio/builtinNetease', expect.any(Function), undefined);
     }
   });
   it('hydrate 未完成不读取在线缓存，完成后按迁移状态播放', async () => {
@@ -332,7 +495,7 @@ it('预取命中时补媒体缓存，并播放补缓存后返回的地址', asyn
   await usePlayerStore.getState().play(music);
 
   expect(fixture.cacheMedia).toHaveBeenCalledTimes(1);
-  expect(fixture.play).toHaveBeenCalledWith(music, 'asset://local-audio', undefined, undefined);
+  expect(fixture.play).toHaveBeenCalledWith(music, 'asset://local-audio', expect.any(Function), undefined);
 });
 
 it('被新请求取代的预取失败不再清缓存、不再全链重解析', async () => {

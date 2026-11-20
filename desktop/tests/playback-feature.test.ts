@@ -85,6 +85,31 @@ beforeEach(() => {
 });
 afterEach(() => { vi.useRealTimers(); });
 
+it.each(['404', 'preview'])('网关返回 %s 后继续同曲自定义源，不重复抢占每档', async (kind) => {
+  fixture.builtin.mockImplementation(async request => ({ ...resolved('builtinNetease'), quality: request.qualityPreference[0], url: 'https://fixture.invalid/gateway-bad' }));
+  fixture.runtime.mockResolvedValue({ url: 'https://fixture.invalid/custom-good', quality: 'flac24bit' });
+  fixture.probe.mockImplementation(async url => url.endsWith('/gateway-bad')
+    ? (kind === '404' ? { ok: false, definitive: true, reason: 'HTTP 404' } : { ok: true, totalBytes: 360000 })
+    : { ok: true, totalBytes: 9000000 });
+  const { resolvePlaybackUrl } = await import('../src/services/playback/playbackResolver');
+  const result = await resolvePlaybackUrl(music, undefined, '320k', { bypassCache: true, cacheMedia: false });
+  expect(result.url).toBe('https://fixture.invalid/custom-good');
+  expect(fixture.runtime).toHaveBeenCalled();
+});
+
+it.each(['preview', '522'])('快源 %s 不终止尚可返回完整版的慢源', async (kind) => {
+  vi.useFakeTimers();
+  fixture.state.sources = [{ id: 'bad', name: 'bad', enabled: true }, { id: 'complete', name: 'complete', enabled: true }];
+  fixture.runtime.mockImplementation(async (api, _music, quality) => ({ url: 'https://fixture.invalid/' + api.id, quality }));
+  fixture.probe.mockImplementation(async url => url.endsWith('/bad')
+    ? (kind === '522' ? { ok: false, definitive: false, reason: 'HTTP 522' } : { ok: true, totalBytes: 360000 })
+    : { ok: true, totalBytes: 9000000 });
+  const { resolvePlaybackUrl } = await import('../src/services/playback/playbackResolver');
+  const outcome = resolvePlaybackUrl(music, undefined, 'flac', { bypassCache: true, cacheMedia: false }).catch(error => error);
+  await vi.advanceTimersByTimeAsync(1000);
+  expect((await outcome).url).toBe('https://fixture.invalid/complete');
+});
+
 describe('LX backend 生命周期', () => {
   it('前台接管在途预读取得 URL 后立即返回，不等待挂起歌词', async () => {
     const service = await import('../src/services/playback/prefetchService');
@@ -388,7 +413,7 @@ describe('自定义源整链单次竞速', () => {
     let error: unknown;
     const pending = resolvePlaybackUrl(music, undefined, 'flac', { bypassCache: true })
       .then((result) => { value = result; }, (reason) => { error = reason; });
-    await vi.advanceTimersByTimeAsync(13900);
+    await vi.advanceTimersByTimeAsync(29900);
     expect(error).toBeUndefined();
     expect(value).toMatchObject({ url: 'https://audio/builtinNetease', quality: '320k' });
     expect(fixture.builtin).toHaveBeenCalledTimes(1);
@@ -424,7 +449,7 @@ describe('自定义源整链单次竞速', () => {
     let error: unknown;
     const pending = resolvePlaybackUrl(music, undefined, 'flac', { bypassCache: true })
       .then((result) => { value = result; }, (reason) => { error = reason; });
-    await vi.advanceTimersByTimeAsync(13900);
+    await vi.advanceTimersByTimeAsync(29900);
     expect(error).toBeUndefined();
     expect(value).toMatchObject({ url: 'https://audio/320k', quality: '320k' });
     await pending;
@@ -644,6 +669,6 @@ describe('会员直连优先', () => {
     fixture.probe.mockResolvedValue({ ok: false, reason: 'HTTP 403', definitive: true });
     const { resolvePlaybackUrl } = await import('../src/services/playback/playbackResolver');
     await expect(resolvePlaybackUrl(txMusic, undefined, '320k', { bypassCache: true }))
-      .rejects.toThrow('官方直连兜底探活失败');
+      .rejects.toThrow('内置音源(官方直连兜底): 候选地址不可用(HTTP 403)');
   });
 });

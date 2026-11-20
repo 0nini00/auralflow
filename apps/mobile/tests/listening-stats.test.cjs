@@ -199,7 +199,7 @@ test('实际原生播放入口在同曲重播、倍速、暂停、seek 和后台
     '@/services/lyricOverlayPlayback': { syncLyricOverlayPlaybackClock: async () => {} },
     '@/services/playbackUrlCache': {},
     '@/services/audioInterruptionPolicy': { getAudioInterruptionAction: () => ({ type: 'none' }) },
-    '../services/playerService': { prefetchUpcomingSongNearEnd() {} },
+    '../services/playerService': { prefetchUpcomingSongNearEnd() {}, notePlaybackCandidateHealthy() {} },
     '@/services/switchStepSession': { cancelPendingPlayback: () => 0 },
     '@/services/cacheService': { deleteCachedAudioForMusic: async () => {} },
     '@/stores/historyStore': { useHistoryStore: { getState: () => ({ addToHistory: async () => {} }) } },

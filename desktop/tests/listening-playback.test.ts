@@ -19,22 +19,25 @@ class AudioBoundary {
   emit(event: string) { this.listeners.get(event)?.forEach(listener => listener()); }
 }
 const song = { id: 'one', source: 'local', name: 'Song', singer: 'Artist', albumName: '', isLocal: true, url: 'file:one.flac' } as MusicInfo;
+let player: typeof import('../src/stores/playerStore')['usePlayerStore'];
+let stats: typeof import('../src/stores/listeningStatsStore');
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.resetModules(); vi.useFakeTimers(); io.load.mockResolvedValue(null); io.save.mockReset().mockResolvedValue(undefined);
   monotonicNow = 0;
   vi.spyOn(performance, 'now').mockImplementation(() => monotonicNow);
   vi.stubGlobal('Audio', AudioBoundary);
   vi.stubGlobal('requestAnimationFrame', () => 1);
   vi.stubGlobal('cancelAnimationFrame', clearTimeout);
-});
+  // 模块转译属于夹具准备。等待它完成后才开始用例，避免导入迟到后污染下一条统计断言。
+  ({ usePlayerStore: player } = await import('../src/stores/playerStore'));
+  stats = await import('../src/stores/listeningStatsStore');
+  await stats.listeningStatsPersistence.ready;
+}, 60_000);
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 async function fixture() {
-  const { usePlayerStore } = await import('../src/stores/playerStore');
-  const stats = await import('../src/stores/listeningStatsStore');
-  await stats.listeningStatsPersistence.ready;
-  await usePlayerStore.getState().play(song);
+  await player.getState().play(song);
   AudioBoundary.instance.emit('loadedmetadata');
   const advance = async (ms: number, position: number) => {
     vi.setSystemTime(Date.now() + ms);
@@ -42,7 +45,7 @@ async function fixture() {
     AudioBoundary.instance.currentTime = position;
     AudioBoundary.instance.emit('timeupdate');
   };
-  return { player: usePlayerStore, stats, audio: AudioBoundary.instance, advance };
+  return { player, stats, audio: AudioBoundary.instance, advance };
 }
 
 it('实际播放入口同曲重播独立计次，暂停和小幅 seek 不增加收听时间', async () => {

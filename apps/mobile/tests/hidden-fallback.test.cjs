@@ -4,10 +4,7 @@ const { createLoader } = require("./helpers/loadTs.cjs");
 
 // 纯逻辑直接用 core 源码，避免在测试里复制一份匹配规则。
 const pure = createLoader({});
-const core = {
-  ...pure("../../packages/core/src/song-variant.ts"),
-  ...pure("../../packages/core/src/hidden-source.ts"),
-};
+const core = pure("../../packages/core/src/index.ts");
 
 const song = { id: "2034742057", source: "wy", name: "江南", singer: "林俊杰", interval: 267 };
 
@@ -113,6 +110,9 @@ test("取链成功时回传平台元数据并保留原曲", async () => {
     url: "https://kw.example/a.mp3",
     quality: "320k",
     resolverName: "kw/酷我源",
+    candidateId: "hidden:kw-script:kw:93157:320k",
+    assessment: { status: "verified" },
+    probe: { ok: true },
   });
   assert.equal(calls.request.length, 1);
   const [api, music, quality, alert, platform] = calls.request[0];
@@ -128,6 +128,20 @@ test("取链成功时回传平台元数据并保留原曲", async () => {
     picUrl: undefined,
     extra: undefined,
   });
+});
+
+test("播放器拒收的隐藏来源与地址不会再次参与同歌曲恢复", async () => {
+  const { service, calls } = setup({
+    tracks: [kwTrack("a", "林俊杰", 267), kwTrack("b", "林俊杰", 267), kwTrack("c", "林俊杰", 267)],
+    request: async (_source, _song, quality, _alert, platform) => ({ url: `https://kw.example/${platform.songmid}`, quality }),
+  });
+  const groups = await service.startHiddenSearch(song, Date.now() + 30000);
+  const result = await service.resolveHiddenFromGroups(groups, song, ["320k"], Date.now() + 30000, undefined, {
+    excludedUrls: new Set(["https://kw.example/b"]),
+    excludedCandidateIds: new Set(["hidden:kw-script:kw:a:320k"]),
+  });
+  assert.equal(result.url, "https://kw.example/c");
+  assert.deepEqual(calls.request.map(call => call[4].songmid), ["b", "c"]);
 });
 
 test("脚本全部失败时返回 null", async () => {
@@ -217,4 +231,48 @@ test("探活无结论时不否掉候选", async () => {
 
   assert.equal(resolved.url, "https://kw.example/a.mp3");
   assert.equal(calls.probe.length, 1);
+});
+
+for (const badProbe of [{ ok: true, totalBytes: 300000 }, { ok: false, definitive: false, reason: "HTTP 522" }]) {
+  test(`隐藏候选${badProbe.ok ? "试听" : "522"}不能抢占后续完整候选`, async () => {
+    const { service, calls } = setup({
+      tracks: [kwTrack("bad", "林俊杰", 267), kwTrack("full", "林俊杰", 267)],
+      request: async (_source, _song, quality, _alert, platform) => ({ url: `https://kw.example/${platform.songmid}`, quality }),
+      probe: async url => url.endsWith("bad") ? badProbe : { ok: true, totalBytes: 5000000 },
+    });
+    const groups = await service.startHiddenSearch(song, Date.now() + 30000);
+    const result = await service.resolveHiddenFromGroups(groups, song, ["320k"], Date.now() + 30000);
+    assert.equal(result.url, "https://kw.example/full");
+    assert.equal(result.assessment.status, "verified");
+    assert.equal(calls.probe.length, 2);
+  });
+}
+
+test("隐藏下载候选按请求码率检查完整性，不能把降码率片段当成功", async () => {
+  const { service } = setup({
+    sources: [kwSource(["flac"])],
+    tracks: [kwTrack("bad", "林俊杰", 267), kwTrack("full", "林俊杰", 267)],
+    request: async (_source, _song, quality, _alert, platform) => ({ url: `https://kw.example/${platform.songmid}`, quality }),
+    probe: async url => ({ ok: true, totalBytes: url.endsWith("bad") ? 3000000 : 40000000 }),
+  });
+  const result = await service.resolveHiddenFallback(song, ["flac"], Date.now() + 30000, "download");
+  assert.equal(result.url, "https://kw.example/full");
+});
+
+test("隐藏取链的固定期限仍受整首歌剩余deadline限制", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { service } = setup({
+    tracks: [kwTrack("slow", "林俊杰", 267)],
+    request: (_source, _song, _quality, _alert, _platform, signal) => new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
+    }),
+  });
+  const groups = await service.startHiddenSearch(song, Date.now() + 3000);
+  let settled = false;
+  const pending = service.resolveHiddenFromGroups(groups, song, ["320k"], Date.now() + 3000).then(value => { settled = true; return value; });
+  await new Promise(setImmediate);
+  t.mock.timers.tick(3000);
+  await new Promise(setImmediate);
+  assert.equal(settled, true);
+  assert.equal(await pending, null);
 });

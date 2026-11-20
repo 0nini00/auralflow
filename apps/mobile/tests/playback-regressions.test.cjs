@@ -5,9 +5,7 @@ const { createLoader, deferred, mobileRequire } = require("./helpers/loadTs.cjs"
 const song = (id) => ({ id, source: "tx", name: id, singer: "Test", interval: 100 });
 const coreLoader = createLoader({});
 const core = {
-  ...coreLoader("../../packages/core/src/switch-step-queue.ts"),
-  ...coreLoader("../../packages/core/src/request-limiter.ts"), ...coreLoader("../../packages/core/src/playback-quality.ts"),
-  ...coreLoader("../../packages/core/src/song-variant.ts"),
+  ...coreLoader("../../packages/core/src/index.ts"),
   isPreviewDuration: () => false,
 };
 

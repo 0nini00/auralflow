@@ -48,6 +48,7 @@ function fixture(options = {}) {
       },
     },
     "./hiddenSourceSearchers": { hiddenSourceSearchers: [] },
+    "./streamProbe": { probeStreamUrl: async () => ({ ok: true }) },
   });
   const runtime = load("src/services/customSourceRuntime.ts");
   const count = type => sent.filter(msg => msg.type === type).length;
@@ -155,7 +156,7 @@ test("脚本报告遗留异步资源时退休实例，后续请求使用干净�
   assert.equal(h.count("dispose"), 2);
 });
 
-test("全局名额被旧取链占满时公平取消持有者，新播放仍能开始", async t => {
+test("全局名额被取链占满时排队，不因新候选抢占仍有效的请求", async t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const pendingRequests = [];
   const h = fixture({ respond: (payload, request) => {
@@ -172,7 +173,7 @@ test("全局名额被旧取链占满时公平取消持有者，新播放仍能�
   const beforeRelease = finished;
   for (const request of pendingRequests) h.receive({ type: "request-response", rid: request.rid, id: request.id, result: "https://example.com/old.mp3" });
   await Promise.all([...old, current]);
-  assert.equal(beforeRelease, true);
+  assert.equal(beforeRelease, false);
 });
 
 test("没有排队竞争时六秒慢请求仍可完成", async t => {
@@ -187,7 +188,7 @@ test("没有排队竞争时六秒慢请求仍可完成", async t => {
   assert.equal(h.count("dispose"), 0);
 });
 
-test("持续新增排队者不会重置最早持有者的让位期限", async t => {
+test("持续新增排队者不会增加运行时的第二套取消期限", async t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const pendingRequests = [];
   const h = fixture({ respond: (payload, request) => {
@@ -208,7 +209,7 @@ test("持续新增排队者不会重置最早持有者的让位期限", async t 
   const beforeRelease = completed;
   for (const request of pendingRequests) h.receive({ type: "request-response", rid: request.rid, id: request.id, result: "https://example.com/old.mp3" });
   await Promise.all([...old, first, second]);
-  assert.equal(beforeRelease, 2);
+  assert.equal(beforeRelease, 0);
 });
 
 test("脚本未声明的平台或音质不发给脚本", async () => {
@@ -265,9 +266,8 @@ test("深度测试取链迟迟不返回时按超时记为该平台失败", async
   await flush();
   t.mock.timers.tick(0);
   await flush();
-  t.mock.timers.tick(5_500);
-  // 取链超时与播放链的自定义源窗口一致（@lx/core CUSTOM_SOURCE_PLAYBACK_WINDOW_MS）
-  assert.equal((await pending).message, "初始化正常；取链测试 0/1 通过（wy 失败:取链失败：取链测试超时（5500ms））");
+  t.mock.timers.tick(8_000);
+  assert.equal((await pending).message, "初始化正常；取链测试 0/1 通过（wy 失败:取链失败：取链测试超时（8000ms））");
 });
 
 test("更新检查在脚本没有上报更新时拉取远端脚本比对版本", async (t) => {

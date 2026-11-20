@@ -1,20 +1,11 @@
-/** 后台服务唯一持有失败处置；store 只通过健康播放信号归还额度。 */
-export type PlaybackFailureAction = "retry" | "skip";
+/** 后台服务唯一持有自动跳过额度，候选恢复由 playerService 的剩余预算限制。 */
 export const MAX_CONSECUTIVE_AUTO_SKIPS = 3;
 
 export function normalizeAutoSkipOnPlaybackError(value: unknown): boolean {
   return value === true;
 }
 
-const retryConsumedKeys = new Set<string>();
 let consecutiveAutoSkips = 0;
-
-/** 每首歌在证明健康前仅允许一次原生错误重解析。 */
-export function decidePlaybackFailureAction(songKey: string): PlaybackFailureAction {
-  if (retryConsumedKeys.has(songKey)) return "skip";
-  retryConsumedKeys.add(songKey);
-  return "retry";
-}
 
 export function hasReachedAutoSkipLimit(): boolean {
   return consecutiveAutoSkips >= MAX_CONSECUTIVE_AUTO_SKIPS;
@@ -26,13 +17,11 @@ export function noteAutomaticSkip(): void {
 }
 
 /** play() 返回不代表健康；仅由 store 检测到播放位置推进后调用。 */
-export function notePlaybackHealthy(songKey: string): void {
-  retryConsumedKeys.delete(songKey);
+export function notePlaybackHealthy(_songKey: string): void {
   consecutiveAutoSkips = 0;
 }
 
 /** 手动新意图或服务销毁结束旧失败链。 */
 export function resetPlaybackFailures(): void {
-  retryConsumedKeys.clear();
   consecutiveAutoSkips = 0;
 }

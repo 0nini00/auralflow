@@ -34,6 +34,14 @@ function setup(config = {}) {
     isLocalFilePlaybackUrl: url => typeof url === "string" && url.startsWith("file://"),
     playFromQueue() { calls.push("playFromQueue"); request.beginPlaybackRequest(); return behavior.retry(); },
     playSong() { calls.push("playSong"); request.beginPlaybackRequest(); return behavior.retry(); },
+    recoverCurrentSongPlayback(_requestId, options) {
+      const owner = request.beginPlaybackRequest();
+      return playerService.invalidateResolvedPlayback(state.currentSong, { includeDiskAudio: playerService.isLocalFilePlaybackUrl(state.currentUrl) }).then(async () => {
+        if (!request.isCurrentPlaybackRequest(owner) || options?.hasPlaybackIntent && !await options.hasPlaybackIntent()) return;
+        calls.push("recoverCurrentSongPlayback");
+        return behavior.retry();
+      });
+    },
     resumePlayback() { playerService.cancelPendingPlayback(); return native.play(); },
   };
   const load = createLoader({
@@ -138,7 +146,7 @@ test("原生失败即使关闭自动跳过也重解析一次，重试拒绝不�
   const h = start(t, { autoSkip: false });
   h.behavior.retry = async () => { throw new Error("重解析拒绝"); };
   await h.emit("PlaybackError", { message: "原生403" });
-  assert.equal(count(h, "playFromQueue"), 1);
+  assert.equal(count(h, "recoverCurrentSongPlayback"), 1);
   assert.equal(count(h, "playNext"), 0);
   assert.match(h.state.error, /重解析拒绝/);
   assert.equal(count(h, "stop"), 1);
@@ -149,12 +157,12 @@ test("重试Promise拒绝后继续有限跳过，连续失败最多跳三首", o
   h.behavior.retry = async () => { throw new Error("重试坏链"); };
   h.behavior.next = async () => { throw new Error("下一首解析失败"); };
   await h.emit("PlaybackError", { message: "原生坏链" });
-  assert.equal(count(h, "playFromQueue"), 1);
+  assert.equal(count(h, "recoverCurrentSongPlayback"), 1);
   assert.equal(count(h, "playNext"), 3);
   assert.match(h.state.error, /连续.*3/);
   await h.emit("PlaybackError", { message: "迟到的重复错误" });
   assert.equal(count(h, "playNext"), 3);
-  assert.equal(count(h, "playFromQueue"), 1);
+  assert.equal(count(h, "recoverCurrentSongPlayback"), 1);
 });
 
 test("同一原生错误连发只启动一次重试", options, async (t) => {
@@ -163,7 +171,7 @@ test("同一原生错误连发只启动一次重试", options, async (t) => {
   const first = h.emit("PlaybackError", { message: "重复403" });
   const duplicate = h.emit("PlaybackError", { message: "重复403" });
   await flush();
-  assert.equal(count(h, "playFromQueue"), 1);
+  assert.equal(count(h, "recoverCurrentSongPlayback"), 1);
   gate.resolve(); await Promise.all([first, duplicate]);
   assert.equal(count(h, "playNext"), 0);
 });
@@ -187,7 +195,7 @@ test("同一首歌的新播放意图也能废弃缓存失效中的旧恢复", op
   await flush();
   h.request.beginPlaybackRequest();
   gate.resolve(); await pending;
-  assert.equal(count(h, "playFromQueue"), 0);
+  assert.equal(count(h, "recoverCurrentSongPlayback"), 0);
   assert.equal(count(h, "playNext"), 0);
 });
 
@@ -219,7 +227,7 @@ test("通知控制命令错误有日志和可见状态，不产生未处理拒�
   assert.ok(h.calls.some(call => Array.isArray(call) && ["warn", "error"].includes(call[0])));
 });
 
-test("重试加载中的新原生错误在Promise结束后只收口一次", options, async (t) => {
+test("换源加载中的新原生错误在Promise结束后继续同曲，重复事件不重复换源", options, async (t) => {
   const h = start(t);
   const gate = deferred(); h.behavior.retry = () => gate.promise;
   const pending = h.emit("PlaybackError", { message: "首次失败" });
@@ -227,8 +235,8 @@ test("重试加载中的新原生错误在Promise结束后只收口一次", opti
   const nativeFailure = h.emit("PlaybackError", { message: "重试原生失败" });
   const duplicate = h.emit("PlaybackError", { message: "重试原生失败" });
   gate.resolve(); await Promise.all([pending, nativeFailure, duplicate]);
-  assert.equal(count(h, "playFromQueue"), 1);
-  assert.equal(count(h, "playNext"), 1);
+  assert.equal(count(h, "recoverCurrentSongPlayback"), 2);
+  assert.equal(count(h, "playNext"), 0);
 });
 
 
@@ -236,7 +244,7 @@ test("迟到的原生错误不能重试已经正常播放的新曲", options, as
   const h = start(t);
   h.native.getPlaybackState = async () => ({ state: "playing" });
   await h.emit("PlaybackError", { message: "旧管线迟到错误" });
-  assert.equal(count(h, "playFromQueue"), 0);
+  assert.equal(count(h, "recoverCurrentSongPlayback"), 0);
   assert.equal(count(h, "playNext"), 0);
 });
 
@@ -246,7 +254,7 @@ test("读取原生错误状态期间手动接管使旧事件失效", options, as
   const pending = h.emit("PlaybackError", { message: "旧管线错误" });
   await h.emit("RemoteNext");
   gate.resolve({ state: "error" }); await pending;
-  assert.equal(count(h, "playFromQueue"), 0);
+  assert.equal(count(h, "recoverCurrentSongPlayback"), 0);
   assert.equal(count(h, "playNext"), 1);
 });
 
@@ -259,15 +267,12 @@ test("离开静音占位后重复曲末事件不会多跳", options, async (t) =
   assert.equal(count(h, "playNext"), 1);
 });
 
-test("健康位置归还重试和跳过额度，不靠第二监听器回读处置", options, async (t) => {
+test("健康位置归还自动跳过额度，不靠第二监听器回读处置", options, async (t) => {
   const h = start(t);
-  assert.equal(h.policy.decidePlaybackFailureAction("tx:A"), "retry");
-  assert.equal(h.policy.decidePlaybackFailureAction("tx:A"), "skip");
   for (let i = 0; i < 3; i += 1) h.policy.noteAutomaticSkip();
   assert.equal(h.policy.hasReachedAutoSkipLimit(), true);
   h.policy.notePlaybackHealthy("tx:A");
   assert.equal(h.policy.hasReachedAutoSkipLimit(), false);
-  assert.equal(h.policy.decidePlaybackFailureAction("tx:A"), "retry");
 });
 
 
@@ -321,7 +326,7 @@ function nativeNavigationSetup(blockAt, { autoSkip = false } = {}) {
     "@react-native-async-storage/async-storage": { getItem: async () => null, setItem: async () => {} },
     "react-native-track-player": { __esModule: true, default: native, State: { Playing: "playing", Paused: "paused", Stopped: "stopped", Buffering: "buffering", Error: "error" }, RepeatMode: { Off: 0 },
       Event: Object.fromEntries(events.map(event => [event, event])), AppKilledPlaybackBehavior: {}, Capability: {} },
-    "@lx/core": { ...coreLoad("../../packages/core/src/switch-step-queue.ts"), ...coreLoad("../../packages/core/src/request-limiter.ts"), ...coreLoad("../../packages/core/src/playback-quality.ts"), ...coreLoad("../../packages/core/src/song-variant.ts"), isPreviewDuration: () => false },
+    "@lx/core": { ...coreLoad("../../packages/core/src/index.ts"), isPreviewDuration: () => false },
     "@/services/logger": { logger: { info() {}, warn() {}, error() {} } },
     "@/services/androidPitchService": { syncPlaybackParameters() {} },
     "@/services/playbackUrlCache": cache, "./playbackUrlCache": cache,
@@ -481,7 +486,7 @@ for (const event of ["PlaybackQueueEnded", "PlaybackError"]) {
     h.native.getPlayWhenReady = async () => false;
     await h.emit(event, { message: "迟到错误" });
     assert.equal(count(h, "playNext"), 0);
-    assert.equal(count(h, "playFromQueue"), 0);
+    assert.equal(count(h, "recoverCurrentSongPlayback"), 0);
     assert.equal(count(h, "invalidateResolvedPlayback"), 0);
   });
 
@@ -495,7 +500,7 @@ for (const event of ["PlaybackQueueEnded", "PlaybackError"]) {
     gate.resolve(true);
     await pending;
     assert.equal(count(h, "playNext"), 0);
-    assert.equal(count(h, "playFromQueue"), 0);
+    assert.equal(count(h, "recoverCurrentSongPlayback"), 0);
   });
 }
 
@@ -510,8 +515,8 @@ for (const [label, currentUrl, includeDiskAudio] of [
     await h.emit("PlaybackError", { message: "原生错误" });
     // 只有报错的就是本地文件时才删磁盘音频：在线链接失效不该连累用户的离线缓存。
     assert.deepEqual(h.calls.filter(call => Array.isArray(call) && call[0] === "invalidate"), [["invalidate", "A", { includeDiskAudio }]]);
-    assert.equal(count(h, "playFromQueue"), 1);
-    assert.ok(h.calls.indexOf("invalidateResolvedPlayback") < h.calls.indexOf("playFromQueue"), "必须先作废再重解析");
+    assert.equal(count(h, "recoverCurrentSongPlayback"), 1);
+    assert.ok(h.calls.indexOf("invalidateResolvedPlayback") < h.calls.indexOf("recoverCurrentSongPlayback"), "必须先作废再重解析");
   });
 }
 
@@ -524,7 +529,7 @@ test("缓存失效等待期间原生停止播放意图，不再启动重解析",
   h.native.getPlayWhenReady = async () => false;
   gate.resolve();
   await pending;
-  assert.equal(count(h, "playFromQueue"), 0);
+  assert.equal(count(h, "recoverCurrentSongPlayback"), 0);
 });
 
 

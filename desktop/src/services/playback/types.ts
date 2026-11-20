@@ -1,4 +1,4 @@
-import type { MusicInfo } from '@lx/core';
+import type { MusicInfo, PlaybackCandidateAssessment } from '@lx/core';
 
 export type PlaybackBackendId = 'builtinNetease' | 'builtinProvider' | 'customSource' | 'hiddenSource';
 
@@ -20,6 +20,9 @@ export interface PlaybackRequest {
   exactQuality?: boolean;
   /** 本次解析的绝对截止时间（Date.now() 时间戳），后端据此给探活/媒体缓存留余量。 */
   deadlineAt?: number;
+  excludedUrls?: ReadonlySet<string>;
+  excludedCandidateIds?: ReadonlySet<string>;
+  purpose?: 'playback' | 'download';
 }
 
 export interface PlaybackResolvedUrl {
@@ -40,6 +43,8 @@ export interface PlaybackResolvedUrl {
    * 不必把整轮结果丢掉从零重来。只有自定义源会填这个字段。
    */
   fallbacks?: PlaybackResolvedUrl[];
+  assessment?: PlaybackCandidateAssessment;
+  candidateId?: string;
 }
 
 export interface PlaybackBackend {

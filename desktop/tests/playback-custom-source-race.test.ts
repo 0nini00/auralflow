@@ -96,6 +96,50 @@ async function loadBackend() {
 }
 
 describe('自定义源按序交错竞速', () => {
+  it('播放器拒收源后即使该源重新签名URL也让其他源接管', async () => {
+    fixture.state.sources = [source('bad'), source('good')];
+    fixture.runtime.mockImplementation(async (api, _music, quality) => ({ url: `https://fixture.invalid/${api.id}?signature=${Date.now()}`, quality }));
+    const backend = await loadBackend();
+    const pending = backend.resolve({ primary: music, qualityPreference: ['flac'], excludedCandidateIds: new Set([`custom:bad:${music.source}:${music.id}:flac`]) });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect((await pending).url).toContain('/good?');
+    expect(fixture.runtime.mock.calls.map(args => args[0].id)).toEqual(['good']);
+  });
+  it('拒收某源flac不排除同源可用320k', async () => {
+    fixture.state.sources = [source('only')];
+    fixture.runtime.mockImplementation(async (_api, _music, quality) => ({ url: `https://fixture.invalid/${quality}`, quality }));
+    const backend = await loadBackend();
+    const pending = backend.resolve({ primary: music, qualityPreference: ['flac', '320k'], excludedCandidateIds: new Set([`custom:only:${music.source}:${music.id}:flac`]) });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect((await pending).quality).toBe('320k');
+    expect(fixture.runtime.mock.calls.map(args => args[2])).toEqual(['320k']);
+  });
+  it('多源争用时4.5秒可用候选保留完整固定预算', async () => {
+    fixture.state.sources = Array.from({ length: 8 }, (_, index) => source(`source-${index}`));
+    fixture.runtime.mockImplementation((api, _music, quality, _operation, _alert, _platform, signal?: AbortSignal) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => resolve({ url: `https://fixture.invalid/${api.id}`, quality }), api.id === 'source-0' ? 4500 : 20000);
+      signal?.addEventListener('abort', () => { clearTimeout(timer); reject(Object.assign(new Error('cancelled'), { name: 'AbortError' })); }, { once: true });
+    }));
+    const backend = await loadBackend();
+    let result: { url?: string } | undefined;
+    const outcome = backend.resolve({ primary: music, qualityPreference: ['flac'], deadlineAt: Date.now() + 30000 }).then(value => { result = value; }, () => undefined);
+    await vi.advanceTimersByTimeAsync(4600);
+    expect(result?.url).toBe('https://fixture.invalid/source-0');
+    await outcome;
+  });
+
+  it('声明了平台能力但不包含当前平台的脚本不占候选槽位', async () => {
+    fixture.state.sources = [
+      { ...source('wy-only'), sources: { wy: { name: 'wy', type: 'music', actions: ['musicUrl'], qualitys: ['flac'] } } },
+      { ...source('tx'), sources: { tx: { name: 'tx', type: 'music', actions: ['musicUrl'], qualitys: ['flac'] } } },
+    ];
+    fixture.runtime.mockImplementation(async (api, _music, quality) => ({ url: `https://fixture.invalid/${api.id}`, quality }));
+    const backend = await loadBackend();
+    const outcome = backend.resolve({ primary: music, qualityPreference: ['flac'] });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect((await outcome).url).toBe('https://fixture.invalid/tx');
+    expect(fixture.runtime.mock.calls.map(args => args[0].id)).toEqual(['tx']);
+  });
   it('慢源严格限制真实在途，取消后不再启动排队候选', async () => {
     fixture.state.sources = Array.from({ length: 5 }, (_, index) => source(String(index)));
     let active = 0;
@@ -279,7 +323,7 @@ describe('自定义源按序交错竞速', () => {
     const pending = track.watch(backend.resolve({
       primary: music, qualityPreference: upgradePending ? ['flac24bit', 'flac'] : ['flac'], deadlineAt: Date.now() + 11500,
     }));
-    await vi.advanceTimersByTimeAsync(5500);
+    await vi.advanceTimersByTimeAsync(10500);
     expect(track.state.error).toBeUndefined();
     expect(track.state.value?.url).toBe('https://cdn/live');
     await pending;

@@ -1,9 +1,8 @@
 /**
  * 远程请求闸门：把同时在途的请求数压到上限，超出的排队。
  *
- * 播放取链是「源 × 音质」二维展开，8 个源 × 4 档最坏会同时打出 30 个请求。
- * 对自建源无所谓，但这类源里常有第三方公益代理，被限流之后所有源一起变慢，
- * 竞速反而退化成「一起超时」。压到 3 个之后最坏请求量从乘积变回接近线性。
+ * 播放取链按「源 × 音质」展开。限制同时在途数量，避免大量候选一起请求代理。
+ * 这不会减少最坏候选总数；候选顺序与总截止时间由调用方决定。
  *
  * 只在调用方确认任务结算后归还名额；取消排队不会取消持有名额的任务。
  * 调用方负责请求级超时和取消，不能靠删除计数让仍在运行的请求「隐身」。
@@ -13,8 +12,6 @@
 export interface RequestLimiterOptions {
   /** 同时在途的请求上限。 */
   limit: number;
-  /** 队列长度变化通知；宿主可取消超时持有者，但必须等任务结算才释放名额。 */
-  onQueueChange?: (waiting: number) => void;
 }
 
 export interface RequestLimiter {
@@ -39,7 +36,6 @@ export function createRequestLimiter(options: RequestLimiterOptions): RequestLim
     if (active > 0) active -= 1;
     if (abandoned) return;
     const next = waiters.shift();
-    options.onQueueChange?.(waiters.length);
     if (next) {
       active += 1;
       next();
@@ -66,13 +62,11 @@ export function createRequestLimiter(options: RequestLimiterOptions): RequestLim
             settled = true;
             const index = waiters.indexOf(waiter);
             if (index >= 0) waiters.splice(index, 1);
-            options.onQueueChange?.(waiters.length);
             signal?.removeEventListener('abort', abort);
             reject(abortError());
           };
           waiters.push(waiter);
           waiters.sort((a, b) => a.priority - b.priority);
-          options.onQueueChange?.(waiters.length);
           signal?.addEventListener('abort', abort, { once: true });
         });
         if (abandoned) throw new Error('当前解析轮次已结束，排队中的候选被放弃');
@@ -97,7 +91,6 @@ export function createRequestLimiter(options: RequestLimiterOptions): RequestLim
       // 恢复后直接抛错、拿不到释放函数——实例已废弃，把计数清零即可，不欠释放。
       active = 0;
       for (const waiter of waiters.splice(0)) waiter();
-      options.onQueueChange?.(0);
     },
   };
 }

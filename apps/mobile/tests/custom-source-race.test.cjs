@@ -2,7 +2,7 @@
 const test = require("node:test");
 const { createLoader, mobileRequire } = require("./helpers/loadTs.cjs");
 const pure = createLoader({});
-const core = { ...pure("../../packages/core/src/switch-step-queue.ts"), ...pure("../../packages/core/src/request-limiter.ts"), ...pure("../../packages/core/src/playback-quality.ts"), ...pure("../../packages/core/src/playback-budgets.ts"), ...pure("../../packages/core/src/song-variant.ts"), isPreviewDuration: () => false };
+const core = { ...pure("../../packages/core/src/index.ts"), isPreviewDuration: () => false };
 const song = (id, source = "tx") => ({ id, source, name: id, singer: "Artist", interval: 180 });
 async function flush() { await new Promise(setImmediate); }
 // node:test 的 mock timers 同步 tick，回调间的微任务要显式 flush，
@@ -71,6 +71,51 @@ function track(promise) {
   return state;
 }
 
+test("八源多档不缩短可用慢源的固定执行预算", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const sources = Array.from({ length: 8 }, (_, id) => ({ id: String(id), name: String(id), enabled: true }));
+  const { service } = setup(sources, (source, _song, quality, _alert, _platform, signal) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => resolve({ url: "https://cdn/slow-valid", quality }), source.id === "0" ? 3300 : 60000);
+    signal.addEventListener("abort", () => { clearTimeout(timer); reject(new Error("cancelled")); }, { once: true });
+  }));
+  const state = track(service.resolveUrlWithCustomSource(song("slow-valid"), ["flac", "320k", "192k", "128k"], Date.now() + 27500));
+  await advance(t, 10000);
+  assert.equal(state.value?.url, "https://cdn/slow-valid", state.error?.message);
+});
+
+for (const badProbe of [{ ok: true, totalBytes: 300000 }, { ok: false, reason: "HTTP 522", definitive: false }]) {
+  test(`快源${badProbe.ok ? "试听" : "探活无结论"}不能终止慢完整版候选`, async t => {
+    t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+    const calls = [];
+    const { service } = setup(
+      [{ id: "fast", name: "fast", enabled: true }, { id: "full", name: "full", enabled: true }],
+      (source, _song, quality) => { calls.push(source.id); return new Promise(resolve => setTimeout(() => resolve({ url: `https://cdn/${source.id}`, quality }), source.id === "fast" ? 10 : 1500)); },
+      async url => url.endsWith("fast") ? badProbe : { ok: true, totalBytes: 5000000 },
+    );
+    const state = track(service.resolveUrlWithCustomSource(song("full"), ["flac"], Date.now() + 30000));
+    await advance(t, 5000);
+    assert.equal(state.value?.url, "https://cdn/full", state.error?.message);
+    assert.ok(calls.includes("full"));
+  });
+}
+
+test("按平台和声明音质构建候选而不请求不支持的档位", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const calls = [];
+  const { service } = setup([
+    { id: "wy-only", name: "wy-only", enabled: true, sources: { wy: { actions: ["musicUrl"], qualitys: ["flac"] } } },
+    { id: "tx-low", name: "tx-low", enabled: true, sources: { tx: { actions: ["musicUrl"], qualitys: ["128k"] } } },
+  ], async (source, _song, quality) => {
+    calls.push([source.id, quality]);
+    if (source.id !== "tx-low" || quality !== "128k") throw new Error("unsupported");
+    return { url: "https://cdn/low", quality };
+  });
+  const state = track(service.resolveUrlWithCustomSource(song("low"), ["flac", "320k", "128k"], Date.now() + 30000));
+  await advance(t, 5000);
+  assert.equal(state.value?.url, "https://cdn/low");
+  assert.deepEqual(calls, [["tx-low", "128k"]]);
+});
+
 test("取消解析停止后续候选调度并取消已启动脚本", async t => {
   t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
   const calls = [];
@@ -104,8 +149,8 @@ test("八个慢源中队尾唯一可用源仍获得机会，真实脚本并发�
       else signal?.addEventListener("abort", () => { active--; reject(new Error("cancelled")); }, { once: true });
     }),
   );
-  const state = track(service.resolveUrlWithCustomSource(song("1"), ["flac", "320k", "128k"], Date.now() + 14000));
-  await advance(t, 11000);
+  const state = track(service.resolveUrlWithCustomSource(song("1"), ["flac", "320k", "128k"], Date.now() + 30000));
+  await advance(t, 26000);
   assert.equal(peak, 3);
   assert.equal(state.value?.url, "https://cdn/last");
   assert.equal(active, 0);
@@ -129,12 +174,12 @@ test("预算末尾取得的地址不会因内层探活超时而丢失", async (t
   t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
   const { service } = setup(
     [{ id: "only", name: "only", enabled: true }],
-    runtimeFromPlans({ only: { flac: { delayMs: 6000, url: "https://cdn/live" } } }, []),
+    runtimeFromPlans({ only: { flac: { delayMs: 4800, url: "https://cdn/live" } } }, []),
     (_url, _headers, timeoutMs) => new Promise(resolve => setTimeout(
       () => resolve({ ok: false, reason: "timeout", definitive: false }), timeoutMs,
     )),
   );
-  const state = track(service.resolveUrlWithCustomSource(song("1"), ["flac"], Date.now() + 14000));
+  const state = track(service.resolveUrlWithCustomSource(song("1"), ["flac"], Date.now() + 6500));
   await advance(t, 8000);
   assert.equal(state.error, undefined);
   assert.equal(state.value?.url, "https://cdn/live");

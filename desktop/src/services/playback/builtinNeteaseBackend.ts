@@ -1,5 +1,5 @@
 import { throwIfAborted } from './cancellation';
-import { normalizePlaybackQuality } from '@lx/core';
+import { buildSongKey, normalizePlaybackQuality } from '@lx/core';
 import type { PlaybackAttempt, PlaybackBackend, PlaybackRequest, PlaybackResolvedUrl } from './types';
 import { canResolveWithBuiltinMusicApi } from '@/services/builtinMusicApiModel';
 import { resolveBuiltinMusicApiUrl } from '@/services/builtinMusicApiClient';
@@ -51,6 +51,8 @@ export const builtinNeteaseBackend: PlaybackBackend = {
 
     for (const music of builtinApiVariants) {
       for (const br of getBrCandidates(request.qualityPreference)) {
+        const candidateId = `builtinNetease:${buildSongKey(music)}:${normalizePlaybackQuality(br)}`;
+        if (request.excludedCandidateIds?.has(candidateId)) continue;
         try {
           throwIfAborted(request.signal);
           const resolved = await resolveBuiltinMusicApiUrl(music, br, request.signal);
@@ -65,6 +67,7 @@ export const builtinNeteaseBackend: PlaybackBackend = {
             quality,
             status: 'success',
           });
+          if (request.excludedUrls?.has(resolved.url)) throw new Error('播放地址已被本次播放拒绝');
           return {
             url: resolved.url,
             music,
@@ -72,6 +75,7 @@ export const builtinNeteaseBackend: PlaybackBackend = {
             backend: 'builtinNetease',
             resolverName: this.name,
             trace,
+            candidateId,
           };
         } catch (error) {
           throwIfAborted(request.signal);

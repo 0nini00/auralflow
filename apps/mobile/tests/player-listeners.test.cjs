@@ -7,7 +7,7 @@ const { createLoader, mobileRequire } = require("./helpers/loadTs.cjs");
 const song = { id: "one", source: "tx", name: "Song", singer: "Artist", albumName: "", interval: 300 };
 const options = { timeout: 20000 };
 
-function setup() {
+function setup(options = {}) {
   const listeners = new Map();
   const calls = [];
   const native = {
@@ -36,6 +36,8 @@ function setup() {
     "@/services/listenTrackerService": { startListeningSession() {}, resetListeningSession() {}, onPlaybackProgress() {}, seekListeningSession() {}, flushListeningSession: async () => {} },
     "@/services/playbackFailurePolicy": { notePlaybackHealthy: (key) => { calls.push(["healthy", key]); } },
     "../services/playerService": {
+      notePlaybackCandidateHealthy() {},
+      recoverCurrentSongPlayback: async (...args) => { calls.push(["recover", ...args]); if (options.recoveryError) throw new Error(options.recoveryError); },
       // 记录预读被调用那一刻 store 里的进度：证明状态同步层先于处置层。
       prefetchUpcomingSongNearEnd: (position, duration) => { prefetchSeen.push({ position, duration, storePosition: store.getState().position }); },
       invalidateResolvedPlayback: async (track, options) => { calls.push(["invalidate", track.id, options]); },
@@ -82,21 +84,39 @@ test("静音占位轨期间的进度既不写 store 也不触发处置", options
   assert.equal(h.store.getState().error, null);
 });
 
-test("试听片段只处置一次：停播并连磁盘音频一起作废；重新起播后再次拦截", options, async () => {
+test("原生时长显示试听时只发起一次同歌曲换源，不先暂停播放意图", options, async () => {
   const h = setup();
   h.setupPlayerListeners();
   await h.store.getState().play(song, "https://fixture.invalid/one");
   const pausesBefore = h.calls.filter(call => call[0] === "native" && call[1] === "pause").length;
   for (const position of [1, 1.25, 1.5]) h.emit("PlaybackProgressUpdated", { position, duration: 30, buffered: 30 });
-  assert.match(h.store.getState().error, /检测到试听片段（约 30s）/);
-  assert.equal(h.calls.filter(call => call[0] === "native" && call[1] === "pause").length, pausesBefore + 1);
-  // 三级各自怎么清由 invalidateResolvedPlayback 负责（tests/playback-cache-invalidation.test.cjs）；
-  // 这里锁的是试听判定一律把磁盘音频算进去，哪怕正在播的是在线链接。
-  assert.deepEqual(h.named("invalidate"), [["invalidate", "one", { includeDiskAudio: true }]]);
+  assert.equal(h.calls.filter(call => call[0] === "native" && call[1] === "pause").length, pausesBefore);
+  assert.equal(h.named("recover").length, 1);
+  assert.deepEqual(h.named("recover")[0][2], { rejectPreview: true });
 
   // 用户手动重试：新的播放会话重新允许检测（防缓存命中后漏网）。
   h.load("src/services/playbackRequest.ts").beginPlaybackRequest();
   await h.store.getState().play(song, "https://fixture.invalid/one-again");
   h.emit("PlaybackProgressUpdated", { position: 1, duration: 30, buffered: 30 });
-  assert.equal(h.named("invalidate").length, 2);
+  assert.equal(h.named("recover").length, 2);
+});
+
+test("试听换源预算已经耗尽时必须真实暂停原生播放", options, async () => {
+  const h = setup({ recoveryError: "同歌曲换源预算耗尽" });
+  h.setupPlayerListeners();
+  await h.store.getState().play(song, "https://fixture.invalid/expired-preview");
+  h.emit("PlaybackProgressUpdated", { position: 1, duration: 30, buffered: 30 });
+  await new Promise(setImmediate);
+  assert.ok(h.calls.some(call => call[0] === "native" && call[1] === "pause"));
+  assert.equal(h.store.getState().isPlaying, false);
+  assert.match(h.store.getState().error, /换源预算耗尽/);
+});
+
+test("首个原生进度已超过五秒的试听也不能归还健康额度", options, async () => {
+  const h = setup();
+  h.setupPlayerListeners();
+  await h.store.getState().play(song, "https://fixture.invalid/preview");
+  h.emit("PlaybackProgressUpdated", { position: 6, duration: 30, buffered: 30 });
+  assert.equal(h.named("healthy").length, 0);
+  assert.equal(h.named("recover").length, 1);
 });

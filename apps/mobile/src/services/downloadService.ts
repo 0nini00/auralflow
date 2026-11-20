@@ -827,7 +827,7 @@ async function raceDownloadUrl(
   } catch (error) {
     // 常规通道全败后才启用隐藏兜底：下载是用户显式操作，多一次同名搜索值得。
     // 隐藏音源 URL 来自第三方平台 CDN，不带 wy/tx 的 Referer（由调用方按 fromHiddenSource 处理）。
-    const hidden = await resolveHiddenFallback(song, [quality], Date.now() + DOWNLOAD_HIDDEN_BUDGET_MS);
+    const hidden = await resolveHiddenFallback(song, [quality], Date.now() + DOWNLOAD_HIDDEN_BUDGET_MS, "download");
     if (!hidden) throw error;
     return {
       url: hidden.url,

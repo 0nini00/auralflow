@@ -1,7 +1,8 @@
 import { createCancellationScope, throwIfAborted, waitWithSignal } from './cancellation';
 import {
   buildVariantSearchKeyword,
-  CANDIDATE_PROBE_TIMEOUT_MS,
+  CUSTOM_SOURCE_ATTEMPT_TIMEOUT_MS,
+  getCustomSourcePlaybackQualities,
   matchHiddenCandidates,
   normalizeSourceQualityLabel,
   type HiddenSourceId,
@@ -21,8 +22,8 @@ import {
 } from "@/stores/customSourceStore";
 import type { CustomSourceOperation } from "@/services/customSourceAccess";
 import { openCustomSourceAccess } from "@/services/customSourceGate";
-import { probeStreamUrl } from "./streamProbe";
-import type { PlaybackAttempt, PlaybackResolvedUrl } from "./types";
+import { assessResolvedCandidate, isVerifiedCandidate } from "./assessCandidate";
+import type { PlaybackAttempt, PlaybackRequest, PlaybackResolvedUrl } from "./types";
 
 /**
  * 隐藏兜底解析：常规链路（内置网关 / 自定义音源 / 官方直连）全部失败后，
@@ -47,34 +48,8 @@ const HIDDEN_PROBE_RESERVE_MS = 1_500;
 /** 剩余预算不足该值时不启动任何隐藏平台请求。 */
 const HIDDEN_MIN_ATTEMPT_MS = 600;
 
-/** 单次脚本取链超时：慢源不能吃完整轮兜底预算，超时后换下一个候选/音质。 */
-const HIDDEN_ATTEMPT_TIMEOUT_MS = 6_000;
-
 /** 每平台最多尝试的候选数，控制脚本调用次数。 */
 const HIDDEN_MAX_TRACKS_PER_PLATFORM = 4;
-
-/**
- * 判定候选地址是否必须丢弃；返回 `null` 表示可以交给外层继续判定。
- *
- * 为什么要在候选循环里探活：脚本「调用成功」不等于「地址可用」。LX 源常见返回
- * 过期签名、空串以外的占位地址、或已被平台下架的资源，此时若直接定稿，外层探活
- * 判死后整条隐藏兜底就放弃了——后面的候选（往往是同一首歌的更高码率或另一平台）
- * 根本没被尝试过。
- *
- * 只把 definitive（服务端明确 4xx）当作「换候选」的理由：超时 / 抖动 / 5xx
- * 下不了结论，误杀一个慢 CDN 上完全可用的地址，比多花一次探活更糟。
- */
-async function rejectCandidate(url: string, deadlineAt: number, signal?: AbortSignal): Promise<string | null> {
-  const budget = Math.min(
-    CANDIDATE_PROBE_TIMEOUT_MS,
-    deadlineAt - HIDDEN_PROBE_RESERVE_MS - Date.now(),
-  );
-  // 预算不足时不做内层判定：外层探活着有剩余预算，让它兜底。
-  if (budget <= 0) return null;
-  const probe = await probeStreamUrl(url, undefined, budget, signal);
-  if (probe.ok || !probe.definitive) return null;
-  return probe.reason;
-}
 
 export interface HiddenCandidateGroup {
   platform: HiddenSourceId;
@@ -150,9 +125,7 @@ export async function startHiddenSearch(
 }
 
 function pickQualities(api: CustomSourceItem, platform: HiddenSourceId, preference: string[]): string[] {
-  const declared = api.sources?.[platform]?.qualitys ?? [];
-  if (declared.length === 0) return preference;
-  return preference.filter((quality) => declared.includes(quality));
+  return getCustomSourcePlaybackQualities(api, platform, preference);
 }
 
 /**
@@ -171,12 +144,14 @@ export async function resolveHiddenFromGroups(
   deadlineAt: number,
   operation?: CustomSourceOperation,
   signal?: AbortSignal,
+  options: Pick<PlaybackRequest, 'excludedUrls' | 'excludedCandidateIds' | 'purpose'> = {},
 ): Promise<PlaybackResolvedUrl | null> {
   if (groups.length === 0) return null;
   if (qualityPreference.length === 0) return null;
   if (!operation?.isActive()) return null;
 
   const trace: PlaybackAttempt[] = [];
+  let uncertain: PlaybackResolvedUrl | null = null;
   for (const group of groups) {
     const resolvers = enabledResolvers(group.platform);
     if (resolvers.length === 0) continue;
@@ -196,59 +171,41 @@ export async function resolveHiddenFromGroups(
         if (qualities.length === 0) continue;
 
         for (const quality of qualities) {
+          const candidateId = `hidden:${api.id}:${group.platform}:${track.id}:${quality}`;
+          if (options.excludedCandidateIds?.has(candidateId)) continue;
           throwIfAborted(signal);
           if (Date.now() >= deadlineAt - HIDDEN_PROBE_RESERVE_MS) {
             debugLog(`[hidden] 预算耗尽，停止兜底: ${song.name}`);
-            return null;
+            return uncertain;
           }
           if (!operation.isActive()) return null;
 
           try {
             const attemptBudget = Math.min(
-              HIDDEN_ATTEMPT_TIMEOUT_MS,
+              CUSTOM_SOURCE_ATTEMPT_TIMEOUT_MS,
               deadlineAt - HIDDEN_PROBE_RESERVE_MS - Date.now(),
             );
-            if (attemptBudget <= 0) return null;
+            if (attemptBudget <= 0) return uncertain;
             const scope = createCancellationScope(signal, attemptBudget);
-            let result: Awaited<ReturnType<typeof requestCustomSourceMusicUrl>>;
-            try { result = await requestCustomSourceMusicUrl(api, song, quality, operation, undefined, platformRequest, scope.signal); }
-            finally { scope.dispose(); }
-            const resolvedQuality = normalizeSourceQualityLabel(result.quality, quality);
             const resolverName = `${group.platform}/${api.name}`;
-            // 脚本调用成功不等于地址可用：先判死链，死了就换下一个候选/音质/平台，
-            // 而不是把一个必然被外层探活否掉的结果定稿。
-            const deadReason = await rejectCandidate(result.url, deadlineAt, signal);
+            let candidate: PlaybackResolvedUrl;
+            try {
+              const result = await requestCustomSourceMusicUrl(api, song, quality, operation, undefined, platformRequest, scope.signal);
+              candidate = await assessResolvedCandidate({ url: result.url, music: song, quality: normalizeSourceQualityLabel(result.quality, quality), backend: 'hiddenSource', resolverName, candidateId, trace }, { ...options, deadlineAt, signal: scope.signal });
+            } finally { scope.dispose(); }
             if (!operation.isActive()) return null;
-            if (deadReason) {
-              trace.push({
-                backend: "hiddenSource",
-                resolverName,
-                source: song.source,
-                quality: resolvedQuality,
-                status: "failed",
-                error: `候选地址不可用（${deadReason}）`,
-              });
-              debugLog(`[hidden] ${song.name} ${resolverName} 返回的地址不可用（${deadReason}），换下一个候选`);
-              continue;
-            }
+            if (!isVerifiedCandidate(candidate)) { uncertain ??= candidate; continue; }
             trace.push({
               backend: "hiddenSource",
               resolverName,
               source: song.source,
-              quality: resolvedQuality,
+              quality: candidate.quality,
               status: "success",
             });
             debugLog(
-              `[hidden] ${song.name} 由 ${resolverName} 兜底成功 (${resolvedQuality})`,
+              `[hidden] ${song.name} 由 ${resolverName} 兜底成功 (${candidate.quality})`,
             );
-            return {
-              url: result.url,
-              music: song,
-              quality: resolvedQuality,
-              backend: "hiddenSource",
-              resolverName,
-              trace,
-            };
+            return candidate;
           } catch (error) {
             throwIfAborted(signal);
             trace.push({
@@ -271,5 +228,5 @@ export async function resolveHiddenFromGroups(
       .join("\n");
     debugLog(`[hidden] 全部兜底失败: ${song.name}\n${detail}`);
   }
-  return null;
+  return uncertain;
 }

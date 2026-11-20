@@ -11,7 +11,7 @@ import { finishListeningStats, pauseListeningStats, registerListeningStatsSample
 import { useSettingsStore } from "@/stores/settingsStore";
 import { useSleepTimerStore } from "@/stores/sleepTimerStore";
 import { getLocalPlaybackMusic, invalidatePersistentPlaybackCache } from "./playbackPipeline";
-import { buildPlayRequestKey, getEngineTargetKey, setEngineTargetKey } from "./playRequestState";
+import { buildPlayRequestKey, getCurrentPlayRequestId, getEngineTargetKey, getInflightPlayRequest, isActivePlayRequest, notePlaybackProgress, recoverActivePlayback, setEngineTargetKey } from "./playRequestState";
 import { playNextFmTrack } from "./queueNavigation";
 import type { PlayerGet, PlayerSet, PlayerStore } from "./types";
 
@@ -32,6 +32,7 @@ export const syncEngineToStore = (set: PlayerSet, get: PlayerGet) => {
   let previousEngineStatus: PlayerStore["status"] | "idle" = "idle";
   let autoSkipTimer: ReturnType<typeof setTimeout> | null = null;
   let listeningKey: string | null = null;
+  let recoveryRequestId: number | null = null;
 
   playerEngine.subscribe((engineState) => {
     if (engineState.currentMusic?.isLocal) {
@@ -92,6 +93,7 @@ export const syncEngineToStore = (set: PlayerSet, get: PlayerGet) => {
     // 一次引擎推送，旧代码用它覆盖 current/progress/duration，实测症状就是重启后进度全丢。
     // 真正的清空路径（stop / clearQueue / 换曲）都在 store 侧显式 set，不依赖这次同步。
     const engineHasTrack = engineState.currentMusic != null;
+    if (engineHasTrack && engineState.status === 'playing') notePlaybackProgress(engineState.currentTime);
     set({
       status: engineState.status,
       volume: isMuted ? storeVolume : engineState.volume,
@@ -114,6 +116,20 @@ export const syncEngineToStore = (set: PlayerSet, get: PlayerGet) => {
       const currentName = get().current?.name ?? "?";
       const errMsg = engineState.error ? String(engineState.error) : "unknown";
       debugLog(`[engine] 播放错误 status=${prevStatus}->error 歌曲=${currentName} 错误=${errMsg} url=${(engineState.currentUrl ?? "").slice(0, 80)}`);
+      // 起播错误由播放管线处理；运行期错误同样先消费同曲候选，候选耗尽后再自动跳过。
+      const requestId = getCurrentPlayRequestId();
+      if (getInflightPlayRequest() || recoveryRequestId === requestId) return;
+      const recovery = engineState.currentUrl ? recoverActivePlayback(engineState.currentUrl) : undefined;
+      if (recovery) {
+        recoveryRequestId = requestId;
+        void recovery.then(recovered => {
+          if (recoveryRequestId === requestId) recoveryRequestId = null;
+          if (recovered || !isActivePlayRequest(requestId) || get().status !== 'error') return;
+          if (get().fmMode) { void playNextFmTrack(set, get); return; }
+          if (isPlaybackFailedAutoNextEnabled()) void get().next().catch(() => undefined);
+        });
+        return;
+      }
       // 解析成功但播放器拒收（典型：lx 代理返回的地址实际不可播），把该曲的
       // 持久化 URL 与预读缓存一并作废，否则坏链会被缓存 6h 反复命中「一播就错」。
       // 对齐移动端 Event.PlaybackError 的处置。
@@ -173,19 +189,15 @@ export const syncEngineToStore = (set: PlayerSet, get: PlayerGet) => {
 
 /**
  * 试听兜底（与移动端一致）：解析期拿不到长度头的流式响应靠播放器实际时长判定。
- * 判定即停播并失效持久化 / 预读 / 磁盘三层缓存，下次重播强制重新解析（对齐失败即停哲学）。
+ * 失效持久化 / 预读 / 磁盘缓存，并交给统一错误恢复尝试同曲剩余来源。
  */
-export function stopOnPreviewDetected(set: PlayerSet, get: PlayerGet): void {
+export function stopOnPreviewDetected(_set: PlayerSet, get: PlayerGet): void {
   playerEngine.onPreviewDetected((duration) => {
     const current = get().current;
     if (!current) return;
     void invalidatePersistentPlaybackCache(current, current);
     invalidatePrefetchedTrack(current);
     void removeCachedAudioForMusic(current);
-    playerEngine.pause();
-    set({
-      status: "error",
-      error: `检测到试听片段（约 ${Math.round(duration)}s），已清除缓存，请重新播放或切换音源`,
-    });
+    playerEngine.rejectCurrentPlayback(`检测到试听片段（约 ${Math.round(duration)}s），继续尝试同曲其他来源`);
   });
 }

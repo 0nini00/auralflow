@@ -1,26 +1,24 @@
 import { matchHiddenCandidates, type HiddenSourceSearcher } from "../hidden-source";
-import { CUSTOM_SOURCE_PLAYBACK_WINDOW_MS } from "../playback-budgets";
+import { CANDIDATE_PROBE_TIMEOUT_MS, CUSTOM_SOURCE_ATTEMPT_TIMEOUT_MS } from "../playback-budgets";
+import { assessPlaybackCandidate, type PlaybackProbeResult } from "../playback-candidate";
 import type { MusicInfo } from "../sources/types";
 import type { CustomSourceSourceInfo, CustomSourceUpdateAlert } from "./model";
 import type { CustomSourcePlatformRequest, CustomSourceRuntimeInitResult } from "./runtime-protocol";
 
 /**
- * 自定义源深度测试：真实取链。
+ * 自定义源深度测试：取链、探活和已知时长的完整性检查。
  *
  * 初始化通过不代表脚本真的能取到播放地址（假阳性），这里用内置固定测试曲对脚本
- * 声明的每个平台走一次真实 musicUrl 请求，验证端到端可用性。
+ * 声明的每个平台走一次真实 musicUrl 请求和探活；实际解码仍由播放器验证。
  *
  * 脚本的启动、运行时缓存与取消属于两端宿主；本模块只编排第二阶段——测哪些平台、
  * 预算怎么分、结果怎么汇总——搜索、取链与超时守卫一律由调用方注入。
  */
 
 /**
- * 单平台取链超时与播放链的实际取链窗口一致。
- *
- * 测试比播放宽松（旧值 20s）会放过「测试通过、播放超时」的脚本；这里复用
- * 播放预算推导出的窗口，让深度测试回答的是「点播放时能不能拿到地址」。
+ * 单个平台的取链与探活共用正式播放的候选期限，避免测试单独获得整轮预算。
  */
-const DEEP_TEST_TIMEOUT_MS = CUSTOM_SOURCE_PLAYBACK_WINDOW_MS;
+const DEEP_TEST_TIMEOUT_MS = CUSTOM_SOURCE_ATTEMPT_TIMEOUT_MS;
 const DEEP_TEST_SEARCH_TIMEOUT_MS = 6_000;
 const DEEP_TEST_PLATFORM_BUDGET_MS = 25_000;
 const DEEP_TEST_MIN_PLATFORM_BUDGET_MS = 5_000;
@@ -35,14 +33,15 @@ const DEEP_TEST_QUALITY = "128k";
  */
 const DEEP_TEST_TRACKS: Record<
   "wy" | "tx",
-  { id: string; name: string; singer: string; albumName: string; txMeta?: MusicInfo["txMeta"] }
+  { id: string; name: string; singer: string; albumName: string; interval: number; txMeta?: MusicInfo["txMeta"] }
 > = {
-  wy: { id: "2034742057", name: "江南", singer: "林俊杰", albumName: "第二天堂" },
+  wy: { id: "2034742057", name: "江南", singer: "林俊杰", albumName: "第二天堂", interval: 267 },
   tx: {
     id: "0039MnYb0qxYhV",
     name: "晴天",
     singer: "周杰伦",
     albumName: "叶惠美",
+    interval: 269,
     txMeta: { strMediaMid: "003Qui1q2u1Zho", albumMid: "000MkMni19ClKG", songId: "97773" },
   },
 };
@@ -83,6 +82,8 @@ export interface CustomSourceDeepTestDeps {
     target: CustomSourceDeepTestTarget,
     quality: string,
   ) => Promise<{ url: string; quality: string }>;
+  /** 使用宿主的实际网络栈与平台请求头探活，不能只检查 URL 格式。 */
+  probeStream: (url: string, target: CustomSourceDeepTestTarget, timeoutMs: number) => Promise<PlaybackProbeResult>;
   /**
    * 生命周期闸门：调用方的操作已被取消时抛错。每个异步步骤之后都会调用，
    * 让取消原样抛出，而不是被记成某个平台「测试失败」。没有取消语义的一端不传。
@@ -163,6 +164,7 @@ export async function buildCustomSourceDeepTestTarget(
         name: track.name,
         singer: track.singer,
         albumName: track.albumName,
+        interval: track.interval,
         source: platform,
         ...(track.txMeta ? { txMeta: track.txMeta } : {}),
       },
@@ -264,9 +266,7 @@ export async function runCustomSourceDeepTestPlatforms(
         platformBudget - (Date.now() - platformStartedAt),
       );
       if (chainBudget <= 0) throw new Error("总预算耗尽");
-      const result = await deps.withTimeout(deps.requestMusicUrl(target, quality), chainBudget, "取链测试");
-      deps.assertActive?.();
-      if (!/^https?:\/\//.test(result.url)) throw new Error(`未返回可播放 URL：${result.url.slice(0, 128)}`);
+      const result = await deps.withTimeout(validateTestStream(target, quality, chainBudget, deps), chainBudget, "取链测试");
       results.push({ platform, ok: true, detail: `${result.quality || quality}` });
     } catch (error) {
       // 生命周期失效要抛出，而不是伪装成「测试失败」。
@@ -293,4 +293,24 @@ export async function runCustomSourceDeepTestPlatforms(
       updateAlert: initResult.updateAlert,
     },
   };
+}
+
+async function validateTestStream(
+  target: CustomSourceDeepTestTarget,
+  quality: string,
+  budgetMs: number,
+  deps: CustomSourceDeepTestDeps,
+): Promise<{ url: string; quality: string }> {
+  const deadlineAt = Date.now() + budgetMs;
+  const result = await deps.requestMusicUrl(target, quality);
+  deps.assertActive?.();
+  if (!/^https?:\/\//.test(result.url)) throw new Error(`未返回可播放 URL：${result.url.slice(0, 128)}`);
+  const probeBudget = Math.min(CANDIDATE_PROBE_TIMEOUT_MS, deadlineAt - Date.now());
+  if (probeBudget <= 0) throw new Error("候选时间预算耗尽，未能验证播放地址");
+  const probe = await deps.probeStream(result.url, target, probeBudget);
+  deps.assertActive?.();
+  const assessment = assessPlaybackCandidate({ probe, quality: result.quality || quality, expectedDurationSeconds: target.music.interval });
+  if (assessment.status === "rejected") throw new Error(assessment.reason);
+  if (assessment.status === "uncertain") throw new Error(`未能验证播放地址：${assessment.reason}`);
+  return result;
 }

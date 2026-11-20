@@ -30,16 +30,17 @@ import {
   orderPlaybackCandidates,
   PRIMARY_BUDGET_MS,
   withBudget,
+  assessPlaybackCandidate,
+  createPlaybackRequestScheduler,
+  type PlaybackCandidateAssessment,
+  getCustomSourcePlaybackQualities,
 } from "@lx/core";
 import { getNextQueueNavigationState, getPreviousQueueNavigationState } from "@/services/queueNavigationModel";
-import { buildPlaybackQualityTiers, getPlaybackQualityFallbacks, getPlaybackQualityRank, normalizePlaybackQuality, normalizeSourceQualityLabel, resolveEffectivePlaybackQuality, type PlaybackQuality } from "@/services/playbackQualityModel";
+import { buildPlaybackQualityTiers, getPlaybackQualityFallbacks, normalizePlaybackQuality, normalizeSourceQualityLabel, resolveEffectivePlaybackQuality, type PlaybackQuality } from "@/services/playbackQualityModel";
 import {
-  createRequestLimiter,
   DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
   DEFAULT_SOURCE_STAGGER_MS,
-  estimateStreamDurationSeconds,
   findCurrentLyricLineIndex,
-  isPreviewStream,
   LYRIC_LINE_ADVANCE_HYSTERESIS_SECONDS,
   raceForBestQuality,
   raceStaggeredPriority,
@@ -52,7 +53,7 @@ import {
   describeCrossSourceFailure,
   findTxVariants,
 } from "@/services/crossSourceFallbackService";
-import { PROBE_TIMEOUT_MS, probeStreamUrl, type StreamProbeResult } from "./streamProbe";
+import { probeStreamUrl, type StreamProbeResult } from "./streamProbe";
 import { hydrateTxTrackMeta } from "./txMetaService";
 import {
   resolveHiddenFromGroups,
@@ -60,18 +61,10 @@ import {
   type HiddenCandidateGroup,
   type HiddenFallbackResult,
 } from "./hiddenFallbackService";
-import { beginPlaybackRequest, getCurrentPlaybackRequestId, isCurrentPlaybackRequest } from "./playbackRequest";
+import { beginPlaybackRequest, getCurrentPlaybackRequestId, getPlaybackSeekRevision, isCurrentPlaybackRequest } from "./playbackRequest";
 import { getSwitchStepSession, resetSwitchStepSession, type SwitchStepSession } from "./switchStepSession";
 import { createCancellationScope, throwIfAborted, waitWithSignal } from "@/utils/cancellation";
 
-/**
- * 提取 URL 的协议与主机用于错误提示，丢弃路径与查询串（可能含鉴权 token）。
- * 明文 http 在 release 构建会被 Android 直接拒绝，错误文案里带上协议才能一眼区分。
- */
-function describeUrlOrigin(url: string): string {
-  const match = /^([a-z][a-z0-9+.-]*):\/\/([^/?#]+)/i.exec(url);
-  return match ? `${match[1]}://${match[2]}` : "地址格式异常";
-}
 // ─────────────────────────────────────────────────────────────
 // 预读下一首：模块级缓存，解析后只缓存 URL（不播放）
 // ─────────────────────────────────────────────────────────────
@@ -79,13 +72,37 @@ interface PrefetchedUrl {
   url: string;
   headers?: Record<string, string>;
   fetchedAt: number;
+  candidateId?: string;
 }
 /** 解析结果：url/headers 是可用地址，song 是真正解析出的实体（可能是搜索变体）。 */
 interface ResolvedSongPlayback {
   url: string;
   headers?: Record<string, string>;
   song: MusicInfo;
+  candidateId?: string;
 }
+
+interface PlaybackAttemptContext {
+  deadlineAt: number;
+  excludedUrls: Set<string>;
+  excludedCandidateIds: Set<string>;
+}
+
+interface ActivePlaybackAttempt {
+  requestId: number;
+  song: MusicInfo;
+  context: PlaybackAttemptContext;
+  resolved?: ResolvedSongPlayback;
+  healthy?: boolean;
+  committed: boolean;
+  previousPosition: number | null;
+  healthyProgress: number;
+  seekRevision: number;
+}
+
+let activePlaybackAttempt: ActivePlaybackAttempt | null = null;
+const HEALTHY_CANDIDATE_PROGRESS_SECONDS = 5;
+const MAX_CONTINUOUS_PROGRESS_STEP_SECONDS = 2;
 const PREFETCH_TTL_MS = 10 * 60 * 1000;
 /**
  * 并发竞速整条降级链的总时间预算。
@@ -188,95 +205,37 @@ export async function invalidateResolvedPlayback(song: MusicInfo, { includeDiskA
   }
 }
 
-export interface CustomSourceFallback {
-  url: string;
-  quality: string;
-}
-
 export interface CustomSourceResolution {
   url: string;
   quality: string;
-  /**
-   * 同一轮竞速里已结算、但没胜出的候选（按音质降序 → 源序升序）。
-   * 胜出地址被探活判死时逐个回退，不必把整轮重新跑一遍。
-   */
-  fallbacks?: CustomSourceFallback[];
+  candidateId: string;
+  assessment: PlaybackCandidateAssessment;
+  probe: StreamProbeResult;
 }
 
 /** 补齐 txMeta 的等待上限：详情接口通常 <1s，但不能让它吃掉整个竞速预算。 */
 const TX_META_HYDRATE_TIMEOUT_MS = 1_500;
 
-/** 回退候选最多留几个：每次回退都要一次探活 RTT，不宜为兜底把整首拖死。 */
-const MAX_CUSTOM_SOURCE_FALLBACKS = 2;
-
-/**
- * 候选地址内层探活：脚本「调用成功」不等于「地址可用」。
- *
- * 只把服务端明确 4xx（definitive）当作死链；超时/抖动/5xx 下不了结论时放行，
- * 交给外层探活决定——移动端自定义源的黑盒代理更需要这一步，但误杀慢 CDN
- * 同样不可接受。
- */
-async function rejectDeadCandidate(
+/** 候选先检查死链与试听，再按已验证/无结论进入竞速。 */
+async function verifyPlaybackCandidate(
   url: string,
-  source: string | undefined,
+  music: MusicInfo,
+  quality: string,
   deadlineAt: number,
   signal?: AbortSignal,
-): Promise<string | null> {
+  attempt?: PlaybackAttemptContext,
+): Promise<{ probe: StreamProbeResult; assessment: PlaybackCandidateAssessment }> {
+  if (attempt?.excludedUrls.has(url)) throw new Error("该播放地址已被拒绝");
   const budget = Math.min(CANDIDATE_PROBE_TIMEOUT_MS, getChildPlaybackDeadline(deadlineAt) - Date.now());
-  if (budget <= 0) return null;
-  const probe = await waitWithSignal(withBudget(probeStreamUrl(url, buildStreamHeaders(source), budget, signal), budget), signal);
-  if (!probe) {
-    logger.debug('[customSource] 候选探活预算耗尽，交给外层探活继续判定');
-    return null;
+  if (budget <= 0) throw new Error("播放候选检查预算耗尽");
+  const probe = await waitWithSignal(withBudget(probeStreamUrl(url, buildStreamHeaders(music.source), budget, signal), budget), signal)
+    ?? { ok: false, definitive: false, reason: "候选探活超时" };
+  const assessment = assessPlaybackCandidate({ probe, quality, expectedDurationSeconds: music.interval });
+  if (assessment.status === "rejected") {
+    attempt?.excludedUrls.add(url);
+    throw new Error(`候选地址不可用(${assessment.reason})`);
   }
-  if (probe.ok || !probe.definitive) return null;
-  return probe.reason;
-}
-
-/** 把已结算但未胜出的候选整理成回退链；同一个 URL 只留第一次出现。 */
-function buildCustomFallbacks(
-  collected: Array<CustomSourceFallback & { rank: number; sourceIndex: number }>,
-  winner: CustomSourceFallback,
-): CustomSourceFallback[] {
-  const seen = new Set<string>([winner.url]);
-  const fallbacks: CustomSourceFallback[] = [];
-  const ordered = [...collected].sort(
-    (a, b) => b.rank - a.rank || a.sourceIndex - b.sourceIndex,
-  );
-  for (const item of ordered) {
-    if (seen.has(item.url)) continue;
-    seen.add(item.url);
-    fallbacks.push({ url: item.url, quality: item.quality });
-    if (fallbacks.length >= MAX_CUSTOM_SOURCE_FALLBACKS) break;
-  }
-  return fallbacks;
-}
-
-/**
- * 胜出地址被判死后逐个探活同轮候选，取第一个确定可用的。
- * 超时/5xx 这类下不了结论的先记着，全部确定失败后兜底放行——与桌面端同语义。
- */
-async function pickPlayableCustomFallback(
-  fallbacks: CustomSourceFallback[],
-  headers: Record<string, string> | undefined,
-  deadlineAt: number,
-  signal?: AbortSignal,
-): Promise<{ url: string; quality: string; probe: StreamProbeResult } | null> {
-  let tolerated: { url: string; quality: string; probe: StreamProbeResult } | null = null;
-  for (const candidate of fallbacks) {
-    throwIfAborted(signal);
-    // 每次回退都要吃一个探活 RTT，预算不够时不要为了兜底把整首拖死。
-    if (deadlineAt - Date.now() <= CUSTOM_SOURCE_MIN_ATTEMPT_MS) break;
-    const probe = await probeStreamUrl(
-      candidate.url,
-      headers,
-      Math.max(500, Math.min(PROBE_TIMEOUT_MS, deadlineAt - Date.now())),
-      signal,
-    );
-    if (probe.ok) return { ...candidate, probe };
-    if (!probe.definitive && !tolerated) tolerated = { ...candidate, probe };
-  }
-  return tolerated;
+  return { probe, assessment };
 }
 
 /**
@@ -292,6 +251,7 @@ export async function resolveUrlWithCustomSource(
   qualities: string[],
   deadlineAt?: number,
   signal?: AbortSignal,
+  attempt?: PlaybackAttemptContext,
 ): Promise<CustomSourceResolution> {
   throwIfAborted(signal);
   // 内外层竞速都跟随解析链的剩余预算，并给外层探活留出余量（对齐桌面）：
@@ -307,7 +267,11 @@ export async function resolveUrlWithCustomSource(
   const qualityDeadlineAt = getChildPlaybackDeadline(budgetEndsAt);
   const enabledSources = useCustomSourceStore
     .getState()
-    .sources.filter((source) => source.enabled);
+    .sources.filter((source) => {
+      if (!source.enabled) return false;
+      return getCustomSourcePlaybackQualities(source, song.source, qualities)
+        .some(quality => !attempt?.excludedCandidateIds.has(`custom:${source.id}:${buildSongKey(song)}:${quality}`));
+    });
   if (enabledSources.length === 0) {
     throw new Error("无可用的自定义音源");
   }
@@ -331,64 +295,51 @@ export async function resolveUrlWithCustomSource(
     logger.debug(`[customSource] txMeta 补全超时，使用原条目: ${song.name}`);
   }
   const targetSong = hydrateResult ?? song;
-  const collected: Array<CustomSourceFallback & { rank: number; sourceIndex: number }> = [];
-
   const floorQuality = qualities[qualities.length - 1];
   const outcomes = enabledSources.map<string | undefined>(() => undefined);
   // 竞速是「源 × 音质」二维展开，最坏会同时打出 20+ 个请求；对第三方公益
   // 代理是明显放大，被限流后所有源一起变慢，竞速会退化成一起超时。
-  // 名额只在请求结算后释放；取消与时间片负责让位，不能用超时删除计数。
-  const limiter = createRequestLimiter({ limit: MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS });
+  // 每个已启动候选持有固定期限，新增来源不会缩短它的执行时间。
+  const scheduler = createPlaybackRequestScheduler({ limit: MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS });
   const scope = createCancellationScope(signal);
-  // 候选超过三个时给未尝试源保留机会，且不能让前排源的多档占满名额。
-  // 少量候选继续持有完整预算；拥塞时保留一轮降档余量，先完成各源最高档的尝试。
-  const batches = Math.ceil(enabledSources.length / MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS) + (qualities.length > 1 ? 1 : 0);
-  const attemptBudget = enabledSources.length * qualities.length > MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS
-    ? budgetMs / Math.max(2, batches)
-    : undefined;
   // 每个源:源内部也走同一个交错竞速——最高档先发,未回就在交错期后并发降档;
   // 首个达标结果开启升级窗口,最高档在窗口内赶上仍可翻盘。
   // 旧实现按档位串行等待:服务端对高清单走慢回退路径(实测 flac24bit 18.7s 才回
   // 320k 兜底,而 flac 只要 2.1s)时,整源被拖死,真正可用的档位从未被请求。
   const launchers = enabledSources.map((source, index) => () => (async () => {
-    const qualityLaunchers = qualities.map((requested, qualityIndex) => () => (async () => {
-      // 排队期间本轮可能已经定稿，acquire 会直接抛错，一个请求都不发。
-      const releaseSlot = await limiter.acquire(scope.signal, qualityIndex * enabledSources.length + index);
-      const attempt = createCancellationScope(scope.signal, attemptBudget);
+    const sourceQualities = getCustomSourcePlaybackQualities(source, targetSong.source, qualities)
+      .filter(quality => !attempt?.excludedCandidateIds.has(`custom:${source.id}:${buildSongKey(song)}:${quality}`));
+    if (!sourceQualities.length) throw new Error(`${source.name} 未声明支持请求的音质`);
+    const qualityLaunchers = sourceQualities.map((requested, qualityIndex) => () => scheduler.run(async requestSignal => {
       try {
-        throwIfAborted(attempt.signal);
+        throwIfAborted(requestSignal);
         // 取链期间脚本主动 send(updateAlert) 时写入 store,让全局更新弹窗能感知
         const result = await requestCustomSourceMusicUrl(source, targetSong, requested, (alert) => {
           void useCustomSourceStore.getState().applyRuntimeUpdateAlert(source.id, alert)
             .catch((error) => logger.warn("音源更新提示保存失败", error));
-        }, undefined, attempt.signal);
-        throwIfAborted(attempt.signal);
+        }, undefined, requestSignal);
+        throwIfAborted(requestSignal);
         // 与网关通道同样归一化:脚本可能回传 "flac24bit" 之外的别名；
         // 无法识别的标签退回请求档位，不静默当成 320k（与桌面端同一规则）。
         const quality = normalizeSourceQualityLabel(result.quality, requested);
         // 先判死链再参与裁决：死地址胜出后会被外层探活否掉，且同一地址会被
         // 后续每个音质轮次复用；在候选层换下一个源/档位才是有效兜底。
-        const deadReason = await rejectDeadCandidate(result.url, targetSong.source, qualityDeadlineAt, attempt.signal);
-        if (deadReason) throw new Error(`候选地址不可用(${deadReason})`);
-        const hit = {
+        const evidence = await verifyPlaybackCandidate(result.url, targetSong, quality, qualityDeadlineAt, requestSignal, attempt);
+        return {
           url: result.url,
           quality,
-          rank: getPlaybackQualityRank(quality),
-          sourceIndex: index,
+          candidateId: `custom:${source.id}:${buildSongKey(song)}:${requested}`,
+          ...evidence,
         };
-        collected.push(hit);
-        return hit;
       } catch (error) {
         throw new Error(`${requested}: ${error instanceof Error ? error.message : String(error)}`);
-      } finally {
-        attempt.dispose();
-        releaseSlot();
       }
-    })());
+    }, scope.signal, qualityIndex * enabledSources.length + index));
     try {
       return await raceStaggeredPriority(qualityLaunchers, {
         signal: scope.signal,
         getQuality: (value) => value.quality,
+        isVerified: (value) => value.assessment.status === "verified",
         floor: floorQuality,
         ceiling: qualities[0],
         staggerMs: DEFAULT_SOURCE_STAGGER_MS,
@@ -414,6 +365,7 @@ export async function resolveUrlWithCustomSource(
     const winner = await raceStaggeredPriority(launchers, {
       signal: scope.signal,
       getQuality: (value) => value.quality,
+      isVerified: (value) => value.assessment.status === "verified",
       floor: floorQuality,
       ceiling: qualities[0],
       staggerMs: DEFAULT_SOURCE_STAGGER_MS,
@@ -430,7 +382,9 @@ export async function resolveUrlWithCustomSource(
     return {
       url: winner.url,
       quality: winner.quality,
-      fallbacks: buildCustomFallbacks(collected, winner),
+      candidateId: winner.candidateId,
+      assessment: winner.assessment,
+      probe: winner.probe,
     };
   } catch (error) {
     const detail = outcomes.filter((item): item is string => Boolean(item)).join(";");
@@ -438,7 +392,6 @@ export async function resolveUrlWithCustomSource(
     throw new Error(capped || (error instanceof Error ? error.message : String(error)) || "所有自定义音源均解析失败");
   } finally {
     // 定稿或失败后同时取消排队和在途候选，HTTP 名额在实际请求结算时归还。
-    limiter.abandon();
     scope.dispose();
   }
 }
@@ -455,13 +408,7 @@ export async function resolveUrlWithCustomSource(
  * 实测 tx 场景第一轮烧完预算失败后第二轮才从零开始，可用结果被轮次序列推过
  * 总 deadline。
  */
-interface RacedQualityResult {
-  url: string;
-  quality: string;
-  fromCustomSource: boolean;
-  /** 自定义源胜出时携带同轮已结算的备选地址，外层探活判死后可逐个回退。 */
-  fallbacks?: CustomSourceFallback[];
-}
+type RacedQualityResult = CustomSourceResolution;
 
 async function raceQualityTier(
   song: MusicInfo,
@@ -471,6 +418,7 @@ async function raceQualityTier(
   deadlineAt: number,
   preferOfficial = false,
   signal?: AbortSignal,
+  attempt?: PlaybackAttemptContext,
 ): Promise<RacedQualityResult> {
   // 主源通道按音质从高到低顺序尝试，第一个成功的即本轮最高可用档。
   // 不对每档并发：gdstudio 是免费网关，同一首歌并发多档容易触发限流，
@@ -484,18 +432,24 @@ async function raceQualityTier(
   const primaryAttempt = (async () => {
     const errors: string[] = [];
     for (const quality of qualities) {
+      const candidateId = `${preferOfficial ? "official" : "gateway"}:${buildSongKey(song)}:${quality}`;
+      if (attempt?.excludedCandidateIds.has(candidateId)) {
+        errors.push(`${quality}: 该播放来源已被播放器拒绝`);
+        continue;
+      }
       throwIfAborted(signal);
       try {
-        if (preferOfficial) {
-          const url = await resolveWySongUrl(song, quality as PlaybackQuality, signal);
-          return { url, quality: normalizePlaybackQuality(quality), fromCustomSource: false };
-        }
-        const result = await parseUrl(song, quality, signal);
+        const result = preferOfficial
+          ? { url: await resolveWySongUrl(song, quality as PlaybackQuality, signal), quality }
+          : await parseUrl(song, quality, signal);
+        const resolvedQuality = normalizeSourceQualityLabel(result.quality, quality);
+        const evidence = await verifyPlaybackCandidate(result.url, song, resolvedQuality, deadlineAt, signal, attempt);
         return {
           url: result.url,
           // 网关/脚本没给可识别档位时退回本次请求的档位（与桌面端同一规则）
-          quality: normalizeSourceQualityLabel(result.quality, quality),
-          fromCustomSource: false,
+          quality: resolvedQuality,
+          candidateId,
+          ...evidence,
         };
       } catch (error) {
         throwIfAborted(signal);
@@ -510,7 +464,7 @@ async function raceQualityTier(
   // 懒切(对齐桌面端 playbackResolver):主源先行 2.5s,达标即定稿,自定义源零唤醒
   const remainingRaceBudget = () => Math.max(0, deadlineAt - Date.now() - CUSTOM_SOURCE_PROBE_RESERVE_MS);
   const primaryHit = await waitWithSignal(withBudget(primaryAttempt, Math.min(PRIMARY_BUDGET_MS, remainingRaceBudget())), signal);
-  if (primaryHit && primaryHit.quality === normalizePlaybackQuality(qualities[0])) {
+  if (primaryHit?.assessment.status === "verified" && primaryHit.quality === normalizePlaybackQuality(qualities[0])) {
     return primaryHit;
   }
 
@@ -523,6 +477,7 @@ async function raceQualityTier(
 
   return waitWithSignal(raceForBestQuality([primaryRetry, customAttempt], {
     getQuality: (value) => value.quality,
+    isVerified: (value) => value.assessment?.status === "verified",
     upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
     ceiling: qualities[0],
     // 主源低于用户选定音质时只当兜底：旧实现 800ms 窗口一到就拿低档定稿，
@@ -557,9 +512,10 @@ export async function resolveCloudSongUrl(song: MusicInfo, quality: string): Pro
 async function resolveSongUrl(
   song: MusicInfo,
   qualityOverride?: string | null,
-  options?: { skipPrefetchInflight?: boolean; signal?: AbortSignal },
+  options?: { skipPrefetchInflight?: boolean; signal?: AbortSignal; attempt?: PlaybackAttemptContext },
 ): Promise<ResolvedSongPlayback> {
   const signal = options?.signal;
+  const attempt = options?.attempt;
   throwIfAborted(signal);
   // 计算音质降级链（显式指定音质时跳过预读/持久化缓存，避免旧码率命中）
   const quality = qualityOverride
@@ -578,8 +534,8 @@ async function resolveSongUrl(
   // 探活继续挡在那一步）。
   if (!qualityOverride) {
     const prefetched = getCachedPrefetch(playbackCandidates, qualityCandidates);
-    if (prefetched) {
-      return { url: prefetched.entry.url, headers: prefetched.entry.headers, song: prefetched.song };
+    if (prefetched && !attempt?.excludedUrls.has(prefetched.entry.url) && !attempt?.excludedCandidateIds.has(prefetched.entry.candidateId ?? "")) {
+      return { url: prefetched.entry.url, headers: prefetched.entry.headers, song: prefetched.song, candidateId: prefetched.entry.candidateId };
     }
     // 1.1 同一首歌的预读解析正在进行中：直接 await 同一条链的结果，而不是
     // 另起一条重复的解析链——用户在预读进行中点下一首时，等的是已经跑了
@@ -591,7 +547,7 @@ async function resolveSongUrl(
         inflight.consumers += 1;
         try {
           const reused = await waitWithSignal(inflight.task, signal);
-          if (reused) return reused;
+          if (reused && !attempt?.excludedUrls.has(reused.url) && !attempt?.excludedCandidateIds.has(reused.candidateId ?? "")) return reused;
         } finally {
           inflight.consumers -= 1;
           if (!inflight.retained && inflight.consumers === 0) inflight.controller.abort();
@@ -608,7 +564,7 @@ async function resolveSongUrl(
         throwIfAborted(signal);
         const cachedAudioPath = await getCachedAudioFile(candidate, qualityCandidate);
         throwIfAborted(signal);
-        if (!cachedAudioPath) continue;
+        if (!cachedAudioPath || attempt?.excludedUrls.has(cachedAudioPath)) continue;
         setCachedPrefetch(buildPlaybackPrefetchKey(candidate, qualityCandidate), {
           url: cachedAudioPath,
           headers: undefined,
@@ -630,7 +586,7 @@ async function resolveSongUrl(
     //   缓存条目多为曾播通过的链接，风险可接受。
     const persisted = await getCachedPlaybackUrl(song, qualityCandidates, playbackCandidates);
     throwIfAborted(signal);
-    if (persisted) {
+    if (persisted && !attempt?.excludedUrls.has(persisted.url)) {
       // legacy 条目可能没写 music：回退主条目
       const persistedSong = persisted.music ?? song;
       // 持久化缓存可能存的是本地音频文件（#2 媒体缓存）：校验文件未被清理策略回收
@@ -662,6 +618,7 @@ async function resolveSongUrl(
   let headers: Record<string, string> | undefined;
   let resolvedQuality: string | undefined;
   let resolvedSong = song;
+  let resolvedCandidateId: string | undefined;
   if (song.isLocal && song.url) {
     url = song.url;
   } else if (song.wyCloud === true) {
@@ -675,6 +632,8 @@ async function resolveSongUrl(
     // 且 resolvedQuality 是请求档位而文件是原码率，解析期按档位估算没有意义。
     // 详见 @lx/core sources/types.ts 中 MusicInfo.wyCloud 的说明。
     const directQuality = (qualityCandidates[0] ?? quality) as PlaybackQuality;
+    resolvedCandidateId = `cloud:${buildSongKey(song)}:${directQuality}`;
+    if (attempt?.excludedCandidateIds.has(resolvedCandidateId)) throw new Error("该云盘播放候选已被播放器拒绝");
     url = await resolveWySongUrl(song, directQuality, signal);
     headers = buildStreamHeaders(song.source);
     resolvedQuality = String(directQuality);
@@ -683,7 +642,7 @@ async function resolveSongUrl(
     // 候选×音质双层循环（对齐桌面端 backend 语义）：每个候选先按「不低于选定音质」的
     // 全部档位竞速，全败才逐档下调；一个候选的完整音质链失败后才轮到下一个候选——
     // 「宁可降音质也不换版本」优先于「换版本保音质」，变体只做真兜底。
-    const resolveDeadline = Date.now() + RESOLVE_RACE_BUDGET_MS;
+    const resolveDeadline = attempt?.deadlineAt ?? Date.now() + RESOLVE_RACE_BUDGET_MS;
     // 隐藏兜底分两段：搜索可以提前并行（纯 HTTP、无副作用），取链必须等到常规
     // 链路真的失败。分开是为了不让「1s 就解析成功」的歌白唤醒 LX 脚本；同时搜索
     // 仍提前启动，避免自定义源慢回退耗完预算后才开始搜。
@@ -703,7 +662,7 @@ async function resolveSongUrl(
       throwIfAborted(signal);
       if (!hiddenResolve) {
         hiddenResolve = ensureHiddenSearch()
-          .then((groups) => resolveHiddenFromGroups(groups, song, qualityCandidates, resolveDeadline, signal))
+          .then((groups) => resolveHiddenFromGroups(groups, song, qualityCandidates, resolveDeadline, signal, attempt))
           .catch((error) => {
             logger.debug(`[hidden] 兜底失败: ${error instanceof Error ? error.message : String(error)}`);
             return null;
@@ -734,8 +693,8 @@ async function resolveSongUrl(
       const getCustomAttempt = () => {
         throwIfAborted(signal);
         if (!customAttemptPromise) {
-          customAttemptPromise = resolveUrlWithCustomSource(candidate, qualityCandidates, resolveDeadline, signal).then(
-            (result) => ({ ...result, fromCustomSource: true }),
+          customAttemptPromise = resolveUrlWithCustomSource(candidate, qualityCandidates, resolveDeadline, signal, attempt).then(
+            (result) => result,
             (error: unknown) => {
               const message = error instanceof Error ? error.message : String(error);
               throw new Error(`自定义音源解析失败：${message}`);
@@ -760,64 +719,14 @@ async function resolveSongUrl(
             resolveDeadline,
             officialFirst,
             signal,
+            attempt,
           );
-          // 防盗链 headers 按候选实际来源补齐：LX 自定义音源返回的也多为 wy/tx 官方 CDN 链接，
-          // 缺 Referer 会直接 403（竞速版本初期的回归点）；其他源 CDN 无 Referer 要求，多带无害。
-          const candidateHeaders = buildStreamHeaders(candidate.source);
-          // 探活：1 字节 Range 同时给出「地址是否真的可用」与「完整资源字节数」——后者是
-          // 试听判定的唯一数据来源（见 @lx/core stream-integrity），跳过探活等于放弃解析期试听判定。
-          // 两条通道都跑，但拒绝尺度不同：
-          // - 自定义音源：黑盒代理 TCP 握手成功后可能永不返数据（ExoPlayer 会无限缓冲、
-          //   进度永远 00:00 且无错误回调），因此任何探活失败都换下一档。
-          // - 网关直连 CDN：稳定可靠，只有服务端明确拒绝（4xx）才换档；超时 / 抖动 / 5xx
-          //   下不了结论，不能据此否掉一个可能正常的地址（部分 CDN 忽略 Range 或对大文件响应慢），
-          //   放行给播放器错误回调兜底。
-          let effective = racedResult;
-          let probe = await probeStreamUrl(effective.url, candidateHeaders, undefined, signal);
-          if (!probe.ok && (effective.fromCustomSource || probe.definitive)) {
-            // 自定义源胜出地址被否掉时，先试同轮已结算的其它候选（按音质降序 → 源序）。
-            // 只在这一轮内回退，不跨轮次；全部不可用才丢这一档。
-            const fallback = effective.fromCustomSource && effective.fallbacks?.length
-              ? await pickPlayableCustomFallback(effective.fallbacks, candidateHeaders, resolveDeadline, signal)
-              : null;
-            if (!fallback) {
-              // 带上地址来源（协议 + 主机，不含可能含 token 的路径与查询串）：
-              // 明文 http 被 Android 拦截、代理域名不可达等失败在错误文案上无法区分，
-              // 没有来源信息只能靠猜。
-              lastTierError = new Error(
-                `解析的播放地址不可用（${probe.reason}）[${describeUrlOrigin(effective.url)}]`,
-              );
-              // 自定义源整轮地址都不可用：作废缓存结果，下一档重新唤醒。
-              // 否则同一个死地址会被后续每个音质轮次复用。
-              if (effective.fromCustomSource) customAttemptPromise = null;
-              continue;
-            }
-            effective = { ...effective, url: fallback.url, quality: fallback.quality };
-            probe = fallback.probe;
-          }
-          // 试听判定：30s 试听与完整版同样返回 206，靠 Content-Range / Content-Length
-          // 估算流时长后与期望时长（本候选的 interval）比对，是试听则本档作废继续降档。
-          if (
-            probe.ok &&
-            probe.totalBytes != null &&
-            isPreviewStream({
-              totalBytes: probe.totalBytes,
-              quality: effective.quality,
-              expectedDurationSeconds: candidate.interval,
-            })
-          ) {
-            const previewSeconds = estimateStreamDurationSeconds(probe.totalBytes, effective.quality);
-            lastTierError = new Error(
-              `解析到试听片段（约 ${Math.round(previewSeconds ?? 0)}s），已跳过并降档重试`,
-            );
-            // 自定义源给的试听片段同样作废缓存结果，下一档给其它源/档位机会。
-            if (effective.fromCustomSource) customAttemptPromise = null;
-            continue;
-          }
-          raced = effective;
-          url = effective.url;
-          headers = candidateHeaders;
-          resolvedQuality = effective.quality;
+          // 候选在进入竞速前已经完成探活与试听判定，提交时复用该结果。
+          raced = racedResult;
+          url = racedResult.url;
+          headers = buildStreamHeaders(candidate.source);
+          resolvedQuality = racedResult.quality;
+          resolvedCandidateId = racedResult.candidateId;
           resolvedSong = candidate;
           break candidateLoop;
         } catch (error) {
@@ -835,11 +744,15 @@ async function resolveSongUrl(
       if (song.source === "wy" && !officialFirstUsed) {
         try {
           const directQuality = (qualityCandidates[0] ?? quality) as PlaybackQuality;
+          const candidateId = `official:${buildSongKey(song)}:${directQuality}`;
+          if (attempt?.excludedCandidateIds.has(candidateId)) throw new Error("官方播放来源已被播放器拒绝");
           const directUrl = await resolveWySongUrl(song, directQuality, signal);
+          const evidence = await verifyPlaybackCandidate(directUrl, song, String(directQuality), resolveDeadline, signal, attempt);
           url = directUrl;
           headers = buildStreamHeaders(song.source);
           resolvedQuality = String(directQuality);
-          raced = { url: directUrl, quality: String(directQuality), fromCustomSource: false };
+          resolvedCandidateId = candidateId;
+          raced = { url: directUrl, quality: String(directQuality), candidateId, ...evidence };
         } catch (directError) {
           throwIfAborted(signal);
           const directMessage = directError instanceof Error ? directError.message : String(directError);
@@ -851,24 +764,8 @@ async function resolveSongUrl(
         // 隐藏兜底：酷我/酷狗同名搜索 + 已装 LX 脚本取链。
         // 与桌面端同语义：明确拒绝或试听片段才放弃；超时/抖动下不了结论时仍采用地址。
         const hidden = await ensureHiddenResolve();
-        if (hidden) {
-          // 探活不能再用固定 5s：隐藏解析可能已接近 12s 总预算，必须卡在剩余预算内。
-          const hiddenProbe = await probeStreamUrl(
-            hidden.url,
-            undefined,
-            Math.max(500, resolveDeadline - Date.now()),
-            signal,
-          );
-          const hiddenRejected = !hiddenProbe.ok && hiddenProbe.definitive;
-          const hiddenPreview =
-            hiddenProbe.ok &&
-            hiddenProbe.totalBytes != null &&
-            isPreviewStream({
-              totalBytes: hiddenProbe.totalBytes,
-              quality: hidden.quality,
-              expectedDurationSeconds: song.interval,
-            });
-          if (!hiddenRejected && !hiddenPreview) {
+        if (hidden && !attempt?.excludedUrls.has(hidden.url)) {
+          if (hidden.assessment.status !== "rejected") {
             logger.debug(`[hidden] 兜底成功 ${song.name} ${hidden.resolverName} (${hidden.quality})`);
             url = hidden.url;
             // 用 {} 而不是 undefined：持久化缓存读回时 `headers ?? buildStreamHeaders(原曲来源)`
@@ -876,11 +773,12 @@ async function resolveSongUrl(
             headers = {};
             resolvedQuality = hidden.quality;
             resolvedSong = song;
-            raced = { url: hidden.url, quality: hidden.quality, fromCustomSource: false };
+            resolvedCandidateId = hidden.candidateId;
+            raced = hidden;
           } else {
             const previous = lastTierError instanceof Error ? lastTierError.message : String(lastTierError ?? "");
             lastTierError = new Error(
-              `${previous}；隐藏音源兜底不可用（${hiddenRejected ? "探活失败" : "试听片段"}）`,
+              `${previous}；隐藏音源兜底不可用（${hidden.assessment.reason}）`,
             );
           }
         }
@@ -895,12 +793,13 @@ async function resolveSongUrl(
   if (!url) {
     throw new Error("无法获取播放地址");
   }
+  if (attempt?.excludedUrls.has(url)) throw new Error("该播放地址已被播放器拒绝");
 
   const cacheQuality = resolvedQuality ?? qualityOverride ?? quality;
   throwIfAborted(signal);
 
   // 3. 写入预读缓存（以实际解析成功的实体为键，候选链查询自会命中）
-  setCachedPrefetch(buildPlaybackPrefetchKey(resolvedSong, cacheQuality), { url, headers, fetchedAt: Date.now() });
+  setCachedPrefetch(buildPlaybackPrefetchKey(resolvedSong, cacheQuality), { url, headers, fetchedAt: Date.now(), candidateId: resolvedCandidateId });
 
   // 3.5 写入持久化 URL 缓存（本地文件不缓存）
   if (!resolvedSong.isLocal && resolvedSong.source !== "local") {
@@ -923,7 +822,7 @@ async function resolveSongUrl(
     }
   }
 
-  return { url, headers, song: resolvedSong };
+  return { url, headers, song: resolvedSong, candidateId: resolvedCandidateId };
 }
 
 /**
@@ -1252,7 +1151,8 @@ async function resolveCrossSourceSubstitute(
   intent: number,
   primaryMessage: string,
   signal?: AbortSignal,
-): Promise<{ song: MusicInfo; url: string; headers?: Record<string, string> }> {
+  attempt?: PlaybackAttemptContext,
+): Promise<ResolvedSongPlayback> {
   // 仅接手网易云源：反向降级与「用户明确选了 QQ 曲目」的预期冲突，且网易云侧已有官方兜底。
   //
   // 云盘曲（wyCloud）明确排除：那是账号私有的上传文件，QQ 侧的同名曲是另一份录音，
@@ -1268,9 +1168,9 @@ async function resolveCrossSourceSubstitute(
   for (const candidate of candidates) {
     throwIfAborted(signal);
     if (!isCurrentPlaybackRequest(intent)) throw new Error(primaryMessage);
-    let resolved: { song: MusicInfo; url: string; headers?: Record<string, string> };
+    let resolved: ResolvedSongPlayback;
     try {
-      resolved = await resolveSongUrl(candidate, undefined, { signal });
+      resolved = await resolveSongUrl(candidate, undefined, { signal, attempt });
     } catch (error) {
       throwIfAborted(signal);
       // 该候选解析不出来（多数是没导入可用的 QQ 音源脚本）：继续试下一条，
@@ -1288,10 +1188,77 @@ async function resolveCrossSourceSubstitute(
   throw new Error(`${primaryMessage}（${describeCrossSourceFailure(candidates)}）`);
 }
 
-async function playSongCore(song: MusicInfo, startPosition?: number, requestId?: number): Promise<void> {
+function rejectPlaybackResult(attempt: ActivePlaybackAttempt, resolved: ResolvedSongPlayback): void {
+  attempt.context.excludedUrls.add(resolved.url);
+  if (resolved.candidateId) attempt.context.excludedCandidateIds.add(resolved.candidateId);
+}
+
+/** 已持续解码的歌曲可在之后的网络故障开启新的恢复窗口。 */
+export function notePlaybackCandidateHealthy(songKey: string, position: number): void {
+  const attempt = activePlaybackAttempt;
+  if (!attempt?.committed || !attempt.resolved || !isCurrentPlaybackRequest(attempt.requestId)
+    || buildSongKey(attempt.resolved.song) !== songKey || !Number.isFinite(position)) return;
+  const seekRevision = getPlaybackSeekRevision();
+  const advance = attempt.previousPosition === null ? 0 : position - attempt.previousPosition;
+  if (attempt.seekRevision !== seekRevision || advance < 0 || advance > MAX_CONTINUOUS_PROGRESS_STEP_SECONDS) {
+    attempt.healthyProgress = 0;
+    attempt.healthy = false;
+  } else {
+    attempt.healthyProgress += advance;
+    if (attempt.healthyProgress >= HEALTHY_CANDIDATE_PROGRESS_SECONDS) attempt.healthy = true;
+  }
+  attempt.previousPosition = position;
+  attempt.seekRevision = seekRevision;
+}
+
+/** 原生拒收后继续同首歌的候选；新播放意图和自动跳歌不会复用这份状态。 */
+export async function recoverCurrentSongPlayback(requestId: number, options?: { rejectPreview?: boolean; hasPlaybackIntent?: () => Promise<boolean> }): Promise<void> {
+  if (!isCurrentPlaybackRequest(requestId)) return;
+  const state = usePlayerStore.getState();
+  const song = state.currentSong;
+  if (!song) throw new Error("没有可恢复的歌曲");
+  const previous = activePlaybackAttempt?.requestId === requestId ? activePlaybackAttempt : null;
+  const previousHealthy = previous?.healthy && previous.seekRevision === getPlaybackSeekRevision();
+  const context = previous && !previousHealthy ? previous.context : {
+    deadlineAt: Date.now() + PLAYBACK_RESOLUTION_BUDGET_MS,
+    excludedUrls: new Set<string>(),
+    excludedCandidateIds: new Set<string>(),
+  };
+  const failed = previous?.resolved ?? (state.currentUrl ? { url: state.currentUrl, song } : undefined);
+  if (!failed) throw new Error("当前歌曲没有可排除的失败播放地址");
+  context.excludedUrls.add(failed.url);
+  if (failed.candidateId) context.excludedCandidateIds.add(failed.candidateId);
+  if (Date.now() >= context.deadlineAt) throw new Error("同歌曲换源预算耗尽");
+  const nextRequestId = beginPlaybackRequest();
+  const silencing = options?.rejectPreview ? state.silenceCurrentTrack() : undefined;
+  if (options?.rejectPreview) {
+    usePlayerStore.setState({ loading: true, isPlaying: false, error: null });
+  }
+  const canContinue = await runPlaybackResolution(async signal => {
+    await waitWithSignal(Promise.all([
+      silencing,
+      invalidateResolvedPlayback(failed.song, { includeDiskAudio: options?.rejectPreview || isLocalFilePlaybackUrl(failed.url) }),
+    ]), signal);
+    return options?.hasPlaybackIntent ? waitWithSignal(options.hasPlaybackIntent(), signal) : true;
+  }, nextRequestId, undefined, context.deadlineAt);
+  if (!canContinue || !isCurrentPlaybackRequest(nextRequestId)) return;
+  await playSongCore(previous?.song ?? song, state.position, nextRequestId, context);
+}
+
+async function playSongCore(song: MusicInfo, startPosition?: number, requestId?: number, recoveryContext?: PlaybackAttemptContext): Promise<void> {
   if (requestId !== undefined && !isCurrentPlaybackRequest(requestId)) return;
   const { play, setLoading, setError } = usePlayerStore.getState();
   const intent = requestId ?? beginPlaybackRequest();
+  const context = recoveryContext ?? {
+    deadlineAt: Date.now() + PLAYBACK_RESOLUTION_BUDGET_MS,
+    excludedUrls: new Set<string>(),
+    excludedCandidateIds: new Set<string>(),
+  };
+  const playbackAttempt: ActivePlaybackAttempt = {
+    requestId: intent, song, context, committed: false,
+    previousPosition: null, healthyProgress: 0, seekRevision: getPlaybackSeekRevision(),
+  };
+  activePlaybackAttempt = playbackAttempt;
   releaseUnusedPrefetch(buildPlaybackPrefetchKey(song, resolveEffectivePlaybackQuality(
     song.quality, usePlaybackSettingsStore.getState().defaultQuality,
   )));
@@ -1317,18 +1284,36 @@ async function playSongCore(song: MusicInfo, startPosition?: number, requestId?:
     await usePlayerStore.getState().silenceCurrentTrack();
     if (!isCurrentPlaybackRequest(intent)) return;
     usePlayerStore.setState({ isPlaying: false });
-    const resolved = await runPlaybackResolution(async signal => {
+    let resolved: ResolvedSongPlayback;
+    while (true) {
+      if (Date.now() >= context.deadlineAt) throw new Error("同歌曲换源预算耗尽");
+      resolved = await runPlaybackResolution(async signal => {
+        try {
+          return await resolveSongUrl(song, undefined, { signal, attempt: context });
+        } catch (primaryError) {
+          if (!isCurrentPlaybackRequest(intent)) throw primaryError;
+          const message = primaryError instanceof Error ? primaryError.message : String(primaryError);
+          throwIfAborted(signal);
+          return resolveCrossSourceSubstitute(song, intent, message, signal, context);
+        }
+      }, intent, undefined, context.deadlineAt);
+      if (!isCurrentPlaybackRequest(intent)) return;
+      playbackAttempt.resolved = resolved;
       try {
-        return await resolveSongUrl(song, undefined, { signal });
-      } catch (primaryError) {
-        if (!isCurrentPlaybackRequest(intent)) throw primaryError;
-        const message = primaryError instanceof Error ? primaryError.message : String(primaryError);
-        throwIfAborted(signal);
-        return resolveCrossSourceSubstitute(song, intent, message, signal);
+        await play(resolved.song, resolved.url, resolved.headers, startPosition, intent);
+        playbackAttempt.committed = true;
+        break;
+      } catch (error) {
+        if (!isCurrentPlaybackRequest(intent)) return;
+        rejectPlaybackResult(playbackAttempt, resolved);
+        await runPlaybackResolution(signal => waitWithSignal(
+          invalidateResolvedPlayback(resolved.song, { includeDiskAudio: isLocalFilePlaybackUrl(resolved.url) }), signal,
+        ), intent, undefined, context.deadlineAt);
+        if (!isCurrentPlaybackRequest(intent)) return;
+        logger.warn("播放器拒收候选，继续同歌曲换源", error);
       }
-    }, intent);
+    }
     effectiveSong = resolved.song;
-    const { url, headers } = resolved;
     if (!isCurrentPlaybackRequest(intent)) return;
     // 接管成功：把 UI 也切到实际发声的 QQ 音乐版本，避免歌名/歌词与实际音频错位。
     // 队列仍保留原来的网易云条目（不原地改写队列），切上/下一首仍按原位置推进。
@@ -1343,9 +1328,6 @@ async function playSongCore(song: MusicInfo, startPosition?: number, requestId?:
         usePlayerStore.getState().notifyPlaybackNotice("已切换 QQ 音乐源");
       }
     }
-    // 2. 播放（远端音源需带防盗链 headers；startPosition 用于快照恢复续播）
-    await play(effectiveSong, url, headers, startPosition, intent);
-    if (!isCurrentPlaybackRequest(intent)) return;
     // 3. 播放统计由底层成功提交入口建立，歌词只更新仍在播的曲目。
     if (usePlayerStore.getState().currentSong === effectiveSong) {
       // 歌词同样以「本曲仍是在播曲」为前提加载，避免过期请求把别首歌的歌词
@@ -1423,7 +1405,18 @@ export async function playFromQueue(
  * 同步段就已认领，调用方可以在本函数返回 Promise 的同一拍读到新的请求代次。
  */
 export async function resumePlayback(): Promise<void> {
-  const reload = await usePlayerStore.getState().resumeTransport();
+  const previous = activePlaybackAttempt;
+  const pending = usePlayerStore.getState().resumeTransport();
+  const requestId = getCurrentPlaybackRequestId();
+  const state = usePlayerStore.getState();
+  if (previous?.committed && previous.resolved && state.currentSong
+    && previous.resolved.url === state.currentUrl
+    && buildSongKey(previous.resolved.song) === buildSongKey(state.currentSong)) {
+    // 普通续播没有重新取链；新意图仍接管当前候选与已有失败记录。
+    activePlaybackAttempt = { ...previous, requestId, previousPosition: null, healthyProgress: 0 };
+  }
+  const reload = await pending;
+  if (!isCurrentPlaybackRequest(requestId)) return;
   if (!reload || !isCurrentPlaybackRequest(reload.requestId)) return;
   if (reload.queueIndex !== null) {
     await playFromQueue(reload.queueIndex, reload.startPosition, reload.requestId);

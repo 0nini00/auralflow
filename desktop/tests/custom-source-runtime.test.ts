@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCustomSourceAccess } from "../src/services/customSourceAccess";
-import { CUSTOM_SOURCE_PLAYBACK_WINDOW_MS, type CustomSourceItem, type MusicInfo } from "@lx/core";
+import { CUSTOM_SOURCE_ATTEMPT_TIMEOUT_MS, type CustomSourceItem, type MusicInfo } from "@lx/core";
 
 const network = vi.hoisted(() => ({ request: vi.fn() }));
 vi.mock("../src/services/outboundHttp", () => ({ outboundRequest: network.request }));
@@ -182,7 +182,8 @@ describe("深度测试接线", () => {
       updateAlert: undefined,
     });
     expect((await requestCustomSourceMusicUrl(source, song, "128k", access.capture())).url).toBe("https://example.com/1.mp3");
-    expect(network.request).toHaveBeenCalledTimes(1);
+    expect(network.request.mock.calls.filter(([url]) => url.endsWith('/boot'))).toHaveLength(1);
+    expect(network.request.mock.calls.filter(([url]) => !url.endsWith('/boot'))).toHaveLength(1);
   });
 
   it("全部平台取链失败时丢弃运行时，下次取链重新执行脚本", async () => {
@@ -209,7 +210,7 @@ describe("深度测试接线", () => {
   it("脚本初始化抛错时报告初始化失败", async () => {
     expect(await deepTest(api("throw new Error('boom');"))).toEqual({
       ok: false,
-      message: "初始化失败：boom",
+      message: "初始化失败：自定义音源 测试源 (runtime-test) 初始化失败: boom",
       sources: undefined,
       updateAlert: undefined,
     });
@@ -220,7 +221,7 @@ describe("深度测试接线", () => {
       lx.on(lx.EVENT_NAMES.request, () => new Promise(() => {}));
     `);
     expect((await deepTest(source, 20_000)).message).toBe(
-      `初始化正常；取链测试 0/1 通过（wy 失败:取链失败：取链测试超时（${CUSTOM_SOURCE_PLAYBACK_WINDOW_MS}ms））`,
+      `初始化正常；取链测试 0/1 通过（wy 失败:取链失败：取链测试超时（${CUSTOM_SOURCE_ATTEMPT_TIMEOUT_MS}ms））`,
     );
   });
 

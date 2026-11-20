@@ -4,15 +4,17 @@
  * play 动作整体放在这里（createPlay），内部的 await 顺序与请求代次检查点保持原样、不再细拆；
  * 请求代次本身由 playRequestState 持有。
  */
-import { buildSongKey, orderPlaybackCandidates, type MusicInfo } from "@lx/core";
+import { buildSongKey, orderPlaybackCandidates, PLAYBACK_RESOLVE_TOTAL_BUDGET_MS, type MusicInfo } from "@lx/core";
 import { debugLog } from "@lx/tauri-bridge";
 import { requireCustomSourceOperation, usesCustomSourceRuntime, type CustomSourceOperation } from "@/services/customSourceAccess";
 import { openCustomSourceAccess } from "@/services/customSourceGate";
 import { createLocalPlaybackLookup } from "@/services/localPlaybackMetadata";
-import { cacheResolvedPlaybackMedia } from "@/services/mediaCache";
+import { cacheResolvedPlaybackMedia, removeCachedAudioForMusic } from "@/services/mediaCache";
 import { invalidateCachedPlaybackUrl, isLocalCachedPlaybackUrl } from "@/services/persistentCache";
 import { findTxVariants, describeCrossSourceFailure } from "@/services/playback/crossSourceFallbackService";
-import { resolvePlaybackUrl, type PlaybackBackendId } from "@/services/playback/playbackResolver";
+import { resolvePlaybackUrl } from "@/services/playback/playbackResolver";
+import type { PlaybackResolvedUrl } from "@/services/playback/types";
+import { createCancellationScope, throwIfAborted, waitWithSignal } from "@/services/playback/cancellation";
 import { selectCachedPlaybackTarget } from "@/services/playback/prefetchModel";
 import { prefetchNearbyTracks, prefetchTracks, getPrefetchedTrack, consumePrefetchedTrack, invalidatePrefetchedTrack } from "@/services/playback/prefetchService";
 import { playerEngine } from "@/services/playerEngine";
@@ -27,8 +29,11 @@ import {
   buildPlayRequestKey,
   getInflightPlayRequest,
   getPlayRequestSignal,
+  hasHealthyPlayback,
   isActivePlayRequest,
   registerInflightPlayRequest,
+  registerPlaybackRecovery,
+  resetPlaybackHealth,
   releaseInflightPlayRequest,
   setEngineTargetKey,
 } from "./playRequestState";
@@ -55,13 +60,13 @@ export async function playAndDidFail(get: PlayerGet, music: MusicInfo): Promise<
  * 交给播放器引擎播放，并把该曲目登记为“引擎应当接管的目标”。
  * 登记后引擎推上一首的状态会被丢弃，直到它真的加载了这首曲目。
  */
-async function playThroughEngine(music: MusicInfo, url: string, assertPlaybackAllowed?: () => void): Promise<void> {
+async function playThroughEngine(music: MusicInfo, url: string, assertPlaybackAllowed?: () => void, recoveryProgress?: number): Promise<void> {
   setEngineTargetKey(buildPlayRequestKey(music));
   // 恢复上次播放位置（跨重启）：在装载音频**之前**把秒数交给引擎，
   // 浏览器会把它记成「默认起播位置」，不会出现「先从头播一下再跳」。
   // takeResumeProgress 取一次即消费，且只对同一首歌生效 ——
   // 恢复语义是「按播放继续听」，不是「启动就自动播放」。
-  const startAt = takeResumeProgress(music) ?? undefined;
+  const startAt = recoveryProgress ?? takeResumeProgress(music) ?? undefined;
   await playerEngine.play(music, url, assertPlaybackAllowed, startAt);
 }
 
@@ -75,9 +80,9 @@ async function playThroughEngine(music: MusicInfo, url: string, assertPlaybackAl
  * 继续用原地址（与 playbackResolver 里 prepareResolvedPlaybackMedia 的语义一致）。
  */
 async function prepareConsumedPrefetch(
-  target: { music: MusicInfo; url: string; quality?: string; backend?: PlaybackBackendId },
+  target: Pick<PlaybackResolvedUrl, 'music' | 'url'> & Partial<PlaybackResolvedUrl>,
   operation?: CustomSourceOperation,
-): Promise<{ music: MusicInfo; url: string; quality?: string; backend?: PlaybackBackendId }> {
+): Promise<Pick<PlaybackResolvedUrl, 'music' | 'url'> & Partial<PlaybackResolvedUrl>> {
   if (!target.backend || !target.quality || isLocalCachedPlaybackUrl(target.url)) return target;
   try {
     const cached = await cacheResolvedPlaybackMedia(
@@ -104,11 +109,12 @@ export async function invalidatePersistentPlaybackCache(
   original: MusicInfo,
   target: MusicInfo,
   quality?: string,
+  isActive?: () => boolean,
 ): Promise<void> {
   try {
-    await invalidateCachedPlaybackUrl(original, quality);
+    await invalidateCachedPlaybackUrl(original, quality, isActive);
     if (target.source !== original.source || target.id !== original.id) {
-      await invalidateCachedPlaybackUrl(target, quality);
+      await invalidateCachedPlaybackUrl(target, quality, isActive);
     }
   } catch (error) {
     debugLog(`[cache] invalidatePersistentPlaybackCache failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -149,8 +155,8 @@ export function createPlay(set: PlayerSet, get: PlayerGet): PlayerStore["play"] 
      * 顺序是刻意的：先解除目标登记，stop() 推来的 idle 才不会被当成「上一首的推送」
      * 丢弃（否则它会覆盖掉刚写入的 error）；最后由本次 set 落定 error 状态。
      */
-    const failPlayback = (message: string) => {
-      if (!isActivePlayRequest(requestId)) return;
+    const failPlayback = (message: string, ownerId = requestId) => {
+      if (!isActivePlayRequest(ownerId)) return;
       setEngineTargetKey(null);
       playerEngine.stop();
       set({ status: "error", error: message });
@@ -158,17 +164,92 @@ export function createPlay(set: PlayerSet, get: PlayerGet): PlayerStore["play"] 
 
     const requestId = beginPlayRequest(requestKey);
     const signal = getPlayRequestSignal(requestId);
+    const deadlineAt = Date.now() + PLAYBACK_RESOLVE_TOTAL_BUDGET_MS;
+    const variants = orderPlaybackCandidates(music, useVariantPinStore.getState().getPinnedVariantKey(buildSongKey(music)));
     set({ current: music, status: "loading", error: null, progress: 0, duration: 0 });
 
     const run = (async () => {
       let operation: CustomSourceOperation | undefined;
-      const playResolved = (resolved: { music: MusicInfo; url: string; backend?: PlaybackBackendId }) => {
-        // 同一原始令牌同时覆盖解析返回和引擎内部淡出、起播的异步边界。
-        const assertPlaybackAllowed = usesCustomSourceRuntime(resolved.backend) ? () => {
-          requireCustomSourceOperation(resolved.backend, operation);
-        } : undefined;
-        assertPlaybackAllowed?.();
-        return playThroughEngine(resolved.music, resolved.url, assertPlaybackAllowed);
+      type Target = Pick<PlaybackResolvedUrl, 'music' | 'url'> & Partial<PlaybackResolvedUrl>;
+      const excludedUrls = new Set<string>();
+      const excludedCandidateIds = new Set<string>();
+      const remaining: Target[] = [];
+      let activeTarget: Target | undefined;
+      let recoveryDeadlineAt: number | undefined;
+      let recoveryOwner = { id: requestId, signal };
+      const rejectTarget = async (target: Target, attemptDeadline: number, attemptSignal = signal) => {
+        throwIfAborted(attemptSignal);
+        excludedUrls.add(target.url);
+        if (target.candidateId) excludedCandidateIds.add(target.candidateId);
+        invalidatePrefetchedTrack(music);
+        invalidatePrefetchedTrack(target.music);
+        const cleanup = createCancellationScope(attemptSignal, Math.max(0, attemptDeadline - Date.now()));
+        try {
+          await waitWithSignal(invalidatePersistentPlaybackCache(music, target.music, target.quality, () => !cleanup.signal.aborted), cleanup.signal);
+          if (isLocalCachedPlaybackUrl(target.url)) await waitWithSignal(removeCachedAudioForMusic(target.music), cleanup.signal);
+        } finally { cleanup.dispose(); }
+      };
+      const attemptPlayback = async (first: Target | undefined, attemptDeadline: number, progress?: number, attemptSignal = signal): Promise<MusicInfo> => {
+        let candidate = first;
+        let lastError: unknown;
+        while (Date.now() < attemptDeadline) {
+          throwIfAborted(attemptSignal);
+          if (!candidate) candidate = remaining.shift();
+          if (candidate && (excludedUrls.has(candidate.url) || (candidate.candidateId && excludedCandidateIds.has(candidate.candidateId)))) { candidate = undefined; continue; }
+          if (!candidate) {
+            candidate = await resolvePlaybackUrl(music, variants, undefined, { bypassCache: true, excludedUrls, excludedCandidateIds, deadlineAt: attemptDeadline, signal: attemptSignal });
+            if (!candidate?.url) throw new Error('当前播放方式没有返回可播放地址');
+            if (excludedUrls.has(candidate.url)) throw new Error('所有剩余来源都返回已拒绝的播放地址');
+          }
+          remaining.push(...(candidate.fallbacks ?? []));
+          const target = candidate;
+          const scope = createCancellationScope(attemptSignal, attemptDeadline - Date.now());
+          try {
+            const assertPlaybackAllowed = () => {
+              throwIfAborted(attemptSignal);
+              if (Date.now() >= attemptDeadline) throw new Error('播放加载预算耗尽');
+              if (usesCustomSourceRuntime(target.backend)) requireCustomSourceOperation(target.backend, operation);
+            };
+            assertPlaybackAllowed();
+            resetPlaybackHealth();
+            await waitWithSignal(playThroughEngine(target.music, target.url, assertPlaybackAllowed, progress), scope.signal);
+            throwIfAborted(attemptSignal);
+            activeTarget = target;
+            return target.music;
+          } catch (error) {
+            throwIfAborted(attemptSignal);
+            lastError = error;
+            debugLog(`[playback] ${target.backend ?? 'cached'} 地址播放失败，继续同曲换源: ${error instanceof Error ? error.message : String(error)}`);
+            await rejectTarget(target, attemptDeadline, attemptSignal);
+            candidate = undefined;
+          } finally { scope.dispose(); }
+        }
+        throw new Error(`同曲换源预算耗尽${lastError instanceof Error ? `: ${lastError.message}` : ''}`);
+      };
+      const playResolved = async (target: Target) => {
+        const played = await attemptPlayback(target, deadlineAt);
+        registerPlaybackRecovery(requestId, async failedUrl => {
+          const owner = recoveryOwner;
+          if (!activeTarget || activeTarget.url !== failedUrl || !isActivePlayRequest(owner.id)) return false;
+          const progress = get().progress;
+          if (hasHealthyPlayback()) recoveryDeadlineAt = Date.now() + PLAYBACK_RESOLVE_TOTAL_BUDGET_MS;
+          recoveryDeadlineAt ??= deadlineAt;
+          try {
+            set({ status: 'loading', error: null });
+            await rejectTarget(activeTarget, recoveryDeadlineAt, owner.signal);
+            const recovered = await attemptPlayback(undefined, recoveryDeadlineAt, progress, owner.signal);
+            if (!isActivePlayRequest(owner.id)) return false;
+            useHistoryStore.getState().add(recovered);
+            return true;
+          } catch (error) {
+            if (isActivePlayRequest(owner.id)) failPlayback(error instanceof Error ? error.message : String(error), owner.id);
+            return false;
+          }
+        }, (id, resumedSignal) => {
+          recoveryOwner = { id, signal: resumedSignal };
+          recoveryDeadlineAt = Date.now() + PLAYBACK_RESOLVE_TOTAL_BUDGET_MS;
+        });
+        return played;
       };
       try {
         let playedMusic = music;
@@ -189,10 +270,6 @@ export function createPlay(set: PlayerSet, get: PlayerGet): PlayerStore["play"] 
 
         // 搜索变体（pin 首选置顶）进入解析候选链：主版本全链失败时同链尝试其它版本；
         // 「宁可降音质也不换版本」由 backend 内候选×音质双层循环保证（对齐移动端）。
-        const variants = orderPlaybackCandidates(
-          music,
-          useVariantPinStore.getState().getPinnedVariantKey(buildSongKey(music)),
-        );
         let cachedTarget = selectCachedPlaybackTarget(music, getPrefetchedTrack(music) ?? await consumePrefetchedTrack(music, signal));
         if (cachedTarget && usesCustomSourceRuntime(cachedTarget.backend) && (
           !operation?.isActive() || cachedTarget.customSourceVersion !== customSourceAccess.version
@@ -201,63 +278,17 @@ export function createPlay(set: PlayerSet, get: PlayerGet): PlayerStore["play"] 
         }
 
         if (cachedTarget) {
-
           if (!isActivePlayRequest(requestId)) return;
-
-          try {
-            playedMusic = cachedTarget.music;
-            const prepared = await prepareConsumedPrefetch(cachedTarget, operation);
-            if (!isActivePlayRequest(requestId)) return;
-            playedMusic = prepared.music;
-            await playResolved(prepared);
-          } catch (cachedError) {
-            // 引擎以「已被更新的操作取消」失败说明本请求已被取代：不能再作废
-            // 缓存或重跑一次全链解析——那些动作只对被取代前的请求有意义。
-            if (!isActivePlayRequest(requestId)) return;
-            invalidatePrefetchedTrack(music);
-            if (cachedTarget.music.source !== music.source || cachedTarget.music.id !== music.id) {
-              invalidatePrefetchedTrack(cachedTarget.music);
-            }
-            if (cachedTarget.fromPersistentCache) {
-              await invalidatePersistentPlaybackCache(music, cachedTarget.music, cachedTarget.quality);
-            }
-
-            const resolved = await resolvePlaybackUrl(music, variants, undefined, { bypassCache: true, signal });
-            if (!isActivePlayRequest(requestId)) return;
-
-            if (!resolved?.url) {
-              throw cachedError;
-            }
-
-            playedMusic = resolved.music;
-            await playResolved(resolved);
-          }
-
+          const prepared = await prepareConsumedPrefetch(cachedTarget, operation);
+          if (!isActivePlayRequest(requestId)) return;
+          playedMusic = await playResolved(prepared);
         } else {
-
-          // 在线音乐交给播放解析器：先内置网易云，失败后再走备用播放方式。
-
-          const resolved = await resolvePlaybackUrl(music, variants, undefined, { signal });
-
+          const resolved = await resolvePlaybackUrl(music, variants, undefined, { signal, deadlineAt, excludedUrls, excludedCandidateIds });
           if (!isActivePlayRequest(requestId)) return;
-
           if (!resolved?.url) {
             throw new Error("当前播放方式没有返回可播放地址");
           }
-
-          try {
-            playedMusic = resolved.music;
-            await playResolved(resolved);
-          } catch (playbackError) {
-            if (!resolved.fromCache) throw playbackError;
-
-            await invalidatePersistentPlaybackCache(music, resolved.music, resolved.quality);
-            const refreshed = await resolvePlaybackUrl(music, variants, undefined, { bypassCache: true, signal });
-            if (!isActivePlayRequest(requestId)) return;
-            playedMusic = refreshed.music;
-            await playResolved(refreshed);
-          }
-
+          playedMusic = await playResolved(resolved);
         }
         if (!isActivePlayRequest(requestId)) return;
         useHistoryStore.getState().add(playedMusic);
@@ -279,7 +310,7 @@ export function createPlay(set: PlayerSet, get: PlayerGet): PlayerStore["play"] 
             for (const candidate of candidates) {
               if (!isActivePlayRequest(requestId)) return;
               try {
-                const fallbackResolved = await resolvePlaybackUrl(candidate, undefined, undefined, { signal });
+                const fallbackResolved = await resolvePlaybackUrl(candidate, undefined, undefined, { signal, deadlineAt, excludedUrls, excludedCandidateIds });
                 if (!isActivePlayRequest(requestId)) return;
                 if (fallbackResolved?.url) {
                   await playResolved(fallbackResolved);

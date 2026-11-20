@@ -36,6 +36,8 @@ import {
 import { disposeRuntimePendingRequests } from "@/services/customSourceRuntimeLifecycleModel";
 import { fetchWithTimeout } from "@/utils/fetchWithTimeout";
 import { hiddenSourceSearchers } from "./hiddenSourceSearchers";
+import { probeStreamUrl } from "./streamProbe";
+import { buildStreamHeaders } from "./streamHeaders";
 import { cancellationError, createCancellationScope, throwIfAborted, waitWithSignal } from "@/utils/cancellation";
 
 /** 远端音源脚本拉取超时：脚本通常几十 KB，弱网 15s 足够；不再无限挂起更新检查。 */
@@ -516,21 +518,8 @@ function createRuntime(api: CustomSourceItem): RuntimeInstance {
 
 const runtimeCache = new Map<string, RuntimeInstance[]>();
 const busyRuntimes = new Set<RuntimeInstance>();
-/** 无竞争时保留原取链预算；出现等待者后只给最早的必要持有者设置一次让位期限。 */
-const CONTENDED_RUNTIME_TIMEOUT_MS = 3_500;
-const runtimeContentionListeners = new Set<(contended: boolean) => void>();
-let waitingRuntimes = 0;
-function updateRuntimeContention(): void {
-  let index = 0;
-  for (const listener of runtimeContentionListeners) listener(index++ < waitingRuntimes);
-}
-const runtimeLimiter = createRequestLimiter({
-  limit: MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS,
-  onQueueChange(waiting) {
-    waitingRuntimes = waiting;
-    updateRuntimeContention();
-  },
-});
+// 执行期限由播放候选调度器持有；运行时只限制真实并发，不重复抢占慢请求。
+const runtimeLimiter = createRequestLimiter({ limit: MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS });
 
 function removeRuntime(runtime: RuntimeInstance): void {
   for (const [key, entries] of runtimeCache) {
@@ -655,6 +644,7 @@ export async function testCustomSourceDeep(
     withTimeout,
     requestMusicUrl: (target, quality) =>
       requestCustomSourceMusicUrl(api, target.music, quality, undefined, target.platformRequest),
+    probeStream: (url, target, timeoutMs) => probeStreamUrl(url, buildStreamHeaders(target.platform), timeoutMs),
   });
   // 全部平台都失败时才丢弃这个 runtime；有任一平台通过就保留，避免下次播放重新初始化。
   // 必须走 invalidateRuntimeCache：只 dispose 会留下缓存里的已释放实例，
@@ -680,17 +670,6 @@ export async function requestCustomSourceMusicUrl(
 ): Promise<{ url: string; quality: string; sources?: Record<string, CustomSourceSourceInfo> }> {
   const release = await runtimeLimiter.acquire(signal);
   const scope = createCancellationScope(signal);
-  let contentionTimer: ReturnType<typeof setTimeout> | undefined;
-  const onContention = (contended: boolean) => {
-    if (!contended) {
-      clearTimeout(contentionTimer);
-      contentionTimer = undefined;
-    } else if (contentionTimer === undefined) {
-      contentionTimer = setTimeout(() => scope.dispose(), CONTENDED_RUNTIME_TIMEOUT_MS);
-    }
-  };
-  runtimeContentionListeners.add(onContention);
-  updateRuntimeContention();
   let runtime: RuntimeInstance | undefined;
   let reusable = false;
   try {
@@ -714,8 +693,6 @@ export async function requestCustomSourceMusicUrl(
       busyRuntimes.delete(runtime);
       if (runtime.disposed || (!reusable && scope.signal.aborted)) removeRuntime(runtime);
     }
-    clearTimeout(contentionTimer);
-    runtimeContentionListeners.delete(onContention);
     scope.dispose();
     release();
     trimRuntimeCache();

@@ -416,25 +416,7 @@ export async function resolveSongUrl(song: MusicInfo, quality = "320k", signal?:
   return builtinClient.resolveUrl(song, quality, signal);
 }
 
-/** 在线音频流统一浏览器 UA（CDN 防盗链要求，与桌面端一致）。 */
-export const STREAM_USER_AGENT =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-
-/**
- * wy/tx 音源 CDN 防盗链请求头：网易云 CDN 需 Referer: https://music.163.com，
- * 腾讯 CDN 需 Referer: https://y.qq.com，缺失时 CDN 返回 403。
- */
-export function buildStreamHeaders(
-  source: string | undefined,
-): Record<string, string> | undefined {
-  const referer =
-    source === "wy" ? "https://music.163.com" : source === "tx" ? "https://y.qq.com" : undefined;
-  if (!referer) return undefined;
-  return {
-    Referer: referer,
-    "User-Agent": STREAM_USER_AGENT,
-  };
-}
+export { buildStreamHeaders, STREAM_USER_AGENT } from "./streamHeaders";
 
 /** 官方歌词直连结果（原文 + 可选翻译 / 罗马音） */
 interface OfficialLyricResult {

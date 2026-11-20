@@ -33,6 +33,7 @@ interface CachedPlaybackUrlEntry {
   quality: string;
   backend: PlaybackBackendId;
   resolverName: string;
+  candidateId?: string;
   cachedAt: number;
   expiresAt: number;
 }
@@ -267,6 +268,7 @@ export async function getCachedPlaybackUrl(
         quality: entry.quality,
         backend: entry.backend,
         resolverName: entry.resolverName,
+        candidateId: entry.candidateId,
         fromCache: true,
         cacheKey: key,
         cachedAt: entry.cachedAt,
@@ -299,6 +301,7 @@ export async function saveCachedPlaybackUrl(
     quality: normalizeQualityKey(resolved.quality),
     backend: resolved.backend,
     resolverName: resolved.resolverName,
+    candidateId: resolved.candidateId,
     cachedAt: now,
     expiresAt: now + (
       isLocalCachedPlaybackUrl(resolved.url)
@@ -317,24 +320,22 @@ export async function saveCachedPlaybackUrl(
 export async function invalidateCachedPlaybackUrl(
   music: MusicInfo,
   quality?: string,
+  isActive?: () => boolean,
 ): Promise<void> {
   const cache = await loadCache();
+  if (isActive && !isActive()) return;
   const prefix = `${getTrackKey(music)}:`;
-  let changed = false;
-
-  if (quality) {
-    const key = getPlaybackUrlCacheKey(music, quality);
-    changed = key in cache.playbackUrls;
-    delete cache.playbackUrls[key];
-  } else {
-    for (const key of Object.keys(cache.playbackUrls)) {
-      if (!key.startsWith(prefix)) continue;
-      delete cache.playbackUrls[key];
-      changed = true;
+  const entries = Object.entries(cache.playbackUrls).filter(([key]) => quality
+    ? key === getPlaybackUrlCacheKey(music, quality)
+    : key.startsWith(prefix));
+  if (!entries.length) return;
+  await saveCache(cache, Date.now(), () => {
+    if (isActive && !isActive()) return;
+    for (const [key, entry] of entries) {
+      // 排队期间新播放可能已写回同曲缓存，只作废本次实际看到的旧条目。
+      if (cache.playbackUrls[key] === entry) delete cache.playbackUrls[key];
     }
-  }
-
-  if (changed) await saveCache(cache);
+  });
 }
 
 export async function getCachedLyrics(

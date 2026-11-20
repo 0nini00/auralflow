@@ -122,6 +122,25 @@ describe("隐藏兜底：搜索阶段", () => {
 });
 
 describe("隐藏兜底：取链阶段", () => {
+  it('同聚合脚本常规平台或另一隐藏曲目被拒收，不排除当前隐藏候选', async () => {
+    fixture.search.mockResolvedValue([kwTrack('second', '林俊杰', 267)]);
+    fixture.requestMusicUrl.mockResolvedValue({ url: 'https://fixture.invalid/good', quality: '320k' });
+    const excludedCandidateIds = new Set([`custom:kw-script:${song.source}:${song.id}:320k`, 'hidden:kw-script:kw:first:320k']);
+    const result = await resolveHiddenFromGroups(await startHiddenSearch(song, Date.now() + 5000), song, ['320k'], Date.now() + 5000, access.capture(), undefined, { excludedCandidateIds });
+    expect(result?.url).toBe('https://fixture.invalid/good');
+    expect(result?.candidateId).toBe('hidden:kw-script:kw:second:320k');
+  });
+  it.each(['preview', '522'])('隐藏平台的快%s继续寻找完整可用候选', async kind => {
+    fixture.search.mockResolvedValue([kwTrack('first', '林俊杰', 267), kwTrack('second', '林俊杰', 267)]);
+    fixture.requestMusicUrl.mockResolvedValueOnce({ url: 'https://fixture.invalid/bad', quality: '320k' })
+      .mockResolvedValueOnce({ url: 'https://fixture.invalid/good', quality: '320k' });
+    fixture.probe.mockResolvedValueOnce(kind === 'preview' ? { ok: true, totalBytes: 360000 } : { ok: false, definitive: false, reason: 'HTTP 522' })
+      .mockResolvedValueOnce({ ok: true, totalBytes: 9000000 });
+    const result = await resolveHiddenFromGroups(await startHiddenSearch(song, Date.now() + 5000), song, ['320k'], Date.now() + 5000, access.capture());
+    expect(result?.url).toBe('https://fixture.invalid/good');
+    expect(result?.assessment?.status).toBe('verified');
+    expect(fixture.probe).toHaveBeenCalledTimes(2);
+  });
   async function groupsOf(): Promise<HiddenCandidateGroup[]> {
     fixture.search.mockResolvedValue([kwTrack("93157", "林俊杰", 267)]);
     return startHiddenSearch(song, Date.now() + 5_000);

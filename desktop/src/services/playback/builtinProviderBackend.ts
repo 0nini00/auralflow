@@ -1,4 +1,5 @@
 import { throwIfAborted } from './cancellation';
+import { buildSongKey } from '@lx/core';
 import { getSource } from "@/services/sources/sourceService";
 import { canConfirmBuiltinProviderQuality } from "@/services/builtinMusicApiModel";
 import type { PlaybackAttempt, PlaybackBackend, PlaybackRequest, PlaybackResolvedUrl } from "./types";
@@ -17,6 +18,8 @@ export const builtinProviderBackend: PlaybackBackend = {
       if (!provider) continue;
 
       for (const quality of request.qualityPreference) {
+        const candidateId = `builtinProvider:${buildSongKey(music)}:${quality}`;
+        if (request.excludedCandidateIds?.has(candidateId)) continue;
         try {
           throwIfAborted(request.signal);
           if (request.exactQuality && !canConfirmBuiltinProviderQuality(music)) {
@@ -24,6 +27,7 @@ export const builtinProviderBackend: PlaybackBackend = {
           }
           const url = await provider.getMusicUrl(music, quality, request.signal);
           if (!url) throw new Error("未返回播放地址");
+          if (request.excludedUrls?.has(url)) throw new Error('播放地址已被本次播放拒绝');
           trace.push({
             backend: "builtinProvider",
             resolverName: provider.name,
@@ -38,6 +42,7 @@ export const builtinProviderBackend: PlaybackBackend = {
             backend: "builtinProvider",
             resolverName: provider.name,
             trace,
+            candidateId,
           };
         } catch (error) {
           throwIfAborted(request.signal);

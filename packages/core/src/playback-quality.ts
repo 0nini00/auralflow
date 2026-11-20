@@ -163,7 +163,10 @@ export function pickHighestQuality<T>(
  */
 export const DEFAULT_QUALITY_UPGRADE_WINDOW_MS = 800;
 
-export interface QualityRaceOptions<T> {  getQuality: (value: T) => unknown;
+export interface QualityRaceOptions<T> {
+  getQuality: (value: T) => unknown;
+  /** 未验证的候选只能在全部结算或截止时使用，不能抢先终止已验证候选的解析。 */
+  isVerified?: (value: T) => boolean;
   /** 首个成功结果出现后，再给更高音质多少毫秒的追赶时间。 */
   upgradeWindowMs: number;
   /** 达到该音质即视为最优，直接返回不再等待。默认为阶梯顶端。 */
@@ -210,6 +213,7 @@ export function raceForBestQuality<T>(
     let pending = attempts.length;
     let best: T | undefined;
     let bestRank = -1;
+    let bestVerified = false;
     let windowTimer: ReturnType<typeof setTimeout> | null = null;
     let done = false;
     const errors: unknown[] = [];
@@ -237,16 +241,18 @@ export function raceForBestQuality<T>(
           if (done) return;
           pending -= 1;
           const rank = getPlaybackQualityRank(options.getQuality(value));
-          if (rank > bestRank) {
+          const verified = options.isVerified?.(value) ?? true;
+          if (bestRank < 0 || (verified && !bestVerified) || (verified === bestVerified && rank > bestRank)) {
             best = value;
             bestRank = rank;
+            bestVerified = verified;
           }
-          if (bestRank >= ceilingRank || pending === 0) {
+          if ((bestVerified && bestRank >= ceilingRank) || pending === 0) {
             settle();
             return;
           }
           // 低于 holdUntil 的结果只当兜底：不开升级窗口，继续等更高档/更可靠的源。
-          if (bestRank >= holdUntilRank && windowTimer === null) {
+          if (bestVerified && bestRank >= holdUntilRank && windowTimer === null) {
             windowTimer = setTimeout(settle, options.upgradeWindowMs);
           }
         },
@@ -275,6 +281,8 @@ export const DEFAULT_SOURCE_STAGGER_MS = 800;
 export interface StaggeredPriorityRaceOptions<T> {
   signal?: AbortSignal;
   getQuality: (value: T) => unknown;
+  /** 不确定的地址不提前结束选源；优先使用探活与完整性检查已通过的候选。 */
+  isVerified?: (value: T) => boolean;
   /** 本轮可接受的最高档：命中且没有更靠前的候选在途时立即定稿。 */
   ceiling?: unknown;
   /** 本轮可接受的最低档：低于它的结果不参与裁决。 */
@@ -337,6 +345,7 @@ export function raceStaggeredPriority<T>(
   let done = false;
   let best: T | undefined;
   let bestRank = -1;
+  let bestVerified = false;
   let bestIndex = Number.POSITIVE_INFINITY;
   let windowTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -362,8 +371,9 @@ export function raceStaggeredPriority<T>(
       else reject(formatError(errors));
     };
 
-    const isBetter = (rank: number, index: number) =>
-      rank > bestRank || (rank === bestRank && index < bestIndex);
+    const isBetter = (rank: number, index: number, verified: boolean) =>
+      bestRank < 0 || (verified && !bestVerified) ||
+      (verified === bestVerified && (rank > bestRank || (rank === bestRank && index < bestIndex)));
 
     const noEarlierPending = (index: number) => {
       for (let i = 0; i < index; i += 1) {
@@ -381,22 +391,24 @@ export function raceStaggeredPriority<T>(
       pending -= 1;
       settled[index] = true;
       const rank = getPlaybackQualityRank(options.getQuality(value));
+      const verified = options.isVerified?.(value) ?? true;
       if (rank < floorRank) {
         errors.push(
           new Error(
             `第 ${index + 1} 个候选音质不足(${normalizePlaybackQuality(options.getQuality(value))} < ${normalizePlaybackQuality(options.floor)})`,
           ),
         );
-      } else if (isBetter(rank, index)) {
+      } else if (isBetter(rank, index, verified)) {
         best = value;
         bestRank = rank;
         bestIndex = index;
+        bestVerified = verified;
       }
-      if (bestRank >= ceilingRank && noEarlierPending(bestIndex)) {
+      if (bestVerified && bestRank >= ceilingRank && noEarlierPending(bestIndex)) {
         finish();
         return;
       }
-      if (bestRank >= floorRank && windowTimer === null) {
+      if (bestVerified && bestRank >= floorRank && windowTimer === null) {
         windowTimer = setTimeout(finish, upgradeWindowMs);
       }
       if (pending === 0 && launchedCount === launchers.length) {

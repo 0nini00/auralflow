@@ -2,8 +2,8 @@ import { DeviceEventEmitter } from "react-native";
 import TrackPlayer, { Event, State, type EventPayloadByEvent } from "react-native-track-player";
 import { buildSongKey } from "@lx/core";
 import {
-  invalidateResolvedPlayback, isLocalFilePlaybackUrl, playFromQueue, playNext,
-  playPrevious, playSong, prefetchUpcomingSongNearEnd, resumePlayback,
+  playNext,
+  playPrevious, recoverCurrentSongPlayback, prefetchUpcomingSongNearEnd, resumePlayback,
 } from "../services/playerService";
 import { cancelPendingPlayback } from "@/services/switchStepSession";
 import { getCurrentPlaybackRequestId, isCurrentPlaybackRequest } from "@/services/playbackRequest";
@@ -12,7 +12,7 @@ import { startListeningSession } from "@/services/listenTrackerService";
 import { getAudioInterruptionAction } from "@/services/audioInterruptionPolicy";
 import { getNextQueueNavigationState } from "@/services/queueNavigationModel";
 import {
-  decidePlaybackFailureAction, hasReachedAutoSkipLimit, MAX_CONSECUTIVE_AUTO_SKIPS,
+  hasReachedAutoSkipLimit, MAX_CONSECUTIVE_AUTO_SKIPS,
   noteAutomaticSkip, resetPlaybackFailures,
 } from "@/services/playbackFailurePolicy";
 import { usePlaybackSettingsStore } from "@/stores/playbackSettingsStore";
@@ -170,19 +170,16 @@ export default async function playbackService(data: { serviceId: string }): Prom
       if (!await hasNativePlaybackIntent(operation.requestId) || !owns(operation)) return;
       const song = usePlayerStore.getState().currentSong;
       if (!song) return;
-      if (shouldRetry && decidePlaybackFailureAction(buildSongKey(song)) === "retry") {
-        logger.warn("原生播放失败，重解析一次", failureMessage(error));
+      if (shouldRetry) {
+        logger.warn("原生播放失败，继续同歌曲换源", failureMessage(error));
         try {
-          // 报错的若是磁盘缓存文件，它会连同两级 URL 缓存一起作废；否则重解析会原样命中它再失败一次。
-          await invalidateResolvedPlayback(song, { includeDiskAudio: isLocalFilePlaybackUrl(usePlayerStore.getState().currentUrl) });
-          if (!owns(operation)) return;
-          const { queue, currentIndex } = usePlayerStore.getState();
-          const queuedSong = queue[currentIndex];
-          const sameSlot = queuedSong?.source === song.source && String(queuedSong.id) === String(song.id);
-          await invoke(operation, () => sameSlot ? playFromQueue(currentIndex) : playSong(song));
+          await invoke(operation, () => recoverCurrentSongPlayback(operation.requestId, {
+            hasPlaybackIntent: () => hasNativePlaybackIntent(operation.requestId),
+          }));
           if (!owns(operation)) return;
           if (!operation.nativeError) return;
           error = operation.nativeError;
+          continue;
         } catch (retryError) {
           if (!owns(operation)) return;
           error = retryError;

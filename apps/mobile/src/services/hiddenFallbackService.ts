@@ -1,6 +1,12 @@
 import {
   buildVariantSearchKeyword,
   CANDIDATE_PROBE_TIMEOUT_MS,
+  getCustomSourcePlaybackQualities,
+  assessPlaybackCandidate,
+  createPlaybackRequestScheduler,
+  getChildPlaybackDeadline,
+  type PlaybackCandidateAssessment,
+  type PlaybackProbeResult,
   matchHiddenCandidates,
   type HiddenSourceId,
   type HiddenSourceTrack,
@@ -34,13 +40,13 @@ const HIDDEN_PROBE_RESERVE_MS = 1_500;
 const HIDDEN_MIN_ATTEMPT_MS = 600;
 const HIDDEN_MAX_TRACKS_PER_PLATFORM = 4;
 
-/** 单次脚本取链超时：慢源不能吃完整轮兜底预算，超时后换下一个候选/音质。 */
-const HIDDEN_ATTEMPT_TIMEOUT_MS = 6_000;
-
 export interface HiddenFallbackResult {
   url: string;
   quality: string;
   resolverName: string;
+  candidateId: string;
+  assessment: PlaybackCandidateAssessment;
+  probe: PlaybackProbeResult;
 }
 
 export interface HiddenCandidateGroup {
@@ -75,28 +81,6 @@ function withTimeout<T>(task: Promise<T>, timeoutMs: number): Promise<T> {
       },
     );
   });
-}
-
-/**
- * 判定候选地址是否必须丢弃；返回 `null` 表示可以交给外层继续判定。
- *
- * 脚本「调用成功」不等于「地址可用」：LX 源常见返回过期签名或已下架的资源，
- * 此时若直接定稿，外层探活判死后整条隐藏兜底就放弃了，后面的候选（同曲更高码率
- * 或另一平台）根本没被尝试过。
- *
- * 只把 definitive（服务端明确 4xx）当作换候选的理由：超时 / 抖动 / 5xx 下不了
- * 结论，误杀一个慢 CDN 上完全可用的地址比多花一次探活更糟。
- */
-async function rejectCandidate(url: string, deadlineAt: number, signal?: AbortSignal): Promise<string | null> {
-  const budget = Math.min(
-    CANDIDATE_PROBE_TIMEOUT_MS,
-    deadlineAt - HIDDEN_PROBE_RESERVE_MS - Date.now(),
-  );
-  // 预算不足时不做内层判定，交给外层探活兜底。
-  if (budget <= 0) return null;
-  const probe = await probeStreamUrl(url, undefined, budget, signal);
-  if (probe.ok || !probe.definitive) return null;
-  return probe.reason;
 }
 
 /**
@@ -139,12 +123,6 @@ export async function startHiddenSearch(
   return groups.filter((group): group is HiddenCandidateGroup => group != null);
 }
 
-function pickQualities(api: CustomSourceItem, platform: HiddenSourceId, preference: string[]): string[] {
-  const declared = api.sources?.[platform]?.qualitys ?? [];
-  if (declared.length === 0) return preference;
-  return preference.filter((quality) => declared.includes(quality));
-}
-
 /**
  * 用已搜到的候选调 LX 脚本取链，只应在常规链路确认失败后调用。
  *
@@ -157,10 +135,15 @@ export async function resolveHiddenFromGroups(
   qualityPreference: string[],
   deadlineAt: number,
   signal?: AbortSignal,
+  exclusions?: { excludedUrls: ReadonlySet<string>; excludedCandidateIds: ReadonlySet<string> },
+  mode: "playback" | "download" = "playback",
 ): Promise<HiddenFallbackResult | null> {
   throwIfAborted(signal);
   if (groups.length === 0) return null;
   if (qualityPreference.length === 0) return null;
+  const rejectedUrls = new Set(exclusions?.excludedUrls);
+  const scheduler = createPlaybackRequestScheduler();
+  let uncertain: HiddenFallbackResult | null = null;
 
   for (const group of groups) {
     const resolvers = enabledResolvers(group.platform);
@@ -177,51 +160,52 @@ export async function resolveHiddenFromGroups(
       };
 
       for (const api of resolvers) {
-        const qualities = pickQualities(api, group.platform, qualityPreference);
+        const qualities = getCustomSourcePlaybackQualities(api, group.platform, qualityPreference);
         if (qualities.length === 0) continue;
 
         for (const quality of qualities) {
+          const candidateId = `hidden:${api.id}:${group.platform}:${track.id}:${quality}`;
+          if (exclusions?.excludedCandidateIds.has(candidateId)) continue;
           throwIfAborted(signal);
           if (Date.now() >= deadlineAt - HIDDEN_PROBE_RESERVE_MS) {
             logger.debug(`[hidden] 预算耗尽，停止兜底: ${song.name}`);
-            return null;
+            return uncertain;
           }
 
+          const deadlineScope = createCancellationScope(signal, Math.max(0, getChildPlaybackDeadline(deadlineAt) - Date.now()));
           try {
-            const attemptBudget = Math.min(
-              HIDDEN_ATTEMPT_TIMEOUT_MS,
-              deadlineAt - HIDDEN_PROBE_RESERVE_MS - Date.now(),
-            );
-            if (attemptBudget <= 0) return null;
-            const scope = createCancellationScope(signal, attemptBudget);
-            let result;
-            try {
-              result = await requestCustomSourceMusicUrl(api, song, quality, undefined, platformRequest, scope.signal);
-            } finally {
-              scope.dispose();
-            }
-            const resolvedQuality = normalizeSourceQualityLabel(result.quality, quality);
-            const resolverName = `${group.platform}/${api.name}`;
-            // 脚本调用成功不等于地址可用：先判死链，死了就换下一个候选/音质/平台。
-            const deadReason = await rejectCandidate(result.url, deadlineAt, signal);
-            if (deadReason) {
-              logger.debug(
-                `[hidden] ${song.name} ${resolverName} 返回的地址不可用（${deadReason}），换下一个候选`,
-              );
+            const candidate = await scheduler.run(async requestSignal => {
+              const result = await requestCustomSourceMusicUrl(api, song, quality, undefined, platformRequest, requestSignal);
+              if (rejectedUrls.has(result.url)) throw new Error("该隐藏候选地址已被拒绝");
+              const resolvedQuality = normalizeSourceQualityLabel(result.quality, quality);
+              const probeBudget = Math.min(CANDIDATE_PROBE_TIMEOUT_MS, getChildPlaybackDeadline(deadlineAt) - Date.now());
+              if (probeBudget <= 0) throw new Error("隐藏候选探活预算耗尽");
+              const probe = await probeStreamUrl(result.url, undefined, probeBudget, requestSignal);
+              const assessment = assessPlaybackCandidate({ probe, quality: resolvedQuality, expectedDurationSeconds: track.interval ?? song.interval, mode });
+              if (assessment.status === "rejected") {
+                rejectedUrls.add(result.url);
+                throw new Error(assessment.reason);
+              }
+              return { url: result.url, quality: resolvedQuality, resolverName: `${group.platform}/${api.name}`, candidateId, probe, assessment };
+            }, deadlineScope.signal);
+            if (candidate.assessment.status === "uncertain") {
+              uncertain ??= candidate;
               continue;
             }
-            logger.debug(`[hidden] ${song.name} 由 ${resolverName} 兜底成功 (${resolvedQuality})`);
-            return { url: result.url, quality: resolvedQuality, resolverName };
+            logger.debug(`[hidden] ${song.name} 由 ${candidate.resolverName} 兜底成功 (${candidate.quality})`);
+            return candidate;
           } catch (error) {
             throwIfAborted(signal);
             logger.debug(`[hidden] ${song.name} ${group.platform}/${api.name} ${quality} 失败: ${errorMessage(error)}`);
+          } finally {
+            deadlineScope.dispose();
           }
         }
       }
     }
   }
 
-  return null;
+  return uncertain;
 }
 
 /**
@@ -234,7 +218,8 @@ export async function resolveHiddenFallback(
   song: MusicInfo,
   qualityPreference: string[],
   deadlineAt: number,
+  mode: "playback" | "download" = "playback",
 ): Promise<HiddenFallbackResult | null> {
   const groups = await startHiddenSearch(song, deadlineAt);
-  return resolveHiddenFromGroups(groups, song, qualityPreference, deadlineAt);
+  return resolveHiddenFromGroups(groups, song, qualityPreference, deadlineAt, undefined, undefined, mode);
 }
