@@ -2,7 +2,7 @@
 const test = require("node:test");
 const { createLoader, mobileRequire } = require("./helpers/loadTs.cjs");
 const pure = createLoader({});
-const core = { ...pure("../../packages/core/src/switch-step-queue.ts"), ...pure("../../packages/core/src/request-limiter.ts"), ...pure("../../packages/core/src/playback-quality.ts"), ...pure("../../packages/core/src/song-variant.ts"), isPreviewDuration: () => false };
+const core = { ...pure("../../packages/core/src/switch-step-queue.ts"), ...pure("../../packages/core/src/request-limiter.ts"), ...pure("../../packages/core/src/playback-quality.ts"), ...pure("../../packages/core/src/playback-budgets.ts"), ...pure("../../packages/core/src/song-variant.ts"), isPreviewDuration: () => false };
 const song = (id, source = "tx") => ({ id, source, name: id, singer: "Artist", interval: 180 });
 async function flush() { await new Promise(setImmediate); }
 // node:test 的 mock timers 同步 tick，回调间的微任务要显式 flush，
@@ -23,7 +23,7 @@ async function advance(t, ms, step = 100) {
   }
 }
 
-function setup(sources, runtimeImpl) {
+function setup(sources, runtimeImpl, probeImpl = async () => ({ ok: true })) {
   const native = {};
   for (const method of ["setupPlayer","updateOptions","setRepeatMode","add","skip","remove","setRate","setVolume","play","stop","reset","pause"]) native[method] = async () => {};
   native.getQueue = async () => [];
@@ -40,11 +40,13 @@ function setup(sources, runtimeImpl) {
     "@/services/listenTrackerService": { startListeningSession() {}, resetListeningSession() {}, onPlaybackProgress() {}, seekListeningSession() {}, flushListeningSession: async () => {} }, "./listenTrackerService": { startListeningSession() {}, resetListeningSession() {}, onPlaybackProgress() {}, seekListeningSession() {}, flushListeningSession: async () => {} },
     "./musicApi": { getLyrics: async () => [], buildStreamHeaders: () => ({}) }, "./wyDirectProvider": {}, "./wyPlaylistService": recommendations,
     "./customSourceRuntime": { requestCustomSourceMusicUrl: runtimeImpl }, "../stores/customSourceStore": { useCustomSourceStore: { getState: () => customStore } }, "./hiddenFallbackService": { startHiddenSearch: async () => [], resolveHiddenFromGroups: async () => null, resolveHiddenFallback: async () => null },
-    "./streamProbe": {},
+    // 候选内层探活：默认放行，用例可注入死链。
+    "./streamProbe": { probeStreamUrl: probeImpl, PROBE_TIMEOUT_MS: 5000 },
+    "./txMetaService": { hydrateTxTrackMeta: async (music) => music },
     "@/services/crossSourceFallbackService": cross,
     "@/stores/playbackSettingsStore": { usePlaybackSettingsStore: { getState: () => ({ defaultQuality: "320k" }) } },
     "./cacheService": { CACHEABLE_AUDIO_SOURCES: new Set(), getCachedLyrics: async () => [], cacheCover: async () => {}, cacheLyrics: async () => {} },
-    "@/services/logger": { logger: { info() {}, warn() {}, error() {} } },
+    "@/services/logger": { logger: { debug() {}, info() {}, warn() {}, error() {} } },
   });
   return { service: load("src/services/playerService.ts") };
 }
@@ -68,6 +70,21 @@ function track(promise) {
   promise.then((value) => { state.settled = true; state.value = value; }, (error) => { state.settled = true; state.error = error; });
   return state;
 }
+
+test("预算末尾取得的地址不会因内层探活超时而丢失", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { service } = setup(
+    [{ id: "only", name: "only", enabled: true }],
+    runtimeFromPlans({ only: { flac: { delayMs: 6000, url: "https://cdn/live" } } }, []),
+    (_url, _headers, timeoutMs) => new Promise(resolve => setTimeout(
+      () => resolve({ ok: false, reason: "timeout", definitive: false }), timeoutMs,
+    )),
+  );
+  const state = track(service.resolveUrlWithCustomSource(song("1"), ["flac"], Date.now() + 14000));
+  await advance(t, 8000);
+  assert.equal(state.error, undefined);
+  assert.equal(state.value?.url, "https://cdn/live");
+});
 
 test("慢源响应 3.3s 不被 2.5s 预算击杀，低档达标结果被接受", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
@@ -150,6 +167,30 @@ test("慢主源超出窗口时用后源定稿，迟到结果不覆盖", async (t
   assert.equal(state.value?.url, "https://cdn/backup");
   await advance(t, 3000);
   assert.equal(state.value?.url, "https://cdn/backup");
+});
+
+test("候选地址被服务端明确拒绝时换下一个源，而不是把死链定稿", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const calls = [];
+  const probes = [];
+  const { service } = setup(
+    [{ id: "a", name: "甲源", enabled: true }, { id: "b", name: "乙源", enabled: true }],
+    runtimeFromPlans({
+      甲源: { flac: { delayMs: 100, url: "https://cdn/dead", quality: "flac" } },
+      乙源: { flac: { delayMs: 300, url: "https://cdn/live", quality: "flac" } },
+    }, calls),
+    async (url) => {
+      probes.push(url);
+      return url.includes("dead")
+        ? { ok: false, reason: "HTTP 403", definitive: true }
+        : { ok: true };
+    },
+  );
+  const state = track(service.resolveUrlWithCustomSource(song("1"), ["flac"]));
+  await advance(t, 500);
+  assert.equal(state.value?.url, "https://cdn/live");
+  // 两个候选都在进入裁决前探活过，死链被拒绝后竞速继续。
+  assert.deepEqual(probes, ["https://cdn/dead", "https://cdn/live"]);
 });
 
 test("全部源失败时错误包含每个源名与原因", async (t) => {

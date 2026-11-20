@@ -1,6 +1,6 @@
 import type { MusicInfo } from '@lx/core';
-import { buildPlaybackQualityTiers, DEFAULT_QUALITY_UPGRADE_WINDOW_MS, getPlaybackQualityFallbacks, getPlaybackQualityRank, normalizePlaybackQuality, raceForBestQuality, withBudget } from '@lx/core';
-import { PRIMARY_BUDGET_MS } from '@lx/core';
+import { buildPlaybackQualityTiers, DEFAULT_QUALITY_UPGRADE_WINDOW_MS, getPlaybackQualityFallbacks, getPlaybackQualityRank, normalizePlaybackQuality, PLAYBACK_RESOLVE_TOTAL_BUDGET_MS, raceForBestQuality, withBudget } from '@lx/core';
+import { CUSTOM_SOURCE_PROBE_RESERVE_MS, PRIMARY_BUDGET_MS } from '@lx/core';
 import { debugLog } from '@lx/tauri-bridge';
 import { ensureSettingsLoaded } from '@/stores/settingsStore';
 import { estimateStreamDurationSeconds, isPreviewStream } from '@lx/core';
@@ -10,6 +10,7 @@ import { customSourceBackend } from './customSourceBackend';
 import { isVipOfficialFirst } from './officialPriority';
 import { resolveHiddenFromGroups, startHiddenSearch, type HiddenCandidateGroup } from './hiddenFallbackService';
 import { probeStreamUrl, PROBE_TIMEOUT_MS, type StreamProbeResult } from './streamProbe';
+import { buildStreamHeaders } from './streamHeaders';
 import type { PlaybackBackendId, PlaybackResolvedUrl } from './types';
 import { getSource } from '@/services/sources/sourceService';
 import { canConfirmBuiltinProviderQuality, canResolveWithBuiltinMusicApi } from '@/services/builtinMusicApiModel';
@@ -35,11 +36,11 @@ export async function resolvePlaybackUrl(
   return resolved;
 }
 
-const PLAYBACK_RESOLVE_TOTAL_BUDGET_MS = 14_000;
-
 export interface ResolvePlaybackOptions {
   bypassCache?: boolean;
   cacheMedia?: boolean;
+  /** 下载没有播放器实际时长兜底，需采用严格的流完整性校验。 */
+  purpose?: 'playback' | 'download';
   /**
    * 只解析所选音质，不参与逐档下调。
    *
@@ -98,17 +99,8 @@ async function pickPlayableFallback(
   return tolerated;
 }
 
-const STREAM_REFERERS: Record<string, string> = {
-  wy: 'https://music.163.com',
-  tx: 'https://y.qq.com',
-};
-
-/** 与移动端 buildStreamHeaders 同语义:wy/tx CDN 防盗链头。 */
-export function buildStreamHeaders(source: string | undefined): Record<string, string> | undefined {
-  const referer = source ? STREAM_REFERERS[source] : undefined;
-  if (!referer) return undefined;
-  return { Referer: referer };
-}
+// 历史调用方（downloadService）从本模块取这个函数，保留原导出路径。
+export { buildStreamHeaders } from './streamHeaders';
 
 function withResolveDeadline(task: Promise<PlaybackResolvedUrl>): Promise<PlaybackResolvedUrl> {
   return new Promise<PlaybackResolvedUrl>((resolve, reject) => {
@@ -170,6 +162,7 @@ async function raceQualityTierLazy(
   primary: { id: PlaybackBackendId; resolve: (request: import('./types').PlaybackRequest) => Promise<PlaybackResolvedUrl> },
   getCustomAttempt: () => Promise<PlaybackResolvedUrl>,
   request: import('./types').PlaybackRequest,
+  holdUntil: string,
   operation?: CustomSourceOperation,
 ): Promise<PlaybackResolvedUrl> {
   const targetRank = getPlaybackQualityRank(request.qualityPreference[0]);
@@ -184,7 +177,9 @@ async function raceQualityTierLazy(
       return null;
     },
   );
-  const primaryHit = await resolveWithBudget(primaryAttempt, PRIMARY_BUDGET_MS);
+  const raceDeadlineAt = (request.deadlineAt ?? Date.now() + PLAYBACK_RESOLVE_TOTAL_BUDGET_MS) - CUSTOM_SOURCE_PROBE_RESERVE_MS;
+  const remainingRaceBudget = () => Math.max(0, raceDeadlineAt - Date.now());
+  const primaryHit = await resolveWithBudget(primaryAttempt, Math.min(PRIMARY_BUDGET_MS, remainingRaceBudget()));
   if (primaryHit && getPlaybackQualityRank(primaryHit.quality) >= targetRank) {
     return primaryHit;
   }
@@ -216,6 +211,11 @@ async function raceQualityTierLazy(
     upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
     // 本轮最高档命中即定稿,不再等窗口
     ceiling: request.qualityPreference[0],
+    // 主源低于用户选定音质时只当兜底：旧实现 800ms 窗口一到就拿低档定稿，
+    // 慢 3s+ 的自定义源还没回，用户选 flac 却播 320k。
+    holdUntil,
+    // 到期采用已有候选，降档轮次共用同一截止点，给探活与缓存保留预算。
+    deadlineMs: remainingRaceBudget(),
     formatError: (errors) => {
       const detail = errors
         .map((error) => (error instanceof Error ? error.message : String(error)))
@@ -310,16 +310,25 @@ async function resolvePlaybackUrlUncapped(
         // 老条目（超过 10 分钟）先做一次廉价探活：签名地址过期时直接重解析，
         // 避免把死链抛给播放器后用户只看到「播放失败」。
         let usable = !options.exactQuality || cached.backend !== 'builtinProvider' || canConfirmBuiltinProviderQuality(cached.music);
-        if (usable && shouldRevalidateCachedUrl(cached)) {
+        // 播放期缓存可能放行高码率试听，下载即使命中新鲜 URL 也需严格检查。
+        const validateDownload = options.purpose === 'download' && music.wyCloud !== true;
+        if (usable && (shouldRevalidateCachedUrl(cached) || validateDownload)) {
           const revalidate = await probeStreamUrl(
             cached.url,
             buildStreamHeaders(cached.music.source),
             Math.min(probeBudgetMs(deadlineAt), CACHED_URL_REVALIDATE_TIMEOUT_MS),
           );
-          if (!revalidate.ok && revalidate.definitive) {
+          const preview = revalidate.ok && validateDownload && isPreviewStream({
+            totalBytes: revalidate.totalBytes,
+            quality: cached.quality,
+            expectedDurationSeconds: music.interval,
+            mode: 'download',
+          });
+          if ((!revalidate.ok && revalidate.definitive) || preview) {
             usable = false;
+            const reason = revalidate.ok ? '试听片段' : revalidate.reason;
             debugLog(
-              `[resolve] 持久化地址已失效（${revalidate.reason}），作废后重新解析: ${music.name}`,
+              `[resolve] 持久化地址已失效（${reason}），作废后重新解析: ${music.name}`,
             );
             await Promise.all([
               invalidateCachedPlaybackUrl(music, cached.quality).catch(() => undefined),
@@ -360,10 +369,9 @@ async function resolvePlaybackUrlUncapped(
   // 交错展开 + 10s 阶段预算）。而官方直连的 weapi 接口带 Cookie 就能拿到账号
   // 自己的文件（实测账号内 161 条全部取链成功），所以这两层对云盘曲纯属浪费。
   //
-  // 为什么跳过试听判定：`isPreviewStream` 用「请求档位的标称码率」估算时长，
-  // 而云盘返回的是原文件码率。128k 的 3.4MB / 223s 上传，在 flac 档会被估算成
-  // 32s（低于 60s 阈值），误判成 30s 试听并导致整档作废、报出误导性的
-  // 「解析到试听片段(约 32s)」。云盘文件是账号自己的完整文件，这一层不适用。
+  // 为什么跳过试听判定：云盘文件是账号自己的完整文件，不做转码、不可能是 30s 试听；
+  // 且 `resolved.quality` 是请求档位而文件是原码率，解析期按档位估算没有意义。
+  // 虽然 isPreviewStream 已改为按最低真实码率保守估算，云盘仍不纳入该判定。
   //
   // 音质标签仍沿用请求档位而不是文件真实码率：持久化缓存的 key、降级链查询都按
   // 标签匹配，标成真实码率（例如把 320k 的请求标成 flac）反而永远命中不了缓存，
@@ -435,6 +443,7 @@ async function resolvePlaybackUrlUncapped(
     }
     return customAttemptPromise;
   };
+  let lowerQualityCandidate: PlaybackResolvedUrl | undefined;
   for (const tier of qualityTiers) {
     const request: import('./types').PlaybackRequest = {
       primary: music,
@@ -444,14 +453,29 @@ async function resolvePlaybackUrlUncapped(
       deadlineAt,
     };
     try {
-      let resolved = await raceQualityTierLazy(builtinPrimary, getCustomAttempt, request, operation);
+      const tierFloorRank = getPlaybackQualityRank(tier[tier.length - 1]);
+      // 已得低档结果随降档轮次保留，主源和自定义源适用同一规则。
+      // 达到本轮门槛即交给探活；先消费掉保存值，拒绝后不得再次复用。
+      const reusable = lowerQualityCandidate && getPlaybackQualityRank(lowerQualityCandidate.quality) >= tierFloorRank
+        ? lowerQualityCandidate
+        : undefined;
+      if (reusable) lowerQualityCandidate = undefined;
+      let resolved = reusable ?? await raceQualityTierLazy(
+        builtinPrimary,
+        getCustomAttempt,
+        request,
+        normalizePlaybackQuality(qualityFloor),
+        operation,
+      );
       requireCustomSourceOperation(resolved.backend, operation);
       // 本轮可接受的最低档是 tier 的最后一个元素（首轮是「不低于选定音质」的
       // 全部档位，最后一个是用户门槛；后续轮次只有一个档）。
-      // 低于它说明是自定义源提前拿到的降档结果：不能在这里定稿，
+      // 低于它说明某通道拿到了降档结果：不能在这里定稿，
       // 否则用户选 flac、主源慢时会被 128k 直接截胡，后面的轮次再也不跑。
-      const tierFloorRank = getPlaybackQualityRank(tier[tier.length - 1]);
       if (getPlaybackQualityRank(resolved.quality) < tierFloorRank) {
+        if (!options.exactQuality && (!lowerQualityCandidate || getPlaybackQualityRank(resolved.quality) > getPlaybackQualityRank(lowerQualityCandidate.quality))) {
+          lowerQualityCandidate = resolved;
+        }
         debugLog(
           `[resolve] ${music.name} 轮=${tier.join('+')} 命中 ${resolved.quality} 低于本轮门槛，继续下一轮`,
         );
@@ -474,6 +498,9 @@ async function resolvePlaybackUrlUncapped(
         const fallback = await pickPlayableFallback(resolved, deadlineAt);
         if (!fallback) {
           tierErrors.push(`探活失败(${rejectedReason})`);
+          // 自定义源整轮已结算的地址都不可用：作废缓存的竞速结果，下一轮重新唤醒。
+          // 否则同一个死地址会被后续每个音质轮次复用，表现为「同一地址连续四轮 404」。
+          if (resolved.backend === 'customSource') customAttemptPromise = null;
           continue;
         }
         resolved = fallback.resolved;
@@ -493,6 +520,7 @@ async function resolvePlaybackUrlUncapped(
           totalBytes: probe.totalBytes,
           quality: resolved.quality,
           expectedDurationSeconds: music.interval,
+          mode: options.purpose,
         })
       ) {
         const previewSeconds = estimateStreamDurationSeconds(probe.totalBytes, resolved.quality);
@@ -541,6 +569,7 @@ async function resolvePlaybackUrlUncapped(
           totalBytes: fallbackProbe.totalBytes,
           quality: resolved.quality,
           expectedDurationSeconds: music.interval,
+          mode: options.purpose,
         })
       ) {
         const previewSeconds = estimateStreamDurationSeconds(fallbackProbe.totalBytes, resolved.quality);
@@ -572,6 +601,7 @@ async function resolvePlaybackUrlUncapped(
         totalBytes: hiddenProbe.totalBytes,
         quality: hidden.quality,
         expectedDurationSeconds: music.interval,
+        mode: options.purpose,
       })
     ) {
       const previewSeconds = estimateStreamDurationSeconds(hiddenProbe.totalBytes, hidden.quality);

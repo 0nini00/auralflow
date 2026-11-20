@@ -38,7 +38,12 @@ export function LocalLibraryBrowser({ localSongs, ...trackActions }: LocalLibrar
   const groups = useMemo(() => category === 'all' ? [] : groupLocalSongs(localSongs, category), [localSongs, category]);
   const selectedGroup = selection ? groups.find((group) => group.id === selection.id) : undefined;
   // 失效分类仍为空分类，不能意外退回全库播放，也不保存旧歌曲快照。
-  const scopedSongs = selection ? selectedGroup?.songs ?? [] : localSongs;
+  // 条件里的 `?? []` 每次渲染都会产生新数组，必须和选择状态一起 memo，
+  // 否则下游 visibleSongs/visibleGroups 的 useMemo 每次都会重算。
+  const scopedSongs = useMemo(
+    () => (selection ? selectedGroup?.songs ?? [] : localSongs),
+    [selection, selectedGroup, localSongs],
+  );
   const visibleSongs = useMemo(() => filterLocalSongs(scopedSongs, query), [scopedSongs, query]);
   const visibleGroups = useMemo(() => category === 'all' || selection ? [] : groupLocalSongs(visibleSongs, category), [visibleSongs, category, selection]);
   const showGroups = category !== 'all' && !selection;

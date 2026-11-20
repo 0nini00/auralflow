@@ -168,6 +168,17 @@ export interface QualityRaceOptions<T> {  getQuality: (value: T) => unknown;
   upgradeWindowMs: number;
   /** 达到该音质即视为最优，直接返回不再等待。默认为阶梯顶端。 */
   ceiling?: unknown;
+  /**
+   * 达到该音质前不启动升级窗口：低于它的成功结果只作为兜底，继续等其他候选。
+   *
+   * 用于「主源只拿到低于用户选定音质的结果」：旧实现里主源一成功就开 800ms
+   * 窗口，慢 3s+ 的自定义源还没回就被低档结果定稿；用户选了 flac 却播 320k。
+   * 设置后低档结果不触发窗口，自定义源有完整预算翻盘；全部候选结算或达到
+   * deadlineMs 时仍用已有的最高档兜底。
+   */
+  holdUntil?: unknown;
+  /** 本轮总预算（自调用起算）：到期用已得结果定稿，没有则拒绝。 */
+  deadlineMs?: number;
   /** 聚合失败时构造错误，便于各端给出带上下文的提示。 */
   formatError?: (errors: unknown[]) => Error;
 }
@@ -191,22 +202,34 @@ export function raceForBestQuality<T>(
   const ceilingRank = options.ceiling == null
     ? PLAYBACK_QUALITY_LADDER.length - 1
     : getPlaybackQualityRank(options.ceiling);
+  const holdUntilRank = options.holdUntil == null
+    ? -1
+    : getPlaybackQualityRank(options.holdUntil);
 
   return new Promise<T>((resolve, reject) => {
     let pending = attempts.length;
     let best: T | undefined;
     let bestRank = -1;
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    let windowTimer: ReturnType<typeof setTimeout> | null = null;
     let done = false;
     const errors: unknown[] = [];
 
     const settle = () => {
       if (done) return;
       done = true;
-      if (timer !== null) clearTimeout(timer);
+      if (windowTimer !== null) clearTimeout(windowTimer);
+      if (deadlineTimer !== null) clearTimeout(deadlineTimer);
       if (bestRank >= 0) resolve(best as T);
       else reject(formatError(errors));
     };
+
+    const deadlineTimer = options.deadlineMs == null
+      ? null
+      : setTimeout(() => {
+          if (done) return;
+          errors.push(new Error(`等待候选超出本轮时间预算(${options.deadlineMs}ms)`));
+          settle();
+        }, options.deadlineMs);
 
     for (const attempt of attempts) {
       attempt.then(
@@ -222,7 +245,10 @@ export function raceForBestQuality<T>(
             settle();
             return;
           }
-          if (timer === null) timer = setTimeout(settle, options.upgradeWindowMs);
+          // 低于 holdUntil 的结果只当兜底：不开升级窗口，继续等更高档/更可靠的源。
+          if (bestRank >= holdUntilRank && windowTimer === null) {
+            windowTimer = setTimeout(settle, options.upgradeWindowMs);
+          }
         },
         (error: unknown) => {
           if (done) return;

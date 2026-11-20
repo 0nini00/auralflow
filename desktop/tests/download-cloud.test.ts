@@ -67,7 +67,7 @@ describe('云盘曲下载', () => {
       cloudSong,
       expect.any(Array),
       undefined,
-      { cacheMedia: false, exactQuality: false },
+      { cacheMedia: false, exactQuality: false, purpose: 'download' },
     );
     expect(prepared.fileName).toBe('他和她 - 回音哥.flac');
     // 展示上传文件的真实码率，而不是请求档位

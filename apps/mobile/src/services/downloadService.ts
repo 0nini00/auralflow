@@ -476,6 +476,7 @@ async function downloadSongInternal(task: QueueTask): Promise<string> {
           totalBytes: probe.totalBytes,
           quality: raced.quality,
           expectedDurationSeconds: song.interval,
+          mode: "download",
         })
       ) {
         const previewSeconds = estimateStreamDurationSeconds(probe.totalBytes, raced.quality);

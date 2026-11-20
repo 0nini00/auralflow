@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HiddenSourceSearcher, HiddenSourceTrack } from "../hidden-source";
+import { CUSTOM_SOURCE_PLAYBACK_WINDOW_MS } from "../playback-budgets";
 import {
   buildCustomSourceDeepTestInitFailure,
   buildCustomSourceDeepTestTarget,
@@ -75,7 +76,13 @@ describe("buildCustomSourceDeepTestTarget", () => {
       platform: "wy",
       music: { id: "2034742057", name: "江南", singer: "林俊杰", albumName: "第二天堂", source: "wy" },
     });
-    await expect(buildCustomSourceDeepTestTarget("tx", d)).resolves.toMatchObject({ music: { id: "0039MnYb0qxYhV", source: "tx" } });
+    await expect(buildCustomSourceDeepTestTarget("tx", d)).resolves.toMatchObject({
+      music: {
+        id: "0039MnYb0qxYhV",
+        source: "tx",
+        txMeta: { strMediaMid: "003Qui1q2u1Zho", songId: "97773" },
+      },
+    });
     expect(d.withTimeout).not.toHaveBeenCalled();
   });
 
@@ -147,16 +154,26 @@ describe("runCustomSourceDeepTestPlatforms", () => {
     expect(result).toMatchObject({ ok: false, message: "初始化正常；取链测试 1/2 通过（wy 通过:128k；tx 失败:取链失败：脚本抛了字符串）" });
   });
 
-  it("总预算按剩余平台均摊，单平台取链不超过 20s，搜索不超过 6s", async () => {
+  it("总预算按剩余平台均摊，单平台取链不超过播放窗口，搜索不超过 6s", async () => {
     const one = deps();
     await runCustomSourceDeepTestPlatforms({ sources: { kw: music() } }, ["kw"], one);
     expect(one.withTimeout).toHaveBeenNthCalledWith(1, expect.any(Promise), 6_000, "搜索测试曲目");
-    expect(one.withTimeout).toHaveBeenNthCalledWith(2, expect.any(Promise), 20_000, "取链测试");
+    expect(one.withTimeout).toHaveBeenNthCalledWith(
+      2,
+      expect.any(Promise),
+      CUSTOM_SOURCE_PLAYBACK_WINDOW_MS,
+      "取链测试",
+    );
 
     const four = deps();
     await runCustomSourceDeepTestPlatforms({ sources: { wy: music(), tx: music(), kw: music(), kg: music() } }, ["wy", "tx"], four);
-    // 两个平台：60s / 2 = 30s，封顶 25s 的平台预算，再封顶 20s 的取链预算
-    expect(four.withTimeout).toHaveBeenNthCalledWith(1, expect.any(Promise), 20_000, "取链测试");
+    // 两个平台：60s / 2 = 30s，封顶 25s 的平台预算，再封顶播放窗口
+    expect(four.withTimeout).toHaveBeenNthCalledWith(
+      1,
+      expect.any(Promise),
+      CUSTOM_SOURCE_PLAYBACK_WINDOW_MS,
+      "取链测试",
+    );
   });
 
   it("慢平台耗掉的时间从后续平台的预算里扣，耗尽后剩余平台记为未测试", async () => {
@@ -193,7 +210,9 @@ describe("runCustomSourceDeepTestPlatforms", () => {
         Promise.reject(new Error(`${label}超时（${timeoutMs}ms）`))) as CustomSourceDeepTestDeps["withTimeout"],
     });
     const { result } = await runCustomSourceDeepTestPlatforms({ sources: { wy: music() } }, ["wy"], d);
-    expect(result.message).toContain("wy 失败:取链失败：取链测试超时（20000ms）");
+    expect(result.message).toContain(
+      `wy 失败:取链失败：取链测试超时（${CUSTOM_SOURCE_PLAYBACK_WINDOW_MS}ms）`,
+    );
   });
 
   it("操作被取消时原样抛出，不记成某个平台测试失败", async () => {

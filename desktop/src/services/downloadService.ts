@@ -140,6 +140,7 @@ export async function prepareDownload(
   let resolved = await resolvePlaybackUrl(music, variants, requestedQuality, {
     cacheMedia: false,
     exactQuality,
+    purpose: 'download',
   });
   // 持久化缓存里可能已经存着本地 media 地址（此前播放时写入）。下载必须拿到
   // 远端直链，命中本地条目就绕过缓存重新解析一次，而不是把死路交给 Rust。
@@ -148,6 +149,7 @@ export async function prepareDownload(
       bypassCache: true,
       cacheMedia: false,
       exactQuality,
+      purpose: 'download',
     });
   }
 

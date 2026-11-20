@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MusicInfo } from '@lx/core';
+import { probeStreamUrl } from '../src/services/playback/streamProbe';
 
 const fixture = vi.hoisted(() => {
   const state = {
@@ -34,6 +35,15 @@ vi.mock('../src/stores/customSourceStore', () => ({
   customSourcePersistence: fixture.persistence,
 }));
 vi.mock('../src/services/customSourceRuntime', () => ({ requestCustomSourceMusicUrl: fixture.runtime }));
+// 候选内层探活：默认放行，死链用例单独改实现。
+vi.mock('../src/services/playback/streamProbe', () => ({
+  probeStreamUrl: vi.fn(),
+  PROBE_TIMEOUT_MS: 5_000,
+}));
+// 这些用例只关心竞速时序，不触发 QQ 歌曲详情补全。
+vi.mock('../src/services/sources/txMetaService', () => ({
+  hydrateTxTrackMeta: async (music: unknown) => music,
+}));
 
 interface Plan {
   delayMs: number;
@@ -87,6 +97,7 @@ describe('自定义源按序交错竞速', () => {
     vi.resetModules();
     vi.resetAllMocks();
     vi.useFakeTimers();
+    vi.mocked(probeStreamUrl).mockResolvedValue({ ok: true });
     fixture.toggle(true);
     fixture.state.featureReady = true;
     fixture.state.sources = [source('hyw', 'HYWmusic_公益版')];
@@ -203,6 +214,50 @@ describe('自定义源按序交错竞速', () => {
     expect(track.state.value?.url).toBe('https://cdn/main');
     await vi.advanceTimersByTimeAsync(5000);
     expect(calls).toEqual([{ name: '主力源', quality: 'flac24bit' }]);
+    await pending;
+  });
+
+  it('候选地址被服务端明确拒绝时换下一个源，而不是把死链定稿', async () => {
+    const calls: Array<{ name: string; quality: string }> = [];
+    fixture.state.sources = [source('a', '甲源'), source('b', '乙源')];
+    installRuntime({
+      甲源: { flac: { delayMs: 100, url: 'https://cdn/dead', quality: 'flac' } },
+      乙源: { flac: { delayMs: 300, url: 'https://cdn/live', quality: 'flac' } },
+    }, calls);
+    vi.mocked(probeStreamUrl).mockImplementation(async (url: string) =>
+      url.includes('dead')
+        ? { ok: false, reason: 'HTTP 403', definitive: true }
+        : { ok: true },
+    );
+    const backend = await loadBackend();
+    const track = tracker();
+    const pending = track.watch(
+      backend.resolve({ primary: music, qualityPreference: ['flac'] }) as Promise<{ url: string }>,
+    );
+    await vi.advanceTimersByTimeAsync(500);
+    expect(track.state.value?.url).toBe('https://cdn/live');
+    await pending;
+  });
+
+  it.each([false, true])('预算末尾取得的地址不会丢失（等待音质升级=%s）', async (upgradePending) => {
+    fixture.state.sources = [source('only')];
+    installRuntime({ only: {
+      flac24bit: { delayMs: 18000, url: 'https://cdn/late' },
+      flac: { delayMs: upgradePending ? 4000 : 4800, url: 'https://cdn/live' },
+    } }, []);
+    vi.mocked(probeStreamUrl).mockImplementation((_url, _headers, timeoutMs) =>
+      new Promise((resolve) => setTimeout(
+        () => resolve({ ok: false, reason: 'timeout', definitive: false }), timeoutMs,
+      )),
+    );
+    const backend = await loadBackend();
+    const track = tracker();
+    const pending = track.watch(backend.resolve({
+      primary: music, qualityPreference: upgradePending ? ['flac24bit', 'flac'] : ['flac'], deadlineAt: Date.now() + 11500,
+    }));
+    await vi.advanceTimersByTimeAsync(5500);
+    expect(track.state.error).toBeUndefined();
+    expect(track.state.value?.url).toBe('https://cdn/live');
     await pending;
   });
 

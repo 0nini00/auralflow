@@ -103,7 +103,8 @@ export function Sidebar() {
 
   useEffect(() => {
     getWyCookie().then((c) => load(c)).catch(() => {});
-  }, []);
+    // zustand action 引用稳定，只依赖它在挂载时恢复一次账号。
+  }, [load]);
 
   const persistWidth = useCallback((next: number) => {
     // 写入会立刻反映到设置里，拖动草稿随即让位。

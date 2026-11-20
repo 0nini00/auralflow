@@ -26,13 +26,14 @@ function setup(overrides = {}) {
     // 谁真去调就抛错（TypeError 或显式错误），防止用例悄悄踩进真实解析链。
     "./musicApi":{getLyrics:async()=>[],buildStreamHeaders:()=>({}), parseUrl: overrides.parseUrl ?? (async()=>{throw new Error("网关通道未接线");})},
     "./wyDirectProvider": overrides.wyDirectProvider ?? {},
-    "./wyPlaylistService":recommendations,"./customSourceRuntime":{},"../stores/customSourceStore":{},
+    "./wyPlaylistService":recommendations,"./customSourceRuntime":overrides.customSourceRuntime??{},"../stores/customSourceStore":overrides.customSourceStore??{},
+    "./txMetaService":{hydrateTxTrackMeta:async music=>music},
     "./streamProbe": overrides.streamProbe ?? {},
     "./hiddenFallbackService":{startHiddenSearch:async()=>[],resolveHiddenFromGroups:async()=>null,resolveHiddenFallback:async()=>null},
     "@/services/crossSourceFallbackService":cross,
-    "@/stores/playbackSettingsStore":{usePlaybackSettingsStore:{getState:()=>({defaultQuality:"320k"})}},
+    "@/stores/playbackSettingsStore":{usePlaybackSettingsStore:{getState:()=>({defaultQuality:overrides.defaultQuality??"320k"})}},
     "./cacheService":{CACHEABLE_AUDIO_SOURCES:new Set(),getCachedLyrics:async()=>[],cacheCover:async()=>{},cacheLyrics:async()=>{}},
-    "@/services/logger":{logger:{info(...args){logs.push(["info",...args]);},warn(...args){logs.push(["warn",...args]);},error(...args){logs.push(["error",...args]);}}},
+    "@/services/logger":{logger:{debug(...args){logs.push(["debug",...args]);},info(...args){logs.push(["info",...args]);},warn(...args){logs.push(["warn",...args]);},error(...args){logs.push(["error",...args]);}}},
   });
   const store=load("src/stores/playerStore.ts").usePlayerStore;
   const service=load("src/services/playerService.ts");
@@ -42,7 +43,30 @@ function setup(overrides = {}) {
 // 机器速度。5000ms 在并发跑整个套件时会把它们判成超时（实测同一用例 4.2s，转译未缓存时更高）。
 const options={timeout:15000};
 
-test("12秒预算涵盖主源失败后的跨源候选，超时后迟到结果不能开播",options,async t=>{
+test("主源挂起时采用已有低档结果，并为外层探活保留预算", options, async t=>{
+  t.mock.timers.enable({apis:["setTimeout","Date"]});
+  const h=setup({
+    defaultQuality:"flac",
+    parseUrl:()=>new Promise(()=>{}),
+    customSourceStore:{useCustomSourceStore:{getState:()=>({sources:[{id:"lx",name:"LX",enabled:true}]})}},
+    customSourceRuntime:{requestCustomSourceMusicUrl:async()=>({url:"https://fixture.invalid/320k",quality:"320k"})},
+    streamProbe:{PROBE_TIMEOUT_MS:5000,probeStreamUrl:async(_url,_headers,timeoutMs)=>{
+      if(timeoutMs<=2500)return {ok:true};
+      return new Promise(resolve=>setTimeout(()=>resolve({ok:true}),4900));
+    }},
+  });
+  h.cache.getCachedPlaybackUrl=async()=>null;
+  let outcome="pending";
+  const playing=h.service.playSong(song("fallback"));
+  playing.then(()=>{outcome="played";},error=>{outcome=error.message;});
+  await flush();
+  for(let elapsed=0;elapsed<13900;elapsed+=100){t.mock.timers.tick(100);await flush();}
+  assert.equal(outcome,"played");
+  assert.equal(h.store.getState().currentUrl,"https://fixture.invalid/320k");
+  await playing;
+});
+
+test("总预算涵盖主源失败后的跨源候选，超时后迟到结果不能开播",options,async t=>{
   t.mock.timers.enable({apis:["setTimeout"]});
   const h=setup();const gate=deferred();let entered=false;
   h.cache.getCachedPlaybackUrl=async track=>{
@@ -54,7 +78,7 @@ test("12秒预算涵盖主源失败后的跨源候选，超时后迟到结果不
   const playing=h.service.playQueue([song("original","wy")]);
   playing.then(()=>{outcome="resolved";},error=>{outcome=error.message;});
   await until(()=>entered);
-  t.mock.timers.tick(12000);await flush();const atDeadline=outcome;
+  t.mock.timers.tick(14000);await flush();const atDeadline=outcome;
   gate.resolve({url:"https://fixture.invalid/late",quality:"320k"});await playing.catch(()=>{});await flush();
   assert.match(atDeadline,/解析超时/);
   assert.equal(h.calls.some(call=>call[0]==="play"),false);
@@ -118,7 +142,7 @@ test("预读超时释放在途条目，真实切歌可以重新解析",options,a
   const get=h.cache.getCachedPlaybackUrl;
   h.cache.getCachedPlaybackUrl=async track=>{lookupCount++;return lookupCount===1?gate.promise:get(track);};
   h.service.prefetchSong(song("B"));await until(()=>lookupCount===1);
-  t.mock.timers.tick(12000);await flush();
+  t.mock.timers.tick(14000);await flush();
   h.store.getState().setQueue([song("A"),song("B")],0);
   const playing=h.service.playNext();await flush();await flush();
   const beforeRelease=lookupCount;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDiscoveryStore } from '@/stores/discoveryStore';
 import { useWyAccountStore } from '@/stores/wyAccountStore';
@@ -34,9 +34,12 @@ export function PersonalFmView() {
   const autoStartPending = useRef(false);
   const initializedAccount = useRef<string | null | undefined>(undefined);
   const accountUid = account?.uid ?? null;
+  // 下面的 effect 只关心「有没有登录」，用布尔值而不是 account 对象做依赖，
+  // 避免账号详情每次刷新都触发一次 soft 进入 FM 模式。
+  const hasAccount = Boolean(account);
 
   /** 拉下一首并播放；解析失败则继续跳，避免卡死链 */
-  const playFmTrackWithFallback = async (first?: MusicInfo | null) => {
+  const playFmTrackWithFallback = useCallback(async (first?: MusicInfo | null) => {
     let track: MusicInfo | null | undefined = first;
     for (let attempt = 0; attempt < 5; attempt++) {
       if (!track) {
@@ -54,7 +57,7 @@ export function PersonalFmView() {
       track = null;
     }
     return false;
-  };
+  }, [fmNext, play]);
 
 
   const currentIsFmTrack = Boolean(
@@ -72,10 +75,10 @@ export function PersonalFmView() {
 
   // 如果当前已经是 FM 队列里的歌，只 soft 挂上 FM 模式，不要 stop 打断播放。
   useEffect(() => {
-    if (account && currentIsFmTrack && !fmMode && useDiscoveryStore.getState().fmQueue === fmQueue) {
+    if (hasAccount && currentIsFmTrack && !fmMode && useDiscoveryStore.getState().fmQueue === fmQueue) {
       enterFmMode({ soft: true });
     }
-  }, [accountUid, currentIsFmTrack, enterFmMode, fmMode, fmQueue]);
+  }, [hasAccount, currentIsFmTrack, enterFmMode, fmMode, fmQueue]);
 
   // 没有当前播放时才自动起播；已有普通歌曲播放时等待用户显式开始。
   useEffect(() => {
@@ -91,7 +94,7 @@ export function PersonalFmView() {
         autoStartPending.current = false;
       }
     })();
-  }, [accountUid, current, enterFmMode, fmQueue]);
+  }, [accountUid, current, enterFmMode, fmQueue, playFmTrackWithFallback]);
 
   if (!isWyLoaded) {
     return (

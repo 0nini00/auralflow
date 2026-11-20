@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import type { MusicInfo } from "@lx/core";
 import {
   DEFAULT_LYRIC_LEAD_SECONDS,
@@ -44,16 +44,22 @@ export function useLyrics(music: MusicInfo | null, progress: number, offsetSec =
   const [lyrics, setLyrics] = useState<LyricLine[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // effect 只按「影响歌词的字段」重跑（id/source/本地歌词覆盖），不能把整个
+  // music 对象放进依赖：播放器每次状态更新都可能换对象，会无谓地重新取词。
+  // ref 让 effect 在真正重跑时仍拿到当前对象。
+  const musicRef = useRef(music);
+  musicRef.current = music;
 
   useEffect(() => {
-    if (!music) {
+    const currentMusic = musicRef.current;
+    if (!currentMusic) {
       setLyrics([]);
       setError(null);
       setIsLoading(false);
       return;
     }
 
-    const override = getLocalLyricsOverride(music);
+    const override = getLocalLyricsOverride(currentMusic);
     if (override) {
       setLyrics(override.lines);
       setError(override.error ?? null);
@@ -64,7 +70,7 @@ export function useLyrics(music: MusicInfo | null, progress: number, offsetSec =
     let cancelled = false;
     // 进程内缓存同步 peek：命中就立刻显示，避免切歌白屏（持久化层是异步 IPC，
     // 做不到同步首帧；此前这里还有第三层 localStorage，已连同其版本化清理一起删除）。
-    const cachedLyrics = peekCachedLyrics(music);
+    const cachedLyrics = peekCachedLyrics(currentMusic);
     if (cachedLyrics) {
       setLyrics(cachedLyrics);
       setError(null);
@@ -81,8 +87,8 @@ export function useLyrics(music: MusicInfo | null, progress: number, offsetSec =
       setError(null);
 
       try {
-        if (!music) return;
-        const result = await getLyrics(music);
+        if (!currentMusic) return;
+        const result = await getLyrics(currentMusic);
         if (cancelled) return;
 
         if (result.error) {

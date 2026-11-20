@@ -195,7 +195,8 @@ export default function MainWindow() {
         window.clearTimeout(autoSyncTimer);
       }
     };
-  }, []);
+    // zustand action 引用稳定，加入依赖不会改变启动期只执行一次的语义。
+  }, [setUpdateAvailable]);
 
   // 音源检查随总开关独立启停，不重新执行应用更新或曲库自动同步。
   useEffect(() => {

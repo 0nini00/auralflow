@@ -1,4 +1,5 @@
 import { matchHiddenCandidates, type HiddenSourceSearcher } from "../hidden-source";
+import { CUSTOM_SOURCE_PLAYBACK_WINDOW_MS } from "../playback-budgets";
 import type { MusicInfo } from "../sources/types";
 import type { CustomSourceSourceInfo, CustomSourceUpdateAlert } from "./model";
 import type { CustomSourcePlatformRequest, CustomSourceRuntimeInitResult } from "./runtime-protocol";
@@ -13,7 +14,13 @@ import type { CustomSourcePlatformRequest, CustomSourceRuntimeInitResult } from 
  * 预算怎么分、结果怎么汇总——搜索、取链与超时守卫一律由调用方注入。
  */
 
-const DEEP_TEST_TIMEOUT_MS = 20_000;
+/**
+ * 单平台取链超时与播放链的实际取链窗口一致。
+ *
+ * 测试比播放宽松（旧值 20s）会放过「测试通过、播放超时」的脚本；这里复用
+ * 播放预算推导出的窗口，让深度测试回答的是「点播放时能不能拿到地址」。
+ */
+const DEEP_TEST_TIMEOUT_MS = CUSTOM_SOURCE_PLAYBACK_WINDOW_MS;
 const DEEP_TEST_SEARCH_TIMEOUT_MS = 6_000;
 const DEEP_TEST_PLATFORM_BUDGET_MS = 25_000;
 const DEEP_TEST_MIN_PLATFORM_BUDGET_MS = 5_000;
@@ -22,12 +29,22 @@ const DEEP_TEST_QUALITY = "128k";
 
 /** 内置固定测试曲（id 均为公开常驻曲目，可按需替换）：
  *  - wy：2034742057 林俊杰-江南（备选 1492167768）
- *  - tx：songmid 0039MnYb0qxYhV
+ *  - tx：0039MnYb0qxYhV（周杰伦-晴天）。media_mid 与 songmid 不同，
+ *    带上真实的 strMediaMid 才能验证脚本按 M500/F000 拼文件名的取链路径。
  *  - kw/kg：用隐藏音源搜索按名找同曲，不依赖固定 id
  */
-const DEEP_TEST_TRACKS: Record<"wy" | "tx", { id: string; name: string; singer: string; albumName: string }> = {
+const DEEP_TEST_TRACKS: Record<
+  "wy" | "tx",
+  { id: string; name: string; singer: string; albumName: string; txMeta?: MusicInfo["txMeta"] }
+> = {
   wy: { id: "2034742057", name: "江南", singer: "林俊杰", albumName: "第二天堂" },
-  tx: { id: "0039MnYb0qxYhV", name: "江南", singer: "林俊杰", albumName: "第二天堂" },
+  tx: {
+    id: "0039MnYb0qxYhV",
+    name: "晴天",
+    singer: "周杰伦",
+    albumName: "叶惠美",
+    txMeta: { strMediaMid: "003Qui1q2u1Zho", albumMid: "000MkMni19ClKG", songId: "97773" },
+  },
 };
 
 /** 深度测试固定曲目：与固定 wy/tx 曲目同一首歌，用于按平台搜索。 */
@@ -147,6 +164,7 @@ export async function buildCustomSourceDeepTestTarget(
         singer: track.singer,
         albumName: track.albumName,
         source: platform,
+        ...(track.txMeta ? { txMeta: track.txMeta } : {}),
       },
     };
   }

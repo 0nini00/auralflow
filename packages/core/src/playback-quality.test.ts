@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
   DEFAULT_SOURCE_STAGGER_MS,
+  raceForBestQuality,
   raceStaggeredPriority,
 } from "./playback-quality";
 
@@ -240,5 +241,186 @@ describe("raceStaggeredPriority", () => {
     const assertion = expect(rejection).rejects.toThrow(/时间预算/);
     await vi.advanceTimersByTimeAsync(2000);
     await assertion;
+  });
+});
+
+describe("raceForBestQuality holdUntil", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("低档结果不开启升级窗口，等到自定义源的高档结果后再定稿", async () => {
+    const track = tracker<Hit>();
+    const pending = track.watch(
+      raceForBestQuality(
+        [late(100, hit("gateway", "320k")), late(3000, hit("custom", "flac"))],
+        {
+          getQuality: (value) => value.quality,
+          upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
+          ceiling: "flac24bit",
+          holdUntil: "flac",
+        },
+      ),
+    );
+    // 主源 320k 已返回，但低于用户选择的 flac：不能 800ms 后定稿低档。
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(track.state.settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(track.state.settled).toBe(true);
+    expect(track.state.value?.url).toBe("custom");
+    await pending;
+  });
+
+  it("达到 holdUntil 后仍按升级窗口等待更高档", async () => {
+    const track = tracker<Hit>();
+    const pending = track.watch(
+      raceForBestQuality(
+        [late(100, hit("custom", "flac")), late(400, hit("custom-plus", "flac24bit"))],
+        {
+          getQuality: (value) => value.quality,
+          upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
+          ceiling: "flac24bit",
+          holdUntil: "flac",
+        },
+      ),
+    );
+    await vi.advanceTimersByTimeAsync(100);
+    expect(track.state.settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(track.state.value?.url).toBe("custom-plus");
+    await pending;
+  });
+
+  it("全部候选都低于 holdUntil 时仍用最高档兜底，不无限等待", async () => {
+    const track = tracker<Hit>();
+    const pending = track.watch(
+      raceForBestQuality(
+        [late(100, hit("gateway-320", "320k")), late(500, hit("custom-192", "192k"))],
+        {
+          getQuality: (value) => value.quality,
+          upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
+          ceiling: "flac24bit",
+          holdUntil: "flac",
+        },
+      ),
+    );
+    await vi.advanceTimersByTimeAsync(500);
+    expect(track.state.settled).toBe(true);
+    expect(track.state.value?.url).toBe("gateway-320");
+    await pending;
+  });
+});
+
+describe("raceForBestQuality deadline", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("低于 holdUntil 且其他候选一直未结算时，在总预算到期用已有最高档定稿", async () => {
+    const track = tracker<Hit>();
+    const pending = track.watch(
+      raceForBestQuality(
+        [late(100, hit("gateway", "320k")), new Promise<Hit>(() => {})],
+        {
+          getQuality: (value) => value.quality,
+          upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
+          ceiling: "flac24bit",
+          holdUntil: "flac",
+          deadlineMs: 1500,
+        },
+      ),
+    );
+    await vi.advanceTimersByTimeAsync(1499);
+    expect(track.state.settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(track.state.value?.url).toBe("gateway");
+    expect(vi.getTimerCount()).toBe(0);
+    await pending;
+  });
+
+  it("总预算到期仍无结果时，通过 formatError 拒绝并保留候选失败原因", async () => {
+    const track = tracker<Hit>();
+    const pending = track.watch(
+      raceForBestQuality(
+        [lateReject(100, new Error("源甲失败")), new Promise<Hit>(() => {})],
+        {
+          getQuality: (value) => value.quality,
+          upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
+          deadlineMs: 1000,
+          formatError: (errors) => new Error(`本轮失败：${errors.map(String).join(" | ")}`),
+        },
+      ),
+    );
+    await vi.advanceTimersByTimeAsync(999);
+    expect(track.state.settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(track.state.error).toBeInstanceOf(Error);
+    await expect(pending).rejects.toThrow(/本轮失败：[\s\S]*源甲失败[\s\S]*时间预算\(1000ms\)/);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("达到最高档提前定稿时清理窗口和总预算，迟到候选不再参与裁决", async () => {
+    let resolveBest!: (value: Hit) => void;
+    let resolveLate!: (value: Hit) => void;
+    const seen: string[] = [];
+    const track = tracker<Hit>();
+    const pending = track.watch(
+      raceForBestQuality(
+        [
+          Promise.resolve(hit("lossless", "flac")),
+          new Promise<Hit>((resolve) => { resolveBest = resolve; }),
+          new Promise<Hit>((resolve) => { resolveLate = resolve; }),
+        ],
+        {
+          getQuality: (value) => {
+            seen.push(value.url);
+            return value.quality;
+          },
+          upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
+          ceiling: "flac24bit",
+          holdUntil: "flac",
+          deadlineMs: 2000,
+        },
+      ),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.getTimerCount()).toBe(2);
+    resolveBest(hit("best", "flac24bit"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(track.state.value?.url).toBe("best");
+    expect(vi.getTimerCount()).toBe(0);
+    resolveLate(hit("late", "flac24bit"));
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(seen).toEqual(["lossless", "best"]);
+    expect(track.state.value?.url).toBe("best");
+    await pending;
+  });
+
+  it("达到 holdUntil 后仍按升级窗口定稿，不等待更晚的总预算", async () => {
+    const track = tracker<Hit>();
+    const pending = track.watch(
+      raceForBestQuality(
+        [late(100, hit("lossless", "flac")), new Promise<Hit>(() => {})],
+        {
+          getQuality: (value) => value.quality,
+          upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
+          ceiling: "flac24bit",
+          holdUntil: "flac",
+          deadlineMs: 2000,
+        },
+      ),
+    );
+    await vi.advanceTimersByTimeAsync(899);
+    expect(track.state.settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(track.state.value?.url).toBe("lossless");
+    expect(vi.getTimerCount()).toBe(0);
+    await pending;
   });
 });

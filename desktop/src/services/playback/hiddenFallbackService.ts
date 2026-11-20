@@ -1,5 +1,6 @@
 import {
   buildVariantSearchKeyword,
+  CANDIDATE_PROBE_TIMEOUT_MS,
   matchHiddenCandidates,
   normalizeSourceQualityLabel,
   type HiddenSourceId,
@@ -53,14 +54,6 @@ const HIDDEN_ATTEMPT_TIMEOUT_MS = 6_000;
 const HIDDEN_MAX_TRACKS_PER_PLATFORM = 4;
 
 /**
- * 候选内层探活超时。
- *
- * 内层只回答「这个地址是不是死的」，不做试听片段判定，因此可以比外层探活更短；
- * 真正决定音量/时长的完整判定仍由外层探活完成。
- */
-const HIDDEN_INNER_PROBE_TIMEOUT_MS = 2_500;
-
-/**
  * 判定候选地址是否必须丢弃；返回 `null` 表示可以交给外层继续判定。
  *
  * 为什么要在候选循环里探活：脚本「调用成功」不等于「地址可用」。LX 源常见返回
@@ -73,7 +66,7 @@ const HIDDEN_INNER_PROBE_TIMEOUT_MS = 2_500;
  */
 async function rejectCandidate(url: string, deadlineAt: number): Promise<string | null> {
   const budget = Math.min(
-    HIDDEN_INNER_PROBE_TIMEOUT_MS,
+    CANDIDATE_PROBE_TIMEOUT_MS,
     deadlineAt - HIDDEN_PROBE_RESERVE_MS - Date.now(),
   );
   // 预算不足时不做内层判定：外层探活着有剩余预算，让它兜底。

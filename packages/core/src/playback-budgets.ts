@@ -6,8 +6,38 @@
 /** 主源先行预算：内置网关/官方直连先单独跑，超时或音质不足才唤醒自定义源。 */
 export const PRIMARY_BUDGET_MS = 2500;
 
+/**
+ * 播放解析总预算：竞速 + 探活 + 媒体缓存。桌面与移动共用同一个值，
+ * 否则会出现「同一脚本在桌面能播、在移动端必然超时」的不对称。
+ */
+export const PLAYBACK_RESOLVE_TOTAL_BUDGET_MS = 14_000;
+
+/** 给外层探活与媒体缓存预留的时间：自定义源阶段不能把总预算吃干。 */
+export const CUSTOM_SOURCE_PROBE_RESERVE_MS = 6_000;
+
+/**
+ * 主源耗满 PRIMARY_BUDGET_MS 后的自定义源阶段上限，包含内层探活与逐层结算。
+ *
+ * 深度测试使用该上限筛除慢脚本；实际播放取链还要为子阶段结算留出时间。
+ */
+export const CUSTOM_SOURCE_PLAYBACK_WINDOW_MS =
+  PLAYBACK_RESOLVE_TOTAL_BUDGET_MS - PRIMARY_BUDGET_MS - CUSTOM_SOURCE_PROBE_RESERVE_MS;
+
 /** 自定义源阶段单次预算：覆盖队尾慢源展开 + 服务端 2-10s 慢回退。 */
 export const CUSTOM_SOURCE_RESOLVE_BUDGET_MS = 10_000;
+
+/** 剩余预算不足该值时不再启动新的候选尝试，避免刚启动就撞外层 deadline。 */
+export const CUSTOM_SOURCE_MIN_ATTEMPT_MS = 1_000;
+
+/** 候选地址内层探活超时：只回答「是不是死链」，不占满外层探活预算。 */
+export const CANDIDATE_PROBE_TIMEOUT_MS = 2_500;
+
+/** 子阶段先结算并把结果交给父竞速，避免同刻截止时父计时器先拒绝。 */
+const RESOLVE_SETTLE_RESERVE_MS = 100;
+
+export function getChildPlaybackDeadline(parentDeadlineAt: number): number {
+  return parentDeadlineAt - RESOLVE_SETTLE_RESERVE_MS;
+}
 
 /** 交错启动总展开上限：源/档位再多也不把队尾候选推到预算尾巴（实测 7 源 × 800ms 会把队尾推到 4.8s）。 */
 export const CUSTOM_SOURCE_SPREAD_MS = 1_600;

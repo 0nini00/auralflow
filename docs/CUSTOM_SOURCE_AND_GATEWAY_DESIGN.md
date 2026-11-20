@@ -50,7 +50,7 @@ references: [core, desktop, mobile]
   -> 返回 PlaybackResolvedUrl 给播放引擎
 ```
 
-总预算双端不同：桌面 12s 硬超时（`PLAYBACK_RESOLVE_TOTAL_BUDGET_MS`，超时直接抛错走错误分支）；移动端 10s 轮次预算（`RESOLVE_RACE_BUDGET_MS`，每轮开始前检查）。内置音乐 API 请求优先用浏览器 `fetch`（桌面，6s 超时），超时或不可用时回退 Tauri HTTP plugin（10s）；移动端经 `fetchText` DI 注入 RN 网络层。
+总预算双端统一为 14s（`@lx/core` 的 `PLAYBACK_RESOLVE_TOTAL_BUDGET_MS`）：桌面是硬超时，超时直接抛错走错误分支；移动端 `runPlaybackResolution` 的 14s 同样覆盖整个解析流程，轮次循环另用 `RESOLVE_RACE_BUDGET_MS` 在每轮开始前检查。自定义源阶段从总预算里扣除 `CUSTOM_SOURCE_PROBE_RESERVE_MS`（6s）留给探活与媒体缓存，因此最坏路径（主源耗满 2.5s）下仍有 5.5s 取链窗口。内置音乐 API 请求优先用浏览器 `fetch`（桌面，6s 超时），超时或不可用时回退 Tauri HTTP plugin（10s）；移动端经 `fetchText` DI 注入 RN 网络层。
 
 ### 3.2 质量轮次表
 
@@ -76,9 +76,14 @@ references: [core, desktop, mobile]
 
 两通道并发取音质最高的成功结果。首个成功结果开启 **800ms 升级窗口**（`DEFAULT_QUALITY_UPGRADE_WINDOW_MS`）：窗口内有更高档就替换，命中本轮最高档（ceiling）则立即定稿（settle）。此逻辑由 `raceForBestQuality` 实现，两层竞速（通道之间、单通道内音源×音质之间）共用同一个 800ms 值，各层独立计时不叠加。
 
+**低于用户选定音质的结果不开启升级窗口**（`holdUntil`）：主源在 2.5s 内返回 320k、用户选的是 flac 时，旧逻辑会在 800ms 后直接定稿 320k，慢 3s+ 的自定义源还没返回；现在低档结果只当兜底，竞速继续等其他候选。所有音质轮次共用 `总截止 - 6s` 的竞速截止，到期采用已有最高档，避免慢主源把可播结果拖到总超时；后续降档轮次的主源先行等待也受这个截止约束。
+
 ### 3.4 关键约束
 
 - **backend 不跨档降级**：降级链由轮次表统一负责，否则用户选无损时首轮就可能拿到 128k。
+- **自定义源候选先判死链**：脚本调用成功不等于地址可用。每个候选在参与竞速裁决前发一次 1 字节 Range 探活（`CANDIDATE_PROBE_TIMEOUT_MS` 2.5s），只有服务端明确 4xx 才判死并换下一个源/档位；超时/抖动/5xx 放行给外层探活。旧实现把第一个返回的地址直接定稿，外层 403 后整轮候选没被尝试，而且同一个死地址会被后续每个音质轮次复用。胜出地址仍被外层判死时，桌面端按同轮候选回退；移动端同样携带 1-2 个 fallback。
+- **子阶段先于父竞速结算**：通过共享的 `getChildPlaybackDeadline` 逐层提前 100ms，形成探活、源内音质竞速、源间竞速、通道竞速的结算顺序；即使升级窗口尚未结束，也由该层截止上交已有结果。剩余预算不足时不延长截止，探活的宿主等待与网络请求使用同一预算。
+- **QQ 历史曲目补齐 `strMediaMid`**：旧歌单可能存于 txMeta 映射上线前，缺 `file.media_mid` 时脚本只能拿 songmid 顶替，媒体 ID 不同的歌会被 CDN 判 403。自定义源取链前按 songmid 查一次 QQ 歌曲详情补齐（桌面 plugin-http / 移动 RN fetch，进程内缓存，1.5s 上限），失败则用原条目继续。
 - **档位映射表必须穷尽，不留兜底**：把音质标签映射到各源自己的档位名 / 码率参数时，一律用 `Record<PlaybackQuality, …>` 配 `normalizePlaybackQuality(quality)` 取键，**不要** `Record<string, …>` 再配 `?? 默认档`——后者会把「表里缺这一档」变成一条合法的静默降级路径，编译器也帮不上忙。桌面 `wyProvider` 正是这样丢掉两个键：`levelMap` 缺 `192k` 与 `flac24bit`（两者都落到 `?? "exhigh"`，即选无损却请求 320k），还留了一个永远命中不了的死键 `hires`（`normalizePlaybackQuality` 已把该别名折成 `flac24bit`）；eapi 回退的 br 用 `else → 128000` 兜底，导致请求 `192k` / `flac24bit` 实际拿到 128k。移动端 `wyDirectProvider` 的 switch 同期是正确的——修法是让桌面端对齐它。映射一律一对一不降档：`128k→standard`、`192k→higher`、`320k→exhigh`、`flac→lossless`、`flac24bit→hires`（旧 eapi 的 br 无 Hi-Res 维度，`flac` 与 `flac24bit` 都向上请求 999000）。
 - **quality 一律是音质标签**：`320k` / `flac`，网关回传的 br 数字串（`320`/`740`/`999`）在 backend 出口归一化；持久化缓存 key 按标签匹配，不归一化则缓存永不命中。
 - **LX 自定义源不支持 192k**：运行时白名单只有 `128k/320k/flac/flac24bit`，该轮对自定义源快速失败，由网关通道承担。
@@ -88,9 +93,10 @@ references: [core, desktop, mobile]
 
 VIP 歌曲、wy eapi 无 VIP、自定义音源脚本都可能返回 30s 试听 URL，且试听与完整版同样返回 200/206，状态码无法区分。判定收敛在 `@lx/core stream-integrity`，双端同语义：
 
-- **`isPreviewStream`（解析期）**：由 Content-Range/Content-Length 完整字节数按音质码率估算流时长，明显短于期望时长（`song.interval`）且不足 60s 判试听。
+- **`isPreviewStream`（解析期）**：由 Content-Range/Content-Length 完整字节数估算流时长，明显短于期望时长（`song.interval`）且不足 60s 判试听。播放模式按 **96kbps 最低真实码率**（`PREVIEW_ESTIMATE_BITRATE_KBPS`）估算：网易云/QQ 会给无权限或降级回退返回 96k 的完整文件，按 flac 900k 估算会把 200s 的整曲算成约 21s 而误杀。高码率试听片段由播放期兜底。下载显式使用 `mode: 'download'`，沿用已解析音质的标称码率做严格检查；下载没有播放器时长检查，不能把播放模式的放行直接用于保存文件。
 - **`isPreviewDuration`（播放期兜底）**：解析期拿不到长度头的流式响应，靠播放器报告的实际时长判定，明显短于期望时长即试听。
 - 判定为试听 → 本档作废、不写缓存不进播放器，降档重试。
+- 桌面下载通过 `purpose: 'download'` 选择严格校验，命中播放期 URL 缓存也要重新检查完整性；`cacheMedia: false` 只控制媒体落盘，播放预取也会使用它，不能据此推断下载用途。
 
 ### 3.6 隐藏兜底音源（酷我 / 酷狗）
 
@@ -141,8 +147,8 @@ VIP 歌曲、wy eapi 无 VIP、自定义音源脚本都可能返回 30s 试听 U
 `packages/core/src/playback-quality.ts` 的 `raceForBestQuality<T>`：
 
 - 全部候选并发，先成功者暂存为 best。
-- 首个成功结果启动 800ms `upgradeWindowMs` 定时器。
-- 窗口内若有更高 rank 的结果到达则替换 best；达到 `ceiling`（默认阶梯顶端 flac24bit）或全部 settled 则立即 settle。
+- 首个成功结果启动 800ms `upgradeWindowMs` 定时器；若传了 `holdUntil`，低于该档的结果不启动窗口，继续等其他候选（全部结算后仍用已有的最高档兜底）。
+- 窗口内若有更高 rank 的结果到达则替换 best；达到 `ceiling`（默认阶梯顶端 flac24bit）或全部 settled 则立即 settle。传入 `deadlineMs` 时，到期采用已有 best，没有结果则明确拒绝；结算同时清除升级窗口与截止计时器。
 - 失败的候选不影响其余；全部失败才抛聚合错误。
 - 纯竞速会让音质随机漂移，直接等全部返回会被慢源拖住——窗口机制是二者的折中。
 
@@ -189,7 +195,7 @@ new Function('lx','window','globalThis','self','top','parent','frames',
 - **`parseDesktopUserApiInfo`**：解析脚本头部块注释 `/* ... */` 中的 `@name`/`@version`/`@description`/`@author`/`@homepage`，各字段有长度上限（name 24/version 36/description 36/author 56/homepage 1024），version 走 `v?\d+(?:\.\d+){1,3}` 正则提取。
 - **`testCustomSourceDeep` 两阶段**：
   1. **init**：复用 `createRuntime` 走初始化，等待 `inited` 事件与 updateAlert。
-  2. **musicUrl**：脚本声明了 `musicUrl` 的平台逐个测试（`wy`/`tx`/`kw`/`kg`）。`wy`/`tx` 用内置固定测试曲（wy `2034742057`、tx songmid `0039MnYb0qxYhV`）；`kw`/`kg` 先用原生搜索按「江南 林俊杰」找到同曲与平台元数据，再交给脚本取链。逐平台汇总通过/失败，任一平台失败即整体失败；总预算 60s 按剩余平台均摊，超预算的剩余平台标为未测试。脚本只声明了 `mg`/`local` 等当前未覆盖的平台时明确报「当前深度测试仅覆盖 wy/tx/kw/kg」，不再误报为「未声明 musicUrl」。初始化通过不代表真能取到播放地址（假阳性），深度测试覆盖端到端可用性。
+  2. **musicUrl**：脚本声明了 `musicUrl` 的平台逐个测试（`wy`/`tx`/`kw`/`kg`）。`wy`/`tx` 用内置固定测试曲（wy `2034742057`、tx songmid `0039MnYb0qxYhV`）；`kw`/`kg` 先用原生搜索按「江南 林俊杰」找到同曲与平台元数据，再交给脚本取链。逐平台汇总通过/失败，任一平台失败即整体失败；总预算 60s 按剩余平台均摊，超预算的剩余平台标为未测试。**单平台取链超时 = 播放链的实际自定义源窗口**（`CUSTOM_SOURCE_PLAYBACK_WINDOW_MS`，桌面 = 14s 总预算 - 2.5s 主源 - 6s 探活预留 = 5.5s）：旧值 20s 会放过「测试通过、播放超时」的脚本。脚本只声明了 `mg`/`local` 等当前未覆盖的平台时明确报「当前深度测试仅覆盖 wy/tx/kw/kg」，不再误报为「未声明 musicUrl」。初始化通过不代表真能取到播放地址（假阳性），深度测试覆盖端到端可用性。
 - **`toOldMusicInfo`**：把 `MusicInfo` 映射为 lx 协议格式（双端同构）。tx 的 `songmid`/`songId`/`albumMid`/`strMediaMid` 分别保留（均取自 `txMeta`）——`strMediaMid` 用于拼 `M500{mid}.mp3`/`F000{mid}.flac`，`songmid` 与 `songId` 是两个不同的值不能都填 `music.id`。
 - **能力白名单交集过滤**：`normalizeInitSources` 把脚本声明的 actions/qualitys 与内置白名单取交集——kg/tx/wy 仅 `musicUrl`（qualitys 限 `128k/320k/flac/flac24bit`），`local` 另有 `lyric`/`pic`；白名单之外一律裁掉。
 - **musicUrl 结果收口**：返回值必须是 `^https?:` 且 ≤2048 字符的字符串，否则按失败处理；移动端在收口处再过一次 `assertPublicOutboundUrl`（下游探活/下载/播放器均不再校验）。

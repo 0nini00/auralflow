@@ -29,6 +29,10 @@ const fixture = vi.hoisted(() => {
 });
 vi.mock('../src/stores/customSourceStore', () => ({ useCustomSourceStore: { getState: () => fixture.state }, customSourceAccess: fixture.access, customSourcePersistence: fixture.persistence }));
 vi.mock('../src/services/customSourceRuntime', () => ({ requestCustomSourceMusicUrl: fixture.runtime }));
+// 这些用例不验证 QQ 歌曲详情补全，避免为 tx 曲目发起真实网络请求。
+vi.mock('../src/services/sources/txMetaService', () => ({
+  hydrateTxTrackMeta: async (music: unknown) => music,
+}));
 vi.mock('../src/services/playback/builtinNeteaseBackend', () => ({ builtinNeteaseBackend: { id: 'builtinNetease', resolve: fixture.builtin } }));
 vi.mock('../src/services/playback/builtinProviderBackend', () => ({ builtinProviderBackend: { id: 'builtinProvider', resolve: fixture.provider } }));
 vi.mock('../src/services/playback/officialPriority', () => ({ isVipOfficialFirst: () => fixture.vipOfficialFirst }));
@@ -189,11 +193,18 @@ describe('LX 播放候选与异步返回', () => {
       }
       return Promise.resolve({ url: 'https://audio/b.flac24bit', quality: 'flac24bit' });
     });
-    fixture.probe.mockImplementation((url: string) =>
-      url === 'https://audio/b.flac24bit'
-        ? Promise.resolve({ ok: false, reason: 'HTTP 403', definitive: true })
-        : Promise.resolve({ ok: true }),
-    );
+    // 内层探活（首次）下不了结论时放行，外层探活（再次）明确 403 才触发回退：
+    // 内层只把 definitive 当死链，超时/抖动不能被误杀。
+    let bProbes = 0;
+    fixture.probe.mockImplementation((url: string) => {
+      if (url !== 'https://audio/b.flac24bit') return Promise.resolve({ ok: true });
+      bProbes += 1;
+      return Promise.resolve(
+        bProbes === 1
+          ? { ok: false, reason: 'timeout', definitive: false }
+          : { ok: false, reason: 'HTTP 403', definitive: true },
+      );
+    });
     const { resolvePlaybackUrl } = await import('../src/services/playback/playbackResolver');
     const result = await resolvePlaybackUrl(music, undefined, 'flac24bit');
     expect(result.url).toBe('https://audio/a.flac');
@@ -317,6 +328,99 @@ describe('持久化外部地址的老化处理', () => {
 });
 
 describe('自定义源整链单次竞速', () => {
+  it('主源已返回的低档地址在后续降档轮次仍可使用', async () => {
+    vi.useFakeTimers();
+    fixture.builtin.mockResolvedValueOnce({ ...resolved('builtinNetease'), quality: '320k' })
+      .mockImplementation(() => new Promise(() => {}));
+    fixture.runtime.mockImplementation(() => new Promise(() => {}));
+    const { resolvePlaybackUrl } = await import('../src/services/playback/playbackResolver');
+    let value: { url: string; quality: string } | undefined;
+    let error: unknown;
+    const pending = resolvePlaybackUrl(music, undefined, 'flac', { bypassCache: true })
+      .then((result) => { value = result; }, (reason) => { error = reason; });
+    await vi.advanceTimersByTimeAsync(13900);
+    expect(error).toBeUndefined();
+    expect(value).toMatchObject({ url: 'https://audio/builtinNetease', quality: '320k' });
+    expect(fixture.builtin).toHaveBeenCalledTimes(1);
+    await pending;
+  });
+
+  it('跨轮保留的主源候选被判死后不会再次参与下一档', async () => {
+    fixture.runtime.mockRejectedValue(new Error('自定义源不可用'));
+    fixture.builtin.mockResolvedValueOnce({ ...resolved('builtinNetease'), url: 'https://audio/dead', quality: '320k' })
+      .mockResolvedValue({ ...resolved('builtinNetease'), url: 'https://audio/live', quality: '128k' });
+    fixture.probe.mockImplementation(async (url: string) => url.endsWith('/dead')
+      ? { ok: false, reason: 'HTTP 403', definitive: true }
+      : { ok: true });
+    const { resolvePlaybackUrl } = await import('../src/services/playback/playbackResolver');
+    const result = await resolvePlaybackUrl(music, undefined, 'flac', { bypassCache: true });
+    expect(result.url).toBe('https://audio/live');
+    expect(fixture.probe.mock.calls.filter(([url]) => url === 'https://audio/dead')).toHaveLength(1);
+  });
+
+  it.each([0, 4800])('主源挂起时采用低档地址并保留探活时间（取链耗时=%s）', async (delayMs) => {
+    vi.useFakeTimers();
+    fixture.builtin.mockImplementation(() => new Promise(() => {}));
+    fixture.runtime.mockImplementation(() => new Promise((resolve) => setTimeout(
+      () => resolve({ url: 'https://audio/320k', quality: '320k' }), delayMs,
+    )));
+    fixture.probe.mockImplementation((_url: string, _headers: unknown, timeoutMs: number) =>
+      timeoutMs > 2500
+        ? new Promise((resolve) => setTimeout(() => resolve({ ok: true }), 4900))
+        : Promise.resolve({ ok: true }),
+    );
+    const { resolvePlaybackUrl } = await import('../src/services/playback/playbackResolver');
+    let value: { url: string; quality: string } | undefined;
+    let error: unknown;
+    const pending = resolvePlaybackUrl(music, undefined, 'flac', { bypassCache: true })
+      .then((result) => { value = result; }, (reason) => { error = reason; });
+    await vi.advanceTimersByTimeAsync(13900);
+    expect(error).toBeUndefined();
+    expect(value).toMatchObject({ url: 'https://audio/320k', quality: '320k' });
+    await pending;
+  });
+
+  it('下载解析不能采用播放模式放行的高码率试听片段', async () => {
+    fixture.toggle(false);
+    fixture.builtin.mockResolvedValue({ ...resolved('builtinNetease'), quality: '320k' });
+    fixture.probe.mockResolvedValue({ ok: true, totalBytes: 1_200_000 });
+    const { resolvePlaybackUrl } = await import('../src/services/playback/playbackResolver');
+    await expect(resolvePlaybackUrl(music, undefined, '320k', {
+      bypassCache: true, cacheMedia: false, exactQuality: true, purpose: 'download',
+    })).rejects.toThrow('试听片段');
+  });
+
+  it.each([0, 11 * 60 * 1000])('下载会校验并作废播放期保存的试听 URL（缓存年龄=%s）', async (ageMs) => {
+    fixture.toggle(false);
+    const cachedAt = Date.now() - ageMs;
+    fixture.libraryLoad.mockResolvedValue({ version: CACHE_VERSION, lyrics: {}, playbackUrls: {
+      'wy:1:320k': {
+        ...resolved('builtinNetease'), url: 'https://audio/preview', quality: '320k',
+        cachedAt, expiresAt: Date.now() + 60_000,
+      },
+    } });
+    fixture.probe.mockResolvedValue({ ok: true, totalBytes: 1_200_000 });
+    const { resolvePlaybackUrl } = await import('../src/services/playback/playbackResolver');
+    await expect(resolvePlaybackUrl(music, undefined, '320k', {
+      cacheMedia: false, exactQuality: true, purpose: 'download',
+    })).rejects.toThrow();
+    expect(fixture.probe).toHaveBeenCalledWith('https://audio/preview', expect.anything(), expect.any(Number));
+    expect(fixture.librarySave.mock.calls.some(([, cache]) =>
+      !(cache as { playbackUrls: Record<string, unknown> }).playbackUrls['wy:1:320k'],
+    )).toBe(true);
+  });
+
+  it('关闭媒体缓存的播放预取仍放行低码率整曲', async () => {
+    fixture.toggle(false);
+    fixture.builtin.mockResolvedValue({ ...resolved('builtinNetease'), quality: 'flac' });
+    fixture.probe.mockResolvedValue({ ok: true, totalBytes: 2_676_000 });
+    const { resolvePlaybackUrl } = await import('../src/services/playback/playbackResolver');
+    const result = await resolvePlaybackUrl({ ...music, interval: 223 }, undefined, 'flac', {
+      bypassCache: true, cacheMedia: false,
+    });
+    expect(result.url).toBe('https://audio/builtinNetease');
+  });
+
   it('低档结果在单次竞速内定稿,不再等每轮烧完预算才降档', async () => {
     vi.useFakeTimers();
     try {

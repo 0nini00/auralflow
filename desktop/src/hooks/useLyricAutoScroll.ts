@@ -47,10 +47,14 @@ export function useLyricAutoScroll({
   const containerRef = useRef<HTMLDivElement>(null);
   const lineRegistryRef = useRef<ReturnType<typeof createLyricLineRefRegistry<HTMLDivElement>> | null>(null);
   const isPlayingRef = useRef(isPlaying);
+  // contentKey 切换时只做一次重锚定，读的是「当前」行而不是切换前闭包里的值；
+  // 把行号放进依赖会让每次行变化都重置一次滚动，和下面专门处理行变化的 effect 打架。
+  const currentLineIndexRef = useRef(currentLineIndex);
   if (!lineRegistryRef.current) {
     lineRegistryRef.current = createLyricLineRefRegistry<HTMLDivElement>();
   }
   isPlayingRef.current = isPlaying;
+  currentLineIndexRef.current = currentLineIndex;
   const animationFrameRef = useRef<number | null>(null);
   const scrollDriverRef = useRef<(command: LyricScrollCommand) => void>(() => undefined);
   const controllerRef = useRef<LyricAutoScrollController | null>(null);
@@ -117,7 +121,8 @@ export function useLyricAutoScroll({
     cancelAnimation();
     controller.reset();
     const frame = requestAnimationFrame(() => {
-      if (currentLineIndex >= 0) controller.setTarget(currentLineIndex);
+      const index = currentLineIndexRef.current;
+      if (index >= 0) controller.setTarget(index);
     });
     return () => cancelAnimationFrame(frame);
   }, [cancelAnimation, contentKey]);

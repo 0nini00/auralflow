@@ -123,9 +123,9 @@ test("深度测试取链迟迟不返回时按超时记为该平台失败", async
   await flush();
   t.mock.timers.tick(0);
   await flush();
-  t.mock.timers.tick(20_000);
-  // 文案与桌面端一致（此前移动端是「取链测试超时（超过 20s 未返回播放地址）」）
-  assert.equal((await pending).message, "初始化正常；取链测试 0/1 通过（wy 失败:取链失败：取链测试超时（20000ms））");
+  t.mock.timers.tick(5_500);
+  // 取链超时与播放链的自定义源窗口一致（@lx/core CUSTOM_SOURCE_PLAYBACK_WINDOW_MS）
+  assert.equal((await pending).message, "初始化正常；取链测试 0/1 通过（wy 失败:取链失败：取链测试超时（5500ms））");
 });
 
 test("更新检查在脚本没有上报更新时拉取远端脚本比对版本", async (t) => {

@@ -17,6 +17,19 @@ const QUALITY_BITRATE_KBPS: Record<PlaybackQuality, number> = {
   flac24bit: 2000,
 };
 
+/**
+ * 试听判定的估算码率下限（kbps）。
+ *
+ * 解析期只能用「完整字节数 ÷ 假定码率」估算时长，而实际码率可能低于请求档位：
+ * 网易云/QQ 会对无权限、云盘或降级回退返回 96k 的完整文件。按请求档位（flac
+ * 900k）估算，一首 200s 的完整 96k 文件只有约 21s，会被误判成 30s 试听并整首
+ * 丢弃——这是「明明能解析却播不了」的主要形态之一。
+ *
+ * 播放按最低真实码率估算：只有「连最低码率都不够长」才在解析期判试听。
+ * 高码率试听片段可能因此漏判，交给播放期的 isPreviewDuration（实际时长）兜底。
+ */
+export const PREVIEW_ESTIMATE_BITRATE_KBPS = 96;
+
 /** 试听判定的保守上限：估算时长连该值都不到，且不足期望时长的一半时才判试听。 */
 export const PREVIEW_MAX_DURATION_SECONDS = 60;
 
@@ -37,13 +50,20 @@ export function parseContentRangeTotal(contentRange: string): number | undefined
 /**
  * 由完整字节数与音质码率估算流时长（秒）。
  * 缺 totalBytes / 码率未知时返回 null，由调用方跳过判定（不误伤）。
+ *
+ * `assumeBitrateKbps` 用于覆盖「按请求档位的标称码率」这一假设（例如解析期
+ * 试听判定统一按最低真实码率估算，见 isPreviewStream）。
  */
 export function estimateStreamDurationSeconds(
   totalBytes: number,
   quality: unknown,
+  assumeBitrateKbps?: number,
 ): number | null {
   if (!Number.isFinite(totalBytes) || totalBytes <= 0) return null;
-  const bitrate = QUALITY_BITRATE_KBPS[normalizePlaybackQuality(quality)];
+  const assumed = assumeBitrateKbps != null && Number.isFinite(assumeBitrateKbps) && assumeBitrateKbps > 0
+    ? assumeBitrateKbps
+    : undefined;
+  const bitrate = assumed ?? QUALITY_BITRATE_KBPS[normalizePlaybackQuality(quality)];
   if (!bitrate) return null;
   return (totalBytes * 8) / (bitrate * 1000);
 }
@@ -53,16 +73,25 @@ export function estimateStreamDurationSeconds(
  *
  * 有期望时长（MusicInfo.interval）且能估算出流时长时才判定；两者任一缺失都返回
  * false，避免把短歌（intro / 1 分钟内的真歌曲）误判为试听。
+ *
+ * 播放默认按 PREVIEW_ESTIMATE_BITRATE_KBPS 保守估算，避免将低码率整曲误判；
+ * 漏过的高码率试听由播放期实际时长兜底。下载没有播放期校验且不允许静默降档，
+ * 必须传入 download 模式，按已解析 quality 的标称码率判定后再写入文件。
  */
 export function isPreviewStream(options: {
   totalBytes?: number | null;
   quality?: unknown;
   expectedDurationSeconds?: number | null;
+  mode?: "playback" | "download";
 }): boolean {
-  const { totalBytes, quality, expectedDurationSeconds } = options;
+  const { totalBytes, quality, expectedDurationSeconds, mode = "playback" } = options;
   if (totalBytes == null || totalBytes <= 0) return false;
   if (expectedDurationSeconds == null || expectedDurationSeconds <= 0) return false;
-  const estimated = estimateStreamDurationSeconds(totalBytes, quality);
+  const estimated = estimateStreamDurationSeconds(
+    totalBytes,
+    quality,
+    mode === "playback" ? PREVIEW_ESTIMATE_BITRATE_KBPS : undefined,
+  );
   if (estimated == null) return false;
   const threshold = Math.min(
     PREVIEW_MAX_DURATION_SECONDS,

@@ -2,6 +2,9 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const test = require("node:test");
 const { createLoader, deferred, mobileRequire } = require("./helpers/loadTs.cjs");
+const loadCore = createLoader({});
+const streamIntegrity = loadCore("../../packages/core/src/stream-integrity.ts");
+const { cloudFileExtension } = loadCore("../../packages/core/src/sources/cloud.ts");
 
 const DIRECTORY = "/mock/doc/auralflow/downloads";
 const STORE_KEY = "auralflow.mobile.downloads";
@@ -25,6 +28,8 @@ function setup(options = {}) {
   const events = [];
   const jobs = [];
   const parses = [];
+  const probes = [];
+  const cloudResolutions = [];
   const saves = [];
   let lyricsCalls = 0;
   let haptics = 0;
@@ -96,9 +101,10 @@ function setup(options = {}) {
     "react-native-fs": rnfs,
     "react-native": { NativeModules: { DownloadFileModule: { commitDownload: rnfs.moveFile } } },
     "@lx/core": {
+      ...streamIntegrity,
+      cloudFileExtension,
       DEFAULT_QUALITY_UPGRADE_WINDOW_MS: 0,
       raceForBestQuality: (attempts) => Promise.any(attempts),
-      isPreviewStream: () => false,
       // 歌曲键规则（source:id）已收敛到 core，下载链路直接用
       buildSongKey: (song) => `${song.source}:${song.id}`,
     },
@@ -114,9 +120,18 @@ function setup(options = {}) {
         return [{ time: 0, text: "mock lyric" }];
       },
     },
-    "./playerService": { resolveUrlWithCustomSource: async () => { throw new Error("Mock source unavailable"); } },
+    "./playerService": {
+      resolveUrlWithCustomSource: async () => { throw new Error("Mock source unavailable"); },
+      resolveCloudSongUrl: async (track, quality) => {
+        cloudResolutions.push({ track, quality });
+        return options.resolvedUrl?.url ?? url.url;
+      },
+    },
     "./hiddenFallbackService": { resolveHiddenFallback: async () => null },
-    "./streamProbe": { probeStreamUrl: async () => ({ ok: true }) },
+    "./streamProbe": { probeStreamUrl: async (streamUrl) => {
+      probes.push(streamUrl);
+      return options.probeResult ?? { ok: true };
+    } },
     "./id3TagWriter": { embedId3Tag: (audio) => audio },
     "@/utils/base64": {
       base64ToBytes: (value) => Buffer.from(value, "base64"),
@@ -133,7 +148,7 @@ function setup(options = {}) {
   const service = load("src/services/downloadService.ts");
   const store = load("src/stores/downloadStore.ts").useDownloadStore;
   return {
-    files, storage, events, jobs, parses, saves, service, store,
+    files, storage, events, jobs, parses, probes, cloudResolutions, saves, service, store,
     saved: () => JSON.parse(storage.get(STORE_KEY) ?? "[]"),
     get lyricsCalls() { return lyricsCalls; },
     get haptics() { return haptics; },
@@ -141,6 +156,45 @@ function setup(options = {}) {
 }
 
 const settings = { timeout: 5000 };
+
+test("30s 的 320k 试听被下载拒绝，不启动写入或保存完成记录", settings, async () => {
+  const h = setup({
+    resolvedUrl: { url: "https://mock.invalid/preview.mp3", quality: "320k" },
+    probeResult: { ok: true, totalBytes: 1_200_000 },
+  });
+  const result = await h.store.getState().downloadSong(song, "320k");
+  assert.equal(result.status, "failed");
+  assert.match(result.error, /试听片段（约 30s）/);
+  assert.equal(h.probes.length, 1);
+  assert.equal(h.jobs.length, 0);
+  assert.equal(h.files.size, 0);
+  assert.deepEqual(h.saved(), []);
+  assert.deepEqual(h.saves, []);
+  assert.deepEqual(h.store.getState().downloads, []);
+  assert.equal(h.store.getState().failedDownloads.length, 1);
+  assert.equal(h.haptics, 0);
+});
+
+test("完整 320k 音频继续完成下载并保存记录", settings, async () => {
+  const h = setup({
+    resolvedUrl: { url: "https://mock.invalid/full.mp3", quality: "320k" },
+    probeResult: { ok: true, totalBytes: 8_000_000 },
+  });
+  assert.equal((await h.store.getState().downloadSong(song, "320k")).status, "completed");
+  assert.equal(h.jobs.length, 1);
+  assert.equal(h.saved().length, 1);
+});
+
+test("云盘原文件继续绕过下载试听估算并保留真实扩展名", settings, async () => {
+  const cloudSong = { ...song, wyCloud: true, cloudMeta: { fileName: "original.mp3" } };
+  const h = setup({ probeResult: { ok: true, totalBytes: 1_200_000 } });
+  assert.equal((await h.store.getState().downloadSong(cloudSong, "flac")).status, "completed");
+  assert.deepEqual(h.cloudResolutions, [{ track: cloudSong, quality: "flac" }]);
+  assert.equal(h.parses.length, 0);
+  assert.equal(h.probes.length, 0);
+  assert.equal(h.jobs.length, 1);
+  assert.equal(h.saved()[0].localPath, `file://${DIRECTORY}/wy-audit-original.mp3`);
+});
 
 test("取消取链中的任务，不启动原生下载或保存完成记录", settings, async () => {
   const parseGate = deferred();

@@ -28,6 +28,9 @@ interface PlaylistRouteState {
   playlist?: PlaylistInfo;
 }
 
+/** 稳定的空数组：`?? []` 每次渲染都产生新引用，会让下游 useMemo 每帧重算。 */
+const EMPTY_SONGS: MusicInfo[] = [];
+
 export function PlaylistDetailView() {
   type PendingPlayAction = 'play-all' | 'shuffle' | `track:${number}` | null;
   const { id } = useParams<{ id: string }>();
@@ -164,7 +167,7 @@ export function PlaylistDetailView() {
 
   // render 也按身份取值，不能在新路由 effect 执行前短暂展示旧歌单。
   const activeRequest = songsRequest?.identity === requestIdentity ? songsRequest : null;
-  const loadedSongs = activeRequest?.songs ?? [];
+  const loadedSongs = activeRequest?.songs ?? EMPTY_SONGS;
   const songsError = activeRequest?.error ?? '';
   const isSongsLoading = isAsyncPlaylist && (!activeRequest || (activeRequest.status === 'loading' && activeRequest.songs === null));
   const isRefreshing = activeRequest?.status === 'loading' && activeRequest.songs !== null;
@@ -187,7 +190,7 @@ export function PlaylistDetailView() {
           }
       : null;
 
-  const resolvedSongs = resolvedPlaylist?.songs ?? [];
+  const resolvedSongs = resolvedPlaylist?.songs ?? EMPTY_SONGS;
   const currentSongIndex = useMemo(() => {
     if (!currentTrack) return -1;
     return resolvedSongs.findIndex(

@@ -1,6 +1,8 @@
+import { PLAYBACK_RESOLVE_TOTAL_BUDGET_MS } from "@lx/core";
 import { beginPlaybackRequest, isCurrentPlaybackRequest, subscribePlaybackRequest } from "./playbackRequest";
 
-export const PLAYBACK_RESOLUTION_BUDGET_MS = 12_000;
+/** 与桌面端共用同一个总预算，避免同一脚本在两端出现「桌面能播、移动端超时」。 */
+export const PLAYBACK_RESOLUTION_BUDGET_MS = PLAYBACK_RESOLVE_TOTAL_BUDGET_MS;
 let activeResolutionRequest: number | null = null;
 
 export class PlaybackRequestSupersededError extends Error {
@@ -32,7 +34,10 @@ export function runPlaybackResolution<T>(resolve: () => Promise<T>, requestId?: 
       if (requestId !== undefined && activeResolutionRequest === requestId) activeResolutionRequest = null;
       action();
     };
-    const timer = setTimeout(() => finish(() => reject(new Error("播放地址解析超时（12 秒），可重试或切换歌曲"))), PLAYBACK_RESOLUTION_BUDGET_MS);
+    const timer = setTimeout(
+      () => finish(() => reject(new Error(`播放地址解析超时（${PLAYBACK_RESOLUTION_BUDGET_MS / 1000} 秒），可重试或切换歌曲`))),
+      PLAYBACK_RESOLUTION_BUDGET_MS,
+    );
     if (requestId !== undefined) {
       unsubscribe = subscribePlaybackRequest(() => {
         if (!isCurrentPlaybackRequest(requestId)) finish(() => reject(new PlaybackRequestSupersededError()));

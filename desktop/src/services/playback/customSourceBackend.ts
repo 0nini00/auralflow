@@ -1,17 +1,26 @@
 import {
+  CANDIDATE_PROBE_TIMEOUT_MS,
   createRequestLimiter,
+  CUSTOM_SOURCE_MIN_ATTEMPT_MS,
+  CUSTOM_SOURCE_PROBE_RESERVE_MS,
   CUSTOM_SOURCE_RESOLVE_BUDGET_MS,
   CUSTOM_SOURCE_SPREAD_MS,
   DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
   DEFAULT_SOURCE_STAGGER_MS,
+  getChildPlaybackDeadline,
   getPlaybackQualityRank,
   MAX_INFLIGHT_CUSTOM_SOURCE_REQUESTS,
   normalizeSourceQualityLabel,
   raceStaggeredPriority,
+  withBudget,
 } from '@lx/core';
+import { debugLog } from '@lx/tauri-bridge';
 import { useCustomSourceStore } from '@/stores/customSourceStore';
 import { requireCustomSourceAccess } from '@/services/customSourceGate';
 import { requestCustomSourceMusicUrl } from '@/services/customSourceRuntime';
+import { hydrateTxTrackMeta } from '@/services/sources/txMetaService';
+import { probeStreamUrl } from './streamProbe';
+import { buildStreamHeaders } from './streamHeaders';
 import type { PlaybackAttempt, PlaybackBackend, PlaybackRequest, PlaybackResolvedUrl } from './types';
 
 function compactError(error: unknown): string {
@@ -59,19 +68,19 @@ export const customSourceBackend: PlaybackBackend = {
     // 自定义源不独占总预算：外层 deadline 之前还要留出探活与媒体缓存的时间。
     // 之前固定 10s 会把 2.5s 主源 + 10s 自定义源 + 5s 探活叠加到 17.5s，超过 14s。
     const availableBudget = request.deadlineAt
-      ? request.deadlineAt - Date.now() - CUSTOM_SOURCE_PROBE_RESERVE_MS
+      ? getChildPlaybackDeadline(request.deadlineAt - CUSTOM_SOURCE_PROBE_RESERVE_MS) - Date.now()
       : CUSTOM_SOURCE_RESOLVE_BUDGET_MS;
     const budget = Math.min(CUSTOM_SOURCE_RESOLVE_BUDGET_MS, availableBudget);
     if (budget <= CUSTOM_SOURCE_MIN_ATTEMPT_MS) {
       throw new Error('播放解析总预算不足，未尝试自定义音源');
     }
     const budgetEndsAt = Date.now() + budget;
+    const qualityDeadlineAt = getChildPlaybackDeadline(budgetEndsAt);
     const failures: string[] = [];
 
-    for (const music of variants) {
-      const remaining = budgetEndsAt - Date.now();
-      if (remaining <= CUSTOM_SOURCE_MIN_ATTEMPT_MS) {
-        failures.push(`时间预算耗尽,未尝试变体 ${music.name}`);
+    for (const rawMusic of variants) {
+      if (budgetEndsAt - Date.now() <= CUSTOM_SOURCE_MIN_ATTEMPT_MS) {
+        failures.push(`时间预算耗尽,未尝试变体 ${rawMusic.name}`);
         break;
       }
 
@@ -87,12 +96,27 @@ export const customSourceBackend: PlaybackBackend = {
       // 有 sources 元数据时先按平台过滤：没有声明 musicUrl 的源不必执行脚本再失败。
       // 元数据缺失（从未测试/初始化）的源保持参与，运行时仍会做最终校验。
       const customSources = enabledSources.filter((api) => {
-        const info = api.sources?.[music.source];
+        const info = api.sources?.[rawMusic.source];
         return !info || info.actions.includes('musicUrl');
       });
       if (!customSources.length) {
-        failures.push(`${music.source} 没有声明支持 musicUrl 的自定义音源`);
+        failures.push(`${rawMusic.source} 没有声明支持 musicUrl 的自定义音源`);
         continue;
+      }
+
+      // QQ 历史歌单可能缺 file.media_mid：脚本拿 songmid 顶替会拼出 403 的文件名。
+      // 只补 tx 曲目；详情请求有独立上限，超时就用原条目继续（网络失败不阻塞播放）。
+      const hydrateBudget = Math.min(TX_META_HYDRATE_TIMEOUT_MS, budgetEndsAt - Date.now() - CUSTOM_SOURCE_MIN_ATTEMPT_MS);
+      const hydrated = hydrateBudget > 0
+        ? await withBudget(hydrateTxTrackMeta(rawMusic), hydrateBudget)
+        : null;
+      if (hydrated == null && hydrateBudget > 0) {
+        debugLog(`[customSource] txMeta 补全超时，使用原条目: ${rawMusic.name}`);
+      }
+      const music = hydrated ?? rawMusic;
+      if (budgetEndsAt - Date.now() <= CUSTOM_SOURCE_MIN_ATTEMPT_MS) {
+        failures.push(`时间预算耗尽,未尝试变体 ${music.name}`);
+        break;
       }
 
       // 每个源:源内部也走同一个交错竞速——最高档先发,未回就在交错期后并发降档;
@@ -126,6 +150,11 @@ export const customSourceBackend: PlaybackBackend = {
               useCustomSourceStore.getState().applyRuntimeUpdateAlert(api.id, alert);
             });
             operation.assertActive();
+            // 先判死链再参与裁决：死地址一旦胜出，外层探活会把它否掉，而本轮
+            // 其它已结算候选只能当回退；更糟的是后续每个音质轮次都会复用同一个死地址。
+            const deadReason = await rejectDeadCandidate(result.url, music.source, qualityDeadlineAt);
+            operation.assertActive();
+            if (deadReason) throw new Error(`候选地址不可用(${deadReason})`);
             const hit: CustomSourceHit = {
               apiName: api.name,
               music,
@@ -163,7 +192,7 @@ export const customSourceBackend: PlaybackBackend = {
             // 源内竞速必须跟随本轮总预算。之前这里没设 deadline：外层到期
             // finish 之后，内层还在按交错间隔把剩下的音质一个个发出去，
             // 用户已经在听了，请求还在打。
-            deadlineMs: Math.max(CUSTOM_SOURCE_MIN_ATTEMPT_MS, budgetEndsAt - Date.now()),
+            deadlineMs: Math.max(0, qualityDeadlineAt - Date.now()),
             formatError: (errors) =>
               new Error(errors.map((error) => (error instanceof Error ? error.message : String(error))).join(' | ')),
           });
@@ -184,7 +213,8 @@ export const customSourceBackend: PlaybackBackend = {
               staggerMs: DEFAULT_SOURCE_STAGGER_MS,
               maxSpreadMs: CUSTOM_SOURCE_SPREAD_MS,
               upgradeWindowMs: DEFAULT_QUALITY_UPGRADE_WINDOW_MS,
-              deadlineMs: remaining,
+              // 补齐 txMeta 也吃预算：用补水后的剩余时间，而不是循环开头的快照。
+              deadlineMs: Math.max(0, budgetEndsAt - Date.now()),
               formatError: (errors) =>
                 new Error(errors.map((error) => (error instanceof Error ? error.message : String(error))).join(';')),
             });
@@ -224,14 +254,38 @@ export const customSourceBackend: PlaybackBackend = {
   },
 };
 
-/** 给探活与媒体缓存预留的时间：外层 14s 内自定义源最多用「剩余时间 - 该值」。 */
-const CUSTOM_SOURCE_PROBE_RESERVE_MS = 6000;
-
-/** 剩余时间不足该值时不再启动新变体尝试,避免刚启动就撞外层 deadline。 */
-const CUSTOM_SOURCE_MIN_ATTEMPT_MS = 1000;
-
 /** 回退候选最多留几个：每次回退都要一次探活 RTT，不宜为兜底把整首拖死。 */
 const MAX_FALLBACK_CANDIDATES = 2;
+
+/** 补齐 txMeta 的等待上限：详情接口通常 <1s，但不能让它吃掉整个竞速预算。 */
+const TX_META_HYDRATE_TIMEOUT_MS = 1500;
+
+/**
+ * 候选地址内层探活：脚本「调用成功」不等于「地址可用」。
+ *
+ * LX 源常见返回过期签名或已下架资源；旧实现把第一个返回的地址直接定稿，
+ * 外层探活判死后整轮的其它源/档位根本没被尝试过，而且同一个死地址会被后续
+ * 每个音质轮次复用。这里在候选进入竞速裁决前就判死，让竞速继续试下一个候选。
+ *
+ * 只把服务端明确 4xx（definitive）当作死链；超时/抖动/5xx 下不了结论时放行，
+ * 交给外层探活决定——误杀一个慢 CDN 上完全可用的地址比多花一次探活更糟。
+ */
+async function rejectDeadCandidate(
+  url: string,
+  source: string | undefined,
+  deadlineAt: number,
+): Promise<string | null> {
+  const budget = Math.min(CANDIDATE_PROBE_TIMEOUT_MS, getChildPlaybackDeadline(deadlineAt) - Date.now());
+  if (budget <= 0) return null;
+  // IPC 的超时响应也需要回传时间，宿主等待必须独立服从同一探活预算。
+  const probe = await withBudget(probeStreamUrl(url, buildStreamHeaders(source), budget), budget);
+  if (!probe) {
+    debugLog('[customSource] 候选探活预算耗尽，交给外层探活继续判定');
+    return null;
+  }
+  if (probe.ok || !probe.definitive) return null;
+  return probe.reason;
+}
 
 /**
  * 把本轮已结算但没胜出的候选整理成回退链（按音质降序 → 源序升序）。

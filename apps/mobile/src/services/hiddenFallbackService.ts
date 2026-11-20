@@ -1,5 +1,6 @@
 import {
   buildVariantSearchKeyword,
+  CANDIDATE_PROBE_TIMEOUT_MS,
   matchHiddenCandidates,
   type HiddenSourceId,
   type HiddenSourceTrack,
@@ -34,14 +35,6 @@ const HIDDEN_MAX_TRACKS_PER_PLATFORM = 4;
 
 /** 单次脚本取链超时：慢源不能吃完整轮兜底预算，超时后换下一个候选/音质。 */
 const HIDDEN_ATTEMPT_TIMEOUT_MS = 6_000;
-
-/**
- * 候选内层探活超时。
- *
- * 内层只回答「这个地址是不是死的」，不做试听片段判定，因此比外层探活更短；
- * 包体/时长判定仍由播放链路的 probeStreamUrl 完成。
- */
-const HIDDEN_INNER_PROBE_TIMEOUT_MS = 2_500;
 
 export interface HiddenFallbackResult {
   url: string;
@@ -95,7 +88,7 @@ function withTimeout<T>(task: Promise<T>, timeoutMs: number): Promise<T> {
  */
 async function rejectCandidate(url: string, deadlineAt: number): Promise<string | null> {
   const budget = Math.min(
-    HIDDEN_INNER_PROBE_TIMEOUT_MS,
+    CANDIDATE_PROBE_TIMEOUT_MS,
     deadlineAt - HIDDEN_PROBE_RESERVE_MS - Date.now(),
   );
   // 预算不足时不做内层判定，交给外层探活兜底。

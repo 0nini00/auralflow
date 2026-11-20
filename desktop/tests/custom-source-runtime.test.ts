@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCustomSourceAccess } from "../src/services/customSourceAccess";
-import type { CustomSourceItem, MusicInfo } from "@lx/core";
+import { CUSTOM_SOURCE_PLAYBACK_WINDOW_MS, type CustomSourceItem, type MusicInfo } from "@lx/core";
 
 const network = vi.hoisted(() => ({ request: vi.fn() }));
 vi.mock("../src/services/outboundHttp", () => ({ outboundRequest: network.request }));
@@ -160,7 +160,9 @@ describe("深度测试接线", () => {
     const source = api(`${initialized}
       lx.on(lx.EVENT_NAMES.request, () => new Promise(() => {}));
     `);
-    expect((await deepTest(source, 20_000)).message).toBe("初始化正常；取链测试 0/1 通过（wy 失败:取链失败：取链测试超时（20000ms））");
+    expect((await deepTest(source, 20_000)).message).toBe(
+      `初始化正常；取链测试 0/1 通过（wy 失败:取链失败：取链测试超时（${CUSTOM_SOURCE_PLAYBACK_WINDOW_MS}ms））`,
+    );
   });
 
   it("取链途中关闭功能时以失效错误结束，不写成测试失败", async () => {
