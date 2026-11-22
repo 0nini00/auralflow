@@ -394,11 +394,12 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   textAction: {
+    height: 32,
     paddingHorizontal: 10,
-    paddingVertical: 5,
     borderRadius: radius.sm,
     minWidth: 68,
     alignItems: "center",
+    justifyContent: "center",
   },
   textActionText: {
     fontSize: typography.caption,
