@@ -12,6 +12,7 @@ import { runPlaybackUiAction } from "@/services/playbackUiAction";
 import { buildLibrarySongActions, buildLibrarySongDeleteRequest } from "@/services/librarySongActions";
 import { SongList } from "@/components/SongList";
 import { DownloadList } from "@/components/DownloadList";
+import { DownloadDirectoryRow } from "@/components/DownloadDirectoryRow";
 import { HistorySection } from "@/components/HistorySection";
 import { ActionButton } from "@/components/ActionButton";
 import { ScreenScaffold, ScreenScrollView } from "@/components/ScreenScaffold";
@@ -266,7 +267,7 @@ export function LibraryScreen({ onNavigateToPlayer }: LibraryScreenProps) {
         </ScreenScrollView>
       ) : section === "downloads" ? (
         <LibraryDownloadsSection onNavigateToPlayer={onNavigateToPlayer}
-          ListHeaderComponent={<>{playbackErrorNode}{contentErrorNode}</>} />
+          ListHeaderComponent={<><DownloadDirectoryRow />{playbackErrorNode}{contentErrorNode}</>} />
       ) : isLocalVirtualList ? (
         <SongList
           virtualized

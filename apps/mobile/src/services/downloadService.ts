@@ -9,6 +9,7 @@ import { resolveHiddenFallback } from "./hiddenFallbackService";
 import { probeStreamUrl } from "./streamProbe";
 import { commitDownloadedFile, createPartialDownloadPath, removeOrphanedPartialDownloads, validateDownloadedFile } from "./fileDownloadCommit";
 import { buildDownloadFileStem } from "./downloadFileNaming";
+import { copyDownloadToDirectory } from "./downloadDirectoryService";
 
 import { writeDownloadedMp3Tags } from "./downloadTagService";
 export { formatDownloadSize } from "./downloadSizeFormatter";
@@ -569,6 +570,13 @@ async function downloadSongInternal(task: QueueTask): Promise<string> {
     warnings.push(...await writeSidecarLyrics(song, finalFilePath, lyrics));
     assertTaskActive(task);
   }
+  // 用户选择了外部文件夹时额外复制一份；失败只提示，不影响应用内下载记录与播放。
+  try {
+    await copyDownloadToDirectory(finalFilePath);
+  } catch (error) {
+    warnings.push(`复制到所选文件夹失败：${formatDownloadReason(error)}`);
+  }
+  assertTaskActive(task);
   if (warnings.length > 0) task.onWarnings?.(warnings);
   return finalUri;
 }
