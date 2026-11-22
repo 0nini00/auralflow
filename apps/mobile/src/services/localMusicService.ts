@@ -1,8 +1,9 @@
-import { NativeModules, Platform } from "react-native";
+import { DeviceEventEmitter, NativeModules, Platform } from "react-native";
 import RNFS from "react-native-fs";
 import { check, request, PERMISSIONS, RESULTS } from "react-native-permissions";
 import type { MusicInfo } from "@lx/core";
 import { useDownloadStore } from "@/stores/downloadStore";
+import { logger } from "@/services/logger";
 import { DOWNLOAD_SCOPE, MEDIA_STORE_SCOPE, type LocalMusicInfo, type LocalMusicScanResult } from "./localMusicScanModel";
 
 /**
@@ -19,8 +20,8 @@ interface NativeLocalSong {
   filePath: string;
   /** MediaStore content URI，可用于播放/访问 */
   contentUri?: string;
-  /** 专辑封面 content URI 或 file:// sidecar 封面路径 */
-  albumArtUri?: string;
+  /** 专辑封面 content URI 或 file:// sidecar 封面路径；null 表示当前没有封面 */
+  albumArtUri?: string | null;
   /** 内嵌歌词（USLT 帧）或同名 .lrc 旁挂歌词内容；无则为空 */
   lyrics?: string;
 }
@@ -120,11 +121,28 @@ export async function getDownloadedLocalSongs(existing: LocalMusicInfo[] = []): 
       localScan: { scope: DOWNLOAD_SCOPE },
     });
   }
+  // 单个下载文件读取失败不能拖垮整次扫描：无法确定文件是否消失时保留记录，
+  // 只有明确 exists=false 才移除；歌词读取失败保留旧歌词。
   const resolved = await Promise.all([...candidates.values()].map(async (song) => {
-    if (!song.url?.startsWith("file://")) throw new Error("下载歌曲缺少有效的本地文件路径");
+    if (!song.url?.startsWith("file://")) {
+      logger.warn("[local] 下载歌曲缺少有效的本地文件路径，保留记录", song.id);
+      return song;
+    }
     const path = song.url.slice(7);
-    if (!(await RNFS.exists(path))) return null;
-    return { ...song, localLyrics: await readSidecarLrc(path) };
+    let exists: boolean;
+    try {
+      exists = await RNFS.exists(path);
+    } catch (error) {
+      logger.warn("[local] 检查下载文件失败，保留记录", song.id, error);
+      return song;
+    }
+    if (!exists) return null;
+    try {
+      return { ...song, localLyrics: await readSidecarLrc(path) };
+    } catch (error) {
+      logger.warn("[local] 读取下载歌曲旁挂歌词失败，保留记录", song.id, error);
+      return { ...song };
+    }
   }));
   return {
     source: "download", scope: DOWNLOAD_SCOPE, complete: true,
@@ -138,7 +156,15 @@ export async function getDownloadedLocalSongs(existing: LocalMusicInfo[] = []): 
  * 依赖原生模块 NativeModules.LocalMusicModule.scanLocalMusic()。
  * 若模块未注册（例如未重新编译原生工程），会抛出清晰错误。
  */
-export async function scanLocalMusic(existing: LocalMusicInfo[] = []): Promise<LocalMusicScanResult> {
+export interface LocalMusicScanProgress {
+  scanned: number;
+  total: number;
+}
+
+export async function scanLocalMusic(
+  existing: LocalMusicInfo[] = [],
+  onProgress?: (progress: LocalMusicScanProgress) => void,
+): Promise<LocalMusicScanResult> {
   if (Platform.OS !== "android") throw new Error("当前平台不支持本地音乐扫描");
 
   const hasPermission = await requestAudioPermission();
@@ -157,23 +183,40 @@ export async function scanLocalMusic(existing: LocalMusicInfo[] = []): Promise<L
     .filter((song) => song.localScan?.scope === MEDIA_STORE_SCOPE && song.localScan.signature)
     .map((song) => [song.id, song]));
   const signatures = Object.fromEntries([...cached].map(([id, song]) => [id, song.localScan!.signature!]));
-  const result = await nativeLocalMusicModule.scanLocalMusic(signatures);
-  validateNativeScan(result);
-  const songs = result.songs.map((native) => {
-    const song = mapNativeLocalSong(native);
-    const previous = cached.get(native.id);
-    if (native.tagsUnchanged) {
-      if (!previous || previous.localScan?.signature !== native.signature) {
-        throw new Error("本地音乐扫描缓存签名不匹配");
+  const subscription = onProgress
+    ? DeviceEventEmitter.addListener("LocalMusicScanProgress", (event: unknown) => {
+        const payload = event as { scanned?: unknown; total?: unknown } | null;
+        if (payload && typeof payload.scanned === "number" && typeof payload.total === "number"
+          && Number.isFinite(payload.scanned) && Number.isFinite(payload.total)) {
+          onProgress({ scanned: payload.scanned, total: payload.total });
+        }
+      })
+    : null;
+  try {
+    const result = await nativeLocalMusicModule.scanLocalMusic(signatures);
+    validateNativeScan(result);
+    const songs = result.songs.map((native) => {
+      const song = mapNativeLocalSong(native);
+      const previous = cached.get(native.id);
+      if (native.tagsUnchanged) {
+        if (!previous || previous.localScan?.signature !== native.signature) {
+          throw new Error("本地音乐扫描缓存签名不匹配");
+        }
+        song.localLyrics = previous.localLyrics;
+        // 封面每次扫描都由原生重新解析：null 明确清掉旧封面，undefined 兼容旧原生模块。
+        const cover = native.albumArtUri === null
+          ? undefined
+          : native.albumArtUri ?? previous.picUrl;
+        song.picUrl = cover;
+        song.img = cover;
       }
-      song.localLyrics = previous.localLyrics;
-      song.picUrl = previous.picUrl;
-      song.img = previous.img;
-    }
-    return { ...song, localOrigin: "mediaStore" as const,
-      localScan: { scope: MEDIA_STORE_SCOPE, signature: native.signature } };
-  });
-  return { source: "mediaStore", scope: MEDIA_STORE_SCOPE, complete: true, songs };
+      return { ...song, localOrigin: "mediaStore" as const,
+        localScan: { scope: MEDIA_STORE_SCOPE, signature: native.signature } };
+    });
+    return { source: "mediaStore", scope: MEDIA_STORE_SCOPE, complete: true, songs };
+  } finally {
+    subscription?.remove();
+  }
 }
 
 /**
@@ -220,7 +263,7 @@ export async function readLocalAudioFile(uri: string): Promise<LocalMusicInfo> {
       || typeof song.filePath !== "string" || !song.filePath
       || (song.contentUri !== undefined && typeof song.contentUri !== "string")
       || (song.lyrics !== undefined && typeof song.lyrics !== "string")
-      || (song.albumArtUri !== undefined && typeof song.albumArtUri !== "string")) {
+      || (song.albumArtUri != null && typeof song.albumArtUri !== "string")) {
     throw new Error("外部音频读取结果无效");
   }
   return {
@@ -243,7 +286,7 @@ function validateNativeScan(result: NativeLocalScan): void {
       || typeof song.signature !== "string" || !song.signature || typeof song.tagsUnchanged !== "boolean"
       || (song.contentUri !== undefined && typeof song.contentUri !== "string")
       || (song.lyrics !== undefined && typeof song.lyrics !== "string")
-      || (song.albumArtUri !== undefined && typeof song.albumArtUri !== "string")) {
+      || (song.albumArtUri != null && typeof song.albumArtUri !== "string")) {
       throw new Error("本地音乐扫描结果包含无效条目");
     }
     ids.add(song.id);

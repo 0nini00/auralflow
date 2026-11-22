@@ -59,7 +59,6 @@ export interface ImmersiveModalsProps {
   volumeModalVisible: boolean;
   volumeModel: any;
   /** 队列菜单内发起路由跳转前回调（播放页场景传 onClose，先关闭覆盖导航栈的 Modal） */
-  onQueueNavigate?: () => void;
 }
 
 /** 自定义定时输入是否为有效的正数（"0"/非数字/空串均无效，禁用开始按钮） */
@@ -103,7 +102,6 @@ export function ImmersiveModals({
   volumeModalVisible,
   volumeModel,
   queue,
-  onQueueNavigate,
 }: ImmersiveModalsProps) {
   const customSongCountValid = isPositiveNumericInput(customSongCount);
   const customMinutesValid = isPositiveNumericInput(customMinutes);
@@ -496,7 +494,6 @@ export function ImmersiveModals({
         onPlayItem={(index) => void handlePlayQueueItem(index)}
         onRemoveItem={handleRemoveQueueItem}
         onClear={() => void handleClearQueue()}
-        onRequestNavigate={onQueueNavigate}
       />
     </>
   );

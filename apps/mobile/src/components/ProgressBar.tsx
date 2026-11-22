@@ -46,10 +46,22 @@ export function ProgressBar({
   // JS 只在每个 tick 启动一次动画，视觉上连续推进。
   const progressAnim = useRef(new Animated.Value(progress)).current;
   const progressRef = useRef(progress);
+  const lastTrackKeyRef = useRef(trackKey);
 
   useEffect(() => {
-    if (dragRef.current && (dragRef.current.duration !== duration || dragRef.current.trackKey !== trackKey)) {
-      // 曲目/时长变化时旧手势失效，不能把旧坐标提交给新曲目。
+    // 切歌必须直接把进度归位：沿用上一首的动画值会从中间滑到新曲开头。
+    if (lastTrackKeyRef.current !== trackKey) {
+      lastTrackKeyRef.current = trackKey;
+      dragRef.current = null;
+      pendingSeekRef.current = null;
+      if (seeking) setSeeking(false);
+      progressAnim.stopAnimation();
+      progressAnim.setValue(progress);
+      progressRef.current = progress;
+      return;
+    }
+    if (dragRef.current && dragRef.current.duration !== duration) {
+      // 同曲时长变化（如流元数据后到）时旧手势失效，不能把旧坐标提交给新时长。
       dragRef.current = null;
       pendingSeekRef.current = null;
       setSeeking(false);

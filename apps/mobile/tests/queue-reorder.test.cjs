@@ -243,20 +243,20 @@ test("changed native modules compile with the installed Babel and worklet config
   }
 });
 const queuePresentation = createLoader({})("src/services/queueReorderModel.ts");
-test("窄屏队列行先隐藏可选信息，更多按钮不与拖动把手重叠", () => {
-  assert.equal(typeof queuePresentation.resolveQueueRowPresentation, "function");
-  const narrow = queuePresentation.resolveQueueRowPresentation(320 - 24);
-  assert.equal(narrow.showDuration, false);
-  assert.equal(narrow.showCover, true);
-  assert.equal(narrow.showLikeAction, true);
+test("队列行只保留删除按钮，删除与拖动把手在窄屏也放得下", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const { mobileRoot } = require("./helpers/loadTs.cjs");
+  const source = fs.readFileSync(path.join(mobileRoot, "src/components/queue/DraggableQueueList.tsx"), "utf8");
+  assert.match(source, /onRemoveItem/);
+  assert.match(source, /从队列移除/);
+  assert.doesNotMatch(source, /onOpenMenu/);
+  assert.doesNotMatch(source, /presentation\.showLikeAction|presentation\.showDuration/);
   for (const width of [228, 256, 296, 336, 396, 700]) {
-    const presentation = queuePresentation.resolveQueueRowPresentation(width);
-    const coverOrIndex = presentation.showCover ? 62 : 40;
-    const actions = 36 + (presentation.showLikeAction ? 40 : 0) + (presentation.showDuration ? 46 : 0);
-    assert.ok(4 + coverOrIndex + 96 + actions + queuePresentation.QUEUE_DRAG_HANDLE_WIDTH <= width,
+    // 行首无封面/序号，右侧固定删除按钮 + 拖动把手。
+    assert.ok(4 + 96 + queuePresentation.QUEUE_REMOVE_BUTTON_WIDTH + queuePresentation.QUEUE_DRAG_HANDLE_WIDTH <= width,
       `队列可用宽度 ${width} 不足`);
   }
-  assert.equal(queuePresentation.resolveQueueRowPresentation(396).showDuration, true);
 });
 
 test("打开队列时当前播放曲居中显示，而不是贴在列表上沿", () => {

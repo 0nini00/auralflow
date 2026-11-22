@@ -6,6 +6,9 @@ import { useThemeStore, getResolvedTheme, getThemePalette } from "@/stores/theme
 export function MiniProgressBar() {
   const position = usePlayerStore((state) => state.position);
   const duration = usePlayerStore((state) => state.duration);
+  const trackKey = usePlayerStore((state) =>
+    state.currentSong ? `${state.currentSong.source}:${state.currentSong.id}` : "",
+  );
   const themeMode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
@@ -15,9 +18,18 @@ export function MiniProgressBar() {
   const progressAnim = useRef(new Animated.Value(progress)).current;
   // 跳变比较只需最近的播放 tick，无需让原生动画逐帧回传 JS。
   const progressRef = useRef(progress);
+  const lastTrackKeyRef = useRef(trackKey);
 
   useEffect(() => {
-    // 与 lx 一致：seek/切歌跳变用 200ms 快速追赶，正常播放用 1000ms 平滑推进。
+    // 切歌直接归位：上一首停在中间时，新曲不能从那个位置滑回开头。
+    if (lastTrackKeyRef.current !== trackKey) {
+      lastTrackKeyRef.current = trackKey;
+      progressAnim.stopAnimation();
+      progressAnim.setValue(progress);
+      progressRef.current = progress;
+      return;
+    }
+    // 与 lx 一致：seek 跳变用 200ms 快速追赶，正常播放用 1000ms 平滑推进。
     // scaleX + native driver：width 百分比插值的 JS 动画每帧都过 JS 线程，
     // 播放期间常驻 60fps；缩放动画走 UI 线程，JS 只在每个进度 tick 启动一次。
     const isJump = Math.abs(progress - progressRef.current) > 0.05;
@@ -30,7 +42,7 @@ export function MiniProgressBar() {
     });
     animation.start();
     return () => animation.stop();
-  }, [progress, progressAnim]);
+  }, [progress, trackKey, progressAnim]);
 
   return (
     <View

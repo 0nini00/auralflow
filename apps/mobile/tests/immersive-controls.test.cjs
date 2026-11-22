@@ -116,6 +116,11 @@ const transportProps = events => ({
   onTogglePlayMode: () => events.push("mode"), onPrevious: () => events.push("previous"),
   onNext: () => events.push("next"), onTogglePlay: () => events.push("play"),
   isPlaying: false, loading: false, onOpenQueue: () => events.push("queue"), queueLabel: "播放队列，共 12 首",
+  isLiked: false, onToggleLike: () => events.push("like"),
+  canShowComments: true, onOpenComments: () => events.push("comments"),
+  onOpenDownload: () => events.push("download"),
+  canAddToPlaylist: true, onAddToPlaylist: () => events.push("playlist"),
+  canShare: true, onShare: () => events.push("share"),
 });
 
 test("顶部只保留关闭与更多按钮，歌名歌手和歌手点击保持原样", t => {
@@ -168,23 +173,29 @@ test("全局浅色主题下，底栏图标和加载状态服从播放器配色",
 });
 
 for (const compact of [false, true]) {
-  test(`底栏是单行五键，在320宽度内保持最小触控尺寸，compact=${compact}`, t => {
+  test(`底栏主控制五键加辅助行，在320宽度内保持触控尺寸，compact=${compact}`, t => {
     const h = harness(t, "ImmersiveTransport", { ...transportProps([]), compact });
+    const mainLabels = ["播放模式：列表循环", "上一首", "播放", "下一首", "播放队列，共 12 首"];
+    const auxLabels = ["喜欢", "评论", "下载歌曲", "添加到歌单", "分享音乐"];
     const buttons = h.renderer.root.findAllByType("Pressable");
-    assert.deepEqual(buttons.map(button => button.props.accessibilityLabel), ["播放模式：列表循环", "上一首", "播放", "下一首", "播放队列，共 12 首"]);
+    assert.deepEqual(buttons.map(button => button.props.accessibilityLabel), [...mainLabels, ...auxLabels]);
     assert.equal(h.renderer.root.findAllByType("Modal").length, 0);
-    const widths = buttons.map(button => flattenStyle(button.props.style({ pressed: false })).width);
+    const mainButtons = buttons.filter(button => mainLabels.includes(button.props.accessibilityLabel));
+    const auxButtons = buttons.filter(button => auxLabels.includes(button.props.accessibilityLabel));
+    const widths = mainButtons.map(button => flattenStyle(button.props.style({ pressed: false })).width);
     assert.deepEqual(widths, [44, 48, 66, 48, 44]);
-    const row = h.renderer.root.findAllByType("View").find(view =>
-      view.children.filter(child => typeof child !== "string").length === 5
-      && view.findAllByType("Pressable").length === 5);
-    assert.ok(row, "五个按钮必须同属一个控制行");
+    const row = h.renderer.root.findAllByType("View").find(view => {
+      const presses = view.findAllByType("Pressable");
+      return presses.length === 5 && presses[0].props.accessibilityLabel === mainLabels[0];
+    });
+    assert.ok(row, "五个主控按钮必须同属一个控制行");
     const style = flattenStyle(row.props.style);
     assert.equal(style.flexDirection, "row");
     assert.equal(style.flexWrap, "nowrap");
     const rootStyle = flattenStyle(h.renderer.root.findAllByType("View")[0].props.style);
     assert.ok(widths.reduce((sum, width) => sum + width, 0) + (style.gap ?? 0) * 4 <= 320 - rootStyle.paddingHorizontal * 2);
-    assert.ok(buttons.every(button => flattenStyle(button.props.style({ pressed: false })).height >= 44));
+    assert.ok(mainButtons.every(button => flattenStyle(button.props.style({ pressed: false })).height >= 44));
+    assert.ok(auxButtons.every(button => flattenStyle(button.props.style({ pressed: false })).height === 36));
     assert.equal(rootStyle.paddingBottom, 16 + (compact ? 8 : 12));
   });
 }
@@ -207,35 +218,48 @@ test("底栏保留进度跳转、播放回调、触觉和播放模式提示", t 
   assert.equal(h.renderer.root.findAllByType("ActivityIndicator").length, 3);
 });
 
+// 高频操作已移到播放控制区下方，更多菜单只保留低频设置。
+test("播放控制区辅助行承载高频操作并按可用性隐藏", t => {
+  const calls = [];
+  const h = harness(t, "ImmersiveTransport", transportProps(calls));
+  h.click("喜欢"); h.click("评论"); h.click("下载歌曲"); h.click("添加到歌单"); h.click("分享音乐");
+  assert.deepEqual(calls, ["like", "comments", "download", "playlist", "share"]);
+  h.update({ isLiked: true });
+  assert.ok(h.button("取消喜欢"));
+  h.update({ canShowComments: false, canAddToPlaylist: false, canShare: false, onOpenDownload: undefined });
+  for (const label of ["评论", "添加到歌单", "分享音乐", "下载歌曲"]) assert.equal(h.button(label), undefined, label);
+  assert.ok(h.button("取消喜欢"));
+});
+
 function menuProps(events) {
   return {
-    visible: true, onClose: () => events.push("close"), isLiked: false, onToggleLike: () => events.push("like"),
+    visible: true, onClose: () => events.push("close"),
     floatingLyricActive: false, onToggleFloatingLyric: () => events.push("floating"),
-    canShowComments: true, onOpenComments: () => events.push("comments"),
     sleepLabel: "30 分钟", sleepActive: false, onOpenSleep: () => events.push("sleep"),
-    onOpenPlaySetting: () => events.push("settings"), onOpenBackground: () => events.push("background"),
-    canAddToPlaylist: true, onAddToPlaylist: () => events.push("playlist"), onOpenDownload: () => events.push("download"),
-    onPlayMv: () => events.push("mv"), canShare: true, onShare: () => events.push("share"),
+    onOpenPlaySetting: () => events.push("settings"),
+    onPlayMv: () => events.push("mv"),
     canShowSimilarSongs: true, onOpenSimilarSongs: () => events.push("similar"),
   };
 }
 
-test("更多菜单承接全部扩展操作，活动开关与睡眠状态准确可达", t => {
+test("更多菜单只保留低频设置，活动开关与睡眠状态准确可达", t => {
   const h = harness(t, "ImmersiveMoreMenu", menuProps([]));
-  for (const label of ["喜欢", "打开悬浮歌词", "评论", "睡眠定时", "播放设置", "下载歌曲", "添加到歌单", "播放 MV", "分享音乐", "相似歌曲推荐"]) {
+  for (const label of ["打开悬浮歌词", "睡眠定时", "播放设置", "播放 MV", "相似歌曲推荐"]) {
     assert.ok(h.button(label), label);
   }
-  h.update({ isLiked: true, floatingLyricActive: true, sleepActive: true });
-  for (const label of ["取消喜欢", "关闭悬浮歌词", "睡眠定时：30 分钟"]) {
+  for (const label of ["喜欢", "评论", "下载歌曲", "添加到歌单", "分享音乐"]) {
+    assert.equal(h.button(label), undefined, label);
+  }
+  h.update({ floatingLyricActive: true, sleepActive: true });
+  for (const label of ["关闭悬浮歌词", "睡眠定时：30 分钟"]) {
     assert.ok(h.button(label), label);
     assert.equal(h.button(label).props.accessibilityState.selected, true);
   }
 });
 
 for (const [label, action] of [
-  ["喜欢", "like"], ["打开悬浮歌词", "floating"], ["评论", "comments"], ["睡眠定时", "sleep"],
-  ["播放设置", "settings"], ["下载歌曲", "download"], ["添加到歌单", "playlist"],
-  ["播放 MV", "mv"], ["分享音乐", "share"], ["相似歌曲推荐", "similar"],
+  ["打开悬浮歌词", "floating"], ["睡眠定时", "sleep"],
+  ["播放设置", "settings"], ["播放 MV", "mv"], ["相似歌曲推荐", "similar"],
 ]) {
   test(`菜单“${label}”先关闭，再等待原生弹层退出后执行`, t => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
@@ -251,10 +275,10 @@ for (const [label, action] of [
   });
 }
 
-test("不可用的评论、歌单、MV、分享和相似入口不占菜单位置", t => {
+test("不可用的 MV 和相似入口不占菜单位置", t => {
   const h = harness(t, "ImmersiveMoreMenu", {
-    ...menuProps([]), canShowComments: false, canAddToPlaylist: false, onPlayMv: undefined, canShare: false, canShowSimilarSongs: false,
+    ...menuProps([]), onPlayMv: undefined, canShowSimilarSongs: false,
   });
-  for (const label of ["评论", "添加到歌单", "播放 MV", "分享音乐", "相似歌曲推荐"]) assert.equal(h.button(label), undefined, label);
+  for (const label of ["播放 MV", "相似歌曲推荐"]) assert.equal(h.button(label), undefined, label);
   assert.ok(h.button("播放设置"));
 });

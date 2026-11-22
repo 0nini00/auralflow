@@ -72,6 +72,7 @@ export function DownloadList({ downloads, downloading, failedDownloads = EMPTY_F
     <DownloadRow item={item} kind={section.kind} onPlay={handlePlay} />, [handlePlay]);
   const empty = sections.every(section => section.data.length === 0);
   return <SectionList<DownloadItem, DownloadSection>
+    style={styles.list}
     sections={sections}
     keyExtractor={item => [item.song.source, item.song.id, item.quality ?? item.song.quality ?? "320k"].join(":")}
     renderItem={renderItem}
@@ -109,11 +110,13 @@ const DownloadRow = React.memo(function DownloadRow({ item: entry, kind, onPlay:
     const speedLabel = formatDownloadSpeed(item.speed);
     return (
       <View key={key} style={[styles.downloadItem, { backgroundColor: palette.surface }]}>
-        <CachedImage
-          uri={coverFor(item.song) || ""}
-          style={styles.cover}
-          fallback={<View style={[styles.coverFallback, { backgroundColor: palette.surfaceStrong }]} />}
-        />
+        <View style={styles.cover}>
+          <CachedImage
+            uri={coverFor(item.song) || ""}
+            style={styles.coverImage}
+            fallback={<View style={[styles.coverFallback, { backgroundColor: palette.surfaceStrong }]} />}
+          />
+        </View>
         <View style={styles.downloadInfo}>
           <Text style={[styles.downloadSongName, { color: palette.text }]} numberOfLines={1}>
             {item.song.name}
@@ -186,11 +189,13 @@ const DownloadRow = React.memo(function DownloadRow({ item: entry, kind, onPlay:
     const metadata = buildFailedDownloadMetadata(item);
     return (
       <View key={key} style={[styles.downloadItem, { backgroundColor: palette.surface }]}>
-        <CachedImage
-          uri={coverFor(item.song) || ""}
-          style={styles.cover}
-          fallback={<View style={[styles.coverFallback, { backgroundColor: palette.surfaceStrong }]} />}
-        />
+        <View style={styles.cover}>
+          <CachedImage
+            uri={coverFor(item.song) || ""}
+            style={styles.coverImage}
+            fallback={<View style={[styles.coverFallback, { backgroundColor: palette.surfaceStrong }]} />}
+          />
+        </View>
         <View style={styles.downloadInfo}>
           <Text style={[styles.downloadSongName, { color: palette.text }]} numberOfLines={1}>
             {item.song.name}
@@ -233,11 +238,13 @@ const DownloadRow = React.memo(function DownloadRow({ item: entry, kind, onPlay:
       accessibilityRole="button"
       accessibilityLabel={`播放 ${item.song.name}`}
     >
-      <CachedImage
-        uri={coverFor(item.song) || ""}
-        style={styles.cover}
-        fallback={<View style={[styles.coverFallback, { backgroundColor: palette.surfaceStrong }]} />}
-      />
+      <View style={styles.cover}>
+        <CachedImage
+          uri={coverFor(item.song) || ""}
+          style={styles.coverImage}
+          fallback={<View style={[styles.coverFallback, { backgroundColor: palette.surfaceStrong }]} />}
+        />
+      </View>
       <View style={styles.downloadInfo}>
         <Text style={[styles.downloadSongName, { color: palette.text }]} numberOfLines={1}>
           {item.song.name}
@@ -306,24 +313,38 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: typography.meta,
   },
+  // 列表本体必须占满屏幕剩余空间，否则 SectionList 会按内容测量高度。
+  list: {
+    flex: 1,
+    minWidth: 0,
+  },
   downloadList: {
     gap: spacing.xs,
   },
   downloadItem: {
+    width: "100%",
+    minHeight: layout.songRowMinHeight,
     flexDirection: "row",
     alignItems: "center",
     borderRadius: radius.sm,
     padding: spacing.s,
     gap: spacing.s,
   },
+  // 封面固定尺寸只由外层容器保证，图片本体不再参与行高计算。
   cover: {
     width: layout.compactArtworkSize,
     height: layout.compactArtworkSize,
     borderRadius: radius.sm,
+    overflow: "hidden",
+    flexShrink: 0,
+  },
+  coverImage: {
+    width: "100%",
+    height: "100%",
   },
   coverFallback: {
-    flex: 1,
     width: "100%",
+    height: "100%",
     borderRadius: radius.sm,
   },
   downloadInfo: {
@@ -370,6 +391,7 @@ const styles = StyleSheet.create({
   downloadActions: {
     gap: spacing.xxs,
     alignItems: "flex-end",
+    flexShrink: 0,
   },
   textAction: {
     paddingHorizontal: 10,

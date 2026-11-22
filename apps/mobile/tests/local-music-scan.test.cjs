@@ -53,7 +53,10 @@ function setup(options = {}) {
         }
       },
     },
-    "react-native": { Platform: { OS: "android", Version: 35 }, NativeModules: { LocalMusicModule: {
+    "react-native": {
+      Platform: { OS: "android", Version: 35 },
+      DeviceEventEmitter: { addListener: () => ({ remove: () => {} }) },
+      NativeModules: { LocalMusicModule: {
       scanLocalMusic: async (...args) => {
         calls.push(args);
         if (options.nativeError) throw new Error(options.nativeError);
@@ -148,7 +151,6 @@ for (const [name, options, message] of [
   ["原生不完整结果", { native: { scope: MEDIA_SCOPE, complete: false, songs: [] } }, /扫描结果/],
   ["原生未知范围", { native: { scope: "other", complete: true, songs: [] } }, /扫描结果/],
   ["原生损坏条目", { native: nativeResult([{}]) }, /扫描结果/],
-  ["下载文件检查失败", { downloads: [{ localPath: "/app/1.mp3", song: { id: "1", source: "kg", name: "下载" } }], fsError: "filesystem denied" }, /filesystem denied/],
   ["下载记录加载失败", { downloadError: "downloads unavailable" }, /downloads unavailable/],
 ]) {
   test(name + "不写入或删除本地曲库", async () => {
@@ -214,6 +216,27 @@ test("原生扫描桥使用文件签名控制昂贵解析，null 查询拒绝而
   assert.match(java, /length\(\)/);
 });
 
+test("标签未变时扫描仍刷新封面，并用 null 清除已删除的封面", async () => {
+  const existing = [song("1", "mediaStore", { picUrl: "file:///old-cover.jpg", img: "file:///old-cover.jpg" })];
+  let f = setup({
+    existing,
+    native: nativeResult([nativeSong("1", {
+      tagsUnchanged: true, signature: "sig-1", albumArtUri: "content://cover/1?afv=999",
+    })]),
+  });
+  await f.store.getState().scanMusic();
+  assert.equal(f.store.getState().localSongs[0].picUrl, "content://cover/1?afv=999");
+
+  f = setup({
+    existing,
+    native: nativeResult([nativeSong("1", {
+      tagsUnchanged: true, signature: "sig-1", albumArtUri: null,
+    })]),
+  });
+  await f.store.getState().scanMusic();
+  assert.equal(f.store.getState().localSongs[0].picUrl, undefined);
+});
+
 test("下载索引为空不证明文件消失，已有下载文件仍在时保留记录", async () => {
   const f = setup({ existing: [song("dl-existing", "download")] });
   await f.store.getState().scanMusic();
@@ -221,10 +244,12 @@ test("下载索引为空不证明文件消失，已有下载文件仍在时保�
   assert.equal(f.store.getState().localSongs[0].localOrigin, "download");
 });
 
-test("下载索引为空时检查既有下载文件仍须传播文件系统异常", async () => {
+test("单个下载文件检查失败时保留记录并继续扫描", async () => {
   const f = setup({ existing: [song("dl-existing", "download")], fsError: "existing download unreadable" });
-  await assert.rejects(f.store.getState().scanMusic(), /existing download unreadable/);
-  assert.deepEqual(f.writes, []);
+  await f.store.getState().scanMusic();
+  assert.equal(f.store.getState().localSongs.length, 1);
+  assert.equal(f.store.getState().localSongs[0].id, "dl-existing");
+  assert.equal(f.store.getState().error, null);
 });
 
 function storedSongs(f) {

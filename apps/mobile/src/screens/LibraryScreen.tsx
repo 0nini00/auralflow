@@ -1,11 +1,10 @@
 import React, { useCallback, useMemo, useState, useEffect } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View, Pressable, Alert, ActivityIndicator, Modal, TextInput } from "react-native";
-import { layout, radius, spacing, touch, typography } from "@/theme/tokens";
+import { StyleSheet, Text, View, Alert } from "react-native";
+import { layout, spacing } from "@/theme/tokens";
 import type { MusicInfo } from "@lx/core";
 
 import { useHistoryStore } from "@/stores/historyStore";
 import { useLocalMusicStore } from "@/stores/localMusicStore";
-import { buildLocalMusicMetadataUpdate } from "@/services/localMusicMetadataModel";
 import { useDownloadStore } from "@/stores/downloadStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { playQueue } from "@/services/playerService";
@@ -22,7 +21,6 @@ import { FavoritesSection } from "@/components/library/FavoritesSection";
 import { PlaylistsSection } from "@/components/library/PlaylistsSection";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
 import { type LibrarySection as LibraryContentSection } from "@/services/librarySectionModel";
-import { writeLocalMusicLyrics, isDownloadedLocalSong } from "@/services/localMusicService";
 import {
   buildLibraryContentModelInput,
   getLibraryContentModel,
@@ -60,9 +58,9 @@ export function LibraryScreen({ onNavigateToPlayer }: LibraryScreenProps) {
   const scanMusic = useLocalMusicStore((state) => state.scanMusic);
   const importLocalFiles = useLocalMusicStore((state) => state.importLocalFiles);
   const removeLocalSong = useLocalMusicStore((state) => state.removeLocalSong);
-  const updateLocalSongMetadata = useLocalMusicStore((state) => state.updateLocalSongMetadata);
   const localLoading = useLocalMusicStore((state) => state.loading);
   const localError = useLocalMusicStore((state) => state.error);
+  const scanProgress = useLocalMusicStore((state) => state.scanProgress);
 
   const downloadsLoading = useDownloadStore((state) => state.loading);
   const downloadError = useDownloadStore((state) => state.error);
@@ -73,12 +71,6 @@ export function LibraryScreen({ onNavigateToPlayer }: LibraryScreenProps) {
 
 
   const [playbackError, setPlaybackError] = useState<string | null>(null);
-  const [editingLocalSong, setEditingLocalSong] = useState<MusicInfo | null>(null);
-  const [localSongName, setLocalSongName] = useState("");
-  const [localSongSinger, setLocalSongSinger] = useState("");
-  const [localSongAlbumName, setLocalSongAlbumName] = useState("");
-  const [localSongLyrics, setLocalSongLyrics] = useState("");
-  const [savingLocalSongMetadata, setSavingLocalSongMetadata] = useState(false);
 
   useEffect(() => {
     loadDownloads();
@@ -105,54 +97,6 @@ export function LibraryScreen({ onNavigateToPlayer }: LibraryScreenProps) {
     },
     [activeSongs, runPlayback],
   );
-
-  const handleEditLocalSong = useCallback((song: MusicInfo) => {
-    setEditingLocalSong(song);
-    setLocalSongName(song.name);
-    setLocalSongSinger(song.singer || "");
-    setLocalSongAlbumName(song.albumName || "");
-    setLocalSongLyrics(song.localLyrics || "");
-  }, []);
-
-  const closeLocalSongEditor = () => {
-    setEditingLocalSong(null);
-    setLocalSongName("");
-    setLocalSongSinger("");
-    setLocalSongAlbumName("");
-    setLocalSongLyrics("");
-  };
-
-  const handleSaveLocalSongMetadata = async () => {
-    if (!editingLocalSong || savingLocalSongMetadata) return;
-    setSavingLocalSongMetadata(true);
-    try {
-      const mediaId = String(editingLocalSong.id);
-      const input = {
-        name: localSongName,
-        singer: localSongSinger,
-        albumName: localSongAlbumName,
-        localLyrics: localSongLyrics,
-      };
-      // 先验证表单，再写音频；只有写入成功才发布曲库修改。
-      buildLocalMusicMetadataUpdate(input);
-      // 歌词写入音频文件标签（对齐桌面端 set_audio_lyrics）。封面已不在这里：本地曲封面只来自
-      // 内嵌标签与同目录旁挂图，不接受手动指定。
-      // 下载目录入库的歌曲没有 MediaStore 媒体 id，原生写回必然失败：仅更新列表元数据。
-      if (!isDownloadedLocalSong(editingLocalSong)) {
-        if (localSongLyrics !== (editingLocalSong.localLyrics || "")) {
-          await writeLocalMusicLyrics(mediaId, localSongLyrics);
-        }
-      }
-      await updateLocalSongMetadata(
-        { id: editingLocalSong.id, source: editingLocalSong.source }, input,
-      );
-      closeLocalSongEditor();
-    } catch (error) {
-      Alert.alert("编辑失败", error instanceof Error ? error.message : String(error));
-    } finally {
-      setSavingLocalSongMetadata(false);
-    }
-  };
 
   const handleClearHistory = () => {
     clearHistory();
@@ -181,6 +125,8 @@ export function LibraryScreen({ onNavigateToPlayer }: LibraryScreenProps) {
   }, [contentSection, removeFromHistory, removeLocalSong]);
 
   const handleScanLocal = async () => {
+    // 扫描期间重复点击会排起多次完整扫描；按钮已禁用，这里再兜一层。
+    if (localLoading) return;
     try {
       const previousCount = localSongs.length;
       await scanMusic();
@@ -196,6 +142,7 @@ export function LibraryScreen({ onNavigateToPlayer }: LibraryScreenProps) {
   };
 
   const handleImportLocalFiles = async () => {
+    if (localLoading) return;
     try {
       const previousCount = localSongs.length;
       const result = await importLocalFiles();
@@ -242,7 +189,6 @@ export function LibraryScreen({ onNavigateToPlayer }: LibraryScreenProps) {
           <SongList
             songs={localSongs}
             onPlay={handlePlay}
-            onEdit={handleEditLocalSong}
             hideSourceTag
             onDelete={librarySongActions.canDeleteSongs ? handleDeleteLibrarySong : undefined}
             emptyText={contentModel.emptyText}
@@ -273,7 +219,11 @@ export function LibraryScreen({ onNavigateToPlayer }: LibraryScreenProps) {
                 grow
                 accessibilityLabel="扫描本地音乐"
                 onPress={handleScanLocal}
-                label="扫描本地"
+                label={scanProgress
+                  ? (scanProgress.total > 0 ? `扫描中 ${scanProgress.scanned}/${scanProgress.total}` : "扫描中…")
+                  : "扫描本地"}
+                disabled={localLoading}
+                loading={localLoading}
               />
             </View>
             <View style={styles.actionButtonItem}>
@@ -285,6 +235,7 @@ export function LibraryScreen({ onNavigateToPlayer }: LibraryScreenProps) {
                   void handleImportLocalFiles();
                 }}
                 label="添加文件"
+                disabled={localLoading}
               />
             </View>
           </>
@@ -321,7 +272,6 @@ export function LibraryScreen({ onNavigateToPlayer }: LibraryScreenProps) {
           virtualized
           songs={localSongs}
           onPlay={handlePlay}
-          onEdit={handleEditLocalSong}
           hideSourceTag
           onDelete={librarySongActions.canDeleteSongs ? handleDeleteLibrarySong : undefined}
           ListHeaderComponent={
@@ -341,77 +291,6 @@ export function LibraryScreen({ onNavigateToPlayer }: LibraryScreenProps) {
         {renderContent()}
       </ScreenScrollView>
       )}
-      <Modal
-        visible={Boolean(editingLocalSong)}
-        animationType="slide"
-        transparent
-        onRequestClose={closeLocalSongEditor}
-      >
-        <KeyboardAvoidingView
-          style={styles.createModalOverlay}
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-        >
-          <View style={[styles.createModalCard, { backgroundColor: palette.surface }]}>
-            <Text style={[styles.createModalTitle, { color: palette.text }]}>编辑本地音乐</Text>
-            <ScrollView
-              style={styles.editLocalSongScroll}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-            <TextInput
-              value={localSongName}
-              onChangeText={setLocalSongName}
-              placeholder="歌曲标题"
-              placeholderTextColor={palette.textMuted}
-              style={[styles.createInput, { borderColor: palette.border, color: palette.text }]}
-            />
-            <TextInput
-              value={localSongSinger}
-              onChangeText={setLocalSongSinger}
-              placeholder="歌手"
-              placeholderTextColor={palette.textMuted}
-              style={[styles.createInput, { borderColor: palette.border, color: palette.text }]}
-            />
-            <TextInput
-              value={localSongAlbumName}
-              onChangeText={setLocalSongAlbumName}
-              placeholder="专辑"
-              placeholderTextColor={palette.textMuted}
-              style={[styles.createInput, { borderColor: palette.border, color: palette.text }]}
-            />
-            <TextInput
-              value={localSongLyrics}
-              onChangeText={setLocalSongLyrics}
-              placeholder="LRC 或纯文本歌词，留空清除"
-              placeholderTextColor={palette.textMuted}
-              multiline
-              style={[styles.createInput, styles.editLocalSongLyricsInput, { borderColor: palette.border, color: palette.text }]}
-            />
-            <Text style={[styles.editLocalSongHint, { color: palette.textMuted }]}>标题、歌手、专辑会更新到系统媒体库；歌词会写入音频文件（可能需授权修改媒体文件），留空可清除内嵌歌词。本地曲的歌词只来自音频文件自己：内嵌标签或同目录旁挂的 .lrc，不会联网匹配；封面同样只取文件的内嵌标签或同目录旁挂图，都不能在这里指定。</Text>
-            </ScrollView>
-            <View style={styles.createModalActions}>
-              <Pressable
-                style={styles.createModalButton}
-                onPress={closeLocalSongEditor}
-                disabled={savingLocalSongMetadata}
-              >
-                <Text style={[styles.createModalButtonText, { color: palette.textMuted }]}>取消</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.createModalButton, { backgroundColor: palette.surface, borderColor: palette.border, borderWidth: 1 }]}
-                onPress={handleSaveLocalSongMetadata}
-                disabled={savingLocalSongMetadata}
-              >
-                {savingLocalSongMetadata ? (
-                  <ActivityIndicator color={palette.primaryInk} size="small" />
-                ) : (
-                  <Text style={[styles.createModalButtonText, { color: palette.primaryInk }]}>保存</Text>
-                )}
-              </Pressable>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
     </ScreenScaffold>
   );
 }
@@ -453,57 +332,5 @@ const styles = StyleSheet.create({
   // 四键一排平分宽度，不换行（播放全部/随机播放/扫描本地/添加文件）
   actionButtonItem: {
     flex: 1,
-  },
-  createModalOverlay: {
-    flex: 1,
-    justifyContent: "center",
-    padding: 20,
-    backgroundColor: "rgba(0, 0, 0, 0.45)",
-  },
-  createModalCard: {
-    borderRadius: radius.lg,
-    padding: spacing.l,
-    gap: spacing.m,
-    maxHeight: "88%",
-  },
-  editLocalSongScroll: {
-    flexGrow: 0,
-    flexShrink: 1,
-  },
-  createModalTitle: {
-    fontSize: typography.heading,
-    fontWeight: "700",
-  },
-  createInput: {
-    borderWidth: 1,
-    borderRadius: radius.sm,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: typography.title,
-  },
-  editLocalSongHint: {
-    fontSize: typography.caption,
-    lineHeight: 18,
-  },
-  editLocalSongLyricsInput: {
-    minHeight: 120,
-    textAlignVertical: "top",
-  },
-  createModalActions: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    gap: spacing.s,
-  },
-  createModalButton: {
-    minWidth: 80,
-    minHeight: touch.minTarget,
-    borderRadius: radius.sm,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 12,
-  },
-  createModalButtonText: {
-    fontSize: typography.body,
-    fontWeight: "600",
   },
 });

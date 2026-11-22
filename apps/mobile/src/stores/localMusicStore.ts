@@ -7,6 +7,7 @@ import {
   pickLocalAudioFiles,
   scanLocalMusic,
   updateLocalMusicMetadata,
+  type LocalMusicScanProgress,
 } from "../services/localMusicService";
 import { buildLocalMusicMetadataUpdate, type LocalMusicMetadataInput } from "@/services/localMusicMetadataModel";
 
@@ -24,6 +25,8 @@ export interface LocalMusicState {
   localSongs: LocalMusicInfo[];
   loading: boolean;
   error: string | null;
+  /** 扫描进行中的 MediaStore 进度；导入或空闲时为 null。 */
+  scanProgress: LocalMusicScanProgress | null;
 }
 
 interface LocalMusicActions {
@@ -81,6 +84,7 @@ export const useLocalMusicStore = create<LocalMusicStore>((set, get) => {
     localSongs: [],
     loading: false,
     error: null,
+    scanProgress: null,
 
     loadLocalSongs: async () => {
       if (localSongsLoadPromise) return localSongsLoadPromise;
@@ -103,19 +107,21 @@ export const useLocalMusicStore = create<LocalMusicStore>((set, get) => {
     },
 
     scanMusic: async () => {
-      set({ loading: true, error: null });
+      set({ loading: true, error: null, scanProgress: { scanned: 0, total: 0 } });
       try {
         await ensureLocalSongsLoaded(get);
         set({ loading: true, error: null });
         // 并行查询 MediaStore 与检查已知下载文件，不枚举下载目录或重建孤儿文件索引。
         const [scanned, downloaded] = await Promise.all([
-          scanLocalMusic(get().localSongs),
+          scanLocalMusic(get().localSongs, (progress) => set({ scanProgress: progress })),
           getDownloadedLocalSongs(get().localSongs),
         ]);
         await commitLocalSongs(async (songs) => reconcileLocalMusic(songs, [scanned, downloaded]));
       } catch (error) {
         set({ error: error instanceof Error ? error.message : "扫描失败", loading: false });
         throw error;
+      } finally {
+        set({ scanProgress: null });
       }
     },
 

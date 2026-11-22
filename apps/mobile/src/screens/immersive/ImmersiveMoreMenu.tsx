@@ -11,13 +11,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Captions,
-  Download,
-  FolderPlus,
-  Heart,
-  MessageCircle,
   MoreHorizontal,
   Palette,
-  Share2,
   SlidersHorizontal,
   Sparkles,
   Timer,
@@ -44,22 +39,13 @@ export interface ImmersiveMoreMenuProps {
   visible: boolean;
   onClose: () => void;
   palette: ThemePalette;
-  isLiked: boolean;
-  onToggleLike: () => void;
   floatingLyricActive: boolean;
   onToggleFloatingLyric: () => void;
-  canShowComments: boolean;
-  onOpenComments: () => void;
   sleepLabel: string;
   sleepActive: boolean;
   onOpenSleep: () => void;
   onOpenPlaySetting: () => void;
-  canAddToPlaylist?: boolean;
-  onAddToPlaylist?: () => void;
-  onOpenDownload?: () => void;
   onPlayMv?: () => void;
-  canShare?: boolean;
-  onShare?: () => void;
   canShowSimilarSongs?: boolean;
   onOpenSimilarSongs?: () => void;
 }
@@ -68,48 +54,27 @@ export function ImmersiveMoreMenu({
   visible,
   onClose,
   palette,
-  isLiked,
-  onToggleLike,
   floatingLyricActive,
   onToggleFloatingLyric,
-  canShowComments,
-  onOpenComments,
   sleepLabel,
   sleepActive,
   onOpenSleep,
   onOpenPlaySetting,
-  canAddToPlaylist,
-  onAddToPlaylist,
-  onOpenDownload,
   onPlayMv,
-  canShare,
-  onShare,
   canShowSimilarSongs,
   onOpenSimilarSongs,
 }: ImmersiveMoreMenuProps) {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
 
+  // 高频动作已移到播放控制区下方的小按钮行，这里只保留低频设置项。
   const menuItems = [
-    {
-      icon: Heart,
-      label: isLiked ? "取消喜欢" : "喜欢",
-      onPress: onToggleLike,
-      active: isLiked,
-    },
     {
       icon: Captions,
       label: floatingLyricActive ? "关闭悬浮歌词" : "打开悬浮歌词",
       onPress: onToggleFloatingLyric,
       active: floatingLyricActive,
     },
-    canShowComments
-      ? {
-          icon: MessageCircle,
-          label: "评论",
-          onPress: onOpenComments,
-        }
-      : undefined,
     {
       icon: Timer,
       label: sleepActive ? `睡眠定时：${sleepLabel}` : "睡眠定时",
@@ -121,30 +86,11 @@ export function ImmersiveMoreMenu({
       label: "播放设置",
       onPress: onOpenPlaySetting,
     },
-    {
-      icon: Download,
-      label: "下载歌曲",
-      onPress: onOpenDownload,
-    },
-    canAddToPlaylist
-      ? {
-          icon: FolderPlus,
-          label: "添加到歌单",
-          onPress: onAddToPlaylist,
-        }
-      : undefined,
     onPlayMv
       ? {
           icon: Video,
           label: "播放 MV",
           onPress: onPlayMv,
-        }
-      : undefined,
-    canShare
-      ? {
-          icon: Share2,
-          label: "分享音乐",
-          onPress: onShare,
         }
       : undefined,
     canShowSimilarSongs

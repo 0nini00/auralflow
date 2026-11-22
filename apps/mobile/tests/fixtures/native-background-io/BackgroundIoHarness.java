@@ -21,6 +21,7 @@ public final class BackgroundIoHarness extends BackgroundIoBaseModule {
   private PendingMetadataUpdate updatePending;
   private BackgroundIoHarness getReactApplicationContext() { return this; }
   private ContentResolver getContentResolver() { return resolver; }
+  private void emitScanProgress(int scanned, int total) {}
   private void removeActivityEventListener(Object listener) {}
   private static final class UiThreadUtil { static void runOnUiThread(Runnable action) { action.run(); } }
   private static void check(boolean value, String message) { if (!value) throw new AssertionError(message); }
@@ -62,6 +63,7 @@ public final class BackgroundIoHarness extends BackgroundIoBaseModule {
     Cursor(String[] columns) { this.columns = columns; }
     int getColumnIndexOrThrow(String column) { return Arrays.asList(columns).indexOf(column); }
     int getColumnCount() { return columns.length; }
+    int getCount() { return 1; }
     boolean moveToNext() { return row++ == 0; }
     boolean isNull(int i) { return false; }
     long getLong(int i) { return i == 0 ? 1L : 0L; }
@@ -75,6 +77,7 @@ public final class BackgroundIoHarness extends BackgroundIoBaseModule {
   }
   private static final class WritableMap {
     void putString(String key, String value) {}
+    void putNull(String key) {}
     void putBoolean(String key, boolean value) {}
     void putDouble(String key, double value) {}
     void putArray(String key, WritableArray value) {}

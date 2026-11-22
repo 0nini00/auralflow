@@ -37,7 +37,6 @@ export interface SongListProps {
   onPlay: (song: MusicInfo, index: number) => void;
   emptyText?: string;
   getExtraMetadata?: (song: MusicInfo, index: number) => string | undefined;
-  onEdit?: (song: MusicInfo, index: number) => void;
   /** 可选：每行末尾显示删除按钮（用于下载页等管理场景） */
   onDelete?: (song: MusicInfo, index: number) => void;
   highlightedIndex?: number | null;
@@ -105,7 +104,6 @@ export function SongList({
   onPlay,
   emptyText,
   getExtraMetadata,
-  onEdit,
   onDelete,
   highlightedIndex,
   hideSourceTag = false,
@@ -179,10 +177,6 @@ export function SongList({
     },
     [selectionMode, onLongPressSong],
   );
-  const handleRowEdit = useCallback(
-    (song: MusicInfo, index: number) => onEdit?.(song, index),
-    [onEdit],
-  );
   const handleRowDelete = useCallback(
     (song: MusicInfo, index: number) => onDelete?.(song, index),
     [onDelete],
@@ -236,7 +230,6 @@ export function SongList({
           song={song}
           onRowPress={handleRowPress}
           onRowLongPress={handleRowLongPress}
-          onRowEdit={onEdit ? handleRowEdit : undefined}
           onRowDelete={onDelete ? handleRowDelete : undefined}
           onOpenMenu={handleOpenMenu}
           getExtraMetadata={getExtraMetadata}
@@ -256,7 +249,6 @@ export function SongList({
     [
       handleRowPress,
       handleRowLongPress,
-      handleRowEdit,
       handleRowDelete,
       handleOpenMenu,
       getExtraMetadata,
@@ -270,7 +262,6 @@ export function SongList({
       showLikeAction,
       showMoreAction,
       showDuration,
-      onEdit,
       onDelete,
     ],
   );
@@ -371,10 +362,6 @@ export function SongList({
       });
     }
     items.push({ label: "分享", icon: "share", onPress: () => void shareMusic(song).catch(() => undefined) });
-    if (onEdit) {
-      const songIndex = songs.indexOf(song);
-      items.push({ label: "编辑", icon: "edit", onPress: () => onEdit(song, songIndex >= 0 ? songIndex : 0) });
-    }
     if (onDelete) {
       const songIndex = songs.indexOf(song);
       items.push({ label: "移除", icon: "delete", danger: true, onPress: () => onDelete(song, songIndex >= 0 ? songIndex : 0) });
@@ -491,8 +478,7 @@ export function SongList({
             song={song}
             onRowPress={handleRowPress}
             onRowLongPress={handleRowLongPress}
-            onRowEdit={onEdit ? handleRowEdit : undefined}
-            onRowDelete={onDelete ? handleRowDelete : undefined}
+              onRowDelete={onDelete ? handleRowDelete : undefined}
             onOpenMenu={handleOpenMenu}
             getExtraMetadata={getExtraMetadata}
             pressable={selectionMode || (isSongPressable?.(song, index) ?? true)}
@@ -562,7 +548,6 @@ interface SongItemProps {
   /** 稳定回调（useCallback），避免父级重渲染击穿行组件 memo */
   onRowPress: (song: MusicInfo, index: number) => void;
   onRowLongPress?: (song: MusicInfo, index: number) => void;
-  onRowEdit?: (song: MusicInfo, index: number) => void;
   onRowDelete?: (song: MusicInfo, index: number) => void;
   /** 点击“更多”时打开列表根部的单一菜单弹窗（参数为点击点坐标，用于锚定菜单）。 */
   onOpenMenu: (song: MusicInfo, anchor: ActionMenuAnchor) => void;
@@ -571,8 +556,14 @@ interface SongItemProps {
   pressable?: boolean;
   /** 是否为当前正在播放的歌曲（主色标题 + 浅色背景高亮） */
   isPlaying?: boolean;
+  /** 当前播放行的强调方式：fill=浅色背景（默认），text=只给歌名主色加粗 */
+  activeStyle?: "fill" | "text";
   /** false 时左侧显示序号/播放图标 */
   showCover?: boolean;
+  /** 无封面时是否保留左侧序号列；false 时歌名直接顶到行首 */
+  showIndexColumn?: boolean;
+  /** 隐藏歌名下方的歌手/专辑/来源整行 */
+  hideMeta?: boolean;
   highlighted?: boolean;
   hideSourceTag?: boolean;
   selectionMode?: boolean;
@@ -589,13 +580,15 @@ export const SongItem = memo(function SongItem({  song,
   index,
   onRowPress,
   onRowLongPress,
-  onRowEdit,
   onRowDelete,
   onOpenMenu,
   getExtraMetadata,
   pressable = true,
   isPlaying = false,
+  activeStyle = "fill",
   showCover = true,
+  showIndexColumn = true,
+  hideMeta = false,
   highlighted,
   hideSourceTag,
   selectionMode = false,
@@ -679,9 +672,10 @@ export const SongItem = memo(function SongItem({  song,
 
   const isSelectedRow = selectionMode && selected;
   const isActive = isPlaying || highlighted;
+  // 播放队列用 text 模式：不铺底色，只靠歌名主色和加粗区分当前曲。
   const activeBackground = isSelectedRow
     ? withAlpha(palette.primaryInk, 0.1)
-    : isActive
+    : isActive && activeStyle === "fill"
     ? withAlpha(palette.primaryInk, 0.08)
     : "transparent";
   const extraMetadata = getExtraMetadata?.(song, index);
@@ -728,7 +722,7 @@ export const SongItem = memo(function SongItem({  song,
             </View>
           )}
         </View>
-      ) : !selectionMode ? (
+      ) : !selectionMode && showIndexColumn ? (
         <View style={styles.indexColumn}>
           {isPlaying ? (
             <AudioLines size={16} color={palette.primaryInk} />
@@ -742,13 +736,17 @@ export const SongItem = memo(function SongItem({  song,
 
       <View style={styles.info}>
         <Text
-          style={[styles.songName, { color: isActive ? palette.primaryInk : palette.text }]}
+          style={[
+            styles.songName,
+            { color: isActive ? palette.primaryInk : palette.text },
+            isActive && activeStyle === "text" && styles.songNameActive,
+          ]}
           numberOfLines={1}
           maxFontSizeMultiplier={1.3}
         >
           {song.name}
         </Text>
-        <View style={styles.meta}>
+        {!hideMeta ? <View style={styles.meta}>
           {metadata.metaParts.map((part, partIndex) => (
             <React.Fragment key={`${part}-${partIndex}`}>
               {partIndex > 0 ? (
@@ -779,8 +777,8 @@ export const SongItem = memo(function SongItem({  song,
               </Text>
             </>
           )}
-        </View>
-        {extraMetadata ? (
+        </View> : null}
+        {!hideMeta && extraMetadata ? (
           <Text style={[styles.extraMetaText, { color: palette.textSubtle }]} numberOfLines={1}>
             {extraMetadata}
           </Text>
@@ -897,6 +895,9 @@ const styles = StyleSheet.create({
     // 而它恰好是列表里最重要的那行字。
     fontSize: typography.body,
     fontWeight: "500",
+  },
+  songNameActive: {
+    fontWeight: "700",
   },
   meta: {
     minWidth: 0,

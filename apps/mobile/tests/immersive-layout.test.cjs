@@ -133,6 +133,11 @@ function renderScreen({ width = 390, height = 844, currentPage = 0, overlay = {}
     palette: { background: "#000000", primary: "#58a87a", text: "#ffffff", textMuted: "#aaaaaa" },
     chromePalette: { background: "#ffffff", surface: "#ffffff", surfaceMuted: "#f0f0f0", border: "#dddddd", primary: "#58a87a", text: "#111111", textMuted: "#666666" },
     sleepTimerControl: {}, currentSongActions: {}, queueModel: {},
+    floatingLyricActive: false,
+    handleToggleFloatingLyric: () => {},
+    handleLike: () => {},
+    handleShare: async () => {},
+    openCoverSongDownload: () => {},
     ...overlay,
   };
   const modules = {
@@ -205,7 +210,7 @@ function renderScreen({ width = 390, height = 844, currentPage = 0, overlay = {}
   return result.rerender();
 }
 
-test("右上角更多承接全部次级操作，原歌名歌手与封面歌词位置不变", () => {
+test("右上角更多只保留低频设置，高频操作下放到播放控制区", () => {
   const screen = renderScreen();
   const media = ancestors(screen.tree, 'PagerView')[0].at(-1);
   media.props.onLayout({ nativeEvent: { layout: { width: 366, height: 430 } } });
@@ -218,10 +223,17 @@ test("右上角更多承接全部次级操作，原歌名歌手与封面歌词�
   const menu = descendants(screen.tree, 'ImmersiveMoreMenu')[0];
   assert.equal(menu.props.visible, true);
   assert.equal(screen.gesture.isEnabled, false);
-  for (const name of ['onOpenPlaySetting', 'onOpenSleep', 'onToggleLike']) {
+  for (const name of ['onOpenPlaySetting', 'onOpenSleep', 'onToggleFloatingLyric']) {
     assert.equal(typeof menu.props[name], 'function', name);
   }
-  assert.equal(descendants(screen.tree, 'ImmersiveTransport')[0].props.onMoreMenuVisibleChange, undefined);
+  for (const name of ['onToggleLike', 'onOpenComments', 'onOpenDownload', 'onAddToPlaylist', 'onShare']) {
+    assert.equal(menu.props[name], undefined, name);
+  }
+  const transport = descendants(screen.tree, 'ImmersiveTransport')[0];
+  for (const name of ['onToggleLike', 'onOpenComments', 'onOpenDownload', 'onAddToPlaylist', 'onShare']) {
+    assert.equal(typeof transport.props[name], 'function', name);
+  }
+  assert.equal(transport.props.onMoreMenuVisibleChange, undefined);
   assert.equal(descendants(screen.tree, 'PagerView').length, 1);
   assert.equal(descendants(screen.tree, 'MiniLyric').length, 1);
   menu.props.onClose(); screen.rerender();

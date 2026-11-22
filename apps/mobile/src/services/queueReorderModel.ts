@@ -132,15 +132,5 @@ export function createQueueDragSession(commit: CommitQueueReorder) {
 
 
 export const QUEUE_DRAG_HANDLE_WIDTH = 44;
-// 按 SongItem 的封面/文字最小宽度和操作按钮预算，不挤压“更多操作”触摸区。
-const MIN_ROW_WITH_COVER = 242;
-const MIN_ROW_WITH_LIKE = 284;
-const MIN_ROW_WITH_DURATION = 328;
-
-export function resolveQueueRowPresentation(viewportWidth: number) {
-  return {
-    showCover: viewportWidth >= MIN_ROW_WITH_COVER,
-    showLikeAction: viewportWidth >= MIN_ROW_WITH_LIKE,
-    showDuration: viewportWidth >= MIN_ROW_WITH_DURATION,
-  };
-}
+/** 队列行右侧删除按钮宽度：固定保留，不再随视口宽度隐藏。 */
+export const QUEUE_REMOVE_BUTTON_WIDTH = 36;

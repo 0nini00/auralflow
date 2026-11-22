@@ -356,7 +356,7 @@ export function SearchScreen({
       { key: "artists", label: "歌手", count: results.artists.length },
       { key: "albums", label: "专辑", count: results.albums.length },
       { key: "playlists", label: "歌单", count: results.playlists.length },
-    ],
+    ].filter(item => item.count > 0),
     [results, dedupedSongs.length]
   );
 
@@ -368,7 +368,12 @@ export function SearchScreen({
   const hasSearchErrors = searchStates.some(state => state.status === 'error');
   const showResults = Boolean(submittedQuery) && hasResults;
   const showEmptyResults = Boolean(submittedQuery) && !loading && !error && !hasSearchErrors && !hasResults;
-  const visibleCategories = SEARCH_TABS.filter(tab => tab.key !== 'all' && (activeTab === 'all' || activeTab === tab.key));
+  // 「全部」页实际展示的是单曲列表，底部分页只跟随单曲；
+  // 歌手/专辑/歌单进入对应标签后再显示各自的「加载更多」。
+  // 之前这里四个分类同时参与渲染，四类都有下一页时会堆出四个按钮。
+  const visibleCategories = SEARCH_TABS.filter(tab =>
+    tab.key !== 'all' && (activeTab === 'all' ? tab.key === 'songs' : activeTab === tab.key)
+  );
 
 
 

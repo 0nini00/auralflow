@@ -2,13 +2,14 @@ import React, { forwardRef, memo, useCallback, useEffect, useImperativeHandle, u
 import { AccessibilityInfo, Alert, AppState, FlatList, StyleSheet, Text, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { runOnJS, scrollTo, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useFrameCallback, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
+import { Trash2 } from "lucide-react-native";
 import type { MusicInfo } from "@lx/core";
 import type { ThemePalette } from "@/stores/themeStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import { SongItem } from "@/components/SongList";
-import type { ActionMenuAnchor } from "@/components/ActionMenuSheet";
+import { Touchable } from "@/components/Touchable";
 import { hapticLight } from "@/services/hapticService";
-import { buildQueueEntries, createQueueDragSession, getQueueAutoScrollOffset, getQueueDropIndex, getQueueRowOffset, moveQueueItem, QUEUE_ROW_HEIGHT, QUEUE_DRAG_HANDLE_WIDTH, resolveQueueRowPresentation, type QueueEntry } from "@/services/queueReorderModel";
+import { buildQueueEntries, createQueueDragSession, getQueueAutoScrollOffset, getQueueDropIndex, getQueueRowOffset, moveQueueItem, QUEUE_ROW_HEIGHT, QUEUE_DRAG_HANDLE_WIDTH, QUEUE_REMOVE_BUTTON_WIDTH, type QueueEntry } from "@/services/queueReorderModel";
 
 const LONG_PRESS_MS = 350;
 const GAP_ANIMATION_MS = 120;
@@ -21,7 +22,7 @@ interface Props {
   height: number;
   enabled: boolean;
   onPlayItem: (index: number) => void;
-  onOpenMenu: (song: MusicInfo, index: number, anchor: ActionMenuAnchor) => void;
+  onRemoveItem: (index: number) => void;
 }
 
 const QueueRow = memo(function QueueRow({ index, from, to, children }: {
@@ -37,12 +38,11 @@ const QueueRow = memo(function QueueRow({ index, from, to, children }: {
 
 /** 手势挂在列表宿主而非虚拟化行上，拖出渲染窗口时不会丢失手势。 */
 export const DraggableQueueList = forwardRef<QueueListHandle, Props>(function DraggableQueueList({
-  queue, currentIndex, palette, height, enabled, onPlayItem, onOpenMenu,
+  queue, currentIndex, palette, height, enabled, onPlayItem, onRemoveItem,
 }, ref) {
   const listRef = useAnimatedRef<FlatList<QueueEntry>>();
   const count = queue.length;
   const [viewportWidth, setViewportWidth] = useState(0);
-  const presentation = resolveQueueRowPresentation(viewportWidth);
   /**
    * 打开队列时把当前曲放到列表中间，而不是贴在上沿（用户还得自己往下找）：
    * 初始定位往前让出半个视口的行数，右侧那行就落在中间。
@@ -183,10 +183,17 @@ export const DraggableQueueList = forwardRef<QueueListHandle, Props>(function Dr
     <View style={styles.songRow}>
       <View style={styles.song}>
         <SongItem song={entry.song} index={index} onRowPress={(_song, row) => { if (dragFrom.current < 0) onPlayItem(row); }}
-          isPlaying={index === currentIndex} showCover={presentation.showCover} showDuration={presentation.showDuration}
-          hideSourceTag showLikeAction={presentation.showLikeAction}
-          showMoreAction={!floating} onOpenMenu={(song, anchor) => { if (dragFrom.current < 0) onOpenMenu(song, index, anchor); }} />
+          isPlaying={index === currentIndex} activeStyle="text" showCover={false} showIndexColumn={false} hideMeta
+          hideSourceTag showLikeAction={false} showDuration={false} showMoreAction={false} />
       </View>
+      <Touchable
+        style={styles.remove}
+        accessibilityRole="button"
+        accessibilityLabel="从队列移除"
+        onPress={() => { if (dragFrom.current < 0) onRemoveItem(index); }}
+      >
+        <Trash2 size={18} color={palette.danger} />
+      </Touchable>
       <View style={styles.handle} accessible accessibilityLabel="长按拖动排序">
         <View style={[styles.gripLine, { backgroundColor: palette.textMuted }]} />
         <View style={[styles.gripLine, { backgroundColor: palette.textMuted }]} />
@@ -225,6 +232,7 @@ const styles = StyleSheet.create({
   row: { height: QUEUE_ROW_HEIGHT },
   songRow: { height: QUEUE_ROW_HEIGHT, flexDirection: "row", alignItems: "center" },
   song: { flex: 1, minWidth: 0 },
+  remove: { width: QUEUE_REMOVE_BUTTON_WIDTH, height: 44, justifyContent: "center", alignItems: "center" },
   handle: { width: QUEUE_DRAG_HANDLE_WIDTH, height: 44, justifyContent: "center", alignItems: "center", gap: 3 },
   gripLine: { width: 14, height: 1.5, borderRadius: 1 },
   floating: { position: "absolute", left: 0, right: 0, top: 0, height: QUEUE_ROW_HEIGHT,

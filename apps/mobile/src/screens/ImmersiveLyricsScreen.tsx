@@ -660,6 +660,15 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
                       palette={palette}
                       onOpenQueue={() => setQueueModalVisible(true)}
                       queueLabel={queueModel.triggerLabel}
+                      isLiked={isLiked}
+                      onToggleLike={() => void handleLike()}
+                      canShowComments={currentSong.source === "wy"}
+                      onOpenComments={() => setCommentsVisible(true)}
+                      onOpenDownload={openCoverSongDownload}
+                      canAddToPlaylist={currentSongActions.show}
+                      onAddToPlaylist={() => setAddToPlaylistVisible(true)}
+                      canShare={currentSongActions.show}
+                      onShare={() => { void handleShare(); }}
                     />
                   </Animated.View>
                 </ScrollView>
@@ -672,15 +681,8 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
               visible={visible && moreMenuVisible}
               onClose={() => setMoreMenuVisible(false)}
               palette={chromePalette}
-              isLiked={isLiked}
-              onToggleLike={() => void handleLike()}
               floatingLyricActive={floatingLyricActive}
               onToggleFloatingLyric={handleToggleFloatingLyric}
-              canAddToPlaylist={currentSongActions.show}
-              onAddToPlaylist={() => setAddToPlaylistVisible(true)}
-              canShare={currentSongActions.show}
-              onShare={() => { void handleShare(); }}
-              onOpenDownload={openCoverSongDownload}
               onPlayMv={currentMvId ? () => {
                 onClose();
                 openMvPlayerScreen({
@@ -690,8 +692,6 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
                   posterUrl: currentSong.img || currentSong.picUrl,
                 });
               } : undefined}
-              canShowComments={currentSong.source === "wy"}
-              onOpenComments={() => setCommentsVisible(true)}
               canShowSimilarSongs={currentSong.source === "wy"}
               onOpenSimilarSongs={() => {
                 onClose();
@@ -785,7 +785,6 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
             sleepTimerSongCount={sleepTimerSongCount ?? 0}
             volumeModalVisible={volumeModalVisible}
             volumeModel={volumeModel}
-            onQueueNavigate={onClose}
           />
 
 

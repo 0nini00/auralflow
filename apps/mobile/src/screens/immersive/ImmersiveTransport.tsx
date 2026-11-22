@@ -2,11 +2,16 @@ import React, { useRef, useState } from "react";
 import { ActivityIndicator, Animated, StyleSheet, Text, View } from "react-native";
 import {
   ArrowRight,
+  Download,
+  FolderPlus,
+  Heart,
   ListMusic,
+  MessageCircle,
   Pause,
   Play,
   Repeat,
   Repeat1,
+  Share2,
   Shuffle,
   SkipBack,
   SkipForward,
@@ -37,6 +42,15 @@ export interface ImmersiveTransportProps {
   palette: ThemePalette;
   onOpenQueue: () => void;
   queueLabel: string;
+  isLiked: boolean;
+  onToggleLike: () => void;
+  canShowComments: boolean;
+  onOpenComments: () => void;
+  onOpenDownload?: () => void;
+  canAddToPlaylist: boolean;
+  onAddToPlaylist: () => void;
+  canShare: boolean;
+  onShare: () => void;
 }
 
 /** 进度区叶子组件：只有这里随 0.25s 进度事件重渲染（对齐 PlayerBar MiniLyricStatus 的隔离模式）。 */
@@ -99,6 +113,15 @@ export function ImmersiveTransport({
   palette,
   onOpenQueue,
   queueLabel,
+  isLiked,
+  onToggleLike,
+  canShowComments,
+  onOpenComments,
+  onOpenDownload,
+  canAddToPlaylist,
+  onAddToPlaylist,
+  canShare,
+  onShare,
 }: ImmersiveTransportProps) {
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMode, setToastMode] = useState<MobilePlayMode>(playMode);
@@ -222,6 +245,56 @@ export function ImmersiveTransport({
 
       </View>
 
+      {/* 辅助操作行：比主控制键小一号，承接更多菜单里的高频动作。 */}
+      <View style={[localStyles.auxControls, compact && localStyles.compactAux]}>
+        <IconButton
+          size="sm"
+          tone="strong"
+          selected={isLiked}
+          onPress={onToggleLike}
+          accessibilityLabel={isLiked ? "取消喜欢" : "喜欢"}
+          render={({ size }) => (
+            <Heart size={size} color={isLiked ? palette.primaryInk : palette.text} fill={isLiked ? palette.primaryInk : "none"} />
+          )}
+        />
+        {canShowComments ? (
+          <IconButton
+            size="sm"
+            tone="strong"
+            onPress={onOpenComments}
+            accessibilityLabel="评论"
+            render={({ size }) => <MessageCircle size={size} color={palette.text} />}
+          />
+        ) : null}
+        {onOpenDownload ? (
+          <IconButton
+            size="sm"
+            tone="strong"
+            onPress={onOpenDownload}
+            accessibilityLabel="下载歌曲"
+            render={({ size }) => <Download size={size} color={palette.text} />}
+          />
+        ) : null}
+        {canAddToPlaylist ? (
+          <IconButton
+            size="sm"
+            tone="strong"
+            onPress={onAddToPlaylist}
+            accessibilityLabel="添加到歌单"
+            render={({ size }) => <FolderPlus size={size} color={palette.text} />}
+          />
+        ) : null}
+        {canShare ? (
+          <IconButton
+            size="sm"
+            tone="strong"
+            onPress={onShare}
+            accessibilityLabel="分享音乐"
+            render={({ size }) => <Share2 size={size} color={palette.text} />}
+          />
+        ) : null}
+      </View>
+
       {/* ── 播放模式微型小胶囊提示（点击后左下角浮现1.1s后淡出，不占主屏幕） ── */}
       {toastVisible ? (
         <Animated.View
@@ -263,6 +336,15 @@ const localStyles = StyleSheet.create({
   },
   compactArea: { paddingTop: 4 },
   compactControls: { paddingVertical: 4 },
+  auxControls: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+    paddingTop: 2,
+    paddingBottom: 4,
+  },
+  compactAux: { paddingTop: 0, paddingBottom: 2 },
   modeToast: {
     position: "absolute",
     left: 14,

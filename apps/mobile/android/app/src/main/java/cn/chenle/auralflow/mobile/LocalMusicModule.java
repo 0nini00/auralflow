@@ -6,6 +6,7 @@ import android.content.ContentResolver;
 import android.content.ContentUris;
 import android.content.ContentValues;
 import android.content.Intent;
+import android.content.res.AssetFileDescriptor;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
@@ -612,17 +613,19 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
     return null;
   }
 
-  /** MediaStore albumart URI 是否真的存在（无内嵌封面时该 URI 指向不存在的文件）。 */
-  private static boolean albumArtExists(ContentResolver resolver, Uri albumArtUri) throws Exception {
-    try {
-      InputStream in = resolver.openInputStream(albumArtUri);
-      if (in == null) {
-        return false;
-      }
-      in.close();
-      return true;
+  /**
+   * MediaStore albumart 存在时返回非零版本号，用于让封面 URL 随文件大小变化。
+   * 封面内容被替换但大小不变时仍无法区分，这是 MediaStore 不暴露修改时间的限制。
+   */
+  private static long albumArtVersion(ContentResolver resolver, Uri albumArtUri) {
+    try (AssetFileDescriptor descriptor = resolver.openAssetFileDescriptor(albumArtUri, "r")) {
+      if (descriptor == null) return -1;
+      long length = descriptor.getLength();
+      return length > 0 ? length : 1;
     } catch (FileNotFoundException missingArtwork) {
-      return false;
+      return -1;
+    } catch (Exception error) {
+      return -1;
     }
   }
 
@@ -630,8 +633,13 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
   private static String resolveCover(ContentResolver resolver, long albumId, File audioFile) throws Exception {
     if (albumId > 0) {
       Uri albumArtUri = ContentUris.withAppendedId(Uri.parse(ALBUM_ART_BASE_URI), albumId);
-      if (albumArtExists(resolver, albumArtUri)) {
-        return albumArtUri.toString();
+      long version = albumArtVersion(resolver, albumArtUri);
+      if (version > 0) {
+        // 版本参数让图片缓存随封面文件变化失效，避免扫描后仍显示旧封面。
+        return albumArtUri.buildUpon()
+            .appendQueryParameter("afv", Long.toString(version))
+            .build()
+            .toString();
       }
     }
     return findSidecarCover(audioFile);
@@ -693,6 +701,17 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
     return signature.toString();
   }
 
+  private void emitScanProgress(int scanned, int total) {
+    try {
+      WritableMap payload = Arguments.createMap();
+      payload.putInt("scanned", scanned);
+      payload.putInt("total", total);
+      getReactApplicationContext().emitDeviceEvent("LocalMusicScanProgress", payload);
+    } catch (Exception ignored) {
+      // 模块正在销毁或 JS 引擎已卸载时进度事件没有接收方，不能影响扫描本身。
+    }
+  }
+
   @ReactMethod
   public void scanLocalMusic(ReadableMap knownSignatures, Promise promise) {
     submitIo(scanExecutor, promise, "LOCAL_MUSIC_SCAN_FAILED",
@@ -722,6 +741,9 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
         if (cursor == null) {
           throw new IllegalStateException("MediaStore 查询返回 null，未完成扫描");
         }
+        int total = Math.max(0, cursor.getCount());
+        int scanned = 0;
+        emitScanProgress(scanned, total);
         int idIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID);
         int titleIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE);
         int artistIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST);
@@ -758,14 +780,20 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
           if (!tagsUnchanged) {
             String lyrics = resolveLyrics(audioFile);
             if (lyrics != null) song.putString("lyrics", lyrics);
-            String coverUri = resolveCover(resolver, albumId, audioFile);
-            if (coverUri != null) song.putString("albumArtUri", coverUri);
             if (!signature.equals(buildScanSignature(cursor, audioFile, covers))) {
               throw new IllegalStateException("音频或旁挂文件在扫描期间发生变化，请重试：" + contentUri);
             }
           }
+          // 专辑封面变化不改变音频签名，每次扫描都重新解析并带上版本参数。
+          // null 表示当前没有封面，JS 需要清掉旧值而不是继续复用。
+          String coverUri = resolveCover(resolver, albumId, audioFile);
+          if (coverUri != null) song.putString("albumArtUri", coverUri);
+          else song.putNull("albumArtUri");
           songs.pushMap(song);
+          scanned += 1;
+          if (scanned % 50 == 0) emitScanProgress(scanned, total);
         }
+        emitScanProgress(scanned, total);
       }
       // 公共封面只按目录复用；发布前复查，扫描中修改不能被本轮缓存掩盖。
       covers.verifyUnchanged();
