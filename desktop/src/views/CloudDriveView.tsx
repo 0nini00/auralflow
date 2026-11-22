@@ -12,6 +12,7 @@ import { formatDuration } from '@/lib/utils';
 import { coverSrc } from '@/utils/imageReferrerPolicy';
 import { formatBytes } from '@/utils/formatBytes';
 
+import { usePlayNextAction } from "@/hooks/usePlayNextAction";
 type PendingPlayAction = 'play-all' | 'shuffle' | `track:${number}` | null;
 
 /** 容量展示：无数据/0 显示占位「—」，其余交给共享的 formatBytes（与下载页同一实现）。 */
@@ -47,7 +48,7 @@ export function CloudDriveView() {
   const loadMore = useCloudDriveStore((s) => s.loadMore);
   const refresh = useCloudDriveStore((s) => s.refresh);
 
-  const playNext = usePlayerStore((s) => s.playNext);
+  const playNext = usePlayNextAction();
   const playQueue = usePlayerStore((s) => s.playQueue);
   const [pendingPlayAction, setPendingPlayAction] = useState<PendingPlayAction>(null);
   const isPlayAllPending = pendingPlayAction === 'play-all';

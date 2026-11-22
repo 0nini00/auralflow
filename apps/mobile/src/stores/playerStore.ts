@@ -914,7 +914,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       const inserted = insertSongToPlayNext({ queue: state.queue, currentIndex: state.currentIndex, song });
       // 插入点之后的索引整体 +1：否则随机历史与已播集合会指向错位的歌。
       const grew = inserted.queue.length === state.queue.length + 1;
-      const insertPoint = inserted.currentIndex + 1;
+      // 无当前曲时插到队首，插入点是 0；有当前曲时插在其后。
+      const insertPoint = before.currentIndex < 0 ? 0 : inserted.currentIndex + 1;
       return {
         queue: inserted.queue,
         currentIndex: inserted.currentIndex,

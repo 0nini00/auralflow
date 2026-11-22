@@ -13,6 +13,7 @@ import { shuffleItems, type MusicInfo } from "@lx/core";
 import { DETAIL_COVER_CSS_SIZE, ROW_COVER_CSS_SIZE, coverSrc } from "@/utils/imageReferrerPolicy";
 import { Play, Shuffle, Clock, Disc3, Loader2, CornerDownRight } from "lucide-react";
 
+import { usePlayNextAction } from "@/hooks/usePlayNextAction";
 interface AlbumInfoFull {
   id: string;
   name: string;
@@ -42,7 +43,7 @@ export function AlbumDetailView() {
   const [descExpanded, setDescExpanded] = useState(false);
   const [pendingPlayAction, setPendingPlayAction] = useState<PendingPlayAction>(null);
 
-  const playNext = usePlayerStore((s) => s.playNext);
+  const playNext = usePlayNextAction();
   const playQueue = usePlayerStore((s) => s.playQueue);
   const isPlayAllPending = pendingPlayAction === 'play-all';
   const isShufflePending = pendingPlayAction === 'shuffle';

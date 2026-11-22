@@ -20,6 +20,7 @@ import { shuffleItems, type MusicInfo, type AlbumInfo } from "@lx/core";
 import { DETAIL_COVER_CSS_SIZE, ROW_COVER_CSS_SIZE, coverSrc } from "@/utils/imageReferrerPolicy";
 import { Play, Shuffle, Clock, User, Loader2, CornerDownRight } from "lucide-react";
 
+import { usePlayNextAction } from "@/hooks/usePlayNextAction";
 interface ArtistInfo {
   id: string;
   name: string;
@@ -50,7 +51,7 @@ export function ArtistDetailView() {
   const [descExpanded, setDescExpanded] = useState(false);
   const [pendingPlayAction, setPendingPlayAction] = useState<PendingPlayAction>(null);
 
-  const playNext = usePlayerStore((s) => s.playNext);
+  const playNext = usePlayNextAction();
   const playQueue = usePlayerStore((s) => s.playQueue);
   const isPlayAllPending = pendingPlayAction === 'play-all';
   const isShufflePending = pendingPlayAction === 'shuffle';

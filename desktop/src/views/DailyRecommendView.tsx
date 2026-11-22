@@ -12,6 +12,7 @@ import { DETAIL_COVER_CSS_SIZE, coverSrc } from '@/utils/imageReferrerPolicy';
 import { shuffleItems } from '@lx/core';
 import { Calendar, Play, Shuffle, RefreshCw, Clock, Loader2, CornerDownRight } from 'lucide-react';
 
+import { usePlayNextAction } from "@/hooks/usePlayNextAction";
 type PendingPlayAction = 'play-all' | 'shuffle' | `track:${number}` | null;
 
 export function DailyRecommendView() {
@@ -29,7 +30,7 @@ export function DailyRecommendView() {
   const selectDailyDate = useDiscoveryStore((s) => s.selectDailyDate);
   const selectToday = useDiscoveryStore((s) => s.selectToday);
 
-  const playNext = usePlayerStore((s) => s.playNext);
+  const playNext = usePlayNextAction();
   const playQueue = usePlayerStore((s) => s.playQueue);
   const [pendingPlayAction, setPendingPlayAction] = useState<PendingPlayAction>(null);
   const isPlayAllPending = pendingPlayAction === 'play-all';

@@ -31,12 +31,13 @@ import {
 } from "@lx/core";
 import { DETAIL_COVER_CSS_SIZE, ROW_COVER_CSS_SIZE, coverSrc } from "@/utils/imageReferrerPolicy";
 
+import { usePlayNextAction } from "@/hooks/usePlayNextAction";
 /** 时间未知的条目不是任何一天，用 0 作为哨兵（日期时间戳不会为 0）。 */
 const UNKNOWN_DAY = 0;
 
 export function HistoryView() {
   const entries = useHistoryStore((s) => s.entries);
-  const playNext = usePlayerStore((s) => s.playNext);
+  const playNext = usePlayNextAction();
   const playQueue = usePlayerStore((s) => s.playQueue);
   const [selectedDay, setSelectedDay] = useState(() => dayStartOf(Date.now()));
   const [calendarOpen, setCalendarOpen] = useState(false);

@@ -17,6 +17,7 @@ import { DETAIL_COVER_CSS_SIZE, ROW_COVER_CSS_SIZE, coverSrc } from '@/utils/ima
 import { shuffleItems, type MusicInfo, type PlaylistInfo, type SourceTag } from '@lx/core';
 import { Play, Shuffle, Trash2, Clock, Loader2, CornerDownRight, Bookmark, BookmarkCheck, BookmarkX, RefreshCw, LocateFixed, ListPlus, Download } from 'lucide-react';
 
+import { usePlayNextAction } from "@/hooks/usePlayNextAction";
 interface PlaylistSongsRequest {
   identity: string;
   status: 'loading' | 'ready' | 'error';
@@ -75,7 +76,7 @@ export function PlaylistDetailView() {
 
   // 逐字段订阅：播放进度每帧推送一次，整表订阅会让整个列表跟着每帧重渲染
   const playQueue = usePlayerStore((s) => s.playQueue);
-  const playNext = usePlayerStore((s) => s.playNext);
+  const playNext = usePlayNextAction();
   const currentTrack = usePlayerStore((s) => s.current);
 
   const isFavoritesPlaylist = !explicitRemoteSource && id === 'favorites';

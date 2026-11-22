@@ -69,6 +69,29 @@ test("连点两首时后点的先播，队列顺序与锚点同步", () => {
   assert.equal(state.pinnedNextSong?.id, "Y", "锚点指向最后一次点击的歌");
 });
 
+test("队列有歌但无当前曲时插到队首并保留原队列", () => {
+  const { store } = setup({ queue: [song("A"), song("B")], currentIndex: -1 });
+
+  const shouldStartNow = store.getState().playNextInQueue(song("X"));
+
+  const state = store.getState();
+  assert.equal(ids(state.queue), "X,A,B", "不能把原队列替换成这一首");
+  assert.equal(state.currentIndex, 0);
+  assert.equal(shouldStartNow, true);
+});
+
+test("当前索引失效时插到队尾并保留原队列", () => {
+  const { store } = setup({ queue: [song("A")], currentIndex: 5 });
+
+  const shouldStartNow = store.getState().playNextInQueue(song("X"));
+
+  const state = store.getState();
+  assert.equal(ids(state.queue), "A,X");
+  assert.equal(state.currentIndex, 5, "越界索引保持原值，避免把当前曲指错");
+  assert.equal(shouldStartNow, false);
+  assert.equal(state.pinnedNextSong?.id, "X", "由锚点保证下一次切歌先播它");
+});
+
 // 起播本身由 playerService.queueSongToPlayNext 完成（store 不依赖播放编排），
 // 「空队列插入后真的出声」在 playback-regressions.test.cjs 用真实 service 锁住。
 test("空队列插入后成为队首，并告知调用方需要立即开播", () => {

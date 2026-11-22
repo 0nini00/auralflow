@@ -31,11 +31,17 @@ export function insertSongAtQueueEnd({ queue, currentIndex, song }: QueueInsertI
 }
 
 export function insertSongToPlayNext({ queue, currentIndex, song }: QueueInsertInput): QueueInsertResult {
-  if (queue.length === 0 || currentIndex < 0 || currentIndex >= queue.length) {
-    return {
-      queue: [song],
-      currentIndex: 0,
-    };
+  if (queue.length === 0) {
+    return { queue: [song], currentIndex: 0 };
+  }
+  if (currentIndex < 0) {
+    // 队列有歌但还没开始播放：插到队首并保留原队列，不能把整条队列替换成这一首。
+    return { queue: [song, ...queue], currentIndex: 0 };
+  }
+  if (currentIndex >= queue.length) {
+    // 当前索引已失效（例如队列被裁剪后还没同步）：插到队尾保留原队列，
+    // 由 pinnedNextSong 保证下一次切歌先播它。
+    return { queue: [...queue, song], currentIndex };
   }
 
   const insertIndex = currentIndex + 1;
