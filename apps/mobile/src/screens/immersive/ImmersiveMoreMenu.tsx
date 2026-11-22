@@ -10,7 +10,6 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  Captions,
   MoreHorizontal,
   Palette,
   SlidersHorizontal,
@@ -39,8 +38,6 @@ export interface ImmersiveMoreMenuProps {
   visible: boolean;
   onClose: () => void;
   palette: ThemePalette;
-  floatingLyricActive: boolean;
-  onToggleFloatingLyric: () => void;
   sleepLabel: string;
   sleepActive: boolean;
   onOpenSleep: () => void;
@@ -54,8 +51,6 @@ export function ImmersiveMoreMenu({
   visible,
   onClose,
   palette,
-  floatingLyricActive,
-  onToggleFloatingLyric,
   sleepLabel,
   sleepActive,
   onOpenSleep,
@@ -69,12 +64,6 @@ export function ImmersiveMoreMenu({
 
   // 高频动作已移到播放控制区下方的小按钮行，这里只保留低频设置项。
   const menuItems = [
-    {
-      icon: Captions,
-      label: floatingLyricActive ? "关闭悬浮歌词" : "打开悬浮歌词",
-      onPress: onToggleFloatingLyric,
-      active: floatingLyricActive,
-    },
     {
       icon: Timer,
       label: sleepActive ? `睡眠定时：${sleepLabel}` : "睡眠定时",

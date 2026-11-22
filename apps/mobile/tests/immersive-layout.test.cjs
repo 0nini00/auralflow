@@ -223,14 +223,14 @@ test("右上角更多只保留低频设置，高频操作下放到播放控制�
   const menu = descendants(screen.tree, 'ImmersiveMoreMenu')[0];
   assert.equal(menu.props.visible, true);
   assert.equal(screen.gesture.isEnabled, false);
-  for (const name of ['onOpenPlaySetting', 'onOpenSleep', 'onToggleFloatingLyric']) {
+  for (const name of ['onOpenPlaySetting', 'onOpenSleep']) {
     assert.equal(typeof menu.props[name], 'function', name);
   }
-  for (const name of ['onToggleLike', 'onOpenComments', 'onOpenDownload', 'onAddToPlaylist', 'onShare']) {
+  for (const name of ['onToggleLike', 'onOpenComments', 'onOpenDownload', 'onAddToPlaylist', 'onShare', 'onToggleFloatingLyric']) {
     assert.equal(menu.props[name], undefined, name);
   }
   const transport = descendants(screen.tree, 'ImmersiveTransport')[0];
-  for (const name of ['onToggleLike', 'onOpenComments', 'onOpenDownload', 'onAddToPlaylist', 'onShare']) {
+  for (const name of ['onToggleLike', 'onOpenComments', 'onOpenDownload', 'onToggleFloatingLyric', 'onOpenMore']) {
     assert.equal(typeof transport.props[name], 'function', name);
   }
   assert.equal(transport.props.onMoreMenuVisibleChange, undefined);
@@ -314,7 +314,7 @@ test("渲染契约：弹层打开及竖屏歌词页停用下拉，宽屏歌词�
   assert.equal(renderScreen().gesture.isEnabled, true);
   assert.equal(renderScreen({ currentPage: 1 }).gesture.isEnabled, false);
   assert.equal(renderScreen({ width: 844, height: 390, currentPage: 1 }).gesture.isEnabled, true);
-  for (const modal of ["queueModalVisible", "commentsVisible", "playSettingVisible", "sleepModalVisible", "rateModalVisible", "volumeModalVisible", "addToPlaylistVisible", "coverMenuVisible", "coverSongDownloadVisible"]) {
+  for (const modal of ["queueModalVisible", "commentsVisible", "playSettingVisible", "sleepModalVisible", "rateModalVisible", "volumeModalVisible", "coverMenuVisible", "coverSongDownloadVisible"]) {
     assert.equal(renderScreen({ overlay: { [modal]: true } }).gesture.isEnabled, false, modal);
   }
 });

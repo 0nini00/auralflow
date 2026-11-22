@@ -2,16 +2,16 @@ import React, { useRef, useState } from "react";
 import { ActivityIndicator, Animated, StyleSheet, Text, View } from "react-native";
 import {
   ArrowRight,
+  Captions,
   Download,
-  FolderPlus,
   Heart,
   ListMusic,
   MessageCircle,
+  MoreHorizontal,
   Pause,
   Play,
   Repeat,
   Repeat1,
-  Share2,
   Shuffle,
   SkipBack,
   SkipForward,
@@ -47,10 +47,9 @@ export interface ImmersiveTransportProps {
   canShowComments: boolean;
   onOpenComments: () => void;
   onOpenDownload?: () => void;
-  canAddToPlaylist: boolean;
-  onAddToPlaylist: () => void;
-  canShare: boolean;
-  onShare: () => void;
+  floatingLyricActive: boolean;
+  onToggleFloatingLyric: () => void;
+  onOpenMore: () => void;
 }
 
 /** 进度区叶子组件：只有这里随 0.25s 进度事件重渲染（对齐 PlayerBar MiniLyricStatus 的隔离模式）。 */
@@ -118,10 +117,9 @@ export function ImmersiveTransport({
   canShowComments,
   onOpenComments,
   onOpenDownload,
-  canAddToPlaylist,
-  onAddToPlaylist,
-  canShare,
-  onShare,
+  floatingLyricActive,
+  onToggleFloatingLyric,
+  onOpenMore,
 }: ImmersiveTransportProps) {
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMode, setToastMode] = useState<MobilePlayMode>(playMode);
@@ -275,24 +273,23 @@ export function ImmersiveTransport({
             render={({ size }) => <Download size={size} color={palette.text} />}
           />
         ) : null}
-        {canAddToPlaylist ? (
-          <IconButton
-            size="sm"
-            tone="strong"
-            onPress={onAddToPlaylist}
-            accessibilityLabel="添加到歌单"
-            render={({ size }) => <FolderPlus size={size} color={palette.text} />}
-          />
-        ) : null}
-        {canShare ? (
-          <IconButton
-            size="sm"
-            tone="strong"
-            onPress={onShare}
-            accessibilityLabel="分享音乐"
-            render={({ size }) => <Share2 size={size} color={palette.text} />}
-          />
-        ) : null}
+        <IconButton
+          size="sm"
+          tone="strong"
+          selected={floatingLyricActive}
+          onPress={onToggleFloatingLyric}
+          accessibilityLabel={floatingLyricActive ? "关闭悬浮歌词" : "打开悬浮歌词"}
+          render={({ size }) => (
+            <Captions size={size} color={floatingLyricActive ? palette.primaryInk : palette.text} />
+          )}
+        />
+        <IconButton
+          size="sm"
+          tone="strong"
+          onPress={onOpenMore}
+          accessibilityLabel="更多选项"
+          render={({ size }) => <MoreHorizontal size={size} color={palette.text} />}
+        />
       </View>
 
       {/* ── 播放模式微型小胶囊提示（点击后左下角浮现1.1s后淡出，不占主屏幕） ── */}

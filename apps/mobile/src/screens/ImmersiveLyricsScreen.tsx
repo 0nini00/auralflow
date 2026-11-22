@@ -30,7 +30,6 @@ import KeepAwake from "react-native-keep-awake";
 import { COVER_SIZE_LARGE } from "@lx/core";
 
 import { LyricView } from "@/components/LyricView";
-import { AddToLocalPlaylistModal } from "@/components/AddToLocalPlaylistModal";
 import { ImmersiveBackground } from "@/components/ImmersiveBackground";
 import { SheetFrame } from "@/components/SheetFrame";
 import { Touchable } from "@/components/Touchable";
@@ -174,8 +173,6 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     currentPage,
     setCurrentPage,
     isLyricsPage,
-    addToPlaylistVisible,
-    setAddToPlaylistVisible,
     handleOpenArtist,
     canOpenArtist,
     playModeControl,
@@ -220,7 +217,6 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     handleCancelSleepTimer,
     handleStartCustomSleepTimer,
     handleStartCustomSongSleepTimer,
-    handleShare,
     floatingLyricActive,
     handleToggleFloatingLyric,
     coverMenuVisible,
@@ -233,7 +229,6 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     handleCoverDownload,
     commentsVisible,
     setCommentsVisible,
-    currentSongActions,
     handleLike,
     isLiked,
   } = useImmersiveController({ visible, onClose });
@@ -250,7 +245,7 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     ...mediaViewport, miniLyricHeight: isSplit ? 0 : miniLyricHeight,
   });
   const overlayVisible = queueModalVisible || commentsVisible || playSettingVisible || sleepModalVisible
-    || rateModalVisible || volumeModalVisible || addToPlaylistVisible || coverMenuVisible
+    || rateModalVisible || volumeModalVisible || coverMenuVisible
     || coverSongDownloadVisible || moreMenuVisible;
 
   // 两种动效与封面氛围共用取色；无封面时不额外请求。
@@ -665,10 +660,9 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
                       canShowComments={currentSong.source === "wy"}
                       onOpenComments={() => setCommentsVisible(true)}
                       onOpenDownload={openCoverSongDownload}
-                      canAddToPlaylist={currentSongActions.show}
-                      onAddToPlaylist={() => setAddToPlaylistVisible(true)}
-                      canShare={currentSongActions.show}
-                      onShare={() => { void handleShare(); }}
+                      floatingLyricActive={floatingLyricActive}
+                      onToggleFloatingLyric={handleToggleFloatingLyric}
+                      onOpenMore={() => setMoreMenuVisible(true)}
                     />
                   </Animated.View>
                 </ScrollView>
@@ -681,8 +675,6 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
               visible={visible && moreMenuVisible}
               onClose={() => setMoreMenuVisible(false)}
               palette={chromePalette}
-              floatingLyricActive={floatingLyricActive}
-              onToggleFloatingLyric={handleToggleFloatingLyric}
               onPlayMv={currentMvId ? () => {
                 onClose();
                 openMvPlayerScreen({
@@ -706,12 +698,6 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
               visible={playSettingVisible}
               onClose={() => setPlaySettingVisible(false)}
               palette={chromePalette}
-            />
-
-            <AddToLocalPlaylistModal
-              visible={addToPlaylistVisible}
-              song={currentSong}
-              onClose={() => setAddToPlaylistVisible(false)}
             />
 
             <SheetFrame
