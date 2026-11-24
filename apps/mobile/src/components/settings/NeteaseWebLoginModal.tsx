@@ -3,13 +3,13 @@ import { ActivityIndicator, Modal, StyleSheet, Text, View } from "react-native";
 import { WebView } from "react-native-webview";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Touchable } from "@/components/Touchable";
+import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { showToast } from "@/components/ui/Toast";
 import { readNeteaseWebLoginCookie } from "@/services/webLoginService";
 import { useAccountStore } from "@/stores/accountStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { spacing, typography } from "@/theme/tokens";
+import { layout, spacing, typography } from "@/theme/tokens";
 
 interface NeteaseWebLoginModalProps {
   visible: boolean;
@@ -76,17 +76,7 @@ export function NeteaseWebLoginModal({ visible, onClose, onUseCookieLogin }: Net
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose} statusBarTranslucent>
       <View style={[styles.root, { backgroundColor: palette.background, paddingTop: insets.top }]}>
-        <View style={[styles.header, { borderBottomColor: palette.border }]}>
-          <Text style={[styles.title, { color: palette.text }]}>登录网易云账号</Text>
-          <Touchable
-            style={styles.close}
-            onPress={onClose}
-            accessibilityRole="button"
-            accessibilityLabel="关闭网页登录"
-          >
-            <Text style={[styles.closeText, { color: palette.textMuted }]}>关闭</Text>
-          </Touchable>
-        </View>
+        <PageHeader title="登录网易云账号" canGoBack onGoBack={onClose} />
         <View style={styles.web}>
           <WebView
             source={{ uri: LOGIN_URL }}
@@ -123,9 +113,10 @@ export function NeteaseWebLoginModal({ visible, onClose, onUseCookieLogin }: Net
           </Text>
           <Button
             label="改用 Cookie 登录"
-            size="small"
+            variant="secondary"
             accessibilityLabel="改用 Cookie 登录"
             onPress={() => { onClose(); onUseCookieLogin(); }}
+            style={styles.cookieButton}
           />
         </View>
       </View>
@@ -137,25 +128,6 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.m,
-    paddingVertical: spacing.s,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  title: {
-    fontSize: typography.title,
-    fontWeight: "700",
-  },
-  close: {
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.s,
-  },
-  closeText: {
-    fontSize: typography.body,
-  },
   web: {
     flex: 1,
   },
@@ -166,12 +138,15 @@ const styles = StyleSheet.create({
   },
   footer: {
     gap: spacing.xs,
-    paddingHorizontal: spacing.m,
+    paddingHorizontal: layout.pagePadding,
     paddingTop: spacing.s,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   status: {
     fontSize: typography.caption,
     lineHeight: 18,
+  },
+  cookieButton: {
+    alignSelf: "stretch",
   },
 });
