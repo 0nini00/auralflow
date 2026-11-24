@@ -4,6 +4,8 @@ import { check, request, PERMISSIONS, RESULTS } from "react-native-permissions";
 import type { MusicInfo } from "@lx/core";
 import { useDownloadStore } from "@/stores/downloadStore";
 import { logger } from "@/services/logger";
+import { buildDownloadFileStem } from "@/services/downloadFileNaming";
+import { findDownloadDirectoryFile } from "@/services/downloadDirectoryService";
 import { DOWNLOAD_SCOPE, MEDIA_STORE_SCOPE, type LocalMusicInfo, type LocalMusicScanResult } from "./localMusicScanModel";
 
 /**
@@ -98,15 +100,27 @@ export async function getDownloadedLocalSongs(existing: LocalMusicInfo[] = []): 
   await useDownloadStore.getState().loadDownloads();
   const { downloads, error } = useDownloadStore.getState();
   if (error) throw new Error(error);
-  // 下载记录被移除不代表文件被删除；以现有曲库补齐待检查路径，不依赖空索引判断消失。
-  const candidates = new Map(existing
-    .filter((song) => song.localOrigin === "download" && song.localScan?.scope === DOWNLOAD_SCOPE)
-    .map((song) => [song.id, song]));
+  /*
+   * 同一首歌可能有多条下载记录（不同音质）以及曲库里的旧条目。它们共用一个本地 id，
+   * 但文件路径可能不同：某条记录的旧文件已被移动/删除时，不能让它把仍有效的条目
+   * 覆盖掉。按 id 分组后逐个检查，取第一条可播放的文件；下载记录排在旧曲库条目前面，
+   * 保证元数据优先使用最近一次下载。
+   */
+  interface DownloadCandidate extends LocalMusicInfo {
+    /** 记录路径失效时，用于在所选下载文件夹里找回被移动的文件。 */
+    recoveryPrefix?: string;
+  }
+  const groups = new Map<string, DownloadCandidate[]>();
+  const addCandidate = (song: DownloadCandidate) => {
+    const list = groups.get(song.id);
+    if (list) list.push(song);
+    else groups.set(song.id, [song]);
+  };
   for (const item of downloads) {
     if (!item.localPath) throw new Error("下载记录缺少本地文件路径");
     const cover = item.song.picUrl || item.song.img;
     const id = DOWNLOADED_LOCAL_ID_PREFIX + item.song.source + "-" + item.song.id;
-    candidates.set(id, {
+    addCandidate({
       id,
       name: item.song.name,
       singer: item.song.singer || "未知歌手",
@@ -119,13 +133,21 @@ export async function getDownloadedLocalSongs(existing: LocalMusicInfo[] = []): 
       isLocal: true,
       localOrigin: "download",
       localScan: { scope: DOWNLOAD_SCOPE },
+      recoveryPrefix: `${buildDownloadFileStem(item.song, item.quality ?? "320k")}.`,
     });
   }
-  // 单个下载文件读取失败不能拖垮整次扫描：无法确定文件是否消失时保留记录，
-  // 只有明确 exists=false 才移除；歌词读取失败保留旧歌词。
-  const resolved = await Promise.all([...candidates.values()].map(async (song) => {
-    if (!song.url?.startsWith("file://")) {
-      logger.warn("[local] 下载歌曲缺少有效的本地文件路径，保留记录", song.id);
+  // 下载记录被移除不代表文件被删除；已有曲库条目作为兜底候选。
+  for (const song of existing) {
+    if (song.localOrigin === "download" && song.localScan?.scope === DOWNLOAD_SCOPE) {
+      addCandidate(song);
+    }
+  }
+
+  const resolveCandidate = async (candidate: DownloadCandidate): Promise<LocalMusicInfo | null> => {
+    const { recoveryPrefix, ...song } = candidate;
+    if (!song.url) return null;
+    if (!song.url.startsWith("file://")) {
+      // content:// 由系统文档提供方管理，无法用 RNFS 判存；保留记录交给播放器校验。
       return song;
     }
     const path = song.url.slice(7);
@@ -136,13 +158,32 @@ export async function getDownloadedLocalSongs(existing: LocalMusicInfo[] = []): 
       logger.warn("[local] 检查下载文件失败，保留记录", song.id, error);
       return song;
     }
-    if (!exists) return null;
+    if (!exists) {
+      // 下载文件可能已被移动到用户选择的文件夹；按下载文件名前缀找回。
+      if (recoveryPrefix) {
+        try {
+          const recovered = await findDownloadDirectoryFile(recoveryPrefix);
+          if (recovered) return { ...song, url: recovered };
+        } catch (error) {
+          logger.warn("[local] 在下载文件夹中找回文件失败", song.id, error);
+        }
+      }
+      return null;
+    }
     try {
       return { ...song, localLyrics: await readSidecarLrc(path) };
     } catch (error) {
       logger.warn("[local] 读取下载歌曲旁挂歌词失败，保留记录", song.id, error);
       return { ...song };
     }
+  };
+
+  const resolved = await Promise.all([...groups.values()].map(async (candidates) => {
+    for (const candidate of candidates) {
+      const valid = await resolveCandidate(candidate);
+      if (valid) return valid;
+    }
+    return null;
   }));
   return {
     source: "download", scope: DOWNLOAD_SCOPE, complete: true,

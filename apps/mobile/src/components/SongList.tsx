@@ -38,6 +38,8 @@ export interface SongListProps {
   onPlay: (song: MusicInfo, index: number) => void;
   emptyText?: string;
   getExtraMetadata?: (song: MusicInfo, index: number) => string | undefined;
+  /** 可选：向行尾「更多」菜单追加条目（云盘删除等场景） */
+  getExtraMenuItems?: (song: MusicInfo) => ActionMenuItem[];
   /** 可选：每行末尾显示删除按钮（用于下载页等管理场景） */
   onDelete?: (song: MusicInfo, index: number) => void;
   highlightedIndex?: number | null;
@@ -105,6 +107,7 @@ export function SongList({
   onPlay,
   emptyText,
   getExtraMetadata,
+  getExtraMenuItems,
   onDelete,
   highlightedIndex,
   hideSourceTag = false,
@@ -366,6 +369,7 @@ export function SongList({
       });
     }
     items.push({ label: "分享", icon: "share", onPress: () => void shareMusic(song).catch(() => undefined) });
+    if (getExtraMenuItems) items.push(...getExtraMenuItems(song));
     if (onDelete) {
       const songIndex = songs.indexOf(song);
       items.push({ label: "移除", icon: "delete", danger: true, onPress: () => onDelete(song, songIndex >= 0 ? songIndex : 0) });
@@ -554,7 +558,7 @@ interface SongItemProps {
   onRowLongPress?: (song: MusicInfo, index: number) => void;
   onRowDelete?: (song: MusicInfo, index: number) => void;
   /** 点击“更多”时打开列表根部的单一菜单弹窗（参数为点击点坐标，用于锚定菜单）。 */
-  onOpenMenu: (song: MusicInfo, anchor: ActionMenuAnchor) => void;
+  onOpenMenu?: (song: MusicInfo, anchor: ActionMenuAnchor) => void;
   /** 稳定的元数据取值函数，行内调用（保持 prop 引用稳定以配合 memo） */
   getExtraMetadata?: (song: MusicInfo, index: number) => string | undefined;
   pressable?: boolean;
@@ -810,7 +814,7 @@ export const SongItem = memo(function SongItem({  song,
           />
         ) : null}
 
-        {showMoreAction ? (
+        {showMoreAction && onOpenMenu ? (
           <IconButton
             size="sm"
             onPress={(e) => {

@@ -24,6 +24,7 @@ function setup(options = {}) {
     ["history-playlists", "keep-user-history"]]);
   const writes = [];
   const calls = [];
+  const recoveryCalls = [];
   let downloadLoaded = false;
   const downloadState = {
     downloads: options.downloads || [], error: null,
@@ -81,10 +82,16 @@ function setup(options = {}) {
       readFile: async () => { throw new Error("unexpected read"); },
     },
     "@/stores/downloadStore": { useDownloadStore: { getState: () => downloadState } },
+    "@/services/downloadDirectoryService": {
+      findDownloadDirectoryFile: async (prefix) => {
+        recoveryCalls.push(prefix);
+        return options.recoveredUri ?? null;
+      },
+    },
   });
   return {
     store: load("src/stores/localMusicStore.ts").useLocalMusicStore,
-    service: load("src/services/localMusicService.ts"), load, storage, writes, calls,
+    service: load("src/services/localMusicService.ts"), load, storage, writes, calls, recoveryCalls,
     downloadLoaded: () => downloadLoaded,
   };
 }
@@ -182,6 +189,57 @@ test("下载先完成持久化加载，来源独立且不存在文件可安全�
     downloads: [{ localPath: "/app/new.mp3", song: { id: "8", source: "kg", name: "下载" } }] });
   await missing.store.getState().scanMusic();
   assert.deepEqual(missing.store.getState().localSongs, []);
+});
+
+test("下载到外部文件夹的 content URI 记录重扫后仍进入本地曲库", async () => {
+  const localPath = "content://com.android.externalstorage.documents/document/primary%3AMusic%2Fsong.flac";
+  const f = setup({ downloads: [{ localPath, song: { id: "42", source: "wy", name: "外部下载" } }] });
+  await f.store.getState().scanMusic();
+  const downloaded = f.store.getState().localSongs[0];
+  assert.equal(downloaded.localOrigin, "download");
+  assert.equal(downloaded.url, localPath);
+  assert.equal(downloaded.name, "外部下载");
+});
+
+test("下载记录路径失效时保留曲库中仍有效的同曲下载条目", async () => {
+  const f = setup({
+    existing: [song("dl-kg-8", "download", { url: "file:///app/8.mp3", name: "仍有效" })],
+    downloads: [{ localPath: "/app/missing.mp3", song: { id: "8", source: "kg", name: "失效记录" } }],
+    missingPaths: ["/app/missing.mp3"],
+  });
+  await f.store.getState().scanMusic();
+  assert.equal(f.store.getState().localSongs.length, 1);
+  assert.equal(f.store.getState().localSongs[0].name, "仍有效");
+  assert.equal(f.store.getState().localSongs[0].url, "file:///app/8.mp3");
+});
+
+test("同曲多条下载记录中只要有一条文件存在就保留本地条目", async () => {
+  const f = setup({
+    downloads: [
+      { localPath: "/app/existing.mp3", song: { id: "8", source: "kg", name: "有效记录" } },
+      { localPath: "/app/missing.mp3", song: { id: "8", source: "kg", name: "失效记录" } },
+    ],
+    missingPaths: ["/app/missing.mp3"],
+  });
+  await f.store.getState().scanMusic();
+  assert.equal(f.store.getState().localSongs.length, 1);
+  assert.equal(f.store.getState().localSongs[0].name, "有效记录");
+  assert.equal(f.store.getState().localSongs[0].url, "file:///app/existing.mp3");
+});
+
+test("下载记录指向的私有文件被移动后，按文件名前缀从所选文件夹找回", async () => {
+  const recoveredUri = "content://com.android.externalstorage.documents/document/primary%3AMusic%2Fkg-8-320k.mp3";
+  const f = setup({
+    downloads: [{ localPath: "/app/missing.mp3", song: { id: "8", source: "kg", name: "被移动的下载" } }],
+    missingPaths: ["/app/missing.mp3"],
+    recoveredUri,
+  });
+  await f.store.getState().scanMusic();
+  assert.deepEqual(f.recoveryCalls, ["kg-8-320k."]);
+  assert.equal(f.store.getState().localSongs.length, 1);
+  assert.equal(f.store.getState().localSongs[0].name, "被移动的下载");
+  assert.equal(f.store.getState().localSongs[0].url, recoveredUri);
+  assert.equal(f.store.getState().localSongs[0].recoveryPrefix, undefined);
 });
 
 test("原生声称命中未提供的缓存或签名不一致时显式拒绝", async () => {
@@ -367,4 +425,20 @@ test("封面不再有用户覆盖：重载刷新后仍来自文件自身", async
   const restored = setup({ existing: storedSongs(f), downloads: [item] });
   await restored.store.getState().scanMusic();
   assert.equal(restored.store.getState().localSongs[0].picUrl, "old-cover");
+});
+
+test("原生下载文件夹恢复只匹配音频扩展名，避免把同名歌词当成音频", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const java = fs.readFileSync(path.resolve(
+    __dirname,
+    "../android/app/src/main/java/cn/chenle/auralflow/mobile/DownloadFileModule.java",
+  ), "utf8");
+  const method = java.slice(java.indexOf("public void findFileByPrefix("), java.indexOf("public void getFileSize("));
+  assert.match(method, /name\.startsWith\(prefix\)/);
+  assert.match(method, /isAudioFileName\(name\)/);
+  for (const extension of ["mp3", "flac", "wav", "m4a", "aac", "ape", "ogg", "opus", "wma"]) {
+    assert.match(java, new RegExp(`case "${extension}":`));
+  }
+  assert.doesNotMatch(java, /case "lrc":/);
 });

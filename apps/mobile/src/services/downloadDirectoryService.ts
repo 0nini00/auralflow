@@ -13,6 +13,7 @@ interface DownloadFileNativeModule {
   copyFileToDirectory(sourcePath: string, treeUri: string, fileName: string): Promise<string>;
   deleteFile(documentUri: string): Promise<boolean>;
   getFileSize(documentUri: string): Promise<number>;
+  findFileByPrefix(treeUri: string, prefix: string): Promise<string | null>;
 }
 
 const STORAGE_KEY = "auralflow.mobile.downloadDirectory";
@@ -96,6 +97,16 @@ export async function deleteDownloadDirectoryFile(documentUri: string): Promise<
     throw new Error("下载文件夹模块不可用，请安装包含 DownloadFileModule 的新版应用");
   }
   return nativeModule.deleteFile(documentUri);
+}
+
+/**
+ * 在所选文件夹里按文件名前缀查找下载文件。
+ * 旧下载记录仍指向已被移走的私有文件时，用它恢复出可播放的 document URI。
+ */
+export async function findDownloadDirectoryFile(prefix: string): Promise<string | null> {
+  const directory = await loadDownloadDirectory();
+  if (!directory || !nativeModule?.findFileByPrefix) return null;
+  return nativeModule.findFileByPrefix(directory.uri, prefix);
 }
 
 /** 查询所选文件夹中的文件大小；失败时返回 0（显示未知大小）。 */

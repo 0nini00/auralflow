@@ -1,21 +1,27 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshControl, StyleSheet, Text, View } from "react-native";
+import { Alert, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { Cloud } from "lucide-react-native";
 import { cloudQualityLabel, type MusicInfo } from "@lx/core";
 
 import { ActionButton } from "@/components/ActionButton";
 import { CachedImage } from "@/components/CachedImage";
+import { CloudUploadPanel } from "@/components/CloudUploadPanel";
 import { PlaybackErrorState } from "@/components/PlaybackErrorState";
 import { ScreenScaffold } from "@/components/ScreenScaffold";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
 import { SectionHeader } from "@/components/SectionHeader";
 import { SongList } from "@/components/SongList";
+import { showToast } from "@/components/ui/Toast";
+import type { ActionMenuItem } from "@/components/ActionMenuSheet";
+import { deleteCloudSong, pickCloudAudioFiles } from "@/services/cloudUploadService";
 import { playQueue, playShuffledQueue } from "@/services/playerService";
 import { runPlaybackUiAction } from "@/services/playbackUiAction";
 import { useAccountStore } from "@/stores/accountStore";
 import { useCloudDriveStore } from "@/stores/cloudDriveStore";
+import { useCloudUploadStore } from "@/stores/cloudUploadStore";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
 import { layout, radius, spacing, typography } from "@/theme/tokens";
+import { afterModalDismiss } from "@/utils/modalSequence";
 
 interface CloudDriveScreenProps {
   onNavigateToPlayer: () => void;
@@ -65,6 +71,7 @@ export function CloudDriveScreen({ onNavigateToPlayer: _onNavigateToPlayer }: Cl
   const initialize = useCloudDriveStore((state) => state.initialize);
   const loadMore = useCloudDriveStore((state) => state.loadMore);
   const refresh = useCloudDriveStore((state) => state.refresh);
+  const uploadRunning = useCloudUploadStore((state) => state.running);
 
   const [playbackError, setPlaybackError] = useState<string | null>(null);
 
@@ -115,6 +122,50 @@ export function CloudDriveScreen({ onNavigateToPlayer: _onNavigateToPlayer }: Cl
     void loadMore();
   }, [loadMore]);
 
+  const handleUpload = useCallback(async () => {
+    try {
+      const files = await pickCloudAudioFiles();
+      if (files.length > 0) void useCloudUploadStore.getState().upload(files);
+    } catch (error) {
+      Alert.alert("选择文件失败", error instanceof Error ? error.message : String(error));
+    }
+  }, []);
+
+  const requestDelete = useCallback((song: MusicInfo) => {
+    afterModalDismiss(() => {
+      Alert.alert(
+        "从云盘删除",
+        `确定删除「${song.name}」？删除后需要重新上传才能恢复。`,
+        [
+          { text: "取消", style: "cancel" },
+          {
+            text: "删除",
+            style: "destructive",
+            onPress: () => {
+              void (async () => {
+                try {
+                  await deleteCloudSong(song.id);
+                  showToast("已从云盘删除");
+                  await refresh();
+                } catch (error) {
+                  Alert.alert("删除失败", error instanceof Error ? error.message : String(error));
+                }
+              })();
+            },
+          },
+        ],
+      );
+    });
+  }, [refresh]);
+
+  const getExtraMenuItems = useCallback((song: MusicInfo): ActionMenuItem[] => [{
+    label: "从云盘删除",
+    icon: "delete",
+    danger: true,
+    disabled: uploadRunning,
+    onPress: () => requestDelete(song),
+  }], [requestDelete, uploadRunning]);
+
   // 云盘不做转码，所以这里显示的是上传文件的真实码率，而不是用户选的音质档位。
   const getExtraMetadata = useCallback((song: MusicInfo) => {
     return cloudQualityLabel(song.cloudMeta?.bitrate);
@@ -160,25 +211,40 @@ export function CloudDriveScreen({ onNavigateToPlayer: _onNavigateToPlayer }: Cl
         </View>
       </View>
 
-      {isLoggedIn && songs.length > 0 && (
+      {isLoggedIn && (
         <View style={styles.actions}>
+          {songs.length > 0 && (
+            <>
+              <ActionButton
+                shrink
+                small
+                variant="primary"
+                accessibilityLabel="播放全部云盘歌曲"
+                onPress={handlePlayAll}
+                label="播放全部"
+              />
+              <ActionButton
+                shrink
+                small
+                accessibilityLabel="随机播放云盘歌曲"
+                onPress={handleShufflePlay}
+                label="随机播放"
+              />
+            </>
+          )}
           <ActionButton
             shrink
             small
-            variant="primary"
-            accessibilityLabel="播放全部云盘歌曲"
-            onPress={handlePlayAll}
-            label="播放全部"
-          />
-          <ActionButton
-            shrink
-            small
-            accessibilityLabel="随机播放云盘歌曲"
-            onPress={handleShufflePlay}
-            label="随机播放"
+            accessibilityLabel="上传音乐到云盘"
+            onPress={() => void handleUpload()}
+            disabled={uploadRunning}
+            loading={uploadRunning}
+            label="上传"
           />
         </View>
       )}
+
+      <CloudUploadPanel />
 
       {isLoggedIn && (
         <SectionHeader
@@ -218,7 +284,7 @@ export function CloudDriveScreen({ onNavigateToPlayer: _onNavigateToPlayer }: Cl
       <EmptyState
         icon={Cloud}
         title="云盘里没有歌曲"
-        description="在网易云音乐客户端里把本地文件「上传到音乐云盘」之后会出现在这里。"
+        description="点上方「上传」把本地音频放进云盘，也可以继续使用网易云客户端上传。"
       />
     ) : isLoggedIn && hasMore && !showLoading ? (
       <View style={styles.loadMore}>
@@ -242,6 +308,7 @@ export function CloudDriveScreen({ onNavigateToPlayer: _onNavigateToPlayer }: Cl
         emptyText="云盘为空"
         hideSourceTag
         getExtraMetadata={getExtraMetadata}
+        getExtraMenuItems={getExtraMenuItems}
         ListHeaderComponent={listHeader}
         ListFooterComponent={listFooter}
         onEndReached={handleLoadMore}

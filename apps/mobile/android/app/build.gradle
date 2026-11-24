@@ -242,6 +242,9 @@ dependencies {
 
     // 沉浸页封面取色（氛围色背景）：androidx 官方调色板提取
     implementation("androidx.palette:palette:1.0.0")
+
+    // 云盘直传：流式请求体、进度回调与取消（RN 自带版本不保证在编译类路径上）
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }
 
 // 按 ABI 拆分的 APK 全部复制到稳定外部路径（apk-alt），保留各架构文件名。

@@ -19,6 +19,7 @@ function loadAudioService(native, platform = "android") {
     "react-native-fs": {},
     "react-native-permissions": {},
     "@/stores/downloadStore": {},
+    "@/services/downloadDirectoryService": { findDownloadDirectoryFile: async () => null },
   })("src/services/localMusicService.ts");
 }
 

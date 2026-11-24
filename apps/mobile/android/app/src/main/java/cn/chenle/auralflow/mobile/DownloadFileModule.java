@@ -199,6 +199,46 @@ public class DownloadFileModule extends ReactContextBaseJavaModule {
     });
   }
 
+  /** 在用户选择的下载文件夹里按文件名前缀找音频，用于修复被移动后的旧下载记录。 */
+  @ReactMethod
+  public void findFileByPrefix(String treeUriString, String prefix, Promise promise) {
+    copyExecutor.execute(() -> {
+      try {
+        if (treeUriString == null || treeUriString.isEmpty() || prefix == null || prefix.isEmpty()) {
+          throw new IOException("查找参数不能为空");
+        }
+        ContentResolver resolver = getReactApplicationContext().getContentResolver();
+        Uri treeUri = Uri.parse(treeUriString);
+        String treeDocId = DocumentsContract.getTreeDocumentId(treeUri);
+        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, treeDocId);
+        try (Cursor cursor = resolver.query(
+            children,
+            new String[] {
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            },
+            null, null, null)) {
+          if (cursor != null) {
+            int idIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID);
+            int nameIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME);
+            while (cursor.moveToNext()) {
+              if (idIndex < 0 || nameIndex < 0 || cursor.isNull(idIndex) || cursor.isNull(nameIndex)) continue;
+              String name = cursor.getString(nameIndex);
+              if (name == null || !name.startsWith(prefix) || !isAudioFileName(name)) continue;
+              Uri document = DocumentsContract.buildDocumentUriUsingTree(
+                  treeUri, cursor.getString(idIndex));
+              promise.resolve(document.toString());
+              return;
+            }
+          }
+        }
+        promise.resolve(null);
+      } catch (Exception error) {
+        promise.reject("DOWNLOAD_FIND_FAILED", error.getMessage(), error);
+      }
+    });
+  }
+
   @ReactMethod
   public void getFileSize(String documentUri, Promise promise) {
     copyExecutor.execute(() -> {
@@ -216,6 +256,25 @@ public class DownloadFileModule extends ReactContextBaseJavaModule {
         promise.reject("DOWNLOAD_SIZE_FAILED", error.getMessage(), error);
       }
     });
+  }
+
+  private static boolean isAudioFileName(String name) {
+    int dot = name.lastIndexOf('.');
+    if (dot < 0 || dot == name.length() - 1) return false;
+    switch (name.substring(dot + 1).toLowerCase(Locale.ROOT)) {
+      case "mp3":
+      case "flac":
+      case "wav":
+      case "m4a":
+      case "aac":
+      case "ape":
+      case "ogg":
+      case "opus":
+      case "wma":
+        return true;
+      default:
+        return false;
+    }
   }
 
   private String uniqueChildName(ContentResolver resolver, Uri treeUri, String treeDocId, String fileName) {
