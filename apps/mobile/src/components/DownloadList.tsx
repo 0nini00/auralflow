@@ -1,6 +1,6 @@
 import React from "react";
 import { Alert, SectionList, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
-import { Pause, Play, RotateCcw, X } from "lucide-react-native";
+import { Pause, Play, RotateCcw, Trash2, X } from "lucide-react-native";
 import type { MusicInfo } from "@lx/core";
 
 import type { DownloadQuality } from "@/stores/downloadStore";
@@ -11,7 +11,6 @@ import { PlaybackErrorState } from "@/components/PlaybackErrorState";
 import { CachedImage } from "@/components/CachedImage";
 import { Touchable } from "@/components/Touchable";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { withAlpha } from "@/services/themePaletteModel";
 import { layout, radius, spacing, typography } from "@/theme/tokens";
 import {
   buildCompletedDownloadMetadata,
@@ -250,36 +249,33 @@ const DownloadRow = React.memo(function DownloadRow({ item: entry, kind, onPlay:
           {item.song.name}
         </Text>
         <Text style={[styles.downloadMeta, { color: palette.textMuted }]} numberOfLines={1}>
-          {metadata.titleMeta}
-        </Text>
-        <Text style={[styles.downloadStatus, { color: palette.primaryInk }]}>{metadata.statusLabel}</Text>
-        <Text style={[styles.downloadDetail, { color: palette.textSubtle }]} numberOfLines={1}>
-          {metadata.detailLabel}
+          {metadata.titleMeta} · {metadata.detailLabel}
         </Text>
         {metadata.warningLabel ? (
           <Text
             style={[styles.downloadDetail, { color: palette.danger }]}
-            numberOfLines={2}
+            numberOfLines={1}
           >
             {metadata.warningLabel}
           </Text>
         ) : null}
       </View>
-      <View style={styles.downloadActions}>
-        {/* 两个删除动作语义不同必须可见：移除记录=只清列表项保留文件；删除文件=连本地文件一起删 */}
-        <Touchable
-          style={[styles.textAction, { backgroundColor: palette.surfaceStrong }]}
+      <View style={styles.downloadActionsRow}>
+        {/* 两个删除动作语义不同：移除记录只清列表项；删除文件连本地文件一起删 */}
+        <IconButton
+          size="sm"
+          tone="default"
+          accessibilityLabel="移除下载记录，保留本地文件"
           onPress={(e) => {
             e?.stopPropagation?.();
             void removeDownloadRecord(item.song, quality);
           }}
-          accessibilityRole="button"
-          accessibilityLabel="移除下载记录，保留本地文件"
-        >
-          <Text style={[styles.textActionText, { color: palette.textMuted }]}>移除记录</Text>
-        </Touchable>
-        <Touchable
-          style={[styles.textAction, { backgroundColor: withAlpha(palette.danger, 0.12) }]}
+          render={({ color, size }) => <X color={color} size={size} />}
+        />
+        <IconButton
+          size="sm"
+          tone="danger"
+          accessibilityLabel="删除下载文件并移除记录"
           onPress={(e) => {
             e?.stopPropagation?.();
             Alert.alert(
@@ -295,11 +291,8 @@ const DownloadRow = React.memo(function DownloadRow({ item: entry, kind, onPlay:
               ],
             );
           }}
-          accessibilityRole="button"
-          accessibilityLabel="删除下载文件并移除记录"
-        >
-          <Text style={[styles.textActionText, { color: palette.danger }]}>删除文件</Text>
-        </Touchable>
+          render={({ color, size }) => <Trash2 color={color} size={size} />}
+        />
       </View>
     </Touchable>
   );
@@ -393,16 +386,10 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     flexShrink: 0,
   },
-  textAction: {
-    height: 32,
-    paddingHorizontal: 10,
-    borderRadius: radius.sm,
-    minWidth: 68,
+  downloadActionsRow: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-  },
-  textActionText: {
-    fontSize: typography.caption,
-    fontWeight: "600",
+    gap: spacing.xxs,
+    flexShrink: 0,
   },
 });

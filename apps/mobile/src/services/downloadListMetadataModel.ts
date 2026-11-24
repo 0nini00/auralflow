@@ -25,13 +25,6 @@ function normalizeProgress(progress: number): number {
   return Math.round(Math.max(0, Math.min(1, progress)) * 100);
 }
 
-export function getDownloadFileName(localPath: string): string {
-  // SAF document URI 的最后一段是文档 id，不是文件名；下载记录本身只保存 URI。
-  if (localPath.startsWith("content://")) return "所选文件夹";
-  const path = localPath.startsWith("file://") ? localPath.slice("file://".length) : localPath;
-  return decodeURIComponent(path.split(/[\\/]/).filter(Boolean).pop() || "未知文件");
-}
-
 export function buildCompletedDownloadMetadata(item: DownloadedItem): DownloadRowMetadata {
   const quality = getPlaybackQualityLabel(item.quality ?? item.song.quality ?? "320k");
   const sizeLabel = item.fileSize && item.fileSize > 0 ? formatDownloadSize(item.fileSize) : "未知大小";
@@ -39,7 +32,7 @@ export function buildCompletedDownloadMetadata(item: DownloadedItem): DownloadRo
   return {
     titleMeta: `${getArtistName(item.song)} · ${quality}`,
     statusLabel: "已下载",
-    detailLabel: `${getDownloadFileName(item.localPath)} · ${sizeLabel}`,
+    detailLabel: sizeLabel,
     warningLabel: item.warning ? `标签或歌词未完全写入：${item.warning}` : undefined,
   };
 }
