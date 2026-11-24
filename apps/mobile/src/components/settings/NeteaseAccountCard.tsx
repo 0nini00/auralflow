@@ -3,6 +3,7 @@ import { ActivityIndicator, Alert, Clipboard, StyleSheet, Text, TextInput, View 
 import { Headphones } from "lucide-react-native";
 
 import { CachedImage } from "@/components/CachedImage";
+import { NeteaseWebLoginModal } from "@/components/settings/NeteaseWebLoginModal";
 import { SettingsCard } from "@/components/settings/SettingsCard";
 import { Button } from "@/components/ui/Button";
 import { useAccountStore } from "@/stores/accountStore";
@@ -27,6 +28,7 @@ export function NeteaseAccountCard() {
   const accentColor = useThemeStore((state) => state.accentColor);
   const palette = getThemePalette(getResolvedTheme(mode, systemTheme), accentColor);
   const [editing, setEditing] = useState(false);
+  const [webLoginVisible, setWebLoginVisible] = useState(false);
   const [cookie, setCookie] = useState("");
   /** false=摘要掩码（默认），true=显示原文；粘贴后仍能点「验证并登录」，无需看原文 */
   const [showRawCookie, setShowRawCookie] = useState(false);
@@ -155,9 +157,9 @@ export function NeteaseAccountCard() {
             label="登录"
             variant="brand"
             size="small"
-            accessibilityLabel={editing ? "收起网易云账号登录" : "登录网易云账号"}
+            accessibilityLabel="网页登录网易云账号"
             disabled={loading}
-            onPress={() => setEditing((value) => !value)}
+            onPress={() => setWebLoginVisible(true)}
           />
         )}
       </View>
@@ -219,6 +221,11 @@ export function NeteaseAccountCard() {
           />
         </View>
       ) : null}
+      <NeteaseWebLoginModal
+        visible={webLoginVisible}
+        onClose={() => setWebLoginVisible(false)}
+        onUseCookieLogin={() => setEditing(true)}
+      />
     </SettingsCard>
   );
 }
