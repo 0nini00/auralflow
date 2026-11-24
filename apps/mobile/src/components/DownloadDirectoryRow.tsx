@@ -99,10 +99,10 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   main: {
+    height: 56,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.s,
-    minHeight: 56,
   },
   title: {
     fontSize: typography.body,
@@ -115,8 +115,9 @@ const styles = StyleSheet.create({
     fontSize: typography.caption,
   },
   reset: {
+    height: 40,
     alignSelf: "flex-end",
-    paddingBottom: spacing.xs,
+    justifyContent: "center",
   },
   resetText: {
     fontSize: typography.caption,
