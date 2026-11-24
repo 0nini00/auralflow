@@ -248,7 +248,7 @@ export function MyMusicScreen({ onNavigateToPlayer: _onNavigateToPlayer }: MyMus
           ))}
           <QuickActionCard
             title="音乐云盘"
-            subtitle="上传、管理与播放云盘音乐"
+            subtitle="查看、播放与下载云盘音乐"
             icon={Cloud}
             grow
             onPress={openCloudDriveScreen}
