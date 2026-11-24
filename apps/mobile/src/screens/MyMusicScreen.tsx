@@ -246,16 +246,17 @@ export function MyMusicScreen({ onNavigateToPlayer: _onNavigateToPlayer }: MyMus
               onPress={() => handleQuickAction(action.action)}
             />
           ))}
+          <QuickActionCard
+            title="音乐云盘"
+            subtitle="上传、管理与播放云盘音乐"
+            icon={Cloud}
+            grow
+            onPress={openCloudDriveScreen}
+          />
         </View>
 
         <SectionHeader title="服务与同步" style={styles.section} />
         <View style={[styles.settingsCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
-          <SettingsRow
-            icon={Cloud}
-            title="音乐云盘"
-            description="上传、管理与播放云盘音乐"
-            onPress={openCloudDriveScreen}
-          />
           <SettingsRow
             icon={Code2}
             title="自定义音源"

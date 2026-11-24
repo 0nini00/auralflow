@@ -1,5 +1,6 @@
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import type { LucideIcon } from "lucide-react-native";
 
 import { CachedImage } from "@/components/CachedImage";
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
@@ -8,12 +9,14 @@ interface QuickActionCardProps {
   title: string;
   subtitle: string;
   coverUri?: string | null;
+  /** 无封面时显示的图标，保持与封面卡相同的左侧视觉规格。 */
+  icon?: LucideIcon;
   onPress?: () => void;
   /** 让卡片在 flex 行里伸展占满剩余空间（我的页单卡时全宽展示） */
   grow?: boolean;
 }
 
-export function QuickActionCard({ title, subtitle, coverUri, onPress, grow }: QuickActionCardProps) {
+export function QuickActionCard({ title, subtitle, coverUri, icon: Icon, onPress, grow }: QuickActionCardProps) {
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
@@ -33,6 +36,10 @@ export function QuickActionCard({ title, subtitle, coverUri, onPress, grow }: Qu
     >
       {coverUri ? (
         <CachedImage uri={coverUri} style={styles.cover} fallback={<View style={[styles.cover, { backgroundColor: palette.surfaceMuted }]} />} />
+      ) : Icon ? (
+        <View style={[styles.iconBox, { backgroundColor: palette.surfaceMuted }]}>
+          <Icon size={24} color={palette.primaryInk} />
+        </View>
       ) : null}
       <View style={styles.content}>
         <Text style={[styles.quickCardTitle, { color: palette.text }]} numberOfLines={1}>{title}</Text>
@@ -60,6 +67,13 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 8,
+  },
+  iconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
   },
   content: {
     flex: 1,
