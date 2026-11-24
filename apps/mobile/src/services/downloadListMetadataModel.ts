@@ -26,6 +26,8 @@ function normalizeProgress(progress: number): number {
 }
 
 export function getDownloadFileName(localPath: string): string {
+  // SAF document URI 的最后一段是文档 id，不是文件名；下载记录本身只保存 URI。
+  if (localPath.startsWith("content://")) return "所选文件夹";
   const path = localPath.startsWith("file://") ? localPath.slice("file://".length) : localPath;
   return decodeURIComponent(path.split(/[\\/]/).filter(Boolean).pop() || "未知文件");
 }

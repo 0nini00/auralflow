@@ -11,6 +11,8 @@ export interface DownloadDirectory {
 interface DownloadFileNativeModule {
   pickDownloadDirectory(): Promise<DownloadDirectory | null>;
   copyFileToDirectory(sourcePath: string, treeUri: string, fileName: string): Promise<string>;
+  deleteFile(documentUri: string): Promise<boolean>;
+  getFileSize(documentUri: string): Promise<number>;
 }
 
 const STORAGE_KEY = "auralflow.mobile.downloadDirectory";
@@ -71,4 +73,37 @@ export async function copyDownloadToDirectory(filePath: string): Promise<string 
   const fileName = filePath.split(/[\\/]/).pop();
   if (!fileName) throw new Error("无法确定下载文件名");
   return nativeModule.copyFileToDirectory(filePath, directory.uri, fileName);
+}
+
+/**
+ * 把下载文件移动到所选文件夹，返回音频的 document URI。
+ * 调用方负责在成功后删除应用内副本；这里只负责复制，失败时不产生半份记录。
+ */
+export async function moveDownloadToDirectory(filePath: string): Promise<string | null> {
+  const directory = await loadDownloadDirectory();
+  if (!directory) return null;
+  if (!nativeModule?.copyFileToDirectory) {
+    throw new Error("下载文件夹模块不可用，请安装包含 DownloadFileModule 的新版应用");
+  }
+  const fileName = filePath.split(/[\\/]/).pop();
+  if (!fileName) throw new Error("无法确定下载文件名");
+  return nativeModule.copyFileToDirectory(filePath, directory.uri, fileName);
+}
+
+/** 删除所选文件夹中的下载文件。 */
+export async function deleteDownloadDirectoryFile(documentUri: string): Promise<boolean> {
+  if (!nativeModule?.deleteFile) {
+    throw new Error("下载文件夹模块不可用，请安装包含 DownloadFileModule 的新版应用");
+  }
+  return nativeModule.deleteFile(documentUri);
+}
+
+/** 查询所选文件夹中的文件大小；失败时返回 0（显示未知大小）。 */
+export async function getDownloadDirectoryFileSize(documentUri: string): Promise<number> {
+  if (!nativeModule?.getFileSize) return 0;
+  try {
+    return await nativeModule.getFileSize(documentUri);
+  } catch {
+    return 0;
+  }
 }

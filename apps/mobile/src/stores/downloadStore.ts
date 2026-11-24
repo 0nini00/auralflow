@@ -86,6 +86,7 @@ interface DownloadActions {
     quality?: DownloadQuality,
     warnings?: string[],
     completion?: DownloadCompletion,
+    fileSize?: number,
   ) => Promise<void>;
   /** 移除一条已下载记录（只删记录不动文件，重新下载时按文件名约定秒完成） */
   removeDownloadRecord: (song: MusicInfo, quality?: DownloadQuality) => Promise<void>;
@@ -213,9 +214,9 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
         (warnings) => {
           enhancerWarnings = warnings;
         },
-        async (localPath, completion) => {
+        async (localPath, completion, fileSize) => {
           fileDownloaded = true;
-          await get().addDownload(song, localPath, quality, enhancerWarnings, completion);
+          await get().addDownload(song, localPath, quality, enhancerWarnings, completion, fileSize);
         },
       );
       if (!isCurrentAttempt()) return { status: "completed" };
@@ -330,12 +331,13 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
     quality: DownloadQuality = "320k",
     warnings: string[] = [],
     completion?: DownloadCompletion,
+    knownFileSize?: number,
   ) => {
     const key = downloadKey(song, quality);
     // 0 = 大小未知（列表显示「未知大小」）。取不到大小不影响已落盘的音频，但要留痕。
-    let fileSize = 0;
+    let fileSize = knownFileSize && knownFileSize > 0 ? knownFileSize : 0;
     try {
-      fileSize = await getDownloadedFileSize(localPath);
+      if (!fileSize) fileSize = await getDownloadedFileSize(localPath);
     } catch (error) {
       logger.warn(`[下载] 读取已下载文件大小失败，记录按未知大小保存：${localPath}`, error);
     }
@@ -432,9 +434,14 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
       downloadAttempts.clear();
       await queueDownloadsMutation(async () => {
         // 清空是用户明确要求的整体覆盖，不需要先读出旧记录——也是记录损坏后唯一的恢复途径。
+        const targets = get().downloads;
         await saveDownloads([]);
         downloadsHydrated = true;
         await clearDownloadedFiles();
+        // 用户选择了外部文件夹时记录指向 SAF，私有目录清理不会覆盖它们。
+        await Promise.allSettled(targets
+          .filter((item) => typeof item.localPath === "string" && item.localPath.startsWith("content://"))
+          .map((item) => removeDownloadedByPath(item.localPath)));
         set({ downloads: [], downloading: [], failedDownloads: [] });
       });
     } catch (error) {

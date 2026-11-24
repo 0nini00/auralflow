@@ -184,6 +184,40 @@ public class DownloadFileModule extends ReactContextBaseJavaModule {
     });
   }
 
+  @ReactMethod
+  public void deleteFile(String documentUri, Promise promise) {
+    copyExecutor.execute(() -> {
+      try {
+        Uri uri = Uri.parse(documentUri);
+        if (!"content".equals(uri.getScheme())) throw new IOException("只支持删除所选文件夹中的文档");
+        boolean deleted = DocumentsContract.deleteDocument(
+            getReactApplicationContext().getContentResolver(), uri);
+        promise.resolve(deleted);
+      } catch (Exception error) {
+        promise.reject("DOWNLOAD_DELETE_FAILED", error.getMessage(), error);
+      }
+    });
+  }
+
+  @ReactMethod
+  public void getFileSize(String documentUri, Promise promise) {
+    copyExecutor.execute(() -> {
+      try {
+        Uri uri = Uri.parse(documentUri);
+        if (!"content".equals(uri.getScheme())) throw new IOException("只支持查询所选文件夹中的文档");
+        try (Cursor cursor = getReactApplicationContext().getContentResolver().query(
+            uri,
+            new String[] {DocumentsContract.Document.COLUMN_SIZE},
+            null, null, null)) {
+          long size = cursor != null && cursor.moveToFirst() && !cursor.isNull(0) ? cursor.getLong(0) : 0L;
+          promise.resolve((double) size);
+        }
+      } catch (Exception error) {
+        promise.reject("DOWNLOAD_SIZE_FAILED", error.getMessage(), error);
+      }
+    });
+  }
+
   private String uniqueChildName(ContentResolver resolver, Uri treeUri, String treeDocId, String fileName) {
     Set<String> used = new HashSet<>();
     Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, treeDocId);

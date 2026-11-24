@@ -65,12 +65,10 @@ export function DownloadDirectoryRow() {
         accessibilityLabel="选择下载文件夹"
       >
         <FolderOpen size={20} color={palette.primaryInk} />
-        <View style={styles.info}>
-          <Text style={[styles.title, { color: palette.text }]}>下载位置</Text>
-          <Text style={[styles.value, { color: palette.textMuted }]} numberOfLines={1}>
-            {directory ? directory.name : "默认（应用内）"}
-          </Text>
-        </View>
+        <Text style={[styles.title, { color: palette.text }]}>下载位置</Text>
+        <Text style={[styles.value, { color: palette.textMuted }]} numberOfLines={1}>
+          {directory ? directory.name : "默认（应用内）"}
+        </Text>
         {busy ? (
           <ActivityIndicator size="small" color={palette.primaryInk} />
         ) : (
@@ -88,9 +86,6 @@ export function DownloadDirectoryRow() {
           <Text style={[styles.resetText, { color: palette.primaryInk }]}>恢复默认</Text>
         </Touchable>
       ) : null}
-      <Text style={[styles.hint, { color: palette.textMuted }]}>
-        选择文件夹后，下载完成会额外保存一份到该文件夹；应用内仍保留用于播放的副本。
-      </Text>
     </View>
   );
 }
@@ -99,38 +94,32 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: radius.sm,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: spacing.s,
+    paddingHorizontal: spacing.s,
     marginBottom: spacing.s,
-    gap: spacing.xxs,
+    overflow: "hidden",
   },
   main: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.s,
-    minHeight: 44,
-  },
-  info: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
+    minHeight: 56,
   },
   title: {
     fontSize: typography.body,
     fontWeight: "600",
   },
   value: {
+    flex: 1,
+    minWidth: 0,
+    textAlign: "right",
     fontSize: typography.caption,
   },
   reset: {
-    alignSelf: "flex-start",
-    paddingVertical: 4,
+    alignSelf: "flex-end",
+    paddingBottom: spacing.xs,
   },
   resetText: {
     fontSize: typography.caption,
     fontWeight: "600",
-  },
-  hint: {
-    fontSize: 11,
-    lineHeight: 16,
   },
 });

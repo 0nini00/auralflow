@@ -9,7 +9,11 @@ import { resolveHiddenFallback } from "./hiddenFallbackService";
 import { probeStreamUrl } from "./streamProbe";
 import { commitDownloadedFile, createPartialDownloadPath, removeOrphanedPartialDownloads, validateDownloadedFile } from "./fileDownloadCommit";
 import { buildDownloadFileStem } from "./downloadFileNaming";
-import { copyDownloadToDirectory } from "./downloadDirectoryService";
+import {
+  deleteDownloadDirectoryFile,
+  getDownloadDirectoryFileSize,
+  moveDownloadToDirectory,
+} from "./downloadDirectoryService";
 
 import { writeDownloadedMp3Tags } from "./downloadTagService";
 export { formatDownloadSize } from "./downloadSizeFormatter";
@@ -71,7 +75,7 @@ export interface DownloadedItem {
   song: MusicInfo;
   /** 下载时选择的音质；旧记录可能缺失，调用侧按 320k 兼容。 */
   quality?: DownloadQuality;
-  /** 本地 file:// 路径 */
+  /** 本地 file:// 路径，或用户选择外部文件夹后的 content:// document URI */
   localPath: string;
   /** 下载文件大小，旧记录可能缺失。 */
   fileSize?: number;
@@ -100,7 +104,7 @@ export interface DownloadCompletion {
   commit: () => void;
 }
 
-type CompleteDownload = (path: string, completion: DownloadCompletion) => Promise<void>;
+type CompleteDownload = (path: string, completion: DownloadCompletion, fileSize?: number) => Promise<void>;
 type InterruptionReason = "paused" | "cancelled";
 
 export class DownloadInterruptedError extends Error {
@@ -118,6 +122,8 @@ interface QueueTask {
   state: "active" | "completed" | InterruptionReason;
   jobId?: number;
   filePath?: string;
+  /** 完成时音频的字节数；转移到系统文件夹后无法再用 RNFS.stat 查询。 */
+  fileSize?: number;
   interrupted: Promise<void>;
   interrupt: () => void;
   /** 对外 Promise 结算（含半成品清理与记录回滚）后 resolve，供「清空下载」等待在途任务收尾 */
@@ -224,7 +230,7 @@ async function processDownloadQueue(): Promise<void> {
         },
       };
       assertTaskActive(task);
-      await task.onComplete?.(path, completion);
+      await task.onComplete?.(path, completion, task.fileSize);
       if (task.state !== "completed") completion.commit();
       task.resolve(path);
     } catch (error) {
@@ -570,11 +576,26 @@ async function downloadSongInternal(task: QueueTask): Promise<string> {
     warnings.push(...await writeSidecarLyrics(song, finalFilePath, lyrics));
     assertTaskActive(task);
   }
-  // 用户选择了外部文件夹时额外复制一份；失败只提示，不影响应用内下载记录与播放。
   try {
-    await copyDownloadToDirectory(finalFilePath);
+    task.fileSize = Number((await RNFS.stat(finalFilePath)).size) || undefined;
+  } catch {
+    task.fileSize = undefined;
+  }
+  // 用户选择了外部文件夹时把文件移过去，应用内不再保留副本；
+  // 复制失败则保留应用内文件，下载记录仍可播放。
+  try {
+    const movedUri = await moveDownloadToDirectory(finalFilePath);
+    if (movedUri) {
+      finalUri = movedUri;
+      try {
+        await RNFS.unlink(finalFilePath);
+        await RNFS.unlink(sidecarLrcPath(finalFilePath)).catch(() => undefined);
+      } catch (error) {
+        warnings.push(`删除应用内副本失败：${formatDownloadReason(error)}`);
+      }
+    }
   } catch (error) {
-    warnings.push(`复制到所选文件夹失败：${formatDownloadReason(error)}`);
+    warnings.push(`移动到所选文件夹失败：${formatDownloadReason(error)}`);
   }
   assertTaskActive(task);
   if (warnings.length > 0) task.onWarnings?.(warnings);
@@ -698,12 +719,19 @@ export async function removeDownloadedFile(
 
 /** 音频和同名歌词共同删除；失败向上传递，避免伪装清理成功。 */
 export async function removeDownloadedByPath(localPath: string): Promise<void> {
+  if (localPath.startsWith("content://")) {
+    await deleteDownloadDirectoryFile(localPath);
+    return;
+  }
   const filePath = localPath.startsWith("file://") ? localPath.slice("file://".length) : localPath;
   await unlinkIfExists(sidecarLrcPath(filePath));
   await unlinkIfExists(filePath);
 }
 
 export async function getDownloadedFileSize(localPath: string): Promise<number> {
+  if (localPath.startsWith("content://")) {
+    return getDownloadDirectoryFileSize(localPath);
+  }
   const filePath = localPath.startsWith("file://") ? localPath.slice("file://".length) : localPath;
   const stat = await RNFS.stat(filePath);
   return Number(stat.size) || 0;
