@@ -61,7 +61,7 @@ export const ImmersiveBackground = memo(function ImmersiveBackground(props: Imme
   const handleLoadStart = useCallback(() => {
     ready.current = false;
     clearReadyTimer();
-    readyTimer.current = setTimeout(() => loadFailed('沉浸背景加载超时，请选择原背景后重试'), READY_TIMEOUT_MS);
+    readyTimer.current = setTimeout(() => loadFailed('沉浸背景加载超时，请重新打开播放器重试'), READY_TIMEOUT_MS);
   }, [clearReadyTimer, loadFailed]);
 
   useEffect(() => {
@@ -177,8 +177,8 @@ export const ImmersiveBackground = memo(function ImmersiveBackground(props: Imme
         onMessage={handleMessage}
         onError={event => loadFailed(`沉浸背景加载失败：${event.nativeEvent.description}`)}
         onHttpError={event => loadFailed(`沉浸背景页面请求失败：HTTP ${event.nativeEvent.statusCode}`)}
-        onRenderProcessGone={() => loadFailed('沉浸背景渲染进程已退出，请选择原背景后重试')}
-        onContentProcessDidTerminate={() => loadFailed('沉浸背景页面进程已终止，请选择原背景后重试')}
+        onRenderProcessGone={() => loadFailed('沉浸背景渲染进程已退出，请重新打开播放器重试')}
+        onContentProcessDidTerminate={() => loadFailed('沉浸背景页面进程已终止，请重新打开播放器重试')}
       />
     </View>
   );

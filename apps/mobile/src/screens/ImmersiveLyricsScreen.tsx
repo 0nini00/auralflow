@@ -25,7 +25,6 @@ import Animated, {
   type SharedValue,
 } from "react-native-reanimated";
 import PagerView from "react-native-pager-view";
-import LinearGradient from "react-native-linear-gradient";
 import KeepAwake from "react-native-keep-awake";
 import { COVER_SIZE_LARGE } from "@lx/core";
 
@@ -51,7 +50,6 @@ import {
 } from "@/screens/immersive/immersiveFlySource";
 import { fetchCoverColors, type CoverColors } from "@/services/coverColorService";
 import { resolveImmersiveCoverLayout, resolveImmersiveLayout } from "@/services/immersiveLayoutModel";
-import { withAlpha } from "@/services/themePaletteModel";
 import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
 import { openMvPlayerScreen, openSimilarSongsScreen } from "@/navigation/navigationRef";
 import { sheet } from "@/theme/sheetTokens";
@@ -144,8 +142,6 @@ const FlyOverlay = React.memo(function FlyOverlay({
  */
 export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScreenProps) {
   const showLyricProgress = useLyricSettingsStore((s) => s.showLyricProgress);
-  const immersiveBackground = useLyricSettingsStore((s) => s.immersiveBackground);
-  const dynamicBackground = immersiveBackground === "bloom";
   const coverSpin = useLyricSettingsStore((s) => s.coverSpin);
   // 播放页恒定深色（方案 Q2）：不再跟随系统主题
   const isDark = true;
@@ -241,6 +237,7 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     ...viewport, insets, fontScale,
   });
   const isSplit = layout.mode === "split";
+  const isLandscape = viewport.width > viewport.height;
   const media = resolveImmersiveCoverLayout({
     ...mediaViewport, miniLyricHeight: isSplit ? 0 : miniLyricHeight,
   });
@@ -248,25 +245,18 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     || rateModalVisible || volumeModalVisible || coverMenuVisible
     || coverSongDownloadVisible || moreMenuVisible;
 
-  // 两种动效与封面氛围共用取色；无封面时不额外请求。
+  // 切歌时封面地址和取色可能晚于歌曲状态；新颜色就绪前继续显示已有配色。
   const [ambient, setAmbient] = React.useState<CoverColors>({ base: "", accent: "" });
   React.useEffect(() => {
-    if (!visible || !artwork) {
-      setAmbient({ base: "", accent: "" });
-      return;
-    }
+    if (!visible || !artwork) return;
     let cancelled = false;
     void fetchCoverColors(artwork, isDark).then((colors) => {
-      if (!cancelled) setAmbient(colors);
+      if (!cancelled && (colors.accent || colors.base)) setAmbient(colors);
     });
     return () => {
       cancelled = true;
     };
-  }, [visible, immersiveBackground, artwork, isDark]);
-
-  React.useEffect(() => {
-    if (!dynamicBackground) setBackgroundError("");
-  }, [dynamicBackground]);
+  }, [visible, artwork, isDark]);
 
   // ── 封面飞入/飞回转场 ──
   // 起点在挂载前一次性捕获（渲染期读取，首帧就能停在迷你栏封面位置）。
@@ -536,25 +526,13 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
               setViewport({ width, height });
             }}
           >
-            {visible && dynamicBackground ? (
+            {visible ? (
               <ImmersiveBackground
                 color={ambient.accent || ambient.base || palette.primary}
                 accent={palette.primary}
                 playing={isPlaying}
                 active={!closing && !overlayVisible}
                 onError={setBackgroundError}
-              />
-            ) : null}
-            {immersiveBackground === "cover" && ambient.base ? (
-              <LinearGradient
-                pointerEvents="none"
-                style={StyleSheet.absoluteFill}
-                colors={[
-                  withAlpha(ambient.base, isDark ? 0.7 : 0.45),
-                  withAlpha(ambient.base, isDark ? 0.3 : 0.18),
-                  withAlpha(ambient.base, 0),
-                ]}
-                locations={[0, 0.55, 1]}
               />
             ) : null}
             <ScrollView
@@ -572,16 +550,16 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
                   artist={currentSong.singer || "未知歌手"}
                   palette={palette}
                   onClose={requestClose}
-                  onOpenMore={() => setMoreMenuVisible(true)}
+                  onOpenMore={isLandscape ? () => setMoreMenuVisible(true) : undefined}
                   moreMenuVisible={moreMenuVisible}
                   onPressArtist={canOpenArtist ? handleOpenArtist : undefined}
                 />
-                {dynamicBackground && backgroundError ? (
+                {backgroundError ? (
                   <Text
                     accessibilityRole="alert"
                     style={{ color: palette.textMuted, paddingHorizontal: 24, paddingBottom: 8 }}
                   >
-                    动态背景无法显示：{backgroundError}。可在设置 → 歌词设置 → 播放背景中切换背景。
+                    柔光背景无法显示：{backgroundError}
                   </Text>
                 ) : null}
               </Animated.View>

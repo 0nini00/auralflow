@@ -1,12 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import {
-  DEFAULT_IMMERSIVE_BACKGROUND,
-  isImmersiveBackgroundMode,
-  normalizeImmersiveBackground,
-  type ImmersiveBackgroundMode,
-} from "@/services/immersiveBackgroundSettings";
 import type {
 
   LyricAnimationIntensity,
@@ -65,9 +59,6 @@ export interface LyricSettingsState {
   /** 歌词滚动进度条显示开关 */
   showLyricProgress: boolean;
 
-  /** 沉浸页背景模式，默认保留封面氛围。 */
-  immersiveBackground: ImmersiveBackgroundMode;
-
 
 
   setFontSize: (size: number) => void;
@@ -87,7 +78,6 @@ export interface LyricSettingsState {
   setChineseConversion: (mode: ChineseConversionMode) => void;
   setCoverSpin: (enabled: boolean) => void;
   setShowLyricProgress: (enabled: boolean) => void;
-  setImmersiveBackground: (mode: ImmersiveBackgroundMode) => void;
   resetSettings: () => void;
 }
 
@@ -144,8 +134,6 @@ chineseConversion: "off",
 
   showLyricProgress: true,
 
-  immersiveBackground: DEFAULT_IMMERSIVE_BACKGROUND,
-
 } as const;
 
 /** 歌词偏移校准值域：±0.5s（±500ms），步进 50ms；持久化旧值（如 ±1000）在载入时收敛 */
@@ -183,11 +171,6 @@ setChineseConversion: (chineseConversion) => set({ chineseConversion }),
 
       setShowLyricProgress: (showLyricProgress) => set({ showLyricProgress }),
 
-      setImmersiveBackground: (immersiveBackground) => {
-        if (!isImmersiveBackgroundMode(immersiveBackground)) throw new Error("无效的播放背景模式");
-        set({ immersiveBackground });
-      },
-
       resetSettings: () => set({ ...DEFAULT_LYRIC_SETTINGS }),
     }),
     {
@@ -199,13 +182,15 @@ setChineseConversion: (chineseConversion) => set({ chineseConversion }),
       ),
       merge: (persisted, current) => {
         const saved = persisted && typeof persisted === "object"
-          ? persisted as Partial<LyricSettingsState> & { ambientCoverTint?: unknown }
+          ? persisted as Partial<LyricSettingsState> & { ambientCoverTint?: unknown; immersiveBackground?: unknown }
           : {};
-        const { ambientCoverTint, ...settings } = saved;
+        const settings = { ...saved };
+        // 背景已固定为柔光色域，旧选择不再进入状态或下一次存档。
+        delete settings.ambientCoverTint;
+        delete settings.immersiveBackground;
         const merged: LyricSettingsState = {
           ...current,
           ...settings,
-          immersiveBackground: normalizeImmersiveBackground(saved.immersiveBackground, ambientCoverTint),
         };
         // 歌词对齐设置已移除：统一居中（覆盖存量 left/right 持久化值）
         merged.textAlign = "center";

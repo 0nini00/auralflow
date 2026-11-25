@@ -125,10 +125,10 @@ test('系统减弱动态和文档隐藏停止RAF，恢复不累积循环', () =>
   assert.equal(h.callbacks.size, 1);
 });
 
-test('暂停时切模式颜色尺寸仍重绘静帧，分辨率有上限', () => {
-  const h = runtime(); h.configure({ playing: false });
+test('减少动态效果时颜色尺寸重绘静帧，分辨率有上限', () => {
+  const h = runtime(); h.configure({ playing: false, reducedMotion: true });
   const time = h.frames[0].time;
-  h.configure({ playing: false, color: '#cc6633' });
+  h.configure({ playing: false, color: '#cc6633', reducedMotion: true });
   assert.deepEqual(h.frames.at(-1), { time, color: [0.8, 0.4, 0.2], accent: [63 / 255, 143 / 255, 122 / 255] });
   h.resize(2160, 3840);
   assert.ok(h.canvas.width * h.canvas.height <= 360 * 640);
@@ -140,6 +140,22 @@ test('暂停时切模式颜色尺寸仍重绘静帧，分辨率有上限', () =>
   assert.equal(h.frames.length, count);
   h.resize(390, 844);
   assert.equal(h.frames.length, count + 1);
+});
+
+test('切歌停播阶段保留旧帧并渐变到新配色，颜色过渡结束后停止空转', () => {
+  const h = runtime(); h.configure(); h.frame(40);
+  h.configure({ playing: false });
+  const previous = h.frames.at(-1);
+  const count = h.frames.length;
+  h.configure({ playing: false, color: '#cc6633' });
+  assert.equal(h.frames.length, count, '接收新颜色不能先清屏或突然跳色');
+  assert.equal(h.callbacks.size, 1, '加载下一曲时仍应完成颜色过渡');
+  h.frame(80);
+  assert.equal(h.frames.at(-1).time, previous.time, '暂停只过渡配色，不推进柔光运动时间');
+  assert.ok(h.frames.at(-1).color[0] > previous.color[0] && h.frames.at(-1).color[0] < 0.8);
+  for (let time = 120; time <= 12000; time += 40) h.frame(time);
+  assert.deepEqual(h.frames.at(-1).color, [0.8, 0.4, 0.2]);
+  assert.equal(h.callbacks.size, 0);
 });
 
 test('播放时颜色柔和过渡，重复配置不额外绘制', () => {

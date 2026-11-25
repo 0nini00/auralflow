@@ -210,7 +210,7 @@ function renderScreen({ width = 390, height = 844, currentPage = 0, overlay = {}
   return result.rerender();
 }
 
-test("右上角更多只保留低频设置，高频操作下放到播放控制区", () => {
+test("竖屏顶栏移除更多，底部更多仍打开同一设置菜单", () => {
   const screen = renderScreen();
   const media = ancestors(screen.tree, 'PagerView')[0].at(-1);
   media.props.onLayout({ nativeEvent: { layout: { width: 366, height: 430 } } });
@@ -218,8 +218,8 @@ test("右上角更多只保留低频设置，高频操作下放到播放控制�
   const top = descendants(screen.tree, 'ImmersiveTopBar')[0];
   assert.equal(top.props.songName, 'Song');
   assert.equal(top.props.artist, 'Artist');
-  assert.equal(typeof top.props.onOpenMore, 'function');
-  top.props.onOpenMore(); screen.rerender();
+  assert.equal(top.props.onOpenMore, undefined);
+  descendants(screen.tree, 'ImmersiveTransport')[0].props.onOpenMore(); screen.rerender();
   const menu = descendants(screen.tree, 'ImmersiveMoreMenu')[0];
   assert.equal(menu.props.visible, true);
   assert.equal(screen.gesture.isEnabled, false);
@@ -240,7 +240,20 @@ test("右上角更多只保留低频设置，高频操作下放到播放控制�
   assert.equal(screen.gesture.isEnabled, true);
 });
 
-test("背景入口只在设置页，播放页不再挂载背景面板", () => {
+test("顶栏更多按方向显示：竖屏平板也隐藏，横屏显示，旋转后同步", () => {
+  for (const [width, height, enabled] of [[390, 844, false], [768, 1024, false], [844, 390, true]]) {
+    const screen = renderScreen({ width, height });
+    const top = descendants(screen.tree, 'ImmersiveTopBar')[0];
+    assert.equal(typeof top.props.onOpenMore === 'function', enabled);
+  }
+  const screen = renderScreen();
+  const root = ancestors(screen.tree, 'ImmersiveTransport')[0].find(node => node.props.onLayout);
+  emitLayout(root, 844, 390);
+  screen.rerender({ width: 844, height: 390 });
+  assert.equal(typeof descendants(screen.tree, 'ImmersiveTopBar')[0].props.onOpenMore, 'function');
+});
+
+test("播放页只渲染固定柔光，不再挂载背景选择面板", () => {
   const screen = renderScreen();
   const menu = descendants(screen.tree, 'ImmersiveMoreMenu')[0];
   assert.ok(menu, '更多菜单应由页面持有');
@@ -265,7 +278,9 @@ test("动态背景独立铺底，不插进歌词或播放控制，弹层与退�
     assert.equal(descendants(screen.tree, 'ImmersiveBackground').length, 0);
   }
   for (const mode of ['cover']) {
-    assert.equal(descendants(renderScreen({ background: mode }).tree, 'ImmersiveBackground').length, 0);
+    const screen = renderScreen({ background: mode });
+    assert.equal(descendants(screen.tree, 'ImmersiveBackground').length, 1);
+    assert.equal(descendants(screen.tree, 'react-native-linear-gradient').length, 0);
   }
 });
 
@@ -280,7 +295,7 @@ test("背景图形失败显示明确提示，不能伪装成功或影响歌词�
   assert.equal(descendants(screen.tree, 'LyricView').length, 1);
   screen.rerender({ background: 'bloom' });
   assert.ok(descendants(screen.tree, 'Text').find(item => item.props.accessibilityRole === 'alert'));
-  screen.rerender({ background: 'cover' });
+  background.props.onError(''); screen.rerender();
   assert.equal(descendants(screen.tree, 'Text').some(item => item.props.accessibilityRole === 'alert'), false);
 });
 function descendants(node, type) {

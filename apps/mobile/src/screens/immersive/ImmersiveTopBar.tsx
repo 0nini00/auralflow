@@ -12,12 +12,12 @@ export interface ImmersiveTopBarProps {
   artist: string;
   palette: ThemePalette;
   onClose: () => void;
-  onOpenMore: () => void;
+  onOpenMore?: () => void;
   moreMenuVisible?: boolean;
   onPressArtist?: () => void;
 }
 
-/** 顶部信息栏：关闭 / 歌名歌手 / 更多 */
+/** 顶部信息栏：关闭与歌名歌手，横屏可显示更多入口。 */
 export function ImmersiveTopBar({
   insetsTop,
   songName,
@@ -67,13 +67,15 @@ export function ImmersiveTopBar({
         </Pressable>
       </View>
 
-      <IconButton
-        onPress={onOpenMore}
-        tone="default"
-        accessibilityLabel="更多选项"
-        accessibilityState={{ expanded: moreMenuVisible }}
-        render={({ size }) => <MoreHorizontal size={size} color={palette.text} />}
-      />
+      {onOpenMore ? (
+        <IconButton
+          onPress={onOpenMore}
+          tone="default"
+          accessibilityLabel="更多选项"
+          accessibilityState={{ expanded: moreMenuVisible }}
+          render={({ size }) => <MoreHorizontal size={size} color={palette.text} />}
+        />
+      ) : null}
     </View>
   );
 }

@@ -123,7 +123,7 @@ const transportProps = events => ({
   onOpenMore: () => events.push("more"),
 });
 
-test("顶部只保留关闭与更多按钮，歌名歌手和歌手点击保持原样", t => {
+test("横屏顶栏可保留更多入口，歌名歌手和歌手点击保持原样", t => {
   const calls = [];
   const h = harness(t, "ImmersiveTopBar", {
     insetsTop: 24, songName: "原有歌曲名", artist: "原有歌手", onClose: () => calls.push("close"),
@@ -141,6 +141,18 @@ test("顶部只保留关闭与更多按钮，歌名歌手和歌手点击保持�
   assert.equal(h.button("更多选项").props.accessibilityState.expanded, false);
   h.update({ moreMenuVisible: true });
   assert.equal(h.button("更多选项").props.accessibilityState.expanded, true);
+});
+
+test("竖屏顶栏没有更多按钮及焦点入口，关闭与歌手操作仍可用", t => {
+  const calls = [];
+  const h = harness(t, "ImmersiveTopBar", {
+    insetsTop: 24, songName: "歌曲", artist: "歌手", onClose: () => calls.push("close"),
+    onPressArtist: () => calls.push("artist"),
+  });
+  assert.equal(h.renderer.root.findAllByType("MoreHorizontal").length, 0);
+  assert.equal(h.renderer.root.findAllByType("Pressable").some(node => node.props.accessibilityLabel === "更多选项"), false);
+  h.click("关闭播放器"); h.click("查看歌手 歌手");
+  assert.deepEqual(calls, ["close", "artist"]);
 });
 
 test("全局浅色主题下，顶部关闭与更多图标仍使用深色播放器文字色", t => {

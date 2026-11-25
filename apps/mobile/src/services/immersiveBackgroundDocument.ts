@@ -32,6 +32,7 @@ const RUNTIME = String.raw`
   const MAX_PIXELS = 360 * 640;
   const MAX_DIMENSION = 640;
   const MAX_DPR = 1.5;
+  const COLOR_EPSILON = 1 / 1024;
   let gl = null, program = null, buffer = null, shaders = [], uniforms = null;
   let config = null, color = null, targetColor = null;
   let accent = null, targetAccent = null;
@@ -63,8 +64,21 @@ const RUNTIME = String.raw`
   function canDraw() {
     return !disposed && !failed && !lost && !document.hidden && hasSize && config && color && accent && program;
   }
+  function colorsChanging() {
+    return color && accent && (color.some((channel, index) => channel !== targetColor[index])
+      || accent.some((channel, index) => channel !== targetAccent[index]));
+  }
+  function motionAllowed() {
+    return config && config.active && !config.reducedMotion && !document.hidden;
+  }
   function animating() {
-    return canDraw() && config.active && config.playing && !config.reducedMotion;
+    return canDraw() && motionAllowed() && (config.playing || colorsChanging());
+  }
+  function blendColor(current, target, amount) {
+    return current.map((channel, index) => {
+      const next = channel + (target[index] - channel) * amount;
+      return Math.abs(next - target[index]) < COLOR_EPSILON ? target[index] : next;
+    });
   }
   function draw() {
     if (!canDraw()) return;
@@ -84,10 +98,10 @@ const RUNTIME = String.raw`
     if (now - lastDraw >= FRAME_MS) {
       const elapsed = Math.min((now - lastDraw) / 1000, 0.1);
       lastDraw = now;
-      time += elapsed;
+      if (config.playing) time += elapsed;
       const blend = 1 - Math.exp(-elapsed / 1.2);
-      color = color.map((channel, index) => channel + (targetColor[index] - channel) * blend);
-      accent = accent.map((channel, index) => channel + (targetAccent[index] - channel) * blend);
+      color = blendColor(color, targetColor, blend);
+      accent = blendColor(accent, targetAccent, blend);
       draw();
     }
     if (animating()) frame = requestAnimationFrame(tick);
@@ -127,11 +141,11 @@ const RUNTIME = String.raw`
       active: next.active, reducedMotion: next.reducedMotion };
     if (baseChanged) {
       targetColor = [1, 3, 5].map(index => parseInt(next.color.slice(index, index + 2), 16) / 255);
-      if (!color || !animating()) color = targetColor.slice();
+      if (!color || !motionAllowed()) color = targetColor.slice();
     }
     if (accentChanged) {
       targetAccent = [1, 3, 5].map(index => parseInt(next.accent.slice(index, index + 2), 16) / 255);
-      if (!accent || !animating()) accent = targetAccent.slice();
+      if (!accent || !motionAllowed()) accent = targetAccent.slice();
     }
     if (first || ((baseChanged || accentChanged) && !animating())) draw();
     syncAnimation();
@@ -191,7 +205,7 @@ const RUNTIME = String.raw`
     event.preventDefault();
     if (disposed) return;
     lost = true; stop(); release();
-    post('error', '背景图形上下文已丢失，请选择原背景或等待恢复');
+    post('error', '背景图形上下文已丢失，等待恢复或重新打开播放器');
   }
   function contextRestored() {
     if (disposed || !lost) return;
@@ -217,7 +231,7 @@ const RUNTIME = String.raw`
   if (!failed) post('ready');
 })();`;
 
-/** 固定离线页面；改变播放状态、模式或封面色只通过 update 注入，不重新加载。 */
+/** 固定离线页面；改变播放状态或封面色只通过 update 注入，不重新加载。 */
 export function createImmersiveBackgroundDocument(): string {
   const vertex = JSON.stringify(IMMERSIVE_BACKGROUND_VERTEX_SHADER).replace(/</g, '\\u003c');
   const fragment = JSON.stringify(IMMERSIVE_BLOOM_FRAGMENT_SHADER).replace(/</g, '\\u003c');

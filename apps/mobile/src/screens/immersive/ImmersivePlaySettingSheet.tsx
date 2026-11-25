@@ -59,7 +59,7 @@ export interface ImmersivePlaySettingSheetProps {
  * 字号/行距/对齐/偏移是即时调整：听着歌预览歌词可读性与音画同步是沉浸页场景
  * 独有的价值，且设置页没有这些项，不构成重合。音质只收设置页「设置 → 播放」
  * 的默认音质（持久化来源，同时驱动下载默认音质），沉浸页不再提供当前曲切换。
- * 播放背景由“更多 → 背景效果”和歌词设置页复用同一选择面板与持久化字段。
+ * 播放背景固定使用柔光色域。
  */
 export function ImmersivePlaySettingSheet({
   visible,
