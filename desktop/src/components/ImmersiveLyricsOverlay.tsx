@@ -332,7 +332,7 @@ function ImmersiveLyricsContent({ open, onClose }: ImmersiveLyricsOverlayProps) 
           <div className="af-immersive-noise" aria-hidden="true" />
         </>
       ) : (
-        <ImmersiveBackground mode={immersiveBackground} playing={isPlaying} onError={reportBackgroundError} />
+        <ImmersiveBackground playing={isPlaying} onError={reportBackgroundError} />
       )}
 
       {/*

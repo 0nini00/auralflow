@@ -9,8 +9,7 @@ export type ArtworkAmbienceScope = "player" | "player-immersive";
 
 export const IMMERSIVE_BACKGROUND_OPTIONS = [
   { value: "cover", label: "封面背景" },
-  { value: "liquid", label: "液态渐变" },
-  { value: "aurora", label: "极光光幕" },
+  { value: "fog", label: "烟雾背景" },
 ] as const;
 export type ImmersiveBackgroundMode = typeof IMMERSIVE_BACKGROUND_OPTIONS[number]["value"];
 
@@ -220,6 +219,12 @@ const isScope = (value: unknown): value is ArtworkAmbienceScope =>
 const isImmersiveBackgroundMode = (value: unknown): value is ImmersiveBackgroundMode =>
   IMMERSIVE_BACKGROUND_OPTIONS.some((option) => option.value === value);
 
+function normalizeImmersiveBackground(value: unknown): ImmersiveBackgroundMode {
+  // 两种旧动态效果已移除，保留用户启用动态背景的选择。
+  if (value === "liquid" || value === "aurora") return "fog";
+  return isImmersiveBackgroundMode(value) ? value : APPEARANCE_DEFAULTS.immersiveBackground;
+}
+
 const readBoolean = (value: unknown, fallback: boolean): boolean =>
   typeof value === "boolean" ? value : fallback;
 
@@ -276,9 +281,7 @@ function normalizeAppearance(value: unknown): AppearanceSettings {
       raw.gradientBackgroundFollowArtwork,
       defaults.gradientBackgroundFollowArtwork,
     ),
-    immersiveBackground: isImmersiveBackgroundMode(raw.immersiveBackground)
-      ? raw.immersiveBackground
-      : defaults.immersiveBackground,
+    immersiveBackground: normalizeImmersiveBackground(raw.immersiveBackground),
   };
 }
 
@@ -335,7 +338,7 @@ export const useThemeStore = create<ThemeStore>()(
     },
     {
       name: "af-theme",
-      version: 3,
+      version: 4,
       migrate: (persistedState, version) => {
         const raw = asRecord(persistedState);
         let next: Record<string, unknown> = raw;

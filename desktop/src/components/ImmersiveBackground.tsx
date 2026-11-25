@@ -5,10 +5,10 @@ import {
   type ImmersiveBackgroundRenderer,
 } from '@/services/immersiveBackgroundRenderer';
 
-export const ImmersiveBackground = memo(function ImmersiveBackground({ mode, playing, onError }: ImmersiveBackgroundOptions) {
+export const ImmersiveBackground = memo(function ImmersiveBackground({ playing, onError }: ImmersiveBackgroundOptions) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const renderer = useRef<ImmersiveBackgroundRenderer | null>(null);
-  const initialState = useRef({ mode, playing });
+  const initialState = useRef({ playing });
   const errorHandler = useRef(onError);
 
   useEffect(() => { errorHandler.current = onError; }, [onError]);
@@ -27,7 +27,7 @@ export const ImmersiveBackground = memo(function ImmersiveBackground({ mode, pla
       renderer.current = null;
     };
   }, []);
-  useEffect(() => { renderer.current?.update({ mode, playing }); }, [mode, playing]);
+  useEffect(() => { renderer.current?.update({ playing }); }, [playing]);
 
   return <canvas ref={canvas} className="af-immersive-dynamic-background" aria-hidden="true" />;
 });

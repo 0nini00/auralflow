@@ -801,8 +801,7 @@
   pointer-events: none;
 }
 
-.af-immersive-lyrics[data-background='liquid']::before,
-.af-immersive-lyrics[data-background='aurora']::before {
+.af-immersive-lyrics[data-background='fog']::before {
   background:
     linear-gradient(105deg, rgba(5, 18, 23, 0.2), rgba(5, 18, 22, 0.32) 58%, rgba(5, 18, 22, 0.38)),
     linear-gradient(0deg, rgba(5, 14, 18, 0.46), transparent 48%);

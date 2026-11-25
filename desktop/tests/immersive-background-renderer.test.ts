@@ -3,10 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as rendererModule from '../src/services/immersiveBackgroundRenderer';
 
 type Renderer = ReturnType<typeof rendererModule.createImmersiveBackgroundRenderer>;
-type Mode = 'liquid' | 'aurora';
 const controllers: Renderer[] = [];
 
-function setup(options: { playing?: boolean; mode?: Mode; context?: boolean; compile?: boolean; link?: boolean; reduced?: boolean } = {}) {
+function setup(options: { playing?: boolean; context?: boolean; compile?: boolean; link?: boolean; reduced?: boolean } = {}) {
   let now = 0;
   let hidden = false;
   let width = 1200;
@@ -57,7 +56,7 @@ function setup(options: { playing?: boolean; mode?: Mode; context?: boolean; com
     width, height, x: 0, y: 0, left: 0, top: 0, right: width, bottom: height, toJSON: () => ({}),
   }));
   const uniforms = new Map<string, number | number[]>();
-  const frames: { time: number; mode: number; color: number[]; accent: number[] }[] = [];
+  const frames: { time: number; deep: number[]; fog: number[] }[] = [];
   let resource = 0;
   const gl = {
     VERTEX_SHADER: 35633, FRAGMENT_SHADER: 35632, COMPILE_STATUS: 35713, LINK_STATUS: 35714,
@@ -72,20 +71,20 @@ function setup(options: { playing?: boolean; mode?: Mode; context?: boolean; com
     getUniformLocation: vi.fn((_program: unknown, name: string) => ({ name })),
     uniform1f: vi.fn((location: { name: string }, value: number) => uniforms.set(location.name, value)),
     uniform1i: vi.fn((location: { name: string }, value: number) => uniforms.set(location.name, value)),
+    uniform2f: vi.fn((location: { name: string }, x: number, y: number) => uniforms.set(location.name, [x, y])),
     uniform3fv: vi.fn((location: { name: string }, value: number[]) => uniforms.set(location.name, [...value])),
     viewport: vi.fn(),
     drawArrays: vi.fn(() => frames.push({
       time: uniforms.get('uTime') as number,
-      mode: uniforms.get('uMode') as number,
-      color: uniforms.get('uColor') as number[],
-      accent: uniforms.get('uAccent') as number[],
+      deep: uniforms.get('uDeep') as number[],
+      fog: uniforms.get('uFog') as number[],
     })),
   };
   vi.spyOn(canvas, 'getContext').mockImplementation(() => options.context === false ? null : gl as unknown as WebGLRenderingContext);
   const onError = vi.fn();
   const start = () => {
     const controller = rendererModule.createImmersiveBackgroundRenderer(canvas, {
-      mode: options.mode ?? 'liquid', playing: options.playing ?? false, onError,
+      playing: options.playing ?? false, onError,
     });
     controllers.push(controller);
     return controller;
@@ -133,28 +132,35 @@ describe('沉浸背景渲染生命周期', () => {
   it('暂停时绘制静帧，使用现有封面色且无需 RAF', () => {
     const h = setup(); h.start();
     expect(h.frames).toHaveLength(1);
-    expect(h.frames[0].mode).toBe(0);
-    expect(h.frames[0].color).toEqual([48 / 255, 128 / 255, 192 / 255]);
-    expect(h.frames[0].accent).toEqual([100 / 255, 150 / 255, 200 / 255]);
+    expect(h.frames[0].deep).toEqual([11 / 255, 48 / 255, 77 / 255]);
+    expect(h.frames[0].fog).toEqual([90 / 255, 142 / 255, 184 / 255]);
+    expect(h.uniforms.get('uResolution')).toEqual([600, 400]);
     expect(h.callbacks.size).toBe(0);
     expect(h.canvas.getContext).toHaveBeenCalledWith('webgl', expect.objectContaining({ alpha: false, antialias: false, preserveDrawingBuffer: true }));
     expect(h.onError).not.toHaveBeenCalled();
   });
 
-  it('播放时最多每秒绘制30帧，暂停后取消帧并冻结时间', () => {
+  it('播放时最多每秒绘制30帧，暂停后烟雾逐渐停下并释放动画循环', () => {
     const h = setup({ playing: true }); const renderer = h.start();
     for (let time = 0; time <= 1000; time += 10) h.frame(time);
     expect(h.frames.length).toBeGreaterThan(20);
     expect(h.frames.length).toBeLessThanOrEqual(31);
     const lastTime = h.frames.at(-1)!.time;
-    renderer.update({ mode: 'liquid', playing: false });
+    const playingStep = lastTime - h.frames.at(-2)!.time;
+    renderer.update({ playing: false });
+    expect(h.callbacks.size).toBe(1);
+    h.frame(1040);
+    expect(h.frames.at(-1)!.time).toBeGreaterThan(lastTime);
+    expect(h.frames.at(-1)!.time - lastTime).toBeLessThan(playingStep);
+    for (let time = 1080; time <= 5000; time += 40) h.frame(time);
     expect(h.callbacks.size).toBe(0);
     const count = h.frames.length;
+    const stoppedTime = h.frames.at(-1)!.time;
     h.frame(10000);
     expect(h.frames).toHaveLength(count);
-    renderer.update({ mode: 'liquid', playing: true });
+    renderer.update({ playing: true });
     h.frame(10050);
-    expect(h.frames.at(-1)!.time - lastTime).toBeLessThan(0.2);
+    expect(h.frames.at(-1)!.time - stoppedTime).toBeLessThan(0.2);
   });
 
   it('窗口隐藏和减少动态效果均停止帧，恢复后才继续', () => {
@@ -173,37 +179,51 @@ describe('沉浸背景渲染生命周期', () => {
     expect(h.callbacks.size).toBe(1);
   });
 
-  it('启用减少动态效果时只显示静帧，模式、尺寸和颜色改变仍重绘一次', () => {
+  it('暂停渐停期间收到新封面色，停稳的最后一帧必须呈现完整的新配色', () => {
+    const h = setup({ playing: true }); const renderer = h.start();
+    for (let time = 40; time <= 1000; time += 40) h.frame(time);
+    renderer.update({ playing: false });
+    for (let time = 1040; time <= 2800; time += 40) h.frame(time);
+    expect(h.callbacks.size).toBe(1);
+    h.color('128, 128, 128');
+    for (let time = 2840; time <= 5000; time += 40) h.frame(time);
+    expect(h.callbacks.size).toBe(0);
+    expect(h.frames.at(-1)!.deep).toEqual([77 / 255, 77 / 255, 77 / 255]);
+    expect(h.frames.at(-1)!.fog).toEqual([184 / 255, 184 / 255, 184 / 255]);
+  });
+
+  it('启用减少动态效果时只显示静帧，尺寸和颜色改变仍重绘一次', () => {
     const h = setup({ playing: true, reduced: true }); const renderer = h.start();
-    renderer.update({ mode: 'aurora', playing: true });
-    expect(h.frames).toHaveLength(2);
-    expect(h.frames.at(-1)!.mode).toBe(1);
+    renderer.update({ playing: false });
+    expect(h.frames).toHaveLength(1);
     h.resize(640, 400);
-    expect(h.frames).toHaveLength(3);
+    expect(h.frames).toHaveLength(2);
     h.color('200, 60, 30');
-    expect(h.frames).toHaveLength(4);
-    expect(h.frames.at(-1)!.color).toEqual([200 / 255, 60 / 255, 30 / 255]);
+    expect(h.frames).toHaveLength(3);
+    expect(h.frames.at(-1)!.fog[0]).toBeGreaterThan(h.frames.at(-1)!.fog[2]);
     expect(h.callbacks.size).toBe(0);
   });
 
-  it('暂停后切模式、调整尺寸和主题会保留动画时间并更新静帧', () => {
-    const h = setup(); const renderer = h.start();
+  it('暂停后调整尺寸和主题会保留动画时间并更新静帧', () => {
+    const h = setup(); h.start();
     const time = h.frames[0].time;
-    renderer.update({ mode: 'aurora', playing: false });
     h.resize(500, 300);
     h.color('', '70, 80, 90');
-    expect(h.frames).toHaveLength(4);
-    const accent = [70 / 255, 80 / 255, 90 / 255];
-    expect(h.frames.at(-1)).toEqual({ time, mode: 1, color: accent, accent });
+    expect(h.frames).toHaveLength(3);
+    expect(h.frames.at(-1)!.time).toBe(time);
+    expect(h.frames.at(-1)!.deep).not.toEqual(h.frames[0].deep);
     expect(h.callbacks.size).toBe(0);
   });
 
-  it('封面色不变时，主题强调色变化也更新静帧', () => {
+  it('有效封面色不受主题强调色影响，灰阶封面保持灰阶', () => {
     const h = setup(); h.start();
     h.color('48, 128, 192', '10, 20, 30');
-    expect(h.frames).toHaveLength(2);
-    expect(h.frames.at(-1)!.color).toEqual([48 / 255, 128 / 255, 192 / 255]);
-    expect(h.frames.at(-1)!.accent).toEqual([10 / 255, 20 / 255, 30 / 255]);
+    expect(h.frames).toHaveLength(1);
+    h.color('128, 128, 128', '255, 0, 0');
+    expect(h.frames.at(-1)!.deep).toEqual([77 / 255, 77 / 255, 77 / 255]);
+    expect(h.frames.at(-1)!.fog).toEqual([184 / 255, 184 / 255, 184 / 255]);
+    h.color('0, 0, 0');
+    expect(h.frames.at(-1)!.fog).toEqual([184 / 255, 184 / 255, 184 / 255]);
   });
 
   it('只观察根节点：封面色与强调色都写在那里，沉浸页每帧改进度样式不会触发取色', () => {
@@ -216,11 +236,12 @@ describe('沉浸背景渲染生命周期', () => {
     const count = h.frames.length;
     h.color('48, 128, 192');
     expect(h.frames).toHaveLength(count);
+    const before = h.frames.at(-1)!.deep[0];
     h.color('240, 128, 192');
     h.frame(40);
-    const red = h.frames.at(-1)!.color[0];
-    expect(red).toBeGreaterThan(48 / 255);
-    expect(red).toBeLessThan(240 / 255);
+    const red = h.frames.at(-1)!.deep[0];
+    expect(red).toBeGreaterThan(before);
+    expect(red).toBeLessThan(77 / 255);
   });
 
   it('大窗口高DPR限制像素预算，零尺寸不绘制和空转', () => {
@@ -288,7 +309,7 @@ describe('沉浸背景渲染生命周期', () => {
     expect(h.gl.deleteBuffer).toHaveBeenCalledTimes(1);
     h.frame(2000); h.color('120, 20, 30'); h.resize(200, 300); h.visibility(false); h.motion(false);
     h.canvas.dispatchEvent(new Event('webglcontextrestored'));
-    renderer.update({ mode: 'aurora', playing: true });
+    renderer.update({ playing: true });
     expect(h.frames).toHaveLength(count);
     expect(h.callbacks.size).toBe(0);
   });

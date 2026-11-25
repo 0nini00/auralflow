@@ -94,11 +94,10 @@ function resetAllButton() {
 }
 
 describe("沉浸式播放背景设置", () => {
-  it("选项只有封面、液态渐变和极光光幕，新增设置不改已有默认值", () => {
+  it("烟雾替换两种旧动态背景，封面仍是默认选择", () => {
     expect(IMMERSIVE_BACKGROUND_OPTIONS).toEqual([
       { value: "cover", label: "封面背景" },
-      { value: "liquid", label: "液态渐变" },
-      { value: "aurora", label: "极光光幕" },
+      { value: "fog", label: "烟雾背景" },
     ]);
     const { immersiveBackground, ...existingDefaults } = APPEARANCE_DEFAULTS;
     expect(immersiveBackground).toBe("cover");
@@ -128,7 +127,7 @@ describe("沉浸式播放背景设置", () => {
     });
   });
 
-  it.each(["cover", "liquid", "aurora"] as const)("%s 经持久化与重新加载后保持选择", async mode => {
+  it.each(["cover", "fog"] as const)("%s 经持久化与重新加载后保持选择", async mode => {
     useThemeStore.getState().patchAppearance({ immersiveBackground: mode, accentColor: "#123456" });
     const saved = localStorage.getItem("af-theme")!;
     expect(JSON.parse(saved).state.immersiveBackground).toBe(mode);
@@ -137,6 +136,23 @@ describe("沉浸式播放背景设置", () => {
     await useThemeStore.persist.rehydrate();
     expect(useThemeStore.getState().immersiveBackground).toBe(mode);
     expect(useThemeStore.getState().accentColor).toBe("#123456");
+  });
+
+  it.each(["liquid", "aurora"])("旧 %s 迁移为烟雾并写回存档，保留其它外观", async mode => {
+    localStorage.setItem("af-theme", JSON.stringify({
+      version: 3,
+      state: { immersiveBackground: mode, theme: "light", accentColor: "#123456", backgroundBlur: 24 },
+    }));
+    await useThemeStore.persist.rehydrate();
+    expect(useThemeStore.getState()).toMatchObject({
+      immersiveBackground: "fog", theme: "light", accentColor: "#123456", backgroundBlur: 24,
+    });
+    const saved = localStorage.getItem("af-theme")!;
+    expect(JSON.parse(saved)).toMatchObject({ version: 4, state: { immersiveBackground: "fog" } });
+    useThemeStore.getState().resetAppearance();
+    localStorage.setItem("af-theme", saved);
+    await useThemeStore.persist.rehydrate();
+    expect(useThemeStore.getState().immersiveBackground).toBe("fog");
   });
 
   it.each(["invalid", "", null, 123])("无效存档 %s 归一化为封面背景", async value => {
@@ -160,7 +176,7 @@ describe("沉浸式播放背景设置", () => {
   });
 
   it("单项恢复只重置沉浸背景，其它外观保持用户选择", async () => {
-    useThemeStore.getState().patchAppearance({ immersiveBackground: "aurora", theme: "light", backgroundBlur: 24 });
+    useThemeStore.getState().patchAppearance({ immersiveBackground: "fog", theme: "light", backgroundBlur: 24 });
     await mountSettings();
     const reset = () => renderer!.root.findByProps({ "aria-label": "恢复默认：沉浸式播放背景" });
     expect(reset().props.disabled).toBe(false);
@@ -172,7 +188,7 @@ describe("沉浸式播放背景设置", () => {
   it("仅改变沉浸背景也启用全部恢复默认，恢复后控件重新禁用", async () => {
     await mountSettings();
     expect(resetAllButton().props.disabled).toBe(true);
-    chooseBackground("液态渐变");
+    chooseBackground("烟雾背景");
     expect(resetAllButton().props.disabled).toBe(false);
     act(() => resetAllButton().props.onClick());
     expect(useThemeStore.getState().immersiveBackground).toBe("cover");

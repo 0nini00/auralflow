@@ -14,9 +14,9 @@ vi.mock('@/hooks/useInterpolatedPlaybackProgress', () => ({ useInterpolatedPlayb
 vi.mock('@/utils/desktopLyricToggle', () => ({ toggleDesktopLyricFromPlayer: async () => ({ open: true, locked: false }) }));
 vi.mock('@/components/playerVisualizers/PlayerVisualizerRenderer', () => ({ PlayerVisualizerRenderer: () => <div>歌词内容</div> }));
 vi.mock('@/components/SongAddMenuButton', () => ({ SongAddMenuButton: () => <button aria-label="添加到歌单">添加</button> }));
-vi.mock('@/components/ImmersiveBackground', () => ({ ImmersiveBackground: ({ mode, playing, onError }: any) => {
+vi.mock('@/components/ImmersiveBackground', () => ({ ImmersiveBackground: ({ playing, onError }: any) => {
   deps.reportBackgroundError = onError;
-  return <canvas className="af-immersive-dynamic-background" data-mode={mode} data-playing={String(playing)} aria-hidden="true" />;
+  return <canvas className="af-immersive-dynamic-background" data-playing={String(playing)} aria-hidden="true" />;
 } }));
 import { ImmersiveLyricsOverlay } from '../src/components/ImmersiveLyricsOverlay';
 import { useThemeStore } from '../src/stores/themeStore';
@@ -49,22 +49,21 @@ it('默认保留封面背景，不初始化动态画布；更多菜单切换后�
   expect(document.querySelector('.af-immersive-cover-glow')).not.toBeNull();
   expect(canvas()).toBeNull();
   await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="更多"]')!.click());
-  await choose('liquid');
-  expect(canvas()?.getAttribute('data-mode')).toBe('liquid');
+  expect([...selector().options].map(option => option.value)).toEqual(['cover', 'fog']);
+  await choose('fog');
+  expect(document.querySelector('[data-background="fog"]')).not.toBeNull();
   expect(canvas()?.getAttribute('aria-hidden')).toBe('true');
   expect(document.querySelector('.af-immersive-cover-glow')).toBeNull();
   expect(document.querySelector('.af-immersive-noise')).toBeNull();
-  expect(JSON.parse(localStorage.getItem('af-theme')!).state.immersiveBackground).toBe('liquid');
-  await choose('aurora');
-  expect(canvas()?.getAttribute('data-mode')).toBe('aurora');
+  expect(JSON.parse(localStorage.getItem('af-theme')!).state.immersiveBackground).toBe('fog');
   await choose('cover');
   expect(canvas()).toBeNull();
   expect(document.querySelector('.af-immersive-cover-glow')).not.toBeNull();
 });
 
 it('外观状态变化实时同步，暂停向背景传递静止状态；关闭卸载、重开恢复选择', async () => {
-  await act(async () => useThemeStore.getState().patchAppearance({ immersiveBackground: 'aurora' } as any));
-  expect(canvas()?.getAttribute('data-mode')).toBe('aurora');
+  await act(async () => useThemeStore.getState().patchAppearance({ immersiveBackground: 'fog' }));
+  expect(canvas()).not.toBeNull();
   expect(canvas()?.getAttribute('data-playing')).toBe('true');
   deps.player = { ...deps.player, status: 'paused' };
   await act(async () => root.render(<ImmersiveLyricsOverlay open onClose={close} />));
@@ -72,19 +71,18 @@ it('外观状态变化实时同步，暂停向背景传递静止状态；关闭�
   await act(async () => root.render(<ImmersiveLyricsOverlay open={false} onClose={close} />));
   expect(canvas()).toBeNull();
   await act(async () => root.render(<ImmersiveLyricsOverlay open onClose={close} />));
-  expect(canvas()?.getAttribute('data-mode')).toBe('aurora');
+  expect(canvas()).not.toBeNull();
+  expect(useThemeStore.getState().immersiveBackground).toBe('fog');
 });
 
 it('图形错误可见且不篡改用户选择，恢复或主动切回封面后清除提示', async () => {
-  await act(async () => useThemeStore.getState().patchAppearance({ immersiveBackground: 'liquid' } as any));
+  await act(async () => useThemeStore.getState().patchAppearance({ immersiveBackground: 'fog' }));
   expect(deps.reportBackgroundError).toBeTypeOf('function');
   await act(async () => deps.reportBackgroundError!('WebGL unavailable'));
   expect(document.querySelector('[role="alert"]')?.textContent).toContain('WebGL unavailable');
-  expect(canvas()?.getAttribute('data-mode')).toBe('liquid');
+  expect(canvas()).not.toBeNull();
+  expect(useThemeStore.getState().immersiveBackground).toBe('fog');
   await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="更多"]')!.click());
-  await choose('aurora');
-  expect(canvas()?.getAttribute('data-mode')).toBe('aurora');
-  expect(document.querySelector('[role="alert"]')?.textContent).toContain('WebGL unavailable');
   await act(async () => deps.reportBackgroundError!(''));
   expect(document.querySelector('[role="alert"]')).toBeNull();
   await act(async () => deps.reportBackgroundError!('context lost'));
