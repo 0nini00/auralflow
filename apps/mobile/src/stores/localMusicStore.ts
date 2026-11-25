@@ -3,6 +3,7 @@ import type { MusicInfo } from "@lx/core";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   getDownloadedLocalSongs,
+  getLocalMusicFileKey,
   isDownloadedLocalSong,
   pickLocalAudioFiles,
   scanLocalMusic,
@@ -17,6 +18,8 @@ import {
   parseLocalSongs,
   reconcileLocalMusic,
   type LocalMusicInfo,
+  type LocalMusicScanResult,
+  type LocalMusicScanSummary,
 } from "../services/localMusicScanModel";
 
 export const LOCAL_MUSIC_KEY = "auralflow.mobile.localMusic";
@@ -31,7 +34,7 @@ export interface LocalMusicState {
 
 interface LocalMusicActions {
   loadLocalSongs: () => Promise<void>;
-  scanMusic: () => Promise<void>;
+  scanMusic: () => Promise<LocalMusicScanSummary>;
   /** 手动挑选音频文件并合并进本地曲库（不覆盖已有扫描结果）。 */
   importLocalFiles: () => Promise<{ added: number; total: number }>;
   removeLocalSong: (song: Pick<MusicInfo, "id" | "source">) => Promise<void>;
@@ -62,6 +65,7 @@ async function ensureLocalSongsLoaded(get: () => LocalMusicStore): Promise<void>
 type LocalSongsUpdate = (songs: LocalMusicInfo[]) => LocalMusicInfo[] | Promise<LocalMusicInfo[]>;
 
 export const useLocalMusicStore = create<LocalMusicStore>((set, get) => {
+  let scanning: Promise<LocalMusicScanSummary> | null = null;
   // 所有写入共享同一提交边界：读取当前态、变换、落盘、发布内存态不可交错。
   const commitLocalSongs = (update: LocalSongsUpdate, removeStorage = false) => serializeLocalMusicOperation(async () => {
     try {
@@ -72,10 +76,10 @@ export const useLocalMusicStore = create<LocalMusicStore>((set, get) => {
       } else {
         await AsyncStorage.setItem(LOCAL_MUSIC_KEY, JSON.stringify(songs));
       }
-      set({ localSongs: songs, loading: false, error: null });
+      set({ localSongs: songs, loading: scanning !== null, error: null });
       return { added: songs.length - current.length, total: songs.length };
     } catch (error) {
-      set({ error: error instanceof Error ? error.message : "保存本地音乐失败", loading: false });
+      set({ error: error instanceof Error ? error.message : "保存本地音乐失败", loading: scanning !== null });
       throw error;
     }
   });
@@ -92,10 +96,10 @@ export const useLocalMusicStore = create<LocalMusicStore>((set, get) => {
         try {
           set({ loading: true, error: null });
           const raw = await AsyncStorage.getItem(LOCAL_MUSIC_KEY);
-          set({ localSongs: parseLocalSongs(raw), loading: false });
+          set({ localSongs: parseLocalSongs(raw), loading: scanning !== null });
           localSongsHydrated = true;
         } catch (error) {
-          set({ error: error instanceof Error ? error.message : "加载本地音乐失败", loading: false });
+          set({ error: error instanceof Error ? error.message : "加载本地音乐失败", loading: scanning !== null });
           throw error;
         }
       });
@@ -106,23 +110,41 @@ export const useLocalMusicStore = create<LocalMusicStore>((set, get) => {
       }
     },
 
-    scanMusic: async () => {
+    scanMusic: () => {
+      if (scanning) return scanning;
       set({ loading: true, error: null, scanProgress: { scanned: 0, total: 0 } });
-      try {
-        await ensureLocalSongsLoaded(get);
-        set({ loading: true, error: null });
-        // 并行查询 MediaStore 与检查已知下载文件，不枚举下载目录或重建孤儿文件索引。
-        const [scanned, downloaded] = await Promise.all([
-          scanLocalMusic(get().localSongs, (progress) => set({ scanProgress: progress })),
-          getDownloadedLocalSongs(get().localSongs),
-        ]);
-        await commitLocalSongs(async (songs) => reconcileLocalMusic(songs, [scanned, downloaded]));
-      } catch (error) {
-        set({ error: error instanceof Error ? error.message : "扫描失败", loading: false });
-        throw error;
-      } finally {
-        set({ scanProgress: null });
-      }
+      scanning = (async () => {
+        let acceptingProgress = true;
+        const observeFailure = (task: Promise<LocalMusicScanResult>) => task.catch(error => {
+          acceptingProgress = false;
+          set({ error: error instanceof Error ? error.message : "扫描失败", scanProgress: null });
+          throw error;
+        });
+        try {
+          await ensureLocalSongsLoaded(get);
+          const current = get().localSongs;
+          // 一支失败后仍等待另一支结算，原生订阅清理完才允许下一轮扫描。
+          const results = await Promise.allSettled([
+            observeFailure(scanLocalMusic(current, progress => {
+              if (acceptingProgress) set({ scanProgress: progress });
+            })),
+            observeFailure(getDownloadedLocalSongs(current)),
+          ]);
+          const scans = results.map(result => {
+            if (result.status === "rejected") throw result.reason;
+            return result.value;
+          });
+          const summary = await commitLocalSongs(songs => reconcileLocalMusic(songs, scans, getLocalMusicFileKey));
+          return { total: summary.total, warnings: scans.flatMap(scan => scan.warnings ?? []) };
+        } catch (error) {
+          set({ error: error instanceof Error ? error.message : "扫描失败" });
+          throw error;
+        } finally {
+          acceptingProgress = false;
+          set({ loading: false, scanProgress: null });
+        }
+      })().finally(() => { scanning = null; });
+      return scanning;
     },
 
     importLocalFiles: async () => {
@@ -131,9 +153,9 @@ export const useLocalMusicStore = create<LocalMusicStore>((set, get) => {
         await ensureLocalSongsLoaded(get);
         set({ loading: true, error: null });
         const picked = await pickLocalAudioFiles();
-        return await commitLocalSongs((songs) => mergeManualLocalSongs(songs, picked));
+        return await commitLocalSongs((songs) => mergeManualLocalSongs(songs, picked, getLocalMusicFileKey));
       } catch (error) {
-        set({ error: error instanceof Error ? error.message : "导入失败", loading: false });
+        set({ error: error instanceof Error ? error.message : "导入失败", loading: scanning !== null });
         throw error;
       }
     },
@@ -152,7 +174,7 @@ export const useLocalMusicStore = create<LocalMusicStore>((set, get) => {
         const current = songs.find((item) => item.id === song.id && item.source === song.source);
         const downloaded = isDownloadedLocalSong(current ?? song);
         // 下载曲编辑只保存在本地曲库；记录字段名，避免刷新时被旧下载元数据覆盖。
-        if (!downloaded) await updateLocalMusicMetadata(String(song.id), patch);
+        if (!downloaded) await updateLocalMusicMetadata(current?.localMediaId ?? String(song.id), patch);
         return songs.map((item) => {
           if (String(item.id) !== String(song.id) || item.source !== song.source) return item;
           return downloaded ? applyLocalMetadataEdit(item, patch) : { ...item, ...patch };

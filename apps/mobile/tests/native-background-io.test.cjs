@@ -29,7 +29,7 @@ test('Activity 导入和授权回调及全库扫描隔离 I/O，关闭后每个 
   const source = fs.readFileSync(path.join(nativeDir, 'LocalMusicModule.java'), 'utf8');
   const names = ['handlePickAudioResult', 'readPickedAudioFiles', 'handleUpdateAccessResult', 'scanLocalMusic',
     'scanLocalMusicInBackground', 'submitIo', 'buildScanSignature', 'buildDirectoryCoverSignature',
-    'appendSignaturePart', 'appendFileStamp', 'safeString', 'invalidate', 'rejectPendingActivityRequests'];
+    'appendSignaturePart', 'appendFileStamp', 'safeString', 'applyLyrics', 'invalidate', 'rejectPendingActivityRequests'];
   const methods = names.map(name => extract(source, name)).join('\n').replaceAll('LocalMusicModule::', 'BackgroundIoHarness::');
   const callback = source.match(/public void onActivityResult\(Activity activity, int requestCode, int resultCode, Intent data\) \{[^]*?^    }/m);
   assert.ok(callback);

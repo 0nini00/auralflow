@@ -6,7 +6,11 @@ import { useDownloadStore } from "@/stores/downloadStore";
 import { logger } from "@/services/logger";
 import { buildDownloadFileStem } from "@/services/downloadFileNaming";
 import { findDownloadDirectoryFile } from "@/services/downloadDirectoryService";
-import { DOWNLOAD_SCOPE, MEDIA_STORE_SCOPE, type LocalMusicInfo, type LocalMusicScanResult } from "./localMusicScanModel";
+import { DOWNLOAD_SCOPE, MEDIA_STORE_SCOPE, localMusicFileKey, type LocalMusicInfo, type LocalMusicScanResult } from "./localMusicScanModel";
+
+export function getLocalMusicFileKey(song: Pick<MusicInfo, "url">): string | undefined {
+  return localMusicFileKey(song.url, RNFS.ExternalStorageDirectoryPath);
+}
 
 /**
  * 原生模块返回的单首本地歌曲结构。
@@ -26,6 +30,7 @@ interface NativeLocalSong {
   albumArtUri?: string | null;
   /** 内嵌歌词（USLT 帧）或同名 .lrc 旁挂歌词内容；无则为空 */
   lyrics?: string;
+  warnings?: string[];
 }
 
 interface NativeScannedSong extends NativeLocalSong {
@@ -220,9 +225,16 @@ export async function scanLocalMusic(
     );
   }
 
+  const previousSongs = new Map(existing
+    .filter(song => song.localMediaId || song.localOrigin === "mediaStore")
+    .map(song => [song.localMediaId ?? song.id, song]));
+  const previousFiles = new Map(existing.flatMap(song => {
+    const key = getLocalMusicFileKey(song);
+    return key ? [[key, song] as const] : [];
+  }));
   const cached = new Map(existing
-    .filter((song) => song.localScan?.scope === MEDIA_STORE_SCOPE && song.localScan.signature)
-    .map((song) => [song.id, song]));
+    .filter((song) => (song.localMediaId || song.localScan?.scope === MEDIA_STORE_SCOPE) && song.localScan?.signature)
+    .map((song) => [song.localMediaId ?? song.id, song]));
   const signatures = Object.fromEntries([...cached].map(([id, song]) => [id, song.localScan!.signature!]));
   const subscription = onProgress
     ? DeviceEventEmitter.addListener("LocalMusicScanProgress", (event: unknown) => {
@@ -238,23 +250,27 @@ export async function scanLocalMusic(
     validateNativeScan(result);
     const songs = result.songs.map((native) => {
       const song = mapNativeLocalSong(native);
-      const previous = cached.get(native.id);
+      const previous = previousSongs.get(native.id) ?? previousFiles.get(getLocalMusicFileKey(song) ?? "");
       if (native.tagsUnchanged) {
-        if (!previous || previous.localScan?.signature !== native.signature) {
+        const cachedSong = cached.get(native.id);
+        if (!cachedSong || cachedSong.localScan?.signature !== native.signature) {
           throw new Error("本地音乐扫描缓存签名不匹配");
         }
-        song.localLyrics = previous.localLyrics;
+        song.localLyrics = cachedSong.localLyrics;
         // 封面每次扫描都由原生重新解析：null 明确清掉旧封面，undefined 兼容旧原生模块。
         const cover = native.albumArtUri === null
           ? undefined
-          : native.albumArtUri ?? previous.picUrl;
+          : native.albumArtUri ?? cachedSong.picUrl;
         song.picUrl = cover;
         song.img = cover;
       }
-      return { ...song, localOrigin: "mediaStore" as const,
-        localScan: { scope: MEDIA_STORE_SCOPE, signature: native.signature } };
+      if (native.warnings?.length && native.lyrics === undefined) song.localLyrics = previous?.localLyrics;
+      return { ...song, localOrigin: "mediaStore" as const, localMediaId: native.id,
+        localScan: { scope: MEDIA_STORE_SCOPE, signature: native.warnings?.length ? undefined : native.signature } };
     });
-    return { source: "mediaStore", scope: MEDIA_STORE_SCOPE, complete: true, songs };
+    const warnings = result.songs.flatMap(song => (song.warnings ?? []).map(message => ({ id: song.id, name: song.title, message })));
+    for (const warning of warnings) logger.warn("[local] 扫描标签读取失败", warning);
+    return { source: "mediaStore", scope: MEDIA_STORE_SCOPE, complete: true, songs, warnings };
   } finally {
     subscription?.remove();
   }
@@ -277,7 +293,11 @@ export async function pickLocalAudioFiles(): Promise<LocalMusicInfo[]> {
 
   const songs = await nativeLocalMusicModule.pickLocalAudioFiles();
   if (!Array.isArray(songs)) throw new Error("本地音乐导入结果格式错误");
-  return songs.map((song) => ({ ...mapNativeLocalSong(song), localOrigin: "manual" }));
+  return songs.map((song) => {
+    const mapped = mapNativeLocalSong(song);
+    // 文档提供方的 _ID 只在提供方内部有效，使用完整 URI 作为手动曲目的身份。
+    return { ...mapped, id: mapped.localMediaId ?? song.contentUri ?? song.id, localOrigin: "manual" };
+  });
 }
 
 /** 读取外部打开的音频用于当前播放，不将临时授权写入本地曲库。 */
@@ -304,6 +324,8 @@ export async function readLocalAudioFile(uri: string): Promise<LocalMusicInfo> {
       || typeof song.filePath !== "string" || !song.filePath
       || (song.contentUri !== undefined && typeof song.contentUri !== "string")
       || (song.lyrics !== undefined && typeof song.lyrics !== "string")
+      || (song.warnings !== undefined && (!Array.isArray(song.warnings)
+        || song.warnings.some(warning => typeof warning !== "string" || !warning.trim())))
       || (song.albumArtUri != null && typeof song.albumArtUri !== "string")) {
     throw new Error("外部音频读取结果无效");
   }
@@ -327,6 +349,8 @@ function validateNativeScan(result: NativeLocalScan): void {
       || typeof song.signature !== "string" || !song.signature || typeof song.tagsUnchanged !== "boolean"
       || (song.contentUri !== undefined && typeof song.contentUri !== "string")
       || (song.lyrics !== undefined && typeof song.lyrics !== "string")
+      || (song.warnings !== undefined && (!Array.isArray(song.warnings)
+        || song.warnings.some(warning => typeof warning !== "string" || !warning.trim())))
       || (song.albumArtUri != null && typeof song.albumArtUri !== "string")) {
       throw new Error("本地音乐扫描结果包含无效条目");
     }
@@ -349,6 +373,7 @@ function mapNativeLocalSong(song: NativeLocalSong): LocalMusicInfo {
     img: cover,
     localLyrics: song.lyrics || undefined,
     isLocal: true,
+    localMediaId: /^content:\/\/media\/[^/]+\/audio\/media\/(\d+)$/.exec(song.contentUri ?? "")?.[1],
   };
 }
 

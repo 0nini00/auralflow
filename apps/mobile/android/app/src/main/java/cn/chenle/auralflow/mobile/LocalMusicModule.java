@@ -27,21 +27,17 @@ import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.WritableMap;
 
 import org.jaudiotagger.audio.AudioFile;
-import org.jaudiotagger.audio.AudioFileIO;
 import org.jaudiotagger.tag.FieldKey;
 import org.jaudiotagger.tag.Tag;
 import org.jaudiotagger.tag.images.Artwork;
 import org.jaudiotagger.tag.images.ArtworkFactory;
 
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -487,9 +483,10 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
 
         // 内嵌歌词 → 同名 .lrc 旁挂；封面 albumart → sidecar 图片（仅当有真实文件路径时）。
         File audioFile = filePath.startsWith("/") ? new File(filePath) : null;
-        String lyrics = resolveLyrics(audioFile);
-        if (lyrics != null) {
-          song.putString("lyrics", lyrics);
+        LocalAudioAssetsReader.LyricsResult lyrics = LocalAudioAssetsReader.readLyrics(audioFile);
+        applyLyrics(song, lyrics);
+        for (String warning : lyrics.warnings) {
+          android.util.Log.w("LocalMusicModule", "手动导入歌词资料警告：" + uri + ": " + warning);
         }
         String coverUri = resolveCover(resolver, albumId, audioFile);
         if (coverUri != null) {
@@ -528,62 +525,17 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
   /* 内嵌歌词 / 同名 .lrc 旁挂歌词 / sidecar 封面                        */
   /* ------------------------------------------------------------------ */
 
-  private static final int MAX_LOCAL_LYRICS_BYTES = LocalAudioAssetsReader.MAX_LYRICS_BYTES;
   private static final String[] SIDECAR_COVER_NAMES = {
     "folder.jpg", "Folder.jpg", "cover.jpg", "Cover.jpg",
     "folder.png", "Folder.png", "cover.png", "Cover.png",
   };
 
-  /**
-   * 读取音频文件内嵌歌词（USLT/UNSYNCEDLYRICS 帧）。无内嵌歌词返回 null，读取失败向上传递。
-   * 对齐桌面端 Rust getAudioInfo 返回的 lyrics 字段。
-   */
-  private static String readEmbeddedLyrics(File audioFile) throws Exception {
-    if (audioFile == null || !audioFile.exists() || !audioFile.isFile()) {
-      return null;
-    }
-    AudioFile af = AudioFileIO.read(audioFile);
-    if (af == null) {
-      return null;
-    }
-    Tag tag = af.getTag();
-    if (tag == null) {
-      return null;
-    }
-    // jaudiotagger 的 FieldKey.LYRICS 统一映射 MP3 USLT / MP4 歌词帧。
-    String lyrics = tag.getFirst(FieldKey.LYRICS);
-    return (lyrics == null || lyrics.trim().isEmpty()) ? null : lyrics;
-  }
-
-  /** 读取音频同目录的「同名.lrc」旁挂歌词文件（桌面端同款约定）。无或过大返回 null。 */
-  private static String readSidecarLrc(File audioFile) throws Exception {
-    if (audioFile == null || !audioFile.exists()) {
-      return null;
-    }
-    String path = audioFile.getAbsolutePath();
-    int dot = path.lastIndexOf('.');
-    File lrc = new File(dot > 0 ? path.substring(0, dot) + ".lrc" : path + ".lrc");
-    if (!lrc.exists() || !lrc.isFile() || lrc.length() > MAX_LOCAL_LYRICS_BYTES) {
-      return null;
-    }
-    StringBuilder sb = new StringBuilder((int) lrc.length() + 16);
-    try (BufferedReader reader = new BufferedReader(
-        new InputStreamReader(new FileInputStream(lrc), StandardCharsets.UTF_8))) {
-      String line;
-      while ((line = reader.readLine()) != null) {
-        sb.append(line).append('\n');
-      }
-    }
-    return sb.length() == 0 ? null : sb.toString();
-  }
-
-  /** 歌词解析顺序：内嵌歌词优先，其次同名 .lrc 旁挂文件。 */
-  private static String resolveLyrics(File audioFile) throws Exception {
-    String embedded = readEmbeddedLyrics(audioFile);
-    if (embedded != null) {
-      return embedded;
-    }
-    return readSidecarLrc(audioFile);
+  private static void applyLyrics(WritableMap song, LocalAudioAssetsReader.LyricsResult lyrics) {
+    if (lyrics.lyrics != null) song.putString("lyrics", lyrics.lyrics);
+    if (lyrics.warnings.isEmpty()) return;
+    WritableArray warnings = Arguments.createArray();
+    for (String warning : lyrics.warnings) warnings.pushString(warning);
+    song.putArray("warnings", warnings);
   }
 
   /** 查找同目录 sidecar 封面（folder.jpg / cover.jpg / 同名图片）。 */
@@ -680,7 +632,7 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
   }
 
   private static String buildScanSignature(Cursor cursor, File audioFile, ScanDirectorySignatures covers) {
-    StringBuilder signature = new StringBuilder("v2:");
+    StringBuilder signature = new StringBuilder("v3:");
     // 包含 MediaStore 修改时间、大小及基础元数据，亦检测仅修改数据库标签的情况。
     for (int i = 0; i < cursor.getColumnCount(); i++) {
       appendSignaturePart(signature, safeString(cursor, i));
@@ -693,7 +645,7 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
     String name = audioFile.getName();
     int dot = name.lastIndexOf('.');
     String stem = dot > 0 ? name.substring(0, dot) : name;
-    appendFileStamp(signature, new File(dir, stem + ".lrc"));
+    appendFileStamp(signature, LocalAudioAssetsReader.sidecarLyricsFile(audioFile));
     appendSignaturePart(signature, covers.get(dir));
     for (String ext : new String[] { ".jpg", ".jpeg", ".png" }) {
       appendFileStamp(signature, new File(dir, stem + ext));
@@ -778,8 +730,7 @@ public class LocalMusicModule extends ReactContextBaseJavaModule {
           song.putBoolean("tagsUnchanged", tagsUnchanged);
           // 签名由 JS 从曲库记录派生；原生无独立持久化缓存。
           if (!tagsUnchanged) {
-            String lyrics = resolveLyrics(audioFile);
-            if (lyrics != null) song.putString("lyrics", lyrics);
+            applyLyrics(song, LocalAudioAssetsReader.readLyrics(audioFile));
             if (!signature.equals(buildScanSignature(cursor, audioFile, covers))) {
               throw new IllegalStateException("音频或旁挂文件在扫描期间发生变化，请重试：" + contentUri);
             }

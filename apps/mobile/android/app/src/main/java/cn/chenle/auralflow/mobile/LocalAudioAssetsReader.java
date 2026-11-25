@@ -49,6 +49,16 @@ final class LocalAudioAssetsReader {
     }
   }
 
+  static final class LyricsResult {
+    final String lyrics;
+    final List<String> warnings;
+
+    LyricsResult(Assets assets) {
+      lyrics = assets.lyrics;
+      warnings = Collections.unmodifiableList(new ArrayList<>(assets.warnings));
+    }
+  }
+
   private static final class Assets {
     String lyrics;
     File coverFile;
@@ -61,6 +71,38 @@ final class LocalAudioAssetsReader {
   }
 
   private LocalAudioAssetsReader() {}
+
+  /** 扫描仅需歌词，不复制整首音频；可选资料损坏不能丢弃已由媒体库列出的歌曲。 */
+  static LyricsResult readLyrics(File audioFile) {
+    Assets assets = new Assets();
+    if (audioFile == null) {
+      assets.warnings.add("EMBEDDED_LYRICS_FAILED: IOException: 媒体库未提供可读取标签的文件路径");
+      return new LyricsResult(assets);
+    }
+    try {
+      Tag tag = AudioFileIO.read(audioFile).getTag();
+      if (tag != null) assets.lyrics = checkedLyrics(tag.getFirst(FieldKey.LYRICS));
+    } catch (Exception error) {
+      assets.warn("EMBEDDED_LYRICS_FAILED", error);
+    }
+    if (assets.lyrics == null) {
+      try {
+        File lrc = sidecarLyricsFile(audioFile);
+        if (lrc.exists()) assets.lyrics = readSidecarLyrics(lrc);
+      } catch (Exception error) {
+        assets.warn("SIDECAR_LYRICS_FAILED", error);
+      }
+    }
+    return new LyricsResult(assets);
+  }
+
+  /** 扫描读取与增量签名必须指向同一个旁挂路径。 */
+  static File sidecarLyricsFile(File audioFile) {
+    String name = audioFile.getName();
+    int dot = name.lastIndexOf('.');
+    String stem = dot > 0 ? name.substring(0, dot) : name;
+    return new File(audioFile.getParentFile(), stem + ".lrc");
+  }
 
   static Result read(File cache, String displayName, String mime, Source source, File localFile)
       throws IOException {
@@ -147,11 +189,7 @@ final class LocalAudioAssetsReader {
       File lrc = find(files, stem + ".lrc");
       if (lrc != null) {
         try {
-          byte[] bytes = readBounded(lrc, MAX_LYRICS_BYTES);
-          String text = StandardCharsets.UTF_8.newDecoder()
-              .onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)
-              .decode(ByteBuffer.wrap(bytes)).toString();
-          assets.lyrics = checkedLyrics(text);
+          assets.lyrics = readSidecarLyrics(lrc);
         } catch (Exception error) {
           assets.warn("SIDECAR_LYRICS_FAILED", error);
         }
@@ -189,6 +227,14 @@ final class LocalAudioAssetsReader {
     }
     String text = lyrics.startsWith("\ufeff") ? lyrics.substring(1) : lyrics;
     return text.trim().isEmpty() ? null : text;
+  }
+
+  private static String readSidecarLyrics(File file) throws IOException {
+    byte[] bytes = readBounded(file, MAX_LYRICS_BYTES);
+    String text = StandardCharsets.UTF_8.newDecoder()
+        .onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)
+        .decode(ByteBuffer.wrap(bytes)).toString();
+    return checkedLyrics(text);
   }
 
   private static byte[] readBounded(File file, int limit) throws IOException {

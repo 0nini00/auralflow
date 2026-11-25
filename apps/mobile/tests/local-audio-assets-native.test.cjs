@@ -82,5 +82,4 @@ test('reader never enters tag writes or database updates; invalidate exists once
   assert.doesNotMatch(reader, /\.commit\(|\.setField\(|\.deleteField\(|LocalTagEditor\.write\(|openOutputStream\(/);
   const source = fs.readFileSync(path.join(nativeDir, 'LocalMusicModule.java'), 'utf8');
   assert.equal((source.match(/public void invalidate\(/g) || []).length, 1);
-  assert.match(source, /MAX_LOCAL_LYRICS_BYTES = LocalAudioAssetsReader\.MAX_LYRICS_BYTES/);
 });

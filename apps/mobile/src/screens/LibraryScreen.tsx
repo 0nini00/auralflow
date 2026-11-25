@@ -130,12 +130,17 @@ export function LibraryScreen({ onNavigateToPlayer }: LibraryScreenProps) {
     if (localLoading) return;
     try {
       const previousCount = localSongs.length;
-      await scanMusic();
+      const result = await scanMusic();
       const nextSongs = useLocalMusicStore.getState().localSongs;
       if (nextSongs.length === 0) {
         Alert.alert("提示", "未找到本地音乐文件");
       } else if (previousCount === 0) {
         requestSection("local");
+      }
+      if (result.warnings.length) {
+        const details = result.warnings.slice(0, 5).map(warning => `${warning.name}：${warning.message}`).join("\n");
+        const more = result.warnings.length > 5 ? `\n另有 ${result.warnings.length - 5} 项，详见运行日志。` : "";
+        Alert.alert("扫描完成，部分标签未读取", `已更新 ${result.total} 首本地歌曲。\n${details}${more}`);
       }
     } catch (error) {
       Alert.alert("扫描失败", error instanceof Error ? error.message : String(error));

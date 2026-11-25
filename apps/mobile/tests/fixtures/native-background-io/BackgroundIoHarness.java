@@ -82,7 +82,10 @@ public final class BackgroundIoHarness extends BackgroundIoBaseModule {
     void putDouble(String key, double value) {}
     void putArray(String key, WritableArray value) {}
   }
-  private static final class WritableArray { void pushMap(WritableMap value) {} }
+  private static final class WritableArray {
+    void pushMap(WritableMap value) {}
+    void pushString(String value) {}
+  }
   private static final class Arguments {
     static WritableMap createMap() { return new WritableMap(); }
     static WritableArray createArray() { return new WritableArray(); }
@@ -114,7 +117,14 @@ public final class BackgroundIoHarness extends BackgroundIoBaseModule {
   private void takeReadPermission(ContentResolver resolver, Uri uri, Intent data) { background(); }
   private WritableMap buildSongFromUri(ContentResolver resolver, Uri uri) { background(); return new WritableMap(); }
   private void writeTagToFile(Uri uri, TagMutator mutator, Promise promise) { background(); promise.resolve(true); }
-  private static String resolveLyrics(File file) { background(); return null; }
+  private static final class LocalAudioAssetsReader {
+    static final class LyricsResult {
+      final String lyrics = null;
+      final List<String> warnings = Collections.emptyList();
+    }
+    static LyricsResult readLyrics(File file) { background(); return new LyricsResult(); }
+    static File sidecarLyricsFile(File file) { return new File(file.getParentFile(), file.getName() + ".lrc"); }
+  }
   private static String resolveCover(ContentResolver resolver, long albumId, File file) { background(); return null; }
   /* CALLBACK */
   /* METHODS */

@@ -32,7 +32,8 @@ test("外部音频映射为临时本地歌曲并保留授权 URI", async () => {
   assert.deepEqual(song, {
     id: "42", name: "外部歌曲", singer: "歌手", albumName: "专辑", source: "local",
     interval: 123, url: AUDIO_URI, picUrl: undefined, img: undefined,
-    localLyrics: undefined, isLocal: true, localOrigin: "manual",
+    // 文档提供方的数字 ID 不得建立 MediaStore 写回绑定。
+    localLyrics: undefined, isLocal: true, localMediaId: undefined, localOrigin: "manual",
   });
 });
 
