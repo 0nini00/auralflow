@@ -112,6 +112,18 @@ export interface RustAudioFile {
   lyrics?: string | null;
 }
 
+export interface RustCloudFileDigest {
+  md5: string;
+  size: number;
+}
+
+export interface RustCloudUploadProgressEvent {
+  taskId: string;
+  uploaded: number;
+  total: number;
+  progress: number;
+}
+
 export interface RustDownloadProgressEvent {
   taskId: string;
   downloaded: number;
@@ -265,6 +277,41 @@ export async function downloadFile(
 
 export async function cancelDownload(taskId: string): Promise<boolean> {
   return invoke<boolean>("cancel_download", { taskId });
+}
+
+/** 流式计算本地音频文件的 MD5 与实际大小。 */
+export async function cloudFileMd5(path: string): Promise<RustCloudFileDigest> {
+  return invoke<RustCloudFileDigest>("cloud_file_md5", { path });
+}
+
+/** 解析 NOS 上传服务器；返回的 base 由前端用共享模型拼完整地址。 */
+export async function cloudUploadLbs(bucket: string): Promise<string> {
+  return invoke<string>("cloud_upload_lbs", { bucket });
+}
+
+/** 把本地文件流式直传到 NOS，进度通过 cloud-upload-progress 事件上报。 */
+export async function cloudUploadFile(
+  taskId: string,
+  path: string,
+  uploadUrl: string,
+  token: string,
+  md5: string,
+  mimeType: string,
+  fileSize: number,
+): Promise<void> {
+  await invoke<void>("cloud_upload_file", {
+    taskId,
+    path,
+    uploadUrl,
+    token,
+    md5,
+    mimeType,
+    fileSize,
+  });
+}
+
+export async function cancelCloudUpload(taskId: string): Promise<boolean> {
+  return invoke<boolean>("cancel_cloud_upload", { taskId });
 }
 
 
@@ -533,6 +580,7 @@ export const TAURI_EVENTS = {
   taskbarAction: "taskbar-action",
   downloadProgress: "download-progress",
   downloadCompleted: "download-completed",
+  cloudUploadProgress: "cloud-upload-progress",
   lyricWindowOpenChanged: "lyric-window-open-changed",
   /** Rust 只在锁定状态变化时发，载荷只有 lyricLocked */
   lyricSettingsChanged: "lyric-settings-changed",
@@ -563,6 +611,7 @@ export interface TauriEventPayloads {
   [TAURI_EVENTS.taskbarAction]: TaskbarActionEvent;
   [TAURI_EVENTS.downloadProgress]: RustDownloadProgressEvent;
   [TAURI_EVENTS.downloadCompleted]: RustDownloadCompletedEvent;
+  [TAURI_EVENTS.cloudUploadProgress]: RustCloudUploadProgressEvent;
   [TAURI_EVENTS.lyricWindowOpenChanged]: { open: boolean };
   [TAURI_EVENTS.lyricSettingsChanged]: { lyricLocked: boolean };
   [TAURI_EVENTS.lyricWindowLockFailed]: { locked: boolean; message: string };

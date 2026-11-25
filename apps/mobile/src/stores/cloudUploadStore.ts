@@ -176,7 +176,6 @@ DeviceEventEmitter.addListener("CloudUploadProgress", (event: CloudUploadProgres
       if (TERMINAL_PHASES.has(task.phase)) return task;
       return {
         ...task,
-        phase: task.phase === "cancelling" ? task.phase : "uploading",
         loaded,
         total: total > 0 ? total : task.total,
       };

@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Cloud, Clock, Loader2, Play, RefreshCw, Shuffle, CornerDownRight } from 'lucide-react';
+import { Cloud, Clock, Loader2, Play, RefreshCw, Shuffle, CornerDownRight, Trash2, Upload } from 'lucide-react';
 import { cloudQualityLabel, shuffleItems } from '@lx/core';
 import { useWyAccountStore } from '@/stores/wyAccountStore';
 import { useCloudDriveStore } from '@/stores/cloudDriveStore';
+import { useCloudUploadStore } from '@/stores/cloudUploadStore';
 import { usePlayerStore } from '@/stores/playerStore';
+import { CloudUploadPanel } from '@/components/CloudUploadPanel';
 import { SongAddMenuButton } from '@/components/SongAddMenuButton';
 import { DownloadQualityButton } from '@/components/DownloadQualityButton';
+import { confirmAction } from '@/components/ui/ConfirmDialog';
+import { showToast } from '@/components/ui/Toast';
 import { VirtualList } from '@/components/VirtualList';
+import { deleteCloudSong, pickCloudAudioFiles } from '@/services/cloudUploadService';
 import { formatDuration } from '@/lib/utils';
 import { coverSrc } from '@/utils/imageReferrerPolicy';
 import { formatBytes } from '@/utils/formatBytes';
@@ -47,6 +52,7 @@ export function CloudDriveView() {
   const initialize = useCloudDriveStore((s) => s.initialize);
   const loadMore = useCloudDriveStore((s) => s.loadMore);
   const refresh = useCloudDriveStore((s) => s.refresh);
+  const uploadRunning = useCloudUploadStore((s) => s.running);
 
   const playNext = usePlayNextAction();
   const playQueue = usePlayerStore((s) => s.playQueue);
@@ -95,6 +101,32 @@ export function CloudDriveView() {
       await playQueue(queueToPlay, startIndex);
     } finally {
       setPendingPlayAction(null);
+    }
+  };
+
+  const handleUpload = async () => {
+    try {
+      const files = await pickCloudAudioFiles();
+      if (files.length > 0) void useCloudUploadStore.getState().upload(files);
+    } catch (error) {
+      showToast(`选择文件失败：${error instanceof Error ? error.message : String(error)}`, { kind: 'error' });
+    }
+  };
+
+  const handleDelete = async (song: (typeof songs)[number]) => {
+    const confirmed = await confirmAction({
+      title: '从云盘删除',
+      message: `确定删除「${song.name}」？删除后需要重新上传才能恢复。`,
+      confirmLabel: '删除',
+      danger: true,
+    });
+    if (!confirmed) return;
+    try {
+      await deleteCloudSong(song.id);
+      showToast('已从云盘删除');
+      await refresh();
+    } catch (error) {
+      showToast(`删除失败：${error instanceof Error ? error.message : String(error)}`, { kind: 'error' });
     }
   };
 
@@ -178,10 +210,21 @@ export function CloudDriveView() {
                 <RefreshCw size={16} className={loading ? 'af-spin' : ''} />
                 <span>{loading ? '刷新中' : '刷新'}</span>
               </button>
+              <button
+                className="af-btn-secondary"
+                onClick={() => void handleUpload()}
+                disabled={uploadRunning || loading}
+                title="上传本地音频到音乐云盘"
+              >
+                {uploadRunning ? <Loader2 size={16} className="af-spin" /> : <Upload size={16} />}
+                <span>{uploadRunning ? '上传中' : '上传'}</span>
+              </button>
             </div>
           </div>
         </div>
       </div>
+
+      <CloudUploadPanel />
 
       {error && (
         <div className="af-empty-state">
@@ -200,7 +243,7 @@ export function CloudDriveView() {
       {!error && !loading && loaded && songs.length === 0 && (
         <div className="af-empty-state">
           <p>云盘里没有歌曲</p>
-          <span>在网易云音乐客户端里「上传到音乐云盘」之后会出现在这里</span>
+          <span>点上方「上传」把本地音频放进云盘，也可以继续使用网易云客户端上传</span>
         </div>
       )}
 
@@ -256,6 +299,15 @@ export function CloudDriveView() {
                     </button>
                     <SongAddMenuButton song={song} iconSize={14} title="添加到我的喜欢或歌单" />
                     <DownloadQualityButton song={song} iconSize={14} title="下载" />
+                    <button
+                      className="af-action-btn af-delete-btn"
+                      onClick={() => void handleDelete(song)}
+                      disabled={uploadRunning}
+                      title="从云盘删除"
+                      aria-label="从云盘删除"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                 </div>
               );

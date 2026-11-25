@@ -19,7 +19,10 @@ const api = vi.hoisted(() => ({
   loaded: { current: true },
 }));
 
-vi.mock('@/services/wyAccountService', () => ({ getCloudSongs: api.cloudSongs }));
+vi.mock('@/services/wyAccountService', () => ({
+  getCloudSongs: api.cloudSongs,
+  getWyCookie: async () => '',
+}));
 const cache = vi.hoisted(() => ({
   load: vi.fn(),
   save: vi.fn(),
@@ -124,6 +127,13 @@ describe('云盘列表复用', () => {
     expect(api.cloudSongs).toHaveBeenCalledTimes(1);
     await act(async () => { refreshButton()!.props.onClick(); });
     expect(api.cloudSongs).toHaveBeenCalledTimes(2);
+  });
+
+  it('提供上传与行内删除入口', async () => {
+    await mount();
+    const buttons = renderer!.root.findAllByType('button');
+    expect(buttons.some((node) => node.props.title === '上传本地音频到音乐云盘')).toBe(true);
+    expect(buttons.filter((node) => node.props.title === '从云盘删除')).toHaveLength(2);
   });
 
   it('换账号时丢弃旧列表并重新拉取', async () => {

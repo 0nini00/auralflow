@@ -9,7 +9,7 @@ import {
   buildCloudUploadCompletePayload,
   buildCloudUploadTokenPayload,
   buildCloudUploadUrl,
-} from "./cloudUploadModel";
+} from "@lx/core";
 
 /** 原生文件选择返回的一条音频；size 为字节数。 */
 export interface CloudAudioFile {

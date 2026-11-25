@@ -1490,3 +1490,65 @@ button.af-playlist-card {
   width: 28px;
   height: 28px;
 }
+
+/* ── 云盘上传进度 ── */
+.af-cloud-upload-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--af-border-primary);
+  border-radius: var(--af-radius-md);
+  background: var(--af-bg-surface);
+}
+
+.af-cloud-upload-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: var(--af-font-size-sm);
+}
+
+.af-cloud-upload-action {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--af-accent-strong);
+  font: inherit;
+  font-size: var(--af-font-size-xs);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.af-cloud-upload-file {
+  overflow: hidden;
+  color: var(--af-text-secondary);
+  font-size: var(--af-font-size-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-cloud-upload-phase {
+  color: var(--af-text-tertiary);
+  font-size: var(--af-font-size-xs);
+}
+
+.af-cloud-upload-phase.af-cloud-upload-error {
+  color: var(--af-error-ink);
+}
+
+.af-cloud-upload-track {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--af-bg-secondary);
+}
+
+.af-cloud-upload-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--af-accent-primary);
+  transition: width 0.2s ease;
+}

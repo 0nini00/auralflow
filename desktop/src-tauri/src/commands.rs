@@ -9,6 +9,7 @@
 //! 每个子文件都是普通模块，自带显式 `use`；跨文件共用的小工具集中在 `shared`，
 //! 由使用方显式导入。这里只负责声明模块并把命令重新导出给 `main.rs` 注册。
 
+mod cloud_upload;
 mod compression;
 mod downloads;
 mod library;
@@ -22,6 +23,7 @@ mod shared;
 mod smtc;
 mod taskbar;
 
+pub use cloud_upload::*;
 pub use compression::*;
 pub use downloads::*;
 pub use library::*;

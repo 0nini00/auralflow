@@ -310,6 +310,11 @@ pub fn run() {
             commands::download_file,
             commands::cancel_download,
             commands::write_download_text_file,
+            // 云盘上传
+            commands::cloud_upload_lbs,
+            commands::cloud_file_md5,
+            commands::cloud_upload_file,
+            commands::cancel_cloud_upload,
             // 本地音频
             commands::scan_directory,
             commands::get_audio_info,
