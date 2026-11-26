@@ -13,14 +13,14 @@ import TrackPlayer, {
 } from "react-native-track-player";
 import type { MusicInfo } from "@lx/core";
 import { buildSongKey } from "@lx/core";
-import { getNextSongSleepTimerState, getSongSleepTimerTrackKey, normalizeSongSleepTimerCount } from "@/services/songSleepTimerModel";
+import { normalizeSongSleepTimerCount, parseSleepTimerInput } from "@/services/songSleepTimerModel";
 import { getNextMobilePlayMode, type MobilePlayMode } from "@/services/mobilePlayModeModel";
 import { clampPlaybackRate, DEFAULT_PLAYBACK_RATE } from "@/services/playerRateModel";
 import { DEFAULT_VOLUME, getNextMuteState, getNextVolumeState } from "@/services/playerVolumeModel";
 import { insertSongAtQueueEnd, insertSongToPlayNext } from "@/services/songQueueActions";
 import { syncPlaybackParameters } from "@/services/androidPitchService";
 import { buildMobilePlayRequestKey } from "@/services/playerRequestModel";
-import { beginPlaybackRequest, isCurrentPlaybackRequest, notePlaybackSeek } from "@/services/playbackRequest";
+import { beginPlaybackRequest, getCurrentPlaybackRequestId, isCurrentPlaybackRequest, notePlaybackSeek } from "@/services/playbackRequest";
 import { cancelPendingPlayback } from "@/services/switchStepSession";
 import {
   isLyricOverlaySupported,
@@ -317,7 +317,14 @@ function reconcileSleepTimer(): void {
       clearSleepTimerTimeout();
       resetSleepTimerAccounting();
       usePlayerStore.setState({ sleepTimerMinutes: null, sleepTimerActive: false });
-      usePlayerStore.getState().pause().catch(() => undefined);
+      const pending = usePlayerStore.getState().pause();
+      const requestId = getCurrentPlaybackRequestId();
+      void pending.catch((error: unknown) => {
+        if (!isCurrentPlaybackRequest(requestId)) return;
+        const message = `睡眠定时停止失败：${error instanceof Error ? error.message : String(error)}`;
+        logger.error(message, error);
+        usePlayerStore.setState({ error: message });
+      });
       return;
     }
     const nextMinutes = Math.max(1, Math.ceil(sleepTimerRemainingMs / 60_000));
@@ -387,7 +394,6 @@ export interface PlayerState {
   sleepTimerActive: boolean;
   sleepTimerSongCount: number;
   sleepTimerSongActive: boolean;
-  sleepTimerLastTrackKey: string | null;
 }
 
 interface PlayerActions {
@@ -506,7 +512,6 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   sleepTimerActive: false,
   sleepTimerSongCount: 0,
   sleepTimerSongActive: false,
-  sleepTimerLastTrackKey: null,
 
   // 播放控制
 
@@ -527,26 +532,6 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     const request = (async () => {
 
     try {
-
-      // 按歌数睡眠定时到期边界（「听完歌曲后停止」）：不再加载下一首，
-      // 保持已播完的当前曲展示并停用定时器。旧实现先加载再暂停，
-      // 会短暂闪现下一首标题并漏出淡入声音。
-      const pre = get();
-      const sleepTimerNext = getNextSongSleepTimerState({
-        isActive: pre.sleepTimerSongActive,
-        remainingSongs: pre.sleepTimerSongCount,
-        lastTrackKey: pre.sleepTimerLastTrackKey,
-      }, song);
-      if (sleepTimerNext.shouldPause) {
-        set({ isPlaying: false, sleepTimerSongActive: false, sleepTimerSongCount: 0, onSilenceGap: false });
-        // 只改 JS 状态不够：原生还停在静音占位轨上，15s 后走到队列末尾会触发
-        // PlaybackQueueEnded → advanceAfterTrackFinished 继续起播下一首，定时器等于失效。
-        // 占位轨本身无声，直接暂停不损失任何内容。
-        if (isPlayerSetup) {
-          await TrackPlayer.pause().catch(() => undefined);
-        }
-        return;
-      }
 
       set({ loading: true, error: null });
 
@@ -643,9 +628,6 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
         playbackRate: nextPlaybackRate,
         position: startPosition && startPosition > 0 ? startPosition : 0,
         duration: song.interval || 0,
-        sleepTimerSongActive: sleepTimerNext.isActive,
-        sleepTimerSongCount: sleepTimerNext.remainingSongs,
-        sleepTimerLastTrackKey: sleepTimerNext.lastTrackKey,
       });
       startListeningSession(song, get().position, nextPlaybackRate);
       // 新播放会话重新允许试听检测（用户手动重试时再次拦截，防缓存命中后漏网）
@@ -660,7 +642,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       });
       throw error;
     } finally {
-      // loading 的兜底出口：竞态令牌提前 return、睡眠定时到期 return、异常、正常完成
+      // loading 的兜底出口：竞态令牌提前 return、异常、正常完成
       // 都会走到这里。只有本次仍是最新请求时才落回 false —— 已被新请求接管时
       // loading 归它管，这里照写会抹掉新请求刚点亮的加载态；反之若完全不写，设过
       // loading:true 后走提前 return 的路径会把 UI 永久钉在加载中（转圈不停、按钮点不动）。
@@ -719,6 +701,11 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       };
     }
     if (!isPlayerSetup) return null;
+    if (get().onSilenceGap) {
+      // 定时停在占位轨时复用真实曲目的 seek 映射，从头续播已听完的当前曲。
+      await get().seekTo(0);
+      if (!isCurrentPlaybackRequest(requestId)) return null;
+    }
     await TrackPlayer.play();
     if (!isCurrentPlaybackRequest(requestId)) return null;
     // IDLE/ENDED 的 play 可能是 no-op，回读原生状态，不能伪造播放成功。
@@ -746,6 +733,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     // 拖动进度可能传入非有限值（见 ProgressBar），入原生前兜底。
     if (!Number.isFinite(position)) return;
     notePlaybackSeek();
+    const requestId = getCurrentPlaybackRequestId();
     if (!isPlayerSetup) {
       set({ position });
       return;
@@ -754,20 +742,29 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     onPlaybackProgress(previous.position, previous.isPlaying, previous.playbackRate);
     seekListeningSession(position, previous.isPlaying, previous.playbackRate);
     try {
-      if (get().onSilenceGap) {
+      if (previous.onSilenceGap) {
         // 曲末 2s 静音间隙内的 seek：原生活动轨是占位轨，直接 seekTo 会被按
         // 占位轨时长按比例理解，表现"点了没反应"。映射回真实曲目（index 0）再 seek。
-        try {
-          await TrackPlayer.skip(0);
-        } catch { /* 占位轨 skip 失败：继续按原位置 seek */ }
+        await TrackPlayer.skip(0);
+        if (!isCurrentPlaybackRequest(requestId)) return;
       }
       await TrackPlayer.seekTo(position);
+      if (!isCurrentPlaybackRequest(requestId)) return;
     } catch (error) {
+      if (!isCurrentPlaybackRequest(requestId)) return;
       seekListeningSession(previous.position, previous.isPlaying, previous.playbackRate);
       set({ error: error instanceof Error ? error.message : '跳转播放位置失败' });
       throw error;
     }
     set({ position });
+    if (previous.onSilenceGap) {
+      set({ onSilenceGap: false });
+      // 曲末已结束旧收听会话，重新定位后创建新会话并保留当前暂停状态。
+      if (previous.currentSong) {
+        startListeningSession(previous.currentSong, position, get().playbackRate);
+        seekListeningSession(position, get().isPlaying, get().playbackRate);
+      }
+    }
     void syncLyricOverlayPlaybackClock().catch((error) => logger.warn("悬浮歌词进度同步失败", error));
   },
 
@@ -840,13 +837,9 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
 
   // 睡眠定时器
   startSleepTimer: (minutes: number) => {
+    const m = parseSleepTimerInput(minutes, "minutes");
+    if (m === null) throw new RangeError("请输入有效的分钟数");
     clearSleepTimerTimeout();
-    const m = Math.max(0, Math.floor(minutes));
-    if (m <= 0) {
-      resetSleepTimerAccounting();
-      set({ sleepTimerMinutes: null, sleepTimerActive: false });
-      return;
-    }
     ensureSleepTimerAppStateListener();
     sleepTimerRemainingMs = m * 60_000;
     sleepTimerLastReconcileAt = Date.now();
@@ -855,21 +848,19 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       sleepTimerActive: true,
       sleepTimerSongCount: 0,
       sleepTimerSongActive: false,
-      sleepTimerLastTrackKey: null,
     });
     scheduleSleepTimerTimeout();
   },
 
   startSongSleepTimer: (songCount: number) => {
+    const normalizedCount = normalizeSongSleepTimerCount(songCount);
     clearSleepTimerTimeout();
     resetSleepTimerAccounting();
-    const normalizedCount = normalizeSongSleepTimerCount(songCount);
     set({
       sleepTimerMinutes: null,
       sleepTimerActive: false,
       sleepTimerSongCount: normalizedCount,
       sleepTimerSongActive: true,
-      sleepTimerLastTrackKey: getSongSleepTimerTrackKey(get().currentSong),
     });
   },
 
@@ -881,7 +872,6 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       sleepTimerActive: false,
       sleepTimerSongCount: 0,
       sleepTimerSongActive: false,
-      sleepTimerLastTrackKey: null,
     });
   },
 

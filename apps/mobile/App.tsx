@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  AppState,
   Appearance,
   Pressable,
   StyleSheet,
@@ -158,9 +157,7 @@ export default function App() {
   // 本地歌曲扫描结果在 scanMusic 时已持久化：启动时必须读回，
   // 否则每次冷启动本地曲库都是空的、都要重新扫描
   const loadLocalSongs = useLocalMusicStore((s) => s.loadLocalSongs);
-  const lyricOverlaySettingsLoaded = useLyricOverlayStore((s) => s.loaded);
   const loadLyricOverlaySettings = useLyricOverlayStore((s) => s.loadFromStorage);
-  const syncLyricOverlayVisible = useLyricOverlayStore((s) => s.syncVisibleFromNative);
   const loadWebdavConfig = useWebdavStore((s) => s.loadConfig);
   const webdavLoaded = useWebdavStore((s) => s.loaded);
   const webdavAutoSyncPlaylists = useWebdavStore((s) => s.autoSyncPlaylists);
@@ -287,17 +284,6 @@ export default function App() {
         logger.error("[启动更新] 检查更新失败", error);
       });
   }, [pactAccepted]);
-
-  useEffect(() => {
-    if (!lyricOverlaySettingsLoaded) return;
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state !== "active") return;
-      void syncLyricOverlayVisible().catch((error: unknown) => {
-        logger.error("[歌词悬浮窗] 同步可见状态失败", error);
-      });
-    });
-    return () => subscription.remove();
-  }, [lyricOverlaySettingsLoaded, syncLyricOverlayVisible]);
 
   // 协议同意且本地音源加载完成后，延迟检查自定义音源更新，避免阻塞首屏。
   useEffect(() => {

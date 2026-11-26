@@ -27,7 +27,7 @@ export async function syncLyricOverlayPlaybackClock(state?: State): Promise<void
   if (revision !== clockSyncRevision) return;
 
   if (playback.state !== State.Playing) {
-    await pauseLyricOverlayClock();
+    await pauseLyricOverlayClock(position);
     return;
   }
   await playLyricOverlayClock(position);

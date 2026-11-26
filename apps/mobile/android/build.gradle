@@ -26,6 +26,11 @@ apply plugin: "com.facebook.react.rootproject"
 // 对 Kotlin 不可见（Unresolved reference + overrides nothing）。这里显式把
 // codegen 目录补进 Kotlin 编译源，并让 Kotlin 编译依赖 codegen 任务先产出。
 subprojects { subproject ->
+    if (subproject.name == "react-native-track-player") {
+        subproject.afterEvaluate {
+            subproject.android.sourceSets.main.java.srcDir("${rootProject.projectDir}/track-player/src/main/java")
+        }
+    }
     if (subproject.name == "react-native-pager-view") {
         subproject.afterEvaluate {
             def generatedCodegenDir = "${subproject.buildDir}/generated/source/codegen/java"

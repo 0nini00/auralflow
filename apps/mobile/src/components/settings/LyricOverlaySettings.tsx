@@ -55,7 +55,7 @@ export function LyricOverlaySettings() {
   );
   const loaded = useLyricOverlayStore((state) => state.loaded);
   const overlayError = useLyricOverlayStore((state) => state.error);
-  const setVisible = useLyricOverlayStore((state) => state.setVisible);
+  const syncVisible = useLyricOverlayStore((state) => state.syncVisibleFromNative);
   const setNotificationButtonEnabled = useLyricOverlayStore(
     (state) => state.setNotificationButtonEnabled,
   );
@@ -96,7 +96,7 @@ export function LyricOverlaySettings() {
     try {
       if (visible) {
         await hideLyricOverlay();
-        await setVisible(false);
+        await syncVisible();
         return;
       }
       if (!isLyricOverlaySupported()) throw new Error("当前设备不支持原生悬浮歌词");
@@ -104,7 +104,7 @@ export function LyricOverlaySettings() {
       if (!granted) granted = await requestOverlayPermission();
       if (!granted) throw new Error("请在系统设置中允许应用显示在其他应用上层");
       if (!await showLyricOverlay()) throw new Error("原生悬浮歌词窗口未能打开");
-      await setVisible(true);
+      await syncVisible();
     } catch (error) {
       Alert.alert("悬浮歌词操作失败", error instanceof Error ? error.message : String(error));
     }

@@ -61,6 +61,12 @@ export function ImmersiveMoreMenu({
 }: ImmersiveMoreMenuProps) {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
+  const pendingAction = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  React.useEffect(() => () => {
+    // 退出播放器后不能再由菜单的延迟回调打开其它页面。
+    if (pendingAction.current !== null) clearTimeout(pendingAction.current);
+  }, []);
 
   // 高频动作已移到播放控制区下方的小按钮行，这里只保留低频设置项。
   const menuItems = [
@@ -154,11 +160,18 @@ export function ImmersiveMoreMenu({
                 activeScale={0.99}
                 activeOpacity={0.65}
                 onPress={() => {
+                  if (pendingAction.current !== null) return;
                   hapticLight();
                   onClose();
                   // 先收菜单，再执行动作：菜单项大多会唤起另一个 Modal，
                   // Android 上同一帧挂载会让新弹层收不到触摸（点空白关不掉）。
-                  if (item.onPress) afterModalDismiss(item.onPress);
+                  const action = item.onPress;
+                  if (action) {
+                    pendingAction.current = afterModalDismiss(() => {
+                      pendingAction.current = null;
+                      action();
+                    });
+                  }
                 }}
                 accessibilityRole="button"
                 accessibilityLabel={item.label}

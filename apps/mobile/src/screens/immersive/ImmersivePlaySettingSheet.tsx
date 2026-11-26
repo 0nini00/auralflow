@@ -1,5 +1,6 @@
 import React from "react";
 import {
+  Alert,
   View,
   Text,
   Pressable,
@@ -75,6 +76,14 @@ export function ImmersivePlaySettingSheet({
   const manualOffsetMs = useLyricSettingsStore((s) => s.manualOffsetMs);
   const setManualOffset = useLyricSettingsStore((s) => s.setManualOffset);
 
+  const handleSetPlaybackRate = async (rate: number) => {
+    try {
+      await setPlaybackRate(rate);
+    } catch (error) {
+      Alert.alert("修改播放速度失败", error instanceof Error ? error.message : String(error));
+    }
+  };
+
   return (
     <SheetFrame
       visible={visible}
@@ -91,11 +100,10 @@ export function ImmersivePlaySettingSheet({
               canDecrement={playbackRate > RATE_MIN}
               canIncrement={playbackRate < RATE_MAX}
               onDecrement={() => {
-                // setPlaybackRate 失败会把原因写进 playerStore.error；这里只需吞掉 rejection。
-                void setPlaybackRate(Math.max(RATE_MIN, Math.round((playbackRate - RATE_STEP) / RATE_STEP) * RATE_STEP)).catch(() => undefined);
+                void handleSetPlaybackRate(Math.max(RATE_MIN, Math.round((playbackRate - RATE_STEP) / RATE_STEP) * RATE_STEP));
               }}
               onIncrement={() => {
-                void setPlaybackRate(Math.min(RATE_MAX, Math.round((playbackRate + RATE_STEP) / RATE_STEP) * RATE_STEP)).catch(() => undefined);
+                void handleSetPlaybackRate(Math.min(RATE_MAX, Math.round((playbackRate + RATE_STEP) / RATE_STEP) * RATE_STEP));
               }}
             />
 

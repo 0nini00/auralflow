@@ -240,9 +240,6 @@ dependencies {
     // 本地音乐写回内嵌封面/歌词所需的 ID3/MP4 标签库（纯 Java，无需 NDK）。
     implementation("net.jthink:jaudiotagger:3.0.1")
 
-    // 沉浸页封面取色（氛围色背景）：androidx 官方调色板提取
-    implementation("androidx.palette:palette:1.0.0")
-
     // 云盘直传：流式请求体、进度回调与取消（RN 自带版本不保证在编译类路径上）
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }

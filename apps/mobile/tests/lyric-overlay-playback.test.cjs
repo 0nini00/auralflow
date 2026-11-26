@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { createLoader, deferred, mobileRequire } = require("./helpers/loadTs.cjs");
 
-// 歌曲身份键用 core 的真实实现：被测的 playerStore / PlayerBar 都从 @lx/core 取它。
+// 歌曲身份键使用 core 的真实实现。
 const { buildSongKey } = createLoader({})("../../packages/core/src/song-variant.ts");
 const State = Object.fromEntries(["None", "Ready", "Playing", "Paused", "Stopped", "Buffering", "Loading", "Ended", "Error"].map(s => [s, s]));
 // 上限只是 runner 的安全网，不是断言：本文件的用例回读原生状态并推进挂钟，墙钟时间只反映机器
@@ -20,7 +20,7 @@ function setup() {
   const overlay = {
     isLyricOverlaySupported: () => true,
     playLyricOverlayClock: async position => { calls.push(["play", position]); },
-    pauseLyricOverlayClock: async () => { calls.push(["pause"]); },
+    pauseLyricOverlayClock: async position => { calls.push(position == null ? ["pause"] : ["pause", position]); },
   };
   const load = createLoader({
     zustand: mobileRequire("zustand"),
@@ -77,7 +77,7 @@ for (const state of [State.Paused, State.Buffering, State.Ended]) {
     const h = setup();
     h.setNativeState(state);
     await h.load("src/services/lyricOverlayPlayback.ts").syncLyricOverlayPlaybackClock();
-    assert.deepEqual(h.calls, [["pause"]]);
+    assert.deepEqual(h.calls, [["pause", 42]]);
   });
 }
 
@@ -106,105 +106,4 @@ test("原生时钟错误可见，不能吞掉桥接拒绝", options, async () =>
   store.getState().syncPlayerState(State.Paused);
   await flush();
   assert.equal(h.errors.length, 1);
-});
-
-function loadMiniLyricStatus(h, store, setLyrics) {
-  const fs = require("node:fs");
-  const path = require("node:path");
-  const { mobileRoot } = require("./helpers/loadTs.cjs");
-  const ts = mobileRequire("typescript");
-  const effects = [];
-  const refs = [];
-  let refIndex = 0;
-  const react = {
-    createElement: (type, props, ...children) => ({ type, props, children }),
-    useCallback: callback => callback,
-    useRef: current => refs[refIndex++] ?? (refs[refIndex - 1] = { current }),
-    useEffect: effect => effects.push(effect),
-  };
-  const mocks = {
-    react,
-    "react-native": { StyleSheet: { create: styles => styles }, Text: "Text" },
-    "lucide-react-native": {},
-    "@/components/CachedImage": {}, "@/components/MiniProgressBar": {},
-    "@/components/IconButton": {}, "@/components/Touchable": {},
-    "@/services/lyricOverlayService": { ...h.overlay, setLyricOverlayLyrics: setLyrics },
-    "@/services/lyricOverlayPlayback": h.load("src/services/lyricOverlayPlayback.ts"),
-    "@/services/logger": { logger: { warn: (...args) => h.errors.push(args) } },
-    "@lx/core": { buildSongKey, shouldCalibrateClock: () => true },
-    "@/services/playerService": {}, "@/services/playerQueueModel": {},
-    "@/services/chineseConversionService": { convertChineseText: text => text },
-    "@/components/QueueModal": {}, "@/stores/lyricOverlayStore": {},
-    "@/stores/lyricSettingsStore": { useLyricSettingsStore: selector => selector({ manualOffsetMs: 0, chineseConversion: "none" }) },
-    "@/hooks/useLyricLineIndex": { useLyricLineIndex: () => 0 },
-    "@/stores/playerStore": { usePlayerStore: Object.assign(selector => selector(store.getState()), { getState: store.getState }) },
-    "@/services/localMediaPlaybackModel": createLoader({})("src/services/localMediaPlaybackModel.ts"),
-    "@/navigation/tabLayout": {}, "@/screens/immersive/immersiveFlySource": {},
-    "@/stores/themeStore": {}, "@/services/hapticService": {},
-    "@/theme/tokens": { radius: {}, spacing: {}, touch: {}, typography: {} },
-  };
-  const filename = path.join(mobileRoot, "src/components/PlayerBar.tsx");
-  const source = fs.readFileSync(filename, "utf8") + "\nexports.MiniLyricStatus = MiniLyricStatus;";
-  const code = ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React, esModuleInterop: true },
-    fileName: filename,
-  }).outputText;
-  const module = { exports: {} };
-  new Function("require", "module", "exports", code)(name => {
-    assert.ok(Object.hasOwn(mocks, name), `Unmocked PlayerBar import: ${name}`);
-    return mocks[name];
-  }, module, module.exports);
-  return () => {
-    refIndex = 0;
-    module.exports.MiniLyricStatus({ overlayVisible: true, color: "#000000" });
-    effects.splice(0).forEach(effect => effect());
-  };
-}
-
-test("真实 PlayerBar 歌词注入在暂停后完成，不得用旧 React 快照重启时钟", options, async () => {
-  const h = setup();
-  const store = h.load("src/stores/playerStore.ts").usePlayerStore;
-  store.setState({
-    currentSong: { id: "A", source: "tx", name: "A", singer: "Test" },
-    lyrics: [{ time: 0, text: "line one" }, { time: 10, text: "line two" }],
-    isPlaying: true, position: 7,
-  });
-  const injection = deferred();
-  loadMiniLyricStatus(h, store, () => injection.promise)();
-  await flush();
-  assert.equal(h.calls[0][0], "play");
-  h.setNativeState(State.Paused);
-  await store.getState().pause();
-  await flush();
-  h.calls.length = 0;
-  injection.resolve();
-  await flush();
-  assert.deepEqual(h.calls, [["pause"]]);
-  assert.deepEqual(h.errors, []);
-});
-
-test("真实 PlayerBar 在 UI 仍显示播放但原生缓冲时不得校准为走时", options, async () => {
-  const h = setup();
-  const store = h.load("src/stores/playerStore.ts").usePlayerStore;
-  store.setState({ isPlaying: true });
-  h.setNativeState(State.Buffering);
-  loadMiniLyricStatus(h, store, async () => {})();
-  await flush();
-  assert.deepEqual(h.calls, [["pause"]]);
-  assert.deepEqual(h.errors, []);
-});
-
-
-test("本地资料更新即使歌词行数相同，也重新同步悬浮歌词正文", options, async () => {
-  const h = setup();
-  const store = h.load("src/stores/playerStore.ts").usePlayerStore;
-  store.setState({ currentSong: { id: "A", source: "local", name: "A", singer: "Test" }, lyrics: [{ time: 1, text: "旧记录" }], isPlaying: false });
-  h.setNativeState(State.Paused);
-  const injections = [];
-  const render = loadMiniLyricStatus(h, store, async lines => { injections.push(lines); });
-  render(); await flush();
-  store.setState({ lyrics: [{ time: 1, text: "文件内新歌词" }] });
-  render(); await flush();
-  assert.equal(injections.length, 2);
-  assert.equal(injections[1][0].text, "文件内新歌词");
 });

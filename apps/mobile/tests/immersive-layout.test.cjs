@@ -142,6 +142,7 @@ function renderScreen({ width = 390, height = 844, currentPage = 0, overlay = {}
   };
   const modules = {
     react: { __esModule: true, default: hooks },
+    "@react-navigation/native": { useIsFocused: () => true },
     "react-native": {
       View: "View", ScrollView: "ScrollView", StatusBar: "StatusBar", Modal: "Modal", Pressable: "Pressable", Text: "Text",
       StyleSheet: { create: (styles) => styles }, useWindowDimensions: () => ({ width, height, fontScale: 1 }),
@@ -192,8 +193,8 @@ function renderScreen({ width = 390, height = 844, currentPage = 0, overlay = {}
       const component = name.split("/").at(-1);
       return { __esModule: true, default: component, [component]: component };
     }
-    // 本测试不执行图片解码、取色、导航及用户动作，不能冒充其运行时验证。
-    if (["@lx/core", "@/services/coverColorService", "@/services/themePaletteModel", "@/navigation/navigationRef"].includes(name)) return {};
+    // 本测试不执行图片解码、导航及用户动作，不能冒充其运行时验证。
+    if (["@lx/core", "@/services/themePaletteModel", "@/navigation/navigationRef"].includes(name)) return {};
     throw new Error("Unmocked screen dependency: " + name);
   }, loaded, loaded.exports);
   const result = { gesture, tree: null, rerender: (changes = {}) => {

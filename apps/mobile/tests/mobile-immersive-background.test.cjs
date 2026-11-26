@@ -142,7 +142,7 @@ test('减少动态效果时颜色尺寸重绘静帧，分辨率有上限', () =>
   assert.equal(h.frames.length, count + 1);
 });
 
-test('切歌停播阶段保留旧帧并渐变到新配色，颜色过渡结束后停止空转', () => {
+test('暂停时修改主题配色保留旧帧并渐变，颜色过渡结束后停止空转', () => {
   const h = runtime(); h.configure(); h.frame(40);
   h.configure({ playing: false });
   const previous = h.frames.at(-1);

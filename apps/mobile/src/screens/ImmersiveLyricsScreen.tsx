@@ -1,4 +1,5 @@
 import React from "react";
+import { useIsFocused } from "@react-navigation/native";
 import {
   AppState,
   BackHandler,
@@ -48,7 +49,6 @@ import {
   getImmersiveFlySource,
   type ImmersiveFlyRect,
 } from "@/screens/immersive/immersiveFlySource";
-import { fetchCoverColors, type CoverColors } from "@/services/coverColorService";
 import { resolveImmersiveCoverLayout, resolveImmersiveLayout } from "@/services/immersiveLayoutModel";
 import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
 import { openMvPlayerScreen, openSimilarSongsScreen } from "@/navigation/navigationRef";
@@ -141,6 +141,8 @@ const FlyOverlay = React.memo(function FlyOverlay({
  * - 可用宽度充足时封面/控制与歌词并列；下拉仅绑定封面区域
  */
 export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScreenProps) {
+  const focused = useIsFocused();
+  const active = visible && focused;
   const showLyricProgress = useLyricSettingsStore((s) => s.showLyricProgress);
   const coverSpin = useLyricSettingsStore((s) => s.coverSpin);
   // 播放页恒定深色（方案 Q2）：不再跟随系统主题
@@ -227,7 +229,7 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
     setCommentsVisible,
     handleLike,
     isLiked,
-  } = useImmersiveController({ visible, onClose });
+  } = useImmersiveController({ visible: active, onClose });
 
   // 标题和控制区按原生固有高度排布；实测媒体视口仅用于封面及迷你歌词预算。
   const miniLyricHeight = showLyricProgress
@@ -244,19 +246,6 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
   const overlayVisible = queueModalVisible || commentsVisible || playSettingVisible || sleepModalVisible
     || rateModalVisible || volumeModalVisible || coverMenuVisible
     || coverSongDownloadVisible || moreMenuVisible;
-
-  // 切歌时封面地址和取色可能晚于歌曲状态；新颜色就绪前继续显示已有配色。
-  const [ambient, setAmbient] = React.useState<CoverColors>({ base: "", accent: "" });
-  React.useEffect(() => {
-    if (!visible || !artwork) return;
-    let cancelled = false;
-    void fetchCoverColors(artwork, isDark).then((colors) => {
-      if (!cancelled && (colors.accent || colors.base)) setAmbient(colors);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [visible, artwork, isDark]);
 
   // ── 封面飞入/飞回转场 ──
   // 起点在挂载前一次性捕获（渲染期读取，首帧就能停在迷你栏封面位置）。
@@ -377,13 +366,14 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
 
   // 接管系统物理/手势返回键：先播飞回动画再真正返回
   React.useEffect(() => {
+    if (!active) return;
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       if (overlayVisible) return false;
       requestClose();
       return true;
     });
     return () => sub.remove();
-  }, [requestClose, overlayVisible]);
+  }, [active, requestClose, overlayVisible]);
 
   // 从后台恢复前台时的状态保护：长时间后台挂起后唤醒，确保不透明度与位移处于可见态，杜绝白屏/假死
   React.useEffect(() => {
@@ -401,13 +391,13 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
 
   // 歌曲丢失兜底：若后台切歌异常导致 currentSong 被清空，自动退出沉浸页
   React.useEffect(() => {
-    if (!currentSong && !closingRef.current) {
+    if (active && !currentSong && !closingRef.current) {
       onCloseRef.current();
     }
-  }, [currentSong]);
+  }, [active, currentSong]);
 
   // 下拉返回只在封面区域启用；任何弹层打开时停用，避免与弹层滚动竞争。
-  const pullDownGestureEnabled = (isSplit || !isLyricsPage) && !closing && flightDone && !overlayVisible;
+  const pullDownGestureEnabled = active && (isSplit || !isLyricsPage) && !closing && flightDone && !overlayVisible;
   const markClosing = React.useCallback(() => {
     closingRef.current = true;
     setClosing(true);
@@ -464,7 +454,7 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
   const lyricContent = (
     <View style={styles.flexFill}>
       <LyricView
-        active={visible && (isSplit || isLyricsPage)}
+        active={active && (isSplit || isLyricsPage)}
         lyrics={lyrics}
         emptyText={localMediaMessage}
         currentLineIndex={currentLyricIndex}
@@ -484,7 +474,7 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
             artwork={artwork}
             coverSize={media.coverSize}
             bottomSpace={media.coverBottomSpace}
-            isPlaying={isPlaying}
+            isPlaying={active && isPlaying}
             palette={palette}
             onLongPress={openCoverMenu}
             onCoverMeasured={handleCoverMeasured}
@@ -504,11 +494,11 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
 
   return (
     <View style={styles.flexFill}>
-      <StatusBar
+      {active && <StatusBar
         translucent
         backgroundColor="transparent"
         barStyle={isDark ? "light-content" : "dark-content"}
-      />
+      />}
       <GestureHandlerRootView style={styles.flexFill}>
           <Animated.View
             style={[styles.root, {
@@ -528,10 +518,10 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
           >
             {visible ? (
               <ImmersiveBackground
-                color={ambient.accent || ambient.base || palette.primary}
+                color={palette.primary}
                 accent={palette.primary}
                 playing={isPlaying}
-                active={!closing && !overlayVisible}
+                active={active && !closing && !overlayVisible}
                 onError={setBackgroundError}
               />
             ) : null}
@@ -648,13 +638,12 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
               {isSplit ? <View style={{ width: layout.lyricsWidth }}>{lyricContent}</View> : null}
             </View>
 
-            {(isSplit || isLyricsPage) && <KeepAwake />}
+            {active && (isSplit || isLyricsPage) && <KeepAwake />}
             <ImmersiveMoreMenu
-              visible={visible && moreMenuVisible}
+              visible={active && moreMenuVisible}
               onClose={() => setMoreMenuVisible(false)}
               palette={chromePalette}
               onPlayMv={currentMvId ? () => {
-                onClose();
                 openMvPlayerScreen({
                   mvId: currentMvId,
                   title: currentSong.name,
@@ -664,7 +653,6 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
               } : undefined}
               canShowSimilarSongs={currentSong.source === "wy"}
               onOpenSimilarSongs={() => {
-                onClose();
                 openSimilarSongsScreen({ songId: currentSong.id, songName: currentSong.name });
               }}
               sleepLabel={sleepTimerControl.label}
@@ -673,13 +661,13 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
               onOpenPlaySetting={() => setPlaySettingVisible(true)}
             />
             <ImmersivePlaySettingSheet
-              visible={playSettingVisible}
+              visible={active && playSettingVisible}
               onClose={() => setPlaySettingVisible(false)}
               palette={chromePalette}
             />
 
             <SheetFrame
-              visible={coverMenuVisible}
+              visible={active && coverMenuVisible}
               onClose={closeCoverMenu}
               palette={chromePalette}
               title={currentSong.name}
@@ -700,14 +688,14 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
             </SheetFrame>
 
             <DownloadQualityModal
-              visible={coverSongDownloadVisible}
+              visible={active && coverSongDownloadVisible}
               song={currentSong}
               onClose={closeCoverSongDownload}
               onDownload={handleCoverSongDownload}
             />
 
             <ImmersiveCommentsSheet
-              visible={commentsVisible}
+              visible={active && commentsVisible}
               onClose={() => setCommentsVisible(false)}
               song={currentSong}
               palette={chromePalette}
@@ -731,9 +719,9 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
             management={queueModel.management}
             palette={chromePalette}
             queue={queue}
-            queueModalVisible={queueModalVisible}
+            queueModalVisible={active && queueModalVisible}
             queueModel={queueModel}
-            rateModalVisible={rateModalVisible}
+            rateModalVisible={active && rateModalVisible}
             rateModel={rateModel}
             setCustomMinutes={setCustomMinutes}
             setCustomSongCount={setCustomSongCount}
@@ -741,13 +729,13 @@ export function ImmersiveLyricsScreen({ visible, onClose }: ImmersiveLyricsScree
             setRateModalVisible={setRateModalVisible}
             setSleepModalVisible={setSleepModalVisible}
             setVolumeModalVisible={setVolumeModalVisible}
-            sleepModalVisible={sleepModalVisible}
+            sleepModalVisible={active && sleepModalVisible}
             sleepTimerActive={sleepTimerActive}
             sleepTimerControl={sleepTimerControl}
             sleepTimerMinutes={sleepTimerMinutes ?? 0}
             sleepTimerSongActive={sleepTimerSongActive}
             sleepTimerSongCount={sleepTimerSongCount ?? 0}
-            volumeModalVisible={volumeModalVisible}
+            volumeModalVisible={active && volumeModalVisible}
             volumeModel={volumeModel}
           />
 

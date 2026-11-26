@@ -11,6 +11,6 @@
 export const MODAL_DISMISS_MS = 320;
 
 /** 等上一个弹层关闭后再执行（用于「菜单 → 子弹层」这类串联） */
-export function afterModalDismiss(action: () => void): void {
-  setTimeout(action, MODAL_DISMISS_MS);
+export function afterModalDismiss(action: () => void): ReturnType<typeof setTimeout> {
+  return setTimeout(action, MODAL_DISMISS_MS);
 }

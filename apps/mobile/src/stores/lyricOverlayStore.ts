@@ -9,7 +9,7 @@ import { syncLyricOverlayTextAppearance } from "@/services/lyricOverlayAppearanc
 
 /**
  * 桌面歌词悬浮窗的可见/锁定状态（对应桌面端 lyric window state）。
- * 仅持久化状态，悬浮窗本身的生命周期由原生层管理。
+ * 可见状态只接受原生快照；用户设置持久化，悬浮窗生命周期由原生层管理。
  */
 interface LyricOverlayState {
   visible: boolean;
@@ -21,7 +21,7 @@ interface LyricOverlayState {
   error: string | null;
   loadFromStorage: () => Promise<void>;
   syncVisibleFromNative: () => Promise<void>;
-  setVisible: (v: boolean) => Promise<void>;
+  applyNativeVisibility: (visible: boolean) => void;
   setNotificationButtonEnabled: (v: boolean) => Promise<void>;
   setLocked: (v: boolean) => Promise<void>;
   setPinned: (v: boolean) => Promise<void>;
@@ -29,6 +29,7 @@ interface LyricOverlayState {
 
 const STORAGE_KEY = "auralflow.mobile.lyricOverlay";
 let initializationPromise: Promise<void> | null = null;
+let visibilityRevision = 0;
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -38,7 +39,6 @@ async function persist(state: LyricOverlayState): Promise<void> {
   await AsyncStorage.setItem(
     STORAGE_KEY,
     JSON.stringify({
-      visible: state.visible,
       locked: state.locked,
       pinned: state.pinned,
       notificationButtonEnabled: state.notificationButtonEnabled,
@@ -65,7 +65,6 @@ export const useLyricOverlayStore = create<LyricOverlayState>((set, get) => ({
         if (raw) {
           const parsed = JSON.parse(raw) as Partial<LyricOverlayState>;
           set({
-            visible: Boolean(parsed.visible),
             locked: Boolean(parsed.locked),
             pinned: Boolean(parsed.pinned),
             notificationButtonEnabled: parsed.notificationButtonEnabled !== false,
@@ -102,15 +101,16 @@ export const useLyricOverlayStore = create<LyricOverlayState>((set, get) => ({
 
   syncVisibleFromNative: async () => {
     if (!isLyricOverlaySupported()) return;
+    const revision = ++visibilityRevision;
     const visible = await isLyricOverlayVisible();
+    if (revision !== visibilityRevision) return;
     if (visible === get().visible) return;
     set({ visible });
-    await persist(get());
   },
 
-  setVisible: async (visible) => {
+  applyNativeVisibility: (visible) => {
+    ++visibilityRevision;
     set({ visible });
-    await persist(get());
   },
 
   setNotificationButtonEnabled: async (notificationButtonEnabled) => {

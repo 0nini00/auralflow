@@ -1,4 +1,4 @@
-import { NativeModules, Platform } from "react-native";
+import { DeviceEventEmitter, NativeModules, Platform } from "react-native";
 
 /**
  * 桌面歌词悬浮窗原生桥接（对应桌面端独立歌词窗口）。
@@ -19,7 +19,7 @@ interface NativeLyricOverlayModule {
   getStyle(): Promise<Required<LyricOverlayStyle>>;
   setLyrics(lyricsJson: string, fallbackText: string): Promise<void>;
   playLyricClock(position: number): Promise<void>;
-  pauseLyricClock(): Promise<void>;
+  pauseLyricClock(position: number | null): Promise<void>;
   setLyricClockRate(rate: number): Promise<void>;
   clearLyrics(fallbackText: string): Promise<void>;
 }
@@ -54,6 +54,15 @@ const nativeModule = (NativeModules as Record<string, unknown>).LyricOverlayModu
 
 export function isLyricOverlaySupported(): boolean {
   return Platform.OS === "android" && nativeModule != null;
+}
+
+export function addLyricOverlayVisibilityListener(listener: (visible: boolean) => void): { remove: () => void } {
+  return DeviceEventEmitter.addListener("auralflow-lyric-overlay-visibility-changed", (event: unknown) => {
+    if (!event || typeof event !== "object" || !("visible" in event) || typeof event.visible !== "boolean") {
+      throw new Error("原生悬浮歌词可见状态事件无效");
+    }
+    listener(event.visible);
+  });
 }
 
 function getNativeModule(): NativeLyricOverlayModule {
@@ -123,9 +132,9 @@ export async function playLyricOverlayClock(position: number): Promise<void> {
   return getNativeModule().playLyricClock(Math.max(0, position));
 }
 
-/** 暂停原生悬浮歌词时钟。 */
-export async function pauseLyricOverlayClock(): Promise<void> {
-  return getNativeModule().pauseLyricClock();
+/** 暂停原生悬浮歌词时钟；已知位置时同时定位，null 保留即时冻结的位置。 */
+export async function pauseLyricOverlayClock(position: number | null = null): Promise<void> {
+  return getNativeModule().pauseLyricClock(position === null ? null : Math.max(0, position));
 }
 
 /** 更新原生悬浮歌词时钟倍速。 */

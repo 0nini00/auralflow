@@ -21,12 +21,7 @@ const files = [
       let next = content;
       const lyricPatchMarker = '    // AURALFLOW_LYRIC_NOTIFICATION_ACTION\n';
       const lyricConstants = [
-        '        private const val LYRIC_OVERLAY_PREFERENCES_NAME = "auralflow_lyric_overlay"',
-        '        private const val LYRIC_OVERLAY_VISIBLE_KEY = "visible"',
-        '        private const val LYRIC_NOTIFICATION_BUTTON_ENABLED_KEY = "notification_button_enabled"',
         '        private const val LYRIC_NOTIFICATION_STATE_CHANGED_ACTION = "cn.chenle.auralflow.mobile.lyrics.NOTIFICATION_STATE_CHANGED"',
-        '        private const val LYRIC_NOTIFICATION_TOGGLE_ACTION = "cn.chenle.auralflow.mobile.lyrics.NOTIFICATION_TOGGLE"',
-        '        private const val LYRIC_NOTIFICATION_RECEIVER_CLASS = "cn.chenle.auralflow.mobile.LyricNotificationReceiver"',
       ].join('\n');
       next = replaceAllRequired(
         next,
@@ -227,7 +222,7 @@ const files = [
           ].join('\n'),
         );
       }
-      if (!next.includes('LYRIC_OVERLAY_PREFERENCES_NAME =')) {
+      if (!next.includes('private const val LYRIC_NOTIFICATION_STATE_CHANGED_ACTION =')) {
         next = replaceAllRequired(
           next,
           target,
@@ -267,10 +262,51 @@ const files = [
         if (next.includes(to)) continue;
         next = replaceAllRequired(next, target, from, to);
       }
+      const mediaActionReplacements = [
+        {
+          from: '    private var latestBaseNotification: Notification? = null\n',
+          to: '    private var lyricMediaSessionAction: LyricMediaSessionAction? = null\n    private var latestBaseNotification: Notification? = null\n',
+        },
+        {
+          from: '            if (intent?.action == LYRIC_NOTIFICATION_STATE_CHANGED_ACTION) {\n                publishLyricNotification()\n',
+          to: '            if (intent?.action == LYRIC_NOTIFICATION_STATE_CHANGED_ACTION) {\n                lyricMediaSessionAction?.update()\n                publishLyricNotification()\n',
+        },
+        {
+          from: '    private fun setupForegrounding() {\n        registerLyricNotificationReceiver()\n',
+          to: '    private fun setupForegrounding() {\n        lyricMediaSessionAction = LyricMediaSessionAction(this, player.notificationManager)\n        registerLyricNotificationReceiver()\n',
+        },
+      ];
+      for (const { from, to } of mediaActionReplacements) {
+        if (!next.includes(to)) next = replaceAllRequired(next, target, from, to);
+      }
+      const notificationBuilderStart = '    private fun buildLyricNotification(baseNotification: Notification): Notification {\n';
+      const notificationPublisherStart = '    private fun publishLyricNotification(): Notification? {\n';
+      const builderStart = next.indexOf(notificationBuilderStart);
+      const publisherStart = next.indexOf(notificationPublisherStart, builderStart);
+      if (builderStart < 0 || publisherStart < 0) {
+        throw new Error(`Pattern not found in ${target}: lyric notification methods`);
+      }
+      next = next.slice(0, builderStart) + notificationBuilderStart
+        + '        return checkNotNull(lyricMediaSessionAction).buildNotification(baseNotification)\n    }\n\n'
+        + next.slice(publisherStart);
+      // 旧通知补丁的偏好和 Intent 常量已收进统一的原生动作适配器。
+      next = next.replace(/^        private const val (?:LYRIC_OVERLAY_PREFERENCES_NAME|LYRIC_OVERLAY_VISIBLE_KEY|LYRIC_NOTIFICATION_BUTTON_ENABLED_KEY|LYRIC_NOTIFICATION_TOGGLE_ACTION|LYRIC_NOTIFICATION_RECEIVER_CLASS) = .*\n/gm, '');
       return next;
     },
     replacements: [
-      { from: '        val notificationConfig = NotificationConfig(buttonsList, accentColor, smallIcon, pendingIntent)\n\n        player.notificationManager.createNotification(notificationConfig)\n', to: '        val baseNotificationConfig = NotificationConfig(buttonsList, accentColor, smallIcon, pendingIntent)\n\n        player.notificationManager.createNotification(baseNotificationConfig)\n' },
+      { from: 'val notificationConfig = NotificationConfig(', to: 'val baseNotificationConfig = NotificationConfig(' },
+      { from: 'player.notificationManager.createNotification(notificationConfig)', to: 'player.notificationManager.createNotification(baseNotificationConfig)' },
+      {
+        from: '        player.notificationManager.createNotification(baseNotificationConfig)\n',
+        to: [
+          '        scope.launch {',
+          '            // KotlinAudio 配置会重建 custom actions，等它完成后再接入歌词。',
+          '            player.notificationManager.createNotification(baseNotificationConfig).join()',
+          '            lyricMediaSessionAction?.update()',
+          '        }',
+          '',
+        ].join('\n'),
+      },
       // 注意：4.1.2 原生 setRate 只有单参数（playbackSpeed），不支持独立变调（pitch），
       // 因此这里不再包含任何 pitch 相关的补丁条目（历史遗留条目对 4.1.2 是无效 no-op）。
     ],

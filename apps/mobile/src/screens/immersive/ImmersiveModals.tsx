@@ -22,6 +22,7 @@ import { Touchable } from "@/components/Touchable";
 import { radius, spacing, typography } from "@/theme/tokens";
 import { withAlpha } from "@/services/themePaletteModel";
 import { hapticLight } from "@/services/hapticService";
+import { MAX_SONG_SLEEP_TIMER_COUNT, parseSleepTimerInput } from "@/services/songSleepTimerModel";
 
 export interface ImmersiveModalsProps {
   customMinutes: string | number;
@@ -61,13 +62,6 @@ export interface ImmersiveModalsProps {
   /** 队列菜单内发起路由跳转前回调（播放页场景传 onClose，先关闭覆盖导航栈的 Modal） */
 }
 
-/** 自定义定时输入是否为有效的正数（"0"/非数字/空串均无效，禁用开始按钮） */
-function isPositiveNumericInput(value: string | number): boolean {
-  if (value === "" || value == null) return false;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0;
-}
-
 export function ImmersiveModals({
   customMinutes,
   customSongCount,
@@ -103,8 +97,8 @@ export function ImmersiveModals({
   volumeModel,
   queue,
 }: ImmersiveModalsProps) {
-  const customSongCountValid = isPositiveNumericInput(customSongCount);
-  const customMinutesValid = isPositiveNumericInput(customMinutes);
+  const customSongCountValid = parseSleepTimerInput(customSongCount, "songs") !== null;
+  const customMinutesValid = parseSleepTimerInput(customMinutes, "minutes") !== null;
 
   return (
     <>
@@ -388,7 +382,6 @@ export function ImmersiveModals({
                     onPress={() => {
                       hapticLight();
                       handleStartCustomSleepTimer();
-                      setSleepModalVisible(false);
                     }}
                     disabled={!customMinutesValid}
                   >
@@ -451,7 +444,7 @@ export function ImmersiveModals({
                 <View style={[styles.customRow, { backgroundColor: palette.surfaceMuted }]}>
                   <TextInput
                     style={[styles.customInput, { color: palette.text }]}
-                    placeholder="输入自定义歌曲数"
+                    placeholder={`输入歌曲数（1-${MAX_SONG_SLEEP_TIMER_COUNT}）`}
                     placeholderTextColor={palette.textMuted}
                     keyboardType="numeric"
                     value={String(customSongCount ?? "")}
@@ -467,7 +460,6 @@ export function ImmersiveModals({
                     onPress={() => {
                       hapticLight();
                       handleStartCustomSongSleepTimer();
-                      setSleepModalVisible(false);
                     }}
                     disabled={!customSongCountValid}
                   >

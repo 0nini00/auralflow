@@ -1,22 +1,30 @@
 package cn.chenle.auralflow.mobile;
 
 import android.app.Activity;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.ResultReceiver;
 import android.provider.Settings;
 
+import androidx.annotation.Nullable;
+
 import com.facebook.react.bridge.ActivityEventListener;
+import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.BaseActivityEventListener;
 import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
+import com.facebook.react.bridge.WritableMap;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -28,9 +36,24 @@ public class LyricOverlayModule extends ReactContextBaseJavaModule {
     private static final String ERROR_DISPATCH_FAILED = "E_OVERLAY_DISPATCH_FAILED";
     private static final String ERROR_OPERATION_TIMEOUT = "E_OVERLAY_OPERATION_TIMEOUT";
     private static final long OVERLAY_OPERATION_TIMEOUT_MS = 5_000L;
+    private static final String VISIBILITY_CHANGED_EVENT = "auralflow-lyric-overlay-visibility-changed";
 
     private final ReactApplicationContext context;
     private Promise pendingPermissionPromise;
+    private boolean visibilityReceiverRegistered;
+
+    private final BroadcastReceiver visibilityReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context receiverContext, Intent intent) {
+            if (intent == null || !LyricOverlayPreferences.ACTION_NOTIFICATION_STATE_CHANGED.equals(intent.getAction())) {
+                return;
+            }
+            if (!context.hasActiveReactInstance()) return;
+            WritableMap event = Arguments.createMap();
+            event.putBoolean("visible", LyricOverlayPreferences.isVisible(context));
+            context.emitDeviceEvent(VISIBILITY_CHANGED_EVENT, event);
+        }
+    };
 
     private final ActivityEventListener activityEventListener = new BaseActivityEventListener() {
         @Override
@@ -56,6 +79,32 @@ public class LyricOverlayModule extends ReactContextBaseJavaModule {
     @Override
     public String getName() {
         return "LyricOverlayModule";
+    }
+
+    @Override
+    public void initialize() {
+        super.initialize();
+        IntentFilter filter = new IntentFilter(LyricOverlayPreferences.ACTION_NOTIFICATION_STATE_CHANGED);
+        if (Build.VERSION.SDK_INT >= 33) {
+            context.registerReceiver(visibilityReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            context.registerReceiver(visibilityReceiver, filter);
+        }
+        visibilityReceiverRegistered = true;
+    }
+
+    @Override
+    public void invalidate() {
+        if (visibilityReceiverRegistered) {
+            context.unregisterReceiver(visibilityReceiver);
+            visibilityReceiverRegistered = false;
+        }
+        context.removeActivityEventListener(activityEventListener);
+        if (pendingPermissionPromise != null) {
+            pendingPermissionPromise.reject("E_OVERLAY_MODULE_INVALIDATED", "悬浮歌词模块已关闭");
+            pendingPermissionPromise = null;
+        }
+        super.invalidate();
     }
 
     @ReactMethod
@@ -201,9 +250,12 @@ public class LyricOverlayModule extends ReactContextBaseJavaModule {
     }
 
     @ReactMethod
-    public void pauseLyricClock(Promise promise) {
+    public void pauseLyricClock(@Nullable Double position, Promise promise) {
         Intent intent = new Intent(context, LyricOverlayService.class);
         intent.setAction(LyricOverlayService.ACTION_PAUSE_CLOCK);
+        if (position != null) {
+            intent.putExtra(LyricOverlayService.EXTRA_POSITION, position.doubleValue());
+        }
         dispatchOperation(intent, promise, true);
     }
 

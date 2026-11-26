@@ -14,19 +14,8 @@ import { CachedImage } from "@/components/CachedImage";
 import { MiniProgressBar } from "@/components/MiniProgressBar";
 import { IconButton } from "@/components/IconButton";
 import { Touchable } from "@/components/Touchable";
-import {
-  clearLyricOverlayLyrics,
-  hideLyricOverlay,
-  isLyricOverlaySupported,
-  setLyricOverlayLocked,
-  setLyricOverlayLyrics,
-} from "@/services/lyricOverlayService";
-import { syncLyricOverlayPlaybackClock } from "@/services/lyricOverlayPlayback";
-import { logger } from "@/services/logger";
-import { buildSongKey, shouldCalibrateClock } from "@lx/core";
 import { playFromQueue, playNext, resumePlayback } from "@/services/playerService";
 import { convertChineseText } from "@/services/chineseConversionService";
-import { useLyricOverlayStore } from "@/stores/lyricOverlayStore";
 import { useLyricSettingsStore } from "@/stores/lyricSettingsStore";
 import { useLyricLineIndex } from "@/hooks/useLyricLineIndex";
 import { usePlayerStore } from "@/stores/playerStore";
@@ -55,7 +44,7 @@ function showActionError(title: string, error: unknown) {
  *   多出一个手势条的高度。
  * - 进度线在卡片顶部（2px），播放键 34px 实心品牌绿，右侧只留「下一首」；
  * - 队列入口收敛到播放页，避免 64px 内塞四个按钮。
- * - 保留长按/上滑打开播放页、歌词行、悬浮歌词同步与封面测量。
+ * - 保留长按/上滑打开播放页、歌词行与封面测量。
  */
 export function PlayerBar({ onOpen }: PlayerBarProps) {
   const currentSong = usePlayerStore((state) => state.currentSong);
@@ -64,10 +53,6 @@ export function PlayerBar({ onOpen }: PlayerBarProps) {
   const loading = usePlayerStore((state) => state.loading);
   const playbackNotice = usePlayerStore((state) => state.playbackNotice);
   const pause = usePlayerStore((state) => state.pause);
-
-  const overlayVisible = useLyricOverlayStore((state) => state.visible);
-  const overlayLocked = useLyricOverlayStore((state) => state.locked);
-  const setOverlayVisible = useLyricOverlayStore((state) => state.setVisible);
 
   const themeMode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
@@ -87,25 +72,6 @@ export function PlayerBar({ onOpen }: PlayerBarProps) {
       hideSub.remove();
     };
   }, []);
-
-  useEffect(() => {
-    if (currentSong || !overlayVisible) return;
-    void (async () => {
-      try {
-        // iOS / 原生模块缺失时没有悬浮歌词可关：不探测会把能力错误当操作失败弹给用户
-        if (isLyricOverlaySupported()) await hideLyricOverlay();
-        await setOverlayVisible(false);
-      } catch (error) {
-        showActionError("关闭悬浮歌词失败", error);
-      }
-    })();
-  }, [currentSong, overlayVisible, setOverlayVisible]);
-
-  useEffect(() => {
-    if (!overlayVisible || !currentSong) return;
-    void setLyricOverlayLocked(overlayLocked).catch((error: unknown) => {
-    });
-  }, [currentSong, overlayLocked, overlayVisible]);
 
   // 注意：useRef 必须在任何条件 return 之前声明，否则 currentSong 从空到有歌时
   // 会触发 “rendered fewer hooks than expected” 崩溃（hook 顺序违规）。
@@ -244,7 +210,6 @@ export function PlayerBar({ onOpen }: PlayerBarProps) {
               </Text>
             ) : (
               <MiniLyricStatus
-                overlayVisible={overlayVisible}
                 color={palette.textMuted}
                 fallbackText={currentSong.singer?.trim() || "未知歌手"}
               />
@@ -287,7 +252,6 @@ export function PlayerBar({ onOpen }: PlayerBarProps) {
 }
 
 interface MiniLyricStatusProps {
-  overlayVisible: boolean;
   /** 歌词行文字颜色（迷你栏第二行） */
   color: string;
   /** 没有歌词或不在播放时占位显示的内容（歌手名） */
@@ -300,13 +264,12 @@ interface MiniLyricStatusProps {
  * 行号统一走 useLyricLineIndex（与沉浸屏同源：锚点外推 + 行边界调度 + 单调钳制），
  * 不再随 0.25s 进度事件重算。组件隔离到叶子：
  * - 只有这一行 Text 随行切换重渲染，整个 PlayerBar（封面、按钮）不再随进度重建；
- * - 悬浮歌词原生桥按「显示签名」去重推送：内容不变不发送。
+ * - 悬浮歌词由常驻同步服务维护，迷你栏隐藏不影响原生窗口。
  */
-function MiniLyricStatus({ overlayVisible, color, fallbackText }: MiniLyricStatusProps) {
+function MiniLyricStatus({ color, fallbackText }: MiniLyricStatusProps) {
   const lyrics = usePlayerStore((state) => state.lyrics);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const loading = usePlayerStore((state) => state.loading);
-  const currentSong = usePlayerStore((state) => state.currentSong);
   // 与沉浸歌词保持一致：手动偏移校准 + 简繁转换（否则设置后迷你栏/悬浮歌词与其他歌词不一致）
   const manualOffsetMs = useLyricSettingsStore((s) => s.manualOffsetMs);
   const chineseConversion = useLyricSettingsStore((s) => s.chineseConversion);
@@ -324,53 +287,6 @@ function MiniLyricStatus({ overlayVisible, color, fallbackText }: MiniLyricStatu
     : isPlaying && currentIndex >= 0
       ? convertText(lyrics[currentIndex]?.text ?? "")
       : fallbackText;
-
-  const songKey = currentSong ? buildSongKey(currentSong) : "";
-
-  // 歌词归属打标：只在歌词数组身份变化那一刻按 store 当时的 currentSong 归属。
-  // 切歌在途窗口（currentSong 已是新歌、歌词还是上一首的）里旧歌词不归新歌所有，
-  // 悬浮窗改推歌名——否则会拿上一首的歌词按新歌进度取行（音词错位）或退化为空窗。
-  const lyricsOwnerRef = useRef({ array: lyrics, key: songKey });
-  if (lyricsOwnerRef.current.array !== lyrics) {
-    lyricsOwnerRef.current = { array: lyrics, key: songKey };
-  }
-  const lyricsOwned = songKey !== "" && lyricsOwnerRef.current.key === songKey;
-
-  const position = usePlayerStore((s) => s.position);
-  const lastSyncTimeRef = useRef(0);
-
-  // 会话边界同步：当歌曲、歌词数组或悬浮窗开启状态发生改变时，向原生注入歌词全集与初始时钟
-  useEffect(() => {
-    if (!overlayVisible) return;
-
-    const titleText = currentSong
-      ? convertText(currentSong.singer ? `${currentSong.name} - ${currentSong.singer}` : currentSong.name)
-      : "";
-
-    if (currentSong && lyricsOwned && lyrics.length > 0) {
-      const converted = lyrics.map((line) => ({
-        time: line.time,
-        text: convertText(line.text ?? ""),
-        tr: line.tr ? convertText(line.tr) : undefined,
-      }));
-      // effect 已按实际数组/转换设置触发；行数相同不代表内容相同。
-      void setLyricOverlayLyrics(converted, titleText)
-        .then(() => syncLyricOverlayPlaybackClock())
-        .catch((error) => logger.warn("悬浮歌词注入失败", error));
-    } else if (currentSong) {
-      void clearLyricOverlayLyrics(titleText).catch((error) => logger.warn("悬浮歌词清理失败", error));
-    }
-  }, [overlayVisible, currentSong, songKey, lyricsOwned, lyrics, convertText]);
-
-  // 前台 5s 周期校准：避免累积时钟漂移
-  useEffect(() => {
-    if (!overlayVisible || !isPlaying) return;
-    const now = Date.now();
-    if (shouldCalibrateClock(now - lastSyncTimeRef.current, true)) {
-      lastSyncTimeRef.current = now;
-      void syncLyricOverlayPlaybackClock().catch((error) => logger.warn("悬浮歌词时钟校准失败", error));
-    }
-  }, [position, overlayVisible, isPlaying]);
 
   return (
     <Text style={[styles.trackArtist, { color }]} numberOfLines={1}>

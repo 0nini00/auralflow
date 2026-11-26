@@ -1,7 +1,6 @@
-import { buildSongKey, type MusicInfo } from "@lx/core";
-
 const MIN_SONG_SLEEP_TIMER_COUNT = 1;
-const MAX_SONG_SLEEP_TIMER_COUNT = 50;
+export const MAX_SONG_SLEEP_TIMER_COUNT = 50;
+const MAX_SLEEP_TIMER_MINUTES = Math.floor(Number.MAX_SAFE_INTEGER / 60_000);
 
 export const DESKTOP_ALIGNED_SLEEP_TIMER_MINUTES = [15, 30, 45, 60] as const;
 export const DESKTOP_ALIGNED_SLEEP_TIMER_SONG_COUNTS = [1, 10] as const;
@@ -9,7 +8,6 @@ export const DESKTOP_ALIGNED_SLEEP_TIMER_SONG_COUNTS = [1, 10] as const;
 export interface SongSleepTimerState {
   isActive: boolean;
   remainingSongs: number;
-  lastTrackKey: string | null;
   shouldPause?: boolean;
 }
 
@@ -27,31 +25,30 @@ export interface MobileSleepTimerControl {
   songCountPresets: readonly number[];
 }
 
-export function getSongSleepTimerTrackKey(song: MusicInfo | null | undefined): string | null {
-  return song ? buildSongKey(song) : null;
+/** 输入框、控制器和 store 共用舍入与范围规则。 */
+export function parseSleepTimerInput(value: string | number, kind: "minutes" | "songs"): number | null {
+  const count = Math.round(Number(value));
+  const maximum = kind === "songs" ? MAX_SONG_SLEEP_TIMER_COUNT : MAX_SLEEP_TIMER_MINUTES;
+  return Number.isSafeInteger(count) && count >= MIN_SONG_SLEEP_TIMER_COUNT && count <= maximum ? count : null;
 }
 
 export function normalizeSongSleepTimerCount(count: number): number {
-  if (!Number.isFinite(count)) return MIN_SONG_SLEEP_TIMER_COUNT;
-  const normalized = Math.floor(count);
-  return Math.min(MAX_SONG_SLEEP_TIMER_COUNT, Math.max(MIN_SONG_SLEEP_TIMER_COUNT, normalized));
+  const normalized = parseSleepTimerInput(count, "songs");
+  if (normalized === null) throw new RangeError(`歌曲数须为 ${MIN_SONG_SLEEP_TIMER_COUNT}-${MAX_SONG_SLEEP_TIMER_COUNT} 首`);
+  return normalized;
 }
 
+/** 仅在真实歌曲播完时调用；同曲循环也消耗一首。 */
 export function getNextSongSleepTimerState(
   state: SongSleepTimerState,
-  currentSong: MusicInfo | null | undefined,
 ): SongSleepTimerState {
   if (!state.isActive) return state;
-
-  const currentTrackKey = getSongSleepTimerTrackKey(currentSong);
-  if (!currentTrackKey || currentTrackKey === state.lastTrackKey) return state;
 
   const nextRemainingSongs = state.remainingSongs - 1;
   if (nextRemainingSongs <= 0) {
     return {
       isActive: false,
       remainingSongs: 0,
-      lastTrackKey: null,
       shouldPause: true,
     };
   }
@@ -59,7 +56,6 @@ export function getNextSongSleepTimerState(
   return {
     isActive: true,
     remainingSongs: nextRemainingSongs,
-    lastTrackKey: currentTrackKey,
     shouldPause: false,
   };
 }

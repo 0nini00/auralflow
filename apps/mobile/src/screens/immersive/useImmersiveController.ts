@@ -7,7 +7,7 @@ import { buildImmersivePlayModeControl } from "@/services/mobilePlayModeModel";
 import { buildImmersivePlaybackRateModel } from "@/services/playerRateModel";
 import { buildImmersiveQueuePanelModel } from "@/services/playerQueueModel";
 import { buildImmersiveVolumeControlModel } from "@/services/playerVolumeModel";
-import { buildMobileSleepTimerControl } from "@/services/songSleepTimerModel";
+import { buildMobileSleepTimerControl, parseSleepTimerInput } from "@/services/songSleepTimerModel";
 import { playFromQueue, playNext, playPrevious, loadLyricsForRestoredSong, resumePlayback } from "@/services/playerService";
 import { useLyricLineIndex } from "@/hooks/useLyricLineIndex";
 import { shareMusic } from "@/services/shareMusicService";
@@ -212,11 +212,6 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
 
   );
 
-  // 打开时手机端恢复「封面页」
-  useEffect(() => {
-    if (visible) setCurrentPage(0);
-  }, [visible]);
-
   const handleTogglePlay = async () => {
     if (isPlaying) {
       await pause();
@@ -341,29 +336,13 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
   };
 
   const handleStartCustomSleepTimer = () => {
-
-    // Number("") 为 0、Number("abc") 为 NaN，统一走严格校验；
-    // 小数输入四舍五入到整数分钟（parseInt 会把 "1.5" 静默截成 1）
-    const minutes = Math.round(Number(customMinutes));
-
-    if (Number.isFinite(minutes) && minutes > 0) {
-
-      handleStartSleepTimer(minutes);
-
-    }
-
+    const minutes = parseSleepTimerInput(customMinutes, "minutes");
+    if (minutes !== null) handleStartSleepTimer(minutes);
   };
 
   const handleStartCustomSongSleepTimer = () => {
-
-    const songCount = Math.round(Number(customSongCount));
-
-    if (Number.isFinite(songCount) && songCount > 0) {
-
-      handleStartSongSleepTimer(songCount);
-
-    }
-
+    const songCount = parseSleepTimerInput(customSongCount, "songs");
+    if (songCount !== null) handleStartSongSleepTimer(songCount);
   };
 
   const handleShare = async () => {
@@ -393,7 +372,7 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
 
   // 桌面歌词（悬浮歌词 overlay）切换：能力不支持的设备显式报错，不静默失败
   const floatingLyricActive = useLyricOverlayStore((s) => s.visible);
-  const setFloatingLyricVisible = useLyricOverlayStore((s) => s.setVisible);
+  const syncFloatingLyricVisible = useLyricOverlayStore((s) => s.syncVisibleFromNative);
 
   const handleToggleFloatingLyric = async () => {
     if (!isLyricOverlaySupported()) {
@@ -403,7 +382,7 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
     try {
       if (floatingLyricActive) {
         await hideLyricOverlay();
-        await setFloatingLyricVisible(false);
+        await syncFloatingLyricVisible();
         return;
       }
 
@@ -422,7 +401,7 @@ export function useImmersiveController({ visible, onClose }: UseImmersiveControl
       if (!(await showLyricOverlay())) {
         throw new Error("原生悬浮歌词窗口未能打开");
       }
-      await setFloatingLyricVisible(true);
+      await syncFloatingLyricVisible();
     } catch (error) {
       Alert.alert("悬浮歌词操作失败", error instanceof Error ? error.message : String(error));
     }

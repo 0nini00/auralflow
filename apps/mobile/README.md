@@ -25,6 +25,7 @@ AuralFlow 的 Android 端，包名 `@auralflow/mobile`，基于 **React Native 0
 
 ## 功能列表
 
+- **播放器背景**：固定使用柔光色域动画，配色只由主题强调色生成，不读取封面颜色，切歌保持配色连续。
 - **发现与搜索**：首页信息流（推荐歌单 / 新歌 / 新碟 / 排行榜 / MV）、搜索（网易云 + QQ 音乐多源合并、联想、最近搜索、去重，歌单 / 歌手 / 专辑分类）、每日推荐、私人 FM（下一首预取，切歌秒开）、排行榜、歌单广场。
 - **播放**：全屏沉浸播放器（封面页 / 歌词页 / 控制栏 / 更多菜单 / 评论 / 音质切换 / 睡眠定时）、迷你播放器（底部导航上方，封面 / 歌名 / 歌手 / 迷你歌词）、播放队列、下一首 / 稍后播放、播放模式（顺序 / 列表 / 单曲 / 随机去重）、倍速 0.5–2.0（原生 setRate，无独立变调）、音质切换（带原进度开播）、暂停续播（恢复快照进度 `playFromQueue(index, position)`）、通知栏控制、后台播放、系统媒体键 / 锁屏控制。
 - **歌词**：滚动跟随（用户滚动暂停 3 秒后恢复）、行级高亮（纯色 + 缩放动画；逐字卡拉 OK 为桌面端能力，数据层经 `@lx/core` 仍支持 YRC / QRC / KRC 解析）、译文、简繁转换；字号捏合缩放（歌词设置共 17 项，设置 UI 仅暴露译文 / 双色 / 字体 / 预览 4 项，其余用默认值）；Android 悬浮歌词窗（可拖动、可锁定、随播放滚动，显示当前行 + 下一行整行）；浮窗歌词。
@@ -112,10 +113,9 @@ Release 构建签名凭据从仓库外目录读取（环境变量 `AURALFLOW_KEY
 | `CryptoModule` | weapi 加密原生实现：AES/CBC/PKCS5Padding + RSA/ECB/NoPadding（128 字节左零填充 → hex）。因 Hermes 处理不好 crypto-js / node-forge 的 RSA NoPadding，下沉到原生。 |
 | `SecureStorageModule` | Android Keystore 加密存储（AES-256-GCM，alias `auralflow.mobile.secure-storage.v2`，格式 `v1:iv:ciphertext`，旧 AsyncStorage 自动迁移）。 |
 | `LocalMusicModule` | MediaStore 本地音乐扫描 / 元数据读写。 |
-| `LyricOverlayModule` / `LyricOverlayService` / `LyricNotificationReceiver` | 悬浮歌词窗 + 通知栏歌词开关与联动。 |
+| `LyricOverlayModule` / `LyricOverlayService` / `LyricNotificationReceiver` | 悬浮歌词窗；普通播放通知与系统展开媒体卡片提供歌词开关，后台可切换并同步应用内状态。 |
 | `CustomSourceFilePickerModule` | 自定义音源文件选择。 |
 | `ApkInstallerModule` | APK 应用内安装：ABI 检测、安装权限检查、装包；安装包下载到 `cache/updates` 后经 FileProvider 交给系统安装器。 |
-| `CoverColorModule` | androidx.palette 封面取色，供沉浸页氛围背景。 |
 | `DownloadFileModule` | 下载提交边界：`commitDownload` 把 `.part` 临时文件原子重命名为最终文件（只限应用私有目录内同目录，拒绝复制回退）。 |
 | `OrientationModule` | MV 播放页全屏方向控制：进入全屏时记录当前方向、退出时恢复它，避免交还系统默认导致整个 App 卡横屏。 |
 | `WakeLockModule` | 切歌 / 后台解析过渡期持有 PARTIAL_WAKE_LOCK（`acquire` / `release`）防 Doze 冻结 JS 线程；当前无 JS 侧调用方。 |

@@ -292,3 +292,23 @@ test("不可用的 MV 和相似入口不占菜单位置", t => {
   for (const label of ["播放 MV", "相似歌曲推荐"]) assert.equal(h.button(label), undefined, label);
   assert.ok(h.button("播放设置"));
 });
+
+test("菜单关闭动画期间连续点击只执行首次选择的功能", t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const calls = [];
+  const h = harness(t, "ImmersiveMoreMenu", menuProps(calls));
+  h.click("相似歌曲推荐");
+  h.click("播放设置");
+  act(() => t.mock.timers.tick(320));
+  assert.deepEqual(calls, ["close", "similar"]);
+});
+
+test("播放器卸载后取消菜单尚未执行的跳转", t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const calls = [];
+  const h = harness(t, "ImmersiveMoreMenu", menuProps(calls));
+  h.click("相似歌曲推荐");
+  act(() => h.renderer.unmount());
+  act(() => t.mock.timers.tick(320));
+  assert.deepEqual(calls, ["close"]);
+});

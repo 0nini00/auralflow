@@ -11,6 +11,7 @@ import { logger } from "@/services/logger";
 import { startListeningSession } from "@/services/listenTrackerService";
 import { getAudioInterruptionAction } from "@/services/audioInterruptionPolicy";
 import { getNextQueueNavigationState } from "@/services/queueNavigationModel";
+import { getNextSongSleepTimerState } from "@/services/songSleepTimerModel";
 import {
   hasReachedAutoSkipLimit, MAX_CONSECUTIVE_AUTO_SKIPS,
   noteAutomaticSkip, resetPlaybackFailures,
@@ -234,7 +235,24 @@ export default async function playbackService(data: { serviceId: string }): Prom
 
   async function advanceAfterTrackFinished(): Promise<void> {
     await runRecovery(async (operation) => {
-      const { playMode, queue, playbackContext } = usePlayerStore.getState();
+      const { playMode, queue, playbackContext, sleepTimerSongActive, sleepTimerSongCount } = usePlayerStore.getState();
+      if (sleepTimerSongActive) {
+        // 先结算真实曲末，再决定重播或取下一首；换源重载和手动切歌不计为听完。
+        const next = getNextSongSleepTimerState({ isActive: true, remainingSongs: sleepTimerSongCount });
+        usePlayerStore.setState({ sleepTimerSongActive: next.isActive, sleepTimerSongCount: next.remainingSongs });
+        if (next.shouldPause) {
+          try {
+            await invoke(operation, () => usePlayerStore.getState().pause());
+          } catch (error) {
+            // 定时停止失败不能触发歌曲故障恢复，否则会再次开始播放。
+            if (owns(operation)) report(`睡眠定时停止失败：${failureMessage(error)}`);
+          } finally {
+            // pause 同步认领了新意图；沿用恢复器终止标记拦住迟到 gap/ended。
+            if (owns(operation)) terminalRequest = operation.requestId;
+          }
+          return;
+        }
+      }
       try {
         if (playbackContext.type !== "personalFm" && playMode === "single") {
           await TrackPlayer.skip(0);

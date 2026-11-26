@@ -225,6 +225,10 @@ public class LyricOverlayService extends Service {
             }
             if (ACTION_PAUSE_CLOCK.equals(action)) {
                 pauseClock();
+                if (intent.hasExtra(EXTRA_POSITION)) {
+                    currentClockPosition = Math.max(0.0, intent.getDoubleExtra(EXTRA_POSITION, 0.0));
+                    renderCurrentIndex();
+                }
                 if (receiver != null) sendSuccess(receiver);
                 return;
             }

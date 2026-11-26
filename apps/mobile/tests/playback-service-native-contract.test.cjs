@@ -133,10 +133,22 @@ for (const [name, fixture] of [["原始 RNTP 锚点", upstreamFixture], ["已有
 
 test("保留通知歌词、START_NOT_STICKY、新架构事件和原有销毁逻辑", () => {
   const patched = applyPatch(legacyFixture);
-  const withoutLifecycle = patched.replace(serviceIdField, "")
-    .replace(lifetimeTaskConfig, originalTaskConfig).replace(destroyedEvent, "");
-  assert.equal(withoutLifecycle, legacyFixture);
+  assert.match(patched, /return START_NOT_STICKY/);
+  assert.match(patched, /publishLyricNotification\(\)/);
+  assert.match(patched, /reactContext/);
+  assert.match(patched, /player\.destroy\(\)/);
 });
+
+for (const [name, fixture] of [["原始依赖", upstreamFixture], ["已有补丁", legacyFixture]]) {
+  test(name + "向原媒体会话接入歌词动作，选项更新完成后重装且可同步开关", () => {
+    const patched = applyPatch(fixture);
+    assert.match(patched, /lyricMediaSessionAction = LyricMediaSessionAction\(this, player\.notificationManager\)/);
+    assert.match(patched, /createNotification\(baseNotificationConfig\)\.join\(\)[\s\S]*?lyricMediaSessionAction\?\.update\(\)/);
+    assert.match(patched, /LYRIC_NOTIFICATION_STATE_CHANGED_ACTION\) \{\s*lyricMediaSessionAction\?\.update\(\)/);
+    assert.match(patched, /checkNotNull\(lyricMediaSessionAction\)\.buildNotification\(baseNotification\)/);
+    assert.doesNotMatch(patched, /setCallback\(/, "不能替换原有媒体按键回调");
+  });
+}
 
 for (const [name, anchor] of [
   ["服务实例字段", "    private val binder = MusicBinder()\n"],

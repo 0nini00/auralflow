@@ -8,6 +8,7 @@ import TrackPlayer from 'react-native-track-player';
 import App from './App';
 import { installGlobalErrorCapture } from './src/services/globalErrorCapture';
 import { initLogger } from './src/services/logger';
+import { startLyricOverlaySync } from './src/services/lyricOverlaySync';
 import { name as appName } from './app.json';
 
 // 尽早安装：release 包里 JS/worklet 未捕获异常会直接闪退不留痕，
@@ -21,3 +22,4 @@ AppRegistry.registerComponent(appName, () => App);
 // so release builds (where app.json name differs) don't crash on launch.
 AppRegistry.registerComponent('AuralFlowMobile', () => App);
 TrackPlayer.registerPlaybackService(() => require('./src/player/playbackService'));
+startLyricOverlaySync();
