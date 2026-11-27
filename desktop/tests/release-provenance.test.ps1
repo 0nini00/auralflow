@@ -2,6 +2,11 @@
 $ErrorActionPreference = 'Stop'
 $releaseScript = Join-Path $PSScriptRoot '..\build-release.ps1'
 $gitExecutable = (Get-Command git -CommandType Application | Select-Object -First 1).Source
+$syntheticSigningDirectory = 'AuralflowMissingSigningDrive:\auralflow-secrets'
+$syntheticSigningProperties = "$syntheticSigningDirectory\updater-signing.properties"
+if (Get-PSDrive -Name 'AuralflowMissingSigningDrive' -ErrorAction SilentlyContinue) {
+    throw '发布回归要求签名目录使用不存在的盘符'
+}
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('auralflow-release-tests-' + [guid]::NewGuid().ToString('N'))
 $previousKey = $env:TAURI_SIGNING_PRIVATE_KEY
 $previousPassword = $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD
@@ -31,11 +36,12 @@ function git {
 # 签名配置读取由测试替身截获，绝不访问机器上的真实签名目录。
 function Get-Content {
     param([Parameter(Position = 0)][string]$Path, [switch]$Raw)
-    if ($Path -eq 'F:\auralflow-secrets\updater-signing.properties') {
+    if ($Path -eq $syntheticSigningProperties) {
         $global:releaseTest_secretReads++
         return @("keyPath=$global:releaseTest_fixtureKey", 'password=synthetic-password')
     }
-    if ($Path.StartsWith('F:\auralflow-secrets', [StringComparison]::OrdinalIgnoreCase)) {
+    if ($Path.StartsWith('F:\auralflow-secrets', [StringComparison]::OrdinalIgnoreCase) -or
+        $Path.StartsWith($syntheticSigningDirectory, [StringComparison]::OrdinalIgnoreCase)) {
         throw 'Test attempted to access real signing material'
     }
     Microsoft.PowerShell.Management\Get-Content -LiteralPath $Path -Raw:$Raw
@@ -43,8 +49,9 @@ function Get-Content {
 
 function Test-Path {
     param([Parameter(Position = 0)][string]$Path)
-    if ($Path -eq 'F:\auralflow-secrets\updater-signing.properties') { return $true }
-    if ($Path.StartsWith('F:\auralflow-secrets', [StringComparison]::OrdinalIgnoreCase)) {
+    if ($Path -eq $syntheticSigningProperties) { return $true }
+    if ($Path.StartsWith('F:\auralflow-secrets', [StringComparison]::OrdinalIgnoreCase) -or
+        $Path.StartsWith($syntheticSigningDirectory, [StringComparison]::OrdinalIgnoreCase)) {
         throw 'Test attempted to access real signing material'
     }
     Microsoft.PowerShell.Management\Test-Path -LiteralPath $Path
@@ -99,7 +106,10 @@ function New-Fixture([string]$Name, [string]$TagKind = '') {
     $global:releaseTest_buildMutation = ''
     $global:releaseTest_releaseExists = $false
     New-Item -ItemType Directory -Path (Join-Path $global:releaseTest_fixtureRepo 'desktop\src-tauri') -Force | Out-Null
-    Copy-Item -LiteralPath $releaseScript -Destination (Join-Path $global:releaseTest_fixtureRepo 'desktop\build-release.ps1')
+    # 仅改临时副本的签名目录，确保本机有 F 盘时也能复现 CI 的无盘符环境。
+    $scriptSource = Microsoft.PowerShell.Management\Get-Content -LiteralPath $releaseScript -Raw
+    $fixtureScript = $scriptSource.Replace('F:\auralflow-secrets', $syntheticSigningDirectory)
+    Set-Content -LiteralPath (Join-Path $global:releaseTest_fixtureRepo 'desktop\build-release.ps1') -Value $fixtureScript -Encoding utf8NoBOM -NoNewline
     Set-Content -LiteralPath $global:releaseTest_fixtureKey -Value 'synthetic-private-key'
     Set-Content -LiteralPath (Join-Path $global:releaseTest_fixtureRepo '.gitignore') -Value @('/dist/', '/desktop/src-tauri/target/')
     Set-Content -LiteralPath (Join-Path $global:releaseTest_fixtureRepo 'source.txt') -Value 'fixture source'
@@ -168,14 +178,14 @@ try {
         New-Fixture 'wrong-tag' 'wrong'
         $global:releaseTest_releaseExists = $true
         Run-Release -Publish
-        Assert-True ([bool]$global:releaseTest_releaseError) 'Expected tag mismatch rejection'
+        Assert-True ($global:releaseTest_releaseError -like '*远端标签*不一致*') 'Expected tag mismatch rejection'
         Assert-NoReleaseWrites
     }
     Test-Case 'dirty publishing is rejected before reading signing configuration' {
         New-Fixture 'dirty-publish'
         Add-Content -LiteralPath (Join-Path $global:releaseTest_fixtureRepo 'source.txt') -Value 'uncommitted'
         Run-Release -Publish
-        Assert-True ([bool]$global:releaseTest_releaseError) 'Expected dirty source rejection'
+        Assert-True ($global:releaseTest_releaseError -like '*干净工作树*') 'Expected dirty source rejection'
         Assert-True ($global:releaseTest_secretReads -eq 0 -and $global:releaseTest_buildCalls -eq 0) 'Dirty publication must fail before signing and building'
         Assert-NoReleaseWrites
     }
@@ -184,7 +194,8 @@ try {
             New-Fixture "changed-$mutation"
             $global:releaseTest_buildMutation = $mutation
             Run-Release -Publish
-            Assert-True ([bool]$global:releaseTest_releaseError) 'Expected changed build source rejection'
+            $expectedError = if ($mutation -eq 'dirty') { '*干净工作树*' } else { '*HEAD 已变化*' }
+            Assert-True ($global:releaseTest_releaseError -like $expectedError) 'Expected changed build source rejection'
             Assert-NoReleaseWrites
         }
     }
@@ -203,7 +214,7 @@ try {
         New-Fixture 'missing-tag'
         $global:releaseTest_releaseExists = $true
         Run-Release -Publish
-        Assert-True ([bool]$global:releaseTest_releaseError) 'Expected missing tag rejection'
+        Assert-True ($global:releaseTest_releaseError -like '*远端标签*不存在*') 'Expected missing tag rejection'
         Assert-NoReleaseWrites
     }
 } finally {

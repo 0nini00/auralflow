@@ -50,7 +50,8 @@ $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $repo = "0nini00/auralflow"
 $secretsDir = "F:\auralflow-secrets"
-$propsPath = Join-Path $secretsDir "updater-signing.properties"
+# 这里只组合外部路径，存在性由 Read-Properties 检查，不提前解析宿主盘符。
+$propsPath = [IO.Path]::Combine($secretsDir, "updater-signing.properties")
 $taruiConf = Join-Path $PSScriptRoot "src-tauri\tauri.conf.json"
 
 function Read-Properties([string]$path) {
