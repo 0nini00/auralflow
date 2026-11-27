@@ -64,7 +64,7 @@ export function HomeQuickActions({ actions, onPress }: HomeQuickActionsProps) {
           >
             <View style={styles.actionIcon}>{action.icon}</View>
           </View>
-          <Text numberOfLines={1} style={[styles.actionLabel, { color: palette.text }]}>
+          <Text numberOfLines={1} maxFontSizeMultiplier={1.3} style={[styles.actionLabel, { color: palette.text }]}>
             {action.label}
           </Text>
         </Pressable>
@@ -165,9 +165,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   actionIcon: { alignItems: "center", justifyContent: "center" },
-  actionLabel: { fontSize: 10.5, fontWeight: "600", textAlign: "center" },
-  rail: { gap: spacing.s, paddingHorizontal: spacing.xxs },
-  card: { width: 142, height: 202 },
+  actionLabel: { fontSize: typography.caption, lineHeight: 16, fontWeight: "600", textAlign: "center" },
+  rail: { gap: spacing.s, paddingHorizontal: spacing.xxs, alignItems: "flex-start" },
+  card: { width: 142 },
   cover: { width: 142, height: 142, borderRadius: radius.sm },
   name: {
     marginTop: spacing.xs,

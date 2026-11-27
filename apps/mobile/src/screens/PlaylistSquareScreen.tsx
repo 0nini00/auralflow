@@ -351,9 +351,9 @@ const styles = StyleSheet.create({
     gap: spacing.m,
   },
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: touch.minTarget,
+    height: touch.minTarget,
+    borderRadius: touch.minTarget / 2,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -378,7 +378,8 @@ const styles = StyleSheet.create({
   },
   categoryChip: {
     paddingHorizontal: spacing.m,
-    height: 32,
+    minHeight: touch.minTarget,
+    paddingVertical: spacing.xs,
     borderRadius: radius.pill,
     borderWidth: 1,
     justifyContent: "center",

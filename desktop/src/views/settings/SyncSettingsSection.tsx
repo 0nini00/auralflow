@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { CloudSyncRefusalError } from "@lx/core";
 import { useCustomSourceStore } from "@/stores/customSourceStore";
 import { updateSettings, useLoadedSettings, type SettingsPatch } from "@/stores/settingsStore";
@@ -20,6 +20,7 @@ type WebdavField = keyof WebdavConfig;
 let webdavWriteQueue: Promise<boolean> = Promise.resolve(true);
 
 export function SyncSettingsSection() {
+  const formId = useId();
   const featureEnabled = useCustomSourceStore((state) => state.featureEnabled);
   const featureReady = useCustomSourceStore((state) => state.featureReady);
   const sourcesSyncEnabled = featureReady && featureEnabled;
@@ -251,8 +252,9 @@ export function SyncSettingsSection() {
       )}
 
       <div className="af-settings-group">
-        <label className="af-settings-label">WebDAV 地址</label>
+        <label className="af-settings-label" htmlFor={`${formId}-url`}>WebDAV 地址</label>
         <input
+          id={`${formId}-url`}
           className="af-settings-input"
           value={webdavUrl}
           onChange={(e) => editConfig("webdavUrl", e.target.value)}
@@ -264,8 +266,9 @@ export function SyncSettingsSection() {
       </div>
 
       <div className="af-settings-group">
-        <label className="af-settings-label">用户名</label>
+        <label className="af-settings-label" htmlFor={`${formId}-username`}>用户名</label>
         <input
+          id={`${formId}-username`}
           className="af-settings-input"
           value={webdavUser}
           onChange={(e) => editConfig("webdavUsername", e.target.value)}
@@ -276,8 +279,9 @@ export function SyncSettingsSection() {
       </div>
 
       <div className="af-settings-group">
-        <label className="af-settings-label">密码</label>
+        <label className="af-settings-label" htmlFor={`${formId}-password`}>密码</label>
         <input
+          id={`${formId}-password`}
           className="af-settings-input"
           type="password"
           value={webdavPass}

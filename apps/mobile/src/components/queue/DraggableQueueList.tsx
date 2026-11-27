@@ -2,13 +2,14 @@ import React, { forwardRef, memo, useCallback, useEffect, useImperativeHandle, u
 import { AccessibilityInfo, Alert, AppState, FlatList, StyleSheet, Text, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { runOnJS, scrollTo, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useFrameCallback, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
-import { Trash2 } from "lucide-react-native";
+import { GripVertical, X } from "lucide-react-native";
 import type { MusicInfo } from "@lx/core";
 import type { ThemePalette } from "@/stores/themeStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import { SongItem } from "@/components/SongList";
 import { Touchable } from "@/components/Touchable";
 import { hapticLight } from "@/services/hapticService";
+import { withAlpha } from "@/services/themePaletteModel";
 import { buildQueueEntries, createQueueDragSession, getQueueAutoScrollOffset, getQueueDropIndex, getQueueRowOffset, moveQueueItem, QUEUE_ROW_HEIGHT, QUEUE_DRAG_HANDLE_WIDTH, QUEUE_REMOVE_BUTTON_WIDTH, type QueueEntry } from "@/services/queueReorderModel";
 
 const LONG_PRESS_MS = 350;
@@ -179,11 +180,16 @@ export const DraggableQueueList = forwardRef<QueueListHandle, Props>(function Dr
     transform: [{ translateY: from.value * QUEUE_ROW_HEIGHT + translation.value - startScroll.value }, { scale: 1.015 }],
   }));
 
-  const renderSong = (entry: QueueEntry, index: number, floating = false) => (
-    <View style={styles.songRow}>
+  const renderSong = (entry: QueueEntry, index: number) => (
+    <View style={[styles.songRow, {
+      backgroundColor: index === currentIndex ? withAlpha(palette.primaryInk, 0.08) : "transparent",
+    }]}>
+      {index === currentIndex ? (
+        <View pointerEvents="none" style={[styles.currentIndicator, { backgroundColor: palette.primaryInk }]} />
+      ) : null}
       <View style={styles.song}>
         <SongItem song={entry.song} index={index} onRowPress={(_song, row) => { if (dragFrom.current < 0) onPlayItem(row); }}
-          isPlaying={index === currentIndex} activeStyle="text" showCover={false} showIndexColumn={false} hideMeta
+          isPlaying={index === currentIndex} activeStyle="text" showCover={false} showIndexColumn hideMeta={index !== currentIndex}
           hideSourceTag showLikeAction={false} showDuration={false} showMoreAction={false} />
       </View>
       <Touchable
@@ -192,12 +198,10 @@ export const DraggableQueueList = forwardRef<QueueListHandle, Props>(function Dr
         accessibilityLabel="从队列移除"
         onPress={() => { if (dragFrom.current < 0) onRemoveItem(index); }}
       >
-        <Trash2 size={18} color={palette.danger} />
+        <X size={16} color={palette.textSubtle} strokeWidth={1.5} />
       </Touchable>
       <View style={styles.handle} accessible accessibilityLabel="长按拖动排序">
-        <View style={[styles.gripLine, { backgroundColor: palette.textMuted }]} />
-        <View style={[styles.gripLine, { backgroundColor: palette.textMuted }]} />
-        <View style={[styles.gripLine, { backgroundColor: palette.textMuted }]} />
+        <GripVertical size={16} color={palette.textSubtle} strokeWidth={1.5} />
       </View>
     </View>
   );
@@ -219,7 +223,7 @@ export const DraggableQueueList = forwardRef<QueueListHandle, Props>(function Dr
         </GestureDetector>
         {lifted ? <Animated.View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants"
           style={[styles.floating, { backgroundColor: palette.surface, borderColor: palette.border }, floatingStyle]}>
-          {renderSong(lifted, dragFrom.current, true)}
+          {renderSong(lifted, dragFrom.current)}
         </Animated.View> : null}
         {lifted ? <Text style={[styles.dragHint, { color: palette.text, backgroundColor: palette.surface }]} pointerEvents="none">松手放置，返回取消</Text> : null}
       </Animated.View>
@@ -228,15 +232,15 @@ export const DraggableQueueList = forwardRef<QueueListHandle, Props>(function Dr
 });
 
 const styles = StyleSheet.create({
-  viewport: { overflow: "hidden", marginHorizontal: 12 },
+  viewport: { overflow: "hidden", marginHorizontal: 16 },
   row: { height: QUEUE_ROW_HEIGHT },
-  songRow: { height: QUEUE_ROW_HEIGHT, flexDirection: "row", alignItems: "center" },
+  songRow: { height: QUEUE_ROW_HEIGHT, flexDirection: "row", alignItems: "center", borderRadius: 12 },
+  currentIndicator: { position: "absolute", left: 0, top: 18, bottom: 18, width: 3, borderRadius: 2 },
   song: { flex: 1, minWidth: 0 },
   remove: { width: QUEUE_REMOVE_BUTTON_WIDTH, height: 44, justifyContent: "center", alignItems: "center" },
-  handle: { width: QUEUE_DRAG_HANDLE_WIDTH, height: 44, justifyContent: "center", alignItems: "center", gap: 3 },
-  gripLine: { width: 14, height: 1.5, borderRadius: 1 },
+  handle: { width: QUEUE_DRAG_HANDLE_WIDTH, height: 44, justifyContent: "center", alignItems: "center" },
   floating: { position: "absolute", left: 0, right: 0, top: 0, height: QUEUE_ROW_HEIGHT,
-    borderWidth: StyleSheet.hairlineWidth, borderRadius: 8, elevation: 6,
+    borderWidth: StyleSheet.hairlineWidth, borderRadius: 12, elevation: 6,
     shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
   dragHint: { position: "absolute", bottom: 4, alignSelf: "center", fontSize: 12, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
 });

@@ -1,15 +1,16 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { MusicInfo } from "@lx/core";
 
 import { getResolvedTheme, getThemePalette, useThemeStore } from "@/stores/themeStore";
-import { useDownloadStore, type DownloadQuality } from "@/stores/downloadStore";
+import type { DownloadQuality } from "@/stores/downloadStore";
 import { PLAYBACK_QUALITY_OPTIONS } from "@/services/playbackQualityModel";
 import { getLastSelectQuality, saveLastSelectQuality } from "@/services/downloadService";
 import { withAlpha } from "@/services/themePaletteModel";
 import { sheet } from "@/theme/sheetTokens";
-import { radius, spacing, typography } from "@/theme/tokens";
+import { radius, spacing } from "@/theme/tokens";
 
 interface BatchDownloadModalProps {
   visible: boolean;
@@ -37,6 +38,7 @@ export function BatchDownloadModal({
   progressText = null,
   busy = false,
 }: BatchDownloadModalProps) {
+  const insets = useSafeAreaInsets();
   const mode = useThemeStore((state) => state.mode);
   const systemTheme = useThemeStore((state) => state.systemTheme);
   const accentColor = useThemeStore((state) => state.accentColor);
@@ -71,7 +73,10 @@ export function BatchDownloadModal({
     >
       <Pressable style={styles.overlay} accessible={false} onPress={busy ? undefined : onClose}>
         <Pressable
-          style={[styles.sheet, { backgroundColor: palette.surface }]}
+          style={[styles.sheet, {
+            backgroundColor: palette.surface,
+            paddingBottom: Math.max(insets.bottom, sheet.bottomInsetMin),
+          }]}
           accessible={false}
           onPress={(e) => e.stopPropagation()}
         >
@@ -87,7 +92,11 @@ export function BatchDownloadModal({
             <Text style={[styles.progressText, { color: palette.primaryInk }]}>{progressText}</Text>
           ) : null}
 
-          <View style={styles.optionList}>
+          <ScrollView
+            style={styles.optionScroll}
+            contentContainerStyle={styles.optionList}
+            keyboardShouldPersistTaps="handled"
+          >
             {PLAYBACK_QUALITY_OPTIONS.map((option) => {
               const isSelected = selectedQuality === option.value;
               return (
@@ -122,7 +131,7 @@ export function BatchDownloadModal({
                 </Pressable>
               );
             })}
-          </View>
+          </ScrollView>
 
           <View style={styles.footer}>
             <Pressable
@@ -171,12 +180,12 @@ const styles = StyleSheet.create({
     backgroundColor: sheet.scrim,
   },
   sheet: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopLeftRadius: sheet.radius,
+    borderTopRightRadius: sheet.radius,
     paddingHorizontal: 16,
     paddingTop: 10,
-    paddingBottom: 34,
     maxHeight: "80%",
+    overflow: "hidden",
   },
   handle: {
     width: 40,
@@ -202,6 +211,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginBottom: 12,
   },
+  optionScroll: { flexGrow: 0, flexShrink: 1, minHeight: 0 },
   optionList: {
     gap: 8,
   },

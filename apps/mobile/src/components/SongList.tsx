@@ -680,7 +680,7 @@ export const SongItem = memo(function SongItem({  song,
 
   const isSelectedRow = selectionMode && selected;
   const isActive = isPlaying || highlighted;
-  // 播放队列用 text 模式：不铺底色，只靠歌名主色和加粗区分当前曲。
+  // text 模式只强调歌名，整行底色由队列等列表宿主绘制。
   const activeBackground = isSelectedRow
     ? withAlpha(palette.primaryInk, 0.1)
     : isActive && activeStyle === "fill"

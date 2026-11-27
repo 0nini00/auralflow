@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { AlignCenter, AlignLeft, AlignRight, Mic2, RotateCcw, Type } from "lucide-react";
 import { isLyricWindowOpen, setLyricWindowPinned, type RustAppSettings } from "@lx/tauri-bridge";
 import {
@@ -47,6 +47,7 @@ const LYRIC_STYLE_KEYS = [
 ] as const satisfies ReadonlyArray<keyof RustAppSettings>;
 
 export function DesktopLyricSettingsSection() {
+  const controlId = useId();
   const [activeLyricTab, setActiveLyricTab] = useState<LyricSettingsTab>("basic");
   const pinned = useLoadedSettings((s) => s.lyricPinned);
   const pauseHide = useLoadedSettings((s) => s.lyricPauseHide);
@@ -187,6 +188,16 @@ export function DesktopLyricSettingsSection() {
   };
 
   const renderLyricSettingsTab = (tab: LyricSettingsTab) => activeLyricTab === tab;
+  const valueText = {
+    fontSize: `${fontSize}px`,
+    manualOffset: `${manualOffsetMs > 0 ? "+" : ""}${manualOffsetMs}ms`,
+    lineGap: `${lineGap}px`,
+    lineCount: `${singleLine ? 1 : maxLineNum}行`,
+    textOpacity: `${Math.round(textOpacity * 100)}%`,
+    positionX: `${textPositionX}%`,
+    positionY: `${textPositionY}%`,
+    backgroundOpacity: `${Math.round(backgroundOpacity * 100)}%`,
+  };
 
   return (
     <section className="af-settings-section" id="desktop-lyric">
@@ -227,6 +238,7 @@ export function DesktopLyricSettingsSection() {
               type="checkbox"
               className="af-switch"
               role="switch"
+              aria-label="始终置顶"
               checked={pinned}
               onChange={(e) => handlePinnedChange(e.target.checked)}
             />
@@ -236,6 +248,7 @@ export function DesktopLyricSettingsSection() {
               type="checkbox"
               className="af-switch"
               role="switch"
+              aria-label="暂停时隐藏"
               checked={pauseHide}
               onChange={(e) => handlePauseHideChange(e.target.checked)}
             />
@@ -245,6 +258,7 @@ export function DesktopLyricSettingsSection() {
               type="checkbox"
               className="af-switch"
               role="switch"
+              aria-label="显示下一行"
               checked={showNextLine}
               onChange={(e) => handleShowNextLineChange(e.target.checked)}
             />
@@ -254,6 +268,7 @@ export function DesktopLyricSettingsSection() {
               type="checkbox"
               className="af-switch"
               role="switch"
+              aria-label="单行模式"
               checked={singleLine}
               onChange={(e) => handleSingleLineChange(e.target.checked)}
             />
@@ -263,6 +278,7 @@ export function DesktopLyricSettingsSection() {
               type="checkbox"
               className="af-switch"
               role="switch"
+              aria-label="显示译文"
               checked={showTranslation}
               onChange={(e) => handleShowTranslationChange(e.target.checked)}
             />
@@ -280,6 +296,7 @@ export function DesktopLyricSettingsSection() {
               type="checkbox"
               className="af-switch"
               role="switch"
+              aria-label="悬停隐藏"
               checked={hoverHide}
               onChange={(e) => handleHoverHideChange(e.target.checked)}
             />
@@ -289,6 +306,7 @@ export function DesktopLyricSettingsSection() {
               type="checkbox"
               className="af-switch"
               role="switch"
+              aria-label="切换动画"
               checked={enableAnimation}
               onChange={(e) => handleAnimationChange(e.target.checked)}
             />
@@ -327,99 +345,113 @@ export function DesktopLyricSettingsSection() {
         <div className="af-lyric-settings-title">排版</div>
         <div className="af-sfx-eq af-lyric-settings-sliders">
           <div className="af-sfx-eq-row af-lyric-setting-row">
-            <span className="af-sfx-eq-freq">
+            <label className="af-sfx-eq-freq" htmlFor={`${controlId}-font-size`}>
               <Type size={14} />
               字号
-            </span>
+            </label>
             <input
+              id={`${controlId}-font-size`}
               type="range"
               min={16}
               max={52}
               step={1}
               value={fontSize}
+              aria-valuetext={valueText.fontSize}
               onChange={(e) => handleFontSizeChange(parseInt(e.target.value, 10))}
               className="af-sfx-range"
             />
-            <span className="af-sfx-eq-value">{fontSize}px</span>
+            <span className="af-sfx-eq-value">{valueText.fontSize}</span>
           </div>
           <div className="af-sfx-eq-row af-lyric-setting-row">
-            <span className="af-sfx-eq-freq">偏移校准</span>
+            <label className="af-sfx-eq-freq" htmlFor={`${controlId}-offset`}>偏移校准</label>
             <input
+              id={`${controlId}-offset`}
               type="range"
               min={-2000}
               max={2000}
               step={50}
               value={manualOffsetMs}
+              aria-valuetext={valueText.manualOffset}
               onChange={(e) => handleManualOffsetChange(parseInt(e.target.value, 10))}
               className="af-sfx-range"
             />
-            <span className="af-sfx-eq-value">{manualOffsetMs > 0 ? `+${manualOffsetMs}` : manualOffsetMs}ms</span>
+            <span className="af-sfx-eq-value">{valueText.manualOffset}</span>
           </div>
           <div className="af-sfx-eq-row af-lyric-setting-row">
-            <span className="af-sfx-eq-freq">行距</span>
+            <label className="af-sfx-eq-freq" htmlFor={`${controlId}-line-gap`}>行距</label>
             <input
+              id={`${controlId}-line-gap`}
               type="range"
               min={0}
               max={28}
               step={1}
               value={lineGap}
+              aria-valuetext={valueText.lineGap}
               onChange={(e) => handleLineGapChange(parseInt(e.target.value, 10))}
               className="af-sfx-range"
             />
-            <span className="af-sfx-eq-value">{lineGap}px</span>
+            <span className="af-sfx-eq-value">{valueText.lineGap}</span>
           </div>
           <div className="af-sfx-eq-row af-lyric-setting-row">
-            <span className="af-sfx-eq-freq">行数</span>
+            <label className="af-sfx-eq-freq" htmlFor={`${controlId}-line-count`}>行数</label>
             <input
+              id={`${controlId}-line-count`}
               type="range"
               min={1}
               max={4}
               step={1}
               value={maxLineNum}
+              aria-valuetext={valueText.lineCount}
               onChange={(e) => handleMaxLineNumChange(parseInt(e.target.value, 10))}
               className="af-sfx-range"
               disabled={singleLine}
             />
-            <span className="af-sfx-eq-value">{singleLine ? "1行" : `${maxLineNum}行`}</span>
+            <span className="af-sfx-eq-value">{valueText.lineCount}</span>
           </div>
           <div className="af-sfx-eq-row af-lyric-setting-row">
-            <span className="af-sfx-eq-freq">透明</span>
+            <label className="af-sfx-eq-freq" htmlFor={`${controlId}-text-opacity`}>透明</label>
             <input
+              id={`${controlId}-text-opacity`}
               type="range"
               min={0.1}
               max={1}
               step={0.05}
               value={textOpacity}
+              aria-valuetext={valueText.textOpacity}
               onChange={(e) => handleTextOpacityChange(parseFloat(e.target.value))}
               className="af-sfx-range"
             />
-            <span className="af-sfx-eq-value">{Math.round(textOpacity * 100)}%</span>
+            <span className="af-sfx-eq-value">{valueText.textOpacity}</span>
           </div>
           <div className="af-sfx-eq-row af-lyric-setting-row">
-            <span className="af-sfx-eq-freq">横向</span>
+            <label className="af-sfx-eq-freq" htmlFor={`${controlId}-position-x`}>横向</label>
             <input
+              id={`${controlId}-position-x`}
               type="range"
               min={-40}
               max={40}
               step={1}
               value={textPositionX}
+              aria-valuetext={valueText.positionX}
               onChange={(e) => handleTextPositionXChange(parseInt(e.target.value, 10))}
               className="af-sfx-range"
             />
-            <span className="af-sfx-eq-value">{textPositionX}%</span>
+            <span className="af-sfx-eq-value">{valueText.positionX}</span>
           </div>
           <div className="af-sfx-eq-row af-lyric-setting-row">
-            <span className="af-sfx-eq-freq">纵向</span>
+            <label className="af-sfx-eq-freq" htmlFor={`${controlId}-position-y`}>纵向</label>
             <input
+              id={`${controlId}-position-y`}
               type="range"
               min={-40}
               max={40}
               step={1}
               value={textPositionY}
+              aria-valuetext={valueText.positionY}
               onChange={(e) => handleTextPositionYChange(parseInt(e.target.value, 10))}
               className="af-sfx-range"
             />
-            <span className="af-sfx-eq-value">{textPositionY}%</span>
+            <span className="af-sfx-eq-value">{valueText.positionY}</span>
           </div>
         </div>
 
@@ -515,17 +547,19 @@ export function DesktopLyricSettingsSection() {
         </div>
         <div className="af-sfx-eq af-lyric-settings-sliders">
           <div className="af-sfx-eq-row af-lyric-setting-row">
-            <span className="af-sfx-eq-freq">背景</span>
+            <label className="af-sfx-eq-freq" htmlFor={`${controlId}-background-opacity`}>背景</label>
             <input
+              id={`${controlId}-background-opacity`}
               type="range"
               min={0.15}
               max={0.95}
               step={0.05}
               value={backgroundOpacity}
+              aria-valuetext={valueText.backgroundOpacity}
               onChange={(e) => handleBackgroundOpacityChange(parseFloat(e.target.value))}
               className="af-sfx-range"
             />
-            <span className="af-sfx-eq-value">{Math.round(backgroundOpacity * 100)}%</span>
+            <span className="af-sfx-eq-value">{valueText.backgroundOpacity}</span>
           </div>
         </div>
       </div>

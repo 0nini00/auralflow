@@ -81,6 +81,10 @@
   --af-error-hover: #dc2626;
   --af-error-bg: rgba(239, 68, 68, 0.1);
   --af-error-ink: #ba3535; /* 5.04:1 on error-bg over white */
+  /* 实心危险按钮保留深红底和白字，避免深色主题的亮错误色降低对比度。 */
+  --af-button-danger-bg: #ba3535;
+  --af-button-danger-hover-bg: #a32d2d;
+  --af-button-danger-text: #ffffff;
   --af-warning: #f59e0b;
   --af-warning-bg: rgba(245, 158, 11, 0.1);
   --af-warning-ink: #956007; /* 5.12:1 on page */

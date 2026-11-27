@@ -56,6 +56,7 @@ export function LyricSettingsContent() {
   const fontSize = useLyricSettingsStore((s) => s.fontSize);
   const lineGap = useLyricSettingsStore((s) => s.lineGap);
   const textOpacity = useLyricSettingsStore((s) => s.textOpacity);
+  const textOpacityPercentage = `${Math.round(textOpacity * 100)}%`;
   const activeColor = useLyricSettingsStore((s) => s.activeColor);
   const inactiveColor = useLyricSettingsStore((s) => s.inactiveColor);
   const fontFamily = useLyricSettingsStore((s) => s.fontFamily);
@@ -220,7 +221,7 @@ export function LyricSettingsContent() {
         <Hairline palette={palette} />
         <View style={styles.stackGroup}>
           <Text style={[styles.rowSubtitle, { color: palette.textMuted }]}>
-            其他行与译文透明度 · {Math.round(textOpacity * 100)}%
+            其他行与译文透明度 · {textOpacityPercentage}
           </Text>
           <PaletteSlider
             style={styles.fullSlider}
@@ -228,6 +229,8 @@ export function LyricSettingsContent() {
             max={1}
             step={0.05}
             value={textOpacity}
+            accessibilityLabel="其他行与译文透明度"
+            accessibilityValueText={textOpacityPercentage}
             palette={palette}
             onChange={setTextOpacity}
           />

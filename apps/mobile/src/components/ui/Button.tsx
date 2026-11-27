@@ -106,7 +106,7 @@ export function getButtonColors(variant: ButtonVariant, palette: ReturnType<type
     case "outline":
       return { backgroundColor: "transparent", borderColor: palette.primaryInk, textColor: palette.primaryInk };
     case "danger":
-      return { backgroundColor: palette.dangerSurface, borderColor: palette.danger, textColor: palette.danger };
+      return { backgroundColor: palette.dangerSurface, borderColor: palette.danger, textColor: palette.dangerInk };
     case "ghost":
       return { backgroundColor: "transparent", borderColor: "transparent", textColor: palette.primaryInk };
     case "primary":

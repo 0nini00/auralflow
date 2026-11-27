@@ -37,7 +37,8 @@ const RUNTIME = String.raw`
   let config = null, color = null, targetColor = null;
   let accent = null, targetAccent = null;
   let frame = null, time = 12, lastDraw = performance.now();
-  let disposed = false, failed = false, lost = false, hasSize = false;
+  let disposed = false, suspended = false, failed = false, lost = false, hasSize = false;
+  let resizeObserver = null;
 
   function post(type, message) {
     const payload = { channel: 'auralflow-immersive-background', type: type };
@@ -62,14 +63,14 @@ const RUNTIME = String.raw`
     post('error', error instanceof Error ? error.message : String(error));
   }
   function canDraw() {
-    return !disposed && !failed && !lost && !document.hidden && hasSize && config && color && accent && program;
+    return !disposed && !suspended && !failed && !lost && !document.hidden && hasSize && config && color && accent && program;
   }
   function colorsChanging() {
     return color && accent && (color.some((channel, index) => channel !== targetColor[index])
       || accent.some((channel, index) => channel !== targetAccent[index]));
   }
   function motionAllowed() {
-    return config && config.active && !config.reducedMotion && !document.hidden;
+    return config && config.active && !config.reducedMotion && !suspended && !document.hidden;
   }
   function animating() {
     return canDraw() && motionAllowed() && (config.playing || colorsChanging());
@@ -136,7 +137,8 @@ const RUNTIME = String.raw`
     }
     const baseChanged = !config || config.color !== next.color;
     const accentChanged = !config || config.accent !== next.accent;
-    const first = !config;
+    const stateChanged = !config || config.active !== next.active || config.playing !== next.playing
+      || config.reducedMotion !== next.reducedMotion;
     config = { color: next.color, accent: next.accent, playing: next.playing,
       active: next.active, reducedMotion: next.reducedMotion };
     if (baseChanged) {
@@ -147,15 +149,28 @@ const RUNTIME = String.raw`
       targetAccent = [1, 3, 5].map(index => parseInt(next.accent.slice(index, index + 2), 16) / 255);
       if (!accent || !motionAllowed()) accent = targetAccent.slice();
     }
-    if (first || ((baseChanged || accentChanged) && !animating())) draw();
+    // 原生页面可能恢复了尺寸，却没有 window.resize；同时重建暂停期间失效的帧请求。
+    if (stateChanged || !hasSize) { stop(); resize(); return; }
+    if ((baseChanged || accentChanged) && !animating()) draw();
     syncAnimation();
   }
   function visibility() {
     if (disposed) return;
+    stop();
     if (!document.hidden && targetColor && !animating()) {
       color = targetColor.slice(); accent = targetAccent.slice();
     }
-    draw(); syncAnimation();
+    resize();
+  }
+  function pageHide(event) {
+    if (!event.persisted) { dispose(); return; }
+    suspended = true;
+    stop();
+  }
+  function pageShow() {
+    if (disposed) return;
+    suspended = false;
+    visibility();
   }
   function compile(type, source) {
     const shader = gl.createShader(type);
@@ -174,6 +189,10 @@ const RUNTIME = String.raw`
   }
   function initialize() {
     try {
+      if (!resizeObserver) {
+        resizeObserver = new ResizeObserver(resize);
+        resizeObserver.observe(canvas);
+      }
       gl = canvas.getContext('webgl', { alpha: false, antialias: false,
         depth: false, stencil: false, preserveDrawingBuffer: true });
       if (!gl) throw new Error('当前设备无法创建 WebGL 沉浸背景');
@@ -215,15 +234,18 @@ const RUNTIME = String.raw`
   function dispose() {
     if (disposed) return;
     disposed = true; stop(); release();
+    if (resizeObserver) resizeObserver.disconnect();
     window.removeEventListener('resize', resize);
-    window.removeEventListener('pagehide', dispose);
+    window.removeEventListener('pagehide', pageHide);
+    window.removeEventListener('pageshow', pageShow);
     document.removeEventListener('visibilitychange', visibility);
     canvas.removeEventListener('webglcontextlost', contextLost);
     canvas.removeEventListener('webglcontextrestored', contextRestored);
   }
   window.AuralFlowImmersiveBackground = { update: update, dispose: dispose };
   window.addEventListener('resize', resize);
-  window.addEventListener('pagehide', dispose);
+  window.addEventListener('pagehide', pageHide);
+  window.addEventListener('pageshow', pageShow);
   document.addEventListener('visibilitychange', visibility);
   canvas.addEventListener('webglcontextlost', contextLost);
   canvas.addEventListener('webglcontextrestored', contextRestored);

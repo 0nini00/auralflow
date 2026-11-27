@@ -1,5 +1,7 @@
 import React, { useCallback, useMemo, useRef } from "react";
-import { Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { X } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { MusicInfo } from "@lx/core";
 import type { ThemePalette } from "@/stores/themeStore";
 import type { ImmersiveQueuePanelModel } from "@/services/playerQueueModel";
@@ -9,10 +11,13 @@ import { QUEUE_ROW_HEIGHT } from "@/services/queueReorderModel";
 import { BottomSheet } from "@/components/BottomSheet";
 import { Touchable } from "@/components/Touchable";
 import { sheet } from "@/theme/sheetTokens";
+import { spacing, touch } from "@/theme/tokens";
 
 /** 面板高度占窗口比例 */
 const QUEUE_SHEET_HEIGHT_RATIO = 0.72;
-const QUEUE_PANEL_CHROME_HEIGHT = 100;
+const QUEUE_TITLE_ROW_HEIGHT = 48;
+const QUEUE_SUMMARY_HEIGHT = 36;
+const QUEUE_FOOTER_HEIGHT = 32;
 
 export interface QueueModalProps {
   visible: boolean;
@@ -44,6 +49,13 @@ export function QueueModal({
 }: QueueModalProps) {
   const listRef = useRef<QueueListHandle>(null);
   const { height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const footerHeight = queue.length > 1 ? QUEUE_FOOTER_HEIGHT : 0;
+  const panelChromeHeight = sheet.handlePaddingVertical * 2 + sheet.handleHeight
+    + QUEUE_TITLE_ROW_HEIGHT + QUEUE_SUMMARY_HEIGHT + footerHeight;
+  const listHeight = Math.max(0, Math.min(queue.length * QUEUE_ROW_HEIGHT,
+    Math.floor(windowHeight * QUEUE_SHEET_HEIGHT_RATIO) - panelChromeHeight
+      - Math.max(insets.bottom, spacing.m) - StyleSheet.hairlineWidth));
 
   const handleClose = useCallback(() => {
     listRef.current?.cancelDrag();
@@ -66,58 +78,6 @@ export function QueueModal({
     return -1;
   }, [queueModel.items, currentIndex, queue, currentSong]);
 
-  // 队列面板主体：标题行 + 虚拟化列表
-  const renderPanel = () => {
-    // 弹层底色统一走 surface。此前用的是 palette.background（页面底色），
-    // 在深色主题下比其它弹层更黑一档，看起来像「另一个 app 的弹窗」。
-    const containerStyle = [styles.sheetContent, { backgroundColor: palette.surface }];
-    const content = (
-      <Pressable onPress={() => undefined}>
-        <View style={styles.header}>
-          <View style={styles.titleWrap}>
-            <Text style={[styles.title, { color: palette.text }]}>{queueModel.title}</Text>
-            <Text style={[styles.meta, { color: palette.textMuted }]} numberOfLines={1}>
-              {queueModel.summary}{queue.length > 1 ? " · 长按拖动排序" : ""}
-            </Text>
-          </View>
-          <View style={styles.actions}>
-            <Touchable
-              style={[
-                styles.clearButton,
-                { backgroundColor: palette.surfaceMuted },
-                !queueModel.management.canClearQueue && styles.clearButtonDisabled,
-              ]}
-              onPress={() => { listRef.current?.cancelDrag(); onClear(); }}
-              disabled={!queueModel.management.canClearQueue}
-              accessibilityRole="button"
-              accessibilityLabel={queueModel.management.clearLabel}
-            >
-              <Text style={[styles.clearText, { color: palette.danger }]}>
-                {queueModel.management.clearLabel}
-              </Text>
-            </Touchable>
-            <Touchable
-              style={[styles.closeButton, { backgroundColor: palette.surfaceMuted }]}
-              onPress={handleClose}
-              accessibilityRole="button"
-              accessibilityLabel={queueModel.closeLabel}
-            >
-              <Text style={[styles.closeText, { color: palette.textMuted }]}>{queueModel.closeLabel}</Text>
-            </Touchable>
-          </View>
-        </View>
-        {visible ? (
-          <DraggableQueueList ref={listRef} queue={queue} currentIndex={currentItemIndex} palette={palette}
-            height={Math.max(QUEUE_ROW_HEIGHT, Math.min(queue.length * QUEUE_ROW_HEIGHT,
-              Math.round(windowHeight * QUEUE_SHEET_HEIGHT_RATIO) - QUEUE_PANEL_CHROME_HEIGHT))}
-            enabled onPlayItem={onPlayItem} onRemoveItem={onRemoveItem} />
-        ) : null}
-      </Pressable>
-    );
-    // 面板不叠手势根：沉浸屏本身已是 GestureHandlerRootView 的子节点。
-    return <View style={containerStyle}>{content}</View>;
-  };
-
   return (
     <BottomSheet
       visible={visible}
@@ -126,7 +86,66 @@ export function QueueModal({
       maxHeightRatio={QUEUE_SHEET_HEIGHT_RATIO}
       animated={false}
     >
-      {renderPanel()}
+      <View style={[styles.sheetContent, { backgroundColor: palette.surface }]}>
+        <View style={styles.handleContainer} accessible={false}>
+          <View style={[styles.sheetHandle, { backgroundColor: palette.border }]} />
+        </View>
+        <View style={styles.header}>
+          <View style={styles.titleWrap}>
+            <Text style={[styles.title, { color: palette.text }]} numberOfLines={1} maxFontSizeMultiplier={1.3}>
+              {queueModel.title}
+            </Text>
+            <View style={[styles.countBadge, { backgroundColor: palette.surfaceMuted }]}>
+              <Text style={[styles.countText, { color: palette.textMuted }]} maxFontSizeMultiplier={1.3}>
+                {queue.length}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.actions}>
+            <Touchable
+              style={[
+                styles.clearButton,
+                !queueModel.management.canClearQueue && styles.clearButtonDisabled,
+              ]}
+              onPress={() => { listRef.current?.cancelDrag(); onClear(); }}
+              disabled={!queueModel.management.canClearQueue}
+              accessibilityRole="button"
+              accessibilityLabel={queueModel.management.clearLabel}
+            >
+              <Text style={[styles.clearText, { color: palette.dangerInk }]} maxFontSizeMultiplier={1.3}>
+                {queueModel.management.clearLabel}
+              </Text>
+            </Touchable>
+            <Touchable
+              style={styles.closeButton}
+              onPress={handleClose}
+              accessibilityRole="button"
+              accessibilityLabel={queueModel.closeLabel}
+            >
+              <View style={[styles.closeIcon, { backgroundColor: palette.surfaceMuted }]}>
+                <X size={18} color={palette.textMuted} strokeWidth={1.6} />
+              </View>
+            </Touchable>
+          </View>
+        </View>
+        <View style={[styles.summaryRow, { borderBottomColor: palette.border }]}>
+          <Text style={[styles.meta, { color: palette.textMuted }]} numberOfLines={1} maxFontSizeMultiplier={1.3}>
+            {queueModel.summary}
+          </Text>
+        </View>
+        {visible ? (
+          <DraggableQueueList ref={listRef} queue={queue} currentIndex={currentItemIndex} palette={palette}
+            height={listHeight}
+            enabled onPlayItem={onPlayItem} onRemoveItem={onRemoveItem} />
+        ) : null}
+        {queue.length > 1 ? (
+          <View style={styles.footer}>
+            <Text style={[styles.footerText, { color: palette.textSubtle }]} maxFontSizeMultiplier={1.3}>
+              长按拖动排序
+            </Text>
+          </View>
+        ) : null}
+      </View>
     </BottomSheet>
   );
 }
@@ -138,49 +157,89 @@ const styles = StyleSheet.create({
     borderTopRightRadius: sheet.radius,
     overflow: "hidden",
   },
+  handleContainer: {
+    alignItems: "center",
+    paddingVertical: sheet.handlePaddingVertical,
+  },
+  sheetHandle: {
+    width: sheet.handleWidth,
+    height: sheet.handleHeight,
+    borderRadius: sheet.handleRadius,
+  },
   header: {
+    height: QUEUE_TITLE_ROW_HEIGHT,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 10,
-    gap: 12,
+    paddingHorizontal: spacing.l,
+    gap: spacing.xs,
   },
   titleWrap: {
     flex: 1,
     minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
   },
   title: {
-    fontSize: 16,
+    flexShrink: 1,
+    fontSize: 22,
     fontWeight: "700",
   },
+  countBadge: {
+    minWidth: 28,
+    height: 24,
+    paddingHorizontal: spacing.xs,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  countText: { fontSize: 12, fontVariant: ["tabular-nums"] },
+  summaryRow: {
+    height: QUEUE_SUMMARY_HEIGHT,
+    marginHorizontal: spacing.l,
+    paddingBottom: spacing.s,
+    justifyContent: "center",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
   meta: {
-    marginTop: 2,
     fontSize: 12,
   },
   actions: {
     flexDirection: "row",
-    gap: 8,
+    alignItems: "center",
+    gap: spacing.xxs,
   },
   clearButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    minWidth: touch.minTarget,
+    height: touch.minTarget,
+    justifyContent: "center",
+    alignItems: "center",
   },
   clearButtonDisabled: {
     opacity: 0.42,
   },
   clearText: {
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "500",
   },
   closeButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    width: touch.minTarget,
+    height: touch.minTarget,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  closeText: {
-    fontSize: 13,
+  closeIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
   },
+  footer: {
+    height: QUEUE_FOOTER_HEIGHT,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  footerText: { fontSize: 11 },
 });

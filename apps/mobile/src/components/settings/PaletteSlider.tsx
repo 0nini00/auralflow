@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useState } from "react";
 import {
   StyleSheet,
   View,
@@ -19,24 +19,34 @@ interface PaletteSliderProps {
   max: number;
   /** 吸附步长；缺省按 (max-min)/40 吸附 */
   step?: number;
+  accessibilityLabel: string;
+  accessibilityValueText: string;
   palette: ThemePalette;
   onChange: (value: number) => void;
   style?: StyleProp<ViewStyle>;
 }
 
 /**
- * 调色板驱动的滑块核心（轨道 + 填充 + 圆点），由播放设置 Sheet（紧凑行）
- * 与设置页（整行）共用，避免各自维护一份拖拽实现。
+ * 调色板驱动的滑块（轨道 + 填充 + 圆点），拖动与读屏共用数值提交规则。
  *
  * 轨道宽度动态实测（onLayout），thumb/fill 不按硬编码宽度计算；
- * 按住/拖动经 responder 的 pageX + measure 换算，值按 step 吸附后回调。
+ * 按住/拖动经 responder 的 locationX 换算，值按 step 吸附后回调。
  */
-export function PaletteSlider({ value, min, max, step, palette, onChange, style }: PaletteSliderProps) {
-  const trackRef = useRef<View>(null);
+export function PaletteSlider({ value, min, max, step, accessibilityLabel, accessibilityValueText,
+  palette, onChange, style }: PaletteSliderProps) {
   const [trackW, setTrackW] = useState(0);
   const stepSize = step ?? (max - min) / SLIDER_STEPS;
+  // Android 将无障碍范围转为整数，使用刻度索引保留小数步长的调节语义。
+  const stepCount = Math.ceil((max - min) / stepSize);
+  const currentStep = Math.round((value - min) / stepSize);
   const usableWidth = Math.max(0, trackW - THUMB_SIZE);
   const ratio = trackW > 0 ? (value - min) / (max - min) : 0;
+
+  const updateValue = (next: number) => {
+    const snapped = Math.round(next / stepSize) * stepSize;
+    const bounded = Math.max(min, Math.min(max, snapped));
+    if (bounded !== value) onChange(bounded);
+  };
 
   // 直接用 locationX（相对本视图原点），不再每次 move 都排一次异步 measure：
   // measure 回调的顺序没有保证，拖快时会让圆点回跳。
@@ -44,14 +54,21 @@ export function PaletteSlider({ value, min, max, step, palette, onChange, style 
     if (usableWidth <= 0) return;
     const localX = locationX - THUMB_SIZE / 2;
     const r = Math.max(0, Math.min(1, localX / usableWidth));
-    const snapped = Math.round((min + r * (max - min)) / stepSize) * stepSize;
-    onChange(Math.max(min, Math.min(max, snapped)));
+    updateValue(min + r * (max - min));
   };
 
   return (
     <View
-      ref={trackRef}
       style={[styles.trackWrap, style]}
+      accessible
+      accessibilityRole="adjustable"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityValue={{ min: 0, max: stepCount, now: currentStep, text: accessibilityValueText }}
+      accessibilityActions={[{ name: "increment", label: "增加" }, { name: "decrement", label: "减少" }]}
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === "increment") updateValue(value + stepSize);
+        if (event.nativeEvent.actionName === "decrement") updateValue(value - stepSize);
+      }}
       onLayout={(e: LayoutChangeEvent) => setTrackW(e.nativeEvent.layout.width)}
       onStartShouldSetResponder={() => true}
       onMoveShouldSetResponder={() => true}

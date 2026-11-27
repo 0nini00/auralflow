@@ -21,7 +21,7 @@ function eventTarget() {
 
 function runtime(options = {}) {
   const messages = [], frames = [], shaders = [], deleted = { shaders: 0, programs: 0, buffers: 0 };
-  const uniforms = new Map(), callbacks = new Map();
+  const uniforms = new Map(), callbacks = new Map(), observers = new Set();
   let nextFrame = 0, now = 0, width = 390, height = 844, hidden = false, lost = false;
   const gl = {
     VERTEX_SHADER: 35633, FRAGMENT_SHADER: 35632, COMPILE_STATUS: 35713, LINK_STATUS: 35714,
@@ -55,6 +55,11 @@ function runtime(options = {}) {
   });
   const context = vm.createContext({
     window, document, console, Float32Array, performance: { now: () => now },
+    ResizeObserver: class {
+      constructor(callback) { this.callback = callback; }
+      observe(target) { assert.strictEqual(target, canvas); observers.add(this); }
+      disconnect() { observers.delete(this); }
+    },
     requestAnimationFrame: fn => { callbacks.set(++nextFrame, fn); return nextFrame; },
     cancelAnimationFrame: id => callbacks.delete(id),
   });
@@ -63,7 +68,7 @@ function runtime(options = {}) {
   assert.ok(script, '背景文档必须有实际渲染脚本');
   vm.runInContext(script, context, { timeout: 1000 });
   return {
-    html, messages, frames, shaders, deleted, canvas, document, window, callbacks,
+    html, messages, frames, shaders, deleted, canvas, document, window, callbacks, observers,
     configure(patch = {}) {
       vm.runInContext(documentApi().createImmersiveBackgroundUpdate({ ...CONFIG, ...patch }), context, { timeout: 1000 });
     },
@@ -73,6 +78,8 @@ function runtime(options = {}) {
       for (const fn of pending) fn(time);
     },
     resize(w, h) { width = w; height = h; window.dispatch('resize'); },
+    layout(w, h) { width = w; height = h; },
+    observeSize(w, h) { width = w; height = h; for (const observer of observers) observer.callback(); },
     visibility(value) { hidden = value; document.dispatch('visibilitychange'); },
     lose() { lost = true; let prevented = false; canvas.dispatch('webglcontextlost', { preventDefault() { prevented = true; } }); assert.equal(prevented, true); },
     restore() { lost = false; canvas.dispatch('webglcontextrestored'); },
@@ -167,6 +174,62 @@ test('播放时颜色柔和过渡，重复配置不额外绘制', () => {
   assert.ok(h.frames.at(-1).color[0] > 48 / 255 && h.frames.at(-1).color[0] < 240 / 255);
 });
 
+for (const recovery of ['visibility', 'active', 'playing']) {
+  test(`零尺寸后通过${recovery}恢复时重新测量并重绘，无需窗口resize`, () => {
+    const h = runtime(); h.configure(); h.frame(40);
+    if (recovery === 'visibility') h.visibility(true);
+    else h.configure({ [recovery]: false });
+    h.resize(0, 0);
+    const count = h.frames.length;
+    h.layout(390, 844);
+    if (recovery === 'visibility') h.visibility(false);
+    else h.configure();
+    assert.ok(h.frames.length > count, '恢复可见或播放状态必须补画第一帧');
+    assert.equal(h.callbacks.size, 1);
+    assert.equal(h.messages.some(message => message.type === 'error'), false);
+  });
+}
+
+test('容器自身恢复尺寸时重新绘制静帧，不依赖window.resize或播放事件', () => {
+  const h = runtime(); h.configure({ playing: false, reducedMotion: true });
+  h.observeSize(0, 0);
+  const count = h.frames.length;
+  h.observeSize(390, 844);
+  assert.equal(h.frames.length, count + 1);
+  assert.equal(h.callbacks.size, 0);
+  h.dispose();
+  assert.equal(h.observers.size, 0);
+});
+
+test('临时pagehide停止绘图，pageshow恢复同一文档及最新主题', () => {
+  const h = runtime(); h.configure(); h.frame(40);
+  const count = h.frames.length;
+  h.window.dispatch('pagehide', { persisted: true });
+  h.configure({ color: '#cc6633' });
+  assert.equal(h.callbacks.size, 0);
+  assert.equal(h.frames.length, count);
+  h.window.dispatch('pageshow', { persisted: true });
+  assert.ok(h.frames.length > count);
+  assert.equal(h.callbacks.size, 1);
+  assert.equal(h.deleted.programs, 0, '临时隐藏不销毁可恢复的图形资源');
+  h.dispose();
+  assert.equal(h.deleted.programs, 1);
+});
+
+test('宿主恢复时丢弃失效RAF句柄，暂停期间也重绘静帧', () => {
+  const h = runtime(); h.configure(); h.frame(40);
+  h.callbacks.clear();
+  const count = h.frames.length;
+  h.configure({ active: false });
+  h.configure({ playing: false });
+  assert.ok(h.frames.length > count);
+  assert.equal(h.callbacks.size, 0);
+  h.configure();
+  assert.equal(h.callbacks.size, 1);
+  h.frame(80);
+  assert.ok(h.frames.length > count + 1);
+});
+
 for (const [kind, match] of [['context', /WebGL/], ['compile', /shader compile failed/], ['link', /program link failed/]]) {
   test(`${kind}失败向宿主报告并释放已创建资源`, () => {
     const h = runtime({ [kind]: false });
@@ -211,27 +274,37 @@ test('注入只接受明确背景配置，不将任意文本拼入脚本', () =>
 });
 
 function componentHarness(options = {}) {
-  const effects = [], slots = [], injected = [], failures = [];
+  const React = mobileRequire('react');
+  const { act, create } = mobileRequire('react-test-renderer');
+  global.IS_REACT_ACT_ENVIRONMENT = true;
+  const injected = [], failures = [], instances = [];
   const appListeners = new Set(), motionListeners = new Set();
   const motion = options.motion || Promise.resolve(false);
-  let index = 0, appRemoved = 0, motionRemoved = 0, mounted = false;
-  const react = {
-    memo: component => component,
-    createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
-    useRef(initial) { const key = index++; return slots[key] ??= { current: initial }; },
-    useMemo(factory, deps) { const key = index++; if (!slots[key] || deps.some((v, i) => v !== slots[key].deps[i])) slots[key] = { value: factory(), deps }; return slots[key].value; },
-    useCallback(fn, deps) { return this.useMemo(() => fn, deps); },
-    useEffect(effect, deps) { const key = index++; if (!slots[key] || deps.some((v, i) => v !== slots[key].deps[i])) effects.push(() => { slots[key]?.cleanup?.(); slots[key] = { cleanup: effect(), deps }; }); },
+  let appRemoved = 0, motionRemoved = 0, renderer = null;
+  const appState = {
+    currentState: options.appState || 'active',
+    addEventListener: (_type, fn) => {
+      appListeners.add(fn);
+      return { remove() { appRemoved++; appListeners.delete(fn); } };
+    },
   };
-  react.useCallback = (fn, deps) => react.useMemo(() => fn, deps);
+  const WebView = React.forwardRef((props, ref) => {
+    const instance = React.useMemo(() => {
+      const value = { ref, injected: [], injectJavaScript(code) { injected.push(code); this.injected.push(code); } };
+      instances.push(value);
+      return value;
+    }, []);
+    React.useImperativeHandle(ref, () => instance, [instance]);
+    return React.createElement('WebView', props);
+  });
   const mocks = {
-    react,
+    react: React,
     'react-native': {
       View: 'View', StyleSheet: { absoluteFill: { position: 'absolute', inset: 0 }, create: value => value },
-      AppState: { currentState: options.appState || 'active', addEventListener: (_type, fn) => { appListeners.add(fn); return { remove() { appRemoved++; appListeners.delete(fn); } }; } },
+      AppState: appState,
       AccessibilityInfo: { isReduceMotionEnabled: () => motion, addEventListener: (_type, fn) => { motionListeners.add(fn); return { remove() { motionRemoved++; motionListeners.delete(fn); } }; } },
     },
-    'react-native-webview': { __esModule: true, default: 'WebView' },
+    'react-native-webview': { __esModule: true, default: WebView },
     '@/services/immersiveBackgroundDocument': documentApi(),
     '@/services/logger': { logger: { error() {} } },
   };
@@ -244,32 +317,38 @@ function componentHarness(options = {}) {
   new Function('require', 'module', 'exports', code)(name => {
     assert.ok(Object.hasOwn(mocks, name), `未模拟依赖：${name}`); return mocks[name];
   }, module, module.exports);
-  let tree, props = { color: '#3080c0', accent: '#3f8f7a', playing: true, active: true, onError: value => failures.push(value) };
-  const find = (node, type) => node?.type === type ? node : node?.props?.children?.map(child => find(child, type)).find(Boolean);
+  let props = { color: '#3080c0', accent: '#3f8f7a', playing: true, active: true, onError: value => failures.push(value) };
+  const webProps = () => renderer.root.findByType('WebView').props;
+  function event(callback, ...args) {
+    let result;
+    act(() => { result = callback(...args); });
+    return result;
+  }
   return {
-    injected, failures,
+    injected, failures, instances,
     render(patch = {}) {
-      props = { ...props, ...patch }; index = 0;
-      tree = module.exports.ImmersiveBackground(props); mounted = true;
-      const webview = find(tree, 'WebView');
-      assert.ok(webview, '必须渲染独立背景WebView');
-      webview.props.ref.current = { injectJavaScript: code => injected.push(code) };
-      effects.splice(0).forEach(effect => effect());
-      return webview.props;
+      props = { ...props, ...patch };
+      act(() => {
+        const tree = React.createElement(module.exports.ImmersiveBackground, props);
+        if (renderer) renderer.update(tree);
+        else renderer = create(tree);
+      });
+      return Object.fromEntries(Object.entries(webProps()).map(([key, value]) =>
+        [key, key.startsWith('on') && typeof value === 'function' ? (...args) => event(value, ...args) : value]));
     },
-    host: () => tree,
+    host: () => renderer.toJSON(),
     message(type, message) {
-      find(tree, 'WebView').props.onMessage({ nativeEvent: { data: JSON.stringify({ channel: 'auralflow-immersive-background', type, ...(message ? { message } : {}) }) } });
+      event(webProps().onMessage, { nativeEvent: { data: JSON.stringify({ channel: 'auralflow-immersive-background', type, ...(message ? { message } : {}) }) } });
     },
     config() {
       let config;
       vm.runInNewContext(injected.at(-1), { window: { AuralFlowImmersiveBackground: { update: value => { config = value; } } } });
       return JSON.parse(JSON.stringify(config));
     },
-    appState(value) { for (const fn of appListeners) fn(value); },
-    reduceMotion(value) { for (const fn of motionListeners) fn(value); },
-    detach() { find(tree, 'WebView').props.ref.current = null; },
-    unmount() { if (!mounted) return; mounted = false; for (const slot of slots) slot?.cleanup?.(); },
+    appState(value) { appState.currentState = value; event(() => { for (const fn of [...appListeners]) fn(value); }); },
+    reduceMotion(value) { event(() => { for (const fn of motionListeners) fn(value); }); },
+    detach() { instances.at(-1).ref.current = null; },
+    unmount() { if (!renderer) return; act(() => renderer.unmount()); renderer = null; },
     removed: () => [appRemoved, motionRemoved],
   };
 }
@@ -286,6 +365,46 @@ test('组件HTML固定，ready前不注入，ready后使用最新配置', async 
     assert.deepEqual(h.config(), { color: '#cc6633', accent: '#7a5f3f', playing: false, active: true, reducedMotion: false });
     h.render({ playing: true });
     assert.equal(h.config().playing, true);
+  } finally { h.unmount(); }
+});
+
+for (const terminated of ['onRenderProcessGone', 'onContentProcessDidTerminate']) {
+  test(`${terminated}在后台只标记失效，返回播放器才创建新实例并恢复最新配色`, async () => {
+    const h = componentHarness();
+    try {
+      const oldWeb = h.render(); await Promise.resolve(); h.message('ready');
+      h.appState('background');
+      oldWeb[terminated]({ nativeEvent: { didCrash: false } });
+      assert.match(h.failures.at(-1), /进程/);
+      assert.equal(h.instances.length, 1, '后台不反复创建WebView与系统争用资源');
+      const oldScripts = h.instances[0].injected.length;
+      h.render({ color: '#cc6633', playing: false });
+      h.appState('active');
+      assert.equal(h.instances.length, 2, '进程已死必须替换原生WebView，不能只重发配置');
+      assert.equal(h.instances[0].injected.length, oldScripts, '不得再向已退出的进程注入脚本');
+      h.message('ready');
+      assert.equal(h.config().color, '#cc6633');
+      assert.equal(h.config().playing, false);
+      assert.equal(h.failures.at(-1), '');
+      const count = h.injected.length;
+      oldWeb.onMessage({ nativeEvent: { data: JSON.stringify({ channel: 'auralflow-immersive-background', type: 'ready' }) } });
+      assert.equal(h.injected.length, count, '旧实例的迟到ready不能干扰新实例');
+    } finally { h.unmount(); }
+  });
+}
+
+test('前台渲染进程退出立即重建；健康实例切歌及前后台切换不重建', async () => {
+  const h = componentHarness();
+  try {
+    h.render(); await Promise.resolve(); h.message('ready');
+    h.render({ playing: false }); h.render({ playing: true });
+    h.appState('background'); h.appState('active');
+    assert.equal(h.instances.length, 1);
+    const web = h.render();
+    web.onRenderProcessGone({ nativeEvent: { didCrash: true } });
+    assert.equal(h.instances.length, 2);
+    h.message('ready');
+    assert.equal(h.failures.at(-1), '');
   } finally { h.unmount(); }
 });
 

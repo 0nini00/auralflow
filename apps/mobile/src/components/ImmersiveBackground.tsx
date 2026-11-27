@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, AppState, StyleSheet, View } from 'react-native';
 import WebView, { type WebViewMessageEvent } from 'react-native-webview';
 import {
@@ -19,11 +19,18 @@ const READY_TIMEOUT_MS = 10_000;
 const DISPOSE_SCRIPT = 'if(window.AuralFlowImmersiveBackground){window.AuralFlowImmersiveBackground.dispose();}true;';
 
 export const ImmersiveBackground = memo(function ImmersiveBackground(props: ImmersiveBackgroundProps) {
+  const [rendererVersion, setRendererVersion] = useState(0);
+  const replaceRenderer = useCallback(() => setRendererVersion(version => version + 1), []);
+  return <ImmersiveBackgroundRenderer key={rendererVersion} {...props} onProcessGone={replaceRenderer} />;
+});
+
+function ImmersiveBackgroundRenderer(props: ImmersiveBackgroundProps & { onProcessGone: () => void }) {
   const webview = useRef<WebView<unknown> | null>(null);
   const latest = useRef(props);
   latest.current = props;
   const mounted = useRef(false);
   const ready = useRef(false);
+  const processTerminated = useRef(false);
   const appActive = useRef(AppState.currentState === 'active');
   // 等待系统偏好时先绘静帧，避免首屏短暂播放用户已关闭的动效。
   const reducedMotion = useRef(true);
@@ -38,11 +45,18 @@ export const ImmersiveBackground = memo(function ImmersiveBackground(props: Imme
   }, []);
   const report = useCallback((message: string) => {
     if (!mounted.current) return;
+    if (message && message !== lastError.current) logger.error('[ImmersiveBackground]', message);
     lastError.current = message;
     latest.current.onError(message);
   }, []);
   const sendConfiguration = useCallback(() => {
-    if (!mounted.current || !ready.current || !webview.current) return;
+    if (!mounted.current) return;
+    // 已终止的原生 WebView 不能复用；在播放器可见时才创建替代实例。
+    if (processTerminated.current) {
+      if (latest.current.active && appActive.current) latest.current.onProcessGone();
+      return;
+    }
+    if (!ready.current || !webview.current) return;
     const { color, accent, playing, active } = latest.current;
     try {
       webview.current.injectJavaScript(createImmersiveBackgroundUpdate({
@@ -59,10 +73,17 @@ export const ImmersiveBackground = memo(function ImmersiveBackground(props: Imme
     report(message);
   }, [clearReadyTimer, report]);
   const handleLoadStart = useCallback(() => {
+    if (processTerminated.current) return;
     ready.current = false;
     clearReadyTimer();
     readyTimer.current = setTimeout(() => loadFailed('沉浸背景加载超时，请重新打开播放器重试'), READY_TIMEOUT_MS);
   }, [clearReadyTimer, loadFailed]);
+  const handleProcessGone = useCallback((message: string) => {
+    if (!mounted.current || processTerminated.current) return;
+    processTerminated.current = true;
+    loadFailed(message);
+    sendConfiguration();
+  }, [loadFailed, sendConfiguration]);
 
   useEffect(() => {
     mounted.current = true;
@@ -100,7 +121,7 @@ export const ImmersiveBackground = memo(function ImmersiveBackground(props: Imme
       appSubscription.remove();
       motionSubscription.remove();
       try {
-        instance?.injectJavaScript(DISPOSE_SCRIPT);
+        if (!processTerminated.current) instance?.injectJavaScript(DISPOSE_SCRIPT);
       } catch (error) {
         logger.error('[ImmersiveBackground] 背景清理失败', error);
       }
@@ -110,7 +131,7 @@ export const ImmersiveBackground = memo(function ImmersiveBackground(props: Imme
   useEffect(() => { sendConfiguration(); }, [props.color, props.accent, props.playing, props.active, sendConfiguration]);
 
   const handleMessage = useCallback((event: WebViewMessageEvent) => {
-    if (!mounted.current) return;
+    if (!mounted.current || processTerminated.current) return;
     let message: { channel?: unknown; type?: unknown; message?: unknown } | null;
     try {
       message = JSON.parse(event.nativeEvent.data);
@@ -130,6 +151,8 @@ export const ImmersiveBackground = memo(function ImmersiveBackground(props: Imme
         if (lastError.current === error.message) report('');
         recoveryError.current = null;
       }
+      // 替代实例首次就绪时，清除父界面保留的旧进程错误，不覆盖自身的新错误。
+      if (!lastError.current) report('');
       sendConfiguration();
       return;
     }
@@ -177,11 +200,11 @@ export const ImmersiveBackground = memo(function ImmersiveBackground(props: Imme
         onMessage={handleMessage}
         onError={event => loadFailed(`沉浸背景加载失败：${event.nativeEvent.description}`)}
         onHttpError={event => loadFailed(`沉浸背景页面请求失败：HTTP ${event.nativeEvent.statusCode}`)}
-        onRenderProcessGone={() => loadFailed('沉浸背景渲染进程已退出，请重新打开播放器重试')}
-        onContentProcessDidTerminate={() => loadFailed('沉浸背景页面进程已终止，请重新打开播放器重试')}
+        onRenderProcessGone={() => handleProcessGone('沉浸背景渲染进程已退出，返回播放器时重建')}
+        onContentProcessDidTerminate={() => handleProcessGone('沉浸背景页面进程已终止，返回播放器时重建')}
       />
     </View>
   );
-});
+}
 
 const styles = StyleSheet.create({ webview: { flex: 1, backgroundColor: 'transparent' } });

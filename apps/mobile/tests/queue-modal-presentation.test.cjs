@@ -11,21 +11,19 @@ const { act, create } = desktopRequire("react-test-renderer");
 const ts = mobileRequire("typescript");
 
 const queueReorderModel = createLoader({})("src/services/queueReorderModel.ts");
-
-const palette = {
-  text: "#f1f5f2", textMuted: "#a7b3ae", surface: "#121815", surfaceMuted: "#19211d",
-  danger: "#ef4444", primaryInk: "#6fe7ac",
-};
+const palette = createLoader({})("src/services/themePaletteModel.ts").buildThemePalette("dark");
+const { sheet } = createLoader({})("src/theme/sheetTokens.ts");
+const tokens = createLoader({})("src/theme/tokens.ts");
 
 const songA = { source: "wy", id: "a", name: "甲", singer: "歌手" };
 const songB = { source: "wy", id: "b", name: "乙", singer: "歌手" };
 
 /** 渲染 QueueModal 一次：沉浸屏调用方现在不传任何形态参数，默认形态即契约。 */
-function renderQueueModal(t) {
+function renderQueueModal(t, { bottomInset = 0, windowHeight = 844, queue = [songA, songB] } = {}) {
   const events = [];
   const BottomSheet = props => React.createElement(
     "BottomSheet",
-    { visible: props.visible },
+    { visible: props.visible, maxHeightRatio: props.maxHeightRatio },
     props.visible ? props.children : null,
   );
   const DraggableQueueList = React.forwardRef((props, ref) => {
@@ -40,8 +38,10 @@ function renderQueueModal(t) {
       Text: "Text",
       View: "View",
       StyleSheet: { create: value => value, hairlineWidth: 1 },
-      useWindowDimensions: () => ({ width: 390, height: 844 }),
+      useWindowDimensions: () => ({ width: 390, height: windowHeight }),
     },
+    "lucide-react-native": { X: "X" },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: bottomInset, left: 0 }) },
     "react-native-gesture-handler": { GestureHandlerRootView: "GestureHandlerRootView" },
     "@/services/queueReorderModel": queueReorderModel,
     "@/services/songListMetadataModel": { shouldPromptDownloadQuality: () => true, shouldShowSongListDownloadAction: () => true },
@@ -56,14 +56,9 @@ function renderQueueModal(t) {
     "@/components/DownloadQualityModal": { DownloadQualityModal: "DownloadQualityModal" },
     "@/components/BottomSheet": { BottomSheet },
     "@/components/Touchable": { Touchable: "Touchable" },
-    "@/theme/sheetTokens": { sheet: { radius: 12, scrim: "rgba(0,0,0,0.5)" } },
+    "@/theme/sheetTokens": { sheet },
     "@/utils/modalSequence": { afterModalDismiss: action => action() },
-    "@/theme/tokens": {
-      radius: { sm: 8, md: 12 },
-      spacing: { xxs: 2, xs: 6, s: 8, m: 12, l: 16 },
-      typography: { meta: 12, title: 15, caption: 12, micro: 11 },
-      touch: { minTarget: 44 },
-    },
+    "@/theme/tokens": tokens,
   };
   const props = {
     visible: true,
@@ -76,7 +71,7 @@ function renderQueueModal(t) {
       ],
       management: { canClearQueue: true, clearLabel: "清空队列" },
     },
-    queue: [songA, songB],
+    queue,
     palette,
     onClose: () => events.push("close"),
     onPlayItem: index => events.push(["play", index]),
@@ -120,4 +115,18 @@ test("弹层头部的关闭与清空仍先取消拖动再走原回调", t => {
   act(() => h.touchable("清空队列").props.onPress());
   act(() => h.touchable("关闭").props.onPress());
   assert.deepEqual(h.events, ["cancelDrag", "clear", "cancelDrag", "close"]);
+});
+
+test("长队列为底部安全区留出空间，短队列仍按歌曲数量收起", t => {
+  const queue = Array.from({ length: 20 }, () => songA);
+  const regular = renderQueueModal(t, { queue });
+  const inset = renderQueueModal(t, { queue, bottomInset: 48 });
+  const short = renderQueueModal(t, { bottomInset: 48 });
+  const compact = renderQueueModal(t, { queue, bottomInset: 48, windowHeight: 320 });
+  const height = h => h.renderer.root.findByType("DraggableQueueList").props.height;
+  assert.equal(height(regular) - height(inset), 48 - tokens.spacing.m);
+  assert.equal(height(short), 2 * queueReorderModel.QUEUE_ROW_HEIGHT);
+  assert.ok(height(inset) > queueReorderModel.QUEUE_ROW_HEIGHT);
+  assert.ok(height(compact) > 0 && height(compact) < queueReorderModel.QUEUE_ROW_HEIGHT,
+    "短视口应允许不足一整行的列表高度，避免挤掉排序提示和安全区");
 });

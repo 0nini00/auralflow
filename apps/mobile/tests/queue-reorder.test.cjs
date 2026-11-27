@@ -253,8 +253,8 @@ test("队列行只保留删除按钮，删除与拖动把手在窄屏也放得�
   assert.doesNotMatch(source, /onOpenMenu/);
   assert.doesNotMatch(source, /presentation\.showLikeAction|presentation\.showDuration/);
   for (const width of [228, 256, 296, 336, 396, 700]) {
-    // 行首无封面/序号，右侧固定删除按钮 + 拖动把手。
-    assert.ok(4 + 96 + queuePresentation.QUEUE_REMOVE_BUTTON_WIDTH + queuePresentation.QUEUE_DRAG_HANDLE_WIDTH <= width,
+    // 行首 40px 序号列，歌名至少 96px，右侧固定删除按钮和拖动把手。
+    assert.ok(4 + 40 + 96 + queuePresentation.QUEUE_REMOVE_BUTTON_WIDTH + queuePresentation.QUEUE_DRAG_HANDLE_WIDTH <= width,
       `队列可用宽度 ${width} 不足`);
   }
 });
